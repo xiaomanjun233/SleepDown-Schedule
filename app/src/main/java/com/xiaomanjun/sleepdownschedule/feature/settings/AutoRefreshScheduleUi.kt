@@ -41,6 +41,7 @@ import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.app.ui.settingsPageBackground
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -58,7 +59,6 @@ fun AutoRefreshScheduleSettingsScreen(
     val context = LocalContext.current
     val profile by AutoRefreshScheduleStore.observe(context).collectAsState()
     var adapters by remember { mutableStateOf<List<EduAdapter>?>(null) }
-    var apiAdapters by remember { mutableStateOf<List<EduAdapter>>(emptyList()) }
     var catalogError by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
     var manualRefreshing by remember { mutableStateOf(false) }
@@ -68,12 +68,15 @@ fun AutoRefreshScheduleSettingsScreen(
     val scope = rememberCoroutineScope()
     LaunchedEffect(retry) {
         catalogError = null
-        runCatching {
-            apiAdapters = ShiguangApiAdapterCatalog.loadSupported(context)
-            ShiguangApiAdapterCatalog.loadLoginAdapters(context)
+        try {
+            // Match the education tools page: reading the visible index never waits for network
+            // refresh or a scan/download of every school's script. Login checks only the choice.
+            adapters = ShiguangApiAdapterCatalog.loadLoginAdapters(context)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            catalogError = "学校列表读取失败，请重试"
         }
-            .onSuccess { adapters = it }
-            .onFailure { catalogError = "学校列表读取失败，请重试" }
     }
     LaunchedEffect(warehouseRefreshRequest) {
         if (warehouseRefreshRequest == handledWarehouseRefreshRequest || manualRefreshing) return@LaunchedEffect
@@ -85,10 +88,11 @@ fun AutoRefreshScheduleSettingsScreen(
                 val previousAdapters = adapters.orEmpty()
                 val result = ShiguangWarehouseUpdater.refresh(context)
                 val refreshedAdapters = ShiguangApiAdapterCatalog.loadLoginAdapters(context)
-                apiAdapters = ShiguangApiAdapterCatalog.loadSupported(context)
                 adapters = refreshedAdapters
                 catalogError = null
                 adapterRefreshMessage = describeAdapterRefresh(previousAdapters, refreshedAdapters, result.changed)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 adapterRefreshMessage = "更新失败，继续使用当前适配列表：${error.message ?: "网络请求失败"}"
             } finally {
@@ -135,13 +139,8 @@ fun AutoRefreshScheduleSettingsScreen(
             state = state,
             backdrop = backdrop,
             availableAdapters = adapters,
-            adapterBadge = {
-                if (ShiguangApiAdapterCatalog.supportsAutomaticRefresh(it, apiAdapters)) null
-                else "手动刷新"
-            },
             onSelect = { selected ->
-                val supported = ShiguangApiAdapterCatalog.find(apiAdapters, selected.school.id, selected.adapterId)
-                authLauncher.launch(SwuUnifiedAuthActivity.intent(context, supported ?: selected, state.config.id))
+                authLauncher.launch(SwuUnifiedAuthActivity.intent(context, selected, state.config.id))
             }
         )
     } else {

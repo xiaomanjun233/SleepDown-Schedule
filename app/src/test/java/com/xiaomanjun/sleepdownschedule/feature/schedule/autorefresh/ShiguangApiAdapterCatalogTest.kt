@@ -64,13 +64,10 @@ class ShiguangApiAdapterCatalogTest {
         ).size)
     }
 
-    @Test fun supportedListMatchesTheSelectedSchoolAndEntrance() {
+    @Test fun loginSelectionMatchesTheSchoolAndEntranceWithoutPreclassifyingEveryScript() {
         val supported = adapter("CUP", "cup_02.js")
-        assertTrue(ShiguangApiAdapterCatalog.supportsAutomaticRefresh(
-            supported.copy(adapterName = "New label"), listOf(supported)
-        ))
-        assertFalse(ShiguangApiAdapterCatalog.supportsAutomaticRefresh(
-            supported.copy(adapterId = "CUP_02"), listOf(supported)
-        ))
+        assertEquals(supported, ShiguangApiAdapterCatalog.find(listOf(supported), "CUP", "CUP_01"))
+        assertEquals(null, ShiguangApiAdapterCatalog.find(listOf(supported), "CUP", "CUP_02"))
+        assertEquals(null, ShiguangApiAdapterCatalog.find(listOf(supported), "OTHER", "CUP_01"))
     }
 }

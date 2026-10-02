@@ -5,7 +5,6 @@ import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchool
 import com.xiaomanjun.sleepdownschedule.feature.importing.ShiguangWarehouse
-import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
 import com.xiaomanjun.sleepdownschedule.feature.importing.isAiEduImportTool
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -27,43 +26,7 @@ internal object ShiguangApiAdapterCatalog {
         ShiguangWarehouse.loadVisibleAdapters(context).filterNot(EduAdapter::isAiEduImportTool)
     }
 
-    suspend fun loadSupported(context: Context): List<EduAdapter> = withContext(Dispatchers.IO) {
-        runCatching { ShiguangWarehouseUpdater.refreshIfStale(context) }
-        val localReviewed = loadLocalReviewed(context).associateBy(::key)
-        val bundledByKey = ShiguangWarehouse.loadBundledAdapters(context).associateBy(::key)
-        val hasRemoteIndex = ShiguangWarehouseUpdater.hasValidRemoteIndex(context)
-        ShiguangWarehouse.loadVisibleAdapters(context)
-            .filterNot(EduAdapter::isAiEduImportTool)
-            .filter { it.importUrl.startsWith("https://") || it.importUrl.startsWith("http://") }
-            .mapNotNull { adapter ->
-                val source = runCatching {
-                    if (ShiguangWarehouse.isLocalTestAdapter(adapter)) {
-                        ShiguangWarehouse.resolveScript(context, adapter)
-                    } else {
-                        val cached = if (hasRemoteIndex) runCatching {
-                            ShiguangWarehouseUpdater.cachedScriptFile(context, adapter)
-                        }.getOrNull() else null
-                        val bundled = bundledByKey[key(adapter)]
-                        when {
-                            cached?.isFile == true -> cached.readText()
-                            bundled != null && bundled.school.folder == adapter.school.folder &&
-                                bundled.assetJsPath == adapter.assetJsPath ->
-                                ShiguangWarehouse.resolveBundledScript(context, bundled)
-                            else -> ShiguangWarehouseUpdater.resolveRemoteScript(context, adapter)
-                        }
-                    }
-                }.getOrNull() ?: return@mapNotNull null
-                val localSourceValid = !ShiguangWarehouse.isLocalTestAdapter(adapter) ||
-                    localReviewed[key(adapter)]?.let { matchesReviewedSource(it, source) } == true
-                adapter.takeIf { localSourceValid && isLikelyApiAdapter(adapter, source) }
-            }
-            .distinctBy(::key)
-    }
-
     private fun key(adapter: EduAdapter) = adapter.school.id to adapter.adapterId
-
-    internal fun supportsAutomaticRefresh(adapter: EduAdapter, supported: List<EduAdapter>): Boolean =
-        supported.any { it.school.id == adapter.school.id && it.adapterId == adapter.adapterId }
 
     internal fun parseCatalog(text: String): List<EduAdapter> = text.lineSequence()
         .filter { it.isNotBlank() && !it.startsWith("#") }
