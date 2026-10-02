@@ -65,7 +65,9 @@ internal val LocalSettingsPopupBackdrop = compositionLocalOf<Backdrop?> { null }
 internal val LocalSettingsEditorProgress = compositionLocalOf<androidx.compose.runtime.MutableFloatState?> { null }
 
 /** Root-level sibling host for controls that must float outside the scroll/card subtree. */
-internal class DetailActivityFloatingOverlayHost {
+internal class DetailActivityFloatingOverlayHost(
+    val controlsModifier: @Composable () -> Modifier = { Modifier }
+) {
     private val contentState = mutableStateOf<(@Composable () -> Unit)?>(null)
 
     var content: (@Composable () -> Unit)?
@@ -113,19 +115,24 @@ fun GlassMiuixSettingsTheme(
 fun GlassMiuixRootSettingsScaffold(
     title: String,
     config: ScheduleConfigEntity,
-    content: @Composable (PaddingValues) -> Unit
+    content: @Composable (PaddingValues, Backdrop) -> Unit
 ) {
     val pageConfig = settingsVisualConfig(config)
     val pageColor = settingsPageBackground(pageConfig)
+    val pageBackground = rememberSettingsPaneBackground(pageColor)
+    val contentBackground = rememberSettingsPaneBackground(pageColor)
     val backgroundBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Background,
         providerId = "settings-root-background"
-    )
+    ) {
+        pageBackground.draw(this)
+        drawContent()
+    }
     val contentBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Content,
         providerId = "settings-root-content"
     ) {
-        drawRect(pageColor)
+        contentBackground.draw(this)
         drawContent()
     }
     val scrollBehavior = rememberSettingsScrollBehavior()
@@ -139,19 +146,20 @@ fun GlassMiuixRootSettingsScaffold(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(pageColor)
+                .then(pageBackground.modifier)
         ) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(pageColor)
+                    .then(pageBackground.modifier)
                     .glassBackdropProducer(backgroundBackdrop)
             )
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             underlayModifier = Modifier
                 .fillMaxSize()
-                .centeredDialogSceneProducer(dialogSceneBackdrop),
+                .centeredDialogSceneProducer(dialogSceneBackdrop)
+                .then(pageBackground.modifier),
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
@@ -176,9 +184,10 @@ fun GlassMiuixRootSettingsScaffold(
                     Modifier
                         .fillMaxSize()
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
+                        .then(contentBackground.trackingModifier)
                         .glassBackdropProducer(contentBackdrop)
                 ) {
-                    content(innerPadding)
+                    content(innerPadding, backgroundBackdrop)
                 }
             }
         }
@@ -202,15 +211,20 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
 ) {
     val pageConfig = settingsVisualConfig(config)
     val pageColor = settingsPageBackground(pageConfig)
+    val pageBackground = rememberSettingsPaneBackground(pageColor)
+    val contentBackground = rememberSettingsPaneBackground(pageColor)
     val backgroundBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Background,
         providerId = "settings-tablet-background"
-    )
+    ) {
+        pageBackground.draw(this)
+        drawContent()
+    }
     val contentBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Content,
         providerId = "settings-tablet-content"
     ) {
-        drawRect(pageColor)
+        contentBackground.draw(this)
         drawContent()
     }
     val dialogSceneBackdrop = rememberCenteredDialogSceneBackdrop("settings-tablet-dialog-scene")
@@ -222,20 +236,20 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
         ) {
         Box(
             modifier
-                .background(pageColor)
+                .then(pageBackground.modifier)
         ) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(pageColor)
+                    .then(pageBackground.modifier)
                     .glassBackdropProducer(backgroundBackdrop)
             )
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 underlayModifier = Modifier
                     .fillMaxSize()
-                    .background(pageColor)
-                    .centeredDialogSceneProducer(dialogSceneBackdrop),
+                    .centeredDialogSceneProducer(dialogSceneBackdrop)
+                    .then(pageBackground.modifier),
                 containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
@@ -267,6 +281,7 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
                         Modifier
                             .fillMaxSize()
                             .padding(horizontal = horizontalContentInset)
+                            .then(contentBackground.trackingModifier)
                             .glassBackdropProducer(contentBackdrop)
                     ) {
                         content(backgroundBackdrop)

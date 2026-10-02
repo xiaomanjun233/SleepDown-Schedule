@@ -35,6 +35,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.offset
@@ -287,6 +288,7 @@ internal fun CourseEditorContainerOverlayHost(
     config: ScheduleConfigEntity,
     adaptiveMetrics: HomeAdaptiveMetrics,
     modifier: Modifier = Modifier,
+    landscapeContentInsets: PaddingValues = PaddingValues(0.dp),
     awaitOpeningGate: suspend () -> Unit = {},
     onDismissRequest: () -> Unit,
     onSave: (originals: List<CourseEntity>, edited: List<CourseEntity>, targetWeek: Int?) -> Unit,
@@ -302,12 +304,15 @@ internal fun CourseEditorContainerOverlayHost(
         LaunchedEffect(request) {
             motionState.retractTo(null)
             motionState.backgroundZoom.snapTo(1f)
-            motionState.progress.snapTo(if (request != null) 1f else 0f)
             if (request != null) copySaving = false
             val phase = if (request != null) CourseEditorOverlayPhase.Opening else
                 if (motionState.phase != CourseEditorOverlayPhase.Idle) CourseEditorOverlayPhase.Closing else CourseEditorOverlayPhase.Idle
             motionState.phase = phase
             onPhaseChange(phase)
+            motionState.progress.animateTo(
+                if (request != null) 1f else 0f,
+                tween(if (request != null) 280 else 240, easing = CubicBezierEasing(0.2f, 0.7f, 0.2f, 1f))
+            )
         }
         DisposableEffect(Unit) {
             onDispose {
@@ -317,7 +322,8 @@ internal fun CourseEditorContainerOverlayHost(
             }
         }
         com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LandscapeMenuOverlay(
-            request = request, config = config, backdrop = backdrop,
+            request = request, backdrop = backdrop,
+            contentInsets = landscapeContentInsets,
             onDismissRequest = { if (!copySaving) dismissHandler?.invoke() ?: onDismissRequest() },
             onOpenFinished = {
                 motionState.phase = CourseEditorOverlayPhase.Open
@@ -328,7 +334,10 @@ internal fun CourseEditorContainerOverlayHost(
                 onPhaseChange(CourseEditorOverlayPhase.Idle)
                 onRenderedCourseIdChange(null)
             }
-        ) { shown ->
+        ) { shown, dialogBackdrop ->
+            val editorSurface = rememberGlassLayerBackdrop(
+                domain = GlassBackdropDomain.Content, providerId = "landscape-course-editor-shell"
+            )
             val save: (List<CourseEntity>, List<CourseEntity>) -> Unit = { originals, edited ->
                 if (shown.copyDraft == null) onSave(originals, edited, shown.targetWeek)
                 else if (!copySaving) {
@@ -338,6 +347,11 @@ internal fun CourseEditorContainerOverlayHost(
                     }
                 }
             }
+            CourseEditorAnimatedContainer(
+                backdrop = dialogBackdrop, config = config, course = shown.copyDraft ?: shown.course,
+                shape = RoundedRectangle(32.dp), progressProvider = { 1f }, alpha = 1f,
+                surfaceBackdrop = editorSurface, modifier = Modifier.fillMaxSize()
+            ) {
             NormalizedCourseEditorScreen(
                 formData = CourseEditorFormData(state.config, state.periods, state.courses),
                 initialCourse = shown.course.takeIf { shown.copyDraft == null },
@@ -346,8 +360,9 @@ internal fun CourseEditorContainerOverlayHost(
                 onDismissHandlerChange = { dismissHandler = it },
                 onSave = {}, onSaveCourses = { save(emptyList(), it) }, onSaveGroup = save,
                 onDelete = {}, onDeleteGroup = { onDelete(it, shown.targetWeek) },
-                backdrop = null, pickerRenderInRootScaffold = false
+                backdrop = editorSurface, pickerRenderInRootScaffold = false
             )
+            }
         }
         return
     }

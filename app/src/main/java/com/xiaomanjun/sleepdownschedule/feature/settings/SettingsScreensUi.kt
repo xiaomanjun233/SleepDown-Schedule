@@ -94,6 +94,9 @@ fun GeneralSettingsScreen(
     var weekViewStyle by remember(context, state.config.id) {
         mutableStateOf(WeekViewPreferences.style(context))
     }
+    var parallelNavigation by remember(context) {
+        mutableStateOf(com.xiaomanjun.sleepdownschedule.feature.home.HomeNavigationPreferences.isParallel(context))
+    }
     var appIconMode by remember(context) {
         mutableStateOf(AppIconManager.currentMode(context))
     }
@@ -185,12 +188,26 @@ fun GeneralSettingsScreen(
         item(key = "general-layout-mode") {
             GlassPreferenceSection("首页与模式") {
                 SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
-                    SettingsDockAlignmentRow(
-                        selected = draft.dockAlignment,
-                        backdrop = backdrop,
-                        config = visualConfig,
-                        onSelected = { applyChange(draft.copy(dockAlignment = it)) }
+                    SleepDownLiquidDropdownPreference(
+                        title = "导航模式",
+                        summary = "手机竖屏下的底栏布局。",
+                        items = listOf("普通模式", "并列模式"),
+                        selectedIndex = if (parallelNavigation) 1 else 0,
+                        backdrop = backdrop, config = visualConfig,
+                        onSelectedIndexChange = {
+                            parallelNavigation = it == 1
+                            com.xiaomanjun.sleepdownschedule.feature.home.HomeNavigationPreferences.setParallel(context, it == 1)
+                        }
                     )
+                    if (!parallelNavigation) {
+                        SettingsDivider()
+                        SettingsDockAlignmentRow(
+                            selected = draft.dockAlignment,
+                            backdrop = backdrop,
+                            config = visualConfig,
+                            onSelected = { applyChange(draft.copy(dockAlignment = it)) }
+                        )
+                    }
                     SettingsDivider()
                     SettingsHomeStartModeRow(
                         selected = draft.defaultHomeMode,

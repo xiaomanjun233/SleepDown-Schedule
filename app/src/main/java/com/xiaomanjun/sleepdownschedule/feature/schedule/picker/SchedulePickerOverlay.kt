@@ -34,6 +34,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
@@ -85,6 +91,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
@@ -100,6 +107,7 @@ import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlin.math.abs
+import kotlin.math.ceil
 import kotlin.math.max
 import java.time.LocalDate
 
@@ -250,9 +258,8 @@ fun QuickScheduleSettingsSheets(
         }
     }
 
-    SleepDownAdaptiveBottomSheet(
+    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
         show = draft != null,
-        config = config, backdrop = backdrop,
         title = "课表设置",
         startAction = {
             QuickSheetLiquidAction(
@@ -478,9 +485,8 @@ fun QuickScheduleSettingsSheets(
         }
     }
 
-    SleepDownAdaptiveBottomSheet(
+    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
         show = showDatePicker && draft != null,
-        config = config, backdrop = backdrop,
         title = "选择日期",
         startAction = {
             QuickSheetLiquidAction(
@@ -586,7 +592,10 @@ fun SchedulePickerOverlay(
     onRename: (Int, String) -> Unit,
     onDeleteRequest: (Int) -> Unit,
     modifier: Modifier = Modifier,
-    dialogBackdrop: Backdrop? = backdrop
+    dialogBackdrop: Backdrop? = backdrop,
+    contentStartInset: Dp = 0.dp,
+    contentEndInset: Dp = 0.dp,
+    contentTopInset: Dp = 0.dp
 ) {
     if (!pickerState.overlayVisible) return
 
@@ -681,17 +690,31 @@ fun SchedulePickerOverlay(
         val density = LocalDensity.current
         val screenWidth = maxWidth
         val screenHeight = maxHeight
-        val availableCardHeight = (screenHeight - 256.dp).coerceAtLeast(320.dp)
-        val snapshotAspect = pickerState.currentSnapshot
+        val landscape = screenWidth > screenHeight
+        val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
+        val rightPanelWidth = (screenWidth - contentStartInset - contentEndInset - 24.dp).coerceAtLeast(1.dp)
+        val pagerWidth = if (landscape) rightPanelWidth else screenWidth
+        val availableCardHeight = if (landscape) {
+            (screenHeight - contentTopInset - safeInsets.calculateTopPadding() - safeInsets.calculateBottomPadding() - 176.dp)
+                .coerceAtLeast(1.dp)
+        } else (screenHeight - 256.dp).coerceAtLeast(320.dp)
+        // Landscape snapshots include both current viewport captures and persisted portrait
+        // previews. Card geometry belongs to this viewport, never to the selected bitmap.
+        val snapshotAspect = if (landscape) {
+            (screenWidth - contentStartInset - contentEndInset).value /
+                (screenHeight - contentTopInset).value.coerceAtLeast(1f)
+        } else pickerState.currentSnapshot
             ?.takeIf { it.width > 0 && it.height > 0 }
             ?.let { it.width.toFloat() / it.height.toFloat() }
             ?: (screenWidth.value / screenHeight.value)
-        val cardWidth = minOf(screenWidth * 0.72f, availableCardHeight * snapshotAspect).coerceAtLeast(220.dp)
+        val cardWidth = if (landscape) minOf(pagerWidth * 0.72f, availableCardHeight * snapshotAspect)
+            else minOf(screenWidth * 0.72f, availableCardHeight * snapshotAspect).coerceAtLeast(220.dp)
         val cardHeight = cardWidth / snapshotAspect
-        val cardWidthFraction = cardWidth.value / screenWidth.value
+        val cardWidthFraction = cardWidth.value / pagerWidth.value
         val progress = pickerState.enterProgress.value.coerceIn(0f, 1f)
         val chrome = pickerState.chromeProgress.value.coerceIn(0f, 1f)
-        val pageSpacing = (-140 + 130 * pickerState.pageSpacingProgress.value).dp
+        val pageSpacing = if (landscape) -cardWidth * 0.64f
+            else (-140 + 130 * pickerState.pageSpacingProgress.value).dp
 
         val isExiting = pickerState.phase is CustomizeUiState.Applying ||
             pickerState.phase is CustomizeUiState.ExitingPicker
@@ -718,13 +741,17 @@ fun SchedulePickerOverlay(
         Column(
             Modifier
                 .fillMaxSize()
-                .statusBarsPadding()
-                .navigationBarsPadding()
+                .padding(top = if (landscape) contentTopInset else 0.dp)
+                .then(if (landscape) Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical))
+                    else Modifier.statusBarsPadding().navigationBarsPadding())
                 .graphicsLayer { alpha = chrome },
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Row(
-                Modifier.padding(horizontal = 18.dp).height(92.dp),
+                Modifier
+                    .then(if (landscape) Modifier.align(Alignment.End)
+                        .padding(end = contentEndInset + 12.dp).width(rightPanelWidth) else Modifier)
+                    .padding(horizontal = 18.dp).height(if (landscape) 52.dp else 92.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 PickerHeaderButton("取消", phaseInputEnabled, managerBackdrop, visualConfig) {
@@ -770,14 +797,23 @@ fun SchedulePickerOverlay(
                 ) { if (renameEditing) commitRename() else onApply(selectedId) }
             }
 
-            Box(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
+            BoxWithConstraints(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
+                // The centered card stays in the right pane, while the pager's viewport spans
+                // the whole window so preceding cards can pass behind the floating sidebar.
+                val endPadding = if (landscape) (rightPanelWidth - cardWidth) / 2 + contentEndInset + 12.dp
+                    else (maxWidth - cardWidth) / 2
+                val startPadding = (maxWidth - cardWidth - endPadding).coerceAtLeast(0.dp)
+                val behindSidebarPages = if (landscape) {
+                    ceil(startPadding.value / (cardWidth + pageSpacing).value.coerceAtLeast(1f)).toInt()
+                        .coerceAtMost(orderedProfiles.lastIndex.coerceAtLeast(0))
+                } else 1
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier.fillMaxSize(),
                     pageSize = PageSize.Fixed(cardWidth),
                     pageSpacing = pageSpacing,
-                    contentPadding = PaddingValues(horizontal = (screenWidth - cardWidth) / 2),
-                    beyondViewportPageCount = 1,
+                    contentPadding = PaddingValues(start = startPadding, end = endPadding),
+                    beyondViewportPageCount = behindSidebarPages,
                     userScrollEnabled = pagerInputEnabled,
                     // The Room list and our in-memory order can publish on adjacent frames
                     // while a newly-created profile is inserted. Never index the captured list
@@ -786,10 +822,12 @@ fun SchedulePickerOverlay(
                 ) { page ->
                     val relativePosition = (page - pagerState.currentPage) - pagerState.currentPageOffsetFraction
                     val pageOffset = abs(relativePosition).coerceAtMost(1.6f)
-                    val targetScale = (1f - pageOffset * 0.35f).coerceAtLeast(0.45f)
+                    val targetScale = if (landscape) (1f - pageOffset * 0.12f).coerceAtLeast(0.78f)
+                        else (1f - pageOffset * 0.35f).coerceAtLeast(0.45f)
                     val stackDepth = (1f - pageOffset).coerceIn(0f, 1f)
                     val lowerLayerAmount = pageOffset.coerceIn(0f, 1f)
-                    val pivotX = (0.5f - relativePosition / cardWidthFraction).coerceIn(-0.8f, 1.8f)
+                    val pivotX = if (landscape) 0.5f
+                        else (0.5f - relativePosition / cardWidthFraction).coerceIn(-0.8f, 1.8f)
                     val profile = orderedProfiles.getOrNull(page)
                     val deleting = profile?.id == pickerState.deletingScheduleId
                     Box(
@@ -843,7 +881,7 @@ fun SchedulePickerOverlay(
                                 selected = profile.id == allState.schedules.firstOrNull { it.isActive }?.id,
                                 isCentered = page == pagerState.currentPage && pagerInputEnabled,
                                 deleteReveal = if (profile.id == pickerState.deletingScheduleId) pickerState.deleteReveal else 0f,
-                                snapshotFallbackOnly = true,
+                                snapshotFallbackOnly = !landscape,
                                 modifier = Modifier.fillMaxSize(),
                                 onTap = {
                                     if (pagerInputEnabled) {
@@ -900,7 +938,10 @@ fun SchedulePickerOverlay(
             }
 
             Column(
-                Modifier.fillMaxWidth().height(138.dp),
+                Modifier
+                    .then(if (landscape) Modifier.align(Alignment.End)
+                        .padding(end = contentEndInset + 12.dp).width(rightPanelWidth) else Modifier)
+                    .fillMaxWidth().height(if (landscape) 108.dp else 138.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 val dotSize = 7.dp
@@ -1013,11 +1054,16 @@ fun SchedulePickerOverlay(
                 val targetOffsetY = bounds?.let {
                     with(density) { (it.center.y - constraints.maxHeight / 2f).toDp() }
                 } ?: (-13).dp
-                val animatedWidth = screenWidth + (targetWidth - screenWidth) * progress
-                val animatedHeight = screenHeight + (targetHeight - screenHeight) * progress
+                val sourceWidth = if (landscape) screenWidth - contentStartInset - contentEndInset else screenWidth
+                val sourceHeight = if (landscape) screenHeight - contentTopInset else screenHeight
+                val sourceOffsetX = if (landscape) (contentStartInset - contentEndInset) / 2 else 0.dp
+                val sourceOffsetY = if (landscape) contentTopInset / 2 else 0.dp
+                val animatedWidth = sourceWidth + (targetWidth - sourceWidth) * progress
+                val animatedHeight = sourceHeight + (targetHeight - sourceHeight) * progress
                 val morphModifier = Modifier
                     .align(Alignment.Center)
-                    .offset(x = targetOffsetX * progress, y = targetOffsetY * progress)
+                    .offset(x = sourceOffsetX + (targetOffsetX - sourceOffsetX) * progress,
+                        y = sourceOffsetY + (targetOffsetY - sourceOffsetY) * progress)
                     .width(animatedWidth)
                     .height(animatedHeight)
                     .graphicsLayer {

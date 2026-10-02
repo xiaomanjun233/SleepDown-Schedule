@@ -95,6 +95,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -387,7 +388,8 @@ internal fun ManagedCourseListCardContent(
     group: ManagedCourseGroup,
     config: ScheduleConfigEntity,
     periods: List<PeriodEntity>,
-    modifier: Modifier
+    modifier: Modifier,
+    selected: Boolean = false
 ) {
     val representative = group.representative
     val cardColor = courseCardBaseColor(config, representative)
@@ -403,7 +405,9 @@ internal fun ManagedCourseListCardContent(
     Column(
         modifier = modifier
             .background(
-                MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.86f),
+                MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.86f).let { surface ->
+                    if (selected) Color.Black.copy(alpha = 0.08f).compositeOver(surface) else surface
+                },
                 CourseManagementCardShape
             )
             .padding(horizontal = 14.dp, vertical = 16.dp),

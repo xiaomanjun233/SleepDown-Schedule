@@ -1051,9 +1051,7 @@ private fun CourseEditorFormPage(
     // This form lives on the wallpaper-sampling CourseGlassCard. Its complete foreground domain
     // must follow the glass contrast decision; appPanelForegroundColor follows the app theme and
     // produced black row labels on a dark sampled card while values/icons stayed light.
-    val editorContentColor = if (isLandscapeMenuWindow()) {
-        sleepDownPanelForegroundColor(config)
-    } else if (backdrop != null) {
+    val editorContentColor = if (backdrop != null) {
         LocalAdaptiveGlass.current.contentColor
     } else {
         glassForegroundColor(config)
@@ -1351,7 +1349,7 @@ private fun CourseEditorFixedHeader(
             .height(70.dp)
     ) {
         // Fade the header's backdrop into the form rather than drawing a hard horizontal strip.
-        if (!isLandscapeMenuWindow()) ProgressiveBackdropBlur(
+        ProgressiveBackdropBlur(
             backdrop = backdrop,
             modifier = Modifier.fillMaxSize(),
             tintColor = tint,

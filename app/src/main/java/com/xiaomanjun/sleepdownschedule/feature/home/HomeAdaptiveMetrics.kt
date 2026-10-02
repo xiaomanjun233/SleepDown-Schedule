@@ -203,7 +203,7 @@ internal data class HomeAdaptiveMetrics(
 /** Page geometry may shrink for navigation without reclassifying the actual window. */
 internal val LocalHomeAdaptiveMetrics = compositionLocalOf<HomeAdaptiveMetrics?> { null }
 
-internal fun HomeAdaptiveMetrics.withSidebarInsets(start: Dp, end: Dp): HomeAdaptiveMetrics {
+internal fun HomeAdaptiveMetrics.withSidebarInsets(start: Dp, end: Dp, expanded: Boolean = true): HomeAdaptiveMetrics {
     if (!isLargeScreen) return this
     val availableWidth = (screenWidth - start - end).coerceAtLeast(1.dp)
     val originalPaneSpace = (screenWidth - tabletContentMargin * 2 - dayPaneGap).coerceAtLeast(1.dp)
@@ -211,8 +211,10 @@ internal fun HomeAdaptiveMetrics.withSidebarInsets(start: Dp, end: Dp): HomeAdap
     return copy(
         contentWidth = availableWidth,
         usesSidebar = true,
-        daySidePaneWidth = daySidePaneWidth *
-            (availablePaneSpace.value / originalPaneSpace.value).coerceAtMost(1f)
+        daySidePaneWidth = (daySidePaneWidth *
+            (availablePaneSpace.value / originalPaneSpace.value).coerceAtMost(1f) +
+            if (expanded) availablePaneSpace * 0.055f else 0.dp)
+            .coerceAtMost(availablePaneSpace * 0.46f)
     )
 }
 

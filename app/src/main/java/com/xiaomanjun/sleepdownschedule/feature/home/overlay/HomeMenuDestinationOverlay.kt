@@ -23,6 +23,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
@@ -47,8 +48,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.lerp
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -56,6 +59,7 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
@@ -98,7 +102,9 @@ internal enum class HomeMenuDestinationKind { AddCourse, ManualImport, EduImport
 internal data class HomeMenuDestinationRequest(
     val kind: HomeMenuDestinationKind,
     val sourceBoundsInRoot: Rect,
-    val collapseBoundsInRoot: Rect
+    val collapseBoundsInRoot: Rect,
+    val fromDock: Boolean = false,
+    val showModeSwitch: Boolean = true
 )
 
 @Stable
@@ -144,7 +150,8 @@ private data class HomeMenuDestinationFrame(
     val sourceContentBlurPx: Float,
     val destinationContentBlurPx: Float,
     val destinationContentAlpha: Float,
-    val destinationBlurMix: Float
+    val destinationBlurMix: Float,
+    val returnAlpha: Float
 )
 
 private class DeferredDestinationShape(
@@ -270,13 +277,12 @@ private fun destinationSmoothStep(edge0: Float, edge1: Float, value: Float): Flo
 }
 
 internal object HomeMenuDestinationLegacyMotion {
-    const val OpenDurationMillis = 330
-    const val CloseDurationMillis = 350
+    const val OpenDurationMillis = 360
+    const val CloseDurationMillis = 320
 
-    // The form handoff remains delayed so cached and live text fields never overlap visibly.
-    // This is a rendering policy only; it does not alter the recovered 1.1.5 shell geometry.
-    const val NonFullscreenContentRevealStart = 0.52f
-    const val NonFullscreenContentRevealEnd = 0.72f
+    // The menu dissolves first, then the complete scaled form becomes readable during travel.
+    const val NonFullscreenContentRevealStart = 0.14f
+    const val NonFullscreenContentRevealEnd = 0.36f
 }
 
 internal fun homeMenuDestinationContentAlpha(
@@ -284,8 +290,7 @@ internal fun homeMenuDestinationContentAlpha(
     isFullScreen: Boolean,
     closing: Boolean
 ): Float = when {
-    closing && isFullScreen -> destinationSmoothStep(0.16f, 0.42f, rawProgress)
-    closing -> destinationSmoothStep(0.66f, 0.90f, rawProgress)
+    closing -> destinationSmoothStep(0.32f, 0.72f, rawProgress)
     isFullScreen -> destinationSmoothStep(0.055f, 0.24f, rawProgress)
     else -> destinationSmoothStep(
         HomeMenuDestinationLegacyMotion.NonFullscreenContentRevealStart,
@@ -293,6 +298,12 @@ internal fun homeMenuDestinationContentAlpha(
         rawProgress
     )
 }
+
+/** Fit the cached page inside its moving card without stretching its text or changing layout. */
+internal fun homeMenuDestinationContentScale(rect: Rect, target: Rect): Float = minOf(
+    rect.width / target.width.coerceAtLeast(1f),
+    rect.height / target.height.coerceAtLeast(1f)
+).coerceIn(0.001f, 1f)
 
 internal fun homeMenuDestinationOpeningContentBlurMix(
     rawProgress: Float,
@@ -353,16 +364,18 @@ internal fun homeMenuDestinationRenderedCornerRadiusPx(
 private const val DestinationOpenDurationMillis = HomeMenuDestinationLegacyMotion.OpenDurationMillis
 internal const val HomeMenuDestinationCloseDurationMillis =
     HomeMenuDestinationLegacyMotion.CloseDurationMillis
-private const val DestinationBackgroundDurationMillis = 420
+private const val DestinationBackgroundDurationMillis =
+    DestinationOpenDurationMillis - HomeAnchoredMorphBackgroundDelayMillis
 internal const val HomeMenuDestinationEduBackgroundScale = 1.08f
 private val DestinationBackgroundEasing = CubicBezierEasing(0.30f, 0f, 0.20f, 1f)
+private val DestinationReturnEasing = CubicBezierEasing(0.24f, 0f, 0.30f, 1f)
 
 /**
- * The recovered 1.1.5 shared-object trajectory for Home menu destinations.
+ * A continuous rounded-rectangle morph for Home menu destinations.
  *
  * Opening morphs directly from the first-level menu bounds. Closing uses the real three-dot button
- * as the geometry source while progress runs back to zero, so the destination is absorbed directly
- * into that button without a menu waypoint or first-level-menu choreography.
+ * as the return endpoint. Forms retain their rectangle throughout travel instead of borrowing
+ * the first-level menu's small-droplet contraction and subsequent size recovery.
  */
 internal fun homeMenuDestinationTrajectoryGeometry(
     sourceBoundsInRoot: Rect,
@@ -378,13 +391,30 @@ internal fun homeMenuDestinationTrajectoryGeometry(
     maximumArcPx: Float,
     targetCornerRadiusPx: Float
 ): HomeAnchoredMorphGeometry {
+    if (closing) {
+        val p = rawProgress.coerceIn(0f, 1f)
+        val elapsed = 1f - p
+        val amount = DestinationReturnEasing.transform(elapsed)
+        val returnAlpha = destinationSmoothStep(0.52f, 0.86f, elapsed)
+        return HomeAnchoredMorphGeometry(
+            rect = lerp(target, collapseBoundsInRoot, amount),
+            cornerRadiusPx = targetCornerRadiusPx +
+                (buttonCornerRadiusPx - targetCornerRadiusPx) * amount,
+            sourceScale = 1f,
+            sourceAlpha = returnAlpha,
+            surfaceAlpha = 1f - returnAlpha,
+            contentAlpha = homeMenuDestinationContentAlpha(p, false, true),
+            pathProgress = p,
+            expansionProgress = 1f - amount
+        )
+    }
     val morphSource = if (closing) collapseBoundsInRoot else sourceBoundsInRoot
     return homeAnchoredMorphGeometry(
         source = morphSource,
         target = target,
         rawProgress = rawProgress,
         closing = closing,
-        directClosing = !closing,
+        directClosing = true,
         directSourceCornerRadiusPx = if (closing) buttonCornerRadiusPx else menuCornerRadiusPx,
         pinchDiameterPx = pinchDiameterPx,
         minimumDropPx = minimumDropPx,
@@ -441,6 +471,7 @@ internal fun HomeMenuDestinationOverlayHost(
     adaptiveMetrics: HomeAdaptiveMetrics,
     homeMode: HomeMode,
     modifier: Modifier = Modifier,
+    landscapeContentInsets: PaddingValues = PaddingValues(0.dp),
     awaitOpeningGate: suspend () -> Unit = {},
     onDismissRequest: () -> Unit,
     sourceActions: List<AddMenuAction>,
@@ -450,18 +481,22 @@ internal fun HomeMenuDestinationOverlayHost(
     onAddCourses: (List<CourseEntity>) -> Unit,
     onManualImportParsed: (ImportDraft) -> Unit,
     captureHistoryBackground: suspend () -> AiImportHistoryBackgroundCapture?,
-    onEduAdapterSelected: (EduAdapter) -> Unit
+    onEduAdapterSelected: (EduAdapter) -> Unit,
+    collapseContent: @Composable androidx.compose.foundation.layout.BoxScope.(Modifier) -> Unit = {}
 ) {
     if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()) {
         var dismissHandler by remember { mutableStateOf<(() -> Unit)?>(null) }
         LaunchedEffect(request) {
             motionState.backgroundZoom.snapTo(1f)
-            motionState.progress.snapTo(if (request != null) 1f else 0f)
             if (request != null) {
                 motionState.kind = request.kind
                 motionState.phase = HomeAnchoredOverlayPhase.Opening
                 onSourceHandoff()
             } else if (motionState.kind != null) motionState.phase = HomeAnchoredOverlayPhase.Closing
+            motionState.progress.animateTo(
+                if (request != null) 1f else 0f,
+                tween(if (request != null) 280 else 240, easing = CubicBezierEasing(0.2f, 0.7f, 0.2f, 1f))
+            )
         }
         DisposableEffect(Unit) {
             onDispose {
@@ -470,7 +505,9 @@ internal fun HomeMenuDestinationOverlayHost(
             }
         }
         com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LandscapeMenuOverlay(
-            request = request, config = state.config, backdrop = backdrop,
+            request = request, backdrop = backdrop,
+            contentInsets = landscapeContentInsets,
+            maximumHeight = if ((request?.kind ?: motionState.kind) == HomeMenuDestinationKind.AddCourse) 548.dp else 500.dp,
             onDismissRequest = { dismissHandler?.invoke() ?: onDismissRequest() },
             onOpenFinished = { motionState.phase = HomeAnchoredOverlayPhase.Open },
             onDismissFinished = {
@@ -478,15 +515,35 @@ internal fun HomeMenuDestinationOverlayHost(
                 motionState.phase = HomeAnchoredOverlayPhase.Idle
                 onClosed()
             }
-        ) { shown ->
+        ) { shown, dialogBackdrop ->
+            val surfaceBackdrop = rememberGlassLayerBackdrop(
+                domain = GlassBackdropDomain.DialogBridge, providerId = "landscape-home-destination-shell"
+            )
+            val shape = RoundedRectangle(32.dp)
+            val lightGlass = glassUsesLightStyle(state.config)
+            if (dialogBackdrop != null) {
+                LiquidPanel(
+                    backdrop = dialogBackdrop,
+                    modifier = Modifier.fillMaxSize().glassBackdropProducer(surfaceBackdrop),
+                    shape = shape,
+                    surfaceColor = if (lightGlass) Color.White.copy(alpha = 0.18f)
+                        else Color(0xFF121212).copy(alpha = 0.30f),
+                    blurRadius = 22.dp, backdropSampleScale = 0.5f,
+                    lensHeight = 12.dp, lensAmount = 16.dp
+                ) { }
+            } else {
+                Box(Modifier.fillMaxSize().glassBackdropProducer(surfaceBackdrop)
+                    .background(if (appUsesDarkTheme(state.config)) Color(0xFF1C1C1E) else Color.White, shape))
+            }
+            Box(Modifier.fillMaxSize().clip(shape)) {
             when (shown.kind) {
                 HomeMenuDestinationKind.AddCourse -> NormalizedCourseEditorScreen(
-                    state = state, initialCourse = null, backdrop = null,
+                    state = state, initialCourse = null, backdrop = surfaceBackdrop,
                     onCancel = onDismissRequest, onSave = {}, onSaveCourses = onAddCourses, onDelete = {},
                     onDismissHandlerChange = { dismissHandler = it }, pickerRenderInRootScaffold = false
                 )
                 HomeMenuDestinationKind.ManualImport -> NormalizedAiManualImportScreen(
-                    state = state, backdrop = null, onCancel = onDismissRequest,
+                    state = state, backdrop = dialogBackdrop, onCancel = onDismissRequest,
                     captureHistoryBackground = captureHistoryBackground, onParsed = onManualImportParsed
                 )
                 HomeMenuDestinationKind.EduImport -> DetailActivityScaffold(
@@ -494,6 +551,7 @@ internal fun HomeMenuDestinationOverlayHost(
                 ) { schoolBackdrop ->
                     EduSchoolPickerScreen(state = state, backdrop = schoolBackdrop, onSelect = onEduAdapterSelected)
                 }
+            }
             }
         }
         return
@@ -609,7 +667,7 @@ internal fun HomeMenuDestinationOverlayHost(
                 launch {
                     motionState.backgroundZoom.animateTo(
                         1f,
-                        tween(DestinationBackgroundDurationMillis, easing = DestinationBackgroundEasing)
+                        tween(HomeMenuDestinationCloseDurationMillis, easing = DestinationBackgroundEasing)
                     )
                 }
             }
@@ -659,7 +717,7 @@ internal fun HomeMenuDestinationOverlayHost(
                 collapseBoundsInRoot = shown.collapseBoundsInRoot,
                 target = target,
                 menuCornerRadiusPx = with(density) { HomeAddMenuTargetCornerDp.dp.toPx() },
-                buttonCornerRadiusPx = with(density) { 21.dp.toPx() },
+                buttonCornerRadiusPx = minOf(shown.collapseBoundsInRoot.width, shown.collapseBoundsInRoot.height) / 2f,
                 pinchDiameterPx = with(density) { 18.dp.toPx() },
                 minimumDropPx = with(density) { 12.dp.toPx() },
                 maximumDropPx = with(density) { adaptiveMetrics.animationArc.toPx() },
@@ -696,17 +754,18 @@ internal fun HomeMenuDestinationOverlayHost(
                     isFullScreen = isFullScreen,
                     closing = destinationClosing,
                     sourceCornerRadiusPx = with(density) { HomeAddMenuTargetCornerDp.dp.toPx() },
-                    collapseCornerRadiusPx = with(density) { 21.dp.toPx() },
+                    collapseCornerRadiusPx = minOf(shown.collapseBoundsInRoot.width, shown.collapseBoundsInRoot.height) / 2f,
                     middleCornerRadiusPx = with(density) { 46.dp.toPx() }
                 )
-                val sourceHandoffStart = if (isFullScreen) 0.035f else 0.12f
-                val sourceHandoffEnd = if (isFullScreen) 0.20f else 0.40f
+                val sourceHandoffStart = 0.035f
+                val sourceHandoffEnd = 0.20f
                 val sourceCloneAlpha = if (destinationClosing) {
                     0f
                 } else {
                     1f - destinationSmoothStep(sourceHandoffStart, sourceHandoffEnd, rawProgress)
                 }
-                val destinationSurfaceAlpha = 1f - sourceCloneAlpha
+                val returnAlpha = if (destinationClosing) geometry.sourceAlpha else 0f
+                val destinationSurfaceAlpha = (1f - sourceCloneAlpha) * (1f - returnAlpha)
                 val sourceContentBlurPx = if (destinationClosing) {
                     0f
                 } else {
@@ -715,8 +774,8 @@ internal fun HomeMenuDestinationOverlayHost(
                 val destinationContentBlurPx = if (destinationClosing) {
                     val closeElapsed = 1f - rawProgress
                     maxContentBlurPx * destinationSmoothStep(
-                        if (isFullScreen) 0.48f else 0f,
-                        if (isFullScreen) 0.84f else 0.34f,
+                        0.20f,
+                        0.62f,
                         closeElapsed
                     )
                 } else {
@@ -742,14 +801,15 @@ internal fun HomeMenuDestinationOverlayHost(
                     destinationContentAlpha = destinationContentAlpha,
                     destinationBlurMix = (
                         destinationContentBlurPx / maxContentBlurPx.coerceAtLeast(0.001f)
-                        ).coerceIn(0f, 1f)
+                        ).coerceIn(0f, 1f),
+                    returnAlpha = returnAlpha
                 )
             }
         }
         val collapseHandoffReached by remember(frame) {
             derivedStateOf {
                 frame.value.destinationClosing &&
-                    frame.value.geometry.pathProgress <= HomeAnchoredMorphClosePinchFraction
+                    motionState.progress.value <= 0.02f
             }
         }
         LaunchedEffect(collapseHandoffReached) {
@@ -946,10 +1006,14 @@ internal fun HomeMenuDestinationOverlayHost(
                         backdrop = backdrop,
                         config = state.config,
                         actions = sourceActions,
+                        showModeSwitch = shown.showModeSwitch,
+                        actionItemHeight = if (shown.fromDock) 40.dp * density.fontScale.coerceAtLeast(1f) else 40.dp,
                         homeMode = homeMode,
                         onHomeModeChange = {},
                         targetSizeProvider = {
-                            val rect = frame.value.geometry.rect
+                            // A menu clone must keep its original rows while it dissolves. Relayout
+                            // at every shell size made its labels stretch independently of the glass.
+                            val rect = shown.sourceBoundsInRoot
                             IntSize(rect.width.roundToInt(), rect.height.roundToInt())
                         },
                         surfaceAlphaProvider = { 1f },
@@ -959,6 +1023,20 @@ internal fun HomeMenuDestinationOverlayHost(
                         shape = sourceMenuShape,
                         modifier = Modifier.fillMaxSize()
                     )
+                }
+            }
+            if (motionState.phase == HomeAnchoredOverlayPhase.Closing ||
+                motionState.phase == HomeAnchoredOverlayPhase.Disposing) {
+                Box(Modifier.align(Alignment.Center)
+                    .requiredSize(with(density) { shown.collapseBoundsInRoot.width.toDp() },
+                        with(density) { shown.collapseBoundsInRoot.height.toDp() })
+                    .graphicsLayer {
+                        val current = frame.value
+                        alpha = current.returnAlpha
+                        scaleX = current.geometry.sourceScale
+                        scaleY = current.geometry.sourceScale
+                    }) {
+                    collapseContent(Modifier.fillMaxSize())
                 }
             }
             if (isFullScreen && destinationContentPrepared) {
@@ -1002,7 +1080,11 @@ internal fun HomeMenuDestinationOverlayHost(
                                         this@drawWithContent.drawContent()
                                     }
                                 }
-                                drawLayer(destinationContentLayer)
+                                // Transform only the recorded pixels. Live layout/backdrop
+                                // coordinates remain stable during preparation and after Open.
+                                scale(homeMenuDestinationContentScale(frame.value.geometry.rect, target)) {
+                                    drawLayer(destinationContentLayer)
+                                }
                             }
                         }
                         .graphicsLayer {
@@ -1062,7 +1144,11 @@ internal fun HomeMenuDestinationOverlayHost(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .requiredSize(targetWidth, targetHeight)
-                            .drawWithContent { drawLayer(destinationContentLayer) }
+                            .drawWithContent {
+                                scale(homeMenuDestinationContentScale(frame.value.geometry.rect, target)) {
+                                    drawLayer(destinationContentLayer)
+                                }
+                            }
                             .graphicsLayer {
                                 val current = frame.value
                                 alpha = current.destinationContentAlpha * current.destinationBlurMix

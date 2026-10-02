@@ -486,7 +486,7 @@ fun HomeReadableText(
         }
         style.copy(shadow = androidx.compose.ui.graphics.Shadow(
             color = (if (lightText) ComposeColor.Black else ComposeColor.White).copy(
-                alpha = (if (lightText) 0.42f else 0.52f) * shadowStrength
+                alpha = (if (lightText) 0.62f else 0.68f) * shadowStrength
             ),
             offset = Offset.Zero,
             blurRadius = radius
@@ -1625,7 +1625,9 @@ internal fun DayScheduleScreen(
                 pagerState.currentPage == pagerState.settledPage &&
                 kotlin.math.abs(pagerState.currentPageOffsetFraction) < 0.0005f &&
                 dateForPage(pagerState.settledPage) == displayDate
-        }.distinctUntilChanged().collect(onAgentPagerSettledChange)
+        }.distinctUntilChanged().collect {
+            onAgentPagerSettledChange(it)
+        }
     }
     DisposableEffect(Unit) {
         onDispose { onAgentPagerSettledChange(false) }
@@ -1680,7 +1682,8 @@ internal fun DayScheduleScreen(
 
     HorizontalPager(
         state = pagerState,
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier.fillMaxSize().homeSidebarOverflowViewport(),
+        contentPadding = PaddingValues(start = LocalHomePagerStartOverflow.current),
         beyondViewportPageCount = 1,
         key = { it }
     ) { page ->
@@ -1941,11 +1944,11 @@ internal fun DayScheduleScreen(
                         modifier = Modifier
                             .width(adaptiveMetrics.daySidePaneWidth)
                             .fillMaxHeight()
-                            .padding(
-                                top = adaptiveMetrics.dayContentTopPadding,
-                                bottom = if (adaptiveMetrics.usesSidebar) 20.dp + adaptiveMetrics.safeBottom else DayDockScrollPadding
-                            )
-                            .verticalScroll(rememberScrollState()),
+                            .padding(top = adaptiveMetrics.dayContentTopPadding)
+                            .verticalScroll(rememberScrollState())
+                            // Bottom clearance belongs to the scroll content. Padding the viewport
+                            // itself clips the assistant cards before they reach the window edge.
+                            .padding(bottom = if (adaptiveMetrics.usesSidebar) 20.dp + adaptiveMetrics.safeBottom else DayDockScrollPadding),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         headerContent()

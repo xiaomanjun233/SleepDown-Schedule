@@ -25,19 +25,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LandscapeMenuOverlay
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Rect
@@ -257,38 +244,6 @@ internal fun SleepDownLiquidDropdownPreference(
     onExpandedChange: (Boolean) -> Unit = {},
     onSelectedIndexChange: (Int) -> Unit
 ) {
-    if (isLandscapeMenuWindow()) {
-        var showing by remember { mutableStateOf(false) }
-        fun changeExpanded(value: Boolean) { showing = value; onExpandedChange(value) }
-        top.yukonga.miuix.kmp.basic.BasicComponent(
-            title = if (selectedBadgeText == null && compactTextStyle == null) title else "",
-            summary = summary, modifier = modifier, insideMargin = insideMargin,
-            startAction = if (selectedBadgeText != null || compactTextStyle != null) {
-                {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        MiuixText(title, style = compactTextStyle ?: MiuixTheme.textStyles.main,
-                            fontSize = compactTextStyle?.fontSize ?: MiuixTheme.textStyles.headline1.fontSize,
-                            fontWeight = compactTextStyle?.fontWeight ?: FontWeight.Medium,
-                            color = sleepDownPanelForegroundColor(config).copy(alpha = if (enabled) 1f else 0.38f))
-                        selectedBadgeText?.let { PreferenceBadge(it) }
-                    }
-                }
-            } else null,
-            enabled = enabled, onClick = { changeExpanded(true) },
-            endActions = {
-                MiuixText(items.getOrNull(selectedIndex).orEmpty(),
-                    color = sleepDownPanelForegroundColor(config).copy(alpha = if (enabled) 0.68f else 0.38f))
-            }
-        )
-        LandscapeSelectionMenu(
-            show = showing, title = title, items = items.mapIndexed { index, value ->
-                SleepDownLiquidMenuItem(index.toString(), value, selected = index == selectedIndex,
-                    onClick = { onSelectedIndexChange(index) })
-            }, backdrop = LocalSettingsPopupBackdrop.current ?: backdrop, config = config,
-            onDismissRequest = { changeExpanded(false) }, collapseOnSelection = true, maxHeight = maxHeight
-        )
-        return
-    }
     // The dropdown host is rendered by the root Miuix host as a sibling after the page's
     // underlay producer, so it may sample the complete Scaffold underlay (TopBar, large title,
     // content and low-level overlays) instead of only the flat background passed by the caller.
@@ -380,11 +335,6 @@ internal fun SleepDownLiquidCascadingPopup(
     contentColor: Color? = null,
     collapseOnSelection: Boolean = true
 ) {
-    if (isLandscapeMenuWindow()) {
-        LandscapeSelectionMenu(show = show, title = "选择操作", items = items, backdrop = LocalSettingsPopupBackdrop.current ?: backdrop,
-            config = config, onDismissRequest = onDismissRequest, collapseOnSelection = collapseOnSelection, maxHeight = menuMaxHeight)
-        return
-    }
     val completeUnderlayBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     val renderInRootScaffold = LocalCenteredDialogRenderInRootScaffold.current
     val primaryPopupBackdrop = rememberGlassLayerBackdrop(
@@ -441,53 +391,4 @@ internal fun SleepDownLiquidCascadingPopup(
         popupModifier = Modifier.zIndex(1000f),
         collapseOnSelection = collapseOnSelection
     )
-}
-
-@Composable
-private fun LandscapeSelectionMenu(
-    show: Boolean,
-    title: String,
-    items: List<SleepDownLiquidMenuItem>,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    onDismissRequest: () -> Unit,
-    collapseOnSelection: Boolean,
-    maxHeight: Dp
-) {
-    var path by remember { mutableStateOf<List<SleepDownLiquidMenuItem>>(emptyList()) }
-    var closing by remember { mutableStateOf(false) }
-    var completion by remember { mutableStateOf<(() -> Unit)?>(null) }
-    fun closeThen(action: () -> Unit) { if (!closing) { completion = action; closing = true } }
-    LaunchedEffect(show) { if (show) { path = emptyList(); closing = false } }
-    LandscapeMenuOverlay(request = Unit.takeIf { show && !closing }, config = config, backdrop = backdrop,
-        onDismissRequest = { if (path.isNotEmpty()) path = path.dropLast(1) else closeThen(onDismissRequest) },
-        onDismissFinished = { val action = completion; completion = null; action?.invoke() },
-        fillHeight = false, maxWidth = 520.dp) {
-        val ink = sleepDownPanelForegroundColor(config)
-        Column(Modifier.fillMaxWidth().padding(12.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (path.isNotEmpty()) TextButton(onClick = { path = path.dropLast(1) }) { Text("返回") }
-                Text(path.lastOrNull()?.text ?: title, modifier = Modifier.weight(1f).padding(12.dp),
-                    fontWeight = FontWeight.SemiBold, color = ink)
-                TextButton(onClick = { closeThen(onDismissRequest) }) { Text("关闭") }
-            }
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = maxHeight)) {
-                items(path.lastOrNull()?.children ?: items, key = { it.key }) { item ->
-                    top.yukonga.miuix.kmp.basic.BasicComponent(
-                        title = item.text, summary = item.summary, enabled = item.enabled,
-                        startAction = item.iconRes?.let { resource -> { Icon(painterResource(resource), null, tint = ink, modifier = Modifier.size(22.dp)) } },
-                        endActions = {
-                            if (item.children.isNotEmpty()) Text("›", color = ink)
-                            else if (item.selected) Text("✓", color = androidx.compose.material3.MaterialTheme.colorScheme.primary)
-                        },
-                        onClick = {
-                            if (item.children.isNotEmpty()) path = path + item
-                            else if (collapseOnSelection) closeThen { item.onClick(); onDismissRequest() }
-                            else item.onClick()
-                        }
-                    )
-                }
-            }
-        }
-    }
 }

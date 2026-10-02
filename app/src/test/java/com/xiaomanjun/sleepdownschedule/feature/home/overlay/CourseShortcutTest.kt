@@ -117,38 +117,4 @@ class CourseShortcutTest {
         assertNull(controller.copyRequest)
         assertEquals(0f, controller.progress.value, 0f)
     }
-
-    @Test fun landscapeActionWaitsForTheCenteredWindowToFinishClosing() = runBlocking {
-        val controller = CourseShortcutController(CoroutineScope(coroutineContext))
-        controller.usesCenteredMenu = true
-        controller.open(CourseShortcutRequest(course, 3, Rect(0f, 200f, 80f, 300f), 12f, 0.5f) {})
-        yield()
-        var actions = 0
-        controller.close { actions++ }
-        assertTrue(controller.closing)
-        assertNotNull(controller.request)
-        assertEquals(0, actions)
-        controller.finishCenteredClose()
-        yield()
-        assertNull(controller.request)
-        assertFalse(controller.closing)
-        assertEquals(1, actions)
-        assertEquals(0f, controller.progress.value, 0f)
-        controller.finishCenteredClose()
-        assertEquals(1, actions)
-    }
-
-    @Test fun landscapeLifecycleResetCancelsPendingAction() = runBlocking {
-        val controller = CourseShortcutController(CoroutineScope(coroutineContext))
-        controller.usesCenteredMenu = true
-        controller.open(CourseShortcutRequest(course, 3, Rect(0f, 200f, 80f, 300f), 12f, 0.5f) {})
-        yield()
-        var actionCalled = false
-        controller.close { actionCalled = true }
-        controller.reset()
-        controller.finishCenteredClose()
-        yield()
-        assertFalse(actionCalled)
-        assertNull(controller.request)
-    }
 }

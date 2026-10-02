@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,6 +31,7 @@ import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentPreferences
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentWeatherRepository
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentWeatherStore
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen
+import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeReadableText
 import kotlinx.coroutines.delay
 import kotlin.math.cos
 import kotlin.math.sin
@@ -122,6 +122,6 @@ internal fun WeekHeaderWeather(color: Color) {
                 }
             }
         }
-        Text("${current.temperature}°", color = color, style = MaterialTheme.typography.labelMedium.copy(fontSize = 14.sp), maxLines = 1)
+        HomeReadableText("${current.temperature}°", color = color, style = MaterialTheme.typography.labelMedium.copy(fontSize = 14.sp), maxLines = 1)
     }
 }

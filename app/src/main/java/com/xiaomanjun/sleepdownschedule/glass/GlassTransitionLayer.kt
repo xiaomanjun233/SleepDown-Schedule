@@ -306,6 +306,7 @@ fun GlassTransitionLayer(
     temporaryClipActive: Boolean,
     motionAlpha: () -> Float = { 1f },
     modifier: Modifier = Modifier,
+    motionTransform: Modifier = Modifier,
     content: @Composable BoxScope.(
         envelope: GlassTransitionEnvelope,
         geometry: () -> GlassTransitionGeometry
@@ -342,6 +343,7 @@ fun GlassTransitionLayer(
                 width = with(density) { ceil(bounds.width).toInt().toDp() },
                 height = with(density) { ceil(bounds.height).toInt().toDp() }
             )
+            .then(motionTransform)
             .then(layerModifier)
     ) {
         content(envelope) { geometryState.value.invoke() }

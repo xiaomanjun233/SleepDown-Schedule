@@ -17,6 +17,15 @@
 
 package com.xiaomanjun.sleepdownschedule.glass
 
+import android.graphics.RenderEffect as AndroidRenderEffect
+import android.graphics.RuntimeShader
+import android.os.Build
+import androidx.annotation.RequiresApi
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.RenderEffect
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import com.kyant.backdrop.BackdropEffectScope
 import com.kyant.backdrop.effects.runtimeShaderEffect
 import com.kyant.backdrop.isRuntimeShaderSupported
@@ -189,5 +198,34 @@ fun BackdropEffectScope.insetRoundedRectLens(
         if (chromaticAberration) {
             setFloatUniform("chromaticAberration", 1f)
         }
+    }
+}
+
+/** Reuse the glass lens on an already-composited morph, including its text; no new backdrop. */
+@Composable
+internal fun rememberGlassContentLens(): (Size, Float, Float, Float) -> RenderEffect? = remember {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        val lens = GlassContentLensApi33()
+        return@remember { size: Size, radius: Float, height: Float, amount: Float ->
+            lens.effect(size, radius, height, amount)
+        }
+    } else {
+        { _: Size, _: Float, _: Float, _: Float -> null }
+    }
+}
+
+@RequiresApi(Build.VERSION_CODES.TIRAMISU)
+private class GlassContentLensApi33 {
+    private val shader = RuntimeShader(InsetRoundedRectRefractionShader)
+
+    fun effect(size: Size, radius: Float, height: Float, amount: Float): RenderEffect? {
+        if (size.width <= 0f || size.height <= 0f || height <= 0f || amount <= 0.01f) return null
+        shader.setFloatUniform("rect", 0f, 0f, size.width, size.height)
+        shader.setFloatUniform("offset", 0f, 0f)
+        shader.setFloatUniform("cornerRadius", radius.coerceIn(0f, minOf(size.width, size.height) / 2f))
+        shader.setFloatUniform("refractionHeight", height)
+        shader.setFloatUniform("refractionAmount", -amount)
+        shader.setFloatUniform("depthEffect", 0f)
+        return AndroidRenderEffect.createRuntimeShaderEffect(shader, "content").asComposeRenderEffect()
     }
 }

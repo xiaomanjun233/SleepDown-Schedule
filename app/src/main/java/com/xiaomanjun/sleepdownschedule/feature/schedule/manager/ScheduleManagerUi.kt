@@ -1129,11 +1129,6 @@ fun ScheduleRenameDialog(
     onCancel: () -> Unit,
     onSave: (String) -> Unit
 ) {
-    if (isLandscapeMenuWindow()) {
-        ScheduleNameDialog("重命名课表", profile.name, backdrop, config,
-            onConfirm = { onSave(it.ifBlank { "未命名课表" }) }, onDismiss = onCancel, maxLength = 24)
-        return
-    }
     var name by remember(profile.id) { mutableStateOf(profile.name) }
     Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CenterLiquidDialog(backdrop = backdrop, config = config) {

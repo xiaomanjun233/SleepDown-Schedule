@@ -85,6 +85,7 @@ fun LiquidButton(
     staticPressDimAlpha: Float = 0f,
     shape: Shape = Capsule(),
     clipToBounds: Boolean = false,
+    surfaceEnabled: Boolean = true,
     pressSnapshot: LiquidButtonPressSnapshot? = null,
     sharedInteractiveHighlight: InteractiveHighlight? = null,
     interactionEnabledAt: (size: Size, offset: Offset) -> Boolean = { _, _ -> true },
@@ -204,7 +205,8 @@ fun LiquidButton(
                     null
                 },
                 onDrawSurface = buttonOnDrawSurface,
-                clipToBounds = clipToBounds
+                clipToBounds = clipToBounds,
+                renderEnabled = { surfaceEnabled }
             )
             .then(
                 if (!isInteractive && staticPressDimAlpha > 0f) {

@@ -35,6 +35,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -253,7 +254,7 @@ internal fun HomeSwitchPane(
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1f else 1f
     val parents = LocalSwitchPages.current
     val pages = remember(parents, motion, direction) { parents + SwitchPageScope(motion, width, direction) }
-    val inputModifier = if (motion.moving || !visible) {
+    val inputModifier = if (motion.moving) {
         Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
             awaitPointerEventScope {
                 while (true) {
@@ -263,7 +264,16 @@ internal fun HomeSwitchPane(
         }
     } else Modifier
     Box(
-        modifier.drawWithContent { if (visible) drawContent() }
+        modifier
+            // Alpha/draw suppression does not remove a retained pane from hit testing. In
+            // landscape the hidden Week pane shares Day's origin and otherwise eats its taps.
+            .layout { measurable, constraints ->
+                val placeable = measurable.measure(constraints)
+                layout(placeable.width, placeable.height) {
+                    if (visible) placeable.place(0, 0)
+                }
+            }
+            .drawWithContent { if (visible) drawContent() }
             .onSizeChanged { width.intValue = it.width }
             .homeSwitchLayer(motion, secondary, pageClip).then(inputModifier),
         contentAlignment = contentAlignment

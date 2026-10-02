@@ -2,18 +2,19 @@ package com.xiaomanjun.sleepdownschedule.feature.course.management
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
+import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.feature.home.day.appPanelForegroundColor
@@ -49,31 +50,36 @@ internal fun LandscapeCourseManagementPane(
     }
     val ink = appPanelForegroundColor(state.config)
     BoxWithConstraints(modifier.fillMaxSize()) {
-        val listWidth = (maxWidth * 0.36f).coerceIn(152.dp, 320.dp).coerceAtMost(maxWidth * 0.46f)
+        val listWidth = (maxWidth * 0.48f).coerceIn(280.dp, 520.dp).coerceAtMost(maxWidth * 0.52f)
         Row(Modifier.fillMaxSize()) {
-            LazyColumn(Modifier.width(listWidth).fillMaxHeight(),
+            LazyVerticalStaggeredGrid(columns = StaggeredGridCells.Fixed(2),
+                modifier = Modifier.width(listWidth).fillMaxHeight(),
                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp,
                     top = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding() + 12.dp,
                     bottom = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding() + 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                item { Text("课程管理", color = ink, style = MaterialTheme.typography.titleLarge,
+                verticalItemSpacing = 10.dp, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                item(span = StaggeredGridItemSpan.FullLine) { Text("课程管理", color = ink, style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(vertical = 12.dp)) }
                 items(groups, key = { it.key }) { group ->
                     val active = selected?.courses?.any { course -> group.courses.any { it.id == course.id } } == true
                     ManagedCourseListCardContent(group, state.config, state.periods,
-                        Modifier.fillMaxWidth().clip(RoundedRectangle(20.dp))
-                            .background(if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f) else
-                                MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.72f))
-                            .clickable(enabled = !selectionMoving) {
+                        Modifier.fillMaxWidth()
+                            .clickable(
+                                enabled = !selectionMoving,
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
                                 if (!active) {
                                     val select = { selectGroup(group) }
                                     exitHandler?.invoke(select) ?: select()
                                 }
-                            }.padding(12.dp))
+                            }, selected = active)
                 }
-                if (groups.isEmpty()) item { Text("还没有课程，可从侧栏添加或导入。", color = ink.copy(alpha = 0.64f)) }
+                if (groups.isEmpty()) item(span = StaggeredGridItemSpan.FullLine) {
+                    Text("还没有课程，可从侧栏添加或导入。", color = ink.copy(alpha = 0.64f))
+                }
             }
-            Box(Modifier.width(1.dp).fillMaxHeight().background(ink.copy(alpha = 0.10f)))
+            Box(Modifier.padding(vertical = 28.dp).width(0.5.dp).fillMaxHeight().background(ink.copy(alpha = 0.10f)))
             LandscapePageTransition(selected, Modifier.weight(1f).fillMaxHeight(), onMovingChange = { selectionMoving = it }) { group ->
                 if (group == null) {
                     Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {

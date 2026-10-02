@@ -629,11 +629,12 @@ internal fun SinglePillWeekScheduleScreen(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .homeSidebarOverflowViewport()
             .verticalScroll(scrollState)
     ) {
         Column(
             modifier = Modifier.padding(
-                start = horizontalContentStartPadding,
+                start = horizontalContentStartPadding + LocalHomePagerStartOverflow.current,
                 end = horizontalContentEndPadding
             )
         ) {
@@ -707,7 +708,7 @@ internal fun SinglePillWeekScheduleScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(cardHeight * state.periods.size + supplementaryHeight + editControlBottomOverflow)
-                        .then(if (retainEditControlOverflow || hasAdjustmentBadges) Modifier else Modifier.clipToBounds())
+                        .then(if (retainEditControlOverflow || hasAdjustmentBadges) Modifier else Modifier.homeSidebarOverflowClip())
                 ) {
                     Column(
                         modifier = Modifier
@@ -798,9 +799,11 @@ internal fun SinglePillWeekScheduleScreen(
                         val pagerZeroOffset = remember { Animatable(0f) }
                         HorizontalPager(
                             state = pagerState,
+                            contentPadding = PaddingValues(start = LocalHomePagerStartOverflow.current),
                             modifier = Modifier
                                 .offset(y = -courseTopOverflow)
                                 .fillMaxWidth()
+                                .homeSidebarOverflowViewport()
                                 // The parent reserves the bottom gutter. Allow the pager's extra
                                 // top gutter to extend above it without compressing the last row.
                                 .wrapContentHeight(align = Alignment.Top, unbounded = true)
@@ -1693,7 +1696,7 @@ private fun WeekdayHeaderLabels(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
-                    Text(
+                    HomeReadableText(
                         text = "周${weekdayLabel(day)}",
                         fontSize = if (enlargeWeekdayLabels) 13.sp else 11.sp,
                         lineHeight = if (enlargeWeekdayLabels) 14.sp else 12.sp,
@@ -1702,7 +1705,7 @@ private fun WeekdayHeaderLabels(
                         textAlign = TextAlign.Center,
                         maxLines = 1
                     )
-                    Text(
+                    HomeReadableText(
                         text = "${date.monthValue}/${date.dayOfMonth}",
                         fontSize = if (enlargeWeekdayLabels) 11.sp else 9.sp,
                         lineHeight = if (enlargeWeekdayLabels) 12.sp else 10.sp,
@@ -1998,7 +2001,7 @@ private fun WeekDayColumn(
                 )
                 timeLabels?.let { labels ->
                     val labelColor = glassForegroundColor(config)
-                    if (labels.showStart) Text(
+                    if (labels.showStart) HomeReadableText(
                                 text = segment.course.customStartTime.orEmpty(),
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
@@ -2010,7 +2013,7 @@ private fun WeekDayColumn(
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1
                     )
-                    if (labels.showEnd) Text(
+                    if (labels.showEnd) HomeReadableText(
                                 text = segment.course.customEndTime.orEmpty(),
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
@@ -2022,7 +2025,7 @@ private fun WeekDayColumn(
                                 fontWeight = FontWeight.Bold,
                                 maxLines = 1
                     )
-                    if (labels.showRangeBelow) Text(
+                    if (labels.showRangeBelow) HomeReadableText(
                         text = "${segment.course.customStartTime.orEmpty()}–${segment.course.customEndTime.orEmpty()}",
                         modifier = Modifier.align(Alignment.BottomCenter).offset(y = 10.dp).zIndex(12f),
                         color = labelColor,

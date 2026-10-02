@@ -149,11 +149,8 @@ fun SleepDownPickerDialog(
     val resolvedRenderInRootScaffold = renderInRootScaffold
         ?: LocalCenteredDialogRenderInRootScaffold.current
     val foreground = sleepDownPanelForegroundColor(config)
-    val scrollBody = scrollableContent || isLandscapeMenuWindow()
-    SleepDownOverlayDialog(
+    top.yukonga.miuix.kmp.overlay.OverlayDialog(
         show = show,
-        config = config,
-        backdrop = backdrop,
         title = null,
         onDismissRequest = onDismissRequest,
         onDismissFinished = onDismissFinished,
@@ -221,11 +218,11 @@ fun SleepDownPickerDialog(
                         titleAction?.invoke()
                     }
                 }
-                val bodyModifier = if (scrollBody) {
+                val bodyModifier = if (scrollableContent) {
                     Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
                 } else Modifier
                 if (contentTransitionKey == null) {
-                    if (scrollBody) Column(bodyModifier, content = content) else content()
+                    if (scrollableContent) Column(bodyModifier, content = content) else content()
                 } else {
                     CenteredDialogContentTransition(
                         targetState = contentTransitionKey,
@@ -266,9 +263,6 @@ internal fun rememberCenteredDialogVisuals(
     enableForegroundHighlight: Boolean = true
 ): CenteredDialogVisuals {
     val animationProgress = remember { mutableFloatStateOf(0f) }
-    if (isLandscapeMenuWindow()) {
-        return CenteredDialogVisuals(Modifier, Modifier, animationProgress)
-    }
     val completeUnderlayBackdrop = LocalCenteredDialogSceneBackdrop.current ?: backdrop
     val density = LocalDensity.current
     val highlightScope = rememberCoroutineScope()
@@ -322,7 +316,6 @@ internal fun Modifier.centeredDialogBackgroundBlur(
     dark: Boolean
 ): Modifier {
     val blurRadius = SleepDownDesignTokens.CenteredDialog.BackgroundBlur
-    if (isLandscapeMenuWindow()) return this
     val material = remember { GlassMaterialSpec.simpleBlur(blurRadius) }
     val descriptor = rememberGlassSurfaceDescriptor(
         debugLabel = "CenteredDialogBackgroundBlur",
@@ -390,29 +383,6 @@ internal fun Modifier.quickSheetBackdropModifier(
     inner: Boolean = false,
     centered: Boolean = false
 ): Modifier {
-    if (isLandscapeMenuWindow()) {
-        val shape = RoundedRectangle(if (inner) SleepDownDesignTokens.QuickSheet.InnerCorner else 28.dp)
-        val color = if (inner) landscapeMenuGroupBackground(config) else landscapeMenuBackground(config)
-        if (inner || backdrop == null || Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
-            return clip(shape).background(color.copy(alpha = if (inner) 0.66f else 1f))
-        }
-        val descriptor = rememberGlassSurfaceDescriptor(
-            debugLabel = "LandscapeFrostedMenu", domain = GlassBackdropDomain.DialogBridge,
-            materialRole = GlassMaterialRole.Dialog
-        )
-        val material = GlassMaterialSpec.dialog().copy(
-            blur = 28.dp, lensHeight = 0.dp, lensAmount = 0.dp,
-            surfaceAlpha = 0.76f, depthEffect = false, useVibrancy = false,
-            chromaticAberration = false, highlightAlpha = 0f, shadowAlpha = 0f, innerShadowAlpha = 0f
-        )
-        return sleepDownGlassSurface(
-            backdrop = backdrop, descriptor = descriptor, material = material, shape = { shape },
-            backdropSampleScale = 0.5f,
-            effectFrame = GlassEffectFrame(blur = 28.dp, lensHeight = 0.dp, lensAmount = 0.dp,
-                useVibrancy = false, depthEffect = false, chromaticAberration = false),
-            onDrawSurface = { drawRect(color.copy(alpha = 0.76f)) }
-        )
-    }
     val shape = when {
         inner -> RoundedRectangle(SleepDownDesignTokens.QuickSheet.InnerCorner)
         centered -> RoundedRectangle(
@@ -580,7 +550,7 @@ internal fun QuickSheetLiquidAction(
 ) {
     val actionModifier = if (modifier == Modifier) Modifier.width(84.dp) else modifier
     val centeredAction = height == SleepDownDesignTokens.CenteredDialog.ActionHeight
-    if (backdrop != null && !isLandscapeMenuWindow()) {
+    if (backdrop != null) {
         val dark = appUsesDarkTheme(config)
         val neutralSurface = if (centeredAction && dark) {
             Color(0xFF363639)

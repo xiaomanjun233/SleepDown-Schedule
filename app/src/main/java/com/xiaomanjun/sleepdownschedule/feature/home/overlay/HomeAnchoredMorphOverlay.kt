@@ -55,7 +55,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
@@ -105,6 +104,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.backdrop.catalog.components.LiquidButton
@@ -133,6 +133,8 @@ import com.xiaomanjun.sleepdownschedule.glass.pixelAligned
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownPlainGlassSurface
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownDropletGlass
+import com.xiaomanjun.sleepdownschedule.glass.premultipliedGlassTint
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -159,8 +161,8 @@ internal const val HomeAnchoredMorphBackgroundScale = 1.08f
 
 /** Motion parameters for the three-dot first-level menu's shared-object trajectory. */
 internal object ThreeDotMenuMotion {
-    const val OpenDurationMillis = 440
-    const val CloseDurationMillis = 285
+    const val OpenDurationMillis = HomeDropletOpenDurationMillis
+    const val CloseDurationMillis = HomeDropletCloseDurationMillis
 
     const val OpenPinchFraction = 0.28f
     const val OpenPinchDiameterDp = 18f
@@ -259,7 +261,8 @@ internal val HomeAnchoredOverlayPhase.isMovingTransition: Boolean
 internal data class HomeAnchoredOverlayRequest(
     val kind: HomeAnchoredOverlayKind,
     val sourceBoundsInRoot: Rect,
-    val sourcePressedScale: Float = 1f
+    val sourcePressedScale: Float = 1f,
+    val fromDock: Boolean = false
 )
 
 @Stable
@@ -509,17 +512,19 @@ internal fun homeAddMenuTargetRect(
     rootSize: IntSize,
     density: Float,
     actionCount: Int,
-    adaptiveMetrics: HomeAdaptiveMetrics? = null
+    adaptiveMetrics: HomeAdaptiveMetrics? = null,
+    showModeSwitch: Boolean = true,
+    aboveSource: Boolean = false,
+    actionItemHeightDp: Float = HomeAddMenuActionItemHeightDp
 ): Rect {
     // R_outer - R_inner = 30dp - 19dp = 11dp. Derive the shell from the compact 172dp
     // action-content width so the selected capsule has identical left, right and bottom insets.
     val width = (HomeAddMenuActionContentWidthDp + HomeAddMenuConcentricInsetDp * 2f) * density
     val height = (
         HomeAddMenuContentTopPaddingDp +
-            HomeAddMenuModeHeightDp +
-            HomeAddMenuSectionGapDp * 2f +
-            HomeAddMenuDividerHeightDp +
-            HomeAddMenuActionItemHeightDp * actionCount +
+            (if (showModeSwitch) HomeAddMenuModeHeightDp +
+                HomeAddMenuSectionGapDp * 2f + HomeAddMenuDividerHeightDp else 0f) +
+            actionItemHeightDp * actionCount +
             HomeAddMenuActionGapDp * (actionCount - 1).coerceAtLeast(0) +
             (HomeAddMenuConcentricInsetDp - HomeAddMenuSelectionVerticalInsetDp)
         ) * density
@@ -527,11 +532,12 @@ internal fun homeAddMenuTargetRect(
     val sourceGapPx = 4f * density
     val safeBounds = adaptiveMetrics?.contentRectPx(rootSize, density)
         ?: Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
+    val proposedTop = if (aboveSource) source.top - 12f * density - height else source.bottom + sourceGapPx
     val proposed = Rect(
         left = source.right - width,
-        top = source.bottom + sourceGapPx,
+        top = proposedTop,
         right = source.right,
-        bottom = source.bottom + sourceGapPx + height
+        bottom = proposedTop + height
     )
     val clamped = clampHomeMorphTarget(proposed, rootSize, marginPx, safeBounds)
     // Preserve the capsule's exact trailing edge whenever the panel fits. The generic clamp keeps
@@ -1066,6 +1072,7 @@ internal fun HomeAnchoredMorphOverlayHost(
     onHomeModeChange: (HomeMode) -> Unit,
     adaptiveMetrics: HomeAdaptiveMetrics,
     modifier: Modifier = Modifier,
+    showModeSwitch: Boolean = true,
     awaitOpeningGate: suspend () -> Unit = {},
     onDismissRequest: () -> Unit,
     onAddMenuBoundsChanged: (Rect) -> Unit = {},
@@ -1076,44 +1083,8 @@ internal fun HomeAnchoredMorphOverlayHost(
     sourceContent: @Composable BoxScope.(HomeAnchoredOverlayKind, Modifier) -> Unit,
     personalizeContent: @Composable (Modifier) -> Unit
 ) {
-    if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()) {
-        LaunchedEffect(request) {
-            motionState.backgroundZoom.snapTo(1f)
-            motionState.progress.snapTo(if (request != null) 1f else 0f)
-            if (request != null) {
-                motionState.renderedKind = request.kind
-                motionState.phase = HomeAnchoredOverlayPhase.Opening
-            } else if (motionState.renderedKind != null) motionState.phase = HomeAnchoredOverlayPhase.Closing
-        }
-        DisposableEffect(Unit) {
-            onDispose {
-                motionState.renderedKind = null
-                motionState.phase = HomeAnchoredOverlayPhase.Idle
-            }
-        }
-        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LandscapeMenuOverlay(
-            request = request, config = config, backdrop = backdrop, onDismissRequest = onDismissRequest,
-            onOpenFinished = { motionState.phase = HomeAnchoredOverlayPhase.Open },
-            onDismissFinished = {
-                motionState.renderedKind = null
-                motionState.phase = HomeAnchoredOverlayPhase.Idle
-            }
-        ) { shown ->
-            if (shown.kind == HomeAnchoredOverlayKind.Personalize) {
-                personalizeContent(Modifier.fillMaxSize())
-            } else {
-                androidx.compose.foundation.layout.Column(Modifier.fillMaxSize()) {
-                    addActions.forEach { action ->
-                        androidx.compose.material3.TextButton(onClick = action.onClick, modifier = Modifier.fillMaxWidth()) {
-                            androidx.compose.material3.Text(action.label)
-                        }
-                    }
-                }
-            }
-        }
-        return
-    }
     var renderedRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
+    var reverseAddOpening by remember { mutableStateOf(false) }
     var panelContentPrepared by remember { mutableStateOf(false) }
     val addMenuSurfacePrepared = remember { AtomicBoolean(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
@@ -1125,6 +1096,7 @@ internal fun HomeAnchoredMorphOverlayHost(
 
     LaunchedEffect(request, adaptiveMetrics.profile) {
         if (request != null) {
+            reverseAddOpening = false
             renderedRequest = request
             addMenuSurfacePrepared.set(false)
             panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize
@@ -1198,7 +1170,15 @@ internal fun HomeAnchoredMorphOverlayHost(
                 if (renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize) {
                     panelContentPrepared = false
                 }
+                reverseAddOpening = renderedRequest?.kind == HomeAnchoredOverlayKind.Add &&
+                    motionState.phase != HomeAnchoredOverlayPhase.Open
                 motionState.phase = HomeAnchoredOverlayPhase.Closing
+                if (renderedRequest?.kind == HomeAnchoredOverlayKind.Add && !reverseAddOpening) {
+                    // The retained native panel covers these stationary frames while the moving
+                    // SDF consumer acquires coordinates and records its first backdrop sample.
+                    withFrameNanos { }
+                    withFrameNanos { }
+                }
                 coroutineScope {
                     launch {
                         motionState.progress.animateTo(
@@ -1209,7 +1189,9 @@ internal fun HomeAnchoredMorphOverlayHost(
                                 ) {
                                     HomePersonalizeMorphCloseDurationMillis
                                 } else {
-                                    HomeAddMenuMorphCloseDurationMillis
+                                    if (reverseAddOpening) {
+                                        (HomeAddMenuMorphOpenDurationMillis * motionState.progress.value).roundToInt()
+                                    } else HomeAddMenuMorphCloseDurationMillis
                                 },
                                 easing = LinearEasing
                             )
@@ -1256,13 +1238,18 @@ internal fun HomeAnchoredMorphOverlayHost(
         if (rootSize.width <= 0 || rootSize.height <= 0) return@Box
 
         val density = androidx.compose.ui.platform.LocalDensity.current
+        val actionItemHeight = if (shown.fromDock) 40.dp * density.fontScale.coerceAtLeast(1f)
+            else HomeAddMenuActionItemHeightDp.dp
         val targetRect = remember(
             shown.kind,
             shown.sourceBoundsInRoot,
             rootSize,
             density.density,
             addActions.size,
-            adaptiveMetrics
+            adaptiveMetrics,
+            showModeSwitch,
+            shown.fromDock,
+            actionItemHeight
         ) {
             when (shown.kind) {
                 HomeAnchoredOverlayKind.Add -> homeAddMenuTargetRect(
@@ -1270,7 +1257,10 @@ internal fun HomeAnchoredMorphOverlayHost(
                     rootSize = rootSize,
                     density = density.density,
                     actionCount = addActions.size,
-                    adaptiveMetrics = adaptiveMetrics
+                    adaptiveMetrics = adaptiveMetrics,
+                    showModeSwitch = showModeSwitch,
+                    aboveSource = shown.fromDock,
+                    actionItemHeightDp = actionItemHeight.value
                 )
                 HomeAnchoredOverlayKind.Personalize -> homePersonalizeTargetRect(
                     rootSize = rootSize,
@@ -1307,55 +1297,32 @@ internal fun HomeAnchoredMorphOverlayHost(
         }
         // Personalize is handled above, so this branch is the Add menu. Keep all animation-tick
         // reads inside derived state and deferred modifier lambdas instead of recomposing the host.
-        val morphSpec = remember(
-            shown.sourceBoundsInRoot,
-            shown.sourcePressedScale,
-            targetRect,
-            adaptiveMetrics,
-            density.density
-        ) {
-            legacyThreeDotMenuMorphSpec(
-                source = shown.sourceBoundsInRoot,
-                target = targetRect,
-                sourceCornerRadiusPx = with(density) { 21.dp.toPx() },
-                targetCornerRadiusPx = with(density) { HomeAddMenuTargetCornerDp.dp.toPx() },
-                sourcePressedScale = shown.sourcePressedScale,
-                openingPinchDiameterPx = with(density) {
-                    ThreeDotMenuMotion.OpenPinchDiameterDp.dp.toPx()
-                },
-                openingMinimumDropPx = with(density) {
-                    ThreeDotMenuMotion.OpenMinimumDropDp.dp.toPx()
-                },
-                openingMaximumDropPx = with(density) {
-                    ThreeDotMenuMotion.OpenMaximumDropDp.dp.toPx()
-                },
-                openingMaximumArcPx = with(density) {
-                    adaptiveMetrics.animationArc.toPx()
-                },
-                verticalReboundAmplitudePx = with(density) {
-                    ThreeDotMenuMotion.OpenReboundAmplitudeDp.dp.toPx()
-                },
-                closingSinkOffsetPx = with(density) {
-                    ThreeDotMenuMotion.CloseSinkOffsetDp.dp.toPx()
-                },
-                closingControlDropPx = with(density) {
-                    ThreeDotMenuMotion.CloseControlDropDp.dp.toPx()
-                }
-            )
-        }
-        val geometry = remember(morphSpec, motionState) {
+        val dropFrame = remember(shown.sourceBoundsInRoot, targetRect, motionState, density, reverseAddOpening) {
             derivedStateOf {
-                morphSpec.homeGeometry(
+                homeDropletFrame(
                     source = shown.sourceBoundsInRoot,
                     target = targetRect,
-                    rawProgress = motionState.progress.value,
-                    closing = motionState.phase == HomeAnchoredOverlayPhase.Closing
+                    progress = motionState.progress.value,
+                    closing = motionState.phase == HomeAnchoredOverlayPhase.Closing && !reverseAddOpening,
+                    density = density.density, targetCorner = HomeAddMenuTargetCornerDp * density.density
                 )
             }
         }
+        val geometry = remember(dropFrame) { derivedStateOf {
+            val frame = dropFrame.value
+            HomeAnchoredMorphGeometry(
+                rect = frame.glass.drop, cornerRadiusPx = frame.glass.dropRadius,
+                sourceAlpha = frame.sourceAlpha,
+                sourceScale = minOf(frame.glass.drop.width / shown.sourceBoundsInRoot.width,
+                    frame.glass.drop.height / shown.sourceBoundsInRoot.height).coerceIn(0f, 1.04f),
+                surfaceAlpha = 1f, contentAlpha = frame.contentAlpha,
+                expansionProgress = motionState.progress.value, pathProgress = motionState.progress.value
+            )
+        } }
         var sourceHandedOff by remember(shown.kind) { mutableStateOf(false) }
         LaunchedEffect(shown.kind, motionState.phase) {
             if (shown.kind != HomeAnchoredOverlayKind.Add) return@LaunchedEffect
+            if (shown.fromDock) return@LaunchedEffect
             if (suppressClose) return@LaunchedEffect
             if (motionState.phase != HomeAnchoredOverlayPhase.Closing) return@LaunchedEffect
             // Hand the collapsing shell over to the follow-through button while the droplet is
@@ -1365,8 +1332,8 @@ internal fun HomeAnchoredMorphOverlayHost(
             sourceHandedOff = true
             latestOnSourceFollowThrough(geometry.value.rect)
         }
-        val shape = remember(geometry, density) {
-            DeferredHomeMorphShape(geometry, continuous = true, density = density)
+        val shape = remember(dropFrame) {
+            com.xiaomanjun.sleepdownschedule.glass.GlassDropletContentShape { dropFrame.value.glass }
         }
         val settledSurfaceShape = remember {
             RoundedRectangle(HomeAddMenuTargetCornerDp.dp)
@@ -1383,15 +1350,15 @@ internal fun HomeAnchoredMorphOverlayHost(
         val menuContentHorizontalPaddingPx = with(density) {
             (HomeAddMenuConcentricInsetDp - HomeAddMenuActionColumnInsetDp).dp.toPx()
         }
-        val menuModeHeightPx = with(density) { HomeAddMenuModeHeightDp.dp.toPx() }
+        val menuModeHeightPx = with(density) { if (showModeSwitch) HomeAddMenuModeHeightDp.dp.toPx() else 0f }
         val menuActionTopPx = with(density) {
-            (
+            (if (!showModeSwitch) 0f else (
                 HomeAddMenuModeHeightDp + HomeAddMenuSectionGapDp * 2f +
                     HomeAddMenuDividerHeightDp
-                ).dp.toPx()
+                )).dp.toPx()
         }
         val menuActionStepPx = with(density) {
-            (HomeAddMenuActionItemHeightDp + HomeAddMenuActionGapDp).dp.toPx()
+            (actionItemHeight + HomeAddMenuActionGapDp.dp).toPx()
         }
 
         fun targetMenuPosition(rootPosition: Offset): Offset? {
@@ -1418,7 +1385,7 @@ internal fun HomeAnchoredMorphOverlayHost(
             )
         }
 
-        val outsideToMenuGesture = Modifier.pointerInput(addActions, homeMode, shown.kind) {
+        val outsideToMenuGesture = Modifier.pointerInput(addActions, homeMode, shown.kind, showModeSwitch) {
             awaitEachGesture {
                 val down = awaitFirstDown(
                     requireUnconsumed = false,
@@ -1454,7 +1421,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                     if (completedNormally && targetPosition != null) {
                         val innerX = targetPosition.x - menuContentHorizontalPaddingPx
                         val innerY = targetPosition.y - menuContentTopPaddingPx
-                        if (innerY in 0f..menuModeHeightPx) {
+                        if (showModeSwitch && innerY in 0f..menuModeHeightPx) {
                             val innerWidth = targetRect.width - menuContentHorizontalPaddingPx * 2f
                             val targetMode = HomeMode.entries[
                                 ((innerX / innerWidth) * HomeMode.entries.size)
@@ -1484,6 +1451,50 @@ internal fun HomeAnchoredMorphOverlayHost(
                 .then(outsideToMenuGesture)
         )
 
+        val movingDroplet = backdrop != null && motionState.phase != HomeAnchoredOverlayPhase.Open
+        val preparingCloseSurface by remember(motionState) {
+            derivedStateOf { motionState.phase == HomeAnchoredOverlayPhase.Closing && motionState.progress.value >= 0.999f }
+        }
+        val sourceLightGlass = com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass.current.lightGlass
+        val sourceTint = if (shown.fromDock) com.xiaomanjun.sleepdownschedule.feature.home.homeImportButtonGlassColor(sourceLightGlass)
+            else (if (sourceLightGlass) HomeLightGlassSurfaceColor else Color(0xFF121212))
+                .copy(alpha = homeChromeGlassSurfaceAlpha(sourceLightGlass))
+        if (movingDroplet) {
+            val margin = with(density) { 18.dp.toPx() }
+            val source = shown.sourceBoundsInRoot
+            val envelope = Rect(min(source.left, targetRect.left) - margin, min(source.top, targetRect.top) - margin,
+                max(source.right, targetRect.right) + margin, max(source.bottom, targetRect.bottom) + margin)
+            val origin = Offset(-envelope.left, -envelope.top)
+            val tint = (if (glassUsesLightStyle(config)) HomeLightGlassSurfaceColor else Color(0xFF050505))
+                .copy(alpha = if (glassUsesLightStyle(config)) 0.28f else 0.40f)
+            Box(Modifier.offset { IntOffset(envelope.left.roundToInt(), envelope.top.roundToInt()) }
+                .requiredSize(with(density) { envelope.width.toDp() }, with(density) { envelope.height.toDp() })
+                .graphicsLayer {
+                    alpha = when {
+                        sourceHandedOff -> 0f
+                        motionState.phase == HomeAnchoredOverlayPhase.Preparing || preparingCloseSurface -> 0.001f
+                        else -> 1f
+                    }
+                }
+                .sleepDownDropletGlass(requireNotNull(backdrop), {
+                    dropFrame.value.glass.let { it.copy(drop = it.drop.translate(origin)) }
+                }, tint, 8.dp, debugLabel = "HomeThreeDotDroplet",
+                    dropColor = {
+                        premultipliedGlassTint(sourceTint, tint, dropFrame.value.menuBlend)
+                    }, motionBlurPx = { dropFrame.value.motionBlur },
+                    baseBlurRadiusPx = {
+                        with(density) {
+                            lerp(homeChromeBlur(if (shown.fromDock) 1.3.dp else HomeHeaderGlassBlur, config).toPx(),
+                                8.dp.toPx(), dropFrame.value.menuBlend)
+                        }
+                    },
+                    lensHeightPx = { with(density) { lerp((if (shown.fromDock) 10.dp else 12.dp).toPx(),
+                        12.dp.toPx(), dropFrame.value.menuBlend) } },
+                    lensAmountPx = { with(density) { lerp((if (shown.fromDock) 40.dp else 24.dp).toPx(),
+                        24.dp.toPx(), dropFrame.value.menuBlend) } })
+                .drawWithContent { drawContent(); addMenuSurfacePrepared.set(true) })
+        }
+
         Box(
             modifier = Modifier
                 .offset {
@@ -1500,8 +1511,9 @@ internal fun HomeAnchoredMorphOverlayHost(
                     clip = homeAddMenuShellClipEnabled(motionState.phase)
                     this.shape = shape
                 }
-                .liquidButtonVisualTransform(menuInteraction, pressExpansion = 0.dp, dragExpansion = 20.dp)
-                .then(menuInteraction.gestureModifier)
+                .then(if (movingDroplet) Modifier else Modifier
+                    .liquidButtonVisualTransform(menuInteraction, pressExpansion = 0.dp, dragExpansion = 20.dp)
+                    .then(menuInteraction.gestureModifier))
                 .layout { measurable, _ ->
                     // Measure the heavy glass subtree once at its final target size. The animated
                     // shell changes its reported size and clips the child around the shell center.
@@ -1528,6 +1540,8 @@ internal fun HomeAnchoredMorphOverlayHost(
                 backdrop = backdrop,
                 config = config,
                 actions = addActions,
+                showModeSwitch = showModeSwitch,
+                actionItemHeight = actionItemHeight,
                 homeMode = homeMode,
                 onHomeModeChange = onHomeModeChange,
                 targetSizeProvider = {
@@ -1536,12 +1550,11 @@ internal fun HomeAnchoredMorphOverlayHost(
                 surfaceAlphaProvider = { geometry.value.surfaceAlpha },
                 contentAlphaProvider = { geometry.value.contentAlpha },
                 contentBlurRadiusPxProvider = {
-                    maxContentBlurPx * (
-                        1f - homeMorphSmoothStep(0.42f, 0.98f, geometry.value.expansionProgress)
-                        )
+                    dropFrame.value.motionBlur
                 },
                 externalHighlightedIndex = outsideDragHighlightedIndex,
                 retainSurface = true,
+                externalSurface = movingDroplet && !preparingCloseSurface,
                 warmupSurface = motionState.phase == HomeAnchoredOverlayPhase.Preparing,
                 onSurfaceDrawn = { addMenuSurfacePrepared.set(true) },
                 interactive = motionState.phase == HomeAnchoredOverlayPhase.Opening ||
@@ -2543,7 +2556,8 @@ internal fun HomeAddMenuMorphPanel(
     showModeSwitch: Boolean = true,
     actionItemHeight: Dp = HomeAddMenuActionItemHeightDp.dp,
     compactActions: Boolean = false,
-    shadowEnabled: Boolean = true
+    shadowEnabled: Boolean = true,
+    externalSurface: Boolean = false
 ) {
     var highlightedIndex by remember { mutableIntStateOf(-1) }
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -2657,7 +2671,7 @@ internal fun HomeAddMenuMorphPanel(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    Icon(painterResource(iconRes), contentDescription = null, modifier = Modifier.size(21.dp))
+                    Icon(homeActionIconPainter(iconRes), contentDescription = null, modifier = Modifier.size(21.dp))
                     Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
                 }
             }
@@ -2751,7 +2765,7 @@ internal fun HomeAddMenuMorphPanel(
         modifier = modifier,
         contentAlignment = Alignment.TopEnd
     ) {
-        if (showSurface) {
+        if (showSurface || externalSurface) {
             val surfaceModifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -2769,8 +2783,9 @@ internal fun HomeAddMenuMorphPanel(
                     modifier = surfaceModifier,
                     // Keep the same visual modifier nodes throughout the retained menu session.
                     // The host and unified action gesture still gate input by the actual phase.
-                    isInteractive = retainSurface || interactive,
+                    isInteractive = (retainSurface || interactive) && !externalSurface,
                     clickTargetEnabled = false,
+                    surfaceEnabled = !externalSurface,
                     // fillMaxSize already fixes the surface dimensions. Reading the animated
                     // target here used to recompose the entire source menu during handoff.
                     contentPadding = PaddingValues(0.dp),

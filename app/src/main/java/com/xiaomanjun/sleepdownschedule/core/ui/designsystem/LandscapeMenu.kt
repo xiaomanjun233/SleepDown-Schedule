@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.designsystem
 
 import android.view.WindowManager
+import android.graphics.Matrix
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.MutableTransitionState
@@ -12,33 +13,29 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
-import androidx.compose.foundation.background
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableFloatState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -46,30 +43,32 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
-import com.kyant.shapes.RoundedRectangle
 import com.kyant.backdrop.Backdrop
-import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberScreenScaledBackdrop
-
-internal val LocalLandscapeMenuHosted = compositionLocalOf { false }
+import top.yukonga.miuix.kmp.basic.Scaffold
+import top.yukonga.miuix.kmp.utils.MiuixPopupBackdropCapture
 
 /** Configuration remains the Activity's window orientation inside a separate Dialog window. */
 @Composable
@@ -78,27 +77,19 @@ internal fun isLandscapeMenuWindow(): Boolean {
     return configuration.screenWidthDp > configuration.screenHeightDp
 }
 
-@Composable
-internal fun landscapeMenuBackground(config: ScheduleConfigEntity): Color =
-    if (appUsesDarkTheme(config)) Color(0xFF1F1F1F) else Color(0xFFF2F3F7)
-
-@Composable
-internal fun landscapeMenuGroupBackground(config: ScheduleConfigEntity): Color =
-    if (appUsesDarkTheme(config)) Color(0xFF2E2E2E) else Color.White
-
-/** Frosted menu retained through exit; a single placement spring supplies the flight. */
+/** A flight host only: each form keeps its original surface, fields and glass material. */
 @Composable
 internal fun <T : Any> LandscapeMenuOverlay(
     request: T?,
-    config: ScheduleConfigEntity,
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
     backdrop: Backdrop? = LocalCenteredDialogSceneBackdrop.current,
-    maxWidth: Dp = 680.dp,
-    fillHeight: Boolean = true,
+    maximumWidth: Dp = 680.dp,
+    maximumHeight: Dp = 640.dp,
+    contentInsets: PaddingValues = PaddingValues(0.dp),
     onOpenFinished: () -> Unit = {},
     onDismissFinished: () -> Unit = {},
-    content: @Composable BoxScope.(T) -> Unit
+    content: @Composable BoxScope.(T, Backdrop?) -> Unit
 ) {
     var retainedRequest by remember { mutableStateOf(request) }
     val visibility = remember { MutableTransitionState(false) }
@@ -118,17 +109,32 @@ internal fun <T : Any> LandscapeMenuOverlay(
         }
     }
     val shown = retainedRequest ?: return
-    val transition = rememberTransition(visibility, label = "LandscapeMenu")
-    val dim by transition.animateFloat(label = "LandscapeMenuDim", transitionSpec = { tween(180) }) {
+    val sceneBackdrop = LocalCenteredDialogSceneBackdrop.current ?: backdrop
+    DisposableEffect(sceneBackdrop) {
+        // A platform Dialog does not register as a Miuix popup. Keep the page producer alive
+        // throughout the retained exit so the form always samples a recorded scene.
+        if (sceneBackdrop != null) MiuixPopupBackdropCapture.acquireConsumer()
+        onDispose {
+            if (sceneBackdrop != null) MiuixPopupBackdropCapture.releaseConsumer()
+        }
+    }
+    val transition = rememberTransition(visibility, label = "LandscapeFormFlight")
+    val dim by transition.animateFloat(label = "LandscapeFormDim", transitionSpec = { tween(180) }) {
         if (it) 0.28f else 0f
     }
+    val deformation = transition.animateFloat(
+        label = "LandscapeFormDeformation",
+        transitionSpec = {
+            if (targetState) spring(dampingRatio = 0.86f, stiffness = 380f)
+            else tween(240, easing = CubicBezierEasing(0.4f, 0f, 0.8f, 0.3f))
+        }
+    ) { if (it) 0f else 1f }
     val screenHeightPx = LocalWindowInfo.current.containerSize.height
     val interaction = remember { MutableInteractionSource() }
-    val ink = if (appUsesDarkTheme(config)) Color.White else Color(0xFF191A1E)
     val sourceView = LocalView.current
     val sourceLocation = remember(sourceView) { IntArray(2) }
     val dialogBackdrop = rememberScreenScaledBackdrop(
-        backdrop = LocalCenteredDialogSceneBackdrop.current ?: backdrop, scale = { 1f },
+        backdrop = sceneBackdrop, scale = { 1f },
         rootPositionOnScreen = {
             sourceView.getLocationOnScreen(sourceLocation)
             Offset(sourceLocation[0].toFloat(), sourceLocation[1].toFloat())
@@ -144,6 +150,21 @@ internal fun <T : Any> LandscapeMenuOverlay(
         )
     ) {
         val view = LocalView.current
+        val density = LocalDensity.current
+        val direction = LocalLayoutDirection.current
+        val safeInsets = WindowInsets.safeDrawing
+        val horizontalInsets = with(density) {
+            PaddingValues(
+                start = maxOf(contentInsets.calculateStartPadding(direction),
+                    (if (direction == androidx.compose.ui.unit.LayoutDirection.Ltr)
+                        safeInsets.getLeft(this, direction) else safeInsets.getRight(this, direction)).toDp()),
+                end = maxOf(contentInsets.calculateEndPadding(direction),
+                    (if (direction == androidx.compose.ui.unit.LayoutDirection.Ltr)
+                        safeInsets.getRight(this, direction) else safeInsets.getLeft(this, direction)).toDp()),
+                top = contentInsets.calculateTopPadding(),
+                bottom = contentInsets.calculateBottomPadding()
+            )
+        }
         DisposableEffect(view) {
             val window = (view.parent as? DialogWindowProvider)?.window
             window?.setDimAmount(0f)
@@ -151,6 +172,10 @@ internal fun <T : Any> LandscapeMenuOverlay(
             window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
             onDispose { }
         }
+        val formScene = rememberCenteredDialogSceneBackdrop("landscape-form-scene")
+        val popupBackdrop = if (dialogBackdrop != null) {
+            rememberGlassCombinedBackdrop(dialogBackdrop, formScene)
+        } else formScene
         Box(modifier.fillMaxSize()) {
             Box(Modifier.fillMaxSize()
                 .drawBehind { drawRect(Color.Black.copy(alpha = dim)) }
@@ -159,12 +184,13 @@ internal fun <T : Any> LandscapeMenuOverlay(
                 })
             BoxWithConstraints(
                 Modifier.fillMaxSize()
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(horizontalInsets)
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical))
                     .imePadding()
                     .padding(horizontal = 24.dp, vertical = 16.dp),
                 contentAlignment = Alignment.Center
             ) {
-                val heightLimit = maxHeight.coerceAtMost(640.dp)
+                val heightLimit = maxHeight.coerceAtMost(maximumHeight)
                 transition.AnimatedVisibility(
                     visible = { it },
                     enter = slideInVertically(spring(dampingRatio = 0.86f, stiffness = 380f)) {
@@ -174,18 +200,43 @@ internal fun <T : Any> LandscapeMenuOverlay(
                         (screenHeightPx + it) / 2
                     } + fadeOut(tween(180))
                 ) {
-                    CompositionLocalProvider(LocalContentColor provides ink, LocalLandscapeMenuHosted provides true) {
-                        Box(
-                            Modifier.widthIn(max = maxWidth).fillMaxWidth()
-                                .then(if (fillHeight) Modifier.height(heightLimit) else Modifier.heightIn(max = heightLimit))
-                                .quickSheetBackdropModifier(dialogBackdrop, config, 28.dp, centered = true)
-                                .pointerInput(Unit) { detectTapGestures { } }
-                                .then(if (visibility.isIdle) Modifier else Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
-                                    awaitPointerEventScope {
-                                        while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
-                                    }
-                                })
-                        ) { content(shown) }
+                    CompositionLocalProvider(
+                        LocalCenteredDialogSceneBackdrop provides popupBackdrop,
+                        LocalCenteredDialogRenderInRootScaffold provides false
+                    ) {
+                        Scaffold(
+                            modifier = Modifier.widthIn(max = maximumWidth).fillMaxWidth().height(heightLimit)
+                                .then(if (visibility.isIdle) Modifier else Modifier.graphicsLayer {
+                                    val amount = deformation.value
+                                    transformOrigin = TransformOrigin(0.5f, 1f)
+                                    scaleX = 1f - 0.045f * amount
+                                    scaleY = 1f + 0.065f * amount
+                                }.landscapeFormTaper { deformation.value }),
+                            underlayModifier = Modifier.fillMaxSize().centeredDialogSceneProducer(formScene),
+                            containerColor = Color.Transparent,
+                            contentWindowInsets = WindowInsets(0, 0, 0, 0)
+                        ) {
+                            Box(Modifier.fillMaxSize()) {
+                                // A sibling shield catches blank-area taps without consuming a
+                                // child's DOWN before a slider has acquired its drag gesture.
+                                Box(Modifier.matchParentSize().clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null, onClick = {}
+                                ))
+                                Box(Modifier.fillMaxSize()) { content(shown, dialogBackdrop) }
+                                // Unmount the animation guard completely at rest. It must not be
+                                // reused as the blank-area tap handler when the flight settles.
+                                if (!visibility.isIdle) {
+                                    Box(Modifier.matchParentSize().clearAndSetSemantics {}
+                                        .pointerInput(visibility) {
+                                            awaitPointerEventScope {
+                                                while (true) awaitPointerEvent(PointerEventPass.Initial)
+                                                    .changes.forEach { it.consume() }
+                                            }
+                                        })
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -193,109 +244,21 @@ internal fun <T : Any> LandscapeMenuOverlay(
     }
 }
 
-/** A full form window for existing dialogs; their original content remains in place. */
-@Composable
-internal fun SleepDownFormWindow(
-    show: Boolean,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    onDismissRequest: () -> Unit,
-    content: @Composable () -> Unit
-) {
-    if (isLandscapeMenuWindow()) {
-        LandscapeMenuOverlay(request = Unit.takeIf { show }, config = config, backdrop = backdrop,
-            onDismissRequest = onDismissRequest) { content() }
-    } else {
-        Dialog(onDismissRequest = onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false)) { content() }
-    }
-}
-
-/** Quick settings keeps its header and fields, moving the host to the window centre. */
-@Composable
-internal fun SleepDownAdaptiveBottomSheet(
-    show: Boolean,
-    title: String,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    startAction: @Composable () -> Unit,
-    endAction: @Composable () -> Unit,
-    onDismissRequest: () -> Unit,
-    modifier: Modifier = Modifier,
-    surfaceModifier: Modifier = Modifier,
-    backgroundColor: Color = Color.Transparent,
-    allowDismiss: Boolean = true,
-    onDismissFinished: () -> Unit = {},
-    content: @Composable () -> Unit
-) {
-    if (isLandscapeMenuWindow()) {
-        LandscapeMenuOverlay(request = Unit.takeIf { show }, config = config, backdrop = backdrop,
-            onDismissRequest = { if (allowDismiss) onDismissRequest() }, onDismissFinished = onDismissFinished,
-            fillHeight = false, maxWidth = 600.dp) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
-                androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    startAction()
-                    androidx.compose.material3.Text(title, Modifier.weight(1f),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        style = androidx.compose.material3.MaterialTheme.typography.titleLarge)
-                    endAction()
-                }
-                Column(Modifier.fillMaxWidth().weight(1f, fill = false)
-                    .verticalScroll(androidx.compose.foundation.rememberScrollState())) { content() }
-            }
-        }
-    } else top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
-        show = show, title = title, startAction = startAction, endAction = endAction,
-        onDismissRequest = onDismissRequest, onDismissFinished = onDismissFinished,
-        allowDismiss = allowDismiss, modifier = modifier, surfaceModifier = surfaceModifier,
-        backgroundColor = backgroundColor, content = content
-    )
-}
-
-/** Shared picker/alert host: portrait keeps Miuix's existing renderer. */
-@Composable
-internal fun SleepDownOverlayDialog(
-    show: Boolean,
-    config: ScheduleConfigEntity,
-    backdrop: Backdrop? = LocalCenteredDialogSceneBackdrop.current,
-    modifier: Modifier = Modifier,
-    surfaceModifier: Modifier = Modifier,
-    backgroundModifier: Modifier = Modifier,
-    title: String? = null,
-    backgroundColor: Color = Color.Transparent,
-    enableWindowDim: Boolean = false,
-    onDismissRequest: (() -> Unit)? = null,
-    onDismissFinished: (() -> Unit)? = null,
-    outsideMargin: DpSize,
-    insideMargin: DpSize,
-    forceCenter: Boolean = true,
-    animationProgressState: MutableFloatState? = null,
-    enablePredictiveBackAnimation: Boolean = false,
-    excludeFromBackdropCapture: Boolean = true,
-    renderInRootScaffold: Boolean = true,
-    maxWidth: Dp = 600.dp,
-    content: @Composable () -> Unit
-) {
-    if (isLandscapeMenuWindow()) {
-        LandscapeMenuOverlay(
-            request = Unit.takeIf { show }, config = config, backdrop = backdrop,
-            onDismissRequest = { onDismissRequest?.invoke() },
-            onDismissFinished = { onDismissFinished?.invoke() },
-            maxWidth = maxWidth, fillHeight = false
-        ) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = insideMargin.width, vertical = insideMargin.height)) {
-                content()
-            }
-        }
-    } else {
-        top.yukonga.miuix.kmp.overlay.OverlayDialog(
-            show = show, modifier = modifier, surfaceModifier = surfaceModifier,
-            backgroundModifier = backgroundModifier, title = title, backgroundColor = backgroundColor,
-            enableWindowDim = enableWindowDim, onDismissRequest = onDismissRequest,
-            onDismissFinished = onDismissFinished, outsideMargin = outsideMargin, insideMargin = insideMargin,
-            forceCenter = forceCenter, animationProgressState = animationProgressState,
-            enablePredictiveBackAnimation = enablePredictiveBackAnimation,
-            excludeFromBackdropCapture = excludeFromBackdropCapture, renderInRootScaffold = renderInRootScaffold,
-            content = content
+/** Project the existing form layers; no extra full-size texture is needed for the taper. */
+private fun Modifier.landscapeFormTaper(amount: () -> Float): Modifier = drawWithCache {
+    val inset = size.width * 0.14f * amount().coerceIn(0f, 1f)
+    val matrix = if (inset < 0.01f) null else Matrix().apply {
+        setPolyToPoly(
+            floatArrayOf(0f, 0f, size.width, 0f, size.width, size.height, 0f, size.height), 0,
+            floatArrayOf(0f, 0f, size.width, 0f, size.width - inset, size.height, inset, size.height), 0, 4
         )
+    }
+    onDrawWithContent {
+        if (matrix == null) drawContent() else {
+            val canvas = drawContext.canvas.nativeCanvas
+            val checkpoint = canvas.save()
+            try { canvas.concat(matrix); drawContent() }
+            finally { canvas.restoreToCount(checkpoint) }
+        }
     }
 }

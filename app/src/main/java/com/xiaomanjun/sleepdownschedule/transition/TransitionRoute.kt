@@ -93,8 +93,7 @@ object TransitionRouteCatalog {
             legacyProfile = LegacyTransitionProfile.Anchored(
                 profileId = AnchoredLegacyProfileId.HomeMenuDestination,
                 sourceCornerRadiusDp = 30f,
-                returnCornerRadiusDp = 21f,
-                destinationFirstOpening = true
+                returnCornerRadiusDp = 21f
             ),
             nativePolicy = TransitionNativePolicy.OplusAllowlisted,
             nativeClosePolicy = TransitionNativeClosePolicy.LegacyOnly,
@@ -198,8 +197,7 @@ object TransitionRouteCatalog {
             legacyProfile = LegacyTransitionProfile.Anchored(
                 profileId = AnchoredLegacyProfileId.HomeMenuDestination,
                 sourceCornerRadiusDp = 30f,
-                returnCornerRadiusDp = 21f,
-                destinationFirstOpening = true
+                returnCornerRadiusDp = 21f
             ),
             nativePolicy = TransitionNativePolicy.OplusAllowlisted,
             nativeClosePolicy = TransitionNativeClosePolicy.LegacyOnly,

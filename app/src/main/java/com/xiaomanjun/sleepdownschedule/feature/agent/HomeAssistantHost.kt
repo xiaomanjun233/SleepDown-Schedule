@@ -338,7 +338,7 @@ internal fun HomeAssistantHost(
                     onPrepareDismiss = { controller.closing = true },
                     onSourceHandoff = {},
                     onDismiss = controller::reset,
-                    requestedHomePresentation = true,
+                    homePresentation = true,
                     homeAnchorBounds = closingAnchor,
                     homeInitiallyFullScreen = controller.conversationStartsFullScreen,
                     onImportFile = onImportFile

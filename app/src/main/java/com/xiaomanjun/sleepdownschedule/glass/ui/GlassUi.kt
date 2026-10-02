@@ -541,6 +541,8 @@ fun GlassSurface(
     shapeProvider: (() -> Shape)? = null,
     morphAllocation: com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation? = null,
     placementLayer: Boolean = true,
+    surfaceColorOverride: Color? = null,
+    restShadowAlpha: Float = 0f,
     content: @Composable () -> Unit
 ) {
     val glassBackdrop = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) backdrop else null
@@ -558,7 +560,7 @@ fun GlassSurface(
         MaterialTheme.colorScheme.primaryContainer
     }
     val clearAlpha = tokens.surfaceAlpha * quality
-    val surfaceColor = if (selected) selectedColor else base.copy(alpha = clearAlpha)
+    val surfaceColor = surfaceColorOverride ?: if (selected) selectedColor else base.copy(alpha = clearAlpha)
     val restHighlightAlpha = if (hasWallpaper) 0f else tokens.highlightAlpha * 0.72f
     val highlightAlpha = if (selected) {
         tokens.highlightAlpha + 0.10f * pressProgress
@@ -588,7 +590,7 @@ fun GlassSurface(
         shadowAlpha = if (selected) {
             tokens.shadowAlpha + 0.12f * pressProgress
         } else {
-            tokens.shadowAlpha * pressProgress
+            maxOf(restShadowAlpha, tokens.shadowAlpha * pressProgress)
         },
         innerShadow = GlassInnerShadowFrame(
             radius = if (selected) 6.dp else 3.dp * pressProgress,
@@ -618,11 +620,14 @@ fun GlassSurface(
                 } else {
                     drawRect(surfaceColor)
                 }
-                if (lightGlass) {
-                    drawRect(Color.White.copy(alpha = 0.014f + 0.018f * pressProgress), blendMode = BlendMode.Screen)
-                } else {
-                    drawRect(Color.Black.copy(alpha = 0.014f + 0.018f * pressProgress))
-                    drawRect(Color.White.copy(alpha = 0.006f + 0.010f * pressProgress), blendMode = BlendMode.Screen)
+                // An explicit finished tint (such as the Dock material) already owns its color.
+                if (surfaceColorOverride == null) {
+                    if (lightGlass) {
+                        drawRect(Color.White.copy(alpha = 0.014f + 0.018f * pressProgress), blendMode = BlendMode.Screen)
+                    } else {
+                        drawRect(Color.Black.copy(alpha = 0.014f + 0.018f * pressProgress))
+                        drawRect(Color.White.copy(alpha = 0.006f + 0.010f * pressProgress), blendMode = BlendMode.Screen)
+                    }
                 }
             }
         )

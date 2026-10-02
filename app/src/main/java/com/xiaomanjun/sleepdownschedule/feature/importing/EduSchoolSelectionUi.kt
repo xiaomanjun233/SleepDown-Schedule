@@ -435,18 +435,20 @@ fun EduSchoolIndexedSelectScreen(
         remember(floatingOverlayHost) {
             @Composable {
                 EduSchoolDockViewport { bottomInset ->
+                val controlsModifier = floatingOverlayHost.controlsModifier()
                 EduSchoolSearchDock(
                     value = currentSearchQuery.value,
                     onValueChange = currentSearchOnChange.value,
                     backdrop = currentSearchBackdrop.value,
                     config = currentSearchConfig.value,
                     imeLift = currentSearchImeLift.value,
-                    bottomInset = bottomInset
+                    bottomInset = bottomInset,
+                    controlsModifier = controlsModifier
                 )
                 // The alphabet rail floats at the same root level as the top bar, as a sibling of
                 // the Miuix Scaffold instead of a page child. Its gradient blur therefore keeps a
                 // full-window envelope and can no longer be cropped by the card/list subtrees.
-                EduAlphabetRailDock(
+                Box(Modifier.fillMaxSize().then(controlsModifier)) { EduAlphabetRailDock(
                     listState = currentRailListState.value,
                     letters = currentRailLetters.value,
                     sectionPositions = currentRailPositions.value,
@@ -456,7 +458,7 @@ fun EduSchoolIndexedSelectScreen(
                     bottomInset = bottomInset,
                     scope = currentRailScope.value,
                     haptic = currentRailHaptic.value
-                )
+                ) }
                 }
             }
         }
@@ -910,7 +912,8 @@ private fun EduSchoolSearchDock(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     imeLift: Dp,
-    bottomInset: Dp
+    bottomInset: Dp,
+    controlsModifier: Modifier = Modifier
 ) {
     val entranceProgress = remember { Animatable(0f) }
     val searchDockBottomPadding = 18.dp
@@ -968,6 +971,7 @@ private fun EduSchoolSearchDock(
                 // capsules are positioned near the bottom; no 44/60dp parent can crop the Kyant
                 // shadow, refraction or press expansion anymore.
                 .fillMaxSize()
+                .then(controlsModifier)
                 .graphicsLayer { clip = false }
                 .zIndex(1f)
         )
@@ -1148,11 +1152,8 @@ fun SchoolSearchField(
             (bottomOffset - EduSearchVerticalOverscan).coerceAtLeast(0.dp)
         val actionLabel = if (value.isBlank()) "取消" else "搜索"
         // 大屏下整个底部 dock 居中，action slot 相对居中后的 field slot 定位。
-        val actionSlotOffsetX = if (isLargeScreen) {
-            (maxWidth - fieldWidth) / 2 + fieldWidth + actionGap - actionRenderOverscan
-        } else {
-            horizontalInset + fieldWidth + actionGap - actionRenderOverscan
-        }
+        val dockStart = if (isLargeScreen) (maxWidth - visualDockWidth) / 2 else horizontalInset
+        val actionSlotOffsetX = dockStart + fieldWidth + actionGap - actionRenderOverscan
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -1160,11 +1161,11 @@ fun SchoolSearchField(
         ) {
             Box(
                 modifier = Modifier
-                    .align(if (isLargeScreen) Alignment.BottomCenter else Alignment.BottomStart)
+                    .align(Alignment.BottomStart)
                     .width(fieldSlotWidth)
                     .height(renderEnvelopeHeight)
                     .offset(
-                        x = if (isLargeScreen) 0.dp else horizontalInset - fieldRenderOverscan,
+                        x = dockStart - fieldRenderOverscan,
                         y = -renderEnvelopeBottomOffset + entranceTranslation
                     )
                     .graphicsLayer {
