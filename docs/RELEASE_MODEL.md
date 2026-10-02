@@ -1,13 +1,13 @@
 # 版本基线与发布关系
 
-本文说明当前维护方式；历史发布事实以 Git 标签、构建配置和对应 Release 附件为准。基线快照核对于 **2026-09-29**。
+本文说明当前维护方式；历史发布事实以 Git 标签、构建配置和对应 Release 附件为准。基线快照核对于 **2026-10-02**。
 
 ## 当前基线
 
 | 项目 | 当前事实 | 核对入口 |
 | --- | --- | --- |
 | 持续开发分支 | `main`；当前已发布正式版为 `v1.2.6` | Git 标签与 `app/build.gradle.kts` |
-| Android 主应用 | `com.xiaomanjun.sleepdownschedule`，当前 Beta 为 `versionName=1.2.7_beta1`，`versionCode=34` | `app/build.gradle.kts` |
+| Android 主应用 | `com.xiaomanjun.sleepdownschedule`，当前 Beta 为 `versionName=1.2.7_beta2`，`versionCode=34` | `app/build.gradle.kts` |
 | 发行渠道 | `github` 与 `store` 两种 flavor；厂商实验入口由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 按渠道控制 | `app/build.gradle.kts`、`app/src/github/`、`app/src/store/` |
 | 课程组件 | 独立包 `com.suda.yzune.wakeupschedule`；构建版本 `6.0.18` / `258` | `coloros-wakeup-proxy/build.gradle.kts` |
 | 历史实验线 | `exp` 与 `v1.2.6-exp*` 保留作为已发布历史，停止作为后续功能基线 | Git 历史与旧 Release |
@@ -28,7 +28,7 @@
 
 同一 `1.2.6` 轮次的正式、Beta 与历史实验 APK 使用 `versionCode=33`。覆盖安装仍须核对**相同 applicationId、签名、版本代码及渠道**；不能仅凭版本名称判断。后续版本的 `versionCode` 必须满足 Android 升级要求。旧身份 `com.example.courseschedule` 不能直接覆盖安装当前包，需先在旧版导出 `.sleepdown` 再恢复，见[迁移说明](migration/1_2_0_PACKAGE_MIGRATION.md)。
 
-`1.2.7_beta1` 是下一轮预发布，使用 `versionCode=34`；正式版 `v1.2.6` 仍是最新正式发布。
+`1.2.7_beta2` 沿用本轮 Beta 的 `versionCode=34`，保留 `1.2.7_beta1` 的独立记录；正式版 `v1.2.6` 仍是最新正式发布。
 
 ## 一轮发布怎样收口
 
