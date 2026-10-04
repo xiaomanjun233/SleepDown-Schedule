@@ -478,11 +478,7 @@ fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdro
             controlHeight = 28.dp,
             enabled = enabled
         ) {
-            if (enabled) {
-                LiquidControlToggle(checked, onCheckedChange, backdrop)
-            } else {
-                LiquidControlToggle(checked, {}, backdrop)
-            }
+            LiquidControlToggle(checked, onCheckedChange, backdrop, enabled = enabled)
         }
         return
     }
@@ -504,11 +500,7 @@ fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdro
             if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.width(12.dp))
-        if (enabled) {
-            LiquidControlToggle(checked, onCheckedChange, backdrop)
-        } else {
-            LiquidControlToggle(checked, {}, backdrop)
-        }
+        LiquidControlToggle(checked, onCheckedChange, backdrop, enabled = enabled)
     }
 }
 

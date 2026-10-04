@@ -21,11 +21,11 @@ class CourseQuietHoursTest {
         courseQuietWindows(AppState(courses = courses, config = config, periods = periods), settings, monday, zone)
             .filter { it.start < monday.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli() }
 
-    @Test fun adjacentCoursesStayQuietAcrossBreakWhileLunchSeparatesSessions() {
+    @Test fun differentCoursesRestoreDuringTheirGap() {
         val result = windows(listOf(course(1, listOf(1)), course(2, listOf(2)), course(3, listOf(3))))
-        assertEquals(listOf(CourseQuietWindow(at("08:00"), at("09:40")), CourseQuietWindow(at("14:00"), at("14:45"))), result)
-        assertTrue(result.first().contains(at("08:50")))
-        assertFalse(result.first().contains(at("09:40")))
+        assertEquals(listOf(CourseQuietWindow(at("08:00"), at("08:45")), CourseQuietWindow(at("08:55"), at("09:40")),
+            CourseQuietWindow(at("14:00"), at("14:45"))), result)
+        assertFalse(result.any { it.contains(at("08:50")) })
     }
 
     @Test fun advanceAndDelayApplyOnceToMergedCourseWindow() {
@@ -40,21 +40,24 @@ class CourseQuietHoursTest {
         assertEquals(CourseQuietWindow(at("10:00"), at("11:45")), windows(listOf(custom)).single())
     }
 
-    @Test fun separatedSegmentsDoNotMuteLongEmptyGapWithinOneCourse() {
+    @Test fun oneCompleteCourseKeepsQuietThroughItsOwnBreakRegardlessOfLength() {
         val custom = course(1, listOf(1, 2)).copy(customPeriodTimes = "1,10:00-10:45;2,14:00-14:45")
-        assertEquals(2, windows(listOf(custom)).size)
+        assertEquals(listOf(CourseQuietWindow(at("10:00"), at("14:45"))), windows(listOf(custom),
+            CourseQuietSettings(soundEnabled = true, keepDuringBreakMinutes = 0)))
     }
 
     @Test fun overlappingOffsetsMergeEvenWithNoBreakAllowance() {
-        val custom = course(1, listOf(1, 2)).copy(customPeriodTimes = "1,10:00-10:45;2,11:15-12:00")
-        val result = windows(listOf(custom), CourseQuietSettings(soundEnabled = true, advanceMinutes = 20,
+        val first = course(1, listOf(1)).copy(customStartTime = "10:00", customEndTime = "10:45")
+        val second = course(2, listOf(2)).copy(customStartTime = "11:15", customEndTime = "12:00")
+        val result = windows(listOf(first, second), CourseQuietSettings(soundEnabled = true, advanceMinutes = 20,
             delayMinutes = 20, keepDuringBreakMinutes = 0))
         assertEquals(listOf(CourseQuietWindow(at("09:40"), at("12:20"))), result)
     }
 
-    @Test fun offsetsDoNotInflateTheConfiguredBreakAllowance() {
-        val custom = course(1, listOf(1, 2)).copy(customPeriodTimes = "1,10:00-10:45;2,11:07-12:00")
-        assertEquals(2, windows(listOf(custom), CourseQuietSettings(soundEnabled = true,
+    @Test fun legacyBreakAllowanceDoesNotMergeDifferentCourses() {
+        val first = course(1, listOf(1)).copy(customStartTime = "10:00", customEndTime = "10:45")
+        val second = course(2, listOf(2)).copy(customStartTime = "11:07", customEndTime = "12:00")
+        assertEquals(2, windows(listOf(first, second), CourseQuietSettings(soundEnabled = true,
             advanceMinutes = 1, delayMinutes = 1, keepDuringBreakMinutes = 20)).size)
     }
 

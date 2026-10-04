@@ -15,6 +15,7 @@ data class CourseQuietSettings(
     val soundMode: CourseQuietSoundMode = CourseQuietSoundMode.SILENT,
     val advanceMinutes: Int = 0,
     val delayMinutes: Int = 0,
+    // Kept for older backups; quiet hours now cover each complete course regardless of its breaks.
     val keepDuringBreakMinutes: Int = 20
 ) {
     val enabled: Boolean get() = doNotDisturbEnabled || soundEnabled
@@ -29,7 +30,7 @@ data class CourseQuietWindow(val start: Long, val end: Long) {
     fun contains(now: Long): Boolean = now >= start && now < end
 }
 
-/** Uses actual lesson segments, teaching-date adjustments and the active schedule's term bounds. */
+/** Covers the full course, including its internal breaks, using the actual teaching date and bells. */
 fun courseQuietWindows(
     state: AppState, settings: CourseQuietSettings, today: LocalDate, zone: ZoneId
 ): List<CourseQuietWindow> {
@@ -37,24 +38,23 @@ fun courseQuietWindows(
     if (!settings.enabled) return emptyList()
     val lessons = (-1L..8L).flatMap { offset ->
         val date = today.plusDays(offset)
-        coursesForDate(state, date).flatMap { course ->
-            courseTimeSegments(course, state.periods).map { segment ->
-                CourseQuietWindow(date.atTime(segment.start).atZone(zone).toInstant().toEpochMilli(),
-                    date.atTime(segment.end).atZone(zone).toInstant().toEpochMilli())
-            }
+        coursesForDate(state, date).mapNotNull { course ->
+            val segments = courseTimeSegments(course, state.periods)
+            val start = segments.minOfOrNull { it.start } ?: return@mapNotNull null
+            val end = segments.maxOf { it.end }
+            CourseQuietWindow(
+                date.atTime(start).atZone(zone).toInstant().toEpochMilli() - settings.advanceMinutes * 60_000L,
+                date.atTime(end).atZone(zone).toInstant().toEpochMilli() + settings.delayMinutes * 60_000L
+            )
         }
     }.sortedBy { it.start }
     val merged = mutableListOf<CourseQuietWindow>()
-    val mergeGap = maxOf(settings.keepDuringBreakMinutes,
-        settings.advanceMinutes + settings.delayMinutes) * 60_000L
     for (lesson in lessons) {
         if (lesson.end <= lesson.start) continue
         val previous = merged.lastOrNull()
-        // Merge raw lessons first. Offsets can bridge an overlap, but never inflate the break allowance.
-        if (previous != null && lesson.start <= previous.end + mergeGap) {
+        if (previous != null && lesson.start <= previous.end) {
             merged[merged.lastIndex] = previous.copy(end = maxOf(previous.end, lesson.end))
         } else merged += lesson
     }
-    return merged.map { CourseQuietWindow(it.start - settings.advanceMinutes * 60_000L,
-        it.end + settings.delayMinutes * 60_000L) }
+    return merged
 }

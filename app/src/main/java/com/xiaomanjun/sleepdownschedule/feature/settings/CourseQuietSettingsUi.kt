@@ -3,6 +3,11 @@ package com.xiaomanjun.sleepdownschedule.feature.settings
 import android.app.NotificationManager
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -40,32 +45,39 @@ internal fun CourseQuietSettingsGroup(backdrop: Backdrop?, config: ScheduleConfi
     }
     fun update(next: com.xiaomanjun.sleepdownschedule.domain.schedule.CourseQuietSettings) {
         if (busy) return
+        val previous = settings
+        settings = next
         busy = true
         scope.launch {
             try {
                 withContext(Dispatchers.IO) { CourseQuietPreferences.write(context, next) }
-                settings = next
                 error = null
                 NotificationScheduler.requestReschedule(context)
-            } catch (failure: Exception) { error = failure.message ?: "设置保存失败" }
+            } catch (failure: Exception) {
+                settings = previous
+                error = failure.message ?: "设置保存失败"
+            }
             finally { busy = false }
         }
     }
     GlassPreferenceSection("上课自动安静") {
         SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
-            SettingsInfoRow("跟随当前课表", "独立于课程提醒。下课后恢复原声音模式；课中手动调整声音时保留你的选择。")
+            SettingsInfoRow("跟随当前课表", "从每门课开始到整门课结束保持安静，包含课内休息。下课后恢复原模式；课中手动调整时保留你的选择。")
             SettingsDivider()
             SettingsToggleRow("自动勿扰", "只在上课期间启用 SleepDown 的课程勿扰。", settings.doNotDisturbEnabled,
                 backdrop, enabled = !busy, onCheckedChange = { update(settings.copy(doNotDisturbEnabled = it)) })
             SettingsDivider()
             SettingsToggleRow("自动静音／震动", "与自动勿扰分别开关。", settings.soundEnabled,
                 backdrop, enabled = !busy, onCheckedChange = { update(settings.copy(soundEnabled = it)) })
-            if (settings.soundEnabled) {
-                SettingsDivider()
-                SleepDownLiquidDropdownPreference(items = listOf("静音", "震动"), title = "上课声音模式",
-                    selectedIndex = if (settings.soundMode == CourseQuietSoundMode.SILENT) 0 else 1,
-                    backdrop = backdrop, config = config, enabled = !busy,
-                    onSelectedIndexChange = { update(settings.copy(soundMode = if (it == 0) CourseQuietSoundMode.SILENT else CourseQuietSoundMode.VIBRATE)) })
+            AnimatedVisibility(settings.soundEnabled,
+                enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+                Column {
+                    SettingsDivider()
+                    SleepDownLiquidDropdownPreference(items = listOf("静音", "震动"), title = "上课声音模式",
+                        selectedIndex = if (settings.soundMode == CourseQuietSoundMode.SILENT) 0 else 1,
+                        backdrop = backdrop, config = config, enabled = !busy,
+                        onSelectedIndexChange = { update(settings.copy(soundMode = if (it == 0) CourseQuietSoundMode.SILENT else CourseQuietSoundMode.VIBRATE)) })
+                }
             }
             SettingsDivider()
             SettingsMinutePickerRow("提前开启", settings.advanceMinutes, { update(settings.copy(advanceMinutes = it)) },
@@ -73,10 +85,6 @@ internal fun CourseQuietSettingsGroup(backdrop: Backdrop?, config: ScheduleConfi
             SettingsDivider()
             SettingsMinutePickerRow("下课后延迟恢复", settings.delayMinutes, { update(settings.copy(delayMinutes = it)) },
                 backdrop, config, enabled = settings.enabled && !busy, range = 0..30, pickerTitle = "选择恢复延迟")
-            SettingsDivider()
-            SettingsMinutePickerRow("课间保持时长", settings.keepDuringBreakMinutes, { update(settings.copy(keepDuringBreakMinutes = it)) },
-                backdrop, config, enabled = settings.enabled && !busy, range = 0..60, pickerTitle = "选择课间保持时长")
-            SettingsInfoRow("连续课程", "相邻课程的课间不超过此时长时，保持安静模式，避免反复切换。")
             if (!hasAccess) {
                 SettingsDivider()
                 SettingsInfoRow("需要勿扰访问权限", "静音／震动也可能涉及系统勿扰切换。授权后自动生效；请同时允许应用在后台运行。")
