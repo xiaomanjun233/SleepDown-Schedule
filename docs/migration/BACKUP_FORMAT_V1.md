@@ -253,6 +253,14 @@ AI provider DTO 可以包含 provider ID、展示名、provider type、非敏感
 
 不进入 preferences.json：`course_alarm_prefs`、`live_update_service_state`、`app_update_state`、`pending_import_setup`、天气缓存、教务 Cookie、WebView state、PackageManager/permission/AlarmManager/AppWidget 实例状态。
 
+### 6.1 公共作息库与上课安静设置
+
+`savedPeriodSchemes` 是可选的公共作息列表。每项的 `sources`（课表名、原作息名）、`alternateNames`（归并前名称）和 `createdInLibrary`（手动新建）均为可选字段，旧备份缺省为空列表 / `false`，旧解析器可忽略新增字段。来源只保存名称，不引用 Room schedule / scheme ID。
+
+作息库恢复按内容归并，并保留本机已有的不同作息；相同 ID 对应不同时间时保留两份，不用备份覆盖本机编辑。整个列表缺省时保留本机公共库。Room 恢复后重新发现课表来源，避免复用旧 Room ID 的导入标记。课表中原有的节次与作息备份格式保持兼容。
+
+`courseQuietSettings` 为可选的应用全局设置，不按课表 ID 保存；勿扰与声音开关及时间偏移由所有课表共用。系统勿扰规则、权限和恢复运行态不进入该字段。
+
 AI import history 保留用户主动保存的导入记录；`aiImportHistoryRetentionDays` 显式保存现有 `retention_days`（允许 7、30、90、0），最多 10 条上限作为导出边界。历史 context JSON 中的截图应转为 asset ID，不应携带旧临时 URI。
 
 ## 7. checksums.json

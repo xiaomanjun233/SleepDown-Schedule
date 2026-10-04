@@ -17,6 +17,9 @@ import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorScopeD
 import com.xiaomanjun.sleepdownschedule.domain.schedule.hasNetPeriodTopologyChange
 import com.xiaomanjun.sleepdownschedule.domain.schedule.previewPeriodCourseMapping
 import com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodCourseMappingApproval
+import com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme
+import com.xiaomanjun.sleepdownschedule.domain.schedule.applySavedPeriodScheme
+import com.xiaomanjun.sleepdownschedule.data.repository.loadPeriodSchemeLibrary
 import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
@@ -87,6 +90,7 @@ fun ScheduleConfigScreen(
     var eveningPeriodCount by remember { mutableIntStateOf(state.config.eveningPeriodCount) }
     var periods by remember { mutableStateOf(state.periods) }
     var schemeDraft by remember(state.config.id) { mutableStateOf<SchedulePeriodSchemesDraft?>(null) }
+    var periodSchemeLibrary by remember(state.config.id) { mutableStateOf(emptyList<SavedPeriodScheme>()) }
     var lastSavedSchemeDraft by remember(state.config.id) { mutableStateOf<SchedulePeriodSchemesDraft?>(null) }
     var saving by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -181,8 +185,13 @@ fun ScheduleConfigScreen(
             schemeDraft = null
             lastSavedSchemeDraft = null
         }
-        runCatching { repository.loadPeriodSchemes(state.config.id) }
-            .onSuccess { loaded ->
+        runCatching {
+            val loaded = repository.loadPeriodSchemes(state.config.id)
+            val library = repository.loadPeriodSchemeLibrary(context, state.allConfigs + state.config,
+                state.schedules.associate { it.id to it.name })
+            loaded to library
+        }.onSuccess { (loaded, library) ->
+                periodSchemeLibrary = library
                 if (schemeReloadRequest > 0) resetConfigDraftFromState(latestState)
                 val active = loaded.schemes.firstOrNull { scheme ->
                     scheme.scheme.id == loaded.activeSchemeId
@@ -433,6 +442,30 @@ fun ScheduleConfigScreen(
         }
     }
 
+    fun selectPeriodScheme(saved: SavedPeriodScheme) {
+        val draft = schemeDraft ?: return
+        if (!draftReady || saving) return
+        try {
+            val applied = applySavedPeriodScheme(saved, state.config.copy(
+                morningPeriodCount = morningPeriodCount, noonPeriodCount = noonPeriodCount,
+                afternoonPeriodCount = afternoonPeriodCount, eveningPeriodCount = eveningPeriodCount), draft)
+            morningPeriodCount = applied.config.morningPeriodCount
+            noonPeriodCount = applied.config.noonPeriodCount
+            afternoonPeriodCount = applied.config.afternoonPeriodCount
+            eveningPeriodCount = applied.config.eveningPeriodCount
+            classDurationMinutes = saved.classDurationMinutes.toString()
+            breakDurationMinutes = saved.breakDurationMinutes.toString()
+            schemeDraft = applied.draft
+            val active = applied.draft.schemes.first { it.scheme.id == applied.draft.activeSchemeId }
+            periods = resolveSchemeTimes(applied.config, active).map {
+                PeriodEntity(it.periodIndex, it.startTime, it.endTime, state.config.id)
+            }
+            error = null
+        } catch (invalid: IllegalArgumentException) {
+            error = invalid.message ?: "作息切换失败"
+        }
+    }
+
     LaunchedEffect(exitCommitRequest) {
         if (exitCommitRequest <= 0) return@LaunchedEffect
         when (section) {
@@ -532,7 +565,9 @@ fun ScheduleConfigScreen(
         onPreviewLiveUpdate = onPreviewLiveUpdate,
         scheduleAdjustmentsJson = scheduleAdjustmentsJson,
         onScheduleAdjustmentsChange = { scheduleAdjustmentsJson = it },
-        onOpenPeriodSchemes = ::openPeriodSchemeManagement
+        onOpenPeriodSchemes = ::openPeriodSchemeManagement,
+        periodSchemeLibrary = periodSchemeLibrary,
+        onSelectPeriodScheme = ::selectPeriodScheme
     )
 
     if (showExitSaveConfirm) {

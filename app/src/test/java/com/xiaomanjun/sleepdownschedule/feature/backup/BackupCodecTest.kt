@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.backup
 
-import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.model.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemeSource
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
@@ -29,6 +30,8 @@ class BackupCodecTest {
         val saved = com.xiaomanjun.sleepdownschedule.domain.schedule.savePeriodSchemeSnapshot("library-1", "夏令时", config,
             com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemeDraft(
                 PeriodSchemeEntity(1, 1, "夏令时"), listOf(PeriodSchemeTimeEntity(1, 1, "08:30", "09:20"))))
+            .copy(sources = listOf(PeriodSchemeSource("旧课表", "学校作息")),
+                alternateNames = listOf("学校作息"), createdInLibrary = true)
         val preferences = fixtureArchive().preferences.copy(savedPeriodSchemes = listOf(saved),
             courseQuietSettings = com.xiaomanjun.sleepdownschedule.domain.schedule.CourseQuietSettings(
                 doNotDisturbEnabled = true, soundEnabled = true, advanceMinutes = 1, delayMinutes = 1))

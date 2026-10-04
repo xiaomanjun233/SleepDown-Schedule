@@ -12,6 +12,9 @@ import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdatePreferences
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+import com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme
+import com.xiaomanjun.sleepdownschedule.domain.schedule.savePeriodSchemeSnapshot
+import com.xiaomanjun.sleepdownschedule.domain.schedule.hasSameContent
 import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationChoiceRow
 import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationDetails
 import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationPreview
@@ -115,7 +118,9 @@ fun ScheduleSettingsContent(
     onPreviewLiveUpdate: (com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity) -> Unit,
     scheduleAdjustmentsJson: String = state.config.scheduleAdjustmentsJson,
     onScheduleAdjustmentsChange: (String) -> Unit = {},
-    onOpenPeriodSchemes: () -> Unit = {}
+    onOpenPeriodSchemes: () -> Unit = {},
+    periodSchemeLibrary: List<SavedPeriodScheme> = emptyList(),
+    onSelectPeriodScheme: (SavedPeriodScheme) -> Unit = {}
 ) {
     val appContext = LocalContext.current
     val experimentalNotifications = rememberExperimentalNotificationUiState(notificationMode)
@@ -162,7 +167,9 @@ fun ScheduleSettingsContent(
             topPadding = topPadding,
             scheduleAdjustmentsJson = scheduleAdjustmentsJson,
             onScheduleAdjustmentsChange = onScheduleAdjustmentsChange,
-            onOpenPeriodSchemes = onOpenPeriodSchemes
+            onOpenPeriodSchemes = onOpenPeriodSchemes,
+            periodSchemeLibrary = periodSchemeLibrary,
+            onSelectPeriodScheme = onSelectPeriodScheme
         )
         return
     }
@@ -492,7 +499,9 @@ fun ScheduleSettingsContentFixed(
     topPadding: Dp = detailContentTopPadding(),
     scheduleAdjustmentsJson: String = state.config.scheduleAdjustmentsJson,
     onScheduleAdjustmentsChange: (String) -> Unit = {},
-    onOpenPeriodSchemes: () -> Unit = {}
+    onOpenPeriodSchemes: () -> Unit = {},
+    periodSchemeLibrary: List<SavedPeriodScheme> = emptyList(),
+    onSelectPeriodScheme: (SavedPeriodScheme) -> Unit = {}
 ) {
 
     val draftConfig = state.config.copy(
@@ -524,16 +533,24 @@ fun ScheduleSettingsContentFixed(
         GlassPreferenceSection("作息") {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 if (schemeDraft != null) {
+                    val active = schemeDraft.schemes.first { it.scheme.id == schemeDraft.activeSchemeId }
+                    val current = savePeriodSchemeSnapshot("current", active.scheme.name, draftConfig, active)
+                    val currentIndex = periodSchemeLibrary.indexOfFirst { it.hasSameContent(current) }
+                    val retainsLocalCopy = currentIndex < 0
+                    val labels = periodSchemeLibrary.map { scheme ->
+                        if (periodSchemeLibrary.count { it.name == scheme.name } > 1)
+                            "${scheme.name}（${scheme.times.size}节，${scheme.times.minBy { it.periodIndex }.startTime}）"
+                        else scheme.name
+                    }
                     SleepDownLiquidDropdownPreference(
-                        items = schemeDraft.schemes.map { it.scheme.name },
-                        selectedIndex = schemeDraft.schemes.indexOfFirst { it.scheme.id == schemeDraft.activeSchemeId }.coerceAtLeast(0),
+                        items = if (retainsLocalCopy) listOf("${active.scheme.name}（课表保留）") + labels else labels,
+                        selectedIndex = if (retainsLocalCopy) 0 else currentIndex,
                         title = "当前作息", backdrop = backdrop, config = state.config,
                         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                         maxHeight = 318.dp, onExpandedChange = {},
                         onSelectedIndexChange = { index ->
-                            schemeDraft.schemes.getOrNull(index)?.let {
-                                onSchemeDraftChange(schemeDraft.copy(activeSchemeId = it.scheme.id))
-                            }
+                            if (!retainsLocalCopy || index > 0)
+                                periodSchemeLibrary.getOrNull(index - if (retainsLocalCopy) 1 else 0)?.let(onSelectPeriodScheme)
                         }
                     )
                     SettingsDivider()
