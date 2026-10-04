@@ -53,6 +53,20 @@ fun savePeriodSchemeSnapshot(
 
 data class AppliedPeriodScheme(val config: ScheduleConfigEntity, val draft: SchedulePeriodSchemesDraft)
 
+/** Opens a library item in the same timeline editor without touching a schedule's stored data. */
+internal fun savedPeriodSchemeSession(saved: SavedPeriodScheme, base: ScheduleConfigEntity): PeriodTimelineSession {
+    saved.validate()
+    val config = base.copy(morningPeriodCount = saved.morningPeriodCount, noonPeriodCount = saved.noonPeriodCount,
+        afternoonPeriodCount = saved.afternoonPeriodCount, eveningPeriodCount = saved.eveningPeriodCount,
+        classDurationMinutes = saved.classDurationMinutes, breakDurationMinutes = saved.breakDurationMinutes)
+    val scheme = PeriodSchemeEntity(id = -1, scheduleId = base.id, name = saved.name, isActive = true,
+        classDurationMinutes = saved.classDurationMinutes, breakDurationMinutes = saved.breakDurationMinutes,
+        morningStartTime = saved.morningStartTime, noonStartTime = saved.noonStartTime,
+        afternoonStartTime = saved.afternoonStartTime, eveningStartTime = saved.eveningStartTime)
+    return PeriodTimelineSession(config, SchedulePeriodSchemesDraft(listOf(PeriodSchemeDraft(scheme,
+        saved.times.map { PeriodSchemeTimeEntity(scheme.id, it.periodIndex, it.startTime, it.endTime) })), scheme.id))
+}
+
 fun applySavedPeriodScheme(
     saved: SavedPeriodScheme, config: ScheduleConfigEntity, draft: SchedulePeriodSchemesDraft
 ): AppliedPeriodScheme {
@@ -73,12 +87,17 @@ fun applySavedPeriodScheme(
         it.copy(scheme = it.scheme.copy(mode = PeriodSchemeMode.MANUAL, isActive = false),
             times = librarySchemeTimes(config, it), specialBreaks = emptyMap(), overriddenPeriods = emptySet())
     }
+    val matching = existing.firstOrNull {
+        savePeriodSchemeSnapshot(saved.id, it.scheme.name, config.copy(
+            morningPeriodCount = saved.morningPeriodCount, noonPeriodCount = saved.noonPeriodCount,
+            afternoonPeriodCount = saved.afternoonPeriodCount, eveningPeriodCount = saved.eveningPeriodCount), it) == saved
+    }
     return AppliedPeriodScheme(
         config.copy(morningPeriodCount = saved.morningPeriodCount, noonPeriodCount = saved.noonPeriodCount,
             afternoonPeriodCount = saved.afternoonPeriodCount, eveningPeriodCount = saved.eveningPeriodCount),
-        draft.copy(schemes = existing + PeriodSchemeDraft(scheme, saved.times.map {
+        draft.copy(schemes = if (matching != null) existing else existing + PeriodSchemeDraft(scheme, saved.times.map {
             PeriodSchemeTimeEntity(id, it.periodIndex, it.startTime, it.endTime)
-        }), activeSchemeId = id)
+        }), activeSchemeId = matching?.scheme?.id ?: id)
     )
 }
 

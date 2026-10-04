@@ -441,7 +441,7 @@ internal fun HomeStartMode.toHomeMode(): HomeMode = when (this) {
     HomeStartMode.WEEK -> HomeMode.Week
 }
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
+enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, PeriodSchemes, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
 
 /** Matches the navigation motion used by the bundled Miuix system-style navigator. */
 private class MiuixSettingsNavigationEasing(
@@ -509,6 +509,7 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.AiImport -> "AI 设置"
     SettingsPage.DayAgent -> "AI助理"
     SettingsPage.Schedule -> "课表详细设置"
+    SettingsPage.PeriodSchemes -> "作息管理"
     SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
@@ -523,6 +524,7 @@ private fun SettingsPage.title(): String = when (this) {
 internal fun SettingsPage.usesPersistentCenteredSettingsTitle(): Boolean = when (this) {
     SettingsPage.LiquidGlass,
     SettingsPage.Widgets,
+    SettingsPage.PeriodSchemes,
     SettingsPage.AutoRefreshSchedule,
     SettingsPage.About,
 	SettingsPage.Changelog,
@@ -5084,6 +5086,7 @@ internal fun AppTopBar(
                         SettingsPage.AiImport -> "AI 设置"
                         SettingsPage.DayAgent -> "AI助理"
                         SettingsPage.Schedule -> "课表详细设置"
+                        SettingsPage.PeriodSchemes -> "作息管理"
                         SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
                         SettingsPage.Notifications -> "通知设置"
                         SettingsPage.ScheduleManager -> "课表设置"
@@ -7357,7 +7360,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                 val closeSettings: () -> Unit = { (transitionRequestClose ?: { finish() })() }
                 val requestExit: () -> Unit = {
                     when (section) {
-                        SettingsPage.Schedule -> scheduleExitRequest++
+                        SettingsPage.Schedule, SettingsPage.PeriodSchemes -> scheduleExitRequest++
                         else -> closeSettings()
                     }
                 }
@@ -7439,6 +7442,11 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 onExitInterceptionChange = { interceptSystemBack = it }
                             )
                         }
+                        SettingsPage.PeriodSchemes -> PeriodSchemeManagementScreen(
+                            state = state, backdrop = backdrop, exitCommitRequest = scheduleExitRequest,
+                            onExitCommitFinished = { saved -> if (saved) closeSettings() },
+                            onExitInterceptionChange = { interceptSystemBack = it }
+                        )
                         SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
                             state = state,
                             backdrop = backdrop,
@@ -8407,6 +8415,11 @@ private fun SettingsPageContent(
             onExitCommitFinished = onExitCommitFinished,
             onExitInterceptionChange = onExitInterceptionChange
         )
+        SettingsPage.PeriodSchemes -> PeriodSchemeManagementScreen(
+            state = state, backdrop = backdrop, exitCommitRequest = exitCommitRequest,
+            onExitCommitFinished = onExitCommitFinished,
+            onExitInterceptionChange = onExitInterceptionChange
+        )
         SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
             state = state,
             backdrop = backdrop,
@@ -8642,6 +8655,13 @@ fun SettingsRootScreen(
                         "编辑当前课表的周数、节次与显示规则",
                         selected = selectedPage == SettingsPage.Schedule,
                         onClick = { onPageChange(SettingsPage.Schedule) }
+                    )
+                    SettingsDivider()
+                    SettingsNavigationRow(
+                        "作息管理",
+                        "选择、新建和编辑作息，可用于多张课表",
+                        selected = selectedPage == SettingsPage.PeriodSchemes,
+                        onClick = { onPageChange(SettingsPage.PeriodSchemes) }
                     )
                     SettingsDivider()
                     SettingsNavigationRow(

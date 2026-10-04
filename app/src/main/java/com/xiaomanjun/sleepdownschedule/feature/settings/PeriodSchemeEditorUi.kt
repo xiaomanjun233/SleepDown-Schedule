@@ -147,7 +147,12 @@ internal fun PeriodSchemeEditor(
     onDraftChange: (SchedulePeriodSchemesDraft) -> Unit,
     onCountsChange: (Int, Int, Int, Int) -> Unit,
     topPadding: androidx.compose.ui.unit.Dp,
-    leadingContent: @Composable () -> Unit
+    leadingContent: @Composable () -> Unit,
+    managementContent: (@Composable () -> Unit)? = null,
+    managementRequest: PeriodSchemeManagementRequest? = null,
+    onSaveSession: (suspend (PeriodTimelineSession) -> Unit)? = null,
+    onEditorFinished: () -> Unit = {},
+    exitCommitRequest: Int = 0
 ) {
     val active = draft.schemes.firstOrNull { it.scheme.id == draft.activeSchemeId } ?: return
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
@@ -259,8 +264,18 @@ internal fun PeriodSchemeEditor(
         val hasChanges = initialSession?.let { current.hasChangesFrom(it) } ?: true
         closing = true
         scope.launch {
+            if (commit && hasChanges && onSaveSession != null) {
+                try {
+                    onSaveSession(current)
+                } catch (failure: Exception) {
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
+                    localError = failure.message ?: "作息保存失败"
+                    closing = false
+                    return@launch
+                }
+            }
             motion.animateTo(0f, tween(260, easing = LinearEasing))
-            if (commit && hasChanges) {
+            if (commit && hasChanges && onSaveSession == null) {
                 onCountsChange(current.config.morningPeriodCount, current.config.noonPeriodCount,
                     current.config.afternoonPeriodCount, current.config.eveningPeriodCount)
                 onDraftChange(current.draft)
@@ -270,6 +285,7 @@ internal fun PeriodSchemeEditor(
             editorLaidOut = false
             closing = false
             localError = null
+            onEditorFinished()
         }
     }
     fun requestExit() {
@@ -287,6 +303,15 @@ internal fun PeriodSchemeEditor(
         }
     }
     BackHandler(enabled = session != null) { requestExit() }
+    LaunchedEffect(managementRequest?.id) {
+        val request = managementRequest ?: return@LaunchedEffect
+        actionSource = request.source
+        if (request.creating) showWizard = true
+        else enter(request.session.updateActive(request.session.active.materializeForTimeline(request.session.config)))
+    }
+    LaunchedEffect(exitCommitRequest) {
+        if (exitCommitRequest > 0 && session != null) requestExit()
+    }
     LaunchedEffect(motion.value == 1f, requestedBlock) {
         if (motion.value == 1f && requestedBlock != null) {
             pickingBlock = requestedBlock
@@ -295,6 +320,18 @@ internal fun PeriodSchemeEditor(
     }
 
     Box(Modifier.fillMaxSize()) {
+        if (managementContent != null) {
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                val p = timelineSceneProgress(motion.value, closing)
+                alpha = 1f - p
+                translationY = 28.dp.toPx() * p
+                scaleX = 1f - 0.04f * p
+                scaleY = scaleX
+                renderEffect = if (motion.value > 0f && motion.value < 1f) sunkenBlur else null
+            }.then(if (session != null) Modifier.clearAndSetSemantics { } else Modifier)) {
+                managementContent()
+            }
+        } else {
         Column(
             Modifier.fillMaxSize()
                 .graphicsLayer {
@@ -332,7 +369,6 @@ internal fun PeriodSchemeEditor(
                     if (draft.schemes.size > 1) Row(Modifier.fillMaxWidth().padding(14.dp)) {
                         DialogLiquidButton(backdrop, "删除作息", { showDeleteScheme = true }, monochromeNeutral = true)
                     }
-                    PeriodSchemeLibraryControls(config, draft, backdrop, onDraftChange, onCountsChange)
                 }
             }
             Column(Modifier.fillMaxWidth()) {
@@ -380,6 +416,7 @@ internal fun PeriodSchemeEditor(
                 }
             }
         }
+        }
         session?.let { edit ->
             // Keep the sinking underlay from receiving editor touches.
             Box(Modifier.fillMaxSize().clickable(interactionSource = null, indication = null) {})
@@ -408,9 +445,18 @@ internal fun PeriodSchemeEditor(
                 .heightIn(min = with(density) { (retainedScroll + viewportHeight).toDp() })
                 .padding(start = 16.dp, end = 16.dp, top = headerTop + 64.dp, bottom = navBottom + 40.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间；节次增删会同步到所有作息", fontSize = 12.sp,
+                Text(if (managementContent != null) "拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间"
+                    else "拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间；节次增删会同步到所有作息", fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) })
+                if (managementContent != null) {
+                    Box(Modifier.fillMaxWidth().graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) }) {
+                        SettingsTextFieldRow("作息名称", edit.active.scheme.name, { name ->
+                            if (interactive) session = edit.updateActive(edit.active.copy(
+                                scheme = edit.active.scheme.copy(name = name.take(60))))
+                        }, enabled = interactive)
+                    }
+                }
                 var order = 0
                 PeriodDayPart.entries.forEach { part ->
                     val partBlocks = blocks.filter { it.part == part }
@@ -552,7 +598,8 @@ internal fun PeriodSchemeEditor(
             LiquidAlertAction("新建作息", LiquidAlertActionStyle.Secondary, onClick = { showChoice = false; showWizard = true })
         ), popupBackdrop, state.config, { showChoice = false })
     if (showWizard) PeriodSchemeCreationWizard(config, draft, popupBackdrop, state.config,
-        onDismiss = { showWizard = false }, onCreated = { showWizard = false; enter(it) })
+        onDismiss = { showWizard = false; if (managementContent != null) onEditorFinished() },
+        onCreated = { showWizard = false; enter(it) }, standalone = managementContent != null)
     if (showDeleteScheme) LiquidAlertDialog("删除作息", "删除“${active.scheme.name}”？其他作息会保留。",
         listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = { showDeleteScheme = false }),
             LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive, onClick = {
