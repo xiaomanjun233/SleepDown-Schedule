@@ -86,6 +86,8 @@ $env:GRADLE_USER_HOME='C:\Users\23085\.gradle'
 
 按机器内存减少 worker；避免同时运行多个高内存构建。开发可使用 `-Psleepdown.skipReleaseResourceShrink=true`，正式候选保留资源压缩、R8、lintVital、打包与签名。Release 签名位于仓库外。
 
-用户要求安装时先运行 `adb devices -l`，确认目标后覆盖安装签名 Release：`app/build/outputs/apk/github/release/app-github-release.apk`。默认不自动启动，除非用户要求。
+本机 Android SDK 的 ADB 使用独立 `5038` 端口，默认连接为 `ADB_SERVER_SOCKET=tcp:127.0.0.1:5038`；SDK 路径为 `D:\Android studio\AndroidSDK\platform-tools\adb.exe`。OPPO 互联使用的 `5037` 服务端不作为本项目安装入口。当前应用进程可能尚未继承用户环境，项目命令统一显式使用 `adb -P 5038`，避免混用服务端。
+
+用户要求安装时先运行 `adb -P 5038 devices -l`，确认目标后使用 `adb -P 5038 -s <设备地址> install -r app/build/outputs/apk/github/release/app-github-release.apk` 覆盖安装签名 Release。默认不自动启动，除非用户要求。
 
 只报告实际执行的验证；实机记录设备、系统、场景和结果。未执行项说明原因。完成回复简洁交代修改及原因、主要文件与影响、构建/测试和安装结果；面向用户的更新日志使用产品语言。
