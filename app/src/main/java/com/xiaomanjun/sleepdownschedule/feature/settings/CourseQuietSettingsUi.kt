@@ -60,7 +60,7 @@ internal fun CourseQuietSettingsGroup(backdrop: Backdrop?, config: ScheduleConfi
             finally { busy = false }
         }
     }
-    GlassPreferenceSection("上课自动安静 · 全局") {
+    GlassPreferenceSection("上课自动安静") {
         SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
             SettingsToggleRow("自动勿扰", "在上课期间自动打开勿扰模式", settings.doNotDisturbEnabled,
                 backdrop, enabled = !busy, onCheckedChange = { update(settings.copy(doNotDisturbEnabled = it)) })
