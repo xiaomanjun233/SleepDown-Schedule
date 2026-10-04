@@ -32,12 +32,15 @@ import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.app.ui.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.app.ui.homeChromeBlur
 import com.xiaomanjun.sleepdownschedule.app.ui.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsPopupBackdrop
 import com.xiaomanjun.sleepdownschedule.data.repository.loadPeriodSchemeLibrary
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
+import com.xiaomanjun.sleepdownschedule.feature.home.homeImportButtonGlassColor
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.model.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -152,7 +155,7 @@ fun PeriodSchemeManagementScreen(
         managementContent = {
             Box(Modifier.fillMaxSize()) {
                 LazyColumn(Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = navigationBottom + 88.dp),
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = navigationBottom + 100.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (!loaded) item { MiuixText("正在读取作息…", modifier = Modifier.padding(vertical = 20.dp),
                         style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
@@ -174,9 +177,12 @@ fun PeriodSchemeManagementScreen(
                     }
                 }
                 val canCreate = loaded && !busy
-                DialogLiquidButton(
+                SleepDownFloatingAddButton(
                     backdrop = backdrop,
-                    label = "新建作息",
+                    contentDescription = "新建作息",
+                    enabled = canCreate,
+                    surfaceColor = homeImportButtonGlassColor(!appUsesDarkTheme(visualState.config)),
+                    blurRadius = homeChromeBlur(1.3.dp, visualState.config),
                     onClick = {
                         if (canCreate) {
                             currentSnapshot?.let { seed ->
@@ -190,10 +196,6 @@ fun PeriodSchemeManagementScreen(
                         .minimumInteractiveComponentSize().alpha(if (canCreate) 1f else 0.38f)
                         .semantics { if (!canCreate) disabled() }
                         .onGloballyPositioned { addBounds = it.boundsInRoot() },
-                    role = DialogButtonRole.Confirm,
-                    iconRes = R.drawable.ic_add_course,
-                    roundIcon = true,
-                    shadowEnabled = false
                 )
             }
         }

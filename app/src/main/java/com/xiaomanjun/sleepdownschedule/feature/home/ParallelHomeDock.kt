@@ -4,9 +4,6 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Add
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,10 +30,10 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownFloatingAddButton
 import com.xiaomanjun.sleepdownschedule.feature.agent.excludeHomeAssistantPull
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
@@ -104,9 +101,9 @@ internal fun ParallelHomeDock(
                 val mask = Path().apply { addRoundRect(RoundRect(body, CornerRadius(body.height / 2f))) }
                 clipPath(mask, ClipOp.Difference) { this@drawWithContent.drawContent() }
             }) {
-                LiquidButton(onClick = {
+                SleepDownFloatingAddButton(onClick = {
                     if (buttonBounds.width > 1f && buttonBounds.height > 1f) onOpenMenu(buttonBounds, returnButtonLayer)
-                }, backdrop = backdrop, isInteractive = buttonInteractive, clickTargetEnabled = buttonInteractive,
+                }, backdrop = backdrop, contentDescription = "添加与导入", enabled = buttonInteractive,
                     modifier = Modifier.offset {
                         val s = split.value.coerceIn(0f, 1f)
                         val body = dockBounds.value
@@ -130,14 +127,8 @@ internal fun ParallelHomeDock(
                         .excludeHomeAssistantPull()
                         .then(if (buttonInteractive) Modifier.semantics { testTag = "parallel_import_button" }
                             else Modifier.clearAndSetSemantics {}),
-                    height = 54.dp, contentPadding = PaddingValues(0.dp),
                     surfaceColor = plusSurface, sharedInteractiveHighlight = plusInteraction,
-                    blurRadius = homeChromeBlur(1.3.dp, config), lensHeight = 10.dp, lensAmount = 40.dp,
-                    chromaticAberration = true, pressExpansion = 4.dp) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Rounded.Add, "添加与导入", Modifier.size(24.dp), tint = Color.White)
-                    }
-                }
+                    blurRadius = homeChromeBlur(1.3.dp, config))
             }
             CompositionLocalProvider(LocalContentColor provides ink) {
                 HomeDockTabs(selectedIndex, true, config, backdrop, light,
