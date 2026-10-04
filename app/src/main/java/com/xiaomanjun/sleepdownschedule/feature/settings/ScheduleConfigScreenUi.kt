@@ -21,6 +21,8 @@ import android.annotation.SuppressLint
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.net.toUri
 import android.provider.Settings
 import androidx.compose.foundation.layout.only
@@ -36,6 +38,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.platform.LocalContext
@@ -45,6 +48,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
+import com.xiaomanjun.sleepdownschedule.transition.legacy.ScheduleCustomizeIdExtra
 
 
 @Composable
@@ -56,7 +60,8 @@ fun ScheduleConfigScreen(
     onPreviewLiveUpdate: (ScheduleConfigEntity) -> Unit,
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
-    onExitInterceptionChange: (Boolean) -> Unit = {}
+    onExitInterceptionChange: (Boolean) -> Unit = {},
+    onOpenPeriodSchemes: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val repository = remember(context) { (context.applicationContext as CourseScheduleApp).repository }
@@ -100,30 +105,35 @@ fun ScheduleConfigScreen(
     var draftReady by remember(state.config.id, section) {
         mutableStateOf(section != SettingsSection.Schedule)
     }
+    val latestState by rememberUpdatedState(state)
+    var schemeReloadRequest by remember(state.config.id) { mutableIntStateOf(0) }
+    val periodManagementLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        schemeReloadRequest++
+    }
 
-    fun resetConfigDraftFromState() {
-        currentDraftScheduleId = state.config.id
-        totalWeeks = state.config.totalWeeks.toString()
-        currentWeek = state.config.currentWeek.toString()
-        leadMinutes = state.config.notificationLeadMinutes.toString()
-        notificationsEnabled = state.config.notificationsEnabled
-        notificationMode = state.config.notificationMode
-        liveUpdateChipTextMode = state.config.liveUpdateChipTextMode
-        liveUpdateActionsEnabled = state.config.liveUpdateActionsEnabled
-        autoCurrentWeek = state.config.autoCurrentWeek
-        hideEmptyWeekends = state.config.hideEmptyWeekends
-        scheduleAdjustmentsJson = state.config.scheduleAdjustmentsJson
-        termStartDate = state.config.termStartDate.orEmpty()
-        classDurationMinutes = state.config.classDurationMinutes.toString()
-        breakDurationMinutes = state.config.breakDurationMinutes.toString()
-        morningPeriodCount = state.config.morningPeriodCount
-        noonPeriodCount = state.config.noonPeriodCount
-        afternoonPeriodCount = state.config.afternoonPeriodCount
-        eveningPeriodCount = state.config.eveningPeriodCount
-        periods = state.periods
+    fun resetConfigDraftFromState(source: AppState = state) {
+        currentDraftScheduleId = source.config.id
+        totalWeeks = source.config.totalWeeks.toString()
+        currentWeek = source.config.currentWeek.toString()
+        leadMinutes = source.config.notificationLeadMinutes.toString()
+        notificationsEnabled = source.config.notificationsEnabled
+        notificationMode = source.config.notificationMode
+        liveUpdateChipTextMode = source.config.liveUpdateChipTextMode
+        liveUpdateActionsEnabled = source.config.liveUpdateActionsEnabled
+        autoCurrentWeek = source.config.autoCurrentWeek
+        hideEmptyWeekends = source.config.hideEmptyWeekends
+        scheduleAdjustmentsJson = source.config.scheduleAdjustmentsJson
+        termStartDate = source.config.termStartDate.orEmpty()
+        classDurationMinutes = source.config.classDurationMinutes.toString()
+        breakDurationMinutes = source.config.breakDurationMinutes.toString()
+        morningPeriodCount = source.config.morningPeriodCount
+        noonPeriodCount = source.config.noonPeriodCount
+        afternoonPeriodCount = source.config.afternoonPeriodCount
+        eveningPeriodCount = source.config.eveningPeriodCount
+        periods = source.periods
         error = null
-        lastSavedConfig = state.config
-        lastSavedPeriods = state.periods
+        lastSavedConfig = source.config
+        lastSavedPeriods = source.periods
     }
 
     fun computeDirty(): Boolean {
@@ -159,7 +169,7 @@ fun ScheduleConfigScreen(
             resetConfigDraftFromState()
         }
     }
-    LaunchedEffect(state.config.id, section) {
+    LaunchedEffect(state.config.id, section, schemeReloadRequest) {
         if (section != SettingsSection.Schedule) {
             schemeDraft = null
             lastSavedSchemeDraft = null
@@ -167,8 +177,13 @@ fun ScheduleConfigScreen(
             return@LaunchedEffect
         }
         draftReady = false
+        if (schemeReloadRequest > 0) {
+            schemeDraft = null
+            lastSavedSchemeDraft = null
+        }
         runCatching { repository.loadPeriodSchemes(state.config.id) }
             .onSuccess { loaded ->
+                if (schemeReloadRequest > 0) resetConfigDraftFromState(latestState)
                 val active = loaded.schemes.firstOrNull { scheme ->
                     scheme.scheme.id == loaded.activeSchemeId
                 }
@@ -182,7 +197,7 @@ fun ScheduleConfigScreen(
                 lastSavedSchemeDraft = loaded
                 periods = loadedActivePeriods
                 lastSavedPeriods = loadedActivePeriods
-                lastSavedConfig = state.config
+                lastSavedConfig = latestState.config
                 draftReady = true
             }
             .onFailure {
@@ -396,6 +411,28 @@ fun ScheduleConfigScreen(
         }
     }
 
+    fun openPeriodSchemeManagement() {
+        if (!draftReady || saving) return
+        fun navigate() {
+            if (onOpenPeriodSchemes != null) {
+                onOpenPeriodSchemes()
+            } else {
+                // Suspend the parent draft until the child returns and its saved times are reloaded.
+                draftReady = false
+                periodManagementLauncher.launch(
+                    Intent(context, SettingsDetailActivity::class.java)
+                        .putExtra("settings_page", SettingsPage.PeriodSchemes.name)
+                        .putExtra(ScheduleCustomizeIdExtra, state.config.id)
+                )
+            }
+        }
+        if (computeDirty()) {
+            saveConfigDraft(onFinished = { saved -> if (saved) navigate() })
+        } else {
+            navigate()
+        }
+    }
+
     LaunchedEffect(exitCommitRequest) {
         if (exitCommitRequest <= 0) return@LaunchedEffect
         when (section) {
@@ -494,7 +531,8 @@ fun ScheduleConfigScreen(
         error = error,
         onPreviewLiveUpdate = onPreviewLiveUpdate,
         scheduleAdjustmentsJson = scheduleAdjustmentsJson,
-        onScheduleAdjustmentsChange = { scheduleAdjustmentsJson = it }
+        onScheduleAdjustmentsChange = { scheduleAdjustmentsJson = it },
+        onOpenPeriodSchemes = ::openPeriodSchemeManagement
     )
 
     if (showExitSaveConfirm) {

@@ -7442,11 +7442,18 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 onExitInterceptionChange = { interceptSystemBack = it }
                             )
                         }
-                        SettingsPage.PeriodSchemes -> PeriodSchemeManagementScreen(
-                            state = state, backdrop = backdrop, exitCommitRequest = scheduleExitRequest,
-                            onExitCommitFinished = { saved -> if (saved) closeSettings() },
-                            onExitInterceptionChange = { interceptSystemBack = it }
-                        )
+                        SettingsPage.PeriodSchemes -> if (!scheduleEditReady) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                androidx.compose.material3.CircularProgressIndicator()
+                            }
+                        } else {
+                            PeriodSchemeManagementScreen(
+                                state = scheduleEditState, backdrop = backdrop, exitCommitRequest = scheduleExitRequest,
+                                onExitCommitFinished = { saved -> if (saved) closeSettings() },
+                                onExitInterceptionChange = { interceptSystemBack = it },
+                                onOpenScheduleSettings = if (customizeScheduleId != null) closeSettings else null
+                            )
+                        }
                         SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
                             state = state,
                             backdrop = backdrop,
@@ -7611,7 +7618,10 @@ private fun scheduleConfigStateForEdit(state: AppState, scheduleId: Int): AppSta
         ?: defaultConfig(scheduleId)
     val targetPeriods = state.allPeriods.filter { it.scheduleId == scheduleId }
         .ifEmpty { state.periods.takeIf { targetConfig.id == state.config.id } ?: defaultPeriods(scheduleId) }
-    return state.copy(config = targetConfig.copy(id = scheduleId), periods = targetPeriods)
+    return state.copy(
+        config = targetConfig.copy(id = scheduleId), periods = targetPeriods,
+        courses = state.allCourses.filter { it.scheduleId == scheduleId }
+    )
 }
 
 open class EduSchoolSelectActivityHost : ComponentActivity() {
@@ -8109,6 +8119,7 @@ fun SettingsScreen(
                 mutableStateOf(TabletSettingsNavigationState())
             }
             var detailNavigationDirection by remember { mutableIntStateOf(0) }
+            var periodSchemeReturnRequest by remember { mutableIntStateOf(0) }
             var tabletWidgetEditorVisible by remember { mutableStateOf(false) }
             var pendingPageName by remember { mutableStateOf<String?>(null) }
             var scheduleExitInFlight by remember { mutableStateOf(false) }
@@ -8166,6 +8177,7 @@ fun SettingsScreen(
             fun popTabletDetailPage() {
                 val nextNavigation = tabletNavigation.popDetail()
                 if (nextNavigation == tabletNavigation) return
+                if (displayedPage == SettingsPage.PeriodSchemes) periodSchemeReturnRequest++
                 detailNavigationDirection = -1
                 tabletNavigation = nextNavigation
             }
@@ -8318,7 +8330,9 @@ fun SettingsScreen(
                                         if (needsInterception) put(targetPage, true) else remove(targetPage)
                                     }
                                 },
-                                autoRefreshWarehouseRequest = autoRefreshWarehouseRequest
+                                autoRefreshWarehouseRequest = autoRefreshWarehouseRequest,
+                                onOpenScheduleSettings = ::popTabletDetailPage,
+                                periodSchemeReturnRequest = periodSchemeReturnRequest
                             )
                         }
                     }
@@ -8376,7 +8390,9 @@ private fun SettingsPageContent(
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
     onExitInterceptionChange: (Boolean) -> Unit = {},
-    autoRefreshWarehouseRequest: Int = 0
+    autoRefreshWarehouseRequest: Int = 0,
+    onOpenScheduleSettings: (() -> Unit)? = null,
+    periodSchemeReturnRequest: Int = 0
 ) {
     when (page) {
         SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange = onPageChange)
@@ -8405,7 +8421,7 @@ private fun SettingsPageContent(
             onExitCommitFinished = onExitCommitFinished
         )
         SettingsPage.DayAgent -> DayAgentSettingsScreen(state, backdrop)
-        SettingsPage.Schedule -> ScheduleConfigScreen(
+        SettingsPage.Schedule -> key(periodSchemeReturnRequest) { ScheduleConfigScreen(
             state = state,
             backdrop = backdrop,
             section = SettingsSection.Schedule,
@@ -8413,12 +8429,14 @@ private fun SettingsPageContent(
             onPreviewLiveUpdate = onPreviewLiveUpdate,
             exitCommitRequest = exitCommitRequest,
             onExitCommitFinished = onExitCommitFinished,
-            onExitInterceptionChange = onExitInterceptionChange
-        )
+            onExitInterceptionChange = onExitInterceptionChange,
+            onOpenPeriodSchemes = { onPageChange(SettingsPage.PeriodSchemes) }
+        ) }
         SettingsPage.PeriodSchemes -> PeriodSchemeManagementScreen(
             state = state, backdrop = backdrop, exitCommitRequest = exitCommitRequest,
             onExitCommitFinished = onExitCommitFinished,
-            onExitInterceptionChange = onExitInterceptionChange
+            onExitInterceptionChange = onExitInterceptionChange,
+            onOpenScheduleSettings = onOpenScheduleSettings ?: { onPageChange(SettingsPage.Schedule) }
         )
         SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
             state = state,
@@ -8655,13 +8673,6 @@ fun SettingsRootScreen(
                         "编辑当前课表的周数、节次与显示规则",
                         selected = selectedPage == SettingsPage.Schedule,
                         onClick = { onPageChange(SettingsPage.Schedule) }
-                    )
-                    SettingsDivider()
-                    SettingsNavigationRow(
-                        "作息管理",
-                        "选择、新建和编辑作息，可用于多张课表",
-                        selected = selectedPage == SettingsPage.PeriodSchemes,
-                        onClick = { onPageChange(SettingsPage.PeriodSchemes) }
                     )
                     SettingsDivider()
                     SettingsNavigationRow(

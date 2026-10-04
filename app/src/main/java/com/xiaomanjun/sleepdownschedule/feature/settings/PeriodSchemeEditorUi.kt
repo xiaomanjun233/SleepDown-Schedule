@@ -159,9 +159,7 @@ internal fun PeriodSchemeEditor(
     val chromeProgress = LocalSettingsEditorProgress.current
     var session by remember(config.id) { mutableStateOf<PeriodTimelineSession?>(null) }
     var initialSession by remember(config.id) { mutableStateOf<PeriodTimelineSession?>(null) }
-    var showChoice by remember { mutableStateOf(false) }
     var showWizard by remember { mutableStateOf(false) }
-    var showDeleteScheme by remember { mutableStateOf(false) }
     var showExitConfirmation by remember { mutableStateOf(false) }
     var deletingBlock by remember { mutableStateOf<TimelineBlock?>(null) }
     var pickingBlock by remember { mutableStateOf<TimelineBlock?>(null) }
@@ -348,33 +346,12 @@ internal fun PeriodSchemeEditor(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             leadingContent()
-            GlassPreferenceSection("作息安排") {
-                SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
-                    SleepDownLiquidDropdownPreference(
-                        items = draft.schemes.map { it.scheme.name },
-                        selectedIndex = draft.schemes.indexOf(active).coerceAtLeast(0),
-                        title = "当前作息", backdrop = backdrop, config = state.config,
-                        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                        maxHeight = 318.dp, onExpandedChange = {},
-                        onSelectedIndexChange = { index ->
-                            draft.schemes.getOrNull(index)?.let { onDraftChange(draft.copy(activeSchemeId = it.scheme.id)) }
-                        }
-                    )
-                    SettingsDivider()
-                    SettingsTextFieldRow("作息名称", active.scheme.name, { name ->
-                        onDraftChange(draft.copy(schemes = draft.schemes.map {
-                            if (it == active) it.copy(scheme = it.scheme.copy(name = name)) else it
-                        }))
-                    })
-                    if (draft.schemes.size > 1) Row(Modifier.fillMaxWidth().padding(14.dp)) {
-                        DialogLiquidButton(backdrop, "删除作息", { showDeleteScheme = true }, monochromeNeutral = true)
-                    }
-                }
-            }
             Column(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     GlassPreferenceCategory("详细节次", modifier = Modifier.weight(1f))
-                    DialogLiquidButton(backdrop, "编辑", { showChoice = true }, role = DialogButtonRole.Confirm,
+                    DialogLiquidButton(backdrop, "编辑", {
+                        enter(PeriodTimelineSession(config, draft).updateActive(active.materializeForTimeline(config)))
+                    }, role = DialogButtonRole.Confirm,
                         height = 32.dp, horizontalPadding = 12.dp, shadowEnabled = false,
                         modifier = Modifier.minimumInteractiveComponentSize()
                             .onGloballyPositioned {
@@ -589,24 +566,9 @@ internal fun PeriodSchemeEditor(
             LiquidAlertAction("不保存", LiquidAlertActionStyle.Destructive, onClick = { showExitConfirmation = false; leave(false) }),
             LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Secondary, onClick = { showExitConfirmation = false })
         ), popupBackdrop, state.config, { showExitConfirmation = false })
-    if (showChoice) LiquidAlertDialog("编辑作息", "要新建一个作息，还是在当前作息调整？",
-        listOf(
-            LiquidAlertAction("调整当前作息", LiquidAlertActionStyle.Primary, onClick = {
-                showChoice = false
-                enter(PeriodTimelineSession(config, draft).updateActive(active.materializeForTimeline(config)))
-            }),
-            LiquidAlertAction("新建作息", LiquidAlertActionStyle.Secondary, onClick = { showChoice = false; showWizard = true })
-        ), popupBackdrop, state.config, { showChoice = false })
     if (showWizard) PeriodSchemeCreationWizard(config, draft, popupBackdrop, state.config,
         onDismiss = { showWizard = false; if (managementContent != null) onEditorFinished() },
         onCreated = { showWizard = false; enter(it) }, standalone = managementContent != null)
-    if (showDeleteScheme) LiquidAlertDialog("删除作息", "删除“${active.scheme.name}”？其他作息会保留。",
-        listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = { showDeleteScheme = false }),
-            LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive, onClick = {
-                val remaining = draft.schemes.filterNot { it.scheme.id == active.scheme.id }
-                if (remaining.isNotEmpty()) onDraftChange(draft.copy(schemes = remaining, activeSchemeId = remaining.first().scheme.id))
-                showDeleteScheme = false
-            })), popupBackdrop, state.config, { showDeleteScheme = false })
     deletingBlock?.let { block ->
         LiquidAlertDialog("移除${block.title}", if (block.isBreak) "后续课程将在当前时段内提前 ${block.minutes} 分钟，节次编号和其他作息不变。"
             else "节次编号将连续调整，其他作息也会同步减少这一节。删除后可从课间下方添加节次，课程对应关系会在保存详细设置时确认。",

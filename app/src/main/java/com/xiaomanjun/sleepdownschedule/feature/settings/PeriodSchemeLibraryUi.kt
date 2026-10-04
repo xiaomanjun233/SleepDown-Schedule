@@ -3,27 +3,36 @@ package com.xiaomanjun.sleepdownschedule.feature.settings
 import android.content.Context
 import android.content.Intent
 import android.widget.Toast
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
+import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.SettingsDetailActivity
 import com.xiaomanjun.sleepdownschedule.app.ui.SettingsPage
 import com.xiaomanjun.sleepdownschedule.app.ui.detailContentTopPadding
@@ -34,9 +43,12 @@ import com.xiaomanjun.sleepdownschedule.data.repository.PeriodSchemeLibraryStore
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 import com.xiaomanjun.sleepdownschedule.model.*
+import com.xiaomanjun.sleepdownschedule.transition.legacy.ScheduleCustomizeIdExtra
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.basic.Text as MiuixText
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 import java.util.UUID
 
 internal data class PeriodSchemeManagementRequest(
@@ -48,8 +60,9 @@ internal data class PeriodSchemeManagementRequest(
     val original: SavedPeriodScheme? = null
 )
 
-private fun openPeriodSettings(context: Context, page: SettingsPage) {
-    context.startActivity(Intent(context, SettingsDetailActivity::class.java).putExtra("settings_page", page.name))
+private fun openPeriodSettings(context: Context, page: SettingsPage, scheduleId: Int) {
+    context.startActivity(Intent(context, SettingsDetailActivity::class.java)
+        .putExtra("settings_page", page.name).putExtra(ScheduleCustomizeIdExtra, scheduleId))
 }
 
 /** Independent list of reusable timetables. Editing reuses the existing timeline scene. */
@@ -59,7 +72,8 @@ fun PeriodSchemeManagementScreen(
     backdrop: Backdrop?,
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
-    onExitInterceptionChange: (Boolean) -> Unit = {}
+    onExitInterceptionChange: (Boolean) -> Unit = {},
+    onOpenScheduleSettings: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
     val repository = remember(context) { (context.applicationContext as CourseScheduleApp).repository }
@@ -159,17 +173,15 @@ fun PeriodSchemeManagementScreen(
             Box(Modifier.fillMaxSize()) {
                 LazyColumn(Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = navigationBottom + 88.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text("当前课表：$scheduleName", style = MaterialTheme.typography.titleSmall)
-                            Text("点选作息即可使用，也可在其他课表选择同一套作息。",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        MiuixText("应用到：$scheduleName", style = MiuixTheme.textStyles.body2,
+                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
-                    if (!loaded) item { Text("正在读取作息…", modifier = Modifier.padding(vertical = 20.dp)) }
+                    if (!loaded) item { MiuixText("正在读取作息…", modifier = Modifier.padding(vertical = 20.dp),
+                        style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
                     error?.let { message -> item {
-                        Text(message, color = MaterialTheme.colorScheme.error)
+                        MiuixText(message, style = MiuixTheme.textStyles.body2, color = MaterialTheme.colorScheme.error)
                         if (!loaded) SettingsActionButton("重新读取", backdrop, onClick = { retry++ })
                     } }
                     items(library, key = { it.id }) { saved ->
@@ -180,17 +192,32 @@ fun PeriodSchemeManagementScreen(
                             onDelete = { deleting = saved })
                     }
                     if (loaded && library.isEmpty()) item {
-                        Text("还没有作息，点击下方“新建作息”开始设置。", modifier = Modifier.padding(vertical = 24.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        MiuixText("还没有作息，点击右下角加号新建。", modifier = Modifier.padding(vertical = 24.dp),
+                            style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
-                QuickSheetLiquidAction("新建作息", loaded && !busy, backdrop, visualState.config,
-                    Modifier.align(Alignment.BottomEnd).padding(end = 24.dp, bottom = navigationBottom + 24.dp).widthIn(min = 148.dp, max = 220.dp)
-                        .onGloballyPositioned { addBounds = it.boundsInRoot() }, primary = true, height = 48.dp) {
-                    val seed = currentSnapshot ?: return@QuickSheetLiquidAction
-                    editing = PeriodSchemeManagementRequest(UUID.randomUUID().toString(), UUID.randomUUID().toString(),
-                        savedPeriodSchemeSession(seed, state.config), addBounds, creating = true)
-                }
+                val canCreate = loaded && !busy
+                DialogLiquidButton(
+                    backdrop = backdrop,
+                    label = "新建作息",
+                    onClick = {
+                        if (canCreate) {
+                            currentSnapshot?.let { seed ->
+                                editing = PeriodSchemeManagementRequest(UUID.randomUUID().toString(), UUID.randomUUID().toString(),
+                                    savedPeriodSchemeSession(seed, state.config), addBounds, creating = true)
+                            }
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.BottomEnd)
+                        .padding(end = 32.dp, bottom = navigationBottom + 32.dp)
+                        .minimumInteractiveComponentSize().alpha(if (canCreate) 1f else 0.38f)
+                        .semantics { if (!canCreate) disabled() }
+                        .onGloballyPositioned { addBounds = it.boundsInRoot() },
+                    role = DialogButtonRole.Confirm,
+                    iconRes = R.drawable.ic_add_course,
+                    roundIcon = true,
+                    shadowEnabled = false
+                )
             }
         }
     )
@@ -217,7 +244,7 @@ fun PeriodSchemeManagementScreen(
             listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = { incompatible = null }),
                 LiquidAlertAction("调整课表节数", LiquidAlertActionStyle.Primary, onClick = {
                     incompatible = null
-                    openPeriodSettings(context, SettingsPage.Schedule)
+                    onOpenScheduleSettings?.invoke() ?: openPeriodSettings(context, SettingsPage.Schedule, state.config.id)
                 })), popupBackdrop, visualState.config, { incompatible = null })
     }
 }
@@ -233,29 +260,49 @@ private fun PeriodSchemeCard(
     val starts = listOf("上午" to saved.morningStartTime, "中午" to saved.noonStartTime,
         "下午" to saved.afternoonStartTime, "晚上" to saved.eveningStartTime).filter { start -> parts.any { it.first == start.first } }
     SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().clickable(enabled = enabled, onClickLabel = "使用${saved.name}", onClick = onSelect)
-            .padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(saved.name, Modifier.weight(1f), style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (selected) Text("当前使用", Modifier.clip(Capsule())
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)).padding(horizontal = 9.dp, vertical = 4.dp),
-                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            }
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(parts.joinToString(" · ") { "${it.first} ${it.second} 节" }, style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(starts.joinToString(" · ") { "${it.first} ${it.second}" }, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                QuickSheetLiquidAction("编辑", enabled, backdrop, config,
-                    Modifier.weight(1f).onGloballyPositioned { editBounds = it.boundsInRoot() }, primary = true, height = 48.dp) {
-                    onEdit(editBounds)
+        Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClickLabel = "使用${saved.name}", onClick = onSelect)
+            .padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    MiuixText(saved.name, Modifier.weight(1f, fill = false), style = MiuixTheme.textStyles.headline1,
+                        fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onBackground,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (selected) MiuixText("当前", Modifier.clip(RoundedRectangle(6.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)).padding(horizontal = 4.dp, vertical = 2.dp),
+                        style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.primary)
                 }
-                if (!selected) {
-                    Spacer(Modifier.width(8.dp))
-                    QuickSheetLiquidAction("删除", enabled, backdrop, config, Modifier.weight(1f), destructive = true, height = 48.dp) { onDelete() }
+                MiuixText(parts.joinToString(" · ") { "${it.first}${it.second}节" }, style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                MiuixText(starts.joinToString(" · ") { it.second }, style = MiuixTheme.textStyles.body2,
+                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                DialogLiquidButton(
+                    backdrop = backdrop, label = "编辑${saved.name}",
+                    onClick = { if (enabled) onEdit(editBounds) },
+                    modifier = Modifier.minimumInteractiveComponentSize().alpha(if (enabled) 1f else 0.38f)
+                        .semantics { if (!enabled) disabled() }
+                        .onGloballyPositioned { editBounds = it.boundsInRoot() },
+                    role = DialogButtonRole.Confirm, iconRes = R.drawable.ic_edit,
+                    roundIcon = true, shadowEnabled = false
+                )
+                AnimatedVisibility(!selected,
+                    enter = fadeIn() + expandHorizontally(expandFrom = Alignment.End),
+                    exit = fadeOut() + shrinkHorizontally(shrinkTowards = Alignment.End)) {
+                    Row {
+                        Spacer(Modifier.width(8.dp))
+                        val canDelete = enabled && !selected
+                        DialogLiquidButton(
+                            backdrop = backdrop, label = "删除${saved.name}",
+                            onClick = { if (canDelete) onDelete() },
+                            modifier = Modifier.minimumInteractiveComponentSize().alpha(if (canDelete) 1f else 0.38f)
+                                .semantics { if (!canDelete) disabled() },
+                            role = DialogButtonRole.Cancel, destructiveFilled = true,
+                            iconRes = R.drawable.ic_delete_history, roundIcon = true, shadowEnabled = false
+                        )
+                    }
                 }
             }
         }

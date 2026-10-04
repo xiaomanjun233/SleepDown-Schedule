@@ -114,7 +114,8 @@ fun ScheduleSettingsContent(
     error: String?,
     onPreviewLiveUpdate: (com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity) -> Unit,
     scheduleAdjustmentsJson: String = state.config.scheduleAdjustmentsJson,
-    onScheduleAdjustmentsChange: (String) -> Unit = {}
+    onScheduleAdjustmentsChange: (String) -> Unit = {},
+    onOpenPeriodSchemes: () -> Unit = {}
 ) {
     val appContext = LocalContext.current
     val experimentalNotifications = rememberExperimentalNotificationUiState(notificationMode)
@@ -160,7 +161,8 @@ fun ScheduleSettingsContent(
             error = error,
             topPadding = topPadding,
             scheduleAdjustmentsJson = scheduleAdjustmentsJson,
-            onScheduleAdjustmentsChange = onScheduleAdjustmentsChange
+            onScheduleAdjustmentsChange = onScheduleAdjustmentsChange,
+            onOpenPeriodSchemes = onOpenPeriodSchemes
         )
         return
     }
@@ -489,7 +491,8 @@ fun ScheduleSettingsContentFixed(
     error: String?,
     topPadding: Dp = detailContentTopPadding(),
     scheduleAdjustmentsJson: String = state.config.scheduleAdjustmentsJson,
-    onScheduleAdjustmentsChange: (String) -> Unit = {}
+    onScheduleAdjustmentsChange: (String) -> Unit = {},
+    onOpenPeriodSchemes: () -> Unit = {}
 ) {
 
     val draftConfig = state.config.copy(
@@ -518,6 +521,30 @@ fun ScheduleSettingsContentFixed(
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        GlassPreferenceSection("作息") {
+            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                if (schemeDraft != null) {
+                    SleepDownLiquidDropdownPreference(
+                        items = schemeDraft.schemes.map { it.scheme.name },
+                        selectedIndex = schemeDraft.schemes.indexOfFirst { it.scheme.id == schemeDraft.activeSchemeId }.coerceAtLeast(0),
+                        title = "当前作息", backdrop = backdrop, config = state.config,
+                        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                        maxHeight = 318.dp, onExpandedChange = {},
+                        onSelectedIndexChange = { index ->
+                            schemeDraft.schemes.getOrNull(index)?.let {
+                                onSchemeDraftChange(schemeDraft.copy(activeSchemeId = it.scheme.id))
+                            }
+                        }
+                    )
+                    SettingsDivider()
+                }
+                SettingsNavigationRow(
+                    "作息管理",
+                    "新建、编辑和删除通用作息",
+                    onClick = onOpenPeriodSchemes
+                )
+            }
+        }
         ScheduleAdjustmentsSettings(state.copy(config = draftConfig), backdrop, scheduleAdjustmentsJson, onScheduleAdjustmentsChange)
     }
     if (schemeDraft != null) {
