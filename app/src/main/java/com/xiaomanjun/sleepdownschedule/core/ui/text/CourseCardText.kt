@@ -95,6 +95,10 @@ internal fun CourseCardText(
         return true
     }
     fun updateAfterMotion() {
+        // The page resumes sampling through LaunchedEffect(background) after settling.
+        // Keep the coordinate reference current without mapping every label to the window
+        // or starting settle jobs on each frame of a pager swipe or vertical scroll.
+        if (background == null || background.frozen) return
         val position = coordinates[0]?.takeIf { it.isAttached } ?: return
         val origin = position.localToWindow(Offset.Zero)
         if (observedOrigin[0] == origin) {
@@ -149,7 +153,10 @@ internal fun CourseCardText(
     }
     Text(
         text = text,
-        modifier = modifier.onGloballyPositioned { coordinates[0] = it; updateAfterMotion() },
+        modifier = if (background == null) modifier else modifier.onGloballyPositioned {
+            coordinates[0] = it
+            updateAfterMotion()
+        },
         color = displayedColor,
         style = shadowStyle,
         fontWeight = if (coloredText) maxOf(fontWeight ?: style.fontWeight ?: FontWeight.Normal, FontWeight.Bold) else fontWeight,

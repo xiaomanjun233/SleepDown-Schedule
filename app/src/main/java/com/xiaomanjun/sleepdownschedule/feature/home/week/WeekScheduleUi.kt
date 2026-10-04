@@ -237,6 +237,7 @@ import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -3227,12 +3228,16 @@ fun WeekCourseBlock(
     val tailDirection = if (weekMotionOutgoing) -weekMotionDirection else weekMotionDirection
     val startupPhase = LocalStartupPhase.current
     val editControlOrder = ((periodIndex - 1).coerceAtLeast(0) * 7 + (dayIndex - 1).coerceAtLeast(0)) * 2 + stackIndex
-    // Position changes on every pager/vertical-scroll frame but does not affect composition.
-    // Keep the latest anchor in a non-observable holder so scrolling N cards cannot schedule N
-    // recompositions; only a real width change updates the small measured-width state below.
+    // Keep mutable layout coordinates outside Snapshot state. Ordinary scrolling resolves
+    // the anchor once after settling or on interaction; edit animations keep reporting it.
+    // Only a real width change updates the measured-width state below.
     val ownBoundsRef = remember(course.id, dayIndex, periodIndex, editWeek) {
         arrayOfNulls<Rect>(1)
     }
+    val ownCoordinatesRef = remember(course.id, dayIndex, periodIndex, editWeek) {
+        arrayOfNulls<LayoutCoordinates>(1)
+    }
+    val cardMotionFrozen = LocalCourseTextMotionFrozen.current
     var measuredCardWidth by remember(course.id, dayIndex, periodIndex, editWeek) {
         mutableFloatStateOf(0f)
     }
@@ -3332,12 +3337,33 @@ fun WeekCourseBlock(
     val resizeStartIndex = periodIndexes.indexOf(periodIndex).coerceAtLeast(0)
     val resizeMaxSpan = (periodIndexes.size - resizeStartIndex).coerceAtLeast(1)
     val baseHeightPx = with(density) { height.toPx() }
+    fun refreshOwnBounds(): Rect? {
+        val coordinates = ownCoordinatesRef[0]?.takeIf { it.isAttached }
+            ?: return ownBoundsRef[0]
+        val bounds = coordinates.boundsInRoot()
+        ownBoundsRef[0] = bounds
+        if (periodIndex == course.periods.minOrNull() || course.hasCustomTime()) {
+            copyMotion?.reportSource(course, editWeek, bounds)
+        }
+        copyMotion?.reportTarget(course, editWeek)
+        if (isOverlayTarget) {
+            weekEditMotionState?.updateRealLandingCenter(bounds.center)
+        }
+        return bounds
+    }
+    val refreshSettledBounds by rememberUpdatedState(::refreshOwnBounds)
+    LaunchedEffect(cardMotionFrozen) {
+        if (!cardMotionFrozen) {
+            withFrameNanos { }
+            refreshSettledBounds()
+        }
+    }
     fun buildWeekEditOverlayRequest(
         mode: WeekEditOverlayMode,
         pointerInSource: Offset
     ): WeekEditOverlayRequest? {
         if (!editingAllowed) return null
-        val bounds = ownBoundsRef[0] ?: return null
+        val bounds = refreshOwnBounds() ?: return null
         return WeekEditOverlayRequest(
             mode = mode,
             course = course,
@@ -3382,7 +3408,7 @@ fun WeekCourseBlock(
     val adjustedOccurrenceDate = if (editingAllowed) null else
         scheduleWeekStartDate(config, editWeek).plusDays((dayIndex - 1).toLong())
     val openShortcut by rememberUpdatedState<() -> Unit> {
-        if (editingAllowed) ownBoundsRef[0]?.let { bounds ->
+        if (editingAllowed) refreshOwnBounds()?.let { bounds ->
             shortcuts?.open(CourseShortcutRequest(course, editWeek, bounds,
                 with(density) { cardCorner.toPx() }, shortcutPivotX, onEnterEditMode))
         }
@@ -3402,8 +3428,9 @@ fun WeekCourseBlock(
     val cancelBodyDrag by rememberUpdatedState(onCancelWeekEditOverlay)
     val clickBody by rememberUpdatedState<() -> Unit> {
         if (copyMotion?.active != true) {
-            if (editingAllowed) onCourseClick(course, ownBoundsRef[0])
-            else adjustedOccurrenceDate?.let { adjustedEditor?.invoke(course.id, it, ownBoundsRef[0]) }
+            val bounds = refreshOwnBounds()
+            if (editingAllowed) onCourseClick(course, bounds)
+            else adjustedOccurrenceDate?.let { adjustedEditor?.invoke(course.id, it, bounds) }
         }
     }
     // Editing is read through updated state, never a pointerInput key: switching into edit
@@ -3470,7 +3497,7 @@ fun WeekCourseBlock(
         .homeSwitchGroup(cardOrderFraction)
     val realLandingLiftPx = with(density) { 8.dp.toPx() }
     val tailTransformActive =
-        layerOffset?.isRunning == true || layerOffset?.value != 0f ||
+        layerOffset?.isRunning == true || (layerOffset?.value ?: 0f) != 0f ||
             weekEditMotionState?.request != null ||
             weekEditMotionState?.landingRippleCenter != null ||
             weekEditMotionState?.realCardLandingActive == true ||
@@ -3544,18 +3571,18 @@ fun WeekCourseBlock(
             rotationZ = ripple.rotationFactor
         } else Modifier
     val tailModifier = tailTransformModifier.onGloballyPositioned { coordinates ->
-            val boundsInRoot = coordinates.boundsInRoot()
-            ownBoundsRef[0] = boundsInRoot
-            if (periodIndex == course.periods.minOrNull() || course.hasCustomTime()) {
-                copyMotion?.reportSource(course, editWeek, boundsInRoot)
-            }
-            copyMotion?.reportTarget(course, editWeek)
+            ownCoordinatesRef[0] = coordinates
             val layoutWidth = coordinates.size.width.toFloat()
             if (measuredCardWidth != layoutWidth) {
                 measuredCardWidth = layoutWidth
             }
-            if (isOverlayTarget) {
-                weekEditMotionState?.updateRealLandingCenter(boundsInRoot.center)
+            // Ordinary scrolling only needs coordinates for a later tap/long-press. Keep
+            // the initial anchor and edit/copy/landing animations live; glass sampling has
+            // its own position node and continues to follow the wallpaper every frame.
+            if (!cardMotionFrozen || ownBoundsRef[0] == null || editMode ||
+                tailTransformActive || isOverlayTarget || activeOverlayCourseId != null ||
+                shortcuts?.request != null) {
+                refreshOwnBounds()
             }
         }
     val visibilityModifier = if (

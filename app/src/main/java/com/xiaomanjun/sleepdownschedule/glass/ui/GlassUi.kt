@@ -22,6 +22,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.SharedBlurSampleScale
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.materialEffectsOnly
 import androidx.compose.foundation.layout.fillMaxSize
@@ -1238,9 +1239,11 @@ fun CourseGlassCard(
                             backdropSampleScale = when {
                                 morphAllocation != null -> 1f
                                 // The shared recorder becomes ready during the first home draw.
-                                // Keep the card buffer at one resolution across that handoff;
-                                // dense weeks would otherwise jump from 0.75/0.5 to 1.0.
-                                sharedWallpaperCompatible -> 1f
+                                // Match its buffer even before that handoff: the lens keeps one
+                                // resolution, and the shared pixels go directly into the card.
+                                // Node-internal sampling scales effect density and geometry;
+                                // tint, text, highlights and shadows stay at full resolution.
+                                sharedWallpaperCompatible -> SharedBlurSampleScale
                                 else -> activeBackdropSampleScale
                             },
                             cacheDecorations = morphAllocation == null,
