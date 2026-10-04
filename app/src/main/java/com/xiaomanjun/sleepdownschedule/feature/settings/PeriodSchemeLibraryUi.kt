@@ -7,10 +7,10 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.*
@@ -22,6 +22,7 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -84,7 +85,6 @@ fun PeriodSchemeManagementScreen(
     var retry by remember { mutableIntStateOf(0) }
     var editing by remember { mutableStateOf<PeriodSchemeManagementRequest?>(null) }
     var deleting by remember { mutableStateOf<SavedPeriodScheme?>(null) }
-    var sourceDetails by remember { mutableStateOf<SavedPeriodScheme?>(null) }
     var addBounds by remember { mutableStateOf(Rect.Zero) }
 
     fun isCurrent(saved: SavedPeriodScheme): Boolean = currentSnapshot?.id == saved.id
@@ -111,6 +111,23 @@ fun PeriodSchemeManagementScreen(
     DisposableEffect(Unit) { onDispose { onExitInterceptionChange(false) } }
     LaunchedEffect(exitCommitRequest) {
         if (exitCommitRequest > 0 && editing == null && !busy) onExitCommitFinished(true)
+    }
+
+    fun switchPeriodScheme(saved: SavedPeriodScheme) {
+        if (!loaded || busy || isCurrent(saved)) return
+        busy = true
+        error = null
+        scope.launch {
+            try {
+                repository.switchPeriodScheme(state.config.id, saved.roomId)
+                reloadLibrary()
+                NotificationScheduler.requestReschedule(context)
+            } catch (failure: Exception) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                error = failure.message ?: "作息切换失败"
+            }
+            finally { busy = false }
+        }
     }
 
     fun duplicate(saved: SavedPeriodScheme) {
@@ -169,7 +186,7 @@ fun PeriodSchemeManagementScreen(
                             onEdit = { source -> editing = PeriodSchemeManagementRequest(UUID.randomUUID().toString(), saved.id,
                                 savedPeriodSchemeSession(saved, state.config), source, original = saved) },
                             onDuplicate = { duplicate(saved) }, onDelete = { deleting = saved },
-                            onShowSources = { sourceDetails = saved })
+                            onSelect = { switchPeriodScheme(saved) })
                     }
                     if (loaded && library.isEmpty()) item {
                         MiuixText("还没有作息，点击右下角加号新建。", modifier = Modifier.padding(vertical = 24.dp),
@@ -220,31 +237,13 @@ fun PeriodSchemeManagementScreen(
                     }
                 })), popupBackdrop, visualState.config, { if (!busy) deleting = null })
     }
-    sourceDetails?.let { saved ->
-        val description = buildList {
-            saved.usages?.let { usages ->
-                val names = usages.map { usage ->
-                    state.schedules.firstOrNull { it.id == usage.config.id }?.name ?: "课表 ${usage.config.id}"
-                }
-                add(if (names.isEmpty()) "暂无课表引用" else "引用课表：${names.joinToString("、")}")
-            }
-            if (saved.createdInLibrary) add("在作息管理中手动新建")
-            saved.sources.forEach { add("来自“${it.scheduleName}”：${it.schemeName}") }
-            if (!saved.createdInLibrary && saved.sources.isEmpty()) add("未记录创建来源")
-            if (saved.alternateNames.isNotEmpty()) add("合并前名称：${saved.alternateNames.joinToString("、")}")
-            add("方案编号：${saved.id}")
-        }.joinToString("\n")
-        LiquidAlertDialog("作息来源与引用", description,
-            listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { sourceDetails = null })),
-            popupBackdrop, visualState.config, { sourceDetails = null })
-    }
 }
 
 @Composable
 private fun PeriodSchemeCard(
     saved: SavedPeriodScheme, selected: Boolean, enabled: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntity,
     disambiguate: Boolean, onEdit: (Rect) -> Unit, onDuplicate: () -> Unit,
-    onDelete: () -> Unit, onShowSources: () -> Unit
+    onDelete: () -> Unit, onSelect: () -> Unit
 ) {
     var editBounds by remember { mutableStateOf(Rect.Zero) }
     val parts = listOf("上午" to saved.morningPeriodCount, "中午" to saved.noonPeriodCount,
@@ -252,7 +251,8 @@ private fun PeriodSchemeCard(
     val starts = listOf("上午" to saved.morningStartTime, "中午" to saved.noonStartTime,
         "下午" to saved.afternoonStartTime, "晚上" to saved.eveningStartTime).filter { start -> parts.any { it.first == start.first } }
     SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.fillMaxWidth().selectable(selected = selected, enabled = enabled,
+            role = Role.RadioButton, onClick = onSelect).padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -274,7 +274,6 @@ private fun PeriodSchemeCard(
                     else "来源：" + sources.joinToString("、")
                 val referenceLabel = saved.usages?.let { "${it.size} 个课表引用 · " }.orEmpty()
                 MiuixText(referenceLabel + sourceLabel + if (disambiguate) " · #${saved.roomId}" else "",
-                    Modifier.clickable(onClickLabel = "查看引用课表、作息来源和原名称", onClick = onShowSources),
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
