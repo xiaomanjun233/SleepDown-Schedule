@@ -13,8 +13,6 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdatePreferences
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 import com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme
-import com.xiaomanjun.sleepdownschedule.domain.schedule.savePeriodSchemeSnapshot
-import com.xiaomanjun.sleepdownschedule.domain.schedule.hasSameContent
 import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationChoiceRow
 import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationDetails
 import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationPreview
@@ -534,32 +532,32 @@ fun ScheduleSettingsContentFixed(
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                 if (schemeDraft != null) {
                     val active = schemeDraft.schemes.first { it.scheme.id == schemeDraft.activeSchemeId }
-                    val current = savePeriodSchemeSnapshot("current", active.scheme.name, draftConfig, active)
-                    val currentIndex = periodSchemeLibrary.indexOfFirst { it.hasSameContent(current) }
-                    val retainsLocalCopy = currentIndex < 0
+                    val currentIndex = periodSchemeLibrary.indexOfFirst { it.id == active.scheme.publicId }
                     val labels = periodSchemeLibrary.map { scheme ->
-                        if (periodSchemeLibrary.count { it.name == scheme.name } > 1)
-                            "${scheme.name}（${scheme.times.size}节，${scheme.times.minBy { it.periodIndex }.startTime}）"
-                        else scheme.name
+                        if (periodSchemeLibrary.count { it.name == scheme.name } > 1) {
+                            val source = scheme.sources.firstOrNull()?.scheduleName ?: "公共作息"
+                            "${scheme.name}（$source · #${scheme.roomId}）"
+                        } else scheme.name
                     }
                     SleepDownLiquidDropdownPreference(
-                        items = if (retainsLocalCopy) listOf("${active.scheme.name}（课表保留）") + labels else labels,
-                        selectedIndex = if (retainsLocalCopy) 0 else currentIndex,
+                        items = labels,
+                        selectedIndex = currentIndex,
                         title = "当前作息", backdrop = backdrop, config = state.config,
                         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                         maxHeight = 318.dp, onExpandedChange = {},
                         onSelectedIndexChange = { index ->
-                            if (!retainsLocalCopy || index > 0)
-                                periodSchemeLibrary.getOrNull(index - if (retainsLocalCopy) 1 else 0)?.let(onSelectPeriodScheme)
+                            periodSchemeLibrary.getOrNull(index)?.let(onSelectPeriodScheme)
                         }
                     )
                     SettingsDivider()
                 }
                 SettingsNavigationRow(
                     "作息管理",
-                    "新建、编辑和删除通用作息",
+                    "新建、复制、编辑和删除公共作息",
                     onClick = onOpenPeriodSchemes
                 )
+                SettingsDivider()
+                SettingsInfoRow("公共作息", "这里的修改仅影响当前课表；保存作息修改时会创建公共副本。切换作息只更改引用，不改变课程节次。")
             }
         }
         ScheduleAdjustmentsSettings(state.copy(config = draftConfig), backdrop, scheduleAdjustmentsJson, onScheduleAdjustmentsChange)

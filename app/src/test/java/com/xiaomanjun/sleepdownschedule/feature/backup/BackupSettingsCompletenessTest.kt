@@ -39,7 +39,7 @@ class BackupSettingsCompletenessTest {
             roomOnly = setOf("id"),
             protocolOnly = setOf(
                 "id", "config", "courses", "periods", "periodSchemes",
-                "agentDailySessions", "agentMessages"
+                "agentDailySessions", "agentMessages", "activePeriodSchemeId"
             )
         )
         assertPortableFields(
@@ -80,7 +80,8 @@ class BackupSettingsCompletenessTest {
 
     @Test
     fun everyScheduleConfigFieldHasAnExplicitBackupCounterpart() {
-        val roomFields = instanceFieldNames(ScheduleConfigEntity::class.java) - setOf("id", "wallpaperUri")
+        // The shared scheme relationship belongs to BackupSchedule and uses an archive-local ID.
+        val roomFields = instanceFieldNames(ScheduleConfigEntity::class.java) - setOf("id", "wallpaperUri", "activePeriodSchemeId")
         val protocolFields = instanceFieldNames(BackupScheduleConfig::class.java) - "wallpaperAssetId"
 
         assertEquals(

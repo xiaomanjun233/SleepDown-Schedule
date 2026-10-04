@@ -178,6 +178,7 @@ class CourseScheduleApp : Application() {
         cleanupTransientCacheData()
         runCatching {
             repository.ensureDefaults()
+            repository.migrateLegacyPeriodSchemeLibrary(this)
             cleanupUnreferencedScheduleWallpapers(this, repository.referencedWallpaperUris())
             ScheduleSnapshotStore.cleanupUnreferenced(this, repository.referencedScheduleIds())
         }.onFailure { error ->

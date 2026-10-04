@@ -9,6 +9,10 @@ import androidx.room.Room
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import java.io.File
+import java.time.LocalTime
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 
 private val MIGRATION_1_2 = object : Migration(1, 2) {
     override fun migrate(db: SupportSQLiteDatabase) {
@@ -657,6 +661,214 @@ private val MIGRATION_43_44 = object : Migration(43, 44) {
     }
 }
 
+private val MIGRATION_44_45 = object : Migration(44, 45) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE schedule_config ADD COLUMN activePeriodSchemeId INTEGER DEFAULT NULL")
+        for (column in listOf("morningPeriodCount", "noonPeriodCount", "afternoonPeriodCount", "eveningPeriodCount")) {
+            db.execSQL("ALTER TABLE period_schemes ADD COLUMN $column INTEGER NOT NULL DEFAULT 0")
+        }
+        db.execSQL("ALTER TABLE period_schemes ADD COLUMN publicId TEXT NOT NULL DEFAULT ''")
+        db.execSQL("ALTER TABLE period_schemes ADD COLUMN sourceScheduleName TEXT NOT NULL DEFAULT ''")
+        db.execSQL("CREATE TABLE IF NOT EXISTS period_scheme_library_migrations (sourceId TEXT NOT NULL, PRIMARY KEY(sourceId))")
+        db.execSQL("UPDATE period_schemes SET publicId = 'legacy-' || id, sourceScheduleName = COALESCE((SELECT name FROM schedule_profiles WHERE id = period_schemes.scheduleId), '')")
+
+        val configs = buildMap {
+            db.query("SELECT id, morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount, classDurationMinutes, breakDurationMinutes FROM schedule_config").use { cursor ->
+                while (cursor.moveToNext()) {
+                    put(cursor.getInt(0), Migration45Config((1..4).map(cursor::getInt), cursor.getInt(5), cursor.getInt(6)))
+                }
+            }
+        }
+        val materialized = buildMap<Int, MutableList<Migration45Time>> {
+            db.query("SELECT scheduleId, periodIndex, startTime, endTime FROM periods ORDER BY scheduleId, periodIndex").use { cursor ->
+                while (cursor.moveToNext()) {
+                    getOrPut(cursor.getInt(0)) { mutableListOf() }
+                        .add(Migration45Time(cursor.getInt(1), cursor.getString(2), cursor.getString(3)))
+                }
+            }
+        }
+        val storedSchemes = readMigration45Schemes(db)
+        val originalSchemes = storedSchemes.map { scheme ->
+            if (scheme.times.isNotEmpty()) scheme else {
+                // Some older writes persisted only the scheme's metadata. Repair only empty rows,
+                // preferring actual owner data before the frozen legacy default timetable.
+                val recovered = materialized[scheme.scheduleId]?.takeIf { it.isNotEmpty() }
+                    ?: storedSchemes.filter { it.scheduleId == scheme.scheduleId && it.times.isNotEmpty() }
+                        .sortedWith(compareByDescending<Migration45Scheme> { it.isActive }.thenBy { it.id })
+                        .firstOrNull()?.times
+                    ?: migration45DefaultTimes()
+                recovered.forEach { time ->
+                    db.execSQL("INSERT INTO period_scheme_times (schemeId, periodIndex, startTime, endTime) VALUES (?, ?, ?, ?)",
+                        arrayOf<Any>(scheme.id, time.index, time.start, time.end))
+                }
+                scheme.copy(times = recovered)
+            }
+        }
+        originalSchemes.forEach { scheme ->
+            val counts = migration45Counts(configs[scheme.scheduleId]?.counts, scheme.times)
+            db.execSQL(
+                "UPDATE period_schemes SET morningPeriodCount = ?, noonPeriodCount = ?, afternoonPeriodCount = ?, eveningPeriodCount = ? WHERE id = ?",
+                arrayOf<Any>(counts[0], counts[1], counts[2], counts[3], scheme.id)
+            )
+        }
+
+        val selectedIds = mutableMapOf<Int, Long>()
+        (configs.keys + materialized.keys + originalSchemes.map { it.scheduleId }).sorted().forEach { scheduleId ->
+            val owned = originalSchemes.filter { it.scheduleId == scheduleId }
+            val selected = owned.firstOrNull { it.isActive } ?: owned.firstOrNull()
+            val visibleTimes = materialized[scheduleId].orEmpty()
+            // Older builds could write these two timelines independently. Do not overwrite either:
+            // the visible timeline gets its own snapshot, while the original remains selectable.
+            val selectedId = if (visibleTimes.isNotEmpty() && (selected == null || selected.times != visibleTimes)) {
+                insertMigration45Snapshot(db, scheduleId, configs[scheduleId], visibleTimes, selected != null)
+            } else selected?.id
+            if (selectedId != null) selectedIds[scheduleId] = selectedId
+        }
+
+        // Consolidation happens exactly once. Names/provenance are not timetable identity, but
+        // mode, all generation inputs, segment boundaries and every persisted bell time are.
+        val canonicalByContent = mutableMapOf<List<Any>, Migration45Scheme>()
+        val canonicalIds = mutableMapOf<Long, Long>()
+        val sources = mutableMapOf<Long, MutableSet<Pair<String, String>>>()
+        val duplicates = mutableListOf<Long>()
+        readMigration45Schemes(db).forEach { scheme ->
+            val canonical = canonicalByContent.getOrPut(scheme.contentKey()) { scheme }
+            canonicalIds[scheme.id] = canonical.id
+            sources.getOrPut(canonical.id) { linkedSetOf() }
+                .add(scheme.sourceScheduleName to scheme.name)
+            if (canonical.id != scheme.id) duplicates += scheme.id
+        }
+        selectedIds.forEach { (scheduleId, selectedId) ->
+            db.execSQL("UPDATE schedule_config SET activePeriodSchemeId = ? WHERE id = ?", arrayOf<Any>(canonicalIds.getValue(selectedId), scheduleId))
+        }
+        sources.forEach { (id, originals) ->
+            val hasAlternateNames = originals.map { it.second }.distinct().size > 1
+            val provenance = if (hasAlternateNames) {
+                originals.joinToString("；") { (schedule, name) ->
+                    if (schedule.isBlank()) name else "$schedule（$name）"
+                }
+            } else originals.map { it.first }.filter(String::isNotBlank).distinct().joinToString("、")
+            db.execSQL("UPDATE period_schemes SET sourceScheduleName = ? WHERE id = ?", arrayOf<Any>(provenance, id))
+        }
+        duplicates.forEach { id ->
+            db.execSQL("DELETE FROM period_scheme_times WHERE schemeId = ?", arrayOf(id))
+            db.execSQL("DELETE FROM period_schemes WHERE id = ?", arrayOf(id))
+        }
+    }
+}
+
+private data class Migration45Config(val counts: List<Int>, val classMinutes: Int, val breakMinutes: Int)
+private data class Migration45Time(val index: Int, val start: String, val end: String)
+
+private fun migration45DefaultTimes(): List<Migration45Time> = listOf(
+    "08:00" to "08:45", "08:55" to "09:40", "10:00" to "10:45", "10:55" to "11:40",
+    "14:00" to "14:45", "14:55" to "15:40", "16:00" to "16:45", "16:55" to "17:40",
+    "19:00" to "19:45", "19:55" to "20:40", "20:50" to "21:35", "21:45" to "22:30"
+).mapIndexed { index, (start, end) -> Migration45Time(index + 1, start, end) }
+
+private data class Migration45Scheme(
+    val id: Long,
+    val scheduleId: Int,
+    val name: String,
+    val isActive: Boolean,
+    val mode: String,
+    val classMinutes: Int,
+    val breakMinutes: Int,
+    val starts: List<String>,
+    val specialBreaks: String,
+    val overrides: String,
+    val counts: List<Int>,
+    val sourceScheduleName: String,
+    val times: List<Migration45Time>
+) {
+    fun contentKey(): List<Any> = listOf(
+        mode, classMinutes, breakMinutes, starts, counts, migration45Json(specialBreaks),
+        migration45Overrides(overrides), times
+    )
+}
+
+private fun migration45Json(value: String): Any =
+    runCatching { Json.parseToJsonElement(value) }.getOrNull() ?: value
+
+private fun migration45Overrides(value: String): Any = when (val parsed = migration45Json(value)) {
+    is JsonArray -> parsed.toSet()
+    is JsonObject -> if (parsed.isEmpty()) emptySet<Any>() else parsed
+    else -> parsed
+}
+
+private fun migration45Counts(configCounts: List<Int>?, times: List<Migration45Time>): List<Int> {
+    if (configCounts != null && configCounts.all { it >= 0 } &&
+        configCounts.sumOf { it.toLong() } == times.size.toLong()
+    ) return configCounts
+    val inferred = MutableList(4) { 0 }
+    times.forEach { time ->
+        val hour = runCatching { LocalTime.parse(time.start).hour }.getOrDefault(8)
+        val part = when { hour < 12 -> 0; hour < 14 -> 1; hour < 18 -> 2; else -> 3 }
+        inferred[part]++
+    }
+    return inferred
+}
+
+private fun readMigration45Schemes(db: SupportSQLiteDatabase): List<Migration45Scheme> {
+    val times = buildMap<Long, MutableList<Migration45Time>> {
+        db.query("SELECT schemeId, periodIndex, startTime, endTime FROM period_scheme_times ORDER BY schemeId, periodIndex").use { cursor ->
+            while (cursor.moveToNext()) {
+                getOrPut(cursor.getLong(0)) { mutableListOf() }
+                    .add(Migration45Time(cursor.getInt(1), cursor.getString(2), cursor.getString(3)))
+            }
+        }
+    }
+    return buildList {
+        db.query("SELECT id, scheduleId, isActive, mode, classDurationMinutes, breakDurationMinutes, morningStartTime, noonStartTime, afternoonStartTime, eveningStartTime, specialBreaksJson, overridesJson, morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount, sourceScheduleName, name FROM period_schemes ORDER BY id").use { cursor ->
+            while (cursor.moveToNext()) {
+                add(Migration45Scheme(
+                    id = cursor.getLong(0), scheduleId = cursor.getInt(1), name = cursor.getString(17), isActive = cursor.getInt(2) != 0,
+                    mode = cursor.getString(3), classMinutes = cursor.getInt(4), breakMinutes = cursor.getInt(5),
+                    starts = (6..9).map(cursor::getString), specialBreaks = cursor.getString(10),
+                    overrides = cursor.getString(11), counts = (12..15).map(cursor::getInt),
+                    sourceScheduleName = cursor.getString(16), times = times[cursor.getLong(0)].orEmpty()
+                ))
+            }
+        }
+    }
+}
+
+private fun insertMigration45Snapshot(
+    db: SupportSQLiteDatabase,
+    scheduleId: Int,
+    config: Migration45Config?,
+    times: List<Migration45Time>,
+    hasOriginalScheme: Boolean
+): Long {
+    val counts = migration45Counts(config?.counts, times)
+    var offset = 0
+    val starts = listOf("08:00", "12:00", "14:00", "19:00").mapIndexed { index, fallback ->
+        val start = if (counts[index] > 0) times.getOrNull(offset)?.start ?: fallback else fallback
+        offset += counts[index]
+        start
+    }
+    db.execSQL(
+        """
+        INSERT INTO period_schemes (
+            scheduleId, name, mode, isActive, classDurationMinutes, breakDurationMinutes,
+            morningStartTime, noonStartTime, afternoonStartTime, eveningStartTime, specialBreaksJson, overridesJson,
+            morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount, sourceScheduleName
+        ) VALUES (?, ?, 'MANUAL', 0, ?, ?, ?, ?, ?, ?, '{}', '{}', ?, ?, ?, ?,
+            COALESCE((SELECT name FROM schedule_profiles WHERE id = ?), ''))
+        """.trimIndent(),
+        arrayOf<Any>(scheduleId, if (hasOriginalScheme) "升级前作息" else "默认作息", config?.classMinutes ?: 45,
+            config?.breakMinutes ?: 10, starts[0], starts[1], starts[2], starts[3],
+            counts[0], counts[1], counts[2], counts[3], scheduleId)
+    )
+    val id = db.query("SELECT last_insert_rowid()").use { cursor -> check(cursor.moveToFirst()); cursor.getLong(0) }
+    db.execSQL("UPDATE period_schemes SET publicId = 'legacy-' || id WHERE id = ?", arrayOf(id))
+    times.forEach { time ->
+        db.execSQL("INSERT INTO period_scheme_times (schemeId, periodIndex, startTime, endTime) VALUES (?, ?, ?, ?)",
+            arrayOf<Any>(id, time.index, time.start, time.end))
+    }
+    return id
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -700,7 +912,8 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_40_41,
     MIGRATION_41_42,
     MIGRATION_42_43,
-    MIGRATION_43_44
+    MIGRATION_43_44,
+    MIGRATION_44_45
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {

@@ -23,12 +23,8 @@ object BackupPreferencesApplier {
             DayAgentPreferences.applyBackupPreferences(context, it, scheduleRoomIdsByStableId)
         }
         preferences.aiImport?.let { AiImportSettingsStore.applyBackupPreferences(context, it) }
-        if (preferences.savedPeriodSchemes != null) {
-            com.xiaomanjun.sleepdownschedule.data.repository.PeriodSchemeLibraryStore.restore(context, preferences.savedPeriodSchemes)
-        } else {
-            // Legacy backups also replace Room IDs, but must retain the existing global library.
-            com.xiaomanjun.sleepdownschedule.data.repository.PeriodSchemeLibraryStore.resetScheduleImports(context)
-        }
+        // Scheme preferences from older backups are imported with the Room transaction. Replaying
+        // preference finalization must not merge a second copy or resurrect removed schemes.
         preferences.courseQuietSettings?.let {
             com.xiaomanjun.sleepdownschedule.feature.reminder.CourseQuietPreferences.write(context, it)
         }

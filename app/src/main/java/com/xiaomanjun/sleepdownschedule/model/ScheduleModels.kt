@@ -127,7 +127,8 @@ data class ScheduleConfigEntity(
     @ColumnInfo(defaultValue = "0") val afternoonPeriodCount: Int = 4,
     @ColumnInfo(defaultValue = "0") val eveningPeriodCount: Int = 4,
     val hideFromRecents: Boolean = false,
-    val autoCheckUpdates: Boolean = true
+    val autoCheckUpdates: Boolean = true,
+    @ColumnInfo(defaultValue = "NULL") val activePeriodSchemeId: Long? = null
 )
 
 @Entity(tableName = "periods", primaryKeys = ["scheduleId", "periodIndex"])
@@ -143,6 +144,7 @@ data class PeriodEntity(
 @Immutable
 data class PeriodSchemeEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    // Legacy provenance only. Selection belongs to ScheduleConfigEntity.activePeriodSchemeId.
     val scheduleId: Int,
     val name: String,
     val mode: PeriodSchemeMode = PeriodSchemeMode.MANUAL,
@@ -154,8 +156,18 @@ data class PeriodSchemeEntity(
     val afternoonStartTime: String = "14:00",
     val eveningStartTime: String = "19:00",
     val specialBreaksJson: String = "{}",
-    val overridesJson: String = "{}"
+    val overridesJson: String = "{}",
+    @ColumnInfo(defaultValue = "0") val morningPeriodCount: Int = 0,
+    @ColumnInfo(defaultValue = "0") val noonPeriodCount: Int = 0,
+    @ColumnInfo(defaultValue = "0") val afternoonPeriodCount: Int = 0,
+    @ColumnInfo(defaultValue = "0") val eveningPeriodCount: Int = 0,
+    @ColumnInfo(defaultValue = "''") val publicId: String = "",
+    @ColumnInfo(defaultValue = "''") val sourceScheduleName: String = ""
 )
+
+/** Committed together with an imported legacy library so removed entries never reappear. */
+@Entity(tableName = "period_scheme_library_migrations")
+data class PeriodSchemeLibraryMigrationEntity(@PrimaryKey val sourceId: String)
 
 @Entity(tableName = "period_scheme_times", primaryKeys = ["schemeId", "periodIndex"])
 @Immutable

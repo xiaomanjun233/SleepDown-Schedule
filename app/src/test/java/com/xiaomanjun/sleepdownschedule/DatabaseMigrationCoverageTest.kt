@@ -1,9 +1,16 @@
 package com.xiaomanjun.sleepdownschedule
 
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class DatabaseMigrationCoverageTest {
+    @Test
+    fun sharedSchemeSchemaHasARegisteredUpgrade() {
+        assertTrue(APP_DATABASE_VERSION >= 45)
+        assertEquals(1, APP_DATABASE_MIGRATIONS.count { it.startVersion == 44 && it.endVersion == 45 })
+    }
+
     @Test
     fun everySupportedVersionCanReachCurrentSchema() {
         val edges = APP_DATABASE_MIGRATIONS.groupBy { it.startVersion }

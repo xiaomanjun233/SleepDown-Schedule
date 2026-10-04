@@ -463,7 +463,37 @@ object BackupCodec {
         if (data.schedules.size > BackupCodecLimits.MAX_ENTRY_COUNT) fail("schedule 数量超过限制")
         val scheduleIds = HashSet<String>()
         var activeCount = 0
+        val sharedSchemes = data.sharedPeriodSchemes
+        val sharedById = sharedSchemes.orEmpty().associateBy { it.id }
+        val sharedIds = sharedSchemes.orEmpty().mapTo(hashSetOf()) { it.id }
+        sharedSchemes?.let { schemes ->
+            if (schemes.size > BackupCodecLimits.MAX_ENTRY_COUNT) fail("共享作息数量超过限制")
+            validateUniqueIds(schemes.map { it.id }, BackupStableId.SCHEME_PREFIX, "shared period scheme")
+            if (schemes.map { it.publicId }.distinct().size != schemes.size) fail("共享作息公开编号重复")
+            schemes.forEach { scheme ->
+                try {
+                    com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme(
+                        id = scheme.publicId, name = scheme.name,
+                        morningPeriodCount = scheme.morningPeriodCount, noonPeriodCount = scheme.noonPeriodCount,
+                        afternoonPeriodCount = scheme.afternoonPeriodCount, eveningPeriodCount = scheme.eveningPeriodCount,
+                        classDurationMinutes = scheme.classDurationMinutes, breakDurationMinutes = scheme.breakDurationMinutes,
+                        morningStartTime = scheme.morningStartTime, noonStartTime = scheme.noonStartTime,
+                        afternoonStartTime = scheme.afternoonStartTime, eveningStartTime = scheme.eveningStartTime,
+                        mode = PeriodSchemeMode.valueOf(scheme.mode), specialBreaksJson = scheme.specialBreaksJson,
+                        overridesJson = scheme.overridesJson,
+                        times = scheme.times.map { com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodTime(
+                            it.periodIndex, it.startTime, it.endTime) }
+                    ).validate()
+                } catch (error: IllegalArgumentException) {
+                    fail("共享作息无效: ${error.message}")
+                }
+                validateText("shared scheme source", scheme.sourceScheduleName)
+                validateText("shared scheme special breaks", scheme.specialBreaksJson)
+                validateText("shared scheme overrides", scheme.overridesJson)
+            }
+        }
         data.schedules.forEach { schedule ->
+            schedule.activePeriodSchemeId?.let { if (it !in sharedIds) fail("课表引用了不存在的共享作息") }
             BackupStableId.requireValid(schedule.id, BackupStableId.SCHEDULE_PREFIX)
             if (!scheduleIds.add(schedule.id)) fail("重复 schedule stable ID")
             validateText("schedule name", schedule.name)
@@ -476,6 +506,9 @@ object BackupCodec {
                 validateShortText("period startTime", period.startTime, allowBlank = false)
                 validateShortText("period endTime", period.endTime, allowBlank = false)
             }
+            val selectedSharedScheme = schedule.activePeriodSchemeId?.let(sharedById::getValue)
+            val effectivePeriodIndexes = selectedSharedScheme?.times?.mapTo(hashSetOf()) { it.periodIndex }
+                ?: periodIndexes
             validateUniqueIds(schedule.courses.map { it.id }, BackupStableId.COURSE_PREFIX, "course")
             schedule.courses.forEach { course ->
                 validateText("course name", course.name)
@@ -502,8 +535,15 @@ object BackupCodec {
                 }.getOrElse { fail("课程逐节时间非法: ${it.message}") }
                 if (course.weekday !in 1..7) fail("课程 weekday 非法")
                 if (course.periods.any { it < 0 } || course.weeks.any { it < 0 }) fail("课程 periods/weeks 非法")
-                if (course.periods.any { it !in periodIndexes }) fail("课程引用了不存在的 periodIndex")
+                if (course.periods.any { it !in effectivePeriodIndexes }) fail("课程引用了所选作息中不存在的 periodIndex")
                 validateShortText("course weekParity", course.weekParity, allowBlank = false)
+            }
+            selectedSharedScheme?.let { selected ->
+                val projected = schedule.periods.sortedBy { it.periodIndex }
+                    .map { Triple(it.periodIndex, it.startTime, it.endTime) }
+                val shared = selected.times.sortedBy { it.periodIndex }
+                    .map { Triple(it.periodIndex, it.startTime, it.endTime) }
+                if (projected != shared) fail("课表节次与所选共享作息不一致")
             }
             validateUniqueIds(schedule.periodSchemes.map { it.id }, BackupStableId.SCHEME_PREFIX, "period scheme")
             if (schedule.periodSchemes.count { it.isActive } > 1) fail("一个 schedule 不能有多个 active period scheme")
@@ -694,6 +734,7 @@ object BackupCodec {
             schedule.agentDailySessions.forEach { add(it.id, BackupStableId.SESSION_PREFIX, "agent session") }
             schedule.agentMessages.forEach { add(it.id, BackupStableId.MESSAGE_PREFIX, "agent message") }
         }
+        data.sharedPeriodSchemes.orEmpty().forEach { add(it.id, BackupStableId.SCHEME_PREFIX, "shared period scheme") }
         data.widgetAppearances.forEach { add(it.id, BackupStableId.WIDGET_PREFIX, "widget appearance") }
         preferences.aiImportHistory.forEach { add(it.id, BackupStableId.HISTORY_PREFIX, "AI history") }
         assetIds.forEach { add(it, BackupStableId.ASSET_PREFIX, "asset") }

@@ -1,7 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
-import android.content.Context
-import android.content.Intent
 import android.widget.Toast
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandHorizontally
@@ -33,18 +31,14 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.SettingsDetailActivity
-import com.xiaomanjun.sleepdownschedule.app.ui.SettingsPage
 import com.xiaomanjun.sleepdownschedule.app.ui.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.app.ui.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsPopupBackdrop
-import com.xiaomanjun.sleepdownschedule.data.repository.PeriodSchemeLibraryStore
 import com.xiaomanjun.sleepdownschedule.data.repository.loadPeriodSchemeLibrary
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 import com.xiaomanjun.sleepdownschedule.model.*
-import com.xiaomanjun.sleepdownschedule.transition.legacy.ScheduleCustomizeIdExtra
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -61,12 +55,7 @@ internal data class PeriodSchemeManagementRequest(
     val original: SavedPeriodScheme? = null
 )
 
-private fun openPeriodSettings(context: Context, page: SettingsPage, scheduleId: Int) {
-    context.startActivity(Intent(context, SettingsDetailActivity::class.java)
-        .putExtra("settings_page", page.name).putExtra(ScheduleCustomizeIdExtra, scheduleId))
-}
-
-/** Independent list of reusable timetables. Editing reuses the existing timeline scene. */
+/** Shared timetables are edited here; each schedule chooses one in its own settings. */
 @Composable
 fun PeriodSchemeManagementScreen(
     state: AppState,
@@ -92,20 +81,23 @@ fun PeriodSchemeManagementScreen(
     var retry by remember { mutableIntStateOf(0) }
     var editing by remember { mutableStateOf<PeriodSchemeManagementRequest?>(null) }
     var deleting by remember { mutableStateOf<SavedPeriodScheme?>(null) }
-    var incompatible by remember { mutableStateOf<SavedPeriodScheme?>(null) }
     var sourceDetails by remember { mutableStateOf<SavedPeriodScheme?>(null) }
     var addBounds by remember { mutableStateOf(Rect.Zero) }
 
-    val scheduleName = state.schedules.firstOrNull { it.id == state.config.id }?.name ?: "当前课表"
-    fun isCurrent(saved: SavedPeriodScheme): Boolean = currentSnapshot?.hasSameContent(saved) == true
+    fun isCurrent(saved: SavedPeriodScheme): Boolean = currentSnapshot?.id == saved.id
+
+    suspend fun reloadLibrary() {
+        currentDraft = repository.loadPeriodSchemes(state.config.id)
+        library = repository.loadPeriodSchemeLibrary(context, state.allConfigs + state.config,
+            state.schedules.associate { it.id to it.name })
+        val active = currentDraft!!.schemes.first { it.scheme.id == currentDraft!!.activeSchemeId }
+        currentSnapshot = library.first { it.id == active.scheme.publicId }
+        error = null
+    }
 
     LaunchedEffect(state.config, state.periods, retry) {
         try {
-            currentDraft = repository.loadPeriodSchemes(state.config.id)
-            val active = currentDraft!!.schemes.first { it.scheme.id == currentDraft!!.activeSchemeId }
-            currentSnapshot = savePeriodSchemeSnapshot("current", active.scheme.name, state.config, active)
-            library = repository.loadPeriodSchemeLibrary(context, state.allConfigs + state.config,
-                state.schedules.associate { it.id to it.name })
+            reloadLibrary()
             loaded = true
         } catch (failure: Exception) {
             if (failure is kotlinx.coroutines.CancellationException) throw failure
@@ -118,25 +110,19 @@ fun PeriodSchemeManagementScreen(
         if (exitCommitRequest > 0 && editing == null && !busy) onExitCommitFinished(true)
     }
 
-    suspend fun applyToCurrent(saved: SavedPeriodScheme) {
-        val draft = repository.loadPeriodSchemes(state.config.id)
-        val applied = applySavedPeriodScheme(saved, state.config, draft)
-        repository.saveScheduleDetail(applied.config, applied.draft,
-            expectedCourses = state.courses, expectedPeriods = state.periods)
-        currentDraft = repository.loadPeriodSchemes(state.config.id)
-        currentSnapshot = saved.copy(id = "current")
-        NotificationScheduler.requestReschedule(context)
-    }
-    fun select(saved: SavedPeriodScheme) {
-        if (!loaded || busy || isCurrent(saved)) return
-        if (saved.times.size != state.config.totalPeriodCount()) { incompatible = saved; return }
+    fun duplicate(saved: SavedPeriodScheme) {
+        if (!loaded || busy) return
         busy = true
         error = null
         scope.launch {
             try {
-                applyToCurrent(saved)
-                Toast.makeText(context, "已使用${saved.name}", Toast.LENGTH_SHORT).show()
-            } catch (failure: Exception) { error = failure.message ?: "作息切换失败" }
+                val copy = repository.duplicatePublicPeriodScheme(saved.id)
+                reloadLibrary()
+                Toast.makeText(context, "已复制为${copy.name}", Toast.LENGTH_SHORT).show()
+            } catch (failure: Exception) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                error = failure.message ?: "作息复制失败"
+            }
             finally { busy = false }
         }
     }
@@ -155,14 +141,12 @@ fun PeriodSchemeManagementScreen(
         onEditorFinished = { editing = null },
         onSaveSession = { edited ->
             val request = checkNotNull(editing) { "编辑会话已结束" }
-            val wasCurrent = request.original?.let(::isCurrent) == true
-            val snapshot = savePeriodSchemeSnapshot(request.libraryId, edited.active.scheme.name, edited.config, edited.active)
-                .copy(createdInLibrary = request.creating)
-            val saved = withContext(Dispatchers.IO) { PeriodSchemeLibraryStore.save(context, snapshot) }
-            if (wasCurrent && saved.times.size == state.config.totalPeriodCount()) applyToCurrent(saved)
-            library = withContext(Dispatchers.IO) { PeriodSchemeLibraryStore.load(context) }
-            val message = if (request.creating && saved.id != request.libraryId) "相同作息已归并到${saved.name}"
-                else if (request.creating) "已新建${saved.name}" else "作息已保存"
+            val saved = withContext(Dispatchers.IO) {
+                repository.savePublicPeriodScheme(request.original, edited, request.libraryId)
+            }
+            reloadLibrary()
+            NotificationScheduler.requestReschedule(context)
+            val message = if (request.creating) "已新建${saved.name}" else "作息已保存，引用它的课表已同步更新"
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         },
         managementContent = {
@@ -171,7 +155,7 @@ fun PeriodSchemeManagementScreen(
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = navigationBottom + 88.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     item {
-                        MiuixText("应用到：$scheduleName", style = MiuixTheme.textStyles.body2,
+                        MiuixText("所有作息均为公共方案；编辑会同步到引用它的全部课表。请在课表设置中选择当前作息。", style = MiuixTheme.textStyles.body2,
                             color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                     if (!loaded) item { MiuixText("正在读取作息…", modifier = Modifier.padding(vertical = 20.dp),
@@ -182,10 +166,11 @@ fun PeriodSchemeManagementScreen(
                     } }
                     items(library, key = { it.id }) { saved ->
                         PeriodSchemeCard(saved, isCurrent(saved), loaded && !busy, backdrop, visualState.config,
-                            onSelect = { select(saved) },
+                            disambiguate = library.count { it.name == saved.name } > 1,
                             onEdit = { source -> editing = PeriodSchemeManagementRequest(UUID.randomUUID().toString(), saved.id,
                                 savedPeriodSchemeSession(saved, state.config), source, original = saved) },
-                            onDelete = { deleting = saved }, onShowSources = { sourceDetails = saved })
+                            onDuplicate = { duplicate(saved) }, onDelete = { deleting = saved },
+                            onShowSources = { sourceDetails = saved })
                     }
                     if (loaded && library.isEmpty()) item {
                         MiuixText("还没有作息，点击右下角加号新建。", modifier = Modifier.padding(vertical = 24.dp),
@@ -219,38 +204,39 @@ fun PeriodSchemeManagementScreen(
     )
 
     deleting?.let { saved ->
-        LiquidAlertDialog("删除作息", "删除“${saved.name}”？已使用这套作息的课表会保留原来的时间。",
+        LiquidAlertDialog("删除作息", "删除“${saved.name}”？正在被课表引用的作息不能删除，请先在相关课表中选择其他作息。",
             listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = { deleting = null }),
                 LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive, enabled = !busy, onClick = {
                     busy = true
                     scope.launch {
                         try {
-                            library = withContext(Dispatchers.IO) {
-                                PeriodSchemeLibraryStore.delete(context, saved.id)
-                                PeriodSchemeLibraryStore.load(context)
-                            }
+                            repository.deletePublicPeriodScheme(saved.id)
+                            reloadLibrary()
                             deleting = null
-                        } catch (failure: Exception) { error = failure.message ?: "删除失败" }
+                        } catch (failure: Exception) {
+                            if (failure is kotlinx.coroutines.CancellationException) throw failure
+                            deleting = null
+                            error = failure.message ?: "删除失败"
+                        }
                         finally { busy = false }
                     }
                 })), popupBackdrop, visualState.config, { if (!busy) deleting = null })
     }
-    incompatible?.let { saved ->
-        LiquidAlertDialog("节数不同", "“${saved.name}”有 ${saved.times.size} 节，“$scheduleName”有 ${state.config.totalPeriodCount()} 节。先调整课表的节数，再选择这套作息。",
-            listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = { incompatible = null }),
-                LiquidAlertAction("调整课表节数", LiquidAlertActionStyle.Primary, onClick = {
-                    incompatible = null
-                    onOpenScheduleSettings?.invoke() ?: openPeriodSettings(context, SettingsPage.Schedule, state.config.id)
-                })), popupBackdrop, visualState.config, { incompatible = null })
-    }
     sourceDetails?.let { saved ->
         val description = buildList {
+            saved.usages?.let { usages ->
+                val names = usages.map { usage ->
+                    state.schedules.firstOrNull { it.id == usage.config.id }?.name ?: "课表 ${usage.config.id}"
+                }
+                add(if (names.isEmpty()) "暂无课表引用" else "引用课表：${names.joinToString("、")}")
+            }
             if (saved.createdInLibrary) add("在作息管理中手动新建")
             saved.sources.forEach { add("来自“${it.scheduleName}”：${it.schemeName}") }
-            if (!saved.createdInLibrary && saved.sources.isEmpty()) add("已有作息，旧版本未记录来源")
+            if (!saved.createdInLibrary && saved.sources.isEmpty()) add("未记录创建来源")
             if (saved.alternateNames.isNotEmpty()) add("合并前名称：${saved.alternateNames.joinToString("、")}")
+            add("方案编号：${saved.id}")
         }.joinToString("\n")
-        LiquidAlertDialog("作息来源", description,
+        LiquidAlertDialog("作息来源与引用", description,
             listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { sourceDetails = null })),
             popupBackdrop, visualState.config, { sourceDetails = null })
     }
@@ -259,7 +245,8 @@ fun PeriodSchemeManagementScreen(
 @Composable
 private fun PeriodSchemeCard(
     saved: SavedPeriodScheme, selected: Boolean, enabled: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntity,
-    onSelect: () -> Unit, onEdit: (Rect) -> Unit, onDelete: () -> Unit, onShowSources: () -> Unit
+    disambiguate: Boolean, onEdit: (Rect) -> Unit, onDuplicate: () -> Unit,
+    onDelete: () -> Unit, onShowSources: () -> Unit
 ) {
     var editBounds by remember { mutableStateOf(Rect.Zero) }
     val parts = listOf("上午" to saved.morningPeriodCount, "中午" to saved.noonPeriodCount,
@@ -267,8 +254,7 @@ private fun PeriodSchemeCard(
     val starts = listOf("上午" to saved.morningStartTime, "中午" to saved.noonStartTime,
         "下午" to saved.afternoonStartTime, "晚上" to saved.eveningStartTime).filter { start -> parts.any { it.first == start.first } }
     SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().clickable(enabled = enabled, onClickLabel = "使用${saved.name}", onClick = onSelect)
-            .padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -286,12 +272,23 @@ private fun PeriodSchemeCard(
                     if (saved.createdInLibrary) add("手动新建")
                     addAll(saved.sources.map { it.scheduleName }.distinct())
                 }
-                MiuixText(if (sources.isEmpty()) "已有作息 · 来源未记录" else "来源：${sources.joinToString("、")}",
-                    Modifier.clickable(onClickLabel = "查看作息来源和原名称", onClick = onShowSources),
+                val sourceLabel = if (sources.isEmpty()) "公共作息"
+                    else "来源：" + sources.joinToString("、")
+                val referenceLabel = saved.usages?.let { "${it.size} 个课表引用 · " }.orEmpty()
+                MiuixText(referenceLabel + sourceLabel + if (disambiguate) " · #${saved.roomId}" else "",
+                    Modifier.clickable(onClickLabel = "查看引用课表、作息来源和原名称", onClick = onShowSources),
                     style = MiuixTheme.textStyles.body2,
                     color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
+                DialogLiquidButton(
+                    backdrop = backdrop, label = "复制",
+                    onClick = { if (enabled) onDuplicate() },
+                    modifier = Modifier.minimumInteractiveComponentSize().alpha(if (enabled) 1f else 0.38f)
+                        .semantics { if (!enabled) disabled() },
+                    role = DialogButtonRole.Cancel, shadowEnabled = false
+                )
+                Spacer(Modifier.width(8.dp))
                 DialogLiquidButton(
                     backdrop = backdrop, label = "编辑${saved.name}",
                     onClick = { if (enabled) onEdit(editBounds) },

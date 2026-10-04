@@ -115,17 +115,29 @@ interface ConfigDao {
 
 @Dao
 interface PeriodSchemeDao {
-    @Query("SELECT * FROM period_schemes WHERE scheduleId = :scheduleId ORDER BY id")
+    @Query("SELECT * FROM period_schemes WHERE :scheduleId = :scheduleId ORDER BY id")
     fun observeSchemes(scheduleId: Int): Flow<List<PeriodSchemeEntity>>
 
-    @Query("SELECT * FROM period_schemes WHERE scheduleId = :scheduleId ORDER BY id")
+    @Query("SELECT * FROM period_schemes WHERE :scheduleId = :scheduleId ORDER BY id")
     suspend fun getSchemes(scheduleId: Int): List<PeriodSchemeEntity>
 
     @Query("SELECT * FROM period_schemes ORDER BY scheduleId, id")
     suspend fun getAllSchemes(): List<PeriodSchemeEntity>
 
-    @Query("SELECT * FROM period_schemes WHERE scheduleId = :scheduleId AND isActive = 1 LIMIT 1")
+    @Query("SELECT s.* FROM period_schemes s JOIN schedule_config c ON c.activePeriodSchemeId = s.id WHERE c.id = :scheduleId LIMIT 1")
     suspend fun getActiveScheme(scheduleId: Int): PeriodSchemeEntity?
+
+    @Query("SELECT * FROM period_schemes WHERE id = :schemeId LIMIT 1")
+    suspend fun getScheme(schemeId: Long): PeriodSchemeEntity?
+
+    @Query("SELECT * FROM period_schemes WHERE publicId = :publicId ORDER BY id LIMIT 1")
+    suspend fun getSchemeByPublicId(publicId: String): PeriodSchemeEntity?
+
+    @Query("SELECT EXISTS(SELECT 1 FROM period_scheme_library_migrations WHERE sourceId = :sourceId)")
+    suspend fun hasMigration(sourceId: String): Boolean
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertMigration(migration: PeriodSchemeLibraryMigrationEntity)
 
     @Query("SELECT * FROM period_scheme_times WHERE schemeId = :schemeId ORDER BY periodIndex")
     suspend fun getTimes(schemeId: Long): List<PeriodSchemeTimeEntity>
@@ -147,12 +159,6 @@ interface PeriodSchemeDao {
 
     @Query("DELETE FROM period_schemes WHERE id = :schemeId")
     suspend fun deleteScheme(schemeId: Long)
-
-    @Query("DELETE FROM period_scheme_times WHERE schemeId IN (SELECT id FROM period_schemes WHERE scheduleId = :scheduleId)")
-    suspend fun deleteTimesForSchedule(scheduleId: Int)
-
-    @Query("DELETE FROM period_schemes WHERE scheduleId = :scheduleId")
-    suspend fun deleteSchemesForSchedule(scheduleId: Int)
 
     @Query("DELETE FROM period_scheme_times")
     suspend fun deleteAllTimes()
