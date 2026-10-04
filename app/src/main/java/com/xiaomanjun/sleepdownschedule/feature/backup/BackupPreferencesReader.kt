@@ -56,7 +56,9 @@ object BackupPreferencesReader {
                 dayAgent = DayAgentPreferences.backupPreferences(context, scheduleStableIdsByRoomId),
                 aiImport = AiImportSettingsStore.exportForBackup(context),
                 aiImportHistoryRetentionDays = AiImportHistoryStore.retentionDays(context),
-                aiImportHistory = backupHistories
+                aiImportHistory = backupHistories,
+                savedPeriodSchemes = com.xiaomanjun.sleepdownschedule.data.repository.PeriodSchemeLibraryStore.load(context),
+                courseQuietSettings = com.xiaomanjun.sleepdownschedule.feature.reminder.CourseQuietPreferences.read(context)
             ),
             additionalAssets = historyAssets
         )

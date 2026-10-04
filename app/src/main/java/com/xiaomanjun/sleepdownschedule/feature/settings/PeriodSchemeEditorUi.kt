@@ -332,6 +332,7 @@ internal fun PeriodSchemeEditor(
                     if (draft.schemes.size > 1) Row(Modifier.fillMaxWidth().padding(14.dp)) {
                         DialogLiquidButton(backdrop, "删除作息", { showDeleteScheme = true }, monochromeNeutral = true)
                     }
+                    PeriodSchemeLibraryControls(config, draft, backdrop, onDraftChange, onCountsChange)
                 }
             }
             Column(Modifier.fillMaxWidth()) {

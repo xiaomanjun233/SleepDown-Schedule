@@ -348,7 +348,9 @@ data class BackupPreferences(
     val dayAgent: BackupDayAgentPreferences? = null,
     val aiImport: BackupAiImportPreferences? = null,
     val aiImportHistoryRetentionDays: Int = BackupFormatV1.DEFAULT_AI_IMPORT_HISTORY_RETENTION_DAYS,
-    val aiImportHistory: List<BackupAiImportHistoryEntry> = emptyList()
+    val aiImportHistory: List<BackupAiImportHistoryEntry> = emptyList(),
+    val savedPeriodSchemes: List<com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme>? = null,
+    val courseQuietSettings: com.xiaomanjun.sleepdownschedule.domain.schedule.CourseQuietSettings? = null
 )
 
 @Serializable

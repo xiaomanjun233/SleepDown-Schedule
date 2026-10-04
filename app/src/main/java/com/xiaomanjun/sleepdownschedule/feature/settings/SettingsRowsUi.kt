@@ -1076,7 +1076,8 @@ internal fun SettingsMinutePickerRow(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     enabled: Boolean = true,
-    range: IntRange = 0..180
+    range: IntRange = 0..180,
+    pickerTitle: String = "选择提前时间"
 ) {
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     var showPicker by remember { mutableStateOf(false) }
@@ -1090,7 +1091,7 @@ internal fun SettingsMinutePickerRow(
     )
     SleepDownPickerDialog(
         show = showPicker,
-        title = "选择提前时间",
+        title = pickerTitle,
         onDismissRequest = { showPicker = false },
         backdrop = popupBackdrop,
         config = config,

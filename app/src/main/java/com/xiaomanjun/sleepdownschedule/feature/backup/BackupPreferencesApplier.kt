@@ -23,6 +23,12 @@ object BackupPreferencesApplier {
             DayAgentPreferences.applyBackupPreferences(context, it, scheduleRoomIdsByStableId)
         }
         preferences.aiImport?.let { AiImportSettingsStore.applyBackupPreferences(context, it) }
+        preferences.savedPeriodSchemes?.let {
+            com.xiaomanjun.sleepdownschedule.data.repository.PeriodSchemeLibraryStore.restore(context, it)
+        }
+        preferences.courseQuietSettings?.let {
+            com.xiaomanjun.sleepdownschedule.feature.reminder.CourseQuietPreferences.write(context, it)
+        }
         AiImportHistoryStore.applyBackup(
             context = context,
             entries = preferences.aiImportHistory,

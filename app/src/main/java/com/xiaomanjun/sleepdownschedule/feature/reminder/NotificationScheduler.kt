@@ -111,6 +111,7 @@ object NotificationScheduler {
         periods: List<PeriodEntity>,
         forceReschedule: Boolean = false
     ) = refreshMutex.withLock {
+        CourseQuietScheduler.refresh(context, AppState(courses = courses, config = config, periods = periods), forceReschedule)
         val effectiveConfig = ColorOSCourseExperiment.suppressLiveUpdate(context, config)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val liveUpdatePreferences = LiveUpdatePreferences.read(context)

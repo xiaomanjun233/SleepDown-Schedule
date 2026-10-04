@@ -567,6 +567,13 @@ object BackupCodec {
     }
 
     private fun validatePreferences(preferences: BackupPreferences, assetIds: Set<String>) {
+        try {
+            preferences.savedPeriodSchemes?.let { schemes ->
+                require(schemes.map { it.id }.distinct().size == schemes.size) { "作息库编号重复" }
+                schemes.forEach { it.validate() }
+            }
+            preferences.courseQuietSettings?.validate()
+        } catch (invalid: IllegalArgumentException) { fail(invalid.message ?: "作息库或课程勿扰设置无效") }
         if (preferences.preferencesVersion != BackupFormatV1.PREFERENCES_VERSION) {
             fail("未知 preferencesVersion=${preferences.preferencesVersion}")
         }

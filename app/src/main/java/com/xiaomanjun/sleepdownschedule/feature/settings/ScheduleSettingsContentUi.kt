@@ -229,6 +229,9 @@ fun ScheduleSettingsContent(
                     }
                 }
             } else {
+                item(key = "course-quiet-settings") {
+                    CourseQuietSettingsGroup(backdrop, state.config)
+                }
                 item(key = "notification-options") {
                     GlassPreferenceSection("课前提醒") {
                         SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
