@@ -60,11 +60,9 @@ internal fun CourseQuietSettingsGroup(backdrop: Backdrop?, config: ScheduleConfi
             finally { busy = false }
         }
     }
-    GlassPreferenceSection("上课自动安静") {
+    GlassPreferenceSection("上课自动安静 · 全局") {
         SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
-            SettingsInfoRow("跟随当前课表", "从每门课开始到整门课结束保持安静，包含课内休息。下课后恢复原模式；课中手动调整时保留你的选择。")
-            SettingsDivider()
-            SettingsToggleRow("自动勿扰", "只在上课期间启用 SleepDown 的课程勿扰。", settings.doNotDisturbEnabled,
+            SettingsToggleRow("自动勿扰", "在上课期间自动打开勿扰模式", settings.doNotDisturbEnabled,
                 backdrop, enabled = !busy, onCheckedChange = { update(settings.copy(doNotDisturbEnabled = it)) })
             SettingsDivider()
             SettingsToggleRow("自动静音／震动", "与自动勿扰分别开关。", settings.soundEnabled,

@@ -5,6 +5,7 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.CourseQuietSettings
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
+/** One app-wide setting, shared across schedule changes; never keyed by a schedule ID. */
 internal object CourseQuietPreferences {
     private val json = Json { ignoreUnknownKeys = true }
     private fun preferences(context: Context) = context.applicationContext
