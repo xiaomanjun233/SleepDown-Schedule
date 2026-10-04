@@ -557,7 +557,7 @@ fun ScheduleSettingsContentFixed(
                     onClick = onOpenPeriodSchemes
                 )
                 SettingsDivider()
-                SettingsInfoRow("公共作息", "这里的修改仅影响当前课表；保存作息修改时会创建公共副本。切换作息只更改引用，不改变课程节次。")
+                SettingsInfoRow("注意", "在这里下方直接编辑修改作息，仅对当前课表生效，如需修改共用的作息，请进入作息管理页面")
             }
         }
         ScheduleAdjustmentsSettings(state.copy(config = draftConfig), backdrop, scheduleAdjustmentsJson, onScheduleAdjustmentsChange)

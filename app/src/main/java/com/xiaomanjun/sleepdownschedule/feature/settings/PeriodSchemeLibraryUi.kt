@@ -154,10 +154,6 @@ fun PeriodSchemeManagementScreen(
                 LazyColumn(Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = navigationBottom + 88.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item {
-                        MiuixText("所有作息均为公共方案；编辑会同步到引用它的全部课表。请在课表设置中选择当前作息。", style = MiuixTheme.textStyles.body2,
-                            color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
-                    }
                     if (!loaded) item { MiuixText("正在读取作息…", modifier = Modifier.padding(vertical = 20.dp),
                         style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
                     error?.let { message -> item {
@@ -282,11 +278,12 @@ private fun PeriodSchemeCard(
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 DialogLiquidButton(
-                    backdrop = backdrop, label = "复制",
+                    backdrop = backdrop, label = "复制${saved.name}",
                     onClick = { if (enabled) onDuplicate() },
                     modifier = Modifier.minimumInteractiveComponentSize().alpha(if (enabled) 1f else 0.38f)
                         .semantics { if (!enabled) disabled() },
-                    role = DialogButtonRole.Cancel, shadowEnabled = false
+                    role = DialogButtonRole.Cancel, iconRes = R.drawable.ic_copy,
+                    roundIcon = true, shadowEnabled = false
                 )
                 Spacer(Modifier.width(8.dp))
                 DialogLiquidButton(
