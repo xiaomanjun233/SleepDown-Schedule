@@ -139,8 +139,9 @@ class CourseCopyPlacementTest {
         val grid = CourseEditorWeekGrid(Offset(10f, 120f), 500f, 60f, 4f, periods.map { it.periodIndex }, null, 0, true)
         assertEquals(CourseCopyTap.Selected, courseCopyGridTap(controller, 3, grid, (1..5).toList(), periods, Offset(20f, 245f)))
         assertEquals(5, controller.target!!.course.weekday)
-        assertEquals(Rect(12f, 362f, 108f, 478f), controller.target!!.bounds.single())
-        assertEquals(CourseCopyTap.Confirmed, courseCopyGridTap(controller, 3, grid, (1..5).toList(), periods, Offset(25f, 335f)))
+        assertEquals(Rect(12f, 302f, 108f, 418f), controller.target!!.bounds.single())
+        // Taps are local to the grid; the saved bounds include the grid's 120px page origin.
+        assertEquals(CourseCopyTap.Confirmed, courseCopyGridTap(controller, 3, grid, (1..5).toList(), periods, Offset(25f, 285f)))
         assertEquals(1, writes)
     }
 
