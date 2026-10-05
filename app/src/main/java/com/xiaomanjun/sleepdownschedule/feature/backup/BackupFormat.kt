@@ -251,7 +251,8 @@ data class BackupScheduleConfig(
     val autoCheckUpdates: Boolean,
     val homeChromeBlurScale: Float = DefaultHomeChromeBlurScale,
     val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale,
-    val scheduleAdjustmentsJson: String = ""
+    val scheduleAdjustmentsJson: String = "",
+    val periodAlignmentMode: String = "INDEX"
 )
 
 @Serializable
@@ -268,7 +269,8 @@ data class BackupCourse(
     val customStartTime: String? = null,
     val customEndTime: String? = null,
     val customColorArgb: Long? = null,
-    val customPeriodTimes: String? = null
+    val customPeriodTimes: String? = null,
+    val originalPeriodTimes: String? = null
 )
 
 @Serializable

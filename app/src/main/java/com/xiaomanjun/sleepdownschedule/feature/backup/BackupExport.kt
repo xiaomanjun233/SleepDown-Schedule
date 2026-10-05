@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.backup
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.widget.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
@@ -278,6 +280,7 @@ object BackupExportMapper {
                 defaultWallpaperStyle = config.defaultWallpaperStyle.name,
                 hideEmptyWeekends = config.hideEmptyWeekends,
                 scheduleAdjustmentsJson = config.scheduleAdjustmentsJson,
+                periodAlignmentMode = config.periodAlignmentMode.name,
                 dockAlignment = config.dockAlignment.name,
                 defaultHomeMode = config.defaultHomeMode.name,
                 liveUpdateActionsEnabled = config.liveUpdateActionsEnabled,
@@ -325,7 +328,8 @@ object BackupExportMapper {
                         .map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime) }
                 )
             }
-            val backupCourses = coursesBySchedule[profile.id].orEmpty().map { course ->
+            val backupCourses = coursesBySchedule[profile.id].orEmpty().map { displayed ->
+                val course = displayed.originalArrangement()
                 BackupCourse(
                     id = courseIds.getValue(course.id),
                     name = course.name,
@@ -339,7 +343,8 @@ object BackupExportMapper {
                     customStartTime = course.customStartTime,
                     customEndTime = course.customEndTime,
                     customColorArgb = course.customColorArgb,
-                    customPeriodTimes = course.customPeriodTimes
+                    customPeriodTimes = course.customPeriodTimes,
+                    originalPeriodTimes = course.originalPeriodTimes
                 )
             }
             val backupSessions = snapshot.agentDailySessions

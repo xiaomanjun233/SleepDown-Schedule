@@ -173,6 +173,8 @@ object BackupRoomRestoreMapper {
                 ),
                 hideEmptyWeekends = config.hideEmptyWeekends,
                 scheduleAdjustmentsJson = config.scheduleAdjustmentsJson,
+                periodAlignmentMode = strictBackupEnum<com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode>(
+                    config.periodAlignmentMode, "periodAlignmentMode"),
                 dockAlignment = strictBackupEnum<DockAlignment>(config.dockAlignment, "dockAlignment"),
                 defaultHomeMode = strictBackupEnum<HomeStartMode>(config.defaultHomeMode, "defaultHomeMode"),
                 liveUpdateActionsEnabled = config.liveUpdateActionsEnabled,
@@ -217,7 +219,7 @@ object BackupRoomRestoreMapper {
         val courseRows = schedules.flatMap { schedule ->
             val targetScheduleId = plan.scheduleIds.getValue(schedule.id)
             schedule.courses.map { course ->
-                CourseEntity(
+                com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes(CourseEntity(
                     id = plan.courseIds.getValue(course.id),
                     name = course.name,
                     teacher = course.teacher,
@@ -231,8 +233,9 @@ object BackupRoomRestoreMapper {
                     customEndTime = course.customEndTime,
                     customColorArgb = course.customColorArgb,
                     customPeriodTimes = course.customPeriodTimes,
+                    originalPeriodTimes = course.originalPeriodTimes,
                     scheduleId = targetScheduleId
-                )
+                ), schedule.periods.map { PeriodEntity(it.periodIndex, it.startTime, it.endTime, targetScheduleId) })
             }
         }
 

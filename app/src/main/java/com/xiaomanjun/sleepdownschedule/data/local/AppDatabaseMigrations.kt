@@ -869,6 +869,37 @@ private fun insertMigration45Snapshot(
     return id
 }
 
+private val MIGRATION_45_46 = object : Migration(45, 46) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("courses", "originalPeriodTimes")) {
+            db.execSQL("ALTER TABLE courses ADD COLUMN originalPeriodTimes TEXT")
+        }
+        if (!db.hasColumn("schedule_config", "periodAlignmentMode")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN periodAlignmentMode TEXT NOT NULL DEFAULT 'INDEX'")
+        }
+        val converters = ScheduleConverters()
+        val bells = mutableMapOf<Int, MutableMap<Int, Pair<String, String>>>()
+        db.query("SELECT scheduleId, periodIndex, startTime, endTime FROM periods").use { cursor ->
+            while (cursor.moveToNext()) {
+                bells.getOrPut(cursor.getInt(0)) { mutableMapOf() }[cursor.getInt(1)] = cursor.getString(2) to cursor.getString(3)
+            }
+        }
+        val snapshots = mutableListOf<Pair<Long, String>>()
+        db.query("SELECT id, scheduleId, periods FROM courses WHERE originalPeriodTimes IS NULL").use { cursor ->
+            while (cursor.moveToNext()) {
+                val times = bells[cursor.getInt(1)].orEmpty()
+                val snapshot = converters.stringToIntList(cursor.getString(2)).distinct().sorted().mapNotNull { index ->
+                    times[index]?.let { (start, end) -> "$index,$start-$end" }
+                }.joinToString(";")
+                snapshots += cursor.getLong(0) to snapshot
+            }
+        }
+        snapshots.forEach { (id, snapshot) ->
+            db.execSQL("UPDATE courses SET originalPeriodTimes = ? WHERE id = ?", arrayOf<Any>(snapshot, id))
+        }
+    }
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -913,7 +944,8 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_41_42,
     MIGRATION_42_43,
     MIGRATION_43_44,
-    MIGRATION_44_45
+    MIGRATION_44_45,
+    MIGRATION_45_46
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -962,6 +994,8 @@ private fun repairDatabaseFileBeforeRoomOpen(path: File) {
                 (db.version >= 37 && !sqliteColumnExists(db, "courses", "customEndTime")) ||
                 (db.version >= 37 && !sqliteColumnExists(db, "courses", "customColorArgb")) ||
                 (db.version >= 42 && !sqliteColumnExists(db, "courses", "customPeriodTimes")) ||
+                (db.version >= 46 && !sqliteColumnExists(db, "courses", "originalPeriodTimes")) ||
+                (db.version >= 46 && !sqliteColumnExists(db, "schedule_config", "periodAlignmentMode")) ||
                 (db.version >= 38 && !sqliteColumnExists(db, "schedule_config", "courseCardColorMode")) ||
                 (db.version >= 38 && !sqliteColumnExists(db, "schedule_config", "courseCardPalette")) ||
                 (db.version >= 38 && !sqliteColumnExists(db, "schedule_config", "alternateCourseCardColorMode")) ||

@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.agent
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+
 
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustment
@@ -418,6 +420,7 @@ fun parseAgentActions(content: String, facts: DayAgentFacts): ParsedAgentActions
         ?.settingValue?.toIntOrNull()?.takeIf { it in 1..60 } ?: facts.totalWeeks
     val destinationFacts = facts.copy(totalWeeks = plannedTotalWeeks)
     val knownCourses = (facts.week.map { it.course } + facts.semesterCourses)
+        .map { it.originalArrangement() }
         .distinctBy { it.id }
         .associateBy { it.id }
     val requestedCount = drafts.singleOrNull { it.type == AgentActionType.SET_PERIOD_SETTINGS }
@@ -799,6 +802,9 @@ private fun validateAgentCoursePatch(
             customStartTime = clock.start,
             customEndTime = clock.end,
             customPeriodTimes = clock.periodTimes,
+            originalPeriodTimes = base.originalPeriodTimes?.takeIf {
+                periods == base.periods && customRange == (base.customStartTime to base.customEndTime)
+            },
             customColorArgb = colour(),
             scheduleId = facts.scheduleId
         )
@@ -890,6 +896,9 @@ private fun validateAgentCourseReplacement(
         customStartTime = clock.start,
         customEndTime = clock.end,
         customPeriodTimes = clock.periodTimes,
+        originalPeriodTimes = base?.originalPeriodTimes?.takeIf {
+            periods == base.periods && customRange == (base.customStartTime to base.customEndTime)
+        },
         customColorArgb = color ?: base?.customColorArgb,
         scheduleId = facts.scheduleId
     )

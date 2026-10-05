@@ -4,6 +4,18 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.previewPeriodCourseMapping
 import com.xiaomanjun.sleepdownschedule.domain.schedule.hasSameContent
+import com.xiaomanjun.sleepdownschedule.domain.schedule.CourseAlignmentImpact
+import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeCoursePeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+import com.xiaomanjun.sleepdownschedule.domain.schedule.arrangementForWrite
+import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangements
+import com.xiaomanjun.sleepdownschedule.domain.schedule.previewCourseAlignment
+import com.xiaomanjun.sleepdownschedule.domain.schedule.withEffectiveCourseArrangements
+import com.xiaomanjun.sleepdownschedule.domain.schedule.hasNetPeriodTopologyChange
+import com.xiaomanjun.sleepdownschedule.domain.schedule.schemeConfig
+import com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode
 import com.xiaomanjun.sleepdownschedule.domain.course.conflictsWith
 
 import androidx.room.withTransaction
@@ -22,16 +34,48 @@ private data class MultiScheduleSnapshot(
     val allPeriods: List<PeriodEntity>
 )
 
+data class PeriodSchemeSwitchPreview(
+    val config: ScheduleConfigEntity,
+    val courses: List<CourseEntity>,
+    val periods: List<PeriodEntity>,
+    val target: PeriodSchemeDraft,
+    val mode: PeriodAlignmentMode,
+    val impact: CourseAlignmentImpact
+)
+
 class ScheduleRepository(private val database: AppDatabase) {
     private val courseDao = database.courseDao()
     private val configDao = database.configDao()
     private val profileDao = database.scheduleProfileDao()
     private val periodSchemeDao = database.periodSchemeDao()
 
-    suspend fun switchPeriodScheme(scheduleId: Int, schemeId: Long) = database.withTransaction {
-        ensureScheduleData(scheduleId)
+    suspend fun previewPeriodSchemeSwitch(scheduleId: Int, schemeId: Long,
+        mode: PeriodAlignmentMode = PeriodAlignmentMode.INDEX): PeriodSchemeSwitchPreview = database.withTransaction {
+        val config = configDao.getConfig(scheduleId) ?: error("课表不存在")
         val target = periodSchemeDao.getScheme(schemeId) ?: error("作息方案不存在")
-        bindPublicScheme(scheduleId, target, periodSchemeDao.getTimes(target.id))
+        val draft = readSchemeDraft(target)
+        require(draft.times.isNotEmpty()) { "作息方案没有节次时间" }
+        validateResolvedPeriodTimes(draft.times)?.let { throw IllegalArgumentException(it) }
+        val courses = courseDao.getCourses(scheduleId)
+        val periods = configDao.getPeriods(scheduleId)
+        val nextConfig = schemeConfig(config, target).copy(periodAlignmentMode = mode)
+        PeriodSchemeSwitchPreview(config, courses, periods, draft, mode,
+            previewCourseAlignment(courses, config, periods, nextConfig,
+                draft.times.map { PeriodEntity(it.periodIndex, it.startTime, it.endTime, scheduleId) }))
+    }
+
+    suspend fun switchPeriodScheme(scheduleId: Int, schemeId: Long,
+        mode: PeriodAlignmentMode = PeriodAlignmentMode.INDEX,
+        expected: PeriodSchemeSwitchPreview? = null) = database.withTransaction {
+        val preview = previewPeriodSchemeSwitch(scheduleId, schemeId, mode)
+        require(expected == null || (preview.config == expected.config && preview.courses == expected.courses &&
+            preview.periods == expected.periods && preview.target == expected.target && mode == expected.mode)) {
+            "课程或作息已有变化，请重新确认切换"
+        }
+        require(preview.impact.conflicts.isEmpty()) { "新作息下有课程时间冲突，请先调整课程" }
+        if (preview.config.activePeriodSchemeId == schemeId && preview.config.periodAlignmentMode == mode) return@withTransaction
+        bindPublicScheme(scheduleId, preview.target.scheme, preview.target.times,
+            preview.config.copy(periodAlignmentMode = mode))
     }
 
     private suspend fun duplicatePublicSchemeRecord(schemeId: Long, name: String? = null): Long =
@@ -143,7 +187,7 @@ class ScheduleRepository(private val database: AppDatabase) {
         }
         val currentCourses = courseDao.getCourses(config.id)
         val currentPeriods = configDao.getPeriods(config.id)
-        require((expectedCourses == null || currentCourses.sortedBy { it.id } == expectedCourses.sortedBy { it.id }) &&
+        require((expectedCourses == null || currentCourses.sortedBy { it.id } == expectedCourses.map { it.originalArrangement() }.sortedBy { it.id }) &&
             (expectedPeriods == null || currentPeriods == expectedPeriods.sortedBy { it.periodIndex })) {
             "课程或作息在确认期间发生变化，请重新打开设置并确认后再保存"
         }
@@ -171,15 +215,13 @@ class ScheduleRepository(private val database: AppDatabase) {
                 if (before != null && before.times.size != resolved.size) require(draft.topologyOperations.isNotEmpty()) {
                     "缺少节次编辑记录，请重新打开作息编辑"
                 }
-                val mapped = previewPeriodCourseMapping(currentCourses, currentPeriods, resolved, draft.topologyOperations)
-                validateCourseIndices(mapped.courses, resolved)
-                validateNewTimingConflicts(currentCourses, mapped.courses, currentPeriods, resolved)
+                val mapped = coursesAfterSchemeEdit(currentCourses, storedConfig, config, currentPeriods, resolved, draft.topologyOperations)
                 // Detail settings always edit this table only. The copy is itself a public scheme.
                 val copy = active.copy(scheme = active.scheme.copy(id = 0, publicId = java.util.UUID.randomUUID().toString(),
                     name = if (before != null && active.scheme.name == before.scheme.name) "${active.scheme.name.take(57)} 副本" else active.scheme.name),
                     times = resolved)
                 val created = savePublicScheme(config, copy, null, emptyList(), null)
-                if (mapped.courses != currentCourses) courseDao.insertCourses(mapped.courses)
+                if (mapped != currentCourses) courseDao.insertCourses(mapped)
                 created
             }
         }
@@ -212,10 +254,8 @@ class ScheduleRepository(private val database: AppDatabase) {
             require(operations.isNotEmpty()) { "缺少节次编辑记录，请重新打开作息编辑" }
         }
         val remapped = usages.map { usage ->
-            val mapping = previewPeriodCourseMapping(usage.courses, usage.periods, times, operations)
-            validateCourseIndices(mapping.courses, times)
-            validateNewTimingConflicts(usage.courses, mapping.courses, usage.periods, times)
-            usage to mapping.courses
+            usage to coursesAfterSchemeEdit(usage.courses, usage.config, schemeConfig(usage.config, entity),
+                usage.periods, times, operations)
         }
         val id = periodSchemeDao.upsertScheme(entity).let { if (entity.id > 0) entity.id else it }
         val saved = entity.copy(id = id)
@@ -229,11 +269,28 @@ class ScheduleRepository(private val database: AppDatabase) {
         return saved
     }
 
-    private fun validateCourseIndices(courses: List<CourseEntity>, times: List<PeriodSchemeTimeEntity>) {
-        val available = times.mapTo(hashSetOf()) { it.periodIndex }
-        require(courses.all { course -> course.periods.isNotEmpty() && course.periods.all { it in available } }) {
-            "现有课程使用了目标作息没有的节次，请先调整课程后再切换或编辑作息"
-        }
+    /** Switching may hide lessons; editing lesson structure still needs a lossless identity mapping. */
+    private fun coursesAfterSchemeEdit(courses: List<CourseEntity>, beforeConfig: ScheduleConfigEntity,
+        afterConfig: ScheduleConfigEntity, oldPeriods: List<PeriodEntity>, times: List<PeriodSchemeTimeEntity>,
+        operations: List<PeriodTopologyOperation>): List<CourseEntity> {
+        val effectiveBefore = projectCourseArrangements(courses, beforeConfig, oldPeriods)
+        val mapped = if (hasNetPeriodTopologyChange(oldPeriods.size, operations)) {
+            require(courses.all { course -> course.periods.all { index -> oldPeriods.any { it.periodIndex == index } } }) {
+                "课程还有当前作息未显示的原始节次，请切回完整作息后再编辑节次结构"
+            }
+            if (beforeConfig.periodAlignmentMode == PeriodAlignmentMode.TIME) {
+                previewPeriodCourseMapping(effectiveBefore, oldPeriods, times, operations)
+                courses
+            } else previewPeriodCourseMapping(courses, oldPeriods, times, operations).courses.mapIndexed { i, course ->
+                val old = courses[i]
+                val renumber = old.periods.distinct().sorted().zip(course.periods.distinct().sorted()).toMap()
+                course.copy(originalPeriodTimes = encodeCoursePeriodTimes(parseCoursePeriodTimes(old.originalPeriodTimes)
+                    .map { it.copy(index = renumber.getValue(it.index)) }) ?: old.originalPeriodTimes)
+            }
+        } else courses
+        val nextPeriods = times.map { PeriodEntity(it.periodIndex, it.startTime, it.endTime, beforeConfig.id) }
+        validateNewTimingConflicts(effectiveBefore, projectCourseArrangements(mapped, afterConfig, nextPeriods), oldPeriods, times)
+        return mapped
     }
 
     private suspend fun projectPeriods(scheduleId: Int, times: List<PeriodSchemeTimeEntity>) {
@@ -257,12 +314,15 @@ class ScheduleRepository(private val database: AppDatabase) {
         require(times.isNotEmpty()) { "作息方案没有节次时间" }
         validateResolvedPeriodTimes(times)?.let { throw IllegalArgumentException(it) }
         val courses = courseDao.getCourses(scheduleId)
-        validateCourseIndices(courses, times)
-        validateNewTimingConflicts(courses, courses, configDao.getPeriods(scheduleId), times)
-        val config = requestedConfig ?: configDao.getConfig(scheduleId) ?: error("课表不存在")
-        configDao.upsertConfig(normalizeConfigForSchedule(
-            com.xiaomanjun.sleepdownschedule.domain.schedule.schemeConfig(config, scheme), scheduleId))
-        projectPeriods(scheduleId, times)
+        val storedConfig = configDao.getConfig(scheduleId) ?: error("课表不存在")
+        val config = requestedConfig ?: storedConfig
+        val next = normalizeConfigForSchedule(schemeConfig(config, scheme), scheduleId)
+        val oldPeriods = configDao.getPeriods(scheduleId)
+        val nextPeriods = times.map { PeriodEntity(it.periodIndex, it.startTime, it.endTime, scheduleId) }
+        validateNewTimingConflicts(projectCourseArrangements(courses, storedConfig, oldPeriods),
+            projectCourseArrangements(courses, next, nextPeriods), oldPeriods, times)
+        if (next != storedConfig) configDao.upsertConfig(next)
+        if (oldPeriods != nextPeriods) projectPeriods(scheduleId, times)
     }
 
     private val multiScheduleState = combine(
@@ -298,7 +358,7 @@ class ScheduleRepository(private val database: AppDatabase) {
             config = config,
             periods = periods,
             loaded = activeId != null && storedConfig != null && storedPeriods.isNotEmpty()
-        )
+        ).withEffectiveCourseArrangements()
     }.distinctUntilChanged()
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
@@ -318,7 +378,7 @@ class ScheduleRepository(private val database: AppDatabase) {
                     config = storedConfig ?: defaultConfig(activeId),
                     periods = periods.ifEmpty { defaultPeriods(activeId) },
                     loaded = storedConfig != null && periods.isNotEmpty()
-                )
+                ).withEffectiveCourseArrangements()
             }
         }
         .distinctUntilChanged()
@@ -360,8 +420,11 @@ class ScheduleRepository(private val database: AppDatabase) {
         database.withTransaction {
             require(activeScheduleId() == expectedScheduleId) { "课表已切换，请重新选择复制位置" }
             val normalized = normalizeCoursesForSchedule(courses.map { it.copy(id = 0) }, expectedScheduleId)
+            val config = configDao.getConfig(expectedScheduleId) ?: error("课表不存在")
+            val periods = configDao.getPeriods(expectedScheduleId)
             val conflicts = com.xiaomanjun.sleepdownschedule.domain.course.conflictWeeksForAddedCourses(
-                normalized, courseDao.getCourses(expectedScheduleId), configDao.getPeriods(expectedScheduleId)
+                projectCourseArrangements(normalized, config, periods),
+                projectCourseArrangements(courseDao.getCourses(expectedScheduleId), config, periods), periods
             )
             require(conflicts.isEmpty()) { "目标位置已有课程，请重新选择复制位置" }
             courseDao.insertCourses(normalized)
@@ -386,7 +449,6 @@ class ScheduleRepository(private val database: AppDatabase) {
             require(originalIds.isNotEmpty()) { "课程记录已失效，请重新打开" }
             val currentIds = courseDao.getCourses(scheduleId).map(CourseEntity::id).toSet()
             require(originalIds.all(currentIds::contains)) { "课程已在其他操作中变更，请重新打开" }
-            originalIds.forEach { courseDao.deleteCourse(it) }
             val normalized = normalizeCoursesForSchedule(
                 replacements.map { replacement ->
                     replacement.copy(
@@ -396,6 +458,7 @@ class ScheduleRepository(private val database: AppDatabase) {
                 },
                 scheduleId
             )
+            originalIds.forEach { courseDao.deleteCourse(it) }
             courseDao.insertCourses(normalized)
             mergeCompatibleCourseFragments(scheduleId)
         }
@@ -519,14 +582,14 @@ class ScheduleRepository(private val database: AppDatabase) {
         if (courseActions.isNotEmpty()) courseDao.deleteBySchedule(config.id)
         schemes?.let { saveScheduleDetail(config, it) }
             ?: saveConfigForSchedule(config.id, config, periods)
-        if (courseActions.isNotEmpty()) courseDao.insertCourses(current.courses)
+        if (courseActions.isNotEmpty()) courseDao.insertCourses(current.courses.map { it.originalArrangement() })
         name?.let { renameSchedule(config.id, it) }
         val result = if (courseActions.isEmpty()) AgentPlanExecutionResult(true, null, true, "设置已保存")
             else executeAgentPlan(AgentPlan(courseActions)).also { check(it.success && it.verified) { it.message } }
         val stored = snapshot()
         val indexes = stored.periods.map { it.periodIndex }.toSet()
         require(stored.courses.all { course ->
-            course.periods.isNotEmpty() && course.periods.all { it in indexes } &&
+            course.originalArrangement().periods.isNotEmpty() && course.periods.all { it in indexes } &&
                 course.weeks.all { it in 1..stored.config.totalWeeks }
         }) { "新设置会使课程周次或节次越界，请在同一计划中调整受影响课程" }
         val oldById = before.courses.associateBy { it.id }
@@ -547,7 +610,7 @@ class ScheduleRepository(private val database: AppDatabase) {
         courseDao.deleteBySchedule(before.config.id)
         saveScheduleDetail(before.config, schemes.copy(topologyOperations = emptyList(),
             originalActiveSchemeId = current.config.activePeriodSchemeId))
-        courseDao.insertCourses(before.courses)
+        courseDao.insertCourses(before.courses.map { it.originalArrangement() })
         name?.let { renameSchedule(before.config.id, it) }
     }
 
@@ -572,7 +635,7 @@ class ScheduleRepository(private val database: AppDatabase) {
                         if (stored == null) {
                             throw AgentPlanRejectedException("操作对象不属于当前课表，已拒绝执行")
                         }
-                        if (stored != original) {
+                        if (stored != original?.originalArrangement()) {
                             throw AgentPlanRejectedException("课程在确认前已发生变化，请让 AI 基于最新课表重新生成操作")
                         }
                         if (action.scope != AgentActionScope.ALL_WEEKS) require(action.sourceWeekSet().let { weeks ->
@@ -586,12 +649,14 @@ class ScheduleRepository(private val database: AppDatabase) {
                 val config = configDao.getConfig(scheduleId) ?: error("课表配置不存在")
                 val periodIndexes = configDao.getPeriods(scheduleId).map { it.periodIndex }.toSet()
                 require(plan.actions.mapNotNull { it.scopedEditedCourse() }.all { course ->
-                    course.weekday in 1..7 && course.periods.isNotEmpty() && course.periods.all { it in periodIndexes } &&
+                    val previous = before.firstOrNull { it.id == course.id }
+                    course.weekday in 1..7 && course.periods.isNotEmpty() &&
+                        (course.periods.all { it in periodIndexes } || course.periods == previous?.periods || course.hasCustomTime()) &&
                         course.weeks.isNotEmpty() && course.weeks.all { it in 1..config.totalWeeks } &&
                         course.weeks.any { parityMatches(course.weekParity, it) }
                 }) { "课程星期、节次或周次无效，请修正完整计划" }
                 val preview = previewAgentPlan(
-                    before = before,
+                    before = projectCourseArrangements(before, config, configDao.getPeriods(scheduleId)),
                     plan = plan,
                     periodDefinitions = configDao.getPeriods(scheduleId)
                 )
@@ -657,7 +722,9 @@ class ScheduleRepository(private val database: AppDatabase) {
             configDao.upsertPeriods(importedPeriods)
             replaceSchemesWithPeriods(scheduleId, importedConfig, importedPeriods, "导入作息", reuseIdentical = true)
             courseDao.deleteBySchedule(scheduleId)
-            courseDao.insertCourses(normalizeImportedCoursesForSchedule(draft.courses, scheduleId))
+            val importedCourses = normalizeImportedCoursesForSchedule(draft.courses, scheduleId)
+            projectCourseArrangements(importedCourses, importedConfig, importedPeriods)
+            courseDao.insertCourses(importedCourses)
             scheduleId
         }
     }
@@ -676,7 +743,9 @@ class ScheduleRepository(private val database: AppDatabase) {
                 refreshed.config.withGlobalSettingsFrom(globalConfig), scheduleId
             ))
             courseDao.deleteBySchedule(scheduleId)
-            courseDao.insertCourses(normalizeImportedCoursesForSchedule(refreshed.courses, scheduleId))
+            val importedCourses = normalizeImportedCoursesForSchedule(refreshed.courses, scheduleId)
+            projectCourseArrangements(importedCourses, refreshed.config, currentPeriods)
+            courseDao.insertCourses(importedCourses)
         }
     }
 
@@ -694,9 +763,12 @@ class ScheduleRepository(private val database: AppDatabase) {
                 .copy(id = scheduleId, activePeriodSchemeId = current.activePeriodSchemeId)
             val times = normalizedPeriods.map { PeriodSchemeTimeEntity(0, it.periodIndex, it.startTime, it.endTime) }
             validateResolvedPeriodTimes(times)?.let { throw IllegalArgumentException(it) }
-            validateCourseIndices(courseDao.getCourses(scheduleId), times)
             val courses = courseDao.getCourses(scheduleId)
-            validateNewTimingConflicts(courses, courses, configDao.getPeriods(scheduleId), times)
+            val oldPeriods = configDao.getPeriods(scheduleId)
+            require(normalizedPeriods.map { it.periodIndex } == oldPeriods.map { it.periodIndex }) {
+                "节次结构修改请使用作息编辑入口"
+            }
+            coursesAfterSchemeEdit(courses, current, normalizedConfig, oldPeriods, times, emptyList())
             configDao.upsertConfig(normalizeConfigForSchedule(normalizedConfig, scheduleId))
             configDao.deletePeriods(scheduleId)
             configDao.upsertPeriods(normalizedPeriods)
@@ -845,12 +917,12 @@ class ScheduleRepository(private val database: AppDatabase) {
                     )
                 )
             },
-            allConfigs = emptyList(),
-            allPeriods = emptyList(),
+            allConfigs = configDao.getAllConfigs(),
+            allPeriods = configDao.getAllPeriods(),
             config = configDao.getConfig(activeId) ?: defaultConfig(activeId),
             periods = configDao.getPeriods(activeId).ifEmpty { defaultPeriods(activeId) },
             loaded = true
-        )
+        ).withEffectiveCourseArrangements()
     }
 
     /**
@@ -865,7 +937,7 @@ class ScheduleRepository(private val database: AppDatabase) {
             config = configDao.getConfig(activeId) ?: defaultConfig(activeId),
             periods = configDao.getPeriods(activeId).ifEmpty { defaultPeriods(activeId) },
             loaded = true
-        )
+        ).withEffectiveCourseArrangements()
     }
 
     suspend fun scheduleSnapshot(scheduleId: Int): AppState = database.withTransaction {
@@ -875,7 +947,7 @@ class ScheduleRepository(private val database: AppDatabase) {
             config = configDao.getConfig(scheduleId) ?: defaultConfig(scheduleId),
             periods = configDao.getPeriods(scheduleId).ifEmpty { defaultPeriods(scheduleId) },
             loaded = true
-        )
+        ).withEffectiveCourseArrangements()
     }
 
     private suspend fun activeScheduleId(): Int {
@@ -1001,7 +1073,6 @@ class ScheduleRepository(private val database: AppDatabase) {
             configDao.upsertConfig(config.copy(activePeriodSchemeId = active.id))
             return
         }
-        validateCourseIndices(courseDao.getCourses(scheduleId), candidate)
         replaceSchemesWithPeriods(scheduleId, config, periods, "${active.name.take(57)} 副本")
     }
 
@@ -1013,12 +1084,16 @@ class ScheduleRepository(private val database: AppDatabase) {
             .map { it.copy(scheduleId = scheduleId) }
     }
 
-    private fun normalizeCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int): List<CourseEntity> {
-        return courses.map {
+    private suspend fun normalizeCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int,
+        sourcePeriods: List<PeriodEntity>? = null): List<CourseEntity> {
+        val previous = courseDao.getCourses(scheduleId).associateBy { it.id }
+        val definitions = sourcePeriods ?: configDao.getPeriods(scheduleId)
+        return courses.map { incoming ->
+            val it = incoming.arrangementForWrite()
             val clock = com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeCourseClock(
                 it.customStartTime, it.customEndTime, it.customPeriodTimes, it.periods
             )
-            it.copy(
+            captureOriginalPeriodTimes(it.copy(
                 weekday = it.weekday.coerceIn(1, 7),
                 periods = it.periods.filter { period -> period > 0 }.distinct().sorted().ifEmpty { listOf(1) },
                 weeks = it.weeks.filter { week -> week > 0 }.distinct().sorted().ifEmpty { listOf(1) },
@@ -1026,12 +1101,12 @@ class ScheduleRepository(private val database: AppDatabase) {
                 customEndTime = clock.end,
                 customPeriodTimes = clock.periodTimes,
                 scheduleId = scheduleId
-            )
+            ), definitions, previous[it.id])
         }
     }
 
-    private fun normalizeImportedCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int): List<CourseEntity> {
-        return normalizeCoursesForSchedule(courses, scheduleId).map { it.copy(id = 0) }
+    private suspend fun normalizeImportedCoursesForSchedule(courses: List<CourseEntity>, scheduleId: Int): List<CourseEntity> {
+        return normalizeCoursesForSchedule(courses.map { it.copy(id = 0, arrangementProjection = null) }, scheduleId)
     }
 
     private suspend fun mergeCompatibleCourseFragments(scheduleId: Int) {
@@ -1067,6 +1142,7 @@ private fun CourseEntity.hasSameOccurrenceSlot(other: CourseEntity): Boolean {
         customStartTime == other.customStartTime &&
         customEndTime == other.customEndTime &&
         customPeriodTimes == other.customPeriodTimes &&
+        originalPeriodTimes == other.originalPeriodTimes &&
         customColorArgb == other.customColorArgb &&
         weekParity == other.weekParity &&
         scheduleId == other.scheduleId
@@ -1083,6 +1159,7 @@ private data class CourseMergeKey(
     val customStartTime: String?,
     val customEndTime: String?,
     val customPeriodTimes: String?,
+    val originalPeriodTimes: String?,
     val customColorArgb: Long?,
     val weekParity: WeekParity
 )
@@ -1099,6 +1176,7 @@ private fun CourseEntity.mergeKey(): CourseMergeKey {
         customStartTime = customStartTime,
         customEndTime = customEndTime,
         customPeriodTimes = customPeriodTimes,
+        originalPeriodTimes = originalPeriodTimes,
         customColorArgb = customColorArgb,
         weekParity = weekParity
     )
@@ -1110,11 +1188,8 @@ internal fun preserveTimingForAutoRefresh(
     fetched: ImportDraft
 ): ImportDraft {
     require(currentPeriods.isNotEmpty()) { "当前课表没有作息节次，请手动导入并核对作息" }
-    val availablePeriods = currentPeriods.mapTo(hashSetOf()) { it.periodIndex }
-    require(fetched.courses.all { course -> course.periods.all { it in availablePeriods } }) {
-        "刷新课程包含当前作息没有的节次，请手动导入并核对作息"
-    }
     return fetched.copy(
+        courses = fetched.courses.map { captureOriginalPeriodTimes(it.copy(originalPeriodTimes = null), fetched.periods) },
         config = currentConfig.copy(
             totalWeeks = fetched.config.totalWeeks,
             currentWeek = currentConfig.currentWeek.coerceIn(1, fetched.config.totalWeeks),

@@ -1,6 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.backup
 
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
+import com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.JsonObject
@@ -187,6 +190,51 @@ class SharedPeriodSchemeBackupTest {
         }))
         try { BackupCodec.encode(invalid); fail("Divergent compatibility projection must fail") }
         catch (expected: BackupCodecException) { assertTrue(expected.message!!.contains("共享作息不一致")) }
+    }
+
+    @Test fun clippedSourceAndAlignmentModeRoundTripAndCanRecoverAllLessons() {
+        val source = "11,10:00-10:40;12,10:50-11:30;13,11:40-12:20;14,12:30-13:10"
+        val archive = export()
+        val original = archive.data.schedules.first()
+        val dto = BackupCourse(BackupStableId.new(BackupStableId.COURSE_PREFIX), "隐藏课程", null, null,
+            1, (11..14).toList(), listOf(1), "ALL", null, originalPeriodTimes = source)
+        val encoded = decode(archive.copy(data = archive.data.copy(schedules = listOf(original.copy(
+            courses = listOf(dto), config = original.config.copy(periodAlignmentMode = "TIME"))))))
+        val rows = BackupRoomRestoreMapper.map(encoded, BackupImportPlanBuilder.build(encoded, "recoverable-source"))
+        assertEquals(PeriodAlignmentMode.TIME, rows.configs.single().periodAlignmentMode)
+        assertEquals(source, rows.courses.single().originalPeriodTimes)
+        assertEquals((11..14).toList(), rows.courses.single().periods)
+        val restored = projectCourseArrangement(rows.courses.single(), rows.configs.single(), rows.periods)
+        assertTrue(restored.periods.isEmpty())
+        val originalBells = com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes(source)
+            .map { PeriodEntity(it.index, it.start.toString(), it.end.toString(), rows.configs.single().id) }
+        val recovered = projectCourseArrangement(restored,
+            rows.configs.single().copy(periodAlignmentMode = PeriodAlignmentMode.INDEX), originalBells)
+        assertEquals((11..14).toList(), recovered.periods)
+        assertEquals(rows.courses.single(), recovered.originalArrangement())
+    }
+
+    @Test fun legacyCourseGetsASourceSnapshotFromItsOwnBackupBells() {
+        val archive = export()
+        val course = BackupCourse(BackupStableId.new(BackupStableId.COURSE_PREFIX), "旧课程", null, null,
+            1, listOf(1), listOf(1), "ALL", null)
+        val legacy = decode(archive.copy(data = archive.data.copy(schedules = archive.data.schedules.map {
+            it.copy(courses = listOf(course.copy(id = BackupStableId.new(BackupStableId.COURSE_PREFIX))))
+        })))
+        val rows = BackupRoomRestoreMapper.map(legacy, BackupImportPlanBuilder.build(legacy, "legacy-source"))
+        assertTrue(rows.courses.all { it.originalPeriodTimes == "1,08:00-08:45" })
+        assertTrue(rows.configs.all { it.periodAlignmentMode == PeriodAlignmentMode.INDEX })
+    }
+
+    @Test fun timeAlignmentRejectsMissingSourceBeforeRestore() {
+        val archive = export()
+        val source = archive.data.schedules.first()
+        val course = BackupCourse(BackupStableId.new(BackupStableId.COURSE_PREFIX), "缺失时间", null, null,
+            1, listOf(1), listOf(1), "ALL", null, originalPeriodTimes = "")
+        val invalid = archive.copy(data = archive.data.copy(schedules = listOf(source.copy(
+            config = source.config.copy(periodAlignmentMode = "TIME"), courses = listOf(course)))))
+        try { decode(invalid); fail("Unknown source must fail before writing") }
+        catch (expected: BackupCodecException) { assertTrue(expected.message!!.contains("完整原始时间")) }
     }
 
     private fun scheme(id: Long, publicId: String) = PeriodSchemeEntity(

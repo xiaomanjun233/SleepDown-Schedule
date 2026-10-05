@@ -13,6 +13,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NotificationSchedulingTest {
+    @Test fun alignmentModeAndEffectiveSegmentsInvalidateOldAlarmsEvenWithTheSameAnchors() {
+        val bells = listOf(PeriodEntity(1, "08:00", "08:45"))
+        val raw = CourseEntity(7, "课程", null, null, 1, listOf(3, 4), listOf(1), WeekParity.ALL, null,
+            customPeriodTimes = "4,08:10-08:20", originalPeriodTimes = "3,08:01-08:09;4,08:10-08:20")
+        val index = defaultConfig()
+        val time = index.copy(periodAlignmentMode = com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode.TIME)
+        val byIndex = com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(raw, index, bells)
+        val byTime = com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(raw, time, bells)
+        assertEquals(byIndex.periods, byTime.periods)
+        assertNotEquals(NotificationScheduler.scheduleSignature(listOf(byIndex), index, bells),
+            NotificationScheduler.scheduleSignature(listOf(byTime), time, bells))
+    }
     @Test
     fun lateNightPreviewRemainsVisibleUntilTomorrowInsteadOfExpiringImmediately() {
         val zone = ZoneId.of("Asia/Shanghai")

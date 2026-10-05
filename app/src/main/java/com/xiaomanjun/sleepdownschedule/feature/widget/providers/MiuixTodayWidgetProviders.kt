@@ -283,9 +283,9 @@ internal fun RemoteViews.applyWidgetCourseCardBackground(
     }
 }
 
-internal fun widgetCourseDetail(course: CourseEntity): String {
+internal fun widgetCourseDetail(course: CourseEntity, periods: List<PeriodEntity> = emptyList()): String {
     val range = when {
-        course.hasCustomTime() -> "${course.customStartTime}-${course.customEndTime}"
+        course.hasCustomTime() -> courseTimeLabel(course, periods)
         course.periods.isEmpty() -> null
         course.periods.size == 1 -> "第${course.periods.first()}节"
         else -> "第${course.periods.minOrNull()}-${course.periods.maxOrNull()}节"

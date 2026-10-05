@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.editor
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalTimeSegments
+
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -531,6 +534,7 @@ private data class CourseEditorGroupingKey(
     val customStartTime: String?,
     val customEndTime: String?,
     val customPeriodTimes: String?,
+    val originalPeriodTimes: String?,
     val customColorArgb: Long?,
     val parity: WeekParity,
     val note: String
@@ -546,6 +550,7 @@ private fun CourseEntity.editorGroupingKey() = CourseEditorGroupingKey(
     customStartTime = customStartTime,
     customEndTime = customEndTime,
     customPeriodTimes = customPeriodTimes,
+    originalPeriodTimes = originalPeriodTimes,
     customColorArgb = customColorArgb,
     parity = weekParity,
     note = note.orEmpty().trim()
@@ -556,7 +561,7 @@ internal fun buildCourseEditorGroups(
     courses: List<CourseEntity>
 ): List<CourseEditorGroup> {
     if (initialCourse == null) return listOf(CourseEditorGroup(emptyList()))
-    val related = (courses + initialCourse)
+    val related = (courses + initialCourse).map { it.originalArrangement() }
         .filter {
             it.scheduleId == initialCourse.scheduleId &&
                 it.name.trim() == initialCourse.name.trim()
@@ -769,10 +774,16 @@ internal fun CourseEditorDraft.toCourses(
     }.toSet()
     val keepOriginalDistribution = weekdays == originalWeekdays && weeks == originalWeeks
     val originalsByWeekday = originals.groupBy(CourseEntity::weekday)
-    val periods = periodValues.filter { it in periodStart..periodEnd }
+    val selectedPeriods = periodValues.filter { it in periodStart..periodEnd }
     return weekdays.sorted().mapNotNull { weekday ->
         val weekdayOriginals = originalsByWeekday[weekday].orEmpty()
         val original = courseEditorOriginalForWeekday(originals, weekday, weekdays.size)
+        val periods = original?.periods?.takeIf {
+            it.minOrNull() == periodStart && it.maxOrNull() == periodEnd
+        } ?: selectedPeriods
+        val timingUnchanged = original != null && original.periods == periods &&
+            original.customStartTime == customStartTime && original.customEndTime == customEndTime &&
+            original.customPeriodTimes == customPeriodTimes
         val targetWeeks = if (keepOriginalDistribution && originals.isNotEmpty()) {
             weekdayOriginals.flatMap(CourseEntity::weeks).distinct().sorted()
         } else {
@@ -791,6 +802,7 @@ internal fun CourseEditorDraft.toCourses(
             note = note.trim().ifBlank { null },
             customStartTime = customStartTime,
             customEndTime = customEndTime,
+            originalPeriodTimes = original?.originalPeriodTimes?.takeIf { timingUnchanged },
             customPeriodTimes = customPeriodTimes?.takeIf {
                 original?.periods == periods && original.customStartTime == customStartTime &&
                     original.customEndTime == customEndTime
@@ -828,7 +840,7 @@ fun NormalizedCourseEditorScreen(
 ) {
     val config = formData.config
     val editorGroups = remember(initialCourse, formData.courses) {
-        buildCourseEditorGroups(initialCourse, formData.courses)
+        buildCourseEditorGroups(initialCourse?.originalArrangement(), formData.courses.map { it.originalArrangement() })
     }
     val periodValues = remember(formData.periods, editorGroups) {
         (formData.periods.map { it.periodIndex } + editorGroups.flatMap { group -> group.courses.flatMap(CourseEntity::periods) })
@@ -919,7 +931,17 @@ fun NormalizedCourseEditorScreen(
             val group = editorGroups[page]
             val course = group.representative
             val draft = drafts.getValue(page)
-            val pageContext = contextMessage.takeIf { group.courses.any { it.id == initialCourse?.id } }
+            val visibleCourse = formData.courses.firstOrNull { it.id == course?.id }
+                ?: initialCourse?.takeIf { it.id == course?.id }
+            val hidden = visibleCourse?.arrangementProjection?.hiddenPeriods.orEmpty()
+            val originalTimes = course?.originalTimeSegments().orEmpty().joinToString("；") { "${it.start}–${it.end}" }
+            val pageContext = listOfNotNull(contextMessage?.takeIf { group.courses.any { it.id == initialCourse?.id } },
+                if (hidden.isNotEmpty()) buildString {
+                    append("原始安排：${course?.periods?.joinToString("、")} 节")
+                    if (originalTimes.isNotBlank()) append(" · $originalTimes")
+                    append("\n${hidden.joinToString("、")} 节当前未显示。")
+                } else null)
+                .takeIf { it.isNotEmpty() }?.joinToString("\n")
             CourseEditorFormPage(
                 course = course,
                 title = when {

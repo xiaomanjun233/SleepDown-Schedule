@@ -15,12 +15,12 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.File
 
-/** Opens an actual v44 file through Room, including its generated v45 schema validation. */
+/** Opens legacy SQLite files through the complete migration and generated Room schema validation. */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class SharedPeriodSchemeMigrationTest {
     private val context: Context get() = RuntimeEnvironment.getApplication()
-    private val databaseName = "shared-period-schemes-v44-v45.db"
+    private val databaseName = "migration.db"
     private var opened: AppDatabase? = null
 
     @After
@@ -86,24 +86,50 @@ class SharedPeriodSchemeMigrationTest {
         assertNull(configs.getValue(12).activePeriodSchemeId)
         assertFalse(schemes.hasMigration("legacy-preferences-v1"))
         assertEquals("08:02", db.courseDao().getCourses(8).single().customStartTime)
+        assertEquals("1,08:00-08:45;2,14:00-14:45", db.courseDao().getCourses(8).single().originalPeriodTimes)
         assertEquals(6, configs.getValue(8).currentWeek)
     }
 
-    private fun createVersion44(seed: (SQLiteDatabase) -> Unit) {
+    @Test fun version45CapturesOriginalClocksAndRetainsCourseMetadataOnReopen() = runBlocking {
+        createLegacyDatabase(45) { db ->
+            insertConfig(db, 7)
+            db.execSQL("INSERT INTO schedule_profiles(id,name,isActive) VALUES(7,'旧课表',1)")
+            db.execSQL("INSERT INTO periods(periodIndex,startTime,endTime,scheduleId) VALUES(11,'18:00','18:45',7)")
+            db.execSQL("INSERT INTO periods(periodIndex,startTime,endTime,scheduleId) VALUES(12,'18:55','19:40',7)")
+            db.execSQL("INSERT INTO courses(id,name,weekday,periods,weeks,weekParity,scheduleId,customPeriodTimes) VALUES(42,'原始课程',1,'[11,12]','[1,3]','ODD',7,'12,20:01-20:29')")
+        }
+        val db = createAppDatabase(context, databaseName).also { opened = it }
+        val row = db.courseDao().getCourses(7).single()
+        assertEquals(listOf(11, 12), row.periods)
+        assertEquals("11,18:00-18:45;12,18:55-19:40", row.originalPeriodTimes)
+        assertEquals("12,20:01-20:29", row.customPeriodTimes)
+        assertEquals(com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode.INDEX, db.configDao().getConfig(7)!!.periodAlignmentMode)
+        db.close()
+        opened = createAppDatabase(context, databaseName)
+        assertEquals(row, opened!!.courseDao().getCourses(7).single())
+    }
+
+    private fun createVersion44(seed: (SQLiteDatabase) -> Unit) = createLegacyDatabase(44, seed)
+
+    private fun createLegacyDatabase(version: Int, seed: (SQLiteDatabase) -> Unit) {
         context.deleteDatabase(databaseName)
         val path = context.getDatabasePath(databaseName)
         path.parentFile?.mkdirs()
-        val schemaFile = listOf(File("schemas/com.xiaomanjun.sleepdownschedule.AppDatabase/44.json"),
-            File("app/schemas/com.xiaomanjun.sleepdownschedule.AppDatabase/44.json")).first { it.exists() }
+        val schemaFile = listOf(File("schemas/com.xiaomanjun.sleepdownschedule.AppDatabase/$version.json"),
+            File("app/schemas/com.xiaomanjun.sleepdownschedule.AppDatabase/$version.json")).first { it.exists() }
         val schema = JSONObject(schemaFile.readText()).getJSONObject("database")
         SQLiteDatabase.openOrCreateDatabase(path, null).use { db ->
             val entities = schema.getJSONArray("entities")
             for (index in 0 until entities.length()) {
                 val entity = entities.getJSONObject(index)
                 db.execSQL(entity.getString("createSql").replace("\${TABLE_NAME}", entity.getString("tableName")))
+                val indices = entity.optJSONArray("indices")
+                for (j in 0 until (indices?.length() ?: 0)) {
+                    db.execSQL(indices!!.getJSONObject(j).getString("createSql").replace("\${TABLE_NAME}", entity.getString("tableName")))
+                }
             }
             seed(db)
-            db.version = 44
+            db.version = version
         }
     }
 

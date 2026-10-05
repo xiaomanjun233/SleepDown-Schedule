@@ -45,7 +45,7 @@ class BackupSettingsCompletenessTest {
         assertPortableFields(
             CourseEntity::class.java,
             BackupCourse::class.java,
-            roomOnly = setOf("id", "scheduleId"),
+            roomOnly = setOf("id", "scheduleId", "arrangementProjection"),
             protocolOnly = setOf("id")
         )
         assertPortableFields(

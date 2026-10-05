@@ -38,6 +38,7 @@ import com.xiaomanjun.sleepdownschedule.app.ui.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsPopupBackdrop
 import com.xiaomanjun.sleepdownschedule.data.repository.loadPeriodSchemeLibrary
+import com.xiaomanjun.sleepdownschedule.data.repository.PeriodSchemeSwitchPreview
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
 import com.xiaomanjun.sleepdownschedule.feature.home.homeImportButtonGlassColor
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
@@ -85,6 +86,7 @@ fun PeriodSchemeManagementScreen(
     var retry by remember { mutableIntStateOf(0) }
     var editing by remember { mutableStateOf<PeriodSchemeManagementRequest?>(null) }
     var deleting by remember { mutableStateOf<SavedPeriodScheme?>(null) }
+    var switching by remember(state.config.id) { mutableStateOf<PeriodSchemeSwitchPreview?>(null) }
     var addBounds by remember { mutableStateOf(Rect.Zero) }
 
     fun isCurrent(saved: SavedPeriodScheme): Boolean = currentSnapshot?.id == saved.id
@@ -114,14 +116,12 @@ fun PeriodSchemeManagementScreen(
     }
 
     fun switchPeriodScheme(saved: SavedPeriodScheme) {
-        if (!loaded || busy || isCurrent(saved)) return
+        if (!loaded || busy) return
         busy = true
         error = null
         scope.launch {
             try {
-                repository.switchPeriodScheme(state.config.id, saved.roomId)
-                reloadLibrary()
-                NotificationScheduler.requestReschedule(context)
+                switching = repository.previewPeriodSchemeSwitch(state.config.id, saved.roomId)
             } catch (failure: Exception) {
                 if (failure is kotlinx.coroutines.CancellationException) throw failure
                 error = failure.message ?: "作息切换失败"
@@ -236,6 +236,26 @@ fun PeriodSchemeManagementScreen(
                         finally { busy = false }
                     }
                 })), popupBackdrop, visualState.config, { if (!busy) deleting = null })
+    }
+    switching?.let { preview ->
+        PeriodSchemeSwitchDialog(preview.target.scheme.name, preview.courses, preview.config, preview.periods,
+            schemeConfig(preview.config, preview.target.scheme),
+            storedPeriodSchemePeriods(preview.config.id, preview.target), popupBackdrop, visualState.config,
+            onDismiss = { switching = null }, onConfirm = { mode ->
+                switching = null
+                busy = true
+                scope.launch {
+                    try {
+                        repository.switchPeriodScheme(preview.config.id, preview.target.scheme.id, mode,
+                            preview.copy(mode = mode))
+                        reloadLibrary()
+                        NotificationScheduler.requestReschedule(context)
+                    } catch (failure: Exception) {
+                        if (failure is kotlinx.coroutines.CancellationException) throw failure
+                        error = failure.message ?: "作息切换失败"
+                    } finally { busy = false }
+                }
+            })
     }
 }
 

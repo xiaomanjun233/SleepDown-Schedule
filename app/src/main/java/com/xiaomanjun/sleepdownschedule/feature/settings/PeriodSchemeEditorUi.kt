@@ -586,7 +586,7 @@ internal fun PeriodSchemeEditor(
     }
     if (showExitConfirmation) LiquidAlertDialog("保存作息调整",
         if (managementRequest?.creating == true) "要保存这套新作息吗？保存后可在课表设置中选择。"
-        else if (managementContent != null) "要保存本次作息调整吗？引用这套作息的全部课表会同步更新。"
+        else if (managementContent != null) "要保存本次作息调整吗？${managementRequest?.original?.usages.orEmpty().size} 张引用此作息的课表会同步更新。"
         else "要保留本次作息调整吗？保存课表设置时会创建公共副本，仅影响当前课表。",
         listOf(
             LiquidAlertAction("保存", LiquidAlertActionStyle.Primary, onClick = { showExitConfirmation = false; leave(true) }),

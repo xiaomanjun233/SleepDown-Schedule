@@ -178,19 +178,17 @@ class SharedPeriodSchemeRepositoryTest {
     }
 
     @Test
-    fun crossCountSwitchRejectsOutOfRangeCoursesAndRollsBackThenBindsDirectly() = runBlocking {
+    fun crossCountSwitchRetainsOutOfRangeCoursesAndRebindsWithoutCopies() = runBlocking {
         val target = PeriodSchemeEntity(id = 22, scheduleId = 0, name = "两节作息", publicId = "short",
             morningPeriodCount = 1, noonPeriodCount = 1)
         database.periodSchemeDao().upsertScheme(target)
         database.periodSchemeDao().upsertTimes(listOf(PeriodSchemeTimeEntity(22, 1, "10:00", "10:45"),
             PeriodSchemeTimeEntity(22, 2, "12:00", "12:45")))
         val courseId = database.courseDao().insertCourse(course(1, listOf(3)))
-        val before = state()
-        rejected { repository.switchPeriodScheme(1, 22) }
-        assertEquals(before, state())
-
-        database.courseDao().deleteCourse(courseId)
         repository.switchPeriodScheme(1, 22)
+        assertEquals(courseId, database.courseDao().getCourses(1).single().id)
+        assertEquals(listOf(3), database.courseDao().getCourses(1).single().periods)
+        assertTrue(repository.activeSnapshot().courses.single().isHiddenByPeriodAlignment())
         val switched = requireNotNull(database.configDao().getConfig(1))
         assertEquals(22L, switched.activePeriodSchemeId)
         assertEquals(listOf(1, 1, 0, 0), listOf(switched.morningPeriodCount, switched.noonPeriodCount,
@@ -362,7 +360,7 @@ class SharedPeriodSchemeRepositoryTest {
         assertEquals(11L, database.configDao().getConfig(1)?.activePeriodSchemeId)
         assertEquals(before.config, database.configDao().getConfig(1))
         assertEquals(before.periods, database.configDao().getPeriods(1))
-        assertEquals(before.courses, database.courseDao().getCourses(1))
+        assertEquals(before.courses.map { it.originalArrangement() }, database.courseDao().getCourses(1))
         assertEquals(oldPublic, database.periodSchemeDao().getScheme(11))
         assertEquals(oldTimes, database.periodSchemeDao().getTimes(11))
         assertNotNull(database.periodSchemeDao().getScheme(copiedId))

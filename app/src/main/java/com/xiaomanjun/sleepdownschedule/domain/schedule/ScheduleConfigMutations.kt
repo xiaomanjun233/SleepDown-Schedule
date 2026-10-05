@@ -48,6 +48,7 @@ internal fun ScheduleConfigEntity.withChangesFrom(
 
     return copy(
         totalWeeks = changed(original.totalWeeks, updated.totalWeeks, totalWeeks),
+        periodAlignmentMode = changed(original.periodAlignmentMode, updated.periodAlignmentMode, periodAlignmentMode),
         currentWeek = changed(original.currentWeek, updated.currentWeek, currentWeek),
         notificationLeadMinutes = changed(
             original.notificationLeadMinutes,

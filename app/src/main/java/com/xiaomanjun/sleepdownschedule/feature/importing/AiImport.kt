@@ -427,13 +427,13 @@ private fun applyAiSchedulePatch(base: ImportDraft, patchText: String): ImportDr
         periods = periods,
         courses = courses
     )
-    val validated = ScheduleImportParser.parse(draftToPayload(candidate).toString(), base.config).getOrThrow()
+    val validated = ScheduleImportParser.validateEditedDraft(candidate)
     return validated.copy(
         courses = validated.courses.zip(candidate.courses).map { (course, source) ->
             course.copy(customPeriodTimes = source.customPeriodTimes?.takeIf {
                 course.periods == source.periods && course.customStartTime == source.customStartTime &&
                     course.customEndTime == source.customEndTime
-            })
+            }, originalPeriodTimes = source.originalPeriodTimes)
         },
         source = ImportDraftSource.AI_EDU
     )
@@ -466,6 +466,9 @@ private fun revisionCourseFromJson(value: JsonObject, previous: CourseEntity): C
         note = value["note"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
         customStartTime = customRange.first,
         customEndTime = customRange.second,
+        originalPeriodTimes = previous.originalPeriodTimes?.takeIf {
+            revisedPeriods == previous.periods && customRange == (previous.customStartTime to previous.customEndTime)
+        },
         customPeriodTimes = periodTimes
     )
 }

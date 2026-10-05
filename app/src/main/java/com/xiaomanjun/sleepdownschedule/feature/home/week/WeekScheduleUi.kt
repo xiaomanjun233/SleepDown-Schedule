@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseAlignmentFragments
+
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 
 import com.xiaomanjun.sleepdownschedule.feature.agent.excludeHomeAssistantPull
@@ -411,6 +413,7 @@ internal fun SinglePillWeekScheduleScreen(
             listOfNotNull(weekJump?.sourcePage?.plus(1), weekJump?.targetPage?.plus(1))
         renderedWeeks.maxOf { week ->
             bucketsForWeek(week).visibleCourses
+                .flatMap { courseAlignmentFragments(it, state.periods) }
                 .filter { courseNeedsSupplementaryWeekRow(it, state.periods) }
                 .groupingBy { it.weekday }.eachCount().values.maxOrNull() ?: 0
         }
@@ -1816,7 +1819,7 @@ private fun renderedWeekSegments(
             }
             ?: group.courses.first()
         val visibleSegments = group.segments.filter { it.course.id == visibleCourse.id }
-        val segments = if (visibleCourse.hasCustomTime()) {
+        val segments = if (visibleCourse.hasCustomTime() && visibleCourse.arrangementProjection == null) {
             visibleSegments.minByOrNull { it.startPosition }?.let(::listOf).orEmpty()
         } else {
             visibleSegments
@@ -2106,11 +2109,11 @@ fun WeekCourseColumnsLayer(
         onDispose { flightRegistry?.remove(editWeek) }
     }
     val supplementaryCoursesByDay = remember(courses, periods) {
-        courses.filter { courseNeedsSupplementaryWeekRow(it, periods) }
+        courses.flatMap { courseAlignmentFragments(it, periods) }.filter { courseNeedsSupplementaryWeekRow(it, periods) }
             .sortedBy { it.customStartTime }.groupBy { it.weekday }
     }
     val coursesByWeekday = remember(courses, periods) {
-        courses.filterNot { courseNeedsSupplementaryWeekRow(it, periods) }.groupBy { it.weekday }
+        courses.flatMap { courseAlignmentFragments(it, periods) }.filterNot { courseNeedsSupplementaryWeekRow(it, periods) }.groupBy { it.weekday }
     }
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
     val renderedSegmentsByDay = remember(

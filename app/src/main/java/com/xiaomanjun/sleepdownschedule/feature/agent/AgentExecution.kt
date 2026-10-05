@@ -1,6 +1,10 @@
 package com.xiaomanjun.sleepdownschedule.feature.agent
 
 import com.xiaomanjun.sleepdownschedule.domain.course.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+import com.xiaomanjun.sleepdownschedule.domain.schedule.arrangementForWrite
+import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangements
 
 import com.xiaomanjun.sleepdownschedule.*
 
@@ -55,7 +59,8 @@ internal fun AgentValidatedAction.sourceWeekSet(): Set<Int> = when (scope) {
 }
 
 internal fun AgentValidatedAction.scopedEditedCourse(): CourseEntity? = edited?.let {
-    if (scope == AgentActionScope.CURRENT_WEEK) it.copy(weeks = listOf(targetWeek)) else it
+    val raw = it.arrangementForWrite()
+    if (scope == AgentActionScope.CURRENT_WEEK) raw.copy(weeks = listOf(targetWeek)) else raw
 }
 
 /** The same course may have disjoint changes within one week, but never to the same cell. */
@@ -72,12 +77,13 @@ internal fun previewAgentPlan(
     plan: AgentPlan,
     periodDefinitions: List<PeriodEntity> = emptyList()
 ): AgentPlanPreview {
-    val working = before.toMutableList()
+    val originals = before.map { it.originalArrangement() }
+    val working = originals.toMutableList()
     var temporaryId = -1L
 
     val courseActions = plan.actions.filter { it.original != null }.groupBy { it.original!!.id }
     courseActions.forEach { (id, actions) ->
-        val original = before.firstOrNull { it.id == id } ?: return@forEach
+        val original = originals.firstOrNull { it.id == id } ?: return@forEach
         working.removeAll { it.id == id }
         working += agentCourseFragments(original, actions).mapIndexed { index, fragment ->
             fragment.copy(id = if (index == 0) original.id else temporaryId--)
@@ -105,8 +111,12 @@ internal fun previewAgentPlan(
         }
     }
 
+    val projection = before.firstOrNull { it.arrangementProjection != null }?.arrangementProjection
+    val effectiveAfter = if (projection == null) working else projectCourseArrangements(working.map { course ->
+        captureOriginalPeriodTimes(course, periodDefinitions, originals.firstOrNull { it.id == course.id })
+    }, defaultConfig(projection.source.scheduleId).copy(periodAlignmentMode = projection.mode), periodDefinitions)
     val beforeConflicts = agentConflictKeys(findAgentCourseConflicts(before, periodDefinitions))
-    val newConflicts = findAgentCourseConflicts(working, periodDefinitions)
+    val newConflicts = findAgentCourseConflicts(effectiveAfter, periodDefinitions)
         .filterNot { conflict -> agentConflictKey(conflict) in beforeConflicts }
     val changedIds = buildSet {
         plan.actions.forEach { action ->
@@ -125,7 +135,7 @@ internal fun previewAgentPlan(
 
     return AgentPlanPreview(
         before = before,
-        after = working,
+        after = effectiveAfter,
         changedCourseCount = changedIds.size +
             plan.actions.count { it.type == AgentValidatedActionType.ADD },
         affectedWeeks = affectedWeeks,
@@ -183,6 +193,7 @@ internal fun verifyAgentPlan(
 
 /** Fragment merging may retain any physical ID. Compare all content and teaching weeks instead. */
 private fun agentSemanticSchedule(courses: List<CourseEntity>): Map<CourseEntity, Set<Int>> = courses
+    .map { it.arrangementForWrite().copy(originalPeriodTimes = null, arrangementProjection = null) }
     .groupBy { it.copy(id = 0, weeks = emptyList(), periods = it.periods.distinct().sorted(), weekParity = WeekParity.ALL) }
     .mapValues { (_, rows) -> rows.flatMap { row -> row.weeks.filter { parityMatches(row.weekParity, it) } }.toSet() }
     .filterValues { it.isNotEmpty() }

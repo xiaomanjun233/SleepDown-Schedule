@@ -4,6 +4,7 @@ import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
 import com.xiaomanjun.sleepdownschedule.core.identity.refreshAppNotificationIcons
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseReminderSessions
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseExperiment
 import com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiSuperIsland
 
@@ -297,6 +298,7 @@ object NotificationScheduler {
                     it.weeks.joinToString(","),
                     it.customStartTime.orEmpty(),
                     it.customEndTime.orEmpty(),
+                    courseTimeSegments(it, periods).joinToString(",") { bell -> "${bell.index},${bell.start}-${bell.end}" },
                     it.weekParity.name
                 ).joinToString(":")
             }
@@ -312,6 +314,7 @@ object NotificationScheduler {
             config.notificationsEnabled,
             config.notificationLeadMinutes,
             config.notificationMode.name,
+            config.periodAlignmentMode.name,
             config.liveUpdateActionsEnabled,
             config.liveUpdateChipTextMode.name,
             liveUpdatePreferences?.duringClassEnabled,
