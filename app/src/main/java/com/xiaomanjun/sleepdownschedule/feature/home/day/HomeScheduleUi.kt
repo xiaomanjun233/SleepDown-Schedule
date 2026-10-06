@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.isHiddenByPeriodAlignment
+import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
+
 import com.xiaomanjun.sleepdownschedule.feature.agent.excludeHomeAssistantPull
 
 import androidx.compose.runtime.SideEffect
@@ -1294,7 +1298,7 @@ internal fun courseWeeksChanged(original: CourseEntity, edited: CourseEntity): B
 
 internal fun coursesVisibleInWeek(courses: List<CourseEntity>, week: Int): List<CourseEntity> {
     val visible = courses.filter { course ->
-        week in course.weeks && parityMatches(course.weekParity, week)
+        !course.isHiddenByPeriodAlignment() && week in course.weeks && parityMatches(course.weekParity, week)
     }
     val singleWeekOverrideKeys = visible
         .filter { it.weeks.distinct() == listOf(week) }
@@ -2285,6 +2289,9 @@ fun ImportPreviewCourseCard(
     periods: List<PeriodEntity>,
     config: ScheduleConfigEntity = defaultConfig()
 ) {
+    val effective = remember(course, periods, config.periodAlignmentMode) {
+        projectCourseArrangement(captureOriginalPeriodTimes(course, periods), config, periods)
+    }
     val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val textColor = readableOn(cardColor)
     CourseGlassCard(
@@ -2296,7 +2303,8 @@ fun ImportPreviewCourseCard(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(course.name, style = MaterialTheme.typography.titleMedium, color = textColor)
-            Text(courseHomeTimeDetail(course, periods), color = textColor.copy(alpha = 0.86f))
+            Text(if (effective.isHiddenByPeriodAlignment()) "暂不显示 · 原始第 ${course.periods.joinToString("、")} 节"
+                else courseHomeTimeDetail(effective, periods), color = textColor.copy(alpha = 0.86f))
             if (!course.location.isNullOrBlank()) Text("地点：" + course.location, color = textColor.copy(alpha = 0.86f))
             if (!course.teacher.isNullOrBlank()) Text("教师：" + course.teacher, color = textColor.copy(alpha = 0.86f))
             Text("周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity), color = textColor.copy(alpha = 0.86f))

@@ -11,6 +11,34 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 class ScheduleImportCustomCourseTest {
+    @Test fun malformedTimeAlignedSourceFailsBeforeImport() {
+        val config = defaultConfig().copy(periodAlignmentMode = com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode.TIME)
+        val token = buildSleepDownScheduleToken(config, listOf(PeriodEntity(1, "08:00", "08:45")),
+            listOf(CourseEntity(name = "课程", teacher = null, location = null, weekday = 1,
+                periods = listOf(13), weeks = listOf(1), weekParity = WeekParity.ALL, note = null, originalPeriodTimes = "")))
+        val result = ScheduleImportParser.parse(token, defaultConfig())
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()!!.message!!.contains("不完整"))
+    }
+
+    @Test fun exactCustomImportDoesNotRequireAnExistingAnchorNumber() {
+        val payload = """{"schemaVersion":1,"scheduleConfig":{"totalWeeks":1,"periods":[{"index":1,"startTime":"08:00","endTime":"08:45"}]},"courses":[{"name":"课程","weekday":1,"periods":[14],"weeks":[1],"customStartTime":"12:01","customEndTime":"12:29"}]}"""
+        val draft = ScheduleImportParser.parse(payload, defaultConfig()).getOrThrow()
+        assertEquals(listOf(14), draft.courses.single().periods)
+        assertEquals("12:01", draft.courses.single().customStartTime)
+    }
+    @Test fun switchingSourceAndModeSurviveSharingAClippedCourse() {
+        val bells = defaultPeriods()
+        val raw = com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes(
+            CourseEntity(9, "课程", null, null, 1, listOf(11, 12), listOf(1), WeekParity.ALL, null), bells)
+        val config = defaultConfig().copy(periodAlignmentMode = com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode.TIME)
+        val clipped = com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(raw, config, bells.take(10))
+        val token = buildSleepDownScheduleToken(config, bells.take(10), listOf(clipped))
+        val imported = ScheduleImportParser.parse(token, defaultConfig()).getOrThrow()
+        assertEquals(raw.periods, imported.courses.single().periods)
+        assertEquals(raw.originalPeriodTimes, imported.courses.single().originalPeriodTimes)
+        assertEquals(config.periodAlignmentMode, imported.config.periodAlignmentMode)
+    }
     @Test
     fun aiToolExposesPerCourseExactTimeFields() {
         val courseSchema = scheduleImportChatTool()["function"]!!.jsonObject["parameters"]!!

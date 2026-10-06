@@ -10,7 +10,7 @@ data class SavedPeriodTime(val periodIndex: Int, val startTime: String, val endT
 @Serializable
 data class PeriodSchemeSource(val scheduleName: String, val schemeName: String)
 
-/** A standalone bell timetable. Applying it makes a local copy in the destination schedule. */
+/** Portable snapshot of a public bell timetable; Room owns the live identity and references. */
 @Serializable
 data class SavedPeriodScheme(
     val id: String,
@@ -28,7 +28,13 @@ data class SavedPeriodScheme(
     val times: List<SavedPeriodTime>,
     val sources: List<PeriodSchemeSource> = emptyList(),
     val alternateNames: List<String> = emptyList(),
-    val createdInLibrary: Boolean = false
+    val createdInLibrary: Boolean = false,
+    val mode: PeriodSchemeMode = PeriodSchemeMode.MANUAL,
+    val specialBreaksJson: String = "{}",
+    val overridesJson: String = "{}",
+    @kotlinx.serialization.Transient val roomId: Long = 0,
+    @kotlinx.serialization.Transient val usages: List<PeriodSchemeUsageSnapshot>? = null,
+    @kotlinx.serialization.Transient val storedDraft: PeriodSchemeDraft? = null
 ) {
     fun validate() {
         require(id.isNotBlank() && id.length <= 100) { "作息库编号无效" }
@@ -53,11 +59,10 @@ data class SavedPeriodScheme(
 fun SavedPeriodScheme.hasSameContent(other: SavedPeriodScheme): Boolean {
     fun SavedPeriodScheme.content() = listOf(
         listOf(morningPeriodCount, noonPeriodCount, afternoonPeriodCount, eveningPeriodCount),
-        classDurationMinutes, breakDurationMinutes,
-        listOf(morningStartTime.takeIf { morningPeriodCount > 0 }, noonStartTime.takeIf { noonPeriodCount > 0 },
-            afternoonStartTime.takeIf { afternoonPeriodCount > 0 }, eveningStartTime.takeIf { eveningPeriodCount > 0 })
-            .map { it?.let(::parseMinuteOfDay) },
-        times.sortedBy { it.periodIndex }.map { listOf(it.periodIndex, parseMinuteOfDay(it.startTime), parseMinuteOfDay(it.endTime)) }
+        classDurationMinutes, breakDurationMinutes, mode,
+        decodeSpecialBreaks(specialBreaksJson), decodeOverrides(overridesJson),
+        listOf(morningStartTime, noonStartTime, afternoonStartTime, eveningStartTime),
+        times.sortedBy { it.periodIndex }.map { listOf(it.periodIndex, it.startTime, it.endTime) }
     )
     return content() == other.content()
 }
@@ -125,7 +130,9 @@ fun savePeriodSchemeSnapshot(
     breakDurationMinutes = draft.scheme.breakDurationMinutes,
     morningStartTime = draft.scheme.morningStartTime, noonStartTime = draft.scheme.noonStartTime,
     afternoonStartTime = draft.scheme.afternoonStartTime, eveningStartTime = draft.scheme.eveningStartTime,
-    times = librarySchemeTimes(config, draft).map { SavedPeriodTime(it.periodIndex, it.startTime, it.endTime) }
+    times = librarySchemeTimes(config, draft).map { SavedPeriodTime(it.periodIndex, it.startTime, it.endTime) },
+    mode = draft.scheme.mode, specialBreaksJson = encodeSpecialBreaks(draft.specialBreaks),
+    overridesJson = encodeOverrides(draft.overriddenPeriods), roomId = draft.scheme.id
 ).also { it.validate() }
 
 data class AppliedPeriodScheme(val config: ScheduleConfigEntity, val draft: SchedulePeriodSchemesDraft)
@@ -136,47 +143,41 @@ internal fun savedPeriodSchemeSession(saved: SavedPeriodScheme, base: ScheduleCo
     val config = base.copy(morningPeriodCount = saved.morningPeriodCount, noonPeriodCount = saved.noonPeriodCount,
         afternoonPeriodCount = saved.afternoonPeriodCount, eveningPeriodCount = saved.eveningPeriodCount,
         classDurationMinutes = saved.classDurationMinutes, breakDurationMinutes = saved.breakDurationMinutes)
-    val scheme = PeriodSchemeEntity(id = -1, scheduleId = base.id, name = saved.name, isActive = true,
+    val scheme = PeriodSchemeEntity(id = saved.roomId.takeIf { it > 0 } ?: -1, publicId = saved.id,
+        scheduleId = 0, name = saved.name, isActive = false, mode = saved.mode,
+        morningPeriodCount = saved.morningPeriodCount, noonPeriodCount = saved.noonPeriodCount,
+        afternoonPeriodCount = saved.afternoonPeriodCount, eveningPeriodCount = saved.eveningPeriodCount,
+        specialBreaksJson = saved.specialBreaksJson, overridesJson = saved.overridesJson,
         classDurationMinutes = saved.classDurationMinutes, breakDurationMinutes = saved.breakDurationMinutes,
         morningStartTime = saved.morningStartTime, noonStartTime = saved.noonStartTime,
         afternoonStartTime = saved.afternoonStartTime, eveningStartTime = saved.eveningStartTime)
-    return PeriodTimelineSession(config, SchedulePeriodSchemesDraft(listOf(PeriodSchemeDraft(scheme,
-        saved.times.map { PeriodSchemeTimeEntity(scheme.id, it.periodIndex, it.startTime, it.endTime) })), scheme.id))
+    val item = saved.storedDraft ?: PeriodSchemeDraft(scheme,
+        saved.times.map { PeriodSchemeTimeEntity(scheme.id, it.periodIndex, it.startTime, it.endTime) },
+        decodeSpecialBreaks(saved.specialBreaksJson), decodeOverrides(saved.overridesJson))
+    return PeriodTimelineSession(config, SchedulePeriodSchemesDraft(listOf(item), scheme.id,
+        originalSchemes = listOf(item), expectedUsages = saved.usages))
 }
 
 fun applySavedPeriodScheme(
     saved: SavedPeriodScheme, config: ScheduleConfigEntity, draft: SchedulePeriodSchemesDraft
 ): AppliedPeriodScheme {
     saved.validate()
-    require(saved.times.size == config.totalPeriodCount()) {
-        "此作息有 ${saved.times.size} 节，当前课表有 ${config.totalPeriodCount()} 节。请先在详细节次编辑中调整节数后再套用。"
-    }
-    val id = (draft.schemes.minOfOrNull { it.scheme.id } ?: 0L).coerceAtMost(0L) - 1L
-    val scheme = PeriodSchemeEntity(
-        id = id, scheduleId = config.id, name = saved.name, mode = PeriodSchemeMode.MANUAL,
-        isActive = true, classDurationMinutes = saved.classDurationMinutes,
-        breakDurationMinutes = saved.breakDurationMinutes, morningStartTime = saved.morningStartTime,
-        noonStartTime = saved.noonStartTime, afternoonStartTime = saved.afternoonStartTime,
-        eveningStartTime = saved.eveningStartTime
-    )
-    // Materialize all existing schemes before changing day-part boundaries. Their bells stay intact.
-    val existing = draft.schemes.map {
-        it.copy(scheme = it.scheme.copy(mode = PeriodSchemeMode.MANUAL, isActive = false),
-            times = librarySchemeTimes(config, it), specialBreaks = emptyMap(), overriddenPeriods = emptySet())
-    }
-    val matching = existing.firstOrNull {
-        savePeriodSchemeSnapshot(saved.id, it.scheme.name, config, it).hasSameContent(saved)
-    }
-    return AppliedPeriodScheme(
-        config.copy(morningPeriodCount = saved.morningPeriodCount, noonPeriodCount = saved.noonPeriodCount,
-            afternoonPeriodCount = saved.afternoonPeriodCount, eveningPeriodCount = saved.eveningPeriodCount),
-        draft.copy(schemes = if (matching != null) existing.map {
-            if (it.scheme.id == matching.scheme.id) it.copy(scheme = it.scheme.copy(name = saved.name)) else it
-        } else existing + PeriodSchemeDraft(scheme, saved.times.map {
-            PeriodSchemeTimeEntity(id, it.periodIndex, it.startTime, it.endTime)
-        }), activeSchemeId = matching?.scheme?.id ?: id)
-    )
+    require(saved.roomId > 0) { "请重新读取公共作息后再选择" }
+    val originalCount = draft.originalSchemes.firstOrNull { it.scheme.id == draft.activeSchemeId }?.times?.size
+        ?: config.totalPeriodCount()
+    require(!hasNetPeriodTopologyChange(originalCount, draft.topologyOperations)) { "请先保存节次修改，再切换作息" }
+    val session = savedPeriodSchemeSession(saved, config)
+    return AppliedPeriodScheme(session.config.copy(activePeriodSchemeId = saved.roomId), session.draft.copy(
+        originalActiveSchemeId = draft.originalActiveSchemeId ?: config.activePeriodSchemeId))
 }
+
+/** Compatibility config fields are a one-way projection of the selected public scheme. */
+internal fun schemeConfig(base: ScheduleConfigEntity, scheme: PeriodSchemeEntity): ScheduleConfigEntity = base.copy(
+    activePeriodSchemeId = scheme.id,
+    morningPeriodCount = scheme.morningPeriodCount, noonPeriodCount = scheme.noonPeriodCount,
+    afternoonPeriodCount = scheme.afternoonPeriodCount, eveningPeriodCount = scheme.eveningPeriodCount,
+    classDurationMinutes = scheme.classDurationMinutes, breakDurationMinutes = scheme.breakDurationMinutes
+)
 
 private fun librarySchemeTimes(config: ScheduleConfigEntity, draft: PeriodSchemeDraft): List<PeriodSchemeTimeEntity> =
     // A stored automatic timeline is user content too; snapshot its bells without regenerating it.

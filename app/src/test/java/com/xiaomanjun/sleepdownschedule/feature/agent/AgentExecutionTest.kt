@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.agent
 import com.xiaomanjun.sleepdownschedule.*
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -141,6 +142,29 @@ class AgentExecutionTest {
         assertEquals(1, preview.after.size)
         assertEquals(listOf(1, 2, 3, 4), preview.after.single().weeks)
         assertTrue(verifyAgentPlan(preview.after, plan))
+    }
+
+    @Test
+    fun verificationRejectsChangedOriginalTimeOnRemainingFragment() {
+        val original = course(1, "早课", 1, listOf(1, 2)).copy(
+            originalPeriodTimes = "1,08:00-08:40;2,08:50-09:30")
+        val plan = AgentPlan(listOf(delete(original).copy(sourcePeriods = listOf(1))))
+        val remaining = original.copy(periods = listOf(2), originalPeriodTimes = "2,08:50-09:30")
+        assertTrue(verifyAgentPlan(listOf(remaining.copy(id = 99)), plan, listOf(original)))
+        assertFalse(verifyAgentPlan(listOf(remaining.copy(originalPeriodTimes = "2,14:50-15:30")), plan, listOf(original)))
+        assertFalse(verifyAgentPlan(listOf(remaining.copy(originalPeriodTimes = null)), plan, listOf(original)))
+    }
+
+    @Test
+    fun verificationChecksOriginalClockOfUnrelatedCoursesToo() {
+        val original = course(1, "早课", 1, listOf(1)).copy(originalPeriodTimes = "1,08:00-08:40")
+        val neighbor = course(2, "未修改", 2, listOf(2)).copy(originalPeriodTimes = "2,08:50-09:30")
+        val edited = original.copy(name = "改名")
+        val plan = AgentPlan(listOf(update(original, edited)))
+        assertTrue(verifyAgentPlan(listOf(edited, neighbor), plan, listOf(original, neighbor)))
+        assertFalse(verifyAgentPlan(listOf(edited, neighbor.copy(originalPeriodTimes = "2,14:50-15:30")),
+            plan, listOf(original, neighbor)))
+        assertFalse(verifyAgentPlan(listOf(edited.copy(originalPeriodTimes = null)), plan))
     }
 
     private fun update(

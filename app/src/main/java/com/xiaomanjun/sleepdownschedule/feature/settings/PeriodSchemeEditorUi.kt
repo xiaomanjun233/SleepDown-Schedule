@@ -101,9 +101,14 @@ private data class TimelineBlock(
     val color get() = if (isBreak) TimelineBreakColor else TimelineCourseColor
 }
 
+/** Stored bells are authoritative for both the summary and the editor's entry points. */
+internal fun periodSchemeTimelineTimes(config: ScheduleConfigEntity, active: PeriodSchemeDraft): List<PeriodSchemeTimeEntity> =
+    if (active.times.isNotEmpty()) active.times.sortedBy { it.periodIndex }
+    else resolveSchemeTimes(config, active).sortedBy { it.periodIndex }
+
 private fun timelineBlocks(config: ScheduleConfigEntity, active: PeriodSchemeDraft,
     includeLeading: Boolean = false): List<TimelineBlock> {
-    val times = resolveSchemeTimes(config, active).sortedBy { it.periodIndex }
+    val times = periodSchemeTimelineTimes(config, active)
     return buildList {
         times.forEachIndexed { position, time ->
             val part = PeriodDayPart.entries.firstOrNull { time.periodIndex in config.periodRange(it) } ?: return@forEachIndexed
@@ -136,6 +141,19 @@ private fun resizeTimelineEntry(session: PeriodTimelineSession, block: TimelineB
     return if (block.beforeFirst) resizeTimelineLeadingBreak(
         session, block.part, minutes
     ) else resizeTimelineBlock(session, block.period, block.isBreak, minutes)
+}
+
+/** Opening the timeline materializes automatic rules, which a rename must not overwrite. */
+internal fun preservePeriodSchemeMetadataForRename(
+    original: PeriodTimelineSession,
+    edited: PeriodTimelineSession
+): PeriodTimelineSession {
+    val withoutRename = edited.updateActive(edited.active.copy(scheme = edited.active.scheme.copy(
+        name = original.active.scheme.name)))
+    return if (!withoutRename.hasChangesFrom(original)) {
+        original.updateActive(original.active.copy(scheme = original.active.scheme.copy(
+            name = edited.active.scheme.name)))
+    } else edited
 }
 
 @Composable
@@ -228,9 +246,9 @@ internal fun PeriodSchemeEditor(
             additionError = if (blocked != null) {
                 val name = blocked.scheme.name.ifBlank { "未命名作息" }
                 val invalid = validateResolvedPeriodTimes(resolveSchemeTimes(current.config, blocked))
-                if (invalid != null) "“$name”的时间有误：$invalid。所有作息共用节次结构，请先修正该作息。"
-                else "“$name”的${part.timelineLabel()}没有足够空间${action}节次。所有作息共用节次结构，请先调整该作息的时间。"
-            } else "所有作息必须同时满足节数和时间限制，当前无法${action}节次，请检查各作息的时间安排。"
+                if (invalid != null) "“$name”的时间有误：$invalid。请先修正这套作息。"
+                else "“$name”的${part.timelineLabel()}没有足够空间${action}节次，请先调整这套作息的时间。"
+            } else "当前作息无法${action}节次，请检查节数和时间安排。"
             return
         }
         val after = (value.draft.topologyOperations.last() as PeriodTopologyOperation.AddAfter).periodIndex
@@ -264,7 +282,12 @@ internal fun PeriodSchemeEditor(
         scope.launch {
             if (commit && hasChanges && onSaveSession != null) {
                 try {
-                    onSaveSession(current)
+                    val initial = initialSession
+                    // The timeline materializes automatic rules for manipulation. A name-only
+                    // edit must keep the original generation mode, overrides and special breaks.
+                    val savedSession = if (managementRequest?.creating == false && initial != null)
+                        preservePeriodSchemeMetadataForRename(initial, current) else current
+                    onSaveSession(savedSession)
                 } catch (failure: Exception) {
                     if (failure is kotlinx.coroutines.CancellationException) throw failure
                     localError = failure.message ?: "作息保存失败"
@@ -422,8 +445,9 @@ internal fun PeriodSchemeEditor(
                 .heightIn(min = with(density) { (retainedScroll + viewportHeight).toDp() })
                 .padding(start = 16.dp, end = 16.dp, top = headerTop + 64.dp, bottom = navBottom + 40.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(if (managementContent != null) "拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间"
-                    else "拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间；节次增删会同步到所有作息", fontSize = 12.sp,
+                Text(if (managementContent != null)
+                    "拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间；保存后同步到引用这套作息的全部课表"
+                    else "拖动右下角调整时长 · 每格 1 分钟\n仅修改当前课表，保存作息修改时创建公共副本", fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) })
                 if (managementContent != null) {
@@ -560,7 +584,10 @@ internal fun PeriodSchemeEditor(
             listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { additionError = null })),
             popupBackdrop, state.config, { additionError = null })
     }
-    if (showExitConfirmation) LiquidAlertDialog("保存作息调整", "要保存本次作息调整吗？",
+    if (showExitConfirmation) LiquidAlertDialog("保存作息调整",
+        if (managementRequest?.creating == true) "要保存这套新作息吗？保存后可在课表设置中选择。"
+        else if (managementContent != null) "要保存本次作息调整吗？${managementRequest?.original?.usages.orEmpty().size} 张引用此作息的课表会同步更新。"
+        else "要保留本次作息调整吗？保存课表设置时会创建公共副本，仅影响当前课表。",
         listOf(
             LiquidAlertAction("保存", LiquidAlertActionStyle.Primary, onClick = { showExitConfirmation = false; leave(true) }),
             LiquidAlertAction("不保存", LiquidAlertActionStyle.Destructive, onClick = { showExitConfirmation = false; leave(false) }),
@@ -570,8 +597,8 @@ internal fun PeriodSchemeEditor(
         onDismiss = { showWizard = false; if (managementContent != null) onEditorFinished() },
         onCreated = { showWizard = false; enter(it) }, standalone = managementContent != null)
     deletingBlock?.let { block ->
-        LiquidAlertDialog("移除${block.title}", if (block.isBreak) "后续课程将在当前时段内提前 ${block.minutes} 分钟，节次编号和其他作息不变。"
-            else "节次编号将连续调整，其他作息也会同步减少这一节。删除后可从课间下方添加节次，课程对应关系会在保存详细设置时确认。",
+        LiquidAlertDialog("移除${block.title}", if (block.isBreak) "后续课程将在当前时段内提前 ${block.minutes} 分钟，节次编号不变。"
+            else "这套作息的节次编号将连续调整，删除后可从课间下方添加节次。如果课程占用了被删除的节次，保存会被阻止。",
             listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = { deletingBlock = null }),
                 LiquidAlertAction("移除", LiquidAlertActionStyle.Destructive, onClick = {
                     session?.let { edit ->

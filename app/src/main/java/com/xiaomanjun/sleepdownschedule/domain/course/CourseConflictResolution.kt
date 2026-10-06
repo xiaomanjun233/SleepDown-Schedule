@@ -37,7 +37,7 @@ fun buildWeekConflictGroups(
 ): List<WeekConflictGroup> {
     if (periodIndexes.isEmpty()) return emptyList()
     val positionByPeriod = periodIndexes.withIndex().associate { it.value to it.index }
-    val segments = courses.flatMap { course ->
+    val segments = courses.flatMap { courseAlignmentFragments(it, periodDefinitions) }.flatMap { course ->
         val positions = course.periods
             .mapNotNull(positionByPeriod::get)
             .distinct()
@@ -128,15 +128,13 @@ fun CourseEntity.conflictsWith(
     if (id == other.id || scheduleId != other.scheduleId || weekday != other.weekday) return false
     if (week !in weeks || week !in other.weeks) return false
     if (!parityMatches(weekParity, week) || !parityMatches(other.weekParity, week)) return false
-    if (periodDefinitions.isNotEmpty() && (hasCustomTime() || other.hasCustomTime())) {
+    if (periodDefinitions.isNotEmpty()) {
         val ownIntervals = occupiedTimeIntervals(periodDefinitions)
         val otherIntervals = other.occupiedTimeIntervals(periodDefinitions)
-        if (ownIntervals.isNotEmpty() && otherIntervals.isNotEmpty()) {
-            return ownIntervals.any { (ownStart, ownEnd) ->
+        return ownIntervals.any { (ownStart, ownEnd) ->
                 otherIntervals.any { (otherStart, otherEnd) ->
                     ownStart < otherEnd && otherStart < ownEnd
                 }
-            }
         }
     }
     val otherPeriods = other.periods.toHashSet()
@@ -146,14 +144,7 @@ fun CourseEntity.conflictsWith(
 private fun CourseEntity.occupiedTimeIntervals(
     periodDefinitions: List<PeriodEntity>
 ): List<Pair<LocalTime, LocalTime>> {
-    customTimeRangeOrNull()?.let { return listOf(it) }
-    val definitions = periodDefinitions.associateBy(PeriodEntity::periodIndex)
-    return periods.distinct().mapNotNull { periodIndex ->
-        val period = definitions[periodIndex] ?: return@mapNotNull null
-        val start = runCatching { LocalTime.parse(period.startTime) }.getOrNull() ?: return@mapNotNull null
-        val end = runCatching { LocalTime.parse(period.endTime) }.getOrNull() ?: return@mapNotNull null
-        (start to end).takeIf { end.isAfter(start) }
-    }
+    return courseTimeSegments(this, periodDefinitions).map { it.start to it.end }
 }
 
 fun conflictWeeksForEditedCourse(

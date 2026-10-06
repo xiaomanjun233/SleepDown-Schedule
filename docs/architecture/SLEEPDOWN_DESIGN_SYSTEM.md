@@ -45,6 +45,7 @@ core/ui/designsystem/
 | 一至三个确认操作 | `LiquidAlertDialog` / `LiquidAlertActions` |
 | 必须采样同窗口底层的提醒 | `LiquidAlertOverlay` |
 | 日期、时间、数字或小型编辑器 | `SleepDownPickerDialog` |
+| 教务工具及作息对齐单选 | `LiquidAlertDialog` + `LiquidDialogChoiceCard` |
 | 胶囊按钮与输入框 | `DialogLiquidButton` / `DialogCapsuleField` |
 | 改造版 Miuix 居中弹窗表面 | `centeredDialogBackdropModifier`（业务优先调用上层组件） |
 | 底部或内层 QuickSheet 表面 | `quickSheetBackdropModifier` |
@@ -172,6 +173,7 @@ Activity / Morph host
 ### 弹窗正文节奏
 
 - Picker 默认内容间距 12dp，密集数字控件可以保留自己的列宽算法。
+- 教务工具选择与作息对齐共用 `LiquidDialogChoiceCard` 选项卡和 Alert 操作；正文按内容增高，最多 320dp，过长时内部滚动。标题、操作区固定，矮窗口继续服从安全区和 IME 的可用高度。
 - 表单使用“标题栏 → 可滚动正文 → 固定操作区”，键盘出现时只允许一个层级负责 IME 位移。
 - Alert 正文过长时内部滚动，动作区保持可见；不要把说明和主按钮拆成两个不同材质来源。
 - 二操作通常横排；三个操作仅在标签能完整显示时横排，否则按组件既有纵向规则。

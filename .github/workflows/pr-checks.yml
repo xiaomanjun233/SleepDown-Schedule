@@ -2,7 +2,6 @@ name: Pull request checks
 
 on:
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
@@ -48,6 +47,7 @@ jobs:
           git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-0.9.3-sleepdown.patch"
           git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-cascading-popup-surface.patch"
           git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-scaffold-underlay.patch"
+          git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-compact-dropdown.patch"
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
@@ -60,6 +60,33 @@ jobs:
         run: sdkmanager 'platforms;android-37.0'
       - name: Compile without release signing
         run: bash ./gradlew compileGithubReleaseKotlin -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix" -Psleepdown.useMavenMirrors=false --console=plain --no-daemon --no-parallel --max-workers=2 --stacktrace
+      - name: Verify shared schemes and backup compatibility
+        run: >-
+          bash ./gradlew testGithubDebugUnitTest
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemesTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemeLibraryTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTopologyMappingTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTimelineEditingTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTimelineChangesTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.DatabaseMigrationCoverageTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.settings.PeriodSchemeEditorSaveTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.ScheduleImportCustomCourseTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.WakeUpImportSessionTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangImportSessionCustomTimeTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.IcsScheduleCodecTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportDocumentTextTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.ImportedWeekNormalizationTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.data.repository.AutoRefreshTimingPreservationTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.SharedPeriodSchemeRepositoryTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.SharedPeriodSchemeMigrationTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupCodecTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupExportImportPlanTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupRoomRestoreTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupSettingsCompletenessTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.SharedPeriodSchemeBackupTest'
+          -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix"
+          -Psleepdown.useMavenMirrors=false
+          --console=plain --no-daemon --no-parallel --max-workers=2 --stacktrace
 
   result:
     name: PR checks

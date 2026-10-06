@@ -88,7 +88,17 @@ data class PeriodSchemeDraft(
 data class SchedulePeriodSchemesDraft(
     val schemes: List<PeriodSchemeDraft>,
     val activeSchemeId: Long,
-    val topologyOperations: List<PeriodTopologyOperation> = emptyList()
+    val topologyOperations: List<PeriodTopologyOperation> = emptyList(),
+    // Optimistic snapshot of the public records that this editor actually opened.
+    val originalSchemes: List<PeriodSchemeDraft> = emptyList(),
+    val expectedUsages: List<PeriodSchemeUsageSnapshot>? = null,
+    val originalActiveSchemeId: Long? = null
+)
+
+data class PeriodSchemeUsageSnapshot(
+    val config: ScheduleConfigEntity,
+    val courses: List<CourseEntity>,
+    val periods: List<PeriodEntity>
 )
 
 private val PeriodTimeFormatter = DateTimeFormatter.ofPattern("HH:mm")

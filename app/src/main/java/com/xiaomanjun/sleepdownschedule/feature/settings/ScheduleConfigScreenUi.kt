@@ -19,6 +19,9 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.previewPeriodCourseMappi
 import com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodCourseMappingApproval
 import com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme
 import com.xiaomanjun.sleepdownschedule.domain.schedule.applySavedPeriodScheme
+import com.xiaomanjun.sleepdownschedule.domain.schedule.schemeConfig
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+import com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode
 import com.xiaomanjun.sleepdownschedule.data.repository.loadPeriodSchemeLibrary
 import android.annotation.SuppressLint
 import android.content.ComponentName
@@ -52,6 +55,27 @@ import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.DisposableEffect
 import java.time.LocalDate
 import com.xiaomanjun.sleepdownschedule.transition.legacy.ScheduleCustomizeIdExtra
+
+/** Selecting or reloading a public record projects its saved bells without regenerating rules. */
+internal fun storedPeriodSchemePeriods(scheduleId: Int, draft: PeriodSchemeDraft): List<PeriodEntity> =
+    draft.times.sortedBy { it.periodIndex }.map {
+        PeriodEntity(it.periodIndex, it.startTime, it.endTime, scheduleId)
+    }
+
+/** A reference change and unrelated table settings are not edits to the selected public record. */
+internal fun hasPendingPeriodSchemeEdits(config: ScheduleConfigEntity, draft: SchedulePeriodSchemesDraft): Boolean {
+    val active = draft.schemes.firstOrNull { it.scheme.id == draft.activeSchemeId } ?: return true
+    val original = draft.originalSchemes.firstOrNull { it.scheme.id == draft.activeSchemeId } ?: return true
+    val projected = schemeConfig(config, original.scheme)
+    return active != original ||
+        config.morningPeriodCount != projected.morningPeriodCount ||
+        config.noonPeriodCount != projected.noonPeriodCount ||
+        config.afternoonPeriodCount != projected.afternoonPeriodCount ||
+        config.eveningPeriodCount != projected.eveningPeriodCount ||
+        config.classDurationMinutes != projected.classDurationMinutes ||
+        config.breakDurationMinutes != projected.breakDurationMinutes ||
+        hasNetPeriodTopologyChange(original.times.size, draft.topologyOperations)
+}
 
 
 @Composable
@@ -89,6 +113,8 @@ fun ScheduleConfigScreen(
     var afternoonPeriodCount by remember { mutableIntStateOf(state.config.afternoonPeriodCount) }
     var eveningPeriodCount by remember { mutableIntStateOf(state.config.eveningPeriodCount) }
     var periods by remember { mutableStateOf(state.periods) }
+    var alignmentMode by remember { mutableStateOf(state.config.periodAlignmentMode) }
+    var pendingSchemeSwitch by remember(state.config.id) { mutableStateOf<SavedPeriodScheme?>(null) }
     var schemeDraft by remember(state.config.id) { mutableStateOf<SchedulePeriodSchemesDraft?>(null) }
     var periodSchemeLibrary by remember(state.config.id) { mutableStateOf(emptyList<SavedPeriodScheme>()) }
     var lastSavedSchemeDraft by remember(state.config.id) { mutableStateOf<SchedulePeriodSchemesDraft?>(null) }
@@ -135,6 +161,8 @@ fun ScheduleConfigScreen(
         afternoonPeriodCount = source.config.afternoonPeriodCount
         eveningPeriodCount = source.config.eveningPeriodCount
         periods = source.periods
+        alignmentMode = source.config.periodAlignmentMode
+        pendingSchemeSwitch = null
         error = null
         lastSavedConfig = source.config
         lastSavedPeriods = source.periods
@@ -144,6 +172,7 @@ fun ScheduleConfigScreen(
         return when (section) {
             SettingsSection.Schedule -> draftReady && (
                 totalWeeks != lastSavedConfig.totalWeeks.toString() ||
+                    alignmentMode != lastSavedConfig.periodAlignmentMode ||
                     currentWeek != lastSavedConfig.currentWeek.toString() ||
                     autoCurrentWeek != lastSavedConfig.autoCurrentWeek ||
                     hideEmptyWeekends != lastSavedConfig.hideEmptyWeekends ||
@@ -196,11 +225,7 @@ fun ScheduleConfigScreen(
                 val active = loaded.schemes.firstOrNull { scheme ->
                     scheme.scheme.id == loaded.activeSchemeId
                 }
-                val loadedActivePeriods = active?.times
-                    ?.sortedBy { time -> time.periodIndex }
-                    ?.map { time ->
-                        PeriodEntity(time.periodIndex, time.startTime, time.endTime, state.config.id)
-                    }
+                val loadedActivePeriods = active?.let { storedPeriodSchemePeriods(state.config.id, it) }
                     ?: state.periods
                 schemeDraft = loaded
                 lastSavedSchemeDraft = loaded
@@ -321,6 +346,7 @@ fun ScheduleConfigScreen(
                 ,noonPeriodCount = noonPeriodCount
                 ,afternoonPeriodCount = afternoonPeriodCount
                 ,eveningPeriodCount = eveningPeriodCount
+                ,periodAlignmentMode = alignmentMode
             )
             currentWeek = storedCurrentWeek.toString()
             periods = nextPeriods
@@ -337,33 +363,42 @@ fun ScheduleConfigScreen(
             if (currentSchemes != null) {
                 val active = currentSchemes.schemes.firstOrNull { it.scheme.id == currentSchemes.activeSchemeId }
                     ?: currentSchemes.schemes.first()
-                val previousActive = lastSavedSchemeDraft?.schemes
-                    ?.firstOrNull { it.scheme.id == active.scheme.id }
+                val previousActive = currentSchemes.originalSchemes
+                    .firstOrNull { it.scheme.id == active.scheme.id }
+                    ?: lastSavedSchemeDraft?.schemes?.firstOrNull { it.scheme.id == active.scheme.id }
+                val previousActiveConfig = previousActive?.let { schemeConfig(lastSavedConfig, it.scheme) }
+                    ?: lastSavedConfig
                 val activePeriods = resolveSchemeTimesForSave(
                     config = nextConfig,
                     draft = active,
-                    storedConfig = lastSavedConfig,
+                    storedConfig = previousActiveConfig,
                     storedDraft = previousActive
                 ).map {
                     PeriodEntity(it.periodIndex, it.startTime, it.endTime, nextConfig.id)
                 }
                 currentSchemes.schemes.forEach { item ->
-                    val previous = lastSavedSchemeDraft?.schemes
-                        ?.firstOrNull { it.scheme.id == item.scheme.id }
+                    val previous = currentSchemes.originalSchemes.firstOrNull { it.scheme.id == item.scheme.id }
+                        ?: lastSavedSchemeDraft?.schemes?.firstOrNull { it.scheme.id == item.scheme.id }
                     validateResolvedPeriodTimes(
-                        resolveSchemeTimesForSave(nextConfig, item, lastSavedConfig, previous)
+                        resolveSchemeTimesForSave(nextConfig, item,
+                            previous?.let { schemeConfig(lastSavedConfig, it.scheme) } ?: lastSavedConfig, previous)
                     )?.let {
                         throw IllegalArgumentException("${item.scheme.name}：$it")
                     }
                 }
                 val mappingApproval = PeriodCourseMappingApproval(
-                    state.courses, lastSavedPeriods,
+                    state.courses.map { it.originalArrangement() }, lastSavedPeriods,
                     activePeriods.map { PeriodSchemeTimeEntity(active.scheme.id, it.periodIndex, it.startTime, it.endTime) },
                     currentSchemes.topologyOperations
                 )
-                val mapping = previewPeriodCourseMapping(mappingApproval.courses, mappingApproval.originalPeriods,
+                val switchingScheme = lastSavedSchemeDraft?.activeSchemeId != currentSchemes.activeSchemeId
+                // Choosing another public scheme changes the reference only. Its different bells
+                // must not be interpreted as edits to the previous scheme's lesson identities.
+                val mapping = if (switchingScheme) null else previewPeriodCourseMapping(
+                    mappingApproval.courses, mappingApproval.originalPeriods,
                     mappingApproval.targetTimes, mappingApproval.operations)
-                if (mapping.changedCount > 0 && (!remapConfirmed || pendingCourseMappingApproval != mappingApproval)) {
+                if (mapping != null && mapping.changedCount > 0 &&
+                    (!remapConfirmed || pendingCourseMappingApproval != mappingApproval)) {
                     courseRemapDescription = "${mapping.changedCount} 门课程的节次将按原上课时间调整：\n" +
                         state.courses.indices.filter { state.courses[it].periods != mapping.courses[it].periods }
                             .joinToString("\n") { index ->
@@ -378,21 +413,27 @@ fun ScheduleConfigScreen(
                 }
                 saving = true
                 saveScope.launch {
-                    runCatching { repository.saveScheduleDetail(nextConfig, currentSchemes,
-                        expectedCourses = mappingApproval.courses, expectedPeriods = mappingApproval.originalPeriods) }
-                        .onSuccess {
-                            periods = activePeriods
-                            onSave(nextConfig, activePeriods)
-                            lastSavedConfig = nextConfig
-                            lastSavedPeriods = activePeriods
-                            lastSavedSchemeDraft = currentSchemes.copy(topologyOperations = emptyList())
-                            schemeDraft = currentSchemes.copy(topologyOperations = emptyList())
-                            onFinished?.invoke(true)
-                        }
-                        .onFailure {
-                            error = it.message ?: "设置保存失败"
-                            onFinished?.invoke(false)
-                        }
+                    runCatching {
+                        repository.saveScheduleDetail(nextConfig, currentSchemes,
+                            expectedCourses = mappingApproval.courses, expectedPeriods = mappingApproval.originalPeriods)
+                        repository.loadPeriodSchemes(nextConfig.id) to repository.loadPeriodSchemeLibrary(
+                            context, state.allConfigs + nextConfig, state.schedules.associate { it.id to it.name })
+                    }.onSuccess { (savedDraft, library) ->
+                        val savedActive = savedDraft.schemes.first { it.scheme.id == savedDraft.activeSchemeId }
+                        val savedConfig = schemeConfig(nextConfig, savedActive.scheme)
+                        val savedPeriods = storedPeriodSchemePeriods(savedConfig.id, savedActive)
+                        periods = savedPeriods
+                        onSave(savedConfig, savedPeriods)
+                        lastSavedConfig = savedConfig
+                        lastSavedPeriods = savedPeriods
+                        lastSavedSchemeDraft = savedDraft
+                        schemeDraft = savedDraft
+                        periodSchemeLibrary = library
+                        onFinished?.invoke(true)
+                    }.onFailure {
+                        error = it.message ?: "设置保存失败"
+                        onFinished?.invoke(false)
+                    }
                     saving = false
                 }
             } else {
@@ -436,7 +477,7 @@ fun ScheduleConfigScreen(
             }
         }
         if (computeDirty()) {
-            saveConfigDraft(onFinished = { saved -> if (saved) navigate() })
+            error = "请先保存或放弃当前课表设置修改，再打开作息管理"
         } else {
             navigate()
         }
@@ -445,25 +486,48 @@ fun ScheduleConfigScreen(
     fun selectPeriodScheme(saved: SavedPeriodScheme) {
         val draft = schemeDraft ?: return
         if (!draftReady || saving) return
-        try {
-            val applied = applySavedPeriodScheme(saved, state.config.copy(
-                morningPeriodCount = morningPeriodCount, noonPeriodCount = noonPeriodCount,
-                afternoonPeriodCount = afternoonPeriodCount, eveningPeriodCount = eveningPeriodCount), draft)
-            morningPeriodCount = applied.config.morningPeriodCount
-            noonPeriodCount = applied.config.noonPeriodCount
-            afternoonPeriodCount = applied.config.afternoonPeriodCount
-            eveningPeriodCount = applied.config.eveningPeriodCount
-            classDurationMinutes = saved.classDurationMinutes.toString()
-            breakDurationMinutes = saved.breakDurationMinutes.toString()
-            schemeDraft = applied.draft
-            val active = applied.draft.schemes.first { it.scheme.id == applied.draft.activeSchemeId }
-            periods = resolveSchemeTimes(applied.config, active).map {
-                PeriodEntity(it.periodIndex, it.startTime, it.endTime, state.config.id)
-            }
-            error = null
-        } catch (invalid: IllegalArgumentException) {
-            error = invalid.message ?: "作息切换失败"
+        val pendingConfig = state.config.copy(
+            morningPeriodCount = morningPeriodCount, noonPeriodCount = noonPeriodCount,
+            afternoonPeriodCount = afternoonPeriodCount, eveningPeriodCount = eveningPeriodCount,
+            classDurationMinutes = classDurationMinutes.toIntOrNull() ?: state.config.classDurationMinutes,
+            breakDurationMinutes = breakDurationMinutes.toIntOrNull() ?: state.config.breakDurationMinutes)
+        if (hasPendingPeriodSchemeEdits(pendingConfig, draft)) {
+            error = "请先保存或放弃当前作息修改，再切换"
+            return
         }
+        pendingSchemeSwitch = saved
+    }
+
+    fun applyPeriodSchemeSelection(selected: SavedPeriodScheme, mode: PeriodAlignmentMode) {
+            val currentDraft = schemeDraft ?: return
+            try {
+                val applied = applySavedPeriodScheme(selected, state.config.copy(
+                    morningPeriodCount = morningPeriodCount, noonPeriodCount = noonPeriodCount,
+                    afternoonPeriodCount = afternoonPeriodCount, eveningPeriodCount = eveningPeriodCount), currentDraft)
+                morningPeriodCount = applied.config.morningPeriodCount
+                noonPeriodCount = applied.config.noonPeriodCount
+                afternoonPeriodCount = applied.config.afternoonPeriodCount
+                eveningPeriodCount = applied.config.eveningPeriodCount
+                classDurationMinutes = selected.classDurationMinutes.toString()
+                breakDurationMinutes = selected.breakDurationMinutes.toString()
+                alignmentMode = mode
+                schemeDraft = applied.draft
+                val active = applied.draft.schemes.first { it.scheme.id == applied.draft.activeSchemeId }
+                periods = storedPeriodSchemePeriods(state.config.id, active)
+                error = null
+            } catch (invalid: IllegalArgumentException) {
+                error = invalid.message ?: "作息切换失败"
+            }
+    }
+
+    pendingSchemeSwitch?.let { selected ->
+        val target = checkNotNull(selected.storedDraft) { "公共作息记录缺失" }
+        PeriodSchemeSwitchDialog(selected.name, state.courses, lastSavedConfig, lastSavedPeriods,
+            schemeConfig(state.config, target.scheme), storedPeriodSchemePeriods(state.config.id, target),
+            popupBackdrop, visualState.config, onDismiss = { pendingSchemeSwitch = null }, onConfirm = { mode ->
+                pendingSchemeSwitch = null
+                applyPeriodSchemeSelection(selected, mode)
+            })
     }
 
     LaunchedEffect(exitCommitRequest) {
@@ -547,7 +611,10 @@ fun ScheduleConfigScreen(
                     afternoonPeriodCount = afternoonPeriodCount,
                     eveningPeriodCount = eveningPeriodCount
                 )
-                periods = resolveSchemeTimes(draftConfig, active).map {
+                val previous = updated.originalSchemes.firstOrNull { it.scheme.id == active.scheme.id }
+                    ?: lastSavedSchemeDraft?.schemes?.firstOrNull { it.scheme.id == active.scheme.id }
+                periods = resolveSchemeTimesForSave(draftConfig, active,
+                    previous?.let { schemeConfig(lastSavedConfig, it.scheme) } ?: lastSavedConfig, previous).map {
                     PeriodEntity(it.periodIndex, it.startTime, it.endTime, state.config.id)
                 }
             }
@@ -573,7 +640,7 @@ fun ScheduleConfigScreen(
     if (showExitSaveConfirm) {
         LiquidAlertDialog(
             title = "保存课表设置？",
-            message = "保存课表、作息与调休安排后退出详细设置。",
+            message = "保存课表、作息与调休安排后退出详细设置。作息修改仅影响当前课表，保存时会创建公共副本。",
             actions = listOf(
                 LiquidAlertAction("保存并退出", LiquidAlertActionStyle.Primary) {
                     showExitSaveConfirm = false

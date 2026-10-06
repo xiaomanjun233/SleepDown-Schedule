@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.home.week
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.domain.schedule.CoursePeriodTime
 import com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.effectiveArrangementOrNull
 import java.time.LocalTime
 
 /** The rail follows a real imported bell only while that course is in the current section. */
@@ -14,7 +15,8 @@ internal fun activeWeekCourseBell(
     .filter { it.weekday == weekday && it.customPeriodTimes != null }
     .sortedBy(CourseEntity::id)
     .flatMap { course ->
-        runCatching { parseCoursePeriodTimes(course.customPeriodTimes) }.getOrDefault(emptyList()).asSequence()
+        (course.effectiveArrangementOrNull()?.times?.filter { it.exact }?.map { it.time }
+            ?: runCatching { parseCoursePeriodTimes(course.customPeriodTimes) }.getOrDefault(emptyList())).asSequence()
     }
     .firstOrNull { !now.isBefore(it.start) && now.isBefore(it.end) }
 
@@ -25,5 +27,6 @@ internal fun specialCourseCoversTime(
     now: LocalTime
 ): Boolean = courses.asSequence()
     .filter { it.weekday == weekday && it.customPeriodTimes != null }
-    .map { runCatching { parseCoursePeriodTimes(it.customPeriodTimes) }.getOrDefault(emptyList()) }
+    .map { course -> course.effectiveArrangementOrNull()?.times?.filter { it.exact }?.map { it.time }
+        ?: runCatching { parseCoursePeriodTimes(course.customPeriodTimes) }.getOrDefault(emptyList()) }
     .any { bells -> bells.isNotEmpty() && !now.isBefore(bells.first().start) && now.isBefore(bells.last().end) }

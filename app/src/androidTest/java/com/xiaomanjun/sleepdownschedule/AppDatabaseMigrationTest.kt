@@ -21,6 +21,112 @@ class AppDatabaseMigrationTest {
     )
 
     @Test
+    fun migrate44To45SharesIdenticalSchemesAndPreservesEveryDistinctTimeline() {
+        helper.createDatabase(TEST_DATABASE, 44).use { database ->
+            for (id in 7..13) {
+                database.execSQL(legacyConfigInsertSql(40, id))
+                database.execSQL("INSERT INTO schedule_profiles (id, name, isActive) VALUES (?, ?, ?)",
+                    arrayOf<Any>(id, "课表$id", if (id == 7) 1 else 0))
+                database.execSQL("UPDATE schedule_config SET morningPeriodCount=1, noonPeriodCount=0, afternoonPeriodCount=1, eveningPeriodCount=0 WHERE id=?", arrayOf(id))
+            }
+            database.execSQL("UPDATE schedule_config SET morningPeriodCount=0, noonPeriodCount=1 WHERE id=9")
+            database.execSQL("UPDATE schedule_config SET morningPeriodCount=4, afternoonPeriodCount=4, eveningPeriodCount=4 WHERE id=10")
+
+            val standard = listOf(Triple(1, "08:00", "08:45"), Triple(2, "14:00", "14:45"))
+            insertScheme44(database, 11, 7, "夏季", standard, active = true,
+                specialBreaks = "{\"1\":10,\"2\":15}", overrides = "[1,2]")
+            insertScheme44(database, 21, 8, "同样的作息但名称不同", standard, active = true,
+                specialBreaks = "{\"2\":15,\"1\":10}", overrides = "[2,1]")
+            insertScheme44(database, 12, 7, "未启用的冬季", standard, breakMinutes = 15)
+            insertScheme44(database, 13, 7, "自动方案", standard, mode = "AUTO_MATCH")
+            insertScheme44(database, 14, 7, "覆盖不同", standard, overrides = "[1]")
+            insertScheme44(database, 16, 7, "旧版未写时间的方案", emptyList(), breakMinutes = 17)
+            insertScheme44(database, 31, 9, "分段不同", standard, active = true,
+                specialBreaks = "{\"1\":10,\"2\":15}", overrides = "[1,2]")
+            val inferred = listOf(Triple(1, "08:10", "08:55"), Triple(2, "12:10", "12:55"),
+                Triple(3, "15:10", "15:55"), Triple(4, "19:10", "19:55"))
+            insertScheme44(database, 41, 10, "没有活动标记的方案", inferred)
+            insertScheme44(database, 42, 10, "独立推断未启用方案", listOf(Triple(1, "19:30", "20:15")))
+            insertScheme44(database, 51, 11, "保留原始方案", standard, active = true)
+            for (id in 7..9) insertPeriods44(database, id, standard)
+            insertPeriods44(database, 10, inferred)
+            insertPeriods44(database, 11, listOf(Triple(1, "09:00", "09:45"), Triple(2, "15:00", "15:45")))
+            insertPeriods44(database, 12, listOf(Triple(1, "10:00", "10:45"), Triple(2, "16:00", "16:45")))
+            // A materialized timeline with no config/profile must also survive as a library entry.
+            insertPeriods44(database, 14, listOf(Triple(1, "20:00", "20:45")))
+            database.execSQL("INSERT INTO courses (id,name,weekday,periods,weeks,weekParity,scheduleId,customStartTime,customEndTime) VALUES (42,'课程不变',2,'[1,2]','[1,3]','ODD',8,'08:03','14:42')")
+        }
+
+        helper.runMigrationsAndValidate(TEST_DATABASE, APP_DATABASE_VERSION, true,
+            *APP_DATABASE_MIGRATIONS.toTypedArray()).use { database ->
+            assertSingleValue(database, "SELECT COUNT(*) FROM period_schemes", 12)
+            assertSingleValue(database, "SELECT activePeriodSchemeId FROM schedule_config WHERE id=7", 11)
+            assertSingleValue(database, "SELECT activePeriodSchemeId FROM schedule_config WHERE id=8", 11)
+            assertSingleValue(database, "SELECT activePeriodSchemeId FROM schedule_config WHERE id=9", 31)
+            assertSingleValue(database, "SELECT activePeriodSchemeId FROM schedule_config WHERE id=10", 41)
+            assertSingleValue(database, "SELECT COUNT(*) FROM period_schemes WHERE id=21", 0)
+            assertSingleValue(database, "SELECT COUNT(*) FROM period_scheme_times WHERE schemeId=21", 0)
+            assertSingleText(database, "SELECT publicId FROM period_schemes WHERE id=11", "legacy-11")
+            assertSingleText(database, "SELECT name FROM period_schemes WHERE id=11", "夏季")
+            assertSingleText(database, "SELECT sourceScheduleName FROM period_schemes WHERE id=11", "课表7（夏季）；课表8（同样的作息但名称不同）")
+            assertSingleValue(database, "SELECT COUNT(*) FROM period_schemes WHERE id IN (12,13,14,31,42,51)", 6)
+            assertSingleText(database, "SELECT startTime FROM period_scheme_times WHERE schemeId=16 AND periodIndex=1", "08:00")
+            assertSingleValue(database, "SELECT morningPeriodCount FROM period_schemes WHERE id=16", 1)
+            assertSingleValue(database, "SELECT noonPeriodCount FROM period_schemes WHERE id=11", 0)
+            assertSingleValue(database, "SELECT noonPeriodCount FROM period_schemes WHERE id=31", 1)
+            for (column in listOf("morningPeriodCount", "noonPeriodCount", "afternoonPeriodCount", "eveningPeriodCount")) {
+                assertSingleValue(database, "SELECT $column FROM period_schemes WHERE id=41", 1)
+            }
+            assertSingleValue(database, "SELECT eveningPeriodCount FROM period_schemes WHERE id=42", 1)
+            assertSingleValue(database, "SELECT morningPeriodCount FROM period_schemes WHERE id=42", 0)
+
+            assertSingleText(database, "SELECT startTime FROM period_scheme_times WHERE schemeId=51 AND periodIndex=1", "08:00")
+            assertSingleText(database, "SELECT startTime FROM periods WHERE scheduleId=11 AND periodIndex=1", "09:00")
+            assertSingleText(database, "SELECT t.startTime FROM period_scheme_times t JOIN schedule_config c ON c.activePeriodSchemeId=t.schemeId WHERE c.id=11 AND t.periodIndex=1", "09:00")
+            assertSingleText(database, "SELECT s.name FROM period_schemes s JOIN schedule_config c ON c.activePeriodSchemeId=s.id WHERE c.id=11", "升级前作息")
+            assertSingleText(database, "SELECT t.startTime FROM period_scheme_times t JOIN schedule_config c ON c.activePeriodSchemeId=t.schemeId WHERE c.id=12 AND t.periodIndex=1", "10:00")
+            assertSingleText(database, "SELECT t.startTime FROM period_scheme_times t JOIN period_schemes s ON s.id=t.schemeId WHERE s.scheduleId=14", "20:00")
+            assertSingleValue(database, "SELECT activePeriodSchemeId IS NULL FROM schedule_config WHERE id=13", 1)
+            assertSingleValue(database, "SELECT COUNT(*) FROM period_schemes WHERE publicId=''", 0)
+            assertSingleValue(database, "SELECT COUNT(*) FROM period_scheme_library_migrations", 0)
+            assertSingleText(database, "SELECT customStartTime FROM courses WHERE id=42", "08:03")
+            assertSingleValue(database, "SELECT scheduleId FROM courses WHERE id=42", 8)
+            assertSingleValue(database, "SELECT currentWeek FROM schedule_config WHERE id=8", 6)
+        }
+    }
+
+    private fun insertScheme44(
+        database: SupportSQLiteDatabase,
+        id: Int,
+        scheduleId: Int,
+        name: String,
+        times: List<Triple<Int, String, String>>,
+        active: Boolean = false,
+        mode: String = "MANUAL",
+        breakMinutes: Int = 10,
+        specialBreaks: String = "{}",
+        overrides: String = "{}"
+    ) {
+        database.execSQL("""
+            INSERT INTO period_schemes (id, scheduleId, name, mode, isActive, classDurationMinutes,
+                breakDurationMinutes, morningStartTime, noonStartTime, afternoonStartTime, eveningStartTime,
+                specialBreaksJson, overridesJson)
+            VALUES (?, ?, ?, ?, ?, 45, ?, '08:00', '12:00', '14:00', '19:00', ?, ?)
+        """.trimIndent(), arrayOf<Any>(id, scheduleId, name, mode, if (active) 1 else 0, breakMinutes, specialBreaks, overrides))
+        times.forEach { (index, start, end) ->
+            database.execSQL("INSERT INTO period_scheme_times (schemeId, periodIndex, startTime, endTime) VALUES (?, ?, ?, ?)",
+                arrayOf<Any>(id, index, start, end))
+        }
+    }
+
+    private fun insertPeriods44(database: SupportSQLiteDatabase, scheduleId: Int, times: List<Triple<Int, String, String>>) {
+        times.forEach { (index, start, end) ->
+            database.execSQL("INSERT INTO periods (scheduleId, periodIndex, startTime, endTime) VALUES (?, ?, ?, ?)",
+                arrayOf<Any>(scheduleId, index, start, end))
+        }
+    }
+
+    @Test
     fun migrate43To44KeepsOldAlignmentAndDefaultsCurrentCardLayout() {
         helper.createDatabase(TEST_DATABASE, 43).use { database ->
             database.execSQL(legacyConfigInsertSql(40))
@@ -327,7 +433,9 @@ class AppDatabaseMigrationTest {
             val database = createAppDatabase(context, databaseName)
             try {
                 val config = database.configDao().getConfig(7)!!
-                val active = database.periodSchemeDao().getSchemes(7).single { it.isActive }
+                val active = requireNotNull(database.periodSchemeDao().getActiveScheme(7))
+
+                assertEquals(active.id, config.activePeriodSchemeId)
 
                 assertEquals(1, config.morningPeriodCount)
                 assertEquals(1, config.noonPeriodCount)
@@ -353,8 +461,9 @@ class AppDatabaseMigrationTest {
             try {
                 val config = database.configDao().getConfig(7)!!
                 val periods = database.configDao().getPeriods(7)
-                val schemes = database.periodSchemeDao().getSchemes(7)
-                val active = schemes.single { it.isActive }
+                val active = requireNotNull(database.periodSchemeDao().getActiveScheme(7))
+
+                assertEquals(active.id, config.activePeriodSchemeId)
 
                 assertEquals(6, config.currentWeek)
                 assertEquals(1, config.morningPeriodCount)
@@ -480,7 +589,7 @@ class AppDatabaseMigrationTest {
         """.trimIndent()
     }
 
-    private fun legacyConfigInsertSql(version: Int): String {
+    private fun legacyConfigInsertSql(version: Int, scheduleId: Int = 7): String {
         val periodColumns = if (version == 27) {
             ", morningPeriodCount, afternoonPeriodCount, eveningPeriodCount"
         } else {
@@ -498,7 +607,7 @@ class AppDatabaseMigrationTest {
                 liveUpdateChipTextMode, classDurationMinutes, breakDurationMinutes,
                 hideFromRecents, autoCheckUpdates$periodColumns
             ) VALUES (
-                7, 20, 6, 15, '2026-02-23',
+                $scheduleId, 20, 6, 15, '2026-02-23',
                 1, 1, 'STANDARD',
                 0, 1, 4293516543, 1,
                 18, 1, 1,

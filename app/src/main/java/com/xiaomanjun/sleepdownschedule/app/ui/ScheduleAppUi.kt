@@ -354,6 +354,7 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
 import com.xiaomanjun.sleepdownschedule.transition.transitionRouteIdOrNull
 import com.xiaomanjun.sleepdownschedule.domain.schedule.formatScheduleDate
+import com.xiaomanjun.sleepdownschedule.domain.schedule.previewCourseEdits
 import com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate
 import com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate
 import top.yukonga.miuix.kmp.squircle.squircleClip
@@ -898,7 +899,7 @@ fun CourseScheduleAppUi(
                 val latest = latestCopyState.value
                 when {
                     latest.config.id != candidate.scheduleId -> "课表已切换，请重新选择"
-                    else -> conflictWeeksForAddedCourses(listOf(candidate), latest.courses, latest.periods)
+                    else -> conflictWeeksForAddedCourses(latest.previewCourseEdits(listOf(candidate)), latest.courses, latest.periods)
                         .takeIf { it.isNotEmpty() }
                         ?.let { "课程冲突，请换个位置" }
                 }
@@ -3774,7 +3775,7 @@ fun CourseScheduleAppUi(
             destinationOwnsButtonReturn = false
         },
         onAddCourses = { courses ->
-            val conflictWeeks = conflictWeeksForAddedCourses(courses, state.courses, state.periods)
+            val conflictWeeks = conflictWeeksForAddedCourses(state.previewCourseEdits(courses), state.courses, state.periods)
             if (conflictWeeks.isEmpty()) {
                 viewModel.addCourses(courses)
                 closeHomeMenuDestination()
@@ -4193,8 +4194,8 @@ fun CourseScheduleAppUi(
                     courseEditorHasOccurrence(dialog.original, dialog.targetWeek),
                 onSingle = {
                     val conflictWeeks = conflictWeeksForSingleWeekEdit(
-                        dialog.original,
-                        singleEdited,
+                        state.previewCourseEdits(listOf(dialog.original)).single(),
+                        state.previewCourseEdits(listOf(singleEdited)).single(),
                         dialog.targetWeek,
                         state.courses,
                         state.periods
@@ -4220,7 +4221,7 @@ fun CourseScheduleAppUi(
                 },
                 onAll = {
                     val conflictWeeks = conflictWeeksForEditedCourseGroup(
-                        allScope.originals, allScope.edited, state.courses, state.periods
+                        state.previewCourseEdits(allScope.originals), state.previewCourseEdits(allScope.edited), state.courses, state.periods
                     )
                     if (conflictWeeks.isEmpty()) {
                         if (allScope.originals.size == 1 && allScope.edited.size == 1) {

@@ -4,7 +4,7 @@ import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
 
-internal const val APP_DATABASE_VERSION = 44
+internal const val APP_DATABASE_VERSION = 46
 
 @Database(
     entities = [
@@ -14,6 +14,7 @@ internal const val APP_DATABASE_VERSION = 44
         com.xiaomanjun.sleepdownschedule.model.PeriodEntity::class,
         com.xiaomanjun.sleepdownschedule.model.PeriodSchemeEntity::class,
         com.xiaomanjun.sleepdownschedule.model.PeriodSchemeTimeEntity::class,
+        com.xiaomanjun.sleepdownschedule.model.PeriodSchemeLibraryMigrationEntity::class,
         com.xiaomanjun.sleepdownschedule.model.AgentDailySessionEntity::class,
         com.xiaomanjun.sleepdownschedule.model.AgentMessageEntity::class,
         com.xiaomanjun.sleepdownschedule.feature.widget.WidgetAppearanceEntity::class

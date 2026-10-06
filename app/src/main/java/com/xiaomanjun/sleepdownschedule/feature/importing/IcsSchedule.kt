@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseReminderSessions
+
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeCourseClock
 
@@ -194,7 +196,11 @@ object IcsScheduleCodec {
                 appendLine("X-SLEEPDOWN-PERIOD:${period.periodIndex},${period.startTime},${period.endTime}")
             }
             courses.sortedWith(compareBy<CourseEntity> { it.weekday }.thenBy { it.name }).forEach { course ->
-                val ranges = course.customTimeRangeOrNull()?.let { (start, end) ->
+                val ranges = if (course.arrangementProjection != null) courseReminderSessions(course, periods).mapNotNull { session ->
+                    val start = courseStartTime(session, periods) ?: return@mapNotNull null
+                    val end = courseEndTime(session, periods) ?: return@mapNotNull null
+                    IcsPeriodRange(session.periods, start, end)
+                } else course.customTimeRangeOrNull()?.let { (start, end) ->
                     listOf(IcsPeriodRange(course.periods.distinct().sorted(), start, end))
                 } ?: contiguousPeriodRanges(course.periods, periodsByIndex)
                 course.weeks.distinct().sorted()
@@ -219,7 +225,8 @@ object IcsScheduleCodec {
                             if (description.isNotBlank()) appendLine("DESCRIPTION:${escapeText(description)}")
                             appendLine("X-SLEEPDOWN-WEEK:$week")
                             appendLine("X-SLEEPDOWN-PERIODS:${range.indices.joinToString(",")}")
-                            course.customPeriodTimes?.let { appendLine("X-SLEEPDOWN-PERIOD-TIMES:$it") }
+                            course.customPeriodTimes?.takeIf { course.arrangementProjection == null }
+                                ?.let { appendLine("X-SLEEPDOWN-PERIOD-TIMES:$it") }
                             appendLine("END:VEVENT")
                         }
                     }

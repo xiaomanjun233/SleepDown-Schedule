@@ -113,7 +113,7 @@ object BackupImportPlanBuilder {
             existingIds = existing.courseIds
         )
         val schemeIds = allocateLongIds(
-            stableIds = schedules.flatMap { it.periodSchemes }.map { it.id },
+            stableIds = backupSchemeGraph(archive).schemes.map { it.id },
             existingIds = existing.schemeIds
         )
         val sessionTargets = linkedMapOf<String, BackupImportSessionTarget>()
@@ -192,6 +192,9 @@ object BackupImportPlanBuilder {
     }
 
     private fun validateImportReferencesAndEnums(archive: DecodedBackupArchive) {
+        backupSchemeGraph(archive).schemes.forEach {
+            strictEnum<PeriodSchemeMode>(it.mode, "shared period scheme mode")
+        }
         val assets = archive.assets.associateBy { it.assetId }
         val descriptors = archive.manifest.assets.associateBy { it.assetId }
 

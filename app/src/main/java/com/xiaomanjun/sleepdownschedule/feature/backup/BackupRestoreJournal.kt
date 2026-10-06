@@ -29,6 +29,7 @@ data class BackupRestoreMarker(
     val finalAssetPathsById: Map<String, String> = emptyMap(),
     val newlyCreatedAssetPaths: Set<String> = emptySet(),
     val dbCommitStarted: Boolean = false,
+    val sharedSchemeGraphCommitted: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis()
 )
 
