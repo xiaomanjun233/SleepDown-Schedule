@@ -647,7 +647,8 @@ class ScheduleRepository(private val database: AppDatabase) {
                     "同一课程的同一周有多份修改，请合并后再执行"
                 }
                 val config = configDao.getConfig(scheduleId) ?: error("课表配置不存在")
-                val periodIndexes = configDao.getPeriods(scheduleId).map { it.periodIndex }.toSet()
+                val periodDefinitions = configDao.getPeriods(scheduleId)
+                val periodIndexes = periodDefinitions.map { it.periodIndex }.toSet()
                 require(plan.actions.mapNotNull { it.scopedEditedCourse() }.all { course ->
                     val previous = before.firstOrNull { it.id == course.id }
                     course.weekday in 1..7 && course.periods.isNotEmpty() &&
@@ -656,9 +657,9 @@ class ScheduleRepository(private val database: AppDatabase) {
                         course.weeks.any { parityMatches(course.weekParity, it) }
                 }) { "课程星期、节次或周次无效，请修正完整计划" }
                 val preview = previewAgentPlan(
-                    before = projectCourseArrangements(before, config, configDao.getPeriods(scheduleId)),
+                    before = projectCourseArrangements(before, config, periodDefinitions),
                     plan = plan,
-                    periodDefinitions = configDao.getPeriods(scheduleId)
+                    periodDefinitions = periodDefinitions
                 )
 
                 plan.actions.filter { it.original != null }.groupBy { it.original!!.id }.forEach { (id, actions) ->
@@ -668,23 +669,28 @@ class ScheduleRepository(private val database: AppDatabase) {
                             "所选节次不属于原课程，请重新生成计划"
                         }
                     }
-                    val fragments = agentCourseFragments(original, actions)
+                    val fragments = agentCourseFragments(original, actions, periodDefinitions)
                     if (fragments.isEmpty()) courseDao.deleteCourse(id)
                     else {
-                        courseDao.updateCourse(normalizeCoursesForSchedule(listOf(fragments.first().copy(id = id)), scheduleId).single())
-                        fragments.drop(1).forEach { fragment ->
-                            courseDao.insertCourse(normalizeCoursesForSchedule(listOf(fragment.copy(id = 0)), scheduleId).single())
+                        // Fragment clocks were prepared against their logical source selection.
+                        // Reuse the physical ID only after normalization, so retained lessons are
+                        // not mistaken for an explicit edit of the old whole-course arrangement.
+                        val normalized = normalizeCoursesForSchedule(fragments.map { it.copy(id = 0) },
+                            scheduleId, periodDefinitions)
+                        courseDao.updateCourse(normalized.first().copy(id = id))
+                        normalized.drop(1).forEach { fragment ->
+                            courseDao.insertCourse(fragment)
                         }
                     }
                 }
                 plan.actions.filter { it.type == AgentValidatedActionType.ADD }.forEach { action ->
                     action.edited?.let { course ->
-                        courseDao.insertCourse(normalizeCoursesForSchedule(listOf(course.copy(id = 0)), scheduleId).single())
+                        courseDao.insertCourse(normalizeCoursesForSchedule(listOf(course.copy(id = 0)), scheduleId, periodDefinitions).single())
                     }
                 }
                 mergeCompatibleCourseFragments(scheduleId)
                 val after = courseDao.getCourses(scheduleId)
-                if (!verifyAgentPlan(after, plan, before)) {
+                if (!verifyAgentPlan(after, plan, before, periodDefinitions)) {
                     throw AgentPlanRejectedException("数据库写入后的真实状态与操作计划不一致")
                 }
                 AgentPlanExecutionResult(

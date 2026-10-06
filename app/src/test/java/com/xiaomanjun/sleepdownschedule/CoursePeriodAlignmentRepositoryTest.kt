@@ -138,6 +138,130 @@ class CoursePeriodAlignmentRepositoryTest {
         assertEquals(stored.originalPeriodTimes, db.courseDao().getCourses(1).first().originalPeriodTimes)
     }
 
+    @Test fun aiPartialDeleteAfterIndexSwitchKeepsMorningSourceClock() = runBlocking {
+        deleteInAfternoonAndRecover()
+        assertEquals("2,08:50-09:30", db.courseDao().getCourses(1).single { it.weekday == 3 }.originalPeriodTimes)
+    }
+
+    @Test fun aiPartialDeleteInFirstWeekKeepsBothSourceFragments() = runBlocking {
+        deleteInAfternoonAndRecover(selectedWeek = 1)
+    }
+
+    @Test fun aiPartialDeleteInLastWeekKeepsBothSourceFragments() = runBlocking {
+        deleteInAfternoonAndRecover(selectedWeek = 2)
+    }
+
+    @Test fun aiScopedPartialDeleteKeepsMixedExactAndOrdinaryTimes() = runBlocking {
+        deleteInAfternoonAndRecover(selectedWeek = 1, indices = listOf(1, 2, 3),
+            custom = "2,08:57-09:16")
+        val remaining = db.courseDao().getCourses(1).single { it.weekday == 3 && it.weeks == listOf(1) }
+        assertEquals("2,08:57-09:16", remaining.customPeriodTimes)
+        assertNull(remaining.customStartTime)
+        assertNull(remaining.customEndTime)
+    }
+
+    @Test fun aiDeletingCustomPartKeepsOrdinarySourceClock() = runBlocking {
+        deleteInAfternoonAndRecover(custom = "2,08:57-09:16", deleted = listOf(2))
+        val remaining = db.courseDao().getCourses(1).single { it.weekday == 3 }
+        assertEquals("1,08:00-08:40", remaining.originalPeriodTimes)
+        assertNull(remaining.customPeriodTimes)
+    }
+
+    @Test fun aiExplicitClockEditAfterSwitchCapturesNewSourceClock() = runBlocking {
+        val original = morningCourseInAfternoon()
+        val edited = original.copy(customStartTime = "16:05", customEndTime = "16:30")
+        val result = repository.executeAgentPlan(AgentPlan(listOf(AgentValidatedAction(
+            type = AgentValidatedActionType.UPDATE, original = original, edited = edited,
+            scope = AgentActionScope.ALL_WEEKS, targetWeek = 1, summary = "修改时间", sourceScheduleId = 1
+        ))))
+        assertTrue(result.message, result.success && result.verified)
+        val stored = db.courseDao().getCourses(1).single { it.weekday == 3 }
+        assertEquals("1,14:00-14:40;2,14:50-15:30", stored.originalPeriodTimes)
+        repository.switchPeriodScheme(1, 55, PeriodAlignmentMode.TIME)
+        val displayed = repository.activeSnapshot().courses.single { it.weekday == 3 }
+        assertEquals("16:05 - 16:30", courseTimeLabel(displayed, repository.activeSnapshot().periods))
+    }
+
+    @Test fun aiPartialMetadataEditKeepsEachFragmentsSourceClock() = runBlocking {
+        val original = morningCourseInAfternoon()
+        val state = repository.activeSnapshot()
+        val facts = buildDayAgentFacts(state.courses, state.periods, state.config,
+            java.time.LocalDate.of(2026, 10, 5), null).copy(semesterCourses = state.courses)
+        val action = parseAgentActions("""<agent_actions>[{"type":"UPDATE_COURSE","courseId":${original.id},
+            "scope":"SELECTED_WEEKS","sourceWeeks":[1],"sourcePeriods":[2],
+            "course":{"name":"改名后的早课"}}]</agent_actions>""", facts).actions.single()
+        val result = repository.executeAgentPlan(AgentPlan(listOf(action)))
+        assertTrue(result.message, result.success && result.verified)
+        val edited = db.courseDao().getCourses(1).single { it.name == "改名后的早课" }
+        assertEquals("2,08:50-09:30", edited.originalPeriodTimes)
+        assertEquals(listOf(1), edited.weeks)
+        repository.switchPeriodScheme(1, 55, PeriodAlignmentMode.TIME)
+        assertEquals(listOf(2), repository.activeSnapshot().courses.single { it.name == edited.name }.periods)
+    }
+
+    @Test fun aiWriteRollsBackWhenDatabaseChangesOriginalClock() = runBlocking {
+        val original = morningCourseInAfternoon()
+        val before = db.courseDao().getCourses(1)
+        db.openHelper.writableDatabase.execSQL("""CREATE TRIGGER corrupt_source_clock
+            AFTER INSERT ON courses
+            WHEN NEW.id = ${original.id} AND NEW.originalPeriodTimes <> '2,14:50-15:30'
+            BEGIN UPDATE courses SET originalPeriodTimes = '2,14:50-15:30' WHERE id = NEW.id; END""")
+        val action = AgentValidatedAction(type = AgentValidatedActionType.DELETE, original = original,
+            scope = AgentActionScope.ALL_WEEKS, targetWeek = 1, sourcePeriods = listOf(1),
+            summary = "删除部分节次", sourceScheduleId = 1)
+        val result = repository.executeAgentPlan(AgentPlan(listOf(action)))
+        assertFalse(result.success)
+        assertFalse(result.verified)
+        assertTrue(result.message, result.message.contains("真实状态与操作计划不一致"))
+        assertEquals(before, db.courseDao().getCourses(1))
+    }
+
+    private suspend fun morningCourseInAfternoon(indices: List<Int> = listOf(1, 2), custom: String? = null): CourseEntity {
+        scheme(55, 3)
+        scheme(44, 3, 360)
+        repository.switchPeriodScheme(1, 55)
+        repository.addCourse(course(indices, 3).copy(customPeriodTimes = custom))
+        repository.switchPeriodScheme(1, 44, PeriodAlignmentMode.INDEX)
+        return repository.activeSnapshot().courses.single { it.weekday == 3 }
+    }
+
+    private suspend fun deleteInAfternoonAndRecover(selectedWeek: Int? = null,
+        indices: List<Int> = listOf(1, 2), custom: String? = null, deleted: List<Int> = listOf(1)) {
+        val original = morningCourseInAfternoon(indices, custom)
+        val source = original.originalArrangement()
+        val action = AgentValidatedAction(type = AgentValidatedActionType.DELETE, original = original,
+            scope = if (selectedWeek == null) AgentActionScope.ALL_WEEKS else AgentActionScope.SELECTED_WEEKS,
+            targetWeek = 1, sourceWeeks = selectedWeek?.let(::listOf).orEmpty(), sourcePeriods = deleted,
+            summary = "删除部分节次", sourceScheduleId = 1)
+        val result = repository.executeAgentPlan(AgentPlan(listOf(action)))
+        assertTrue(result.message, result.success && result.verified)
+        val stored = db.courseDao().getCourses(1).filter { it.weekday == 3 }
+        assertEquals(if (selectedWeek == null) 1 else 2, stored.size)
+        source.weeks.forEach { week ->
+            val expectedPeriods = if (selectedWeek == null || week == selectedWeek) indices - deleted.toSet() else indices
+            val row = stored.single { week in it.weeks }
+            assertEquals(expectedPeriods, row.periods)
+            assertEquals(encodeCoursePeriodTimes(parseCoursePeriodTimes(source.originalPeriodTimes)
+                .filter { it.index in expectedPeriods }), row.originalPeriodTimes)
+            val previewRow = result.preview!!.after.single { it.weekday == 3 && week in it.weeks }.originalArrangement()
+            assertEquals(row.originalPeriodTimes, previewRow.originalPeriodTimes)
+        }
+        db.close()
+        open()
+        assertEquals(stored, db.courseDao().getCourses(1).filter { it.weekday == 3 })
+        repository.switchPeriodScheme(1, 55, PeriodAlignmentMode.TIME)
+        val state = repository.activeSnapshot()
+        state.courses.filter { it.weekday == 3 }.forEach { displayed ->
+            assertFalse(displayed.isHiddenByPeriodAlignment())
+            val raw = displayed.originalArrangement()
+            assertEquals(raw.periods, displayed.periods)
+            val expectedTimes = parseCoursePeriodTimes(source.originalPeriodTimes).filter { it.index in raw.periods }
+                .associateBy { it.index }.toMutableMap()
+            parseCoursePeriodTimes(custom).filter { it.index in raw.periods }.forEach { expectedTimes[it.index] = it }
+            assertEquals(expectedTimes.values.sortedBy { it.start }, courseTimeSegments(displayed, state.periods))
+        }
+    }
+
     @Test fun cancelledNoOpAndStaleSwitchDoNotWrite() = runBlocking {
         val raw = db.courseDao().getCourses(1)
         val config = db.configDao().getConfig(1)

@@ -85,7 +85,7 @@ internal fun previewAgentPlan(
     courseActions.forEach { (id, actions) ->
         val original = originals.firstOrNull { it.id == id } ?: return@forEach
         working.removeAll { it.id == id }
-        working += agentCourseFragments(original, actions).mapIndexed { index, fragment ->
+        working += agentCourseFragments(original, actions, periodDefinitions).mapIndexed { index, fragment ->
             fragment.copy(id = if (index == 0) original.id else temporaryId--)
         }
     }
@@ -93,7 +93,9 @@ internal fun previewAgentPlan(
     plan.actions.forEach { action ->
         when (action.type) {
             AgentValidatedActionType.ADD -> action.edited?.let { edited ->
-                working += edited.copy(id = temporaryId--)
+                val raw = edited.arrangementForWrite()
+                val captured = if (periodDefinitions.isEmpty()) raw else captureOriginalPeriodTimes(raw, periodDefinitions)
+                working += captured.copy(id = temporaryId--)
             }
 
             AgentValidatedActionType.UPDATE,
@@ -112,9 +114,8 @@ internal fun previewAgentPlan(
     }
 
     val projection = before.firstOrNull { it.arrangementProjection != null }?.arrangementProjection
-    val effectiveAfter = if (projection == null) working else projectCourseArrangements(working.map { course ->
-        captureOriginalPeriodTimes(course, periodDefinitions, originals.firstOrNull { it.id == course.id })
-    }, defaultConfig(projection.source.scheduleId).copy(periodAlignmentMode = projection.mode), periodDefinitions)
+    val effectiveAfter = if (projection == null) working else projectCourseArrangements(working,
+        defaultConfig(projection.source.scheduleId).copy(periodAlignmentMode = projection.mode), periodDefinitions)
     val beforeConflicts = agentConflictKeys(findAgentCourseConflicts(before, periodDefinitions))
     val newConflicts = findAgentCourseConflicts(effectiveAfter, periodDefinitions)
         .filterNot { conflict -> agentConflictKey(conflict) in beforeConflicts }
@@ -146,9 +147,10 @@ internal fun previewAgentPlan(
 internal fun verifyAgentPlan(
     actual: List<CourseEntity>,
     plan: AgentPlan,
-    before: List<CourseEntity>? = null
+    before: List<CourseEntity>? = null,
+    periodDefinitions: List<PeriodEntity> = emptyList()
 ): Boolean {
-    if (before != null) return agentSemanticSchedule(actual) == agentSemanticSchedule(previewAgentPlan(before, plan).after)
+    if (before != null) return agentSemanticSchedule(actual) == agentSemanticSchedule(previewAgentPlan(before, plan, periodDefinitions).after)
     return plan.actions.all { action ->
     when (action.type) {
         AgentValidatedActionType.ADD -> action.edited?.let { expected ->
@@ -193,7 +195,7 @@ internal fun verifyAgentPlan(
 
 /** Fragment merging may retain any physical ID. Compare all content and teaching weeks instead. */
 private fun agentSemanticSchedule(courses: List<CourseEntity>): Map<CourseEntity, Set<Int>> = courses
-    .map { it.arrangementForWrite().copy(originalPeriodTimes = null, arrangementProjection = null) }
+    .map { it.arrangementForWrite() }
     .groupBy { it.copy(id = 0, weeks = emptyList(), periods = it.periods.distinct().sorted(), weekParity = WeekParity.ALL) }
     .mapValues { (_, rows) -> rows.flatMap { row -> row.weeks.filter { parityMatches(row.weekParity, it) } }.toSet() }
     .filterValues { it.isNotEmpty() }
@@ -210,6 +212,7 @@ private fun CourseEntity.agentContentEquals(other: CourseEntity): Boolean =
         customStartTime == other.customStartTime &&
         customEndTime == other.customEndTime &&
         customPeriodTimes == other.customPeriodTimes &&
+        originalPeriodTimes == other.originalPeriodTimes &&
         customColorArgb == other.customColorArgb &&
         scheduleId == other.scheduleId
 
