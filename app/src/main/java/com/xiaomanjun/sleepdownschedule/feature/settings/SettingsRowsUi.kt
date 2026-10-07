@@ -379,16 +379,26 @@ fun SettingsGroup(
 @Composable
 fun SettingsNavigationRow(
     title: String,
-    subtitle: String,
+    subtitle: String? = null,
     badgeText: String? = null,
     selected: Boolean = false,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    leadingIconTint: ComposeColor = MaterialTheme.colorScheme.primary,
     onClick: () -> Unit
 ) {
     val neutralSelection = MaterialTheme.colorScheme.onSurface
+    val iconTint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f)
+        androidx.compose.ui.graphics.lerp(leadingIconTint, ComposeColor.White, 0.18f) else leadingIconTint
     if (LocalGlassMiuixEnabled.current) {
         MiuixArrowPreference(
             title = title,
             summary = subtitle,
+            startAction = {
+                leadingIcon?.let {
+                    Icon(it, contentDescription = null, tint = iconTint,
+                        modifier = Modifier.padding(end = 16.dp).size(26.dp))
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
@@ -417,7 +427,7 @@ fun SettingsNavigationRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(70.dp)
+            .heightIn(min = if (subtitle == null) 58.dp else 70.dp)
             .background(
                 neutralSelection.copy(
                     alpha = when {
@@ -431,9 +441,13 @@ fun SettingsNavigationRow(
             .padding(horizontal = 20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        leadingIcon?.let {
+            Icon(it, contentDescription = null, tint = iconTint,
+                modifier = Modifier.padding(end = 16.dp).size(26.dp))
+        }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (badgeText != null) {
             Text(

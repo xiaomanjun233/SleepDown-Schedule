@@ -102,6 +102,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Widgets
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.SettingsBackupRestore
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalView
@@ -8607,7 +8617,7 @@ fun SettingsRootScreen(
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth().homeSwitchGroup()) {
                 top.yukonga.miuix.kmp.preference.ArrowPreference(
                     title = appName,
-                    summary = "开发者：小漫君",
+                    summary = null,
                     startAction = {
                         Image(
                             painter = painterResource(currentIconResId(context, darkTheme)),
@@ -8641,12 +8651,12 @@ fun SettingsRootScreen(
                 if (AppDistribution.supportsSelfUpdate) {
                     SettingsNavigationRow(
                         "检查更新",
-                        when (updateDialog) {
-                            SettingsUpdateDialog.Checking -> "正在检查 Gitee Release…"
-                            is SettingsUpdateDialog.Downloading -> "正在下载 APK 安装包…"
-                            else -> if (updateAvailable) "发现新版本，点击查看" else "从 Gitee 检查新版本"
+                        leadingIcon = Icons.Rounded.SystemUpdate,
+                        badgeText = when (updateDialog) {
+                            SettingsUpdateDialog.Checking -> "检查中"
+                            is SettingsUpdateDialog.Downloading -> "下载中"
+                            else -> if (updateAvailable) "有新版" else null
                         },
-                        badgeText = if (updateAvailable) "有新版" else null,
                         onClick = ::checkForUpdate
                     )
                 }
@@ -8657,36 +8667,37 @@ fun SettingsRootScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow(
                         "通用设置",
-                        "深色模式与系统外观",
+                        leadingIcon = Icons.Rounded.Settings,
+                        leadingIconTint = ComposeColor(0xFF0A84FF),
                         selected = selectedPage == SettingsPage.General,
                         onClick = { onPageChange(SettingsPage.General) }
                     )
-                    SettingsDivider()
                     SettingsNavigationRow(
                         "小组件设置",
-                        "自定义小组件背景",
+                        leadingIcon = Icons.Rounded.Widgets,
+                        leadingIconTint = ComposeColor(0xFFFF9500),
                         selected = selectedPage == SettingsPage.Widgets,
                         onClick = { onPageChange(SettingsPage.Widgets) }
                     )
-                    SettingsDivider()
                     SettingsNavigationRow(
                         "当前课表详细设置",
-                        "编辑当前课表的周数、节次与显示规则",
+                        leadingIcon = Icons.Rounded.Tune,
+                        leadingIconTint = ComposeColor(0xFF5856D6),
                         selected = selectedPage == SettingsPage.Schedule,
                         onClick = { onPageChange(SettingsPage.Schedule) }
                     )
-                    SettingsDivider()
                     SettingsNavigationRow(
                         "自动刷新课表",
-                        "连接教务系统，手动或定时同步课程",
+                        leadingIcon = Icons.Rounded.Sync,
+                        leadingIconTint = ComposeColor(0xFF34C759),
                         badgeText = "实验功能",
                         selected = selectedPage == SettingsPage.AutoRefreshSchedule,
                         onClick = { onPageChange(SettingsPage.AutoRefreshSchedule) }
                     )
-                    SettingsDivider()
                     SettingsNavigationRow(
                         "通知设置",
-                        "上课提醒与实时活动",
+                        leadingIcon = Icons.Rounded.Notifications,
+                        leadingIconTint = ComposeColor(0xFF0A84FF),
                         selected = selectedPage == SettingsPage.Notifications,
                         onClick = { onPageChange(SettingsPage.Notifications) }
                     )
@@ -8698,14 +8709,15 @@ fun SettingsRootScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow(
                         "AI 设置",
-                        "配置智能功能共用的服务商、模型和 API Key。",
+                        leadingIcon = Icons.Rounded.AutoAwesome,
+                        leadingIconTint = ComposeColor(0xFFAF52DE),
                         selected = selectedPage == SettingsPage.AiImport,
                         onClick = { onPageChange(SettingsPage.AiImport) }
                     )
-                    SettingsDivider()
                     SettingsNavigationRow(
                         "AI助理",
-                        "管理日视图助手、天气与预警。",
+                        leadingIcon = Icons.Rounded.ChatBubble,
+                        leadingIconTint = ComposeColor(0xFF00A9C7),
                         selected = selectedPage == SettingsPage.DayAgent,
                         onClick = { onPageChange(SettingsPage.DayAgent) }
                     )
@@ -8717,14 +8729,15 @@ fun SettingsRootScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow(
                         "备份与恢复",
-                        "保存课表和设置，或从备份恢复",
+                        leadingIcon = Icons.Rounded.SettingsBackupRestore,
+                        leadingIconTint = ComposeColor(0xFF0A84FF),
                         selected = selectedPage == SettingsPage.BackupRestore,
                         onClick = { onPageChange(SettingsPage.BackupRestore) }
                     )
-                    SettingsDivider()
                     SettingsNavigationRow(
                         "捐赠支持",
-                        "如果它帮到了你，可以请作者喝杯奶茶",
+                        leadingIcon = Icons.Rounded.Favorite,
+                        leadingIconTint = ComposeColor(0xFFFF2D55),
                         selected = selectedPage == SettingsPage.Donate,
                         onClick = { onPageChange(SettingsPage.Donate) }
                     )
