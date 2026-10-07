@@ -927,7 +927,7 @@ fun CourseScheduleAppUi(
     var homeAnchoredOverlayRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
     var homeMenuFromDock by remember { mutableStateOf(false) }
     var dockImportButtonBounds by remember { mutableStateOf<Rect?>(null) }
-    var dockImportReturnSnapshot by remember { mutableStateOf<Bitmap?>(null) }
+    var dockImportReturnLayer by remember { mutableStateOf<androidx.compose.ui.graphics.layer.GraphicsLayer?>(null) }
     var jumpWeekDialogMounted by remember { mutableStateOf(false) }
     var jumpWeekDialogVisible by remember { mutableStateOf(false) }
     var pendingJumpWeekDialog by remember { mutableStateOf(false) }
@@ -1026,7 +1026,7 @@ fun CourseScheduleAppUi(
         if (kind == HomeAnchoredOverlayKind.Add) {
             homeMenuFromDock = false
             homeAddMenuBoundsInRoot = null
-            dockImportReturnSnapshot = null
+            dockImportReturnLayer = null
         }
         homeAnchoredOverlayRequest = HomeAnchoredOverlayRequest(kind, bounds, sourcePressedScale)
     }
@@ -3073,23 +3073,14 @@ fun CourseScheduleAppUi(
                             buttonHidden = homeMenuFromDock && addButtonHidden,
                             onOpenMenu = { bounds, returnButtonLayer ->
                                 if (!homeBackgroundOverlayActive && !homeDialogVisible) {
-                                    appScope.launch {
-                                        // Capture only the 54dp button before it is hidden. Avoid a
-                                        // full-window readback when opening this compact menu.
-                                        val returnSnapshot = runCatching {
-                                            returnButtonLayer.toImageBitmap().asAndroidBitmap()
-                                        }.getOrNull()
-                                        if (homeAnchoredOverlayRequest == null) {
-                                            performButtonHaptic(dockButtonView)
-                                            dockImportReturnSnapshot = returnSnapshot
-                                            dockImportButtonBounds = bounds
-                                            homeMenuFromDock = true
-                                            homeAddMenuBoundsInRoot = null
-                                            homeAnchoredOverlayRequest = HomeAnchoredOverlayRequest(
-                                                HomeAnchoredOverlayKind.Add, bounds, fromDock = true
-                                            )
-                                        }
-                                    }
+                                    performButtonHaptic(dockButtonView)
+                                    dockImportReturnLayer = returnButtonLayer
+                                    dockImportButtonBounds = bounds
+                                    homeMenuFromDock = true
+                                    homeAddMenuBoundsInRoot = null
+                                    homeAnchoredOverlayRequest = HomeAnchoredOverlayRequest(
+                                        HomeAnchoredOverlayKind.Add, bounds, fromDock = true
+                                    )
                                 }
                             }
                         )
@@ -3308,8 +3299,11 @@ fun CourseScheduleAppUi(
                     detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
                 }.getOrNull()
                 val sourceSnapshot = fullFrame?.cropToAnchoredBounds(sourceBoundsInRoot)
-                val collapseSnapshot = if (homeMenuFromDock) dockImportReturnSnapshot
-                    else fullFrame?.cropToAnchoredBounds(collapseBoundsInRoot)
+                // Only crossing an Activity boundary needs a bitmap. By now the hidden dock
+                // has recorded the normal, non-interactive button during the preparing frame.
+                val collapseSnapshot = if (homeMenuFromDock) runCatching {
+                    dockImportReturnLayer?.toImageBitmap()?.asAndroidBitmap()
+                }.getOrNull() else fullFrame?.cropToAnchoredBounds(collapseBoundsInRoot)
                 // Never hide the accepted glass menu unless both the complete opening source and
                 // the real top-right return button have been captured successfully.
                 if (sourceSnapshot == null || collapseSnapshot == null) {

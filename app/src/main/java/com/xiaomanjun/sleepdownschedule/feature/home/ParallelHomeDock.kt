@@ -129,15 +129,17 @@ internal fun ParallelHomeDock(
                         )
                     }.size(54.dp)
                         .onGloballyPositioned { buttonBounds = it.boundsInRoot() }
-                        .graphicsLayer { alpha = if (buttonHidden) 0f else 1f }
                         .drawWithContent {
+                            // Hidden disables LiquidButton's press transform. Record that resting
+                            // endpoint for an eventual Activity handoff, without reading a bitmap
+                            // (or recording the cropped pressed button) on the opening tap.
                             returnButtonLayer.record {
                                 // Pin LocalDensity: record's delegated density otherwise recurses.
                                 withRecordingDensity(recordingDensity) {
                                     this@drawWithContent.drawContent()
                                 }
                             }
-                            drawLayer(returnButtonLayer)
+                            if (!buttonHidden) drawLayer(returnButtonLayer)
                         }
                         .then(if (buttonInteractive) plusInteraction.gestureModifier else Modifier)
                         .excludeHomeAssistantPull()
