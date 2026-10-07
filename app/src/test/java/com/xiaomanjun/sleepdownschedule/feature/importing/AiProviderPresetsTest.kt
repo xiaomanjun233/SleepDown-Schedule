@@ -38,7 +38,7 @@ class AiProviderPresetsTest {
         assertEquals("", profile.baseUrl)
         assertEquals("", profile.defaultModel)
         assertEquals(AiEndpointStyle.RESPONSES, profile.endpointStyle)
-        assertEquals(AiAuthType.CustomHeader, profile.authType)
+        assertEquals(AiAuthType.ApiKeyBearer, profile.authType)
         assertEquals(emptyList<String>(), models.map(AiModelOption::model))
         assertTrue(AiProviderPresets.shouldUseResponses(profile))
         assertTrue(AiProviderPresets.supportsImageInput(profile))

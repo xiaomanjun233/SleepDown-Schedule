@@ -179,9 +179,7 @@ object SleepDownRemoteConfig {
         return AiProviderPresets.dailyFree.copy(
             baseUrl = ai?.baseUrl.orEmpty(),
             defaultModel = ai?.model.orEmpty(),
-            // Keep the backend-published MiMo credential on its required custom header even if
-            // the preset defaults are changed later.
-            authType = AiAuthType.CustomHeader,
+            authType = managedAiAuthType(ai?.baseUrl.orEmpty()),
             capabilities = AiProviderPresets.dailyFree.capabilities.copy(
                 supportsImageInput = ai?.supportsVision == true,
                 supportsResponses = supportsResponses

@@ -61,7 +61,11 @@ internal fun AiProviderConfig.normalizedForRequest(): AiProviderConfig {
         // pipeline still uses this capability flag to render the PDF into page
         // images before creating the multi-modal request.
         supportsFileUpload = supportsFileUpload,
-        authType = if (isMimo) AiAuthType.CustomHeader else authType
+        authType = when {
+            providerId == AiProviderPresets.dailyFree.id -> managedAiAuthType(normalizedBaseUrl)
+            isMimo -> AiAuthType.CustomHeader
+            else -> authType
+        }
     )
 }
 
