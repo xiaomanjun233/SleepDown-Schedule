@@ -602,12 +602,20 @@ class ScheduleViewModel(
     fun importDraft(
         draft: ImportDraft,
         createNewSchedule: Boolean = false,
+        onFailure: ((Throwable) -> Unit)? = null,
         onDone: (Int) -> Unit
     ) = viewModelScope.launch {
-        val scheduleId = repository.importDraft(draft, createNewSchedule)
-        refreshCoordinator.request()
-        snackbar.value = if (createNewSchedule) "已导入到新课表" else "课程表已导入"
-        onDone(scheduleId)
+        try {
+            val scheduleId = repository.importDraft(draft, createNewSchedule)
+            refreshCoordinator.request()
+            snackbar.value = if (createNewSchedule) "已导入到新课表" else "课程表已导入"
+            onDone(scheduleId)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            snackbar.value = error.message ?: "保存课表失败，请重试"
+            onFailure?.invoke(error)
+        }
     }
 
     fun saveConfig(config: ScheduleConfigEntity, periods: List<PeriodEntity>) = viewModelScope.launch {

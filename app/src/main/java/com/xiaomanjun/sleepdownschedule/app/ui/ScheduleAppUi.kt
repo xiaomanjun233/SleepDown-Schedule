@@ -1204,11 +1204,15 @@ fun CourseScheduleAppUi(
     }
     LaunchedEffect(aiFinalImportRequest) {
         aiFinalImportRequest?.let { request ->
-            viewModel.importDraft(request.draft, request.createNewSchedule) {
+            viewModel.importDraft(request.draft, request.createNewSchedule, onFailure = {
+                homeDialog = HomeDialog.ConfirmImport(request.draft, returnDialog = null)
+            }) { scheduleId ->
                 dismissHomeDialog()
                 screen = Screen.Home
-                pendingImportedSetupId = null
+                homeMode = HomeMode.Week
+                pendingImportedSetupId = scheduleId
             }
+            // Claim this one-shot request now so Activity recreation cannot import it twice.
             AiEduImportProgressSession.consumeFinalImportRequest()
         }
     }
@@ -2072,6 +2076,7 @@ fun CourseScheduleAppUi(
     LaunchedEffect(pendingImportedSetupId) {
         val scheduleId = pendingImportedSetupId ?: return@LaunchedEffect
         screen = Screen.Home
+        homeMode = HomeMode.Week
         dismissHomeDialog()
         snapshotFlow {
             val latest = latestAllSchedulesState.value
@@ -4511,7 +4516,8 @@ fun CourseScheduleAppUi(
                                 dismissHomeDialog()
                                 if (dialog.draft.source == ImportDraftSource.AI_EDU) {
                                     screen = Screen.Home
-                                    pendingImportedSetupId = null
+                                    homeMode = HomeMode.Week
+                                    pendingImportedSetupId = scheduleId
                                 } else {
                                     pendingImportedSetupId = scheduleId
                                 }
@@ -7889,7 +7895,10 @@ open class EduImportActivityHost : ComponentActivity() {
                                 backdrop = backdrop,
                                 onCancel = { pendingDraft = null },
                                 onConfirm = { createNewSchedule ->
-                                    viewModel.importDraft(previewDraft, createNewSchedule) {
+                                    viewModel.importDraft(previewDraft, createNewSchedule) { scheduleId ->
+                                        if (previewDraft.source == ImportDraftSource.AI_EDU) {
+                                            PendingImportSetupStore.put(this@EduImportActivityHost, scheduleId)
+                                        }
                                         returnToScheduleHome()
                                     }
                                 }
