@@ -1184,7 +1184,9 @@ fun CourseScheduleAppUi(
             result.data?.getStringExtra(ScheduleAdjustmentsActivity.ArrangementsExtra)?.let { value ->
                 val scheduleId = result.data?.getIntExtra(ScheduleAdjustmentsActivity.ScheduleIdExtra, -1) ?: -1
                 val original = result.data?.getStringExtra(ScheduleAdjustmentsActivity.OriginalArrangementsExtra)
-                if (scheduleId > 0 && original != null) viewModel.saveScheduleAdjustments(scheduleId, original, value)
+                if (scheduleId > 0 && original != null &&
+                    result.data?.getBooleanExtra(ScheduleAdjustmentsActivity.SavedExtra, false) != true
+                ) viewModel.saveScheduleAdjustments(scheduleId, original, value)
             }
         }
     }

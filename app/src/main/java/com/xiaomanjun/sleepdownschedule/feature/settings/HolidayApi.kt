@@ -19,12 +19,12 @@ data class HolidayPlan(val name: String, val restDates: List<LocalDate>, val mak
 /** [suggestedSource] is the teaching date this make-up day most likely replaces; schools may differ. */
 data class HolidayMakeup(val date: LocalDate, val suggestedSource: LocalDate?)
 
-/** A school's saved source dates take precedence over the service's suggested pairing. */
+/** Only equal day types and teaching-date pairings can skip the review as duplicates. */
 internal fun HolidayPlan.isAlreadyAdded(entries: List<ScheduleAdjustment>): Boolean {
     if (restDates.isEmpty() && makeups.isEmpty()) return false
     val saved = entries.associateBy { it.date }
     return restDates.all { date -> saved[date.toString()]?.let { it.sourceDate == null } == true } &&
-        makeups.all { saved[it.date.toString()]?.sourceDate != null }
+        makeups.all { it.suggestedSource != null && saved[it.date.toString()]?.sourceDate == it.suggestedSource.toString() }
 }
 
 /**

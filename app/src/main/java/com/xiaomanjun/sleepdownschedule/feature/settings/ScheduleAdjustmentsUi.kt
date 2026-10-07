@@ -48,7 +48,8 @@ private val WeekdayLabels = listOf("周一", "周二", "周三", "周四", "周�
 
 private fun weekdayText(date: LocalDate) = WeekdayLabels[date.dayOfWeek.value - 1]
 
-private fun shortDate(date: LocalDate) = "${date.monthValue}/${date.dayOfMonth}"
+private val AdjustmentDateFormat = java.time.format.DateTimeFormatter.ofPattern("MM.dd")
+private fun shortDate(date: LocalDate) = date.format(AdjustmentDateFormat)
 
 @Composable
 fun ScheduleAdjustmentsSettings(state: AppState, backdrop: Backdrop?, value: String, onChange: (String) -> Unit) {
@@ -101,7 +102,7 @@ private data class AdjustmentPickerContent(val page: AdjustmentPickerPage, val r
 
 @Composable
 internal fun ScheduleAdjustmentsScreen(
-    state: AppState, initial: List<ScheduleAdjustment>,
+    state: AppState, initial: List<ScheduleAdjustment>, saving: Boolean = false, saveError: String? = null,
     onDismiss: () -> Unit, onConfirm: (List<ScheduleAdjustment>) -> Unit
 ) {
     var entries by rememberSaveable(stateSaver = Saver<List<ScheduleAdjustment>, String>(
@@ -110,6 +111,7 @@ internal fun ScheduleAdjustmentsScreen(
     var year by remember { mutableStateOf(LocalDate.now().year.toString()) }
     var loading by remember { mutableStateOf(false) }
     var alreadyAddedNotice by remember { mutableStateOf<String?>(null) }
+    var duplicateNotice by remember { mutableStateOf(false) }
     var reviews by remember { mutableStateOf<List<HolidayReview>?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
@@ -169,6 +171,7 @@ internal fun ScheduleAdjustmentsScreen(
         draftError = null
     }
     fun requestBack() {
+        if (saving) return
         if (reviews != null) { reviews = null; error = null }
         else if (changed) showExitConfirm = true
         else onDismiss()
@@ -200,14 +203,16 @@ internal fun ScheduleAdjustmentsScreen(
             require(imported.isNotEmpty()) { "请至少选择一个日期" }
             val merged = (entries.filter { old -> imported.none { it.date == old.date } } + imported).sortedBy { it.date }
             validateScheduleAdjustments(merged)
-            entries = merged
+            if (encodeScheduleAdjustments(merged) == encodeScheduleAdjustments(entries)) {
+                duplicateNotice = true
+            } else entries = merged
             reviews = null
             error = null
         }.onFailure { error = it.message ?: "调休安排无效" }
     }
     // Only intercept back when there is something to save or a preview to drop, so an untouched
     // page keeps the platform predictive-back animation.
-    BackHandler(enabled = reviews != null || changed, onBack = ::requestBack)
+    BackHandler(enabled = saving || reviews != null || changed, onBack = ::requestBack)
     val pageColor = settingsPageBackground(state.config)
     val pageBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "schedule-adjustments-body") {
         drawRect(pageColor)
@@ -224,6 +229,7 @@ internal fun ScheduleAdjustmentsScreen(
                 bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + DockScrollPadding),
             verticalArrangement = Arrangement.spacedBy(14.dp)) {
             error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            saveError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             GlassPreferenceSection("自动获取") {
                 SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
                     SettingsTextFieldRow("年份", year, { year = it.filter(Char::isDigit).take(4) }, KeyboardType.Number)
@@ -246,6 +252,7 @@ internal fun ScheduleAdjustmentsScreen(
                                         alreadyAddedNotice = alreadyAdded.takeIf { it.isNotEmpty() }
                                             ?.joinToString(separator = "、", postfix = "：已添加过") { it.name }
                                         if (plans.isEmpty()) error = "该年份没有学期内的节假日"
+                                        else if (alreadyAdded.size == plans.size) duplicateNotice = true
                                         else reviews = plans.filterNot { it in alreadyAdded }.map { plan ->
                                             HolidayReview(plan, restSelected = true, makeups = plan.makeups.map { makeup ->
                                                 val savedSource = entries.firstOrNull { it.date == makeup.date.toString() }
@@ -352,12 +359,18 @@ internal fun ScheduleAdjustmentsScreen(
                 pageColor.copy(alpha = if (darkPage) 0.94f else 0.92f)
             )))
         )
-        SettingsActionButton("保存调休安排", pageBackdrop, onClick = { onConfirm(entries) }, glowing = true,
+        SettingsActionButton(if (saving) "正在保存…" else "保存调休安排", pageBackdrop, onClick = { if (!saving) onConfirm(entries) }, glowing = true,
             modifier = Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding()
                 .padding(start = 16.dp, end = 16.dp, bottom = 18.dp).fillMaxWidth())
         }
+        if (duplicateNotice) LiquidAlertDialog(
+            title = "调休安排已是最新",
+            message = "已有安排与本次获取的安排一致，无需重复设置。",
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) { duplicateNotice = false }),
+            backdrop = backdrop, config = state.config, onDismissRequest = { duplicateNotice = false }
+        )
         if (showExitConfirm) LiquidAlertDialog(
-            title = "保存调休安排？", message = "完成后返回课表详细设置，与其他修改一起保存。",
+            title = "保存调休安排？", message = "保存后立即生效，其他课表设置草稿保持不变。",
             actions = listOf(
                 LiquidAlertAction("完成", LiquidAlertActionStyle.Primary) { onConfirm(entries) },
                 LiquidAlertAction("放弃修改", LiquidAlertActionStyle.Destructive) { onDismiss() },
@@ -369,7 +382,7 @@ internal fun ScheduleAdjustmentsScreen(
             val date = LocalDate.parse(entry.date)
             LiquidAlertDialog(
                 title = "删除这条调休安排？",
-                message = "${shortDate(date)} ${weekdayText(date)} 的安排会被移除，保存详细设置后生效。",
+                message = "${shortDate(date)} ${weekdayText(date)} 的安排会被移除，保存调休安排后生效。",
                 actions = listOf(
                     LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive) {
                         entries = entries.filterNot { it.date == entry.date }
@@ -404,23 +417,12 @@ private fun AdjustmentRow(
     preview: (String) -> String, onClick: () -> Unit
 ) {
     val date = LocalDate.parse(entry.date)
-    Row(
-        Modifier.fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(start = 14.dp, end = 18.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f).padding(vertical = 12.dp)) {
-            Text("${shortDate(date)} ${weekdayText(date)}", style = MaterialTheme.typography.bodyMedium)
-            Text(
-                if (entry.sourceDate == null) "停课${entry.label.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}"
-                else "补 ${shortDate(LocalDate.parse(entry.sourceDate))} ${weekdayText(LocalDate.parse(entry.sourceDate))}的课 · ${preview(entry.sourceDate).substringBefore('\n')}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        SettingsForwardIndicator()
-    }
+    SettingsNavigationRow(
+        title = "${shortDate(date)} ${weekdayText(date)}",
+        subtitle = if (entry.sourceDate == null) "停课${entry.label.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()}"
+            else "补 ${shortDate(LocalDate.parse(entry.sourceDate))} ${weekdayText(LocalDate.parse(entry.sourceDate))}的课 · ${preview(entry.sourceDate).substringBefore('\n')}",
+        onClick = onClick
+    )
 }
 
 /**

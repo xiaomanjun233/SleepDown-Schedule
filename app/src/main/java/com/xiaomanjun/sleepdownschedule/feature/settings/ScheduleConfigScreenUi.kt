@@ -631,7 +631,10 @@ fun ScheduleConfigScreen(
         error = error,
         onPreviewLiveUpdate = onPreviewLiveUpdate,
         scheduleAdjustmentsJson = scheduleAdjustmentsJson,
-        onScheduleAdjustmentsChange = { scheduleAdjustmentsJson = it },
+        onScheduleAdjustmentsChange = {
+            scheduleAdjustmentsJson = it
+            lastSavedConfig = lastSavedConfig.copy(scheduleAdjustmentsJson = it)
+        },
         onOpenPeriodSchemes = ::openPeriodSchemeManagement,
         periodSchemeLibrary = periodSchemeLibrary,
         onSelectPeriodScheme = ::selectPeriodScheme

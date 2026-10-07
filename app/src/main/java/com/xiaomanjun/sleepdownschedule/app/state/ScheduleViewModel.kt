@@ -791,8 +791,9 @@ class ScheduleViewModel(
             )
         }
 
-    fun saveScheduleAdjustments(scheduleId: Int, original: String, updated: String) =
-        launchCourseMutation("调休安排已保存") {
+    fun saveScheduleAdjustments(scheduleId: Int, original: String, updated: String,
+        onSuccess: (() -> Unit)? = null, onFailure: (() -> Unit)? = null) =
+        launchCourseMutation("调休安排已保存", onSuccess = onSuccess, onFailure = onFailure) {
             repository.saveScheduleAdjustments(scheduleId, original, updated)
         }
 
