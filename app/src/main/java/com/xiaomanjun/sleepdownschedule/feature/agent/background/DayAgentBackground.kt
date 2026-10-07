@@ -264,7 +264,7 @@ open class DayAgentForegroundServiceHost : Service() {
     private fun runningNotification(): Notification {
         return Notification.Builder(this, RUNNING_CHANNEL_ID)
             .applyAppNotificationIcon(this)
-            .setContentTitle("AI助理")
+            .setContentTitle("AI 助理")
             .setContentText("模型思考中")
             .setContentIntent(openAppPendingIntent(7301))
             .setOngoing(true)
@@ -278,7 +278,7 @@ open class DayAgentForegroundServiceHost : Service() {
     private fun completedNotification(): Notification =
         Notification.Builder(this, RESULT_CHANNEL_ID)
             .applyAppNotificationIcon(this)
-            .setContentTitle("AI助理已回复")
+            .setContentTitle("AI 助理已回复")
             .setContentText("点击返回应用继续对话")
             .setContentIntent(openAppPendingIntent(7302))
             .setAutoCancel(true)
@@ -288,7 +288,7 @@ open class DayAgentForegroundServiceHost : Service() {
     private fun failedNotification(message: String): Notification =
         Notification.Builder(this, RESULT_CHANNEL_ID)
             .applyAppNotificationIcon(this)
-            .setContentTitle("AI助理回复失败")
+            .setContentTitle("AI 助理回复失败")
             .setContentText(message.ifBlank { "点击返回应用重试" })
             .setContentIntent(openAppPendingIntent(7303))
             .setAutoCancel(true)
@@ -305,7 +305,7 @@ open class DayAgentForegroundServiceHost : Service() {
             listOf(
                 NotificationChannel(
                     RUNNING_CHANNEL_ID,
-                    "AI助理运行状态",
+                    "AI 助理运行状态",
                     NotificationManager.IMPORTANCE_LOW
                 ).apply {
                     description = "模型回复生成期间显示实时状态"
@@ -313,7 +313,7 @@ open class DayAgentForegroundServiceHost : Service() {
                 },
                 NotificationChannel(
                     RESULT_CHANNEL_ID,
-                    "AI助理回复",
+                    "AI 助理回复",
                     NotificationManager.IMPORTANCE_DEFAULT
                 ).apply {
                     description = "模型完成回复后提醒返回应用"

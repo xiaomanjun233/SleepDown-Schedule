@@ -66,10 +66,10 @@ object AgentSettingRegistry {
         AgentSettingDefinition("HOME_CHROME_SAMPLING_SCALE", "首页玻璃采样倍数", "0..2小数", "PERSONALIZATION"),
         AgentSettingDefinition("APP_ICON_STYLE", "应用图标风格", "MINIMAL/KANBAN", "GENERAL"),
         AgentSettingDefinition("APP_ICON_MODE", "应用图标深浅", "LIGHT/DARK/FOLLOW_DARK_MODE", "GENERAL"),
-        AgentSettingDefinition("DAY_AGENT_ENABLED", "AI助理总开关", "true/false", "DAY_AGENT"),
-        AgentSettingDefinition("DAY_AGENT_WEEK_ENABLED", "周视图AI助理", "true/false", "DAY_AGENT"),
-        AgentSettingDefinition("DAY_AGENT_WEATHER", "AI助理天气提醒", "true/false", "DAY_AGENT"),
-        AgentSettingDefinition("DAY_AGENT_MEMORY_ENABLED", "AI助理记忆", "true/false", "DAY_AGENT")
+        AgentSettingDefinition("DAY_AGENT_ENABLED", "AI 助理总开关", "true/false", "DAY_AGENT"),
+        AgentSettingDefinition("DAY_AGENT_WEEK_ENABLED", "周视图 AI 助理", "true/false", "DAY_AGENT"),
+        AgentSettingDefinition("DAY_AGENT_WEATHER", "AI 助理天气提醒", "true/false", "DAY_AGENT"),
+        AgentSettingDefinition("DAY_AGENT_MEMORY_ENABLED", "AI 助理记忆", "true/false", "DAY_AGENT")
     )
 
     /**

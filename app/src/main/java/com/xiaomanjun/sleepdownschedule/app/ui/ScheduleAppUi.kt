@@ -518,7 +518,7 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.LiquidGlass -> "液态玻璃"
     SettingsPage.Widgets -> "小组件设置"
     SettingsPage.AiImport -> "AI 设置"
-    SettingsPage.DayAgent -> "AI助理"
+    SettingsPage.DayAgent -> "AI 助理"
     SettingsPage.Schedule -> "课表详细设置"
     SettingsPage.PeriodSchemes -> "作息管理"
     SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
@@ -4075,7 +4075,7 @@ fun CourseScheduleAppUi(
     if (showManagedFreeAiOffer) {
         LiquidAlertDialog(
             title = "启用每日免费 AI？",
-            message = "SleepDown 为尚未配置模型服务的用户提供每日免费 AI 额度，可用于AI助理、AI 对话和 AI 教务导入。固定使用 gpt-5.6-luna 与 Responses 接口，可随时在 AI 设置中切换或关闭。",
+            message = "SleepDown 为尚未配置模型服务的用户提供每日免费 AI 额度，可用于 AI 助理、AI 对话和 AI 教务导入。固定使用 gpt-5.6-luna 与 Responses 接口，可随时在 AI 设置中切换或关闭。",
             actions = listOf(
                 LiquidAlertAction("暂不启用", LiquidAlertActionStyle.Secondary) {
                     AiImportSettingsStore.declineManagedFreeAi(context)
@@ -5099,7 +5099,7 @@ internal fun AppTopBar(
                         SettingsPage.LiquidGlass -> "液态玻璃"
                         SettingsPage.Widgets -> "小组件设置"
                         SettingsPage.AiImport -> "AI 设置"
-                        SettingsPage.DayAgent -> "AI助理"
+                        SettingsPage.DayAgent -> "AI 助理"
                         SettingsPage.Schedule -> "课表详细设置"
                         SettingsPage.PeriodSchemes -> "作息管理"
                         SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
@@ -8650,7 +8650,7 @@ fun SettingsRootScreen(
                                 alpha = if (selectedPage == SettingsPage.Changelog) 0.10f else 0f
                             )
                         ),
-                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                    insideMargin = PaddingValues(start = 14.dp, end = 22.dp, top = 12.dp, bottom = 12.dp),
                     onClick = { onPageChange(SettingsPage.Changelog) }
                 )
                 if (AppDistribution.supportsSelfUpdate) {
@@ -8720,7 +8720,7 @@ fun SettingsRootScreen(
                         onClick = { onPageChange(SettingsPage.AiImport) }
                     )
                     SettingsNavigationRow(
-                        "AI助理",
+                        "AI 助理",
                         leadingIcon = Icons.Rounded.ChatBubble,
                         leadingIconTint = ComposeColor(0xFF00A9C7),
                         selected = selectedPage == SettingsPage.DayAgent,
@@ -9120,7 +9120,7 @@ fun AboutSettingsScreen(state: AppState, backdrop: Backdrop?) {
                     SettingsDivider()
                     SettingsInfoRow(
                         "会回答，也会动手，但最后由你做主",
-                        "AI助理可以查询课程和空闲时间；涉及课程或设置修改时，会先说明要改什么，再等你确认。"
+                        "AI 助理可以查询课程和空闲时间；涉及课程或设置修改时，会先说明要改什么，再等你确认。"
                     )
                     SettingsDivider()
                     SettingsInfoRow(
@@ -9696,7 +9696,7 @@ fun ChangelogSettingsScreen(
             item(key = "about-feature-assistant") {
                 AboutFeatureCard(
                     imageRes = R.drawable.about_feature_assistant,
-                    eyebrow = "AI助理",
+                    eyebrow = "AI 助理",
                     title = "会回答，也会动手，但最后由你做主"
                 )
             }

@@ -157,7 +157,7 @@ fun SettingsAppIconModeRow(
     SleepDownLiquidDropdownPreference(
         items = options.map { it.label },
         selectedIndex = selectedIndex,
-        title = "应用图标",
+        title = "应用图标深浅色",
         backdrop = backdrop,
         config = config,
         modifier = Modifier.fillMaxWidth(),
@@ -399,7 +399,8 @@ fun SettingsNavigationRow(
                 .background(
                     neutralSelection.copy(alpha = if (selected) 0.10f else 0f)
                 ),
-            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            insideMargin = PaddingValues(start = 14.dp, end = if (leadingIcon != null) 22.dp else 14.dp,
+                top = 12.dp, bottom = 12.dp),
             endActions = {
                 if (badgeText != null) {
                     Text(
@@ -433,7 +434,7 @@ fun SettingsNavigationRow(
                 )
             )
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .padding(horizontal = 20.dp),
+            .padding(start = 20.dp, end = if (leadingIcon != null) 28.dp else 20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         leadingIcon?.let {
