@@ -2233,12 +2233,21 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
     val resolvedCardColor = if (muted) MutedCourseLightColor else if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
     val textColor = homeForegroundColor(config)
     val ownBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
+    val visibleBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
+    val flightRegistry = LocalCourseEditorFlightRegistry.current
     val editId = LocalEditingCourseId.current
     val startupPhase = LocalStartupPhase.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && enableSharedTransition && course.id > 0L) LocalSharedTransitionScope.current else null
     val boundsModifier = Modifier
         .onGloballyPositioned { coordinates ->
-            ownBounds[0] = coordinates.boundsInRoot()
+            // boundsInRoot intersects LazyColumn's clip. Morph the complete card, including
+            // a partially scrolled title, rather than stretching its visible fragment.
+            val topLeft = coordinates.localToRoot(Offset.Zero)
+            val bottomRight = coordinates.localToRoot(
+                Offset(coordinates.size.width.toFloat(), coordinates.size.height.toFloat())
+            )
+            ownBounds[0] = Rect(topLeft, bottomRight)
+            visibleBounds[0] = coordinates.boundsInRoot()
         }
     CourseBoundsSource(
         courseId = course.id,
@@ -2260,7 +2269,12 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             shape = RoundedRectangle(24.dp),
             expandedOutlineLight = true,
             muted = muted,
-            onClick = if (onClick != null) ({ onClick(ownBounds[0]) }) else null
+            onClick = if (onClick != null) ({
+                val bounds = ownBounds[0]
+                val visible = visibleBounds[0]
+                if (bounds != null && visible != null) flightRegistry?.captureSource(bounds, visible)
+                onClick(bounds)
+            }) else null
         ) {
             Box(Modifier.padding(bottom = if (adjustmentLabel != null) {
                 (courseBadgeContentInset(with(LocalDensity.current) { courseAdjustmentBadgeHeight() }, 24.dp) - 16.dp)

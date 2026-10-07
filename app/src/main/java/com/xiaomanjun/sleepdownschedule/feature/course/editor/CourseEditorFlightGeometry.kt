@@ -14,6 +14,13 @@ internal val LocalCourseEditorFlightRegistry = staticCompositionLocalOf<CourseEd
 internal class CourseEditorFlightRegistry {
     var frozen = false
     private val grids = mutableMapOf<Int, CourseEditorWeekGrid>()
+    private var clickedSource: Pair<Rect, Rect>? = null
+    fun captureSource(bounds: Rect, visibleBounds: Rect) { clickedSource = bounds to visibleBounds }
+    fun consumeSourceClip(bounds: Rect?): Rect? {
+        val source = clickedSource
+        clickedSource = null
+        return source?.takeIf { it.first == bounds }?.second
+    }
     fun record(week: Int, grid: CourseEditorWeekGrid) { if (!frozen) grids[week] = grid }
     fun grid(week: Int) = grids[week]
     fun remove(week: Int) { grids.remove(week) }

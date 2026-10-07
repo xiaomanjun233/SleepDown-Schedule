@@ -67,6 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -75,9 +76,11 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
@@ -196,7 +199,8 @@ data class CourseEditorOverlayRequest(
     val copyDraft: CourseEntity? = null,
     internal val sourceGrid: CourseEditorWeekGrid? = null,
     val contextMessage: String? = null,
-    val sourceAdjustmentLabel: String? = null
+    val sourceAdjustmentLabel: String? = null,
+    val sourceClipBoundsInRoot: Rect? = null
 )
 
 
@@ -730,6 +734,28 @@ internal fun CourseEditorContainerOverlayHost(
         modifier = modifier
             .fillMaxSize()
             .onSizeChanged { rootSize = it }
+            .drawWithContent {
+                val sourceClip = shownRequest.sourceClipBoundsInRoot
+                    ?.takeIf { sourceRect == shownRequest.sourceBoundsInRoot }
+                if (sourceClip == null || sourceClip == sourceRect || morphFrame.shapeProgress >= 0.999f) {
+                    drawContent()
+                } else {
+                    // Keep the LazyColumn's cropped edges at the source endpoint, then release
+                    // them with the morph. Geometry and text still use the full original card.
+                    val rect = morphFrame.rect
+                    val remaining = 1f - morphFrame.shapeProgress.coerceIn(0f, 1f)
+                    clipRect(
+                        left = if (sourceClip.left > sourceRect.left)
+                            rect.left + (sourceClip.left - sourceRect.left) * remaining else 0f,
+                        top = if (sourceClip.top > sourceRect.top)
+                            rect.top + (sourceClip.top - sourceRect.top) * remaining else 0f,
+                        right = if (sourceClip.right < sourceRect.right)
+                            rect.right - (sourceRect.right - sourceClip.right) * remaining else size.width,
+                        bottom = if (sourceClip.bottom < sourceRect.bottom)
+                            rect.bottom - (sourceRect.bottom - sourceClip.bottom) * remaining else size.height
+                    ) { this@drawWithContent.drawContent() }
+                }
+            }
     ) {
         Box(
             modifier = Modifier
@@ -784,8 +810,17 @@ internal fun CourseEditorContainerOverlayHost(
                         adjustmentLabel = shownRequest.sourceAdjustmentLabel,
                         sourceCorner = with(density) { sourceCornerPx.toDp() },
                         modifier = Modifier
-                            .fillMaxSize()
+                            // Measure the source once at its original card size. In particular,
+                            // stopped day cards must not rewrap their text as the shell widens.
+                            .wrapContentSize(Alignment.TopStart, unbounded = true)
+                            .requiredSize(
+                                with(density) { sourceRect.width.toDp() },
+                                with(density) { sourceRect.height.toDp() }
+                            )
                             .graphicsLayer {
+                                transformOrigin = TransformOrigin(0f, 0f)
+                                scaleX = morphFrame.rect.width / sourceRect.width
+                                scaleY = morphFrame.rect.height / sourceRect.height
                                 alpha = sourceCoverAlpha.value
                                 val blurPx = morphFrame.content.sourceBlurPx
                                 compositingStrategy = CompositingStrategy.Offscreen
@@ -938,7 +973,9 @@ private fun CourseEditorAnimatedContainer(
     val editorBlur by remember(config.courseCardBlur) {
         derivedStateOf {
             interpolateFloat(config.courseCardBlur, finalDialogBlur,
-                smoothStep(0.62f, 1f, currentProgress.value.invoke()))
+                quantizeHomeProgressiveBackdropBlurProgress(
+                    smoothStep(0.62f, 1f, currentProgress.value.invoke())
+                ))
         }
     }
     CourseGlassCard(
@@ -1026,16 +1063,9 @@ private fun validSourceRect(rect: Rect?, rootSize: IntSize): Rect? {
     if (rootSize.width <= 0 || rootSize.height <= 0) return null
     val root = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
     if (!rect.overlaps(root)) return null
-    // The full-screen snapshot is clipped to the Compose root. Keep the Morph geometry on the
-    // exact same clipped rectangle; otherwise a partially off-screen card produces a smaller
-    // bitmap that is stretched back over its original, larger bounds on the first/last frame.
-    val clipped = Rect(
-        left = maxOf(rect.left, root.left),
-        top = maxOf(rect.top, root.top),
-        right = minOf(rect.right, root.right),
-        bottom = minOf(rect.bottom, root.bottom)
-    )
-    return clipped.takeIf { it.width > 2f && it.height > 2f }
+    // The source is now rendered as a real card, not a cropped screenshot. Preserve its
+    // geometry; the window clips pixels outside the root without stretching the remainder.
+    return rect
 }
 
 private fun interpolateFloat(start: Float, stop: Float, fraction: Float): Float {

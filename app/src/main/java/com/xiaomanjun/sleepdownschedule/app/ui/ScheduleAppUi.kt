@@ -851,6 +851,7 @@ fun CourseScheduleAppUi(
             course = course,
             targetWeek = targetWeek,
             sourceBoundsInRoot = sourceBounds,
+            sourceClipBoundsInRoot = courseEditorFlightRegistry.consumeSourceClip(sourceBounds),
             sourceIsDayCard = homeMode != HomeMode.Week && sourceBounds != null,
             copyDraft = copyDraft,
             sourceGrid = sourceGrid,
