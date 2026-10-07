@@ -49,6 +49,11 @@ Movement, wallpaper edits, source replacement and effect geometry still refresh 
 Frozen scenes retain their explicit complete-scene key. The cache owns no additional GPU layer.
 `Sample.SharedReuse` is a recording counter, not frame-rate evidence.
 
+Live shared consumers observe their own source revision and relative offset, without subscribing
+to unrelated page/group animation keys. Global position notifications with an unchanged relative
+offset do not dirty the sample layer. Frozen and non-shared consumers retain the complete scene
+key; size, density, effects and source changes still refresh through their original paths.
+
 The public patch was regenerated against the exact upstream baseline for this round, including
 previously implemented source changes that the older patch had not yet captured.
 
