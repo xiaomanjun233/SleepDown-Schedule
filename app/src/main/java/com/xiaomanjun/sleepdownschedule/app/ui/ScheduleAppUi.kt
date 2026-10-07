@@ -6853,6 +6853,7 @@ fun PersonalizePanel(
                             insideMargin = PaddingValues(horizontal = 0.dp, vertical = 6.dp),
                             maxHeight = 260.dp,
                             compactTextStyle = rowTextStyle,
+                            showAnchorPressFeedback = false,
                             backdrop = backdrop,
                             config = state.config,
                             onSelectedIndexChange = { index ->

@@ -136,7 +136,6 @@ private fun Modifier.miuixCascadingPopupSurface(
     // Match the Home menu's translucent material so the moving light is not buried in white.
     val surfaceAlpha = if (dark) 0.40f else 0.28f
     val surfaceColor = if (dark) Color(0xFF050505) else Color(0xFFF2F4F8)
-    val topHighlightAlpha = if (dark) 0.10f else 0.07f
     val material = GlassMaterialSpec.popup(effectiveBlur).copy(
         lensHeight = lensHeight,
         lensAmount = lensAmount,
@@ -190,16 +189,6 @@ private fun Modifier.miuixCascadingPopupSurface(
         } },
         onDrawSurface = {
             drawRect(surfaceColor.copy(alpha = surfaceAlpha))
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colorStops = arrayOf(
-                        0f to Color.White.copy(alpha = topHighlightAlpha),
-                        0.22f to Color.White.copy(alpha = topHighlightAlpha * 0.34f),
-                        1f to Color.Transparent
-                    ),
-                    endY = size.height * 0.52f
-                )
-            )
         }
     )
 }
@@ -224,11 +213,12 @@ private fun rememberMiuixListPopupStyle(
     val interaction = Modifier.liquidButtonVisualTransform(highlight).then(highlight.gestureModifier)
     val rim = remember(dark) {
         BorderStroke(1.dp, Brush.verticalGradient(
-            0f to Color.White.copy(alpha = if (dark) 0.48f else 0.82f),
-            0.22f to Color.White.copy(alpha = 0.08f),
-            0.50f to Color.White.copy(alpha = 0.025f),
-            0.78f to Color.White.copy(alpha = 0.08f),
-            1f to Color.White.copy(alpha = if (dark) 0.48f else 0.82f)
+            0f to Color.White.copy(alpha = if (dark) 0.38f else 0.66f),
+            0.07f to Color.White.copy(alpha = 0.10f),
+            0.18f to Color.Transparent,
+            0.82f to Color.Transparent,
+            0.93f to Color.White.copy(alpha = 0.10f),
+            1f to Color.White.copy(alpha = if (dark) 0.38f else 0.66f)
         ))
     }
     return ListPopupVisualStyle(
@@ -245,7 +235,7 @@ private fun rememberMiuixListPopupStyle(
     morphAnimation = true,
     slideSelection = true,
     dimBackground = false,
-    holdAnchor = false,
+    holdAnchor = true,
     interactionModifier = interaction
     )
 }
@@ -283,6 +273,7 @@ internal fun SleepDownLiquidDropdownPreference(
     compactTextStyle: TextStyle? = null,
     @Suppress("UNUSED_PARAMETER") expanded: Boolean? = null,
     enabled: Boolean = true,
+    showAnchorPressFeedback: Boolean = true,
     onExpandedChange: (Boolean) -> Unit = {},
     onSelectedIndexChange: (Int) -> Unit
 ) {
@@ -291,7 +282,8 @@ internal fun SleepDownLiquidDropdownPreference(
     // content and low-level overlays) instead of only the flat background passed by the caller.
     val completeUnderlayBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     val renderInRootScaffold = LocalCenteredDialogRenderInRootScaffold.current
-    val popupVisualStyle = rememberMiuixListPopupStyle(completeUnderlayBackdrop, config).let { style ->
+    val popupVisualStyle = rememberMiuixListPopupStyle(completeUnderlayBackdrop, config)
+        .copy(holdAnchor = showAnchorPressFeedback).let { style ->
         if (compactTextStyle == null) style else style.copy(
             itemTextStyle = compactTextStyle,
             itemVerticalPadding = 6.dp,
