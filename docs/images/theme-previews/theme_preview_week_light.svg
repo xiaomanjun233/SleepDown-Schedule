@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="180" height="360" viewBox="0 0 180 360">
-  <title>SleepDown week view �� light</title>
-  <path d="M25,0 H155 Q180,0 180,25 V335 Q180,360 155,360 H25 Q0,360 0,335 V25 Q0,0 25,0 Z" fill="#707B8B"/>
-  <path d="M25,2 H155 Q178,2 178,25 V335 Q178,358 155,358 H25 Q2,358 2,335 V25 Q2,2 25,2 Z" fill="#F0F2F6"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="180" height="367.346939" viewBox="0 0 180 367.346939">
+  <title>SleepDown week view - light</title>
+  <path d="M25,0 H155 Q180,0 180,25 V342.346939 Q180,367.346939 155,367.346939 H25 Q0,367.346939 0,342.346939 V25 Q0,0 25,0 Z" fill="#707B8B"/>
+  <path d="M25,2 H155 Q178,2 178,25 V342.346939 Q178,365.346939 155,365.346939 H25 Q2,365.346939 2,342.346939 V25 Q2,2 25,2 Z" fill="#F0F2F6"/>
   <path d="M17.5,17 H34.5 Q36,17 36,18.5 V18.5 Q36,20 34.5,20 H17.5 Q16,20 16,18.5 V18.5 Q16,17 17.5,17 Z" fill="#2B3442"/>
   <path d="M130,16 H131 Q132,16 132,17 V19 Q132,20 131,20 H130 Q129,20 129,19 V17 Q129,16 130,16 Z" fill="#A0AABB"/>
   <path d="M136,14 H137 Q138,14 138,15 V19 Q138,20 137,20 H136 Q135,20 135,19 V15 Q135,14 136,14 Z" fill="#A0AABB"/>
@@ -93,18 +93,20 @@
   <path d="M148,181 H159 Q160,181 160,182 V182 Q160,183 159,183 H148 Q147,183 147,182 V182 Q147,181 148,181 Z" fill="#42648A"/>
   <path d="M147,190.5 H160 Q161,190.5 161,191.5 V192 Q161,193 160,193 H147 Q146,193 146,192 V191.5 Q146,190.5 147,190.5 Z" fill="#42648A"/>
   <path d="M150,196.5 H157 Q158,196.5 158,197.5 V197.5 Q158,198.5 157,198.5 H150 Q149,198.5 149,197.5 V197.5 Q149,196.5 150,196.5 Z" fill="#42648A"/>
-  <path d="M30,308 H112 Q128,308 128,324 V324 Q128,340 112,340 H30 Q14,340 14,324 V324 Q14,308 30,308 Z" fill="#FFFFFF"/>
-  <path d="M69,311 H75 Q88,311 88,324 V324 Q88,337 75,337 H69 Q56,337 56,324 V324 Q56,311 69,311 Z" fill="#DCEBFF"/>
-  <path d="M31,315 H37 Q39,315 39,317 V322 Q39,324 37,324 H31 Q29,324 29,322 V317 Q29,315 31,315 Z" fill="none" stroke="#A0AABB" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M34,317 V320 H37" fill="none" stroke="#A0AABB" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M30,329 H38 Q39,329 39,330 V330 Q39,331 38,331 H30 Q29,331 29,330 V330 Q29,329 30,329 Z" fill="#A0AABB"/>
-  <path d="M69,315 H75 Q77,315 77,317 V322 Q77,324 75,324 H69 Q67,324 67,322 V317 Q67,315 69,315 Z" fill="none" stroke="#2787F5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M70,318 H74" fill="none" stroke="#2787F5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M68,329 H76 Q77,329 77,330 V330 Q77,331 76,331 H68 Q67,331 67,330 V330 Q67,329 68,329 Z" fill="#2787F5"/>
-  <path d="M105,319.5 A5,5 0,1 0 115,319.5 A5,5 0,1 0 105,319.5 Z" fill="#A0AABB"/>
-  <path d="M108,319.5 A2,2 0,1 0 112,319.5 A2,2 0,1 0 108,319.5 Z" fill="#FFFFFF"/>
-  <path d="M106,329 H114 Q115,329 115,330 V330 Q115,331 114,331 H106 Q105,331 105,330 V330 Q105,329 106,329 Z" fill="#A0AABB"/>
-  <path d="M133,324 A16,16 0,1 0 165,324 A16,16 0,1 0 133,324 Z" fill="#2787F5"/>
-  <path d="M149,317 V331 M142,324 H156" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M66.25,349 H113.75 Q115,349 115,350.25 V350.25 Q115,351.5 113.75,351.5 H66.25 Q65,351.5 65,350.25 V350.25 Q65,349 66.25,349 Z" fill="#A0AABB"/>
+  <g transform="translate(0 7.346939)">
+    <path d="M30,308 H112 Q128,308 128,324 V324 Q128,340 112,340 H30 Q14,340 14,324 V324 Q14,308 30,308 Z" fill="#FFFFFF"/>
+    <path d="M69,311 H75 Q88,311 88,324 V324 Q88,337 75,337 H69 Q56,337 56,324 V324 Q56,311 69,311 Z" fill="#DCEBFF"/>
+    <path d="M31,315 H37 Q39,315 39,317 V322 Q39,324 37,324 H31 Q29,324 29,322 V317 Q29,315 31,315 Z" fill="none" stroke="#A0AABB" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M34,317 V320 H37" fill="none" stroke="#A0AABB" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M30,329 H38 Q39,329 39,330 V330 Q39,331 38,331 H30 Q29,331 29,330 V330 Q29,329 30,329 Z" fill="#A0AABB"/>
+    <path d="M69,315 H75 Q77,315 77,317 V322 Q77,324 75,324 H69 Q67,324 67,322 V317 Q67,315 69,315 Z" fill="none" stroke="#2787F5" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M70,318 H74" fill="none" stroke="#2787F5" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M68,329 H76 Q77,329 77,330 V330 Q77,331 76,331 H68 Q67,331 67,330 V330 Q67,329 68,329 Z" fill="#2787F5"/>
+    <path d="M105,319.5 A5,5 0,1 0 115,319.5 A5,5 0,1 0 105,319.5 Z" fill="#A0AABB"/>
+    <path d="M108,319.5 A2,2 0,1 0 112,319.5 A2,2 0,1 0 108,319.5 Z" fill="#FFFFFF"/>
+    <path d="M106,329 H114 Q115,329 115,330 V330 Q115,331 114,331 H106 Q105,331 105,330 V330 Q105,329 106,329 Z" fill="#A0AABB"/>
+    <path d="M133,324 A16,16 0,1 0 165,324 A16,16 0,1 0 133,324 Z" fill="#2787F5"/>
+    <path d="M149,317 V331 M142,324 H156" fill="none" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M66.25,349 H113.75 Q115,349 115,350.25 V350.25 Q115,351.5 113.75,351.5 H66.25 Q65,351.5 65,350.25 V350.25 Q65,349 66.25,349 Z" fill="#A0AABB"/>
+  </g>
 </svg>
