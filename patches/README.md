@@ -8,7 +8,7 @@
 2. `miuix-cascading-popup-surface.patch`：级联菜单的主/次表面、真实锚点及内容交接。
 3. `miuix-scaffold-underlay.patch`：新增 `Scaffold.underlayModifier`，把页面、TopBar 等放入底层布局，Popup/Dialog host 后绘制为同级节点，避免 Backdrop 自采样。
 4. `miuix-compact-dropdown.patch`：为列表菜单增加可选的条目文字样式、垂直内距和最小高度，默认值保留原排版。个性化面板借此将文字排布入口与菜单条目统一为其他选项的字号、字重和紧凑高度。
-5. `miuix-popup-slide-feedback.patch`：可选按住滑动选择、跨行触觉反馈、长菜单边缘滚动；允许取消背景压暗和锚点淡出，增加外层交互 Modifier。SleepDown 接入 Kyant 跟手高光、形变和松手回弹；普通下拉可启用独立尺寸/锚点迁移的 Morph 动画，默认仍兼容原 Miuix 动画。Morph 使用固定采样画布、独立文字层及绘制阶段缓存的瞬态模糊，支持预测性返回。取消锚点淡出时不再运行触发行的透明度动画。级联主/次菜单各自传播样式并沿用其父子锚点交接。
+5. `miuix-popup-slide-feedback.patch`：可选按住滑动选择、跨行触觉反馈、长菜单边缘滚动；允许取消背景压暗和触发行按压反馈，增加外层交互 Modifier。SleepDown 接入 Kyant 跟手高光、形变和松手回弹；普通下拉可启用独立宽高/锚点迁移的 Morph 动画，默认仍兼容原 Miuix 动画。Morph 从当前值与箭头展开，在固定采样画布中保留 14dp 回弹余量；材质、原尺寸触发内容和菜单文字分层显隐，瞬态模糊在绘制阶段缓存，支持预测性返回。触发行的按压状态与原内容交接分别控制，Morph 不再启动旧的逐帧锚点透明度观察。级联主/次菜单各自传播样式并沿用其父子锚点交接。
 
 从全新官方源码按上述顺序 `git apply`，具体命令见根目录 README。旧补丁目录不要再次叠加新版完整补丁，应使用新的依赖目录。`sleepdown.miuixSourcePath` 指向打完补丁的源码根目录。
 

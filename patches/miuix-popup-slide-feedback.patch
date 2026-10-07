@@ -1,6 +1,30 @@
 --- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
 +++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
-@@ -92,7 +92,7 @@
+@@ -47,6 +47,7 @@
+     collapseOnSelection: Boolean = true,
+     onFractionProgress: ((Float) -> Unit)? = null,
+     revealLimitHeight: Dp = 0.dp,
++    collapseContent: (@Composable () -> Unit)? = null,
+ ) {
+     val entries = remember(entry) { listOf(entry) }
+     OverlayDropdownPopup(
+@@ -62,6 +63,7 @@
+         collapseOnSelection = collapseOnSelection,
+         onFractionProgress = onFractionProgress,
+         revealLimitHeight = revealLimitHeight,
++        collapseContent = collapseContent,
+     )
+ }
+
+@@ -84,6 +86,7 @@
+     collapseOnSelection: Boolean = entries.size <= 1,
+     onFractionProgress: ((Float) -> Unit)? = null,
+     revealLimitHeight: Dp = 0.dp,
++    collapseContent: (@Composable () -> Unit)? = null,
+ ) {
+     val hapticFeedback = LocalHapticFeedback.current
+     val currentEntries by rememberUpdatedState(entries)
+@@ -92,7 +95,7 @@
      val currentHapticFeedback by rememberUpdatedState(hapticFeedback)
      val onItemClicked: (Int, Int) -> Unit = remember {
          { entryIdx, itemIdx ->
@@ -9,26 +33,111 @@
              currentEntries.getOrNull(entryIdx)?.let { entry ->
                  entry.items.getOrNull(itemIdx)?.onClick?.invoke()
              }
-@@ -110,6 +110,7 @@
+@@ -110,8 +113,10 @@
          renderInRootScaffold = renderInRootScaffold,
          excludeFromBackdropCapture = excludeFromBackdropCapture,
          visualStyle = popupVisualStyle,
 +        enableWindowDim = popupVisualStyle.dimBackground,
          onFractionProgress = onFractionProgress,
          revealLimitHeight = revealLimitHeight,
++        collapseContent = collapseContent,
      ) {
+         ListPopupColumn {
+             DropdownEntriesPopupContent(
 --- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
 +++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
-@@ -187,7 +187,7 @@
+@@ -7,9 +7,11 @@
+ import androidx.compose.animation.core.tween
+ import androidx.compose.foundation.interaction.MutableInteractionSource
+ import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.MutableState
+ import androidx.compose.runtime.State
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
+@@ -17,8 +19,10 @@
+ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.rememberUpdatedState
+ import androidx.compose.runtime.snapshotFlow
++import androidx.compose.runtime.withFrameNanos
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+ import androidx.compose.ui.platform.LocalHapticFeedback
+@@ -41,6 +45,36 @@
+ import top.yukonga.miuix.kmp.basic.Text
+ import top.yukonga.miuix.kmp.popup.OverlayDropdownPopup
+ import top.yukonga.miuix.kmp.theme.MiuixTheme
++
++@Composable
++private fun rememberPopupTriggerTransferred(show: Boolean, morph: Boolean): MutableState<Boolean> {
++    val transferred = remember { mutableStateOf(false) }
++    LaunchedEffect(show, morph) {
++        if (!morph) transferred.value = false
++        else if (show) {
++            // Give the overlay time to measure the anchor before it owns these glyphs.
++            repeat(2) { withFrameNanos {} }
++            transferred.value = true
++        }
++    }
++    return transferred
++}
++
++@Composable
++private fun PopupTriggerContent(text: String?, actionColor: Color, modifier: Modifier = Modifier) {
++    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
++        if (!text.isNullOrEmpty()) {
++            Text(
++                text = text,
++                modifier = Modifier.padding(end = 8.dp).weight(1f, fill = false),
++                fontSize = MiuixTheme.textStyles.body2.fontSize,
++                color = actionColor,
++                textAlign = TextAlign.End,
++            )
++        }
++        DropdownArrowEndAction(actionColor = actionColor)
++    }
++}
+
+ @Composable
+ private fun rememberPopupAnchorContentAlpha(fractionState: State<Float>): Float {
+@@ -187,8 +221,11 @@
      }
 
      val fractionState = remember { mutableFloatStateOf(0f) }
 -    val anchorContentAlpha = rememberPopupAnchorContentAlpha(fractionState)
-+    val anchorContentAlpha = if (popupVisualStyle.holdAnchor) rememberPopupAnchorContentAlpha(fractionState) else 1f
++    val trackAnchorAlpha = popupVisualStyle.holdAnchor && !popupVisualStyle.morphAnimation
++    val anchorContentAlpha = if (trackAnchorAlpha) rememberPopupAnchorContentAlpha(fractionState) else 1f
      val revealLimitHeight = if (entry.items.size > 2) 112.dp else 0.dp
++    val triggerTransferred = rememberPopupTriggerTransferred(isDropdownExpanded.value, popupVisualStyle.morphAnimation)
++    val selectedValueText = if (showValue) entry.items.firstOrNull { it.selected }?.text else null
 
      val itemsNotEmpty = entry.items.isNotEmpty()
-@@ -230,7 +230,7 @@
+     val actualEnabled = enabled && itemsNotEmpty
+@@ -221,47 +258,59 @@
+         summaryColor = summaryColor,
+         startAction = startAction,
+         endActions = {
+-            if (showValue && itemsNotEmpty) {
+-                val text = entry.items.firstOrNull { it.selected }?.text
+-                if (!text.isNullOrEmpty()) {
++            if (popupVisualStyle.morphAnimation) {
++                PopupTriggerContent(
++                    text = selectedValueText,
++                    actionColor = actionColor,
++                    modifier = Modifier.graphicsLayer { alpha = if (triggerTransferred.value) 0f else 1f },
++                )
++            } else {
++                if (!selectedValueText.isNullOrEmpty()) {
+                     Text(
+-                        text = text,
++                        text = selectedValueText,
+                         modifier = Modifier
                              .padding(end = 8.dp)
                              .align(Alignment.CenterVertically)
                              .weight(1f, fill = false)
@@ -37,25 +146,43 @@
                          fontSize = MiuixTheme.textStyles.body2.fontSize,
                          color = actionColor,
                          textAlign = TextAlign.End,
-@@ -239,7 +239,7 @@
-             }
-             DropdownArrowEndAction(
-                 actionColor = actionColor,
+                     )
+                 }
+-            }
+-            DropdownArrowEndAction(
+-                actionColor = actionColor,
 -                modifier = Modifier.graphicsLayer { alpha = anchorContentAlpha },
-+                modifier = Modifier.graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
-             )
+-            )
++                DropdownArrowEndAction(
++                    actionColor = actionColor,
++                    modifier = Modifier.graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
++                )
++            }
              if (itemsNotEmpty) {
                  OverlayDropdownPopup(
-@@ -253,7 +253,7 @@
+                     entry = entry,
+                     show = isDropdownExpanded.value,
+                     onDismiss = { setExpanded(false) },
+-                    onDismissFinished = { isHoldDown.value = false },
++                    onDismissFinished = {
++                        isHoldDown.value = false
++                        triggerTransferred.value = false
++                    },
+                     maxHeight = maxHeight,
+                     dropdownColors = dropdownColors,
+                     renderInRootScaffold = renderInRootScaffold,
                      excludeFromBackdropCapture = excludeFromBackdropCapture,
                      popupVisualStyle = popupVisualStyle,
                      collapseOnSelection = collapseOnSelection,
 -                    onFractionProgress = { fractionState.floatValue = it },
-+                    onFractionProgress = if (popupVisualStyle.holdAnchor) ({ fractionState.floatValue = it }) else null,
++                    onFractionProgress = if (trackAnchorAlpha) ({ fractionState.floatValue = it }) else null,
                      revealLimitHeight = revealLimitHeight,
++                    collapseContent = if (popupVisualStyle.morphAnimation) {
++                        { PopupTriggerContent(selectedValueText, actionColor) }
++                    } else null,
                  )
              }
-@@ -261,7 +261,8 @@
+         },
          bottomAction = bottomAction,
          onClick = handleClick,
          role = Role.DropdownList,
@@ -65,43 +192,95 @@
          enabled = actualEnabled,
      )
  }
-@@ -303,7 +304,7 @@
+@@ -303,8 +352,10 @@
      }
 
      val fractionState = remember { mutableFloatStateOf(0f) }
 -    val anchorContentAlpha = rememberPopupAnchorContentAlpha(fractionState)
-+    val anchorContentAlpha = if (popupVisualStyle.holdAnchor) rememberPopupAnchorContentAlpha(fractionState) else 1f
-
+-
++    val trackAnchorAlpha = popupVisualStyle.holdAnchor && !popupVisualStyle.morphAnimation
++    val anchorContentAlpha = if (trackAnchorAlpha) rememberPopupAnchorContentAlpha(fractionState) else 1f
++
++    val triggerTransferred = rememberPopupTriggerTransferred(isDropdownExpanded.value, popupVisualStyle.morphAnimation)
      val nonEmptyEntries = entries.filter { it.items.isNotEmpty() }
      val hasEntries = nonEmptyEntries.isNotEmpty()
-@@ -351,7 +352,7 @@
+     val revealLimitHeight = if (nonEmptyEntries.sumOf { it.items.size } > 2) 112.dp else 0.dp
+@@ -338,50 +389,65 @@
+         summaryColor = summaryColor,
+         startAction = startAction,
+         endActions = {
+-            val selectedValueText = nonEmptyEntries
++            val selectedValueText = if (showValue) nonEmptyEntries
+                 .asSequence()
+                 .flatMap { group -> group.items }
+                 .filter { it.selected }
+                 .map { it.text }
+                 .filter { it.isNotBlank() }
+                 .joinToString("\n")
+-                .ifBlank { null }
+-            if (showValue && hasEntries && !selectedValueText.isNullOrBlank()) {
+-                Text(
++                .ifBlank { null } else null
++            if (popupVisualStyle.morphAnimation) {
++                PopupTriggerContent(
                      text = selectedValueText,
-                     modifier = Modifier
-                         .padding(end = 8.dp)
+-                    modifier = Modifier
+-                        .padding(end = 8.dp)
 -                        .graphicsLayer { alpha = anchorContentAlpha },
-+                        .graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
-                     fontSize = MiuixTheme.textStyles.body2.fontSize,
-                     color = actionColor,
-                     textAlign = TextAlign.End,
-@@ -359,7 +360,7 @@
-             }
-             DropdownArrowEndAction(
-                 actionColor = actionColor,
+-                    fontSize = MiuixTheme.textStyles.body2.fontSize,
+-                    color = actionColor,
+-                    textAlign = TextAlign.End,
+-                )
+-            }
+-            DropdownArrowEndAction(
+-                actionColor = actionColor,
 -                modifier = Modifier.graphicsLayer { alpha = anchorContentAlpha },
-+                modifier = Modifier.graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
-             )
+-            )
++                    actionColor = actionColor,
++                    modifier = Modifier.graphicsLayer { alpha = if (triggerTransferred.value) 0f else 1f },
++                )
++            } else {
++                if (hasEntries && !selectedValueText.isNullOrBlank()) {
++                    Text(
++                        text = selectedValueText,
++                        modifier = Modifier
++                            .padding(end = 8.dp)
++                            .graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
++                        fontSize = MiuixTheme.textStyles.body2.fontSize,
++                        color = actionColor,
++                        textAlign = TextAlign.End,
++                    )
++                }
++                DropdownArrowEndAction(
++                    actionColor = actionColor,
++                    modifier = Modifier.graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
++                )
++            }
              if (hasEntries) {
                  OverlayDropdownPopup(
-@@ -373,7 +374,7 @@
+                     entries = nonEmptyEntries,
+                     show = isDropdownExpanded.value,
+                     onDismiss = { setExpanded(false) },
+-                    onDismissFinished = { isHoldDown.value = false },
++                    onDismissFinished = {
++                        isHoldDown.value = false
++                        triggerTransferred.value = false
++                    },
+                     maxHeight = maxHeight,
+                     dropdownColors = dropdownColors,
+                     renderInRootScaffold = renderInRootScaffold,
                      excludeFromBackdropCapture = excludeFromBackdropCapture,
                      popupVisualStyle = popupVisualStyle,
                      collapseOnSelection = collapseOnSelection,
 -                    onFractionProgress = { fractionState.floatValue = it },
-+                    onFractionProgress = if (popupVisualStyle.holdAnchor) ({ fractionState.floatValue = it }) else null,
++                    onFractionProgress = if (trackAnchorAlpha) ({ fractionState.floatValue = it }) else null,
                      revealLimitHeight = revealLimitHeight,
++                    collapseContent = if (popupVisualStyle.morphAnimation) {
++                        { PopupTriggerContent(selectedValueText, actionColor) }
++                    } else null,
                  )
              }
-@@ -381,7 +382,8 @@
+         },
          bottomAction = bottomAction,
          onClick = handleClick,
          role = Role.DropdownList,
@@ -234,13 +413,14 @@
              .verticalScroll(state = scrollState),
          measurePolicy = measurePolicy,
      )
-@@ -644,11 +662,29 @@
+@@ -644,11 +662,31 @@
      localTransformOrigin: TransformOrigin,
      modifier: Modifier = Modifier,
      revealLimitHeight: Dp = 0.dp,
 +    originProgress: () -> Float = fractionProgress,
 +    isEntering: Boolean = true,
 +    morphAnchor: PopupMorphAnchor? = null,
++    collapseContent: (@Composable () -> Unit)? = null,
      content: @Composable () -> Unit,
  ) {
      val visualStyle = LocalListPopupVisualStyle.current
@@ -253,6 +433,7 @@
 +            anchor = morphAnchor,
 +            fallbackOrigin = localTransformOrigin,
 +            onSizeChanged = onPopupContentSizeChange,
++            collapseContent = collapseContent,
 +            content = content,
 +        )
 +        return
@@ -264,7 +445,7 @@
      val shadowAlpha = remember { Animatable(0f) }
      LaunchedEffect(Unit) {
          var previousFraction = fractionProgress()
-@@ -676,6 +712,7 @@
+@@ -676,6 +714,7 @@
 
      Box(
          modifier = modifier
@@ -272,7 +453,7 @@
              .graphicsLayer {
                  shadowElevation = 16.dp.toPx()
                  shape = RoundedCornerShape(cornerRadius)
-@@ -709,8 +746,17 @@
+@@ -709,8 +748,17 @@
                  cornerRadius = cornerRadius,
                  squircleEnabled = isSquircleEnabled(),
                  revealLimitHeightPx = with(LocalDensity.current) { revealLimitHeight.toPx() },
@@ -291,7 +472,7 @@
              .then(visualStyle.surfaceModifier)
              .background(color = backgroundColor),
          ) {
-@@ -734,6 +780,7 @@
+@@ -734,6 +782,7 @@
      cornerRadius: Dp,
      squircleEnabled: Boolean,
      revealLimitHeightPx: Float = 0f,
@@ -299,7 +480,7 @@
  ): Modifier = drawWithCache {
      val path = Path()
      onDrawWithContent {
-@@ -761,6 +808,7 @@
+@@ -761,6 +810,7 @@
          if (clipStart == 0f) {
              clipPath(path) {
                  this@onDrawWithContent.drawContent()
@@ -307,7 +488,7 @@
              }
          } else {
              translate(top = clipStart) {
-@@ -768,6 +816,7 @@
+@@ -768,6 +818,7 @@
                      translate(top = -clipStart) {
                          this@onDrawWithContent.drawContent()
                      }
@@ -605,11 +786,12 @@
  import androidx.compose.ui.input.pointer.pointerInput
  import androidx.compose.ui.layout.layout
  import androidx.compose.ui.layout.onGloballyPositioned
-@@ -42,11 +46,18 @@
+@@ -42,11 +46,19 @@
  import top.yukonga.miuix.kmp.basic.ListPopupVisualStyle
  import top.yukonga.miuix.kmp.basic.LocalListPopupVisualStyle
  import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 +import top.yukonga.miuix.kmp.basic.PopupMorphAnchor
++import top.yukonga.miuix.kmp.basic.popupMorphInsetPx
  import top.yukonga.miuix.kmp.basic.rememberListPopupLayoutInfo
  import top.yukonga.miuix.kmp.overlay.OverlayListPopup
  import top.yukonga.miuix.kmp.theme.LocalDismissState
@@ -624,7 +806,11 @@
 
  /**
   * Internal shared layout logic for [OverlayListPopup] and [WindowListPopup].
-@@ -87,6 +98,10 @@
+@@ -84,9 +96,14 @@
+     visualStyle: ListPopupVisualStyle? = null,
+     onFractionProgress: ((Float) -> Unit)? = null,
+     revealLimitHeight: Dp = 0.dp,
++    collapseContent: (@Composable () -> Unit)? = null,
      content: @Composable () -> Unit,
  ) {
      val fractionProgress = remember { Animatable(0f) }
@@ -635,7 +821,7 @@
      val alphaProgress = remember { Animatable(0f) }
      val dimProgress = remember { Animatable(0f) }
      val currentOnDismiss by rememberUpdatedState(onDismissRequest)
-@@ -97,29 +112,33 @@
+@@ -97,29 +114,33 @@
      var popupContentSize by remember { mutableStateOf(IntSize.Zero) }
      var hostPositionInWindow by remember { mutableStateOf(Offset.Zero) }
 
@@ -675,15 +861,17 @@
              alphaProgress.snapTo(0f)
              dimProgress.snapTo(0f)
              internalVisible.value = false
-@@ -170,6 +189,7 @@
+@@ -169,7 +190,8 @@
+                     // joinAll keeps the three reset coroutines as children of this launch so
                      // structural cancellation propagates if a new gesture supersedes the reset.
                      joinAll(
-                         launch { fractionProgress.animateTo(1f, ListPopupDefaults.ResetAnimationSpec) },
-+                        launch { originProgress.animateTo(1f, OriginEnterSpec) },
+-                        launch { fractionProgress.animateTo(1f, ListPopupDefaults.ResetAnimationSpec) },
++                        launch { fractionProgress.animateTo(1f, if (morph) tween(150) else ListPopupDefaults.ResetAnimationSpec) },
++                        launch { originProgress.animateTo(1f, if (morph) tween(150) else OriginEnterSpec) },
                          launch { alphaProgress.animateTo(1f, ListPopupDefaults.AlphaEnterAnimationSpec) },
                          launch { dimProgress.animateTo(1f, ListPopupDefaults.DimEnterAnimationSpec) },
                      )
-@@ -189,6 +209,7 @@
+@@ -189,6 +211,7 @@
                      ) {
                          val progress = transitionState.latestEvent.progress
                          fractionProgress.snapTo(1f - progress)
@@ -691,10 +879,78 @@
                          alphaProgress.snapTo(1f - progress)
                          dimProgress.snapTo(1f - progress)
                      }
-@@ -249,6 +270,18 @@
-                             y = calculatedOffset.y - hostPositionInWindow.y.toInt(),
+@@ -223,19 +246,28 @@
+                         val windowBounds = layoutInfo.windowBounds
+                         val popupMargin = layoutInfo.popupMargin
+                         val minHeightPx = ListPopupDefaults.MinPopupHeight.roundToPx()
++                        val chrome = if (morph) popupMorphInsetPx() else 0
++                        morphAnchor.size = parentBounds.size
++                        // Include the chrome in constraints but exclude it from positioning.
++                        // The content measures once at its natural size; the outline can overshoot.
++                        val availableHeight = (windowBounds.height - popupMargin.top - popupMargin.bottom)
++                            .coerceAtLeast(minHeightPx)
++                        val panelMaxHeight = (maxHeight?.roundToPx() ?: availableHeight)
++                            .coerceIn(minHeightPx, availableHeight)
+                         val placeable = measurable.measure(
+                             constraints.copy(
+-                                maxHeight = maxHeight?.roundToPx()?.coerceAtLeast(minHeightPx)
+-                                    ?: (windowBounds.height - popupMargin.top - popupMargin.bottom)
+-                                        .coerceAtLeast(minHeightPx),
+-                                minHeight = if (minHeightPx <= constraints.maxHeight) minHeightPx else constraints.maxHeight,
++                                maxHeight = (panelMaxHeight + chrome * 2).coerceAtMost(constraints.maxHeight),
++                                minHeight = (minHeightPx + chrome * 2).coerceAtMost(constraints.maxHeight),
+                                 maxWidth = constraints.maxWidth,
+-                                minWidth = minWidth.roundToPx().coerceAtMost(constraints.maxWidth),
++                                minWidth = (minWidth.roundToPx() + chrome * 2).coerceAtMost(constraints.maxWidth),
+                             ),
+                         )
+-                        val measuredSize = IntSize(placeable.width, placeable.height)
+-
+-                        val calculatedOffset = popupPositionProvider.calculatePosition(
++                        val measuredSize = IntSize(
++                            (placeable.width - chrome * 2).coerceAtLeast(0),
++                            (placeable.height - chrome * 2).coerceAtLeast(0),
++                        )
++
++                        val stockOffset = popupPositionProvider.calculatePosition(
+                             parentBounds,
+                             windowBounds,
+                             layoutDirection,
+@@ -244,9 +276,44 @@
+                             alignment,
                          )
 
++                        // A dropdown starts over the value/arrow, with 7x5dp room around it.
++                        // Custom context-menu providers keep their own positioning contract.
++                        val calculatedOffset = if (morph &&
++                            popupPositionProvider === ListPopupDefaults.DropdownPositionProvider) {
++                            val endAligned = when (alignment) {
++                                PopupPositionProvider.Align.End, PopupPositionProvider.Align.TopEnd,
++                                PopupPositionProvider.Align.BottomEnd -> true
++                                else -> false
++                            } != (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl)
++                            val x = if (endAligned) parentBounds.right - measuredSize.width + 7.dp.roundToPx()
++                                else parentBounds.left - 7.dp.roundToPx()
++                            val y = when {
++                                windowBounds.bottom - parentBounds.bottom > measuredSize.height ->
++                                    parentBounds.top - 5.dp.roundToPx()
++                                parentBounds.top - windowBounds.top > measuredSize.height ->
++                                    parentBounds.bottom - measuredSize.height + 5.dp.roundToPx()
++                                else -> parentBounds.top + (parentBounds.height - measuredSize.height) / 2
++                            }
++                            IntOffset(
++                                x.coerceIn(windowBounds.left, (windowBounds.right - measuredSize.width).coerceAtLeast(windowBounds.left)),
++                                y.coerceIn(windowBounds.top, (windowBounds.bottom - measuredSize.height).coerceAtLeast(windowBounds.top)),
++                            )
++                        } else stockOffset
++
+                         val adjustedOffset = IntOffset(
+-                            x = calculatedOffset.x - hostPositionInWindow.x.toInt(),
+-                            y = calculatedOffset.y - hostPositionInWindow.y.toInt(),
++                            x = calculatedOffset.x - hostPositionInWindow.x.toInt() - chrome,
++                            y = calculatedOffset.y - hostPositionInWindow.y.toInt() - chrome,
++                        )
++
 +                        // Compute from this pass's measured size, not the previous frame's
 +                        // onSizeChanged report. This also handles upward and edge-clamped menus.
 +                        val rightAligned = abs(calculatedOffset.x + measuredSize.width - parentBounds.right) <
@@ -704,13 +960,10 @@
 +                        morphAnchor.origin = TransformOrigin(
 +                            if (rightAligned) 1f else 0f,
 +                            if (popupCenterY > anchorCenterY) 0f else if (popupCenterY < anchorCenterY) 1f else 0.5f,
-+                        )
-+                        morphAnchor.size = parentBounds.size
-+
+                         )
+
                          layout(constraints.maxWidth, constraints.maxHeight) {
-                             placeable.place(adjustedOffset)
-                         }
-@@ -256,7 +289,7 @@
+@@ -256,7 +323,7 @@
              ) {
                  CompositionLocalProvider(
                      LocalListPopupVisualStyle provides
@@ -719,19 +972,20 @@
                  ) {
                      ListPopupContent(
                          popupContentSize = popupContentSize,
-@@ -266,6 +299,9 @@
+@@ -266,6 +333,10 @@
                          popupLayoutPosition = layoutInfo.popupLayoutPosition,
                          localTransformOrigin = layoutInfo.localTransformOrigin,
                          revealLimitHeight = revealLimitHeight,
 +                        originProgress = { originProgress.value },
 +                        isEntering = show,
 +                        morphAnchor = morphAnchor,
++                        collapseContent = collapseContent,
                          content = {
                              CompositionLocalProvider(LocalDismissState provides requestDismiss) {
                                  content()
 --- /dev/null
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupMorphContent.kt
-@@ -0,0 +1,149 @@
+@@ -0,0 +1,202 @@
 +// Copyright 2026, SleepDown contributors
 +// SPDX-License-Identifier: Apache-2.0
 +
@@ -739,6 +993,7 @@
 +
 +import androidx.compose.foundation.background
 +import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.padding
 +import androidx.compose.runtime.Composable
 +import androidx.compose.runtime.remember
 +import androidx.compose.ui.Modifier
@@ -759,18 +1014,27 @@
 +import androidx.compose.ui.graphics.drawscope.clipPath
 +import androidx.compose.ui.graphics.drawscope.translate
 +import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.layout.Layout
 +import androidx.compose.ui.layout.onSizeChanged
 +import androidx.compose.ui.platform.LocalDensity
++import androidx.compose.ui.semantics.clearAndSetSemantics
++import androidx.compose.ui.unit.Constraints
 +import androidx.compose.ui.unit.Density
 +import androidx.compose.ui.unit.IntSize
 +import androidx.compose.ui.unit.LayoutDirection
 +import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.offset
 +import top.yukonga.miuix.kmp.theme.MiuixTheme
 +import kotlin.math.abs
 +import kotlin.math.min
 +import kotlin.math.roundToInt
 +
-+/** Written by the host's placement pass, before the first draw (no one-frame state lag). */
++private val PopupMorphRoom = 14.dp
++private val PopupMorphShadowPadding = 24.dp
++internal fun Density.popupMorphInsetPx(): Int =
++    PopupMorphRoom.roundToPx() + PopupMorphShadowPadding.roundToPx()
++
++/** Written by the host's measure/placement pass, before the first draw. */
 +class PopupMorphAnchor {
 +    var origin: TransformOrigin = TransformOrigin.Center
 +    var size: IntSize = IntSize.Zero
@@ -781,7 +1045,7 @@
 +        Outline.Rounded(rect)
 +}
 +
-+/** A fixed sampling canvas with a moving panel outline and a separate, uniformly scaled label layer. */
++/** Material, expanded labels and the original value/arrow have independent animation layers. */
 +@Composable
 +internal fun MorphingListPopupContent(
 +    modifier: Modifier,
@@ -791,93 +1055,154 @@
 +    anchor: PopupMorphAnchor?,
 +    fallbackOrigin: TransformOrigin,
 +    onSizeChanged: (IntSize) -> Unit,
++    collapseContent: (@Composable () -> Unit)?,
 +    content: @Composable () -> Unit,
 +) {
 +    val style = LocalListPopupVisualStyle.current
 +    val density = LocalDensity.current
 +    val corner = with(density) { style.cornerRadius.toPx() }
++    // Match the integer placement below exactly, including fractional device densities.
++    val room = with(density) { PopupMorphRoom.roundToPx().toFloat() }
 +    val fallbackSize = with(density) { 28.dp.toPx() }
++    val extraWidth = with(density) { 14.dp.toPx() }
++    val extraHeight = with(density) { 10.dp.toPx() }
 +    val background = style.backgroundColor ?: MiuixTheme.colorScheme.surfaceContainer
 +    val blurSteps = remember(density) { arrayOfNulls<RenderEffect>(7) }
-+    val panel: (Size) -> RoundRect = { size ->
-+        val f = fractionProgress().coerceIn(0f, 1f)
++    // Layout owns this value. All three layers use the same natural size in the same pass.
++    val naturalSize = remember { arrayOf(IntSize.Zero) }
++    val panel: () -> RoundRect = {
++        val natural = naturalSize[0]
++        val f = fractionProgress()
 +        val origin = anchor?.origin ?: fallbackOrigin
-+        val startWidth = (anchor?.size?.width?.takeIf { it > 0 }?.toFloat() ?: fallbackSize)
-+            .coerceAtMost(size.width)
-+        val startHeight = (anchor?.size?.height?.takeIf { it > 0 }?.toFloat() ?: fallbackSize)
-+            .coerceAtMost(size.height)
-+        val width = startWidth + (size.width - startWidth) * f
-+        val height = startHeight + (size.height - startHeight) * f
-+        val widthScale = if (size.width > 0f) width / size.width else 1f
++        val startWidth = (anchor?.size?.width?.takeIf { it > 0 }?.toFloat() ?: fallbackSize) + extraWidth
++        val startHeight = (anchor?.size?.height?.takeIf { it > 0 }?.toFloat() ?: fallbackSize) + extraHeight
++        val rawWidth = startWidth + (natural.width - startWidth) * f
++        val rawHeight = startHeight + (natural.height - startHeight) * f
++        val widthScale = if (natural.width > 0) rawWidth / natural.width else 1f
 +        val migration = originProgress() * (1f - widthScale)
-+        val x = (origin.pivotFractionX * (size.width - width) +
-+            (0.5f - origin.pivotFractionX) * size.width * migration)
-+            .coerceIn(0f, (size.width - width).coerceAtLeast(0f))
-+        val y = (origin.pivotFractionY * (size.height - height) +
-+            (0.5f - origin.pivotFractionY) * size.height * migration)
-+            .coerceIn(0f, (size.height - height).coerceAtLeast(0f))
++        val canvasWidth = natural.width + 2f * room
++        val canvasHeight = natural.height + 2f * room
++        val width = rawWidth.coerceIn(0f, canvasWidth)
++        val height = rawHeight.coerceIn(0f, canvasHeight)
++        val x = (room + origin.pivotFractionX * (natural.width - rawWidth) +
++            (0.5f - origin.pivotFractionX) * natural.width * migration)
++            .coerceIn(0f, (canvasWidth - width).coerceAtLeast(0f))
++        val y = (room + origin.pivotFractionY * (natural.height - rawHeight) +
++            (0.5f - origin.pivotFractionY) * natural.height * migration)
++            .coerceIn(0f, (canvasHeight - height).coerceAtLeast(0f))
 +        RoundRect(Rect(x, y, x + width, y + height), CornerRadius(min(corner, min(width, height) / 2f)))
 +    }
-+    Box(
-+        modifier = modifier
-+            .then(style.interactionModifier)
-+            .onSizeChanged(onSizeChanged)
-+            .graphicsLayer {
-+                alpha = (fractionProgress() * if (isEntering) 7f else 3.6f).coerceIn(0f, 1f)
-+                // Give the whole settled panel the spring overshoot, without revealing empty
-+                // pixels outside the material canvas or allocating a larger sampling buffer.
-+                scaleX = fractionProgress().coerceAtLeast(1f)
-+                scaleY = scaleX
-+                shape = PopupPanelOutline(panel(size))
-+                shadowElevation = 16.dp.toPx()
-+                ambientShadowColor = Color.Black.copy(alpha = 0.125f)
-+                spotShadowColor = ambientShadowColor
-+            }
-+            .drawWithCache {
-+                val clip = Path()
-+                val rim = Path()
-+                onDrawWithContent {
-+                    val rect = panel(size)
-+                    clip.reset()
-+                    clip.addRoundRect(rect)
-+                    clipPath(clip) { this@onDrawWithContent.drawContent() }
-+                    style.border?.let { border ->
-+                        val strokeWidth = border.width.toPx()
-+                        val inset = strokeWidth / 2f
-+                        val width = (rect.width - strokeWidth).coerceAtLeast(0f)
-+                        val height = (rect.height - strokeWidth).coerceAtLeast(0f)
-+                        val radius = (rect.topLeftCornerRadius.x - inset).coerceAtLeast(0f)
-+                        rim.reset()
-+                        rim.addRoundRect(RoundRect(0f, 0f, width, height, CornerRadius(radius)))
-+                        translate(rect.left + inset, rect.top + inset) {
-+                            // Size the gradient to the actual panel, including the small opening frame.
-+                            val savedSize = drawContext.size
-+                            drawContext.size = Size(width, height)
-+                            try { drawPath(rim, border.brush, style = Stroke(strokeWidth)) }
-+                            finally { drawContext.size = savedSize }
++    Layout(
++        modifier = modifier.padding(PopupMorphShadowPadding).then(style.interactionModifier),
++        content = {
++            Box(Modifier
++                .graphicsLayer {
++                    // Only the material fades. At fraction=0 the trigger clone is still visible.
++                    alpha = (fractionProgress() * if (isEntering) 7f else 3.6f).coerceIn(0f, 1f)
++                    shape = PopupPanelOutline(panel())
++                    shadowElevation = 16.dp.toPx()
++                    ambientShadowColor = Color.Black.copy(alpha = 0.125f)
++                    spotShadowColor = ambientShadowColor
++                }
++                .drawWithCache {
++                    val clip = Path()
++                    val rim = Path()
++                    onDrawWithContent {
++                        val rect = panel()
++                        clip.reset()
++                        clip.addRoundRect(rect)
++                        clipPath(clip) { this@onDrawWithContent.drawContent() }
++                        style.border?.let { border ->
++                            val strokeWidth = border.width.toPx()
++                            val inset = strokeWidth / 2f
++                            val width = (rect.width - strokeWidth).coerceAtLeast(0f)
++                            val height = (rect.height - strokeWidth).coerceAtLeast(0f)
++                            val radius = (rect.topLeftCornerRadius.x - inset).coerceAtLeast(0f)
++                            rim.reset()
++                            rim.addRoundRect(RoundRect(0f, 0f, width, height, CornerRadius(radius)))
++                            translate(rect.left + inset, rect.top + inset) {
++                                val savedSize = drawContext.size
++                                drawContext.size = Size(width, height)
++                                try { drawPath(rim, border.brush, style = Stroke(strokeWidth)) }
++                                finally { drawContext.size = savedSize }
++                            }
 +                        }
 +                    }
 +                }
-+            },
-+    ) {
-+        // The canvas does not scale with the text, so sampled pixels never drift or stretch
-+        // while the silhouette grows. Kyant press/drag feedback remains on the common parent.
-+        Box(Modifier.matchParentSize().then(style.surfaceModifier).background(background))
-+        Box(Modifier.graphicsLayer {
-+            val rect = panel(size)
-+            val f = fractionProgress()
-+            val from = if (isEntering) 0.22f else 0.30f
-+            val to = if (isEntering) 0.62f else 0.78f
-+            alpha = ((f - from) / (to - from)).coerceIn(0f, 1f)
-+            scaleX = if (size.width > 0f) rect.width / size.width else 1f
-+            scaleY = scaleX
-+            translationX = (rect.left + rect.right - size.width) / 2f
-+            translationY = (rect.top + rect.bottom - size.height) / 2f
-+            val step = (6f * (1f - abs(2f * f - 1f)).coerceIn(0f, 1f)).roundToInt()
-+            renderEffect = if (step == 0) null else blurSteps[step] ?: run {
-+                val radius = step.dp.toPx()
-+                BlurEffect(radius, radius, TileMode.Decal).also { blurSteps[step] = it }
-+            }
-+        }) { content() }
++                .then(style.surfaceModifier)
++                .background(background)
++            )
++            Box(Modifier
++                .onSizeChanged(onSizeChanged)
++                .drawWithCache {
++                    val clip = Path()
++                    onDrawWithContent {
++                        val rect = panel()
++                        clip.reset()
++                        clip.addRoundRect(RoundRect(
++                            Rect(rect.left - room, rect.top - room, rect.right - room, rect.bottom - room),
++                            rect.topLeftCornerRadius,
++                        ))
++                        clipPath(clip) { this@onDrawWithContent.drawContent() }
++                    }
++                }
++                .graphicsLayer {
++                    val rect = panel()
++                    val f = fractionProgress()
++                    val from = if (isEntering) 0.22f else 0.30f
++                    val to = if (isEntering) 0.62f else 0.78f
++                    alpha = ((f - from) / (to - from)).coerceIn(0f, 1f)
++                    scaleX = if (size.width > 0f) rect.width / size.width else 1f
++                    scaleY = scaleX
++                    translationX = (rect.left + rect.right - size.width) / 2f - room
++                    translationY = (rect.top + rect.bottom - size.height) / 2f - room
++                    val step = (6f * (1f - abs(2f * f - 1f)).coerceIn(0f, 1f)).roundToInt()
++                    renderEffect = if (step == 0) null else blurSteps[step] ?: run {
++                        val radius = step.dp.toPx()
++                        BlurEffect(radius, radius, TileMode.Decal).also { blurSteps[step] = it }
++                    }
++                }
++            ) { content() }
++            Box(Modifier.clearAndSetSemantics {}.graphicsLayer {
++                val rect = panel()
++                alpha = (1f - fractionProgress() * if (isEntering) 3.2f else 1.7f).coerceIn(0f, 1f)
++                translationX = (rect.left + rect.right - size.width) / 2f
++                translationY = (rect.top + rect.bottom - size.height) / 2f
++            }) { collapseContent?.invoke() }
++        },
++    ) { measurables, constraints ->
++        val roomPx = room.toInt()
++        val labels = measurables[1].measure(constraints.offset(-roomPx * 2, -roomPx * 2))
++        naturalSize[0] = IntSize(labels.width, labels.height)
++        val canvasWidth = labels.width + roomPx * 2
++        val canvasHeight = labels.height + roomPx * 2
++        val material = measurables[0].measure(Constraints.fixed(canvasWidth, canvasHeight))
++        val trigger = measurables[2].measure(Constraints(
++            maxWidth = (anchor?.size?.width?.takeIf { it > 0 } ?: labels.width).coerceAtLeast(0),
++            maxHeight = constraints.maxHeight,
++        ))
++        layout(canvasWidth, canvasHeight) {
++            material.place(0, 0)
++            labels.place(roomPx, roomPx)
++            trigger.place(0, 0)
++        }
 +    }
 +}
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayListPopup.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayListPopup.kt
+@@ -51,6 +51,7 @@
+     visualStyle: ListPopupVisualStyle? = null,
+     onFractionProgress: ((Float) -> Unit)? = null,
+     revealLimitHeight: Dp = 0.dp,
++    collapseContent: (@Composable () -> Unit)? = null,
+     content: @Composable () -> Unit,
+ ) {
+     ListPopupLayout(
+@@ -81,6 +82,7 @@
+         visualStyle = visualStyle,
+         onFractionProgress = onFractionProgress,
+         revealLimitHeight = revealLimitHeight,
++        collapseContent = collapseContent,
+         content = content,
+     )
+ }
