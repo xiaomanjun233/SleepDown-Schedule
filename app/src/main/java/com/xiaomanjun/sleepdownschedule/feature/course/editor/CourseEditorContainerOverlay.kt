@@ -564,6 +564,7 @@ internal fun CourseEditorContainerOverlayHost(
     // targetWeek is also required when a day-view course is edited, so it cannot identify
     // the visual source. Keep the source layout captured with the request instead.
     val sourceIsWeekCard = !shownRequest.sourceIsDayCard
+    val dayAppearance = shownRequest.sourceDayAppearance
     val previewCornerProgress = LocalPersonalizationPreview.current?.weekCardCornerProgress
         ?: config.weekCardCornerProgress
     val sourceCornerPx = remember(
@@ -571,6 +572,7 @@ internal fun CourseEditorContainerOverlayHost(
         density,
         adaptiveMetrics,
         sourceIsWeekCard,
+        dayAppearance?.cornerRadius,
         previewCornerProgress
     ) {
         with(density) {
@@ -583,7 +585,7 @@ internal fun CourseEditorContainerOverlayHost(
                     progress = previewCornerProgress
                 ).toPx()
             } else {
-                24.dp.toPx()
+                (dayAppearance?.cornerRadius ?: DayCourseCardCornerRadius).toPx()
             }
         }
     }
@@ -623,7 +625,6 @@ internal fun CourseEditorContainerOverlayHost(
     }
     val closingMorph = overlayPhase == CourseEditorOverlayPhase.Closing ||
         overlayPhase == CourseEditorOverlayPhase.Disposing
-    val dayAppearance = shownRequest.sourceDayAppearance
     val sourceCourse = dayAppearance?.course ?: shownRequest.course
     val shellCourse = if (closingMorph) motionState.closingCourseOverride ?: sourceCourse else sourceCourse
     val sourceMuted = dayAppearance?.muted ?: (shownRequest.sourceAdjustmentLabel == "停")
@@ -681,9 +682,17 @@ internal fun CourseEditorContainerOverlayHost(
             val placeable = measurable.measure(Constraints.fixed(width, height))
             layout(width, height) { placeable.place(0, 0) }
         }
-    val corner = remember(frameState, density) {
+    val corner = remember(frameState, density, sourceIsWeekCard, sourceCornerPx, sourceRect) {
         derivedStateOf {
-            with(density) { morphFrame.cornerRadiusPx.coerceIn(6.dp.toPx(), 36.dp.toPx()).toDp() }
+            with(density) {
+                val radius = if (sourceIsWeekCard) morphFrame.cornerRadiusPx else {
+                    courseEditorDayCornerRadius(
+                        sourceCornerPx, courseEditorDaySourceScale(sourceRect, morphFrame.rect),
+                        32.dp.toPx(), morphFrame.content.destinationContentAlpha
+                    )
+                }
+                radius.coerceIn(6.dp.toPx(), 36.dp.toPx()).toDp()
+            }
         }
     }
     // A copy can land elsewhere, but its upper/lower taper still follows the opening source.
@@ -834,7 +843,10 @@ internal fun CourseEditorContainerOverlayHost(
                             .graphicsLayer {
                                 transformOrigin = TransformOrigin(0f, 0f)
                                 scaleX = morphFrame.rect.width / sourceRect.width
-                                scaleY = morphFrame.rect.height / sourceRect.height
+                                // A day card is much shorter than the destination. Scaling Y
+                                // independently changes glyph proportions and line spacing.
+                                scaleY = if (sourceIsWeekCard) morphFrame.rect.height / sourceRect.height
+                                    else courseEditorDaySourceScale(sourceRect, morphFrame.rect)
                                 alpha = sourceCoverAlpha.value
                                 val blurPx = morphFrame.content.sourceBlurPx
                                 compositingStrategy = CompositingStrategy.Offscreen

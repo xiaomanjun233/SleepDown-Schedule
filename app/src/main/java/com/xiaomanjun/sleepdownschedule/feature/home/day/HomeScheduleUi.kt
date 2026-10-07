@@ -2174,6 +2174,8 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
     }
 }
 
+internal val DayCourseCardCornerRadius = 24.dp
+
 @Composable
 internal fun DayCourseCardTextContent(
     course: CourseEntity,
@@ -2241,7 +2243,7 @@ internal fun DayCourseCardContent(
     adjustmentLabel: String?
 ) {
     val badgeInset = if (adjustmentLabel != null) {
-        (courseBadgeContentInset(with(LocalDensity.current) { courseAdjustmentBadgeHeight() }, 24.dp) - 16.dp)
+        (courseBadgeContentInset(with(LocalDensity.current) { courseAdjustmentBadgeHeight() }, DayCourseCardCornerRadius) - 16.dp)
             .coerceAtLeast(0.dp)
     } else 0.dp
     Box(Modifier.padding(bottom = badgeInset)) {
@@ -2278,7 +2280,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         visible = editId != course.id,
         sharedScope = sharedScope,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedRectangle(24.dp)
+        shape = RoundedRectangle(DayCourseCardCornerRadius)
     ) { sharedModifier ->
     Box(
         modifier = sharedModifier.then(boundsModifier).then(
@@ -2290,7 +2292,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             config = config,
             course = course,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedRectangle(24.dp),
+            shape = RoundedRectangle(DayCourseCardCornerRadius),
             // Lazy rows are detached/reused while scrolling and paging. Share the wallpaper
             // blur, but record each visible row's current sample on draw instead of retaining
             // its position-dependent display list across those lifecycle transitions.
@@ -2302,7 +2304,8 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
                 val visible = visibleBounds[0]
                 if (bounds != null && visible != null) flightRegistry?.captureSource(
                     bounds, visible,
-                    CourseEditorDayAppearance(course, periods, showTime, showWeeks, tabletFontScale, muted, adjustmentLabel)
+                    CourseEditorDayAppearance(course, periods, showTime, showWeeks, tabletFontScale, muted,
+                        adjustmentLabel, cornerRadius = DayCourseCardCornerRadius)
                 )
                 onClick(bounds)
             }) else null
@@ -2320,7 +2323,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         }
         adjustmentLabel?.let {
             CourseAdjustmentBadge(it, backdrop, config,
-                Modifier.align(Alignment.BottomEnd).courseBadgeCornerAnchor(24.dp).zIndex(7f))
+                Modifier.align(Alignment.BottomEnd).courseBadgeCornerAnchor(DayCourseCardCornerRadius).zIndex(7f))
         }
     }
     }

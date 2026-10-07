@@ -2,6 +2,8 @@ package com.xiaomanjun.sleepdownschedule.feature.course.editor
 
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.ScrollState
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.xiaomanjun.sleepdownschedule.CourseEntity
@@ -20,8 +22,22 @@ data class CourseEditorDayAppearance(
     val showWeeks: Boolean,
     val tabletFontScale: Float,
     val muted: Boolean,
-    val adjustmentLabel: String?
+    val adjustmentLabel: String?,
+    val cornerRadius: Dp = 24.dp
 )
+
+/** A short day card grows into a tall editor; glyphs must not stretch with its height. */
+internal fun courseEditorDaySourceScale(source: Rect, current: Rect): Float =
+    current.width / source.width.coerceAtLeast(1f)
+
+/** The original corner hands off to the editor together with the source content. */
+internal fun courseEditorDayCornerRadius(
+    sourceRadius: Float, sourceScale: Float, targetRadius: Float, destinationAlpha: Float
+): Float {
+    val fraction = destinationAlpha.coerceIn(0f, 1f)
+    val radius = sourceRadius * sourceScale
+    return radius + (targetRadius - radius) * fraction
+}
 
 internal data class CourseEditorClickedSource(
     val bounds: Rect,
