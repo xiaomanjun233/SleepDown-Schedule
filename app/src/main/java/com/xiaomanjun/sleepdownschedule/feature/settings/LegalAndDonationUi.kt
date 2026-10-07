@@ -92,7 +92,7 @@ fun PrivacyPolicySettingsScreen(state: AppState, backdrop: Backdrop?) {
     }
 }
 
-private fun RemoteDonationEntry.formattedAmount(): String {
+internal fun RemoteDonationEntry.formattedAmount(): String {
     val number = BigDecimal.valueOf(amountCents, 2).toPlainString()
     return when (currency) {
         "CNY" -> "¥$number"
@@ -108,24 +108,28 @@ fun DonationThanksPanel(
 	backdrop: Backdrop?,
 	section: RemoteDonationSection
 ) {
+	val entries = section.entries.filter(RemoteDonationEntry::enabled).sortedBy { it.displayOrder }
 	SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
 		SettingsInfoRow(
 			section.title.ifBlank { "捐赠致谢" },
 			section.message.ifBlank { "感谢每一份支持。" }
 		)
+		if (entries.isNotEmpty()) DonationPodium(entries.take(3))
+		if (entries.size > 3) {
 		SettingsDivider()
 		Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
 			Text("ID", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			Text("捐赠金额", modifier = Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
-		section.entries.filter(RemoteDonationEntry::enabled).forEach { item ->
+		entries.drop(3).forEach { item ->
 			SettingsDivider()
 			Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 15.dp)) {
 				Text(item.supporterId, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
 				Text(item.formattedAmount(), modifier = Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
 			}
 		}
-		if (section.entries.none(RemoteDonationEntry::enabled)) {
+		}
+		if (entries.isEmpty()) {
 			SettingsDivider()
 			Text("名单已发布，暂时还没有公开条目。", modifier = Modifier.fillMaxWidth().padding(20.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
