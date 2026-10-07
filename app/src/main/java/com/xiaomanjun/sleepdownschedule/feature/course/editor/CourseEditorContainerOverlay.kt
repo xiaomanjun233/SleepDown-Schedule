@@ -351,6 +351,7 @@ internal fun CourseEditorContainerOverlayHost(
             CourseEditorAnimatedContainer(
                 backdrop = dialogBackdrop, config = config, course = shown.copyDraft ?: shown.course,
                 muted = shown.sourceAdjustmentLabel == "停",
+                expandedOutlineLight = shown.sourceIsDayCard,
                 shape = RoundedRectangle(32.dp), progressProvider = { 1f }, alpha = 1f,
                 surfaceBackdrop = editorSurface, modifier = Modifier.fillMaxSize()
             ) {
@@ -743,6 +744,7 @@ internal fun CourseEditorContainerOverlayHost(
             config = config,
             course = shellCourse,
             muted = shownRequest.sourceAdjustmentLabel == "停",
+            expandedOutlineLight = shownRequest.sourceIsDayCard,
             shape = shellShape,
             progressProvider = { morphFrame.shapeProgress },
             alpha = morphSurfaceAlpha,
@@ -776,7 +778,6 @@ internal fun CourseEditorContainerOverlayHost(
                 if (showSourceCover) {
                     CourseEditorSourceShell(
                         course = shellCourse,
-                        backdrop = backdrop,
                         config = config,
                         sourceIsWide = !sourceIsWeekCard,
                         adaptiveMetrics = adaptiveMetrics,
@@ -792,6 +793,21 @@ internal fun CourseEditorContainerOverlayHost(
                             }
                     )
                 }
+            }
+        }
+        if (showSourceCover && shownRequest.sourceAdjustmentLabel != null) {
+            // The original badge straddles the card's rounded edge. Keep its clone outside
+            // the shell clip too, otherwise a stopped/makeup card starts with a cut-off badge.
+            Box(animatedModifier.graphicsLayer {
+                alpha = sourceCoverAlpha.value
+                // Modulate the vector label directly so alpha does not crop its small outset.
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+            }) {
+                com.xiaomanjun.sleepdownschedule.feature.home.CourseAdjustmentBadge(
+                    shownRequest.sourceAdjustmentLabel, backdrop, config,
+                    Modifier.align(Alignment.BottomEnd)
+                        .courseBadgeCornerAnchor(with(density) { sourceCornerPx.toDp() })
+                )
             }
         }
     }
@@ -908,6 +924,7 @@ private fun CourseEditorAnimatedContainer(
     config: ScheduleConfigEntity,
     course: CourseEntity,
     muted: Boolean,
+    expandedOutlineLight: Boolean,
     shape: androidx.compose.ui.graphics.Shape,
     progressProvider: () -> Float,
     alpha: Float,
@@ -929,6 +946,7 @@ private fun CourseEditorAnimatedContainer(
         config = config,
         course = course,
         muted = muted,
+        expandedOutlineLight = expandedOutlineLight,
         modifier = modifier.graphicsLayer { this.alpha = alpha }.drawWithCache {
             // Keep the shell's outline in the parent recording across the fixed-allocation
             // handoff. Child RenderNodes may otherwise replay rectangular pixels for one frame
@@ -956,7 +974,6 @@ private fun CourseEditorAnimatedContainer(
 @Composable
 private fun CourseEditorSourceShell(
     course: CourseEntity,
-    backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     sourceIsWide: Boolean,
     adaptiveMetrics: HomeAdaptiveMetrics,
@@ -980,10 +997,6 @@ private fun CourseEditorSourceShell(
         } else {
             com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseOverlayCardContent(
                 course, config, muted = adjustmentLabel == "停", badgeInset = badgeInset)
-        }
-        adjustmentLabel?.let {
-            com.xiaomanjun.sleepdownschedule.feature.home.CourseAdjustmentBadge(it, backdrop, config,
-                Modifier.align(Alignment.BottomEnd).courseBadgeCornerAnchor(sourceCorner))
         }
     }
 }
