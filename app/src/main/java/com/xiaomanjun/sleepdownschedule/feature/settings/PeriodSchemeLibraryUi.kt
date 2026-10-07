@@ -169,7 +169,7 @@ fun PeriodSchemeManagementScreen(
             val message = if (request.creating) "已新建${saved.name}" else "作息已保存，引用它的课表已同步更新"
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         },
-        managementContent = {
+        managementContent = { hideSource ->
             Box(Modifier.fillMaxSize()) {
                 LazyColumn(Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = navigationBottom + 100.dp),
@@ -182,6 +182,7 @@ fun PeriodSchemeManagementScreen(
                     } }
                     items(library, key = { it.id }) { saved ->
                         PeriodSchemeCard(saved, isCurrent(saved), loaded && !busy, backdrop, visualState.config,
+                            hideEditAction = hideSource && editing?.libraryId == saved.id,
                             disambiguate = library.count { it.name == saved.name } > 1,
                             onEdit = { source -> editing = PeriodSchemeManagementRequest(UUID.randomUUID().toString(), saved.id,
                                 savedPeriodSchemeSession(saved, state.config), source, original = saved) },
@@ -210,7 +211,7 @@ fun PeriodSchemeManagementScreen(
                     },
                     modifier = Modifier.align(Alignment.BottomEnd)
                         .padding(end = 32.dp, bottom = navigationBottom + 32.dp)
-                        .minimumInteractiveComponentSize().alpha(if (canCreate) 1f else 0.38f)
+                        .minimumInteractiveComponentSize().alpha(if (hideSource && editing?.creating == true) 0f else if (canCreate) 1f else 0.38f)
                         .semantics { if (!canCreate) disabled() }
                         .onGloballyPositioned { addBounds = it.boundsInRoot() },
                 )
@@ -262,10 +263,11 @@ fun PeriodSchemeManagementScreen(
 @Composable
 private fun PeriodSchemeCard(
     saved: SavedPeriodScheme, selected: Boolean, enabled: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntity,
-    disambiguate: Boolean, onEdit: (Rect) -> Unit, onDuplicate: () -> Unit,
+    disambiguate: Boolean, hideEditAction: Boolean, onEdit: (Rect) -> Unit, onDuplicate: () -> Unit,
     onDelete: () -> Unit, onSelect: () -> Unit
 ) {
     var editBounds by remember { mutableStateOf(Rect.Zero) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
     val parts = listOf("上午" to saved.morningPeriodCount, "中午" to saved.noonPeriodCount,
         "下午" to saved.afternoonPeriodCount, "晚上" to saved.eveningPeriodCount).filter { it.second > 0 }
     val starts = listOf("上午" to saved.morningStartTime, "中午" to saved.noonStartTime,
@@ -310,9 +312,14 @@ private fun PeriodSchemeCard(
                 DialogLiquidButton(
                     backdrop = backdrop, label = "编辑${saved.name}",
                     onClick = { if (enabled) onEdit(editBounds) },
-                    modifier = Modifier.minimumInteractiveComponentSize().alpha(if (enabled) 1f else 0.38f)
+                    modifier = Modifier.minimumInteractiveComponentSize().alpha(if (hideEditAction) 0f else if (enabled) 1f else 0.38f)
                         .semantics { if (!enabled) disabled() }
-                        .onGloballyPositioned { editBounds = it.boundsInRoot() },
+                        .onGloballyPositioned {
+                            val bounds = it.boundsInRoot()
+                            val half = with(density) { 21.dp.toPx() }
+                            editBounds = Rect(bounds.center.x - half, bounds.center.y - half,
+                                bounds.center.x + half, bounds.center.y + half)
+                        },
                     role = DialogButtonRole.Confirm, iconRes = R.drawable.ic_edit,
                     roundIcon = true, shadowEnabled = false
                 )

@@ -699,7 +699,8 @@ fun DialogLiquidButton(
     shadowEnabled: Boolean = true,
     shadowStyle: Shadow = Shadow.Default,
     height: Dp = 40.dp,
-    horizontalPadding: Dp = 18.dp
+    horizontalPadding: Dp = 18.dp,
+    content: (@Composable () -> Unit)? = null
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val useMonochromeNeutral = role == DialogButtonRole.Neutral && monochromeNeutral
@@ -746,18 +747,20 @@ fun DialogLiquidButton(
             shadowEnabled = shadowEnabled,
             shadowStyle = shadowStyle
         ) {
-            resolvedIconRes?.let {
-                Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
-            }
-            if (!useRoundIcon) {
-                Text(
-                    label,
-                    color = textColor,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    softWrap = false
-                )
+            if (content != null) content() else {
+                resolvedIconRes?.let {
+                    Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
+                }
+                if (!useRoundIcon) {
+                    Text(
+                        label,
+                        color = textColor,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
         }
     } else {
@@ -776,18 +779,20 @@ fun DialogLiquidButton(
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            resolvedIconRes?.let {
-                Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
-            }
-            if (!useRoundIcon) {
-                Text(
-                    label,
-                    color = textColor,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    softWrap = false
-                )
+            if (content != null) content() else {
+                resolvedIconRes?.let {
+                    Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
+                }
+                if (!useRoundIcon) {
+                    Text(
+                        label,
+                        color = textColor,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
         }
     }

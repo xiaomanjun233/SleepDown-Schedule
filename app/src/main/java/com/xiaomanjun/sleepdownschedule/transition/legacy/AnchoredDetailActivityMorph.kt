@@ -322,7 +322,7 @@ internal fun AnchoredDetailActivityMorph(
                         },
                         if (usesHomeMenuDestinationMotion) {
                             tween(
-                                durationMillis = HomeMenuDestinationLegacyMotion.OpenDurationMillis -
+                                durationMillis = HomeMenuPageOpenDurationMillis -
                                     HomeAnchoredMorphBackgroundDelayMillis,
                                 delayMillis = HomeAnchoredMorphBackgroundDelayMillis,
                                 easing = HomeAnchoredBackgroundEasing
@@ -337,7 +337,7 @@ internal fun AnchoredDetailActivityMorph(
                         1f,
                         if (usesHomeMenuDestinationMotion) {
                             tween(
-                                HomeMenuDestinationLegacyMotion.OpenDurationMillis,
+                                HomeMenuPageOpenDurationMillis,
                                 easing = LinearEasing
                             )
                         } else if (usesPageMotion) {
@@ -427,7 +427,8 @@ internal fun AnchoredDetailActivityMorph(
 }
 
 /** A single bounded expansion: page geometry never overshoots or reverses direction. */
-private val HomeMenuPageOpenEasing = CubicBezierEasing(0.22f, 0f, 0.20f, 1f)
+private const val HomeMenuPageOpenDurationMillis = 420
+private val HomeMenuPageOpenEasing = CubicBezierEasing(0.24f, 0.12f, 0.24f, 1f)
 
 /** Full-page routes retain the complete source menu until its contents hand off inside the shell. */
 @Composable
@@ -460,7 +461,7 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
         derivedStateOf {
             if (!closing) {
                 val expansion = HomeMenuPageOpenEasing.transform(p)
-                val handoff = anchoredDestinationSmoothStep(0.06f, 0.34f, p)
+                val handoff = anchoredDestinationSmoothStep(0.04f, 0.28f, p)
                 val sourceRadius = with(density) { sourceCornerRadius.toPx() }
                 // Keep the source outline through the content handoff, then retain a rounded
                 // page card throughout travel. Flatten only while settling into full screen.
@@ -553,6 +554,13 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
         derivedStateOf { if (closing) 1f - collapseAlpha else 1f }
     }
     val maxContentBlurPx = with(density) { 8.dp.toPx() }
+    // The menu-to-page route keeps its own geometry and timing. Reuse blur effects instead of
+    // creating a new platform effect for every moving frame of the cached page/source.
+    val contentBlurEffects = remember(maxContentBlurPx) {
+        List(25) { step ->
+            if (step == 0) null else platformBlurRenderEffect(maxContentBlurPx * step / 24f)
+        }
+    }
     val destinationBlurPx by remember(closing, destinationFirstOpening, maxContentBlurPx) {
         derivedStateOf {
             val fraction = if (destinationFirstOpening && !closing) {
@@ -681,10 +689,8 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                     .graphicsLayer {
                         alpha = sourceAlpha
                         renderEffect = if (p < 0.999f) {
-                            platformBlurRenderEffect(
-                                anchoredDestinationSmoothStep(0.015f, 0.25f, p) *
-                                    maxContentBlurPx
-                            )
+                            contentBlurEffects[(anchoredDestinationSmoothStep(0.015f, 0.25f, p) * 24f)
+                                .roundToInt().coerceIn(0, 24)]
                         } else {
                             null
                         }
@@ -741,6 +747,14 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
             Box(
                 Modifier
                     .fillMaxSize()
+                    // Transition alpha/blur wrap the recording, so the cached page remains clear
+                    // and opaque instead of carrying a second animated effect inside its pixels.
+                    .graphicsLayer {
+                        alpha = if (!closing && p == 0f) 0.001f else destinationAlpha
+                        renderEffect = if (fullOpenEndpoint) null else contentBlurEffects[
+                            (destinationBlurPx / maxContentBlurPx * 24f).roundToInt().coerceIn(0, 24)
+                        ]
+                    }
                     .drawWithContent {
                         val moving = !fullOpenEndpoint
                         if (!moving) {
@@ -762,11 +776,6 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                                 drawLayer(destinationContentLayer)
                             }
                         }
-                    }
-                    .graphicsLayer {
-                        alpha = destinationAlpha
-                        renderEffect = if (fullOpenEndpoint) null
-                            else platformBlurRenderEffect(destinationBlurPx)
                     }
             ) {
                 CompositionLocalProvider(LocalGlassCoordinatesFrozen provides freezeContentCoordinates) {

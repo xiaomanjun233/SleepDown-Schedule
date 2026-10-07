@@ -392,6 +392,7 @@ internal fun GlassMiuixDetailActivityScaffold(
                                 translationY = 28.dp.toPx() * editorProgress.floatValue
                                 scaleX = 1f - 0.04f * editorProgress.floatValue
                                 scaleY = scaleX
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
                                 alpha = 1f - editorProgress.floatValue
                                 renderEffect = if (editorProgress.floatValue > 0f && editorProgress.floatValue < 1f) editorUnderlayBlur else null
                             }

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.*
@@ -27,6 +28,7 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.geometry.Size
@@ -34,6 +36,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.IntOffset
+import com.xiaomanjun.sleepdownschedule.R
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -64,15 +69,21 @@ private val TimelineInsertEasing = CubicBezierEasing(0.2f, 0f, 0.2f, 1f)
 private val TimelineRemoveEasing = CubicBezierEasing(0.4f, 0f, 1f, 1f)
 private val TimelineMinuteHeight = 4.dp
 private val TimelineDragMinuteStep = 8.dp
+private const val TimelineEnterDuration = 480
 private fun timelineSceneProgress(progress: Float, closing: Boolean): Float =
     if (closing) 1f - TimelineExitEasing.transform(1f - progress) else TimelineEnterEasing.transform(progress)
 
 private fun timelineRowProgress(progress: Float, order: Int, closing: Boolean): Float {
-    val delay = order.coerceAtMost(8) * 0.024f
+    val delay = if (closing) order.coerceAtMost(8) * 0.018f
+        else 0.10f + order.coerceAtMost(8) * 0.032f
     val elapsed = if (closing) 1f - progress else progress
-    val local = ((elapsed - delay) / (1f - delay)).coerceIn(0f, 1f)
+    val local = ((elapsed - delay) / if (closing) (1f - delay) else 0.48f).coerceIn(0f, 1f)
     return if (closing) 1f - TimelineExitEasing.transform(local) else TimelineEnterEasing.transform(local)
 }
+
+private fun timelineRailProgress(progress: Float, closing: Boolean): Float =
+    if (closing) ((progress - 0.68f) / 0.32f).coerceIn(0f, 1f)
+    else TimelineEnterEasing.transform(((progress - 0.85f) / 0.15f).coerceIn(0f, 1f))
 // The moving action needs its position before the underlay starts to sink.
 private fun LayoutCoordinates.timelineBoundsInRoot() = Rect(
     localToRoot(Offset.Zero), Size(size.width.toFloat(), size.height.toFloat())
@@ -166,7 +177,7 @@ internal fun PeriodSchemeEditor(
     onCountsChange: (Int, Int, Int, Int) -> Unit,
     topPadding: androidx.compose.ui.unit.Dp,
     leadingContent: @Composable () -> Unit,
-    managementContent: (@Composable () -> Unit)? = null,
+    managementContent: (@Composable (hideSource: Boolean) -> Unit)? = null,
     managementRequest: PeriodSchemeManagementRequest? = null,
     onSaveSession: (suspend (PeriodTimelineSession) -> Unit)? = null,
     onEditorFinished: () -> Unit = {},
@@ -196,10 +207,13 @@ internal fun PeriodSchemeEditor(
     val breakExpansion = remember { Animatable(1f) }
     var previousBreakHeights by remember { mutableStateOf(emptyMap<String, Dp>()) }
     val motion = remember { Animatable(0f) }
+    val editorOpen by remember { derivedStateOf { motion.value == 1f } }
     val scope = rememberCoroutineScope()
     val normalScroll = rememberScrollState()
     var actionSource by remember { mutableStateOf(Rect.Zero) }
     var frozenActionSource by remember { mutableStateOf(Rect.Zero) }
+    var editorOrigin by remember { mutableStateOf(Offset.Zero) }
+    var actionDestination by remember { mutableStateOf(Rect.Zero) }
     val density = LocalDensity.current
     val sunkenBlur = remember(density) { platformMotionBlurRenderEffect(with(density) { 10.dp.toPx() }) }
     val headerTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp
@@ -210,7 +224,11 @@ internal fun PeriodSchemeEditor(
         drawRect(pageColor)
         drawContent()
     }
-    SideEffect { chromeProgress?.floatValue = timelineSceneProgress(motion.value, closing) }
+    LaunchedEffect(motion, chromeProgress, closing) {
+        snapshotFlow { timelineSceneProgress(motion.value, closing) }.collect {
+            chromeProgress?.floatValue = it
+        }
+    }
     DisposableEffect(chromeProgress) { onDispose { chromeProgress?.floatValue = 0f } }
 
     fun enter(value: PeriodTimelineSession) {
@@ -320,7 +338,7 @@ internal fun PeriodSchemeEditor(
     LaunchedEffect(session != null, editorLaidOut) {
         if (session != null && editorLaidOut) {
             withFrameNanos { }
-            motion.animateTo(1f, tween(360, easing = LinearEasing))
+            motion.animateTo(1f, tween(TimelineEnterDuration, easing = LinearEasing))
         }
     }
     BackHandler(enabled = session != null) { requestExit() }
@@ -333,14 +351,14 @@ internal fun PeriodSchemeEditor(
     LaunchedEffect(exitCommitRequest) {
         if (exitCommitRequest > 0 && session != null) requestExit()
     }
-    LaunchedEffect(motion.value == 1f, requestedBlock) {
-        if (motion.value == 1f && requestedBlock != null) {
+    LaunchedEffect(editorOpen, requestedBlock) {
+        if (editorOpen && requestedBlock != null) {
             pickingBlock = requestedBlock
             requestedBlock = null
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().onGloballyPositioned { editorOrigin = it.localToRoot(Offset.Zero) }) {
         if (managementContent != null) {
             Box(Modifier.fillMaxSize().graphicsLayer {
                 val p = timelineSceneProgress(motion.value, closing)
@@ -348,9 +366,10 @@ internal fun PeriodSchemeEditor(
                 translationY = 28.dp.toPx() * p
                 scaleX = 1f - 0.04f * p
                 scaleY = scaleX
+                transformOrigin = TransformOrigin(0.5f, 0f)
                 renderEffect = if (motion.value > 0f && motion.value < 1f) sunkenBlur else null
             }.then(if (session != null) Modifier.clearAndSetSemantics { } else Modifier)) {
-                managementContent()
+                managementContent(editorLaidOut)
             }
         } else {
         Column(
@@ -361,6 +380,7 @@ internal fun PeriodSchemeEditor(
                     translationY = 28.dp.toPx() * p
                     scaleX = 1f - 0.04f * p
                     scaleY = scaleX
+                    transformOrigin = TransformOrigin(0.5f, 0f)
                     renderEffect = if (motion.value > 0f && motion.value < 1f) sunkenBlur else null
                 }
                 .then(if (session != null) Modifier.clearAndSetSemantics { } else Modifier)
@@ -424,7 +444,7 @@ internal fun PeriodSchemeEditor(
             val editScroll = rememberScrollState()
             var viewportHeight by remember { mutableIntStateOf(0) }
             var retainedScroll by remember { mutableIntStateOf(0) }
-            val interactive = motion.value == 1f && !closing && !changingStructure
+            val interactive = editorOpen && !closing && !changingStructure
             LaunchedEffect(editScroll) {
                 snapshotFlow { editScroll.isScrollInProgress to editScroll.value }.collect { (scrolling, offset) ->
                     if (scrolling && dragBase == null) retainedScroll = offset
@@ -511,7 +531,7 @@ internal fun PeriodSchemeEditor(
                                                 first = blockIndex == 0 || hasAddAfter(partBlocks[blockIndex - 1]) || partBlocks[blockIndex - 1].minutes == 0,
                                                 last = blockIndex == partBlocks.lastIndex || hasAddAfter(block) || partBlocks[blockIndex + 1].minutes == 0,
                                                 modifier = Modifier.matchParentSize().graphicsLayer {
-                                                    alpha = timelineSceneProgress(motion.value, closing) *
+                                                    alpha = timelineRailProgress(motion.value, closing) *
                                                         if (stableKey in changingKeys) cardMotion.value else 1f
                                                 })
                                             }
@@ -564,18 +584,24 @@ internal fun PeriodSchemeEditor(
                     })
                 Text("编辑作息", modifier = Modifier.weight(1f).graphicsLayer { alpha = motion.value },
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.SemiBold)
-                var actionDestination by remember { mutableStateOf(Rect.Zero) }
                 Box(Modifier.onGloballyPositioned { actionDestination = it.timelineBoundsInRoot() }) {
-                    DialogLiquidButton(editorBackdrop, if (timelineSceneProgress(motion.value, closing) < 0.5f) "编辑" else "完成", { requestExit() }, role = DialogButtonRole.Confirm,
-                        modifier = Modifier.graphicsLayer {
-                            val p = timelineSceneProgress(motion.value, closing)
-                            alpha = if (editorLaidOut && actionDestination != Rect.Zero) 1f else 0f
-                            if (frozenActionSource != Rect.Zero && actionDestination != Rect.Zero) {
-                                translationX = (frozenActionSource.left - actionDestination.left) * (1f - p)
-                                translationY = (frozenActionSource.top - actionDestination.top) * (1f - p)
-                            }
-                        })
+                    // Measure the destination once. The shared action is drawn at the root,
+                    // outside the scrolling rows, so no viewport can slice it during travel.
+                    DialogLiquidButton(editorBackdrop, "完成", {}, role = DialogButtonRole.Confirm,
+                        modifier = Modifier.graphicsLayer { alpha = 0f }.clearAndSetSemantics {})
                 }
+            }
+            if (editorLaidOut && actionDestination != Rect.Zero) {
+                TimelineMovingAction(
+                    backdrop = editorBackdrop,
+                    source = frozenActionSource.takeUnless { it == Rect.Zero } ?: actionDestination,
+                    destination = actionDestination, rootOrigin = editorOrigin,
+                    sourceIcon = if (managementRequest != null) {
+                        if (managementRequest.creating) R.drawable.ic_add_course else R.drawable.ic_edit
+                    } else null,
+                    progress = { timelineSceneProgress(motion.value, closing) },
+                    onClick = { requestExit() }
+                )
             }
         }
     }
@@ -645,6 +671,39 @@ internal fun PeriodSchemeEditor(
         session?.let { edit -> TimelinePartStartPicker(part, edit, popupBackdrop, state.config,
             onDismiss = { pickingPart = null }, onChange = { session = it; pickingPart = null }) }
     }
+}
+
+@Composable
+private fun TimelineMovingAction(
+    backdrop: Backdrop?, source: Rect, destination: Rect,
+    rootOrigin: Offset, sourceIcon: Int?, progress: () -> Float, onClick: () -> Unit
+) {
+    val p = progress()
+    val bounds = androidx.compose.ui.geometry.lerp(source, destination, p)
+    val density = LocalDensity.current
+    val contentProgress = ((p - 0.20f) / 0.50f).coerceIn(0f, 1f)
+    DialogLiquidButton(
+        backdrop = backdrop,
+        label = "完成", onClick = onClick, role = DialogButtonRole.Confirm,
+        height = with(density) { bounds.height.toDp() }, horizontalPadding = 0.dp,
+        shadowEnabled = false,
+        modifier = Modifier.offset {
+            IntOffset((bounds.left - rootOrigin.x).roundToInt(), (bounds.top - rootOrigin.y).roundToInt())
+        }.width(with(density) { bounds.width.toDp() }).semantics { contentDescription = "完成编辑作息" },
+        content = {
+            Box(contentAlignment = Alignment.Center) {
+                Box(Modifier.graphicsLayer { alpha = 1f - contentProgress }) {
+                    if (sourceIcon != null) Icon(painterResource(sourceIcon), null,
+                        Modifier.size(20.dp), tint = Color.White)
+                    else Text("编辑", color = Color.White, style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                }
+                Text("完成", modifier = Modifier.graphicsLayer { alpha = contentProgress }, color = Color.White,
+                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, softWrap = false)
+            }
+        }
+    )
 }
 
 @Composable

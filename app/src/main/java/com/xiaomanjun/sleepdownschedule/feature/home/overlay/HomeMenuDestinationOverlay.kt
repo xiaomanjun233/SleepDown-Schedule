@@ -563,6 +563,8 @@ internal fun HomeMenuDestinationOverlayHost(
     var collapseHandedOff by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val destinationContentLayer = rememberGraphicsLayer()
+    val sourceMenuLayer = rememberGraphicsLayer()
+    val sourceMenuRecorded = remember { AtomicBoolean(false) }
     val destinationSurfaceBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.DialogBridge,
         providerId = "home-destination-shell"
@@ -600,6 +602,7 @@ internal fun HomeMenuDestinationOverlayHost(
             destinationContentPrepared = false
             destinationContentRecorded.set(false)
             destinationClosingRecorded.set(false)
+            sourceMenuRecorded.set(false)
             motionState.phase = HomeAnchoredOverlayPhase.Preparing
             motionState.progress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
@@ -705,6 +708,16 @@ internal fun HomeMenuDestinationOverlayHost(
             )
         }
         val maxContentBlurPx = with(density) { 5.dp.toPx() }
+        val sourceBlurEffects = remember(maxContentBlurPx) {
+            List(17) { step ->
+                if (step == 0) null else BlurEffect(
+                    maxContentBlurPx * step / 16f, maxContentBlurPx * step / 16f, TileMode.Clamp
+                )
+            }
+        }
+        val destinationBlurEffect = remember(maxContentBlurPx) {
+            BlurEffect(maxContentBlurPx, maxContentBlurPx, TileMode.Clamp)
+        }
         val morphSpec = remember(
             shown,
             target,
@@ -931,12 +944,9 @@ internal fun HomeMenuDestinationOverlayHost(
         val showSourceClone by remember(frame) {
             derivedStateOf { frame.value.sourceCloneAlpha > 0.005f }
         }
-        val showBlurredDestinationContent by remember(frame) {
-            derivedStateOf {
-                frame.value.destinationContentAlpha > 0.01f &&
-                    frame.value.destinationBlurMix > 0.005f
-            }
-        }
+        // Mount and warm the fixed blur layer while the source is still stationary. Creating
+        // this subtree at the first visible blur frame interrupts the geometry animation.
+        val retainBlurredDestinationContent = motionState.phase != HomeAnchoredOverlayPhase.Open
 
         Box(
             Modifier
@@ -1000,7 +1010,20 @@ internal fun HomeMenuDestinationOverlayHost(
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = frame.value.sourceCloneAlpha }
+                        .graphicsLayer {
+                            alpha = frame.value.sourceCloneAlpha
+                            val step = (frame.value.sourceContentBlurPx / maxContentBlurPx * 16f)
+                                .roundToInt().coerceIn(0, 16)
+                            renderEffect = sourceBlurEffects[step]
+                        }
+                        .drawWithContent {
+                            if (motionState.phase == HomeAnchoredOverlayPhase.Preparing ||
+                                !sourceMenuRecorded.get()) {
+                                sourceMenuLayer.record { this@drawWithContent.drawContent() }
+                                sourceMenuRecorded.set(true)
+                            }
+                            drawLayer(sourceMenuLayer)
+                        }
                 ) {
                     HomeAddMenuMorphPanel(
                         backdrop = backdrop,
@@ -1018,7 +1041,7 @@ internal fun HomeMenuDestinationOverlayHost(
                         },
                         surfaceAlphaProvider = { 1f },
                         contentAlphaProvider = { 1f },
-                        contentBlurRadiusPxProvider = { frame.value.sourceContentBlurPx },
+                        contentBlurRadiusPxProvider = { 0f },
                         interactive = false,
                         shape = sourceMenuShape,
                         modifier = Modifier.fillMaxSize()
@@ -1052,6 +1075,11 @@ internal fun HomeMenuDestinationOverlayHost(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .requiredSize(targetWidth, targetHeight)
+                        .graphicsLayer {
+                            val current = frame.value
+                            alpha = if (motionState.phase == HomeAnchoredOverlayPhase.Preparing) 0.001f
+                                else current.destinationContentAlpha * (1f - current.destinationBlurMix)
+                        }
                         .drawWithContent {
                             val phase = motionState.phase
                             if (phase == HomeAnchoredOverlayPhase.Preparing &&
@@ -1086,10 +1114,6 @@ internal fun HomeMenuDestinationOverlayHost(
                                     drawLayer(destinationContentLayer)
                                 }
                             }
-                        }
-                        .graphicsLayer {
-                            val current = frame.value
-                            alpha = current.destinationContentAlpha * (1f - current.destinationBlurMix)
                         }
                 ) {
                     CompositionLocalProvider(
@@ -1139,7 +1163,7 @@ internal fun HomeMenuDestinationOverlayHost(
                         }
                     }
                 }
-                if (showBlurredDestinationContent) {
+                if (retainBlurredDestinationContent) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
@@ -1151,13 +1175,10 @@ internal fun HomeMenuDestinationOverlayHost(
                             }
                             .graphicsLayer {
                                 val current = frame.value
-                                alpha = current.destinationContentAlpha * current.destinationBlurMix
+                                alpha = if (motionState.phase == HomeAnchoredOverlayPhase.Preparing) 0.001f
+                                    else current.destinationContentAlpha * current.destinationBlurMix
                                 compositingStrategy = CompositingStrategy.Offscreen
-                                renderEffect = BlurEffect(
-                                    maxContentBlurPx,
-                                    maxContentBlurPx,
-                                    TileMode.Clamp
-                                )
+                                renderEffect = destinationBlurEffect
                             }
                     )
                 }
