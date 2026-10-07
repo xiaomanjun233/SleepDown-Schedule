@@ -135,27 +135,24 @@ internal fun CourseCardText(
     }
     val shadowStyle = if (shadowStrength <= 0.001f) style else {
         val radius = with(density) {
-            if (coloredText && flatShadowStrength != null) {
-                (effectiveFontSize.toPx() * 0.42f).coerceIn(4.dp.toPx(), 8.dp.toPx())
-            } else if (coloredText) {
-                (effectiveFontSize.toPx() * 0.14f).coerceIn(1.5.dp.toPx(), 3.dp.toPx())
+            if (coloredText) {
+                (effectiveFontSize.toPx() * 0.82f).coerceIn(8.dp.toPx(), 18.dp.toPx())
             } else {
-                (effectiveFontSize.toPx() * 0.30f).coerceIn(3.dp.toPx(), 6.dp.toPx())
+                (effectiveFontSize.toPx() * 0.62f).coerceIn(6.dp.toPx(), 14.dp.toPx())
             }
         }
-        // Fixed monochrome ink needs a faint, diffuse backing rather than a visible rim.
+        // A centered, low-density halo backs the glyphs without tracing their edges.
+        // Wallpaper and flat cards use the same spread; samples only choose its strength.
         val maximumShadowAlpha = when {
-            coloredText && flatShadowStrength != null -> if (lightText) 0.54f else 0.30f
-            coloredText -> if (lightText) 0.72f else 0.38f
-            lightText -> 0.28f
-            else -> 0.18f
+            coloredText -> if (lightText) 0.42f else 0.24f
+            lightText -> 0.22f
+            else -> 0.15f
         }
         style.copy(shadow = Shadow(
             color = (if (lightText) Color.Black else Color.White).copy(
                 alpha = maximumShadowAlpha * shadowStrength
             ),
-            offset = if (coloredText && flatShadowStrength == null)
-                Offset(0f, with(density) { 0.5.dp.toPx() }) else Offset.Zero,
+            offset = Offset.Zero,
             blurRadius = radius
         ))
     }
