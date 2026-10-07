@@ -1535,28 +1535,21 @@ private fun GlassMiuixInteractivePreference(
     badgeText: String? = null,
     content: @Composable () -> Unit
 ) {
-    Box(
+    MiuixBasicComponent(
+        enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
-            .graphicsLayer(alpha = if (enabled) 1f else 0.48f)
-    ) {
-        MiuixBasicComponent(
-            enabled = enabled,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(end = controlWidth + 12.dp),
-            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
-        ) { SettingsPreferenceText(title, summary, badgeText, enabled) }
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 14.dp)
-                .size(controlWidth, controlHeight),
-            contentAlignment = Alignment.Center
-        ) {
-            content()
+            .graphicsLayer(alpha = if (enabled) 1f else 0.48f),
+        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        endActions = {
+            // Let Miuix measure the multiline label and its control in the same row. A separate
+            // overlay could retain the first-pass center while the summary wrapped on entry.
+            Box(Modifier.size(controlWidth, controlHeight),
+                contentAlignment = Alignment.Center) {
+                content()
+            }
         }
-    }
+    ) { SettingsPreferenceText(title, summary, badgeText, enabled) }
 }
 
 @Composable

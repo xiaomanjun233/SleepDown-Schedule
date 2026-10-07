@@ -35,6 +35,7 @@ class InteractiveHighlight(
     val ambientAlpha: Float = 0.08f,
     val spotAlpha: Float = 0.15f,
     val fallbackAlpha: Float = 0.25f,
+    val contrastHalo: Color = Color.Transparent,
     val fadeOutAtReleasePosition: Boolean = false,
     private val pressProgressAnimationSpec: FiniteAnimationSpec<Float> = spring(0.5f, 300f, 0.001f),
     private val positionAnimationSpec: FiniteAnimationSpec<Offset> = spring(0.5f, 300f, Offset.VisibilityThreshold)
@@ -76,6 +77,24 @@ half4 main(float2 coord) {
         val progress = pressProgressAnimation.value
         val highlightPosition = exactExternalPosition ?: releasePosition ?: positionAnimation.value
         if (progress <= 0f) return
+        // A white spot alone clips to white on a light settings page. A faint, neutral falloff
+        // around its rim keeps the same moving light visible without coloring the selected row.
+        if (contrastHalo.alpha > 0f) {
+            val center = position(size, highlightPosition)
+            val haloRadius = radius(size)
+            drawCircle(
+                brush = Brush.radialGradient(
+                    0f to Color.Transparent,
+                    0.52f to Color.Transparent,
+                    0.76f to contrastHalo.copy(alpha = contrastHalo.alpha * progress),
+                    1f to Color.Transparent,
+                    center = center,
+                    radius = haloRadius
+                ),
+                radius = haloRadius,
+                center = center
+            )
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shader != null) {
             if (ambientAlpha > 0f) {
                 drawRect(

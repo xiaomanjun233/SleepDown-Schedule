@@ -139,7 +139,7 @@ fun GeneralSettingsScreen(
         contentBottomPadding = DockScrollPadding
     ) {
         item(key = "general-appearance") {
-            GlassPreferenceSection("外观与布局") {
+            GlassPreferenceSection("外观") {
                 SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
                     val effectiveDarkMode = appUsesDarkTheme(draft)
                     SettingsThemeModeOptions(
@@ -182,7 +182,10 @@ fun GeneralSettingsScreen(
                         }
                     )
                 }
-                Spacer(Modifier.height(12.dp))
+            }
+        }
+        item(key = "general-navigation-layout") {
+            GlassPreferenceSection("导航与布局") {
                 SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
                     SleepDownLiquidDropdownPreference(
                         title = "导航模式",
