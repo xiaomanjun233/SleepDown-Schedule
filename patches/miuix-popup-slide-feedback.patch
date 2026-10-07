@@ -1,0 +1,359 @@
+diff --git a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
+--- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
++++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
+@@ -92,7 +92,7 @@
+     val currentHapticFeedback by rememberUpdatedState(hapticFeedback)
+     val onItemClicked: (Int, Int) -> Unit = remember {
+         { entryIdx, itemIdx ->
+-            currentHapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
++            if (!popupVisualStyle.slideSelection) currentHapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+             currentEntries.getOrNull(entryIdx)?.let { entry ->
+                 entry.items.getOrNull(itemIdx)?.onClick?.invoke()
+             }
+@@ -110,6 +110,7 @@
+         renderInRootScaffold = renderInRootScaffold,
+         excludeFromBackdropCapture = excludeFromBackdropCapture,
+         visualStyle = popupVisualStyle,
++        enableWindowDim = popupVisualStyle.dimBackground,
+         onFractionProgress = onFractionProgress,
+         revealLimitHeight = revealLimitHeight,
+     ) {
+diff --git a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
+--- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
++++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
+@@ -230,7 +230,7 @@
+                             .padding(end = 8.dp)
+                             .align(Alignment.CenterVertically)
+                             .weight(1f, fill = false)
+-                            .graphicsLayer { alpha = anchorContentAlpha },
++                            .graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
+                         fontSize = MiuixTheme.textStyles.body2.fontSize,
+                         color = actionColor,
+                         textAlign = TextAlign.End,
+@@ -239,7 +239,7 @@
+             }
+             DropdownArrowEndAction(
+                 actionColor = actionColor,
+-                modifier = Modifier.graphicsLayer { alpha = anchorContentAlpha },
++                modifier = Modifier.graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
+             )
+             if (itemsNotEmpty) {
+                 OverlayDropdownPopup(
+@@ -261,7 +261,7 @@
+         bottomAction = bottomAction,
+         onClick = handleClick,
+         role = Role.DropdownList,
+-        holdDownState = isHoldDown.value,
++        holdDownState = isHoldDown.value && popupVisualStyle.holdAnchor,
+         enabled = actualEnabled,
+     )
+ }
+@@ -351,7 +351,7 @@
+                     text = selectedValueText,
+                     modifier = Modifier
+                         .padding(end = 8.dp)
+-                        .graphicsLayer { alpha = anchorContentAlpha },
++                        .graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
+                     fontSize = MiuixTheme.textStyles.body2.fontSize,
+                     color = actionColor,
+                     textAlign = TextAlign.End,
+@@ -359,7 +359,7 @@
+             }
+             DropdownArrowEndAction(
+                 actionColor = actionColor,
+-                modifier = Modifier.graphicsLayer { alpha = anchorContentAlpha },
++                modifier = Modifier.graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
+             )
+             if (hasEntries) {
+                 OverlayDropdownPopup(
+@@ -381,7 +381,7 @@
+         bottomAction = bottomAction,
+         onClick = handleClick,
+         role = Role.DropdownList,
+-        holdDownState = isHoldDown.value,
++        holdDownState = isHoldDown.value && popupVisualStyle.holdAnchor,
+         enabled = actualEnabled,
+     )
+ }
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
+@@ -16,6 +16,11 @@
+ import androidx.compose.foundation.layout.sizeIn
+ import androidx.compose.foundation.layout.widthIn
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.SideEffect
++import androidx.compose.foundation.interaction.MutableInteractionSource
++import androidx.compose.ui.layout.onGloballyPositioned
++import androidx.compose.ui.graphics.luminance
+ import androidx.compose.runtime.Immutable
+ import androidx.compose.runtime.NonRestartableComposable
+ import androidx.compose.runtime.Stable
+@@ -134,6 +139,17 @@
+     }
+ 
+     val currentOnSelectedIndexChange by rememberUpdatedState(onSelectedIndexChange)
++    val slide = if (dialogMode) null else LocalPopupSlideSelection.current
++    val slideKey = remember { Any() }
++    val slideItem = remember { PopupSlideSelection.Item(enabled) { currentOnSelectedIndexChange(index) } }
++    SideEffect {
++        slideItem.enabled = enabled
++        slideItem.activate = { currentOnSelectedIndexChange(index) }
++        slide?.items?.set(slideKey, slideItem)
++    }
++    DisposableEffect(slide, slideKey) { onDispose { slide?.items?.remove(slideKey) } }
++    val highlightColor = Color(0xFF8E8E93).copy(alpha =
++        if (MiuixTheme.colorScheme.background.luminance() > 0.5f) 0.20f else 0.28f)
+     val role = if (hasSubmenu) Role.Button else Role.RadioButton
+     Row(
+         verticalAlignment = Alignment.CenterVertically,
+@@ -146,8 +162,14 @@
+                 bottom = if (isLast) 8.dp else 0.dp,
+             )
+             .squircleClip(17.dp)
+-            .drawBehind { drawRect(backgroundColorState.value) }
++            .drawBehind {
++                drawRect(backgroundColorState.value)
++                if (slide?.highlighted == slideKey) drawRect(highlightColor)
++            }
++            .onGloballyPositioned { slideItem.coordinates = it }
+             .clickable(
++                interactionSource = remember { MutableInteractionSource() },
++                indication = if (slide != null) null else androidx.compose.foundation.LocalIndication.current,
+                 enabled = enabled,
+                 role = role,
+                 onClick = { currentOnSelectedIndexChange(index) },
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
+@@ -22,6 +22,8 @@
+ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.verticalScroll
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.CompositionLocalProvider
++import androidx.compose.ui.platform.LocalHapticFeedback
+ import androidx.compose.runtime.Immutable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.Stable
+@@ -89,6 +91,10 @@
+     val itemTextStyle: TextStyle? = null,
+     val itemVerticalPadding: Dp = 10.5.dp,
+     val itemMinHeight: Dp = 0.dp,
++    val slideSelection: Boolean = false,
++    val dimBackground: Boolean = true,
++    val holdAnchor: Boolean = true,
++    val interactionModifier: Modifier = Modifier,
+ )
+ 
+ /** Optional app-level material applied consistently to every Miuix list-popup host. */
+@@ -104,6 +110,9 @@
+     content: @Composable () -> Unit,
+ ) {
+     val scrollState = rememberScrollState()
++    val slideEnabled = LocalListPopupVisualStyle.current.slideSelection
++    val selection = remember(slideEnabled) { if (slideEnabled) PopupSlideSelection() else null }
++    val haptic = LocalHapticFeedback.current
+ 
+     val measurePolicy = remember {
+         object : MeasurePolicy {
+@@ -170,10 +179,11 @@
+     }
+ 
+     Layout(
+-        content = content,
++        content = { CompositionLocalProvider(LocalPopupSlideSelection provides selection, content = content) },
+         modifier = Modifier
+             .focusGroup()
+             .height(IntrinsicSize.Min)
++            .popupSlideSelection(selection, scrollState, haptic)
+             .verticalScroll(state = scrollState),
+         measurePolicy = measurePolicy,
+     )
+@@ -676,6 +686,7 @@
+ 
+     Box(
+         modifier = modifier
++            .then(visualStyle.interactionModifier)
+             .graphicsLayer {
+                 shadowElevation = 16.dp.toPx()
+                 shape = RoundedCornerShape(cornerRadius)
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
+@@ -10,6 +10,7 @@
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.CompositionLocalProvider
+ import androidx.compose.runtime.key
+ import androidx.compose.runtime.remember
+ import androidx.compose.ui.Modifier
+@@ -41,6 +42,7 @@
+ import top.yukonga.miuix.kmp.basic.HorizontalDivider
+ import top.yukonga.miuix.kmp.basic.ListPopupColumn
+ import top.yukonga.miuix.kmp.basic.ListPopupVisualStyle
++import top.yukonga.miuix.kmp.basic.LocalListPopupVisualStyle
+ import top.yukonga.miuix.kmp.basic.PopupLayoutPosition
+ import top.yukonga.miuix.kmp.basic.popupClipReveal
+ import top.yukonga.miuix.kmp.squircle.isSquircleEnabled
+@@ -78,8 +80,10 @@
+     val isExpanded = expandedItem != null
+     val popupCornerRadius = visualStyle.cornerRadius
+     val shape = remember(popupCornerRadius) { RoundedCornerShape(popupCornerRadius) }
++    CompositionLocalProvider(LocalListPopupVisualStyle provides visualStyle) {
+     Box(
+         modifier = Modifier
++            .then(visualStyle.interactionModifier)
+             .graphicsLayer {
+                 val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
+                 scaleX = s
+@@ -153,12 +157,13 @@
+                 modifier = Modifier
+                     .matchParentSize()
+                     .graphicsLayer { alpha = maskAlpha() }
+-                    .background(maskColor)
++                    .background(if (visualStyle.dimBackground) maskColor else Color.Transparent)
+                     .pointerInput(Unit) {
+                         detectTapGestures(onTap = { onCollapseSecondary() })
+                     },
+             )
+         }
++    }
+     }
+ }
+ 
+@@ -236,8 +241,10 @@
+     val secondaryTopLeft = secondaryLocalInUnion.topLeft
+     val secondaryWidth = secondaryLocalInUnion.width
+ 
++    CompositionLocalProvider(LocalListPopupVisualStyle provides visualStyle) {
+     Box(
+         modifier = Modifier
++            .then(visualStyle.interactionModifier)
+             .graphicsLayer {
+                 val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
+                 scaleX = s
+@@ -346,6 +353,7 @@
+             )
+         }
+     }
++    }
+ }
+ 
+ /** Shared header + divider + children body for the secondary popup. Used by both the real
+diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt
+new file mode 100644
+--- /dev/null
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt
+@@ -0,0 +1,110 @@
++// Copyright 2026, compose-miuix-ui contributors
++// SPDX-License-Identifier: Apache-2.0
++package top.yukonga.miuix.kmp.basic
++
++import androidx.compose.foundation.ScrollState
++import androidx.compose.foundation.gestures.awaitEachGesture
++import androidx.compose.foundation.gestures.awaitFirstDown
++import androidx.compose.runtime.*
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.hapticfeedback.HapticFeedback
++import androidx.compose.ui.hapticfeedback.HapticFeedbackType
++import androidx.compose.ui.input.pointer.PointerEventPass
++import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
++import androidx.compose.ui.input.pointer.pointerInput
++import androidx.compose.ui.layout.LayoutCoordinates
++import androidx.compose.ui.layout.boundsInWindow
++import androidx.compose.ui.layout.onGloballyPositioned
++import kotlinx.coroutines.coroutineScope
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.flow.first
++
++internal val LocalPopupSlideSelection = staticCompositionLocalOf<PopupSlideSelection?> { null }
++
++internal class PopupSlideSelection {
++    class Item(var enabled: Boolean, var activate: () -> Unit) {
++        var coordinates: LayoutCoordinates? = null
++    }
++    val items = linkedMapOf<Any, Item>()
++    var highlighted by mutableStateOf<Any?>(null)
++    var coordinates: LayoutCoordinates? = null
++    var pointer by mutableStateOf<Offset?>(null)
++    fun hit(position: Offset): Any? {
++        val host = coordinates?.takeIf { it.isAttached } ?: return null
++        if (position.x !in 0f..host.size.width.toFloat() || position.y !in 0f..host.size.height.toFloat()) return null
++        val window = host.localToWindow(position)
++        return items.entries.firstOrNull { (_, item) ->
++            item.enabled && item.coordinates?.takeIf { it.isAttached }?.boundsInWindow()?.contains(window) == true
++        }?.key
++    }
++}
++
++internal fun Modifier.popupSlideSelection(
++    state: PopupSlideSelection?, scroll: ScrollState, haptic: HapticFeedback
++): Modifier = if (state == null) this else onGloballyPositioned { state.coordinates = it }
++    .pointerInput(state, scroll, haptic) {
++        coroutineScope {
++            // Retain access to overflow rows while holding near a viewport edge.
++            val edgeScroll = launch {
++                var lastFrame = 0L
++                while (true) {
++                    snapshotFlow { state.pointer }.first { it != null }
++                    lastFrame = 0L
++                    while (state.pointer != null) {
++                    withFrameNanos { now ->
++                        val dt = if (lastFrame == 0L) 0f else ((now - lastFrame) / 1_000_000_000f).coerceAtMost(0.04f)
++                        lastFrame = now
++                        val point = state.pointer
++                        if (point != null && scroll.maxValue > 0) {
++                            val edge = 28f * density
++                            val direction = when {
++                                point.y < edge -> -1f
++                                point.y > size.height - edge -> 1f
++                                else -> 0f
++                            }
++                            scroll.dispatchRawDelta(direction * 240f * density * dt)
++                            val next = state.hit(point)
++                            if (next != state.highlighted) {
++                                state.highlighted = next
++                                if (next != null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
++                            }
++                        }
++                    }
++                    }
++                }
++            }
++            try {
++                awaitEachGesture {
++                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
++                    // Header/back controls are not selection rows. Leave their complete
++                    // gesture to the existing Miuix clickable instead of swallowing its UP.
++                    val initialItem = state.hit(down.position) ?: return@awaitEachGesture
++                    state.pointer = down.position
++                    state.highlighted = initialItem
++                    down.consume()
++                    try {
++                        while (true) {
++                            val event = awaitPointerEvent(PointerEventPass.Initial)
++                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
++                            state.pointer = change.position
++                            val next = state.hit(change.position)
++                            if (next != state.highlighted) {
++                                state.highlighted = next
++                                if (next != null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
++                            }
++                            val released = change.changedToUpIgnoreConsumed()
++                            change.consume()
++                            if (!change.pressed) {
++                                val action = if (released) next?.let { state.items[it] }?.takeIf { it.enabled }?.activate else null
++                                state.highlighted = null
++                                state.pointer = null
++                                action?.invoke()
++                                break
++                            }
++                        }
++                    } finally { state.highlighted = null; state.pointer = null }
++                }
++            } finally { edgeScroll.cancel() }
++        }
++    }

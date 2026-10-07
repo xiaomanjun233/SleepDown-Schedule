@@ -25,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.geometry.Rect
@@ -41,6 +42,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.catalog.utils.InteractiveHighlight
+import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
@@ -197,7 +200,12 @@ private fun rememberMiuixListPopupStyle(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     cornerRadius: Dp = 25.dp
-): ListPopupVisualStyle = ListPopupVisualStyle(
+): ListPopupVisualStyle {
+    val scope = rememberCoroutineScope()
+    val highlight = remember(scope) { InteractiveHighlight(scope) }
+    // Kyant's observer does not consume input: Miuix continues to own selection and dismissal.
+    val interaction = Modifier.liquidButtonVisualTransform(highlight).then(highlight.gestureModifier)
+    return ListPopupVisualStyle(
     // Keep the stock Miuix reveal geometry; only the pixels painted inside that surface are
     // replaced by the SleepDown glass material. Corner radius follows the NexioSchedule
     // liquid-glass dropdown (25dp continuous).
@@ -205,10 +213,15 @@ private fun rememberMiuixListPopupStyle(
         backdrop = backdrop,
         config = config,
         blurRadius = 10.dp
-    ),
+    ).then(highlight.foregroundModifier),
     backgroundColor = Color.Transparent,
-    cornerRadius = cornerRadius
-)
+    cornerRadius = cornerRadius,
+    slideSelection = true,
+    dimBackground = false,
+    holdAnchor = false,
+    interactionModifier = interaction
+    )
+}
 
 @Composable
 private fun rememberSleepDownPopupRowColors(contentColor: Color? = null): DropdownColors {

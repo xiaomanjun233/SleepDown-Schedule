@@ -48,6 +48,7 @@ jobs:
           git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-cascading-popup-surface.patch"
           git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-scaffold-underlay.patch"
           git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-compact-dropdown.patch"
+          git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-popup-slide-feedback.patch"
       - uses: actions/setup-java@v6
         with:
           distribution: temurin
