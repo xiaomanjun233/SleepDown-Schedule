@@ -24,6 +24,8 @@ data class AiEduImportProgress(
     /** Human-readable state while the model is still processing the active request. */
     val liveSummary: String = "",
     val awaitingConfirmation: Boolean = false,
+    val awaitingUserInput: Boolean = false,
+    val clarificationQuestions: List<String> = emptyList(),
     val confirmActionLabel: String = "",
     val secondaryConfirmActionLabel: String = "",
     val screenModeActionLabel: String = "",
@@ -117,6 +119,9 @@ object AiEduImportProgressSession {
     internal val liveReasoning: StateFlow<AiImportLiveReasoning> = _liveReasoning.asStateFlow()
 
     internal fun beginReasoning(taskId: String): (String) -> Unit = synchronized(lock) {
+        if (_progress.value?.let { it.taskId == taskId && !it.finished } != true) {
+            return@synchronized { _: String -> }
+        }
         val generation = ++reasoningGeneration
         _liveReasoning.value = AiImportLiveReasoning(taskId)
         return@synchronized { text: String ->
@@ -168,6 +173,21 @@ object AiEduImportProgressSession {
             this.onScreenMode = onScreenMode
             this.onCancel = onCancel
         }
+    }
+
+    /** Publish a task update and its validated preview together, rejecting stopped/stale attempts. */
+    internal fun updateActiveTask(
+        taskId: String,
+        preview: ImportDraft? = null,
+        transform: (AiEduImportProgress) -> AiEduImportProgress
+    ): AiEduImportProgress? = synchronized(lock) {
+        val current = _progress.value?.takeIf {
+            it.taskId == taskId && !it.finished && !it.awaitingUserInput
+        } ?: return@synchronized null
+        val next = transform(current).copy(taskId = taskId)
+        if (preview != null) _previewDraft.value = preview
+        update(next)
+        next
     }
 
     fun clearActions() {

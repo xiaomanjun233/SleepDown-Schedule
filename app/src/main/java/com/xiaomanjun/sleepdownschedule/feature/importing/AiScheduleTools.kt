@@ -18,9 +18,11 @@ import kotlinx.serialization.json.jsonPrimitive
 fun aiSchedulePrompt(): String = """
 识别输入中的真实课表，并调用 IMPORT_SCHEDULE 工具提交结果。
 以可见的表头、星期、节次、课程块和周次为准；不要重复长图接缝处的课程。
-不确定的信息保留在 note 中，不要猜测。每门课的 periods 和 weeks 均不能为空。
+每门课的 periods 和 weeks 均不能为空。缺少决定排课的星期、节次、周次或总周数，且用户要求也未补充时，调用 ASK_IMPORT_DETAILS 提出最多三个清晰问题并等待回答，不要生成占位数据或猜测。
+教师、教室等非必填信息可留空，不为此打断导入。开学周由应用在导入后引导用户确认，不根据学校名称或日期猜测。
 如果原始课表给出了课程自己的真实起止时间，填写 customStartTime 和 customEndTime（HH:mm）。同节次在不同教学区域可能有不同时间和课间；按各自课程原文填写整体起止时间，不得按统一课间推算。节次作息只是默认值，不能覆盖课程真实时间。逐节铃声只能由真实教务适配器提供，不要自行生成。
 changeSummary 必须用简洁中文说明本次识别或修改了哪些课程字段，不能只写“已完成”。
+$AiImportProgressPrompt
 """.trimIndent()
 
 internal const val ScheduleImportToolName = "IMPORT_SCHEDULE"
@@ -267,6 +269,7 @@ internal fun parseScheduleToolResult(response: String): AiProviderTextResult? {
             parseChatCompletionTextResult(response, requireContent = false).reasoning
         } else {
             collectResponsesReasoning(root).joinToString("\n\n")
+                .ifBlank { importProgressSummary(responsesOutputText(root)) }
         }
     }.getOrDefault("")
     val changeSummary = runCatching {

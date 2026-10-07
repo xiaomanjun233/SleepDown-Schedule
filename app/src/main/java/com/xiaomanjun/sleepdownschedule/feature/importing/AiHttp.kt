@@ -154,6 +154,7 @@ private fun safeRequest(
         accept = "application/json",
         method = method
     )
+    requestContext.interaction?.attach(connection)
     return try {
         trace.mark(AiImportHttpPhase.BODY_WRITE_START)
         connection.outputStream.use { it.write(body) }
@@ -169,6 +170,7 @@ private fun safeRequest(
         trace.mark(AiImportHttpPhase.STREAM_END)
         text
     } catch (throwable: Throwable) {
+        requestContext.interaction?.checkActive()
         trace.fail(throwable)
         if (throwable is AiServiceResponseException) throw throwable
         throw IllegalStateException(formatAiNetworkError(url, throwable), throwable)
@@ -185,6 +187,7 @@ internal fun postJson(
     providerId: String? = null,
     requestContext: AiImportNetworkContext = AiImportNetworkContext("TEXT")
 ): String {
+    requestContext.interaction?.checkActive()
     return when {
         url.contains("/chat/completions") ->
             postChatCompletionStreaming(url, apiKey, body, authType, providerId, requestContext)
@@ -233,6 +236,7 @@ private fun postChatCompletionStreaming(
         contentType = "application/json; charset=utf-8",
         accept = "text/event-stream"
     )
+    requestContext.interaction?.attach(connection)
     return try {
         trace.mark(AiImportHttpPhase.BODY_WRITE_START)
         connection.outputStream.use { it.write(bodyBytes) }
@@ -258,13 +262,14 @@ private fun postChatCompletionStreaming(
                     trace.mark(AiImportHttpPhase.FIRST_EVENT)
                 }
                 accumulator.consume(payload)
-                reasoningPublisher.publish(accumulator.reasoning)
+                reasoningPublisher.publish(accumulator.displayReasoning)
             }
             trace.mark(AiImportHttpPhase.STREAM_END)
-            reasoningPublisher.publish(accumulator.reasoning, force = true)
+            reasoningPublisher.publish(accumulator.displayReasoning, force = true)
             accumulator.toCompletionJson()
         }
     } catch (throwable: Throwable) {
+        requestContext.interaction?.checkActive()
         trace.fail(throwable)
         if (throwable is AiServiceResponseException) throw throwable
         throw IllegalStateException(formatAiNetworkError(url, throwable), throwable)
@@ -301,6 +306,7 @@ private fun postResponsesStreaming(
         contentType = "application/json; charset=utf-8",
         accept = "text/event-stream"
     )
+    requestContext.interaction?.attach(connection)
     return try {
         trace.mark(AiImportHttpPhase.BODY_WRITE_START)
         connection.outputStream.use { it.write(bodyBytes) }
@@ -326,13 +332,14 @@ private fun postResponsesStreaming(
                     trace.mark(AiImportHttpPhase.FIRST_EVENT)
                 }
                 accumulator.consume(payload)
-                reasoningPublisher.publish(accumulator.reasoning)
+                reasoningPublisher.publish(accumulator.displayReasoning)
             }
             trace.mark(AiImportHttpPhase.STREAM_END)
-            reasoningPublisher.publish(accumulator.reasoning, force = true)
+            reasoningPublisher.publish(accumulator.displayReasoning, force = true)
             accumulator.toResponseJson()
         }
     } catch (throwable: Throwable) {
+        requestContext.interaction?.checkActive()
         trace.fail(throwable)
         if (throwable is AiServiceResponseException) throw throwable
         throw IllegalStateException(formatAiNetworkError(url, throwable), throwable)
@@ -347,21 +354,25 @@ internal class AiReasoningStreamPublisher(
     private val nanoTime: () -> Long = System::nanoTime
 ) {
     private var lastPublishedAt: Long? = null
-    private var lastLength = 0
+    private var lastText = ""
 
     fun publish(reasoning: CharSequence, force: Boolean = false) {
-        if (onUpdate == null || reasoning.isEmpty() || reasoning.length == lastLength) return
+        if (onUpdate == null || reasoning.isEmpty()) return
+        val text = reasoning.takeLast(4_000).toString()
+        if (text == lastText) return
         val now = nanoTime()
         if (!force && lastPublishedAt?.let { now - it < 100_000_000L } == true) return
         lastPublishedAt = now
-        lastLength = reasoning.length
-        onUpdate(reasoning.takeLast(4_000).toString())
+        lastText = text
+        onUpdate(text)
     }
 }
 
 internal class ChatCompletionSseAccumulator {
     val content = StringBuilder()
     val reasoning = StringBuilder()
+    val displayReasoning: CharSequence get() = reasoning.takeIf { it.isNotEmpty() }
+        ?: importProgressSummary(content)
     var finishReason = ""
     var sawChunk = false
     private var fullMessage: JsonObject? = null
@@ -463,6 +474,10 @@ internal class ResponsesSseAccumulator {
     private val functionCalls = linkedMapOf<String, ResponsesFunctionCallAccumulator>()
     private val outputText = StringBuilder()
     val reasoning = StringBuilder()
+    val displayReasoning: CharSequence get() = reasoning.takeIf { it.isNotEmpty() }
+        ?: completedResponse?.let { collectResponsesReasoning(it).joinToString("\n\n") }
+            ?.takeIf(String::isNotBlank)
+        ?: importProgressSummary(completedResponse?.let(::responsesOutputText) ?: outputText)
     private var sawEvent = false
 
     fun consume(payload: String) {
@@ -496,6 +511,8 @@ internal class ResponsesSseAccumulator {
             }
             "response.output_text.delta" ->
                 event["delta"]?.jsonPrimitive?.contentOrNull?.let(outputText::append)
+            "response.reasoning_summary_part.added" ->
+                if (reasoning.isNotEmpty()) reasoning.append("\n\n")
             "response.reasoning_summary_text.delta", "response.reasoning_text.delta" ->
                 event["delta"]?.jsonPrimitive?.contentOrNull?.let(reasoning::append)
             "response.failed", "error" -> {
@@ -594,7 +611,8 @@ internal fun parseChatCompletionTextResult(response: String, requireContent: Boo
         }
         addAll(collectInlineReasoningBlocks(content))
     }.map { it.trim() }.filter { it.isNotBlank() }.distinct().joinToString("\n\n")
-    val finalContent = content.stripInlineReasoningBlocks().trim()
+        .ifBlank { importProgressSummary(content) }
+    val finalContent = content.stripInlineReasoningBlocks().stripImportProgress()
     if (requireContent && finalContent.isBlank()) {
         val detail = if (finishReason == "length") {
             "思考过程耗尽了输出额度，最终正文被截断。"
@@ -606,7 +624,7 @@ internal fun parseChatCompletionTextResult(response: String, requireContent: Boo
     return AiProviderTextResult(content = finalContent, reasoning = reasoning, finishReason = finishReason)
 }
 
-internal fun parseResponsesTextResult(response: String): AiProviderTextResult {
+internal fun parseResponsesTextResult(response: String, requireContent: Boolean = true): AiProviderTextResult {
     val root = Json.parseToJsonElement(response).jsonObject
     val rootText = root["output_text"]?.jsonPrimitive?.contentOrNull.orEmpty()
     val contentParts = mutableListOf<String>()
@@ -622,13 +640,15 @@ internal fun parseResponsesTextResult(response: String): AiProviderTextResult {
                 ?.let(contentParts::add)
         }
     }
-    val finalContent = rootText.ifBlank { contentParts.joinToString("\n") }.trim()
-    if (finalContent.isBlank()) {
+    val responseText = rootText.ifBlank { contentParts.joinToString("\n") }.trim()
+    val finalContent = responseText.stripImportProgress()
+    if (requireContent && finalContent.isBlank()) {
         throw AiServiceResponseException("AI 没有返回课程表内容。", response)
     }
     return AiProviderTextResult(
         content = finalContent,
-        reasoning = reasoningParts.distinct().joinToString("\n\n"),
+        reasoning = reasoningParts.distinct().joinToString("\n\n")
+            .ifBlank { importProgressSummary(responseText) },
         finishReason = root["status"]?.jsonPrimitive?.contentOrNull.orEmpty()
     )
 }

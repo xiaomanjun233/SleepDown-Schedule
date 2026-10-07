@@ -126,7 +126,7 @@ internal class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
                         "\n\n这是从教务 WebView 分层抓取的页面内容。DOM 文本可能包含导航、版权、重复表格或缺失字段；截图为当前页面可见渲染结果。" +
                         "\n页面来源仅用于识别上下文；仅使用本页明确给出的周次和时间，不根据学校名称或记忆推算作息。" +
                         "\n截图来自同一张课表页面，按滚动位置以原始视口比例分段发送；相邻图片可能有少量重叠，只用于校对上下文，不要把同一课程重复输出。请尽力读取并还原完整课程信息。" +
-                        "\n请先分析截图/表格结构：识别星期列、节次行、时间轴、课程块跨度、周次标注、地点和教师，再生成 JSON。请优先以截图中的真实课表为准，DOM 文本作为辅助。若课程待定或未安排，输出占位节次/周次并在备注说明需要用户手动修改。" +
+                        "\n请先分析截图/表格结构：识别星期列、节次行、时间轴、课程块跨度、周次标注、地点和教师，再生成 JSON。请优先以截图中的真实课表为准，DOM 文本作为辅助。若课程待定或未安排，先询问用户如何处理，不要编造占位节次或周次。" +
                         "\n\n来源：${input.sourceName}" +
                         "\n诊断：\n${input.warnings.joinToString("\n").ifBlank { "无" }}" +
                         "\n\n页面文本：\n${input.text}"
@@ -145,25 +145,16 @@ internal class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
                 })
             }
             put("messages", messages)
-            put("tools", JsonArray(listOf(scheduleImportChatTool())))
-            scheduleToolChoice(config, ScheduleImportToolName)?.let { put("tool_choice", it) }
+            val interactive = networkContext.inputType != "REPAIR"
+            put("tools", JsonArray(buildList {
+                add(scheduleImportChatTool())
+                if (interactive) add(askImportDetailsTool(responses = false))
+            }))
+            scheduleToolChoice(config, ScheduleImportToolName, allowProgressUpdates = interactive)?.let { put("tool_choice", it) }
             putChatSamplingAndReasoning(config)
             putChatOutputBudget(config)
         }
-        val response = postJson(
-            config.resolveRequestEndpoint(),
-            config.apiKey,
-            body.toString(),
-            config.authType,
-            config.providerId,
-            networkContext
-        )
-        val result = runCatching {
-            parseScheduleToolResult(response) ?: parseChatCompletionTextResult(response)
-        }.getOrElse {
-            if (it is AiServiceResponseException) throw it
-            throw AiServiceResponseException("AI 响应结构无法解析：${it.message.orEmpty()}", response, it)
-        }
+        val result = requestScheduleImport(config, body, networkContext)
         return if (result.finishReason == "length") {
             continueTruncatedScheduleJson(
                 config,
@@ -280,7 +271,7 @@ internal class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
     private fun JsonArrayBuilder.scheduleParserSystemMessage() {
         add(buildJsonObject {
             put("role", JsonPrimitive("system"))
-            put("content", JsonPrimitive("你是 SleepDown Schedule 的课表解析器，只能输出完整 JSON，不要输出解释文字。若输出被截断，后续请求只续写剩余 JSON。"))
+            put("content", JsonPrimitive("你是 SleepDown Schedule 的课表解析器。最终课表必须通过指定工具提交完整 JSON；允许先按要求输出独立的简短进度摘要，不能混入课程数据。若输出被截断，后续请求只续写剩余 JSON。"))
         })
     }
 
@@ -431,18 +422,14 @@ internal class OpenAiResponsesProvider : AiScheduleImportProvider {
             })
             putResponsesReasoning(config)
             putResponsesOutputBudget(config)
-            put("tools", JsonArray(listOf(scheduleImportResponsesTool())))
-            scheduleToolChoice(config, ScheduleImportToolName)?.let { put("tool_choice", it) }
+            val interactive = networkContext.inputType != "REPAIR"
+            put("tools", JsonArray(buildList {
+                add(scheduleImportResponsesTool())
+                if (interactive) add(askImportDetailsTool(responses = true))
+            }))
+            scheduleToolChoice(config, ScheduleImportToolName, allowProgressUpdates = interactive)?.let { put("tool_choice", it) }
         }
-        val response = postJson(
-            config.resolveRequestEndpoint(),
-            config.apiKey,
-            body.toString(),
-            config.authType,
-            config.providerId,
-            networkContext
-        )
-        return parseScheduleToolResult(response) ?: parseResponsesTextResult(response)
+        return requestScheduleImport(config, body, networkContext)
     }
 
     fun reviseSchedule(
@@ -549,10 +536,19 @@ internal fun JsonObjectBuilder.putResponsesReasoning(config: AiProviderConfig) {
             config.reasoningEffort.apiValue
         }
         put("effort", JsonPrimitive(effort))
-        if (config.providerId == AiProviderPresets.openAI.id && isOfficialOpenAIBaseUrl(config.baseUrl)) {
+        if (config.requestsResponsesReasoningSummary()) {
             put("summary", JsonPrimitive("auto"))
         }
     })
+}
+
+internal fun AiProviderConfig.requestsResponsesReasoningSummary(): Boolean {
+    if (reasoningEffort == AiReasoningEffort.NONE || usesMimoProtocol() ||
+        providerId == AiProviderPresets.deepSeek.id) return false
+    // Model families keep their summary protocol when served by a managed/custom gateway.
+    val name = model.lowercase()
+    return (providerId == AiProviderPresets.openAI.id && isOfficialOpenAIBaseUrl(baseUrl)) ||
+        Regex("^(gpt-[56](?:[.-]|$)|o[134](?:-|$))").containsMatchIn(name)
 }
 
 private fun JsonObjectBuilder.putResponsesOutputBudget(config: AiProviderConfig) {

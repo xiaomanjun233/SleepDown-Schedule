@@ -35,7 +35,8 @@ internal data class AiImportNetworkContext(
     val screenshotCount: Int = 0,
     val onPhase: (AiImportHttpPhase) -> Unit = {},
     val processImportanceProvider: () -> Int? = { null },
-    val onReasoningUpdate: ((String) -> Unit)? = null
+    val onReasoningUpdate: ((String) -> Unit)? = null,
+    val interaction: AiImportInteraction? = null
 )
 
 enum class StructuredOutputMode {
