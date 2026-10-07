@@ -135,7 +135,9 @@ internal fun CourseCardText(
     }
     val shadowStyle = if (shadowStrength <= 0.001f) style else {
         val radius = with(density) {
-            if (coloredText) {
+            if (coloredText && flatShadowStrength != null) {
+                (effectiveFontSize.toPx() * 0.42f).coerceIn(4.dp.toPx(), 8.dp.toPx())
+            } else if (coloredText) {
                 (effectiveFontSize.toPx() * 0.14f).coerceIn(1.5.dp.toPx(), 3.dp.toPx())
             } else {
                 (effectiveFontSize.toPx() * 0.30f).coerceIn(3.dp.toPx(), 6.dp.toPx())
@@ -143,6 +145,7 @@ internal fun CourseCardText(
         }
         // Fixed monochrome ink needs a faint, diffuse backing rather than a visible rim.
         val maximumShadowAlpha = when {
+            coloredText && flatShadowStrength != null -> if (lightText) 0.54f else 0.30f
             coloredText -> if (lightText) 0.72f else 0.38f
             lightText -> 0.28f
             else -> 0.18f
@@ -151,7 +154,8 @@ internal fun CourseCardText(
             color = (if (lightText) Color.Black else Color.White).copy(
                 alpha = maximumShadowAlpha * shadowStrength
             ),
-            offset = if (coloredText) Offset(0f, with(density) { 0.5.dp.toPx() }) else Offset.Zero,
+            offset = if (coloredText && flatShadowStrength == null)
+                Offset(0f, with(density) { 0.5.dp.toPx() }) else Offset.Zero,
             blurRadius = radius
         ))
     }

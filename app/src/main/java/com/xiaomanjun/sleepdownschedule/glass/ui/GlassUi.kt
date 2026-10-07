@@ -482,6 +482,8 @@ fun courseCardTonalPreview(seed: Long): List<Long> {
     )
 }
 
+internal const val FlatCourseCardMinimumAlpha = 0.35f
+
 internal fun courseGlassTintAlpha(cardAlpha: Float, quality: Float, hasWallpaper: Boolean): Float {
     val maximum = if (hasWallpaper) 0.68f else 0.16f
     return (cardAlpha.coerceIn(0f, 1f) * maximum * quality)
@@ -1113,7 +1115,7 @@ fun CourseGlassCard(
     }
     val liveCardAlpha = (previewState?.cardAlpha ?: config.cardAlpha).coerceIn(0f, 1f)
     val textSurfaceAlpha = when {
-        !hasWallpaper -> liveCardAlpha
+        !hasWallpaper -> liveCardAlpha.coerceAtLeast(FlatCourseCardMinimumAlpha)
         useGlass -> courseGlassTintAlpha(if (outlineLightEnabled) 0.75f else liveCardAlpha, quality, hasWallpaper) *
             courseCardBrightnessAttenuation(config.wallpaperBrightness, outlineLightEnabled)
         simpleBlurBackdrop != null -> courseSimpleBlurTintAlpha(liveCardAlpha, quality, hasWallpaper)
@@ -1280,7 +1282,7 @@ fun CourseGlassCard(
                         drawRect(
                             baseColor.copy(
                                 alpha = if (!hasWallpaper) {
-                                    alpha
+                                    alpha.coerceAtLeast(FlatCourseCardMinimumAlpha)
                                 } else if (
                                     !config.courseCardGlassEnabled &&
                                     !config.courseCardGaussianBlurEnabled &&

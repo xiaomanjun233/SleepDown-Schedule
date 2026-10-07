@@ -6912,6 +6912,7 @@ fun PersonalizePanel(
                     onOpenPalette = { openCourseColorDialog(CourseCardColorMode.COLORFUL) }
                 )
                 val glassLocked = !state.config.hasAnyWallpaper()
+                val minimumCardAlpha = if (glassLocked) FlatCourseCardMinimumAlpha else 0f
                 val alphaLabel = when {
                     !glassLocked &&
                         state.config.courseCardGlassEnabled &&
@@ -6922,8 +6923,8 @@ fun PersonalizePanel(
                 PersonalizeValueSlider(
                     sliderKey = PersonalizeCardAlphaSlider,
                     modifier = Modifier.rowEntrance(9 + weekContentRows),
-                    value = state.config.cardAlpha.coerceIn(0f, 1f),
-                    valueRange = 0f..1f,
+                    value = state.config.cardAlpha.coerceIn(minimumCardAlpha, 1f),
+                    valueRange = minimumCardAlpha..1f,
                     backdrop = backdrop,
                     label = { "$alphaLabel ${(it * 100).toInt()}%" },
                     onCommit = {
