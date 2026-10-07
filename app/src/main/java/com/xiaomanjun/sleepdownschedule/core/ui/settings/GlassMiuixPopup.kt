@@ -223,11 +223,12 @@ private fun rememberMiuixListPopupStyle(
     // Kyant's observer does not consume input: Miuix continues to own selection and dismissal.
     val interaction = Modifier.liquidButtonVisualTransform(highlight).then(highlight.gestureModifier)
     val rim = remember(dark) {
-        BorderStroke(1.dp, Brush.linearGradient(
-            0f to Color.White.copy(alpha = if (dark) 0.62f else 0.90f),
-            0.38f to Color.White.copy(alpha = 0.16f),
-            0.65f to Color.White.copy(alpha = 0.08f),
-            1f to Color.White.copy(alpha = if (dark) 0.34f else 0.56f)
+        BorderStroke(1.dp, Brush.verticalGradient(
+            0f to Color.White.copy(alpha = if (dark) 0.48f else 0.82f),
+            0.22f to Color.White.copy(alpha = 0.08f),
+            0.50f to Color.White.copy(alpha = 0.025f),
+            0.78f to Color.White.copy(alpha = 0.08f),
+            1f to Color.White.copy(alpha = if (dark) 0.48f else 0.82f)
         ))
     }
     return ListPopupVisualStyle(
@@ -237,7 +238,7 @@ private fun rememberMiuixListPopupStyle(
     surfaceModifier = Modifier.miuixCascadingPopupSurface(
         backdrop = backdrop,
         config = config,
-        blurRadius = 18.dp
+        blurRadius = 10.dp
     ).then(highlight.modifier),
     backgroundColor = Color.Transparent,
     cornerRadius = cornerRadius,

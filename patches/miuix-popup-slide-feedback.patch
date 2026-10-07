@@ -37,16 +37,17 @@
              )
              if (itemsNotEmpty) {
                  OverlayDropdownPopup(
-@@ -261,7 +261,7 @@
+@@ -261,7 +261,8 @@
          bottomAction = bottomAction,
          onClick = handleClick,
          role = Role.DropdownList,
 -        holdDownState = isHoldDown.value,
 +        holdDownState = isHoldDown.value && popupVisualStyle.holdAnchor,
++        showIndication = popupVisualStyle.holdAnchor,
          enabled = actualEnabled,
      )
  }
-@@ -351,7 +351,7 @@
+@@ -351,7 +352,7 @@
                      text = selectedValueText,
                      modifier = Modifier
                          .padding(end = 8.dp)
@@ -55,7 +56,7 @@
                      fontSize = MiuixTheme.textStyles.body2.fontSize,
                      color = actionColor,
                      textAlign = TextAlign.End,
-@@ -359,7 +359,7 @@
+@@ -359,7 +360,7 @@
              }
              DropdownArrowEndAction(
                  actionColor = actionColor,
@@ -64,12 +65,13 @@
              )
              if (hasEntries) {
                  OverlayDropdownPopup(
-@@ -381,7 +381,7 @@
+@@ -381,7 +382,8 @@
          bottomAction = bottomAction,
          onClick = handleClick,
          role = Role.DropdownList,
 -        holdDownState = isHoldDown.value,
 +        holdDownState = isHoldDown.value && popupVisualStyle.holdAnchor,
++        showIndication = popupVisualStyle.holdAnchor,
          enabled = actualEnabled,
      )
  }
@@ -89,7 +91,7 @@
  import androidx.compose.runtime.Stable
 @@ -134,6 +139,18 @@
      }
- 
+
      val currentOnSelectedIndexChange by rememberUpdatedState(onSelectedIndexChange)
 +    val slide = if (dialogMode) null else LocalPopupSlideSelection.current
 +    val slideKey = remember { Any() }
@@ -170,7 +172,7 @@
 +    val interactionModifier: Modifier = Modifier,
 +    val border: BorderStroke? = null,
  )
- 
+
  /** Optional app-level material applied consistently to every Miuix list-popup host. */
 @@ -104,6 +117,9 @@
      content: @Composable () -> Unit,
@@ -179,12 +181,12 @@
 +    val slideEnabled = LocalListPopupVisualStyle.current.slideSelection
 +    val selection = remember(slideEnabled) { if (slideEnabled) PopupSlideSelection() else null }
 +    val haptic = LocalHapticFeedback.current
- 
+
      val measurePolicy = remember {
          object : MeasurePolicy {
 @@ -170,10 +186,11 @@
      }
- 
+
      Layout(
 -        content = content,
 +        content = { CompositionLocalProvider(LocalPopupSlideSelection provides selection, content = content) },
@@ -205,7 +207,7 @@
      LaunchedEffect(Unit) {
          var previousFraction = fractionProgress()
 @@ -676,6 +695,7 @@
- 
+
      Box(
          modifier = modifier
 +            .then(visualStyle.interactionModifier)
@@ -429,11 +431,11 @@
 +    }
      }
  }
- 
+
 @@ -236,8 +243,10 @@
      val secondaryTopLeft = secondaryLocalInUnion.topLeft
      val secondaryWidth = secondaryLocalInUnion.width
- 
+
 +    CompositionLocalProvider(LocalListPopupVisualStyle provides visualStyle) {
      Box(
          modifier = Modifier
@@ -459,5 +461,69 @@
      }
 +    }
  }
- 
+
  /** Shared header + divider + children body for the secondary popup. Used by both the real
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Component.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Component.kt
+@@ -3,6 +3,7 @@
+
+ package top.yukonga.miuix.kmp.basic
+
++import androidx.compose.foundation.LocalIndication
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.interaction.MutableInteractionSource
+ import androidx.compose.foundation.layout.Arrangement
+@@ -50,6 +51,7 @@
+  * @param onClickLabel Optional label describing the click action for accessibility services.
+  * @param role The semantic [Role] of the [BasicComponent] for accessibility services.
+  * @param holdDownState Used to determine whether it is in the pressed state.
++ * @param showIndication Whether to draw the row's press feedback; click and accessibility remain active.
+  * @param enabled Whether the [BasicComponent] is enabled.
+  * @param interactionSource The [MutableInteractionSource] for the [BasicComponent].
+  *   The value should remain null or non-null for the lifetime of this component;
+@@ -72,6 +74,7 @@
+     holdDownState: Boolean = false,
+     enabled: Boolean = true,
+     interactionSource: MutableInteractionSource? = null,
++    showIndication: Boolean = true,
+ ) {
+     BasicComponent(
+         startAction = startAction,
+@@ -85,6 +88,7 @@
+         holdDownState = holdDownState,
+         enabled = enabled,
+         interactionSource = interactionSource,
++        showIndication = showIndication,
+     ) {
+         if (title != null) {
+             Text(
+@@ -116,6 +120,7 @@
+  * @param onClickLabel Optional label describing the click action for accessibility services.
+  * @param role The semantic [Role] of the [BasicComponent] for accessibility services.
+  * @param holdDownState Used to determine whether it is in the pressed state.
++ * @param showIndication Whether to draw the row's press feedback; click and accessibility remain active.
+  * @param enabled Whether the [BasicComponent] is enabled.
+  * @param interactionSource The [MutableInteractionSource] for the [BasicComponent].
+  *   The value should remain null or non-null for the lifetime of this component;
+@@ -135,6 +140,7 @@
+     holdDownState: Boolean = false,
+     enabled: Boolean = true,
+     interactionSource: MutableInteractionSource? = null,
++    showIndication: Boolean = true,
+     content: @Composable ColumnScope.() -> Unit,
+ ) {
+     @Suppress("NAME_SHADOWING")
+@@ -143,10 +149,12 @@
+
+     HoldDownObserver(holdDownState, interactionSource)
+
+-    val clickableModifier = remember(enabled, onClick != null, interactionSource, role, onClickLabel) {
++    val indication = if (showIndication) LocalIndication.current else null
++    val clickableModifier = remember(enabled, onClick != null, interactionSource, role, onClickLabel, indication) {
+         if (enabled && onClick != null) {
+             Modifier.clickable(
+                 interactionSource = interactionSource,
++                indication = indication,
+                 onClickLabel = onClickLabel,
+                 role = role,
+                 onClick = { currentOnClick?.invoke() },
