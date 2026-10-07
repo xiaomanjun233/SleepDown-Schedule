@@ -1240,6 +1240,13 @@ fun CourseScheduleAppUi(
         providerId = "home-background",
         sceneState = glassSceneState
     )
+    // Record before page translation/rounding. Course cards compare their relative position
+    // with this moving origin; the wallpaper pixels and shared blur stay unchanged on a tab switch.
+    val courseWallpaperBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Background,
+        providerId = "home-course-wallpaper",
+        sceneState = glassSceneState
+    )
     val contentBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Content,
         providerId = "home-content",
@@ -2241,11 +2248,12 @@ fun CourseScheduleAppUi(
         hasWallpaper = visualState.config.hasAnyWallpaper()
     )
     val sharedCourseRadiusPx = with(LocalDensity.current) { (sharedCourseFrame.blur ?: 0.dp).toPx() }
-    val sharedCourseBackdrop = remember(backgroundBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy) {
-        com.kyant.backdrop.backdrops.SharedBlurBackdrop(backgroundBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
+    val sharedCourseBackdrop = remember(courseWallpaperBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy) {
+        com.kyant.backdrop.backdrops.SharedBlurBackdrop(courseWallpaperBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
     }
-    val sharedCourseBackdropExpected = rootPageMotion.retains(false) &&
-        visualState.config.courseCardGlassEnabled && visualState.config.hasAnyWallpaper() &&
+    // Retained timetable cards must retain their material source as well. Removing this on
+    // Settings used to replace every card's sampler and allocate it again on the return frame.
+    val sharedCourseBackdropExpected = visualState.config.courseCardGlassEnabled && visualState.config.hasAnyWallpaper() &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val useSharedCourseBackdrop = sharedCourseBackdropExpected && wallpaperImages.source != null
     lateinit var handleHomeAgentAction: AgentActionHandler
@@ -2792,9 +2800,16 @@ fun CourseScheduleAppUi(
                         })
                         .background(transitionBackground)
                 ) {
-                    if (rootPageMotion.retains(false)) {
-                        Box(Modifier.fillMaxSize().homeSwitchLayer(rootPageMotion, secondary = false,
-                            pageClip = HomeSwitchClip.Page)) {
+                    run {
+                        Box(Modifier.fillMaxSize()
+                            .drawWithContent { if (rootPageMotion.retains(false)) drawContent() }
+                            .homeSwitchLayer(rootPageMotion, secondary = false, pageClip = HomeSwitchClip.Page)
+                            .glassBackdropProducer(courseWallpaperBackdrop, recordKey = {
+                                homeWallpaperRecordKey.value?.let { imageKey ->
+                                    imageKey to (personalizationPreviewState.wallpaperBrightness
+                                        ?: visualState.config.wallpaperBrightness)
+                                }
+                            })) {
                         if (!visualState.loaded) {
                             HomeBackdropFallback(
                                 noWallpaper = !visualState.config.hasAnyWallpaper()
@@ -2845,11 +2860,14 @@ fun CourseScheduleAppUi(
                     }
                 }
                 if (useSharedCourseBackdrop) {
-                    Box(Modifier.fillMaxSize().then(sharedCourseBackdrop.preRenderModifier {
-                        // Include the corners: they follow the tail after the faster page lands.
+                    Box(Modifier.fillMaxSize()
+                        .drawWithContent { if (rootPageMotion.retains(false)) drawContent() }
+                        .then(sharedCourseBackdrop.preRenderModifier {
+                        // This source is inside the page transform: neither translation nor
+                        // page corners change its pixels. Each card still samples its live offset.
                         homeWallpaperRecordKey.value?.let { imageKey ->
-                            listOf(imageKey, personalizationPreviewState.wallpaperBrightness
-                                ?: visualState.config.wallpaperBrightness, rootPageMotion.pageSampleKey)
+                            imageKey to (personalizationPreviewState.wallpaperBrightness
+                                ?: visualState.config.wallpaperBrightness)
                         }
                     }))
                 }
@@ -2876,7 +2894,7 @@ fun CourseScheduleAppUi(
                                     displayWeek = homeDisplayWeek,
                                     returnToCurrentWeekRequest = returnHomeWeekRequest,
                                     displayDate = homeDisplayDate,
-                                    backdrop = backgroundBackdrop,
+                                    backdrop = courseWallpaperBackdrop,
                                     dayAgentBackdrop = dayAgentBackdrop,
                                     // Dragged week cards must not sample contentBackdrop/chromeBackdrop:
                                     // they live inside contentBackdrop, so sampling it can recursively include themselves.
