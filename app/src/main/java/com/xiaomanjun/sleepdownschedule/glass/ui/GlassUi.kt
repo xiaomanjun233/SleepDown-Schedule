@@ -1113,6 +1113,7 @@ fun CourseGlassCard(
     }
     val liveCardAlpha = (previewState?.cardAlpha ?: config.cardAlpha).coerceIn(0f, 1f)
     val textSurfaceAlpha = when {
+        !hasWallpaper -> liveCardAlpha
         useGlass -> courseGlassTintAlpha(if (outlineLightEnabled) 0.75f else liveCardAlpha, quality, hasWallpaper) *
             courseCardBrightnessAttenuation(config.wallpaperBrightness, outlineLightEnabled)
         simpleBlurBackdrop != null -> courseSimpleBlurTintAlpha(liveCardAlpha, quality, hasWallpaper)
@@ -1127,6 +1128,7 @@ fun CourseGlassCard(
             (if (useGlass) liquidEffectFrame.blur ?: 0.dp else simpleBlurValue.dp).toPx()
         },
         outline = useGlass && outlineLightEnabled, expanded = expandedOutlineLight,
+        flatBackground = if (!hasWallpaper) homeFlatBackgroundColor(appUsesDarkTheme(config)) else null,
         ready = textCardReady, cardBounds = textCardBounds
     )
     val simpleMaterial = GlassMaterialSpec.simpleBlur(simpleBlurValue.dp)
@@ -1277,18 +1279,15 @@ fun CourseGlassCard(
                         val alpha = liveAlpha.coerceIn(0f, 1f)
                         drawRect(
                             baseColor.copy(
-                                alpha = if (
+                                alpha = if (!hasWallpaper) {
+                                    alpha
+                                } else if (
                                     !config.courseCardGlassEnabled &&
                                     !config.courseCardGaussianBlurEnabled &&
                                     hasWallpaper
                                 ) {
                                     // 纯纯色卡片：透明度拉满时也不能完全消失，保留可辨识底座
                                     alpha.coerceAtLeast(0.35f)
-                                } else if (
-                                    !config.courseCardGlassEnabled &&
-                                    !config.courseCardGaussianBlurEnabled
-                                ) {
-                                    alpha.coerceAtLeast(0.92f)
                                 } else {
                                     alpha.coerceAtLeast(0.86f)
                                 }

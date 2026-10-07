@@ -53,8 +53,12 @@ internal fun CourseCardText(
     // title, so background differences cannot turn individual labels into opposing colors.
     val displayedColor = if (coloredText) color.copy(alpha = 1f) else color
     val background = if (adaptiveContrast) LocalCourseTextBackground.current else null
+    val flatShadowStrength = background?.flatLuminance?.let {
+        softTextShadowStrength(floatArrayOf(it), displayedColor.luminance(), displayedColor.alpha)
+    }
     var targetShadowStrength by remember(displayedColor) { mutableFloatStateOf(0f) }
-    val shadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "course-text-soft-shadow")
+    val animatedShadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "course-text-soft-shadow")
+    val shadowStrength = flatShadowStrength ?: animatedShadowStrength
     val coordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
     val layout = remember { arrayOfNulls<TextLayoutResult>(1) }
     val lastBounds = remember(background, displayedColor) { arrayOfNulls<Rect>(1) }
@@ -132,14 +136,14 @@ internal fun CourseCardText(
     val shadowStyle = if (shadowStrength <= 0.001f) style else {
         val radius = with(density) {
             if (coloredText) {
-                (effectiveFontSize.toPx() * 0.26f).coerceIn(3.dp.toPx(), 5.5.dp.toPx())
+                (effectiveFontSize.toPx() * 0.14f).coerceIn(1.5.dp.toPx(), 3.dp.toPx())
             } else {
                 (effectiveFontSize.toPx() * 0.30f).coerceIn(3.dp.toPx(), 6.dp.toPx())
             }
         }
         // Fixed monochrome ink needs a faint, diffuse backing rather than a visible rim.
         val maximumShadowAlpha = when {
-            coloredText -> if (lightText) 0.34f else 0.26f
+            coloredText -> if (lightText) 0.72f else 0.38f
             lightText -> 0.28f
             else -> 0.18f
         }
@@ -147,13 +151,13 @@ internal fun CourseCardText(
             color = (if (lightText) Color.Black else Color.White).copy(
                 alpha = maximumShadowAlpha * shadowStrength
             ),
-            offset = Offset.Zero,
+            offset = if (coloredText) Offset(0f, with(density) { 0.5.dp.toPx() }) else Offset.Zero,
             blurRadius = radius
         ))
     }
     Text(
         text = text,
-        modifier = if (background == null) modifier else modifier.onGloballyPositioned {
+        modifier = if (background == null || flatShadowStrength != null) modifier else modifier.onGloballyPositioned {
             coordinates[0] = it
             updateAfterMotion()
         },

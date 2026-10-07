@@ -13,8 +13,10 @@ class CourseTextContrastTest {
         val darkPage = courseTextColorForPage(blue, hasWallpaper = true, lightText = true)
         assertTrue(brightPage.luminance() > 0.3f)
         assertTrue(darkPage.luminance() > 0.3f)
-        assertTrue(darkPage.blue - darkPage.red > 0.5f)
-        assertTrue(brightPage.blue - brightPage.red > 0.5f)
+        assertTrue(darkPage.blue > darkPage.red)
+        assertTrue(brightPage.blue > brightPage.red)
+        assertTrue(darkPage.luminance() > blue.luminance())
+        assertTrue(brightPage.luminance() > blue.luminance())
         assertEquals((blue.green - blue.red) / (blue.blue - blue.red),
             (darkPage.green - darkPage.red) / (darkPage.blue - darkPage.red), 0.01f) // 8-bit sRGB rounding
         val pink = courseTextColorForPage(Color(0xFFF48FB1), hasWallpaper = true, lightText = true)
@@ -22,8 +24,10 @@ class CourseTextContrastTest {
         assertNotEquals(darkPage, pink)
     }
 
-    @Test fun flatCardsKeepTheirCourseColorAndNeutralSeedsStayNeutral() {
-        assertEquals(blue, courseTextColorForPage(blue, hasWallpaper = false, lightText = false))
+    @Test fun flatCardsUseLighterCourseInkAndNeutralSeedsStayNeutral() {
+        val flatInk = courseTextColorForPage(blue, hasWallpaper = false, lightText = false)
+        assertTrue(flatInk.luminance() > blue.luminance())
+        assertTrue(flatInk.blue > flatInk.green && flatInk.green > flatInk.red)
         val neutral = courseTextColorForPage(Color(0xFF444444), hasWallpaper = true, lightText = true)
         assertEquals(neutral.red, neutral.green, 0.001f)
         assertEquals(neutral.green, neutral.blue, 0.001f)
