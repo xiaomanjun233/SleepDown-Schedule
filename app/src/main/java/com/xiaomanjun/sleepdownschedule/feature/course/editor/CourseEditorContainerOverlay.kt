@@ -293,6 +293,7 @@ internal fun CourseEditorContainerOverlayHost(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     adaptiveMetrics: HomeAdaptiveMetrics,
+    sourceCardBackdrop: Backdrop? = backdrop,
     modifier: Modifier = Modifier,
     landscapeContentInsets: PaddingValues = PaddingValues(0.dp),
     awaitOpeningGate: suspend () -> Unit = {},
@@ -707,6 +708,13 @@ internal fun CourseEditorContainerOverlayHost(
             )
         }
     }
+    // Day cards sample only wallpaper. Start from those same pixels before introducing the
+    // complete page underlay, rather than replacing a stopped card's material at the first frame.
+    val morphBackdrop = com.xiaomanjun.sleepdownschedule.glass.ui.rememberCrossfadeBackdrop(
+        source = if (shownRequest.sourceIsDayCard && hasSourceTransform) sourceCardBackdrop else backdrop,
+        destination = backdrop,
+        progress = { smoothStep(0.12f, 0.62f, morphFrame.shapeProgress) }
+    )
     val morphSurfaceAlpha = 1f
     val sourceCoverAlpha = remember(frameState, hasSourceTransform, overlayPhase) {
         derivedStateOf {
@@ -770,7 +778,7 @@ internal fun CourseEditorContainerOverlayHost(
                 ) { dismissEditor() }
         )
         CourseEditorAnimatedContainer(
-            backdrop = backdrop,
+            backdrop = morphBackdrop,
             config = config,
             course = shellCourse,
             muted = sourceMuted,

@@ -1040,6 +1040,7 @@ fun CourseGlassCard(
     renderSurface: Boolean = true,
     mountMaterial: Boolean = true,
     viewportMaterialVisible: Boolean = true,
+    cacheSharedSamples: Boolean = true,
     backdropSampleScale: Float = 1f,
     sampledShape: Shape? = null,
     expandedOutlineLight: Boolean = false,
@@ -1239,7 +1240,7 @@ fun CourseGlassCard(
                             shape = { shape },
                             effectFrame = if (unifiedLiquidSurface) unifiedLiquidEffectFrame else cardEffects,
                             effectInputKey = if (unifiedLiquidSurface) unifiedLiquidEffectFrame.materialEffectsOnly() else cardEffects,
-                            cacheSharedSamples = true,
+                            cacheSharedSamples = cacheSharedSamples,
                             backdropSampleScale = when {
                                 morphAllocation != null -> 1f
                                 // The shared recorder becomes ready during the first home draw.

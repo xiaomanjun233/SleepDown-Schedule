@@ -1555,6 +1555,12 @@ fun CourseScheduleAppUi(
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
     )
+    val courseEditorSourceBackdrop = rememberScreenScaledBackdrop(
+        backdrop = courseWallpaperBackdrop,
+        scale = { courseEditorMotionState.backgroundZoom.value },
+        rootPositionOnScreen = { homeRootPositionOnScreen },
+        rootSize = { homeReadabilityRootSize }
+    )
     // The week grid is recorded into screenGraphicsLayer at the window origin (the whole
     // readable root including the top bar). Sampling that same recorded scene keeps the
     // source-anchored overlays aligned in both day and week modes; the live chromeBackdrop
@@ -4026,6 +4032,7 @@ fun CourseScheduleAppUi(
             request = courseEditorRequest,
             state = state,
             backdrop = courseEditorBackdrop,
+            sourceCardBackdrop = courseEditorSourceBackdrop,
             config = state.config,
             adaptiveMetrics = homeAdaptiveMetrics,
             modifier = Modifier.zIndex(100f),
