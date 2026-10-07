@@ -53,7 +53,7 @@ internal fun SettingsThemeModeOptions(
                 Image(
                     painter = painterResource(preview),
                     contentDescription = null,
-                    modifier = Modifier.width(88.dp).aspectRatio(0.49f)
+                    modifier = Modifier.width(88.dp).aspectRatio(9f / 19.6f)
                 )
                 Text(
                     text = if (dark) "暗色模式" else "亮色模式",

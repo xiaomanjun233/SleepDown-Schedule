@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Native version of docs/images/theme-previews/theme_preview_week_light.svg. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
-    android:width="88dp" android:height="179.591837dp"
-    android:viewportWidth="180" android:viewportHeight="367.346939">
-    <path android:pathData="M25,0 H155 Q180,0 180,25 V342.346939 Q180,367.346939 155,367.346939 H25 Q0,367.346939 0,342.346939 V25 Q0,0 25,0 Z" android:fillColor="#707B8B"/>
-    <path android:pathData="M25,2 H155 Q178,2 178,25 V342.346939 Q178,365.346939 155,365.346939 H25 Q2,365.346939 2,342.346939 V25 Q2,2 25,2 Z" android:fillColor="#F0F2F6"/>
+    android:width="88dp" android:height="191.644444dp"
+    android:viewportWidth="180" android:viewportHeight="392">
+    <path android:pathData="M25,0 H155 Q180,0 180,25 V367 Q180,392 155,392 H25 Q0,392 0,367 V25 Q0,0 25,0 Z" android:fillColor="#707B8B"/>
+    <path android:pathData="M25,2 H155 Q178,2 178,25 V367 Q178,390 155,390 H25 Q2,390 2,367 V25 Q2,2 25,2 Z" android:fillColor="#F0F2F6"/>
     <path android:pathData="M17.5,17 H34.5 Q36,17 36,18.5 V18.5 Q36,20 34.5,20 H17.5 Q16,20 16,18.5 V18.5 Q16,17 17.5,17 Z" android:fillColor="#2B3442"/>
     <path android:pathData="M130,16 H131 Q132,16 132,17 V19 Q132,20 131,20 H130 Q129,20 129,19 V17 Q129,16 130,16 Z" android:fillColor="#A0AABB"/>
     <path android:pathData="M136,14 H137 Q138,14 138,15 V19 Q138,20 137,20 H136 Q135,20 135,19 V15 Q135,14 136,14 Z" android:fillColor="#A0AABB"/>
@@ -96,7 +96,7 @@
     <path android:pathData="M148,181 H159 Q160,181 160,182 V182 Q160,183 159,183 H148 Q147,183 147,182 V182 Q147,181 148,181 Z" android:fillColor="#42648A"/>
     <path android:pathData="M147,190.5 H160 Q161,190.5 161,191.5 V192 Q161,193 160,193 H147 Q146,193 146,192 V191.5 Q146,190.5 147,190.5 Z" android:fillColor="#42648A"/>
     <path android:pathData="M150,196.5 H157 Q158,196.5 158,197.5 V197.5 Q158,198.5 157,198.5 H150 Q149,198.5 149,197.5 V197.5 Q149,196.5 150,196.5 Z" android:fillColor="#42648A"/>
-    <group android:translateY="7.346939">
+    <group android:translateY="32">
         <path android:pathData="M30,308 H112 Q128,308 128,324 V324 Q128,340 112,340 H30 Q14,340 14,324 V324 Q14,308 30,308 Z" android:fillColor="#FFFFFF"/>
         <path android:pathData="M69,311 H75 Q88,311 88,324 V324 Q88,337 75,337 H69 Q56,337 56,324 V324 Q56,311 69,311 Z" android:fillColor="#DCEBFF"/>
         <path android:pathData="M31,315 H37 Q39,315 39,317 V322 Q39,324 37,324 H31 Q29,324 29,322 V317 Q29,315 31,315 Z" android:fillColor="@android:color/transparent" android:strokeColor="#A0AABB" android:strokeWidth="1.6" android:strokeLineCap="round" android:strokeLineJoin="round"/>
