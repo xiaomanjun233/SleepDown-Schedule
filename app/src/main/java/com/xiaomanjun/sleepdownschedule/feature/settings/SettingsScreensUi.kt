@@ -144,6 +144,7 @@ fun GeneralSettingsScreen(
                     val effectiveDarkMode = appUsesDarkTheme(draft)
                     SettingsThemeModeOptions(
                         darkMode = effectiveDarkMode,
+                        defaultHomeMode = draft.defaultHomeMode,
                         onSelected = { applyChange(draft.copy(darkMode = it, followSystemDarkMode = false)) }
                     )
                     SettingsToggleRow(
