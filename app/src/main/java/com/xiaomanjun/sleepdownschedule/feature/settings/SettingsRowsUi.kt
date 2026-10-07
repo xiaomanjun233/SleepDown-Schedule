@@ -137,7 +137,6 @@ fun SettingsAppIconStyleRow(
         title = "图标风格",
         backdrop = backdrop,
         config = config,
-        summary = "选择看板娘或简约图标风格",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 260.dp,
@@ -161,7 +160,6 @@ fun SettingsAppIconModeRow(
         title = "应用图标",
         backdrop = backdrop,
         config = config,
-        summary = "选择浅色、深色或跟随应用深色模式",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 260.dp,
@@ -189,7 +187,6 @@ fun SettingsDockAlignmentRow(
         title = "Dock 栏位置",
         backdrop = backdrop,
         config = config,
-        summary = "调整首页底部切换栏对齐方式",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 260.dp,
@@ -213,7 +210,6 @@ fun SettingsHomeStartModeRow(
         title = "默认首页视图",
         backdrop = backdrop,
         config = config,
-        summary = "选择每次打开应用时进入日视图或周视图",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 240.dp,
@@ -296,7 +292,6 @@ fun SettingsDefaultWallpaperRow(
         title = "默认壁纸",
         backdrop = backdrop,
         config = config,
-        summary = "未设置自定义壁纸时使用",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 240.dp,
@@ -396,7 +391,7 @@ fun SettingsNavigationRow(
             startAction = {
                 leadingIcon?.let {
                     Icon(it, contentDescription = null, tint = iconTint,
-                        modifier = Modifier.padding(end = 16.dp).size(26.dp))
+                        modifier = Modifier.padding(end = 12.dp).size(23.dp))
                 }
             },
             modifier = Modifier
@@ -443,7 +438,7 @@ fun SettingsNavigationRow(
     ) {
         leadingIcon?.let {
             Icon(it, contentDescription = null, tint = iconTint,
-                modifier = Modifier.padding(end = 16.dp).size(26.dp))
+                modifier = Modifier.padding(end = 12.dp).size(23.dp))
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
@@ -756,7 +751,6 @@ internal fun SettingsDayViewModeRow(
         title = "日视图模式",
         backdrop = backdrop,
         config = config,
-        summary = "两日模式会在原日视图下方继续显示第二天课程",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 220.dp,
@@ -779,7 +773,6 @@ internal fun SettingsWeekViewStyleRow(
         title = "周视图模式",
         backdrop = backdrop,
         config = config,
-        summary = "无界模式会隐藏原来的表头、周切换按钮，页面更沉浸",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 220.dp,

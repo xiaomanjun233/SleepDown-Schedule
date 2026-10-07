@@ -140,26 +140,24 @@ fun GeneralSettingsScreen(
         item(key = "general-appearance") {
             GlassPreferenceSection("外观与布局") {
                 SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
+                    val effectiveDarkMode = appUsesDarkTheme(draft)
+                    SettingsThemeModeOptions(
+                        darkMode = effectiveDarkMode,
+                        onSelected = { applyChange(draft.copy(darkMode = it, followSystemDarkMode = false)) }
+                    )
                     SettingsToggleRow(
-                        title = "跟随系统",
-                        subtitle = "开启后将跟随系统切换浅色或深色模式。",
+                        title = "自动切换",
+                        subtitle = "",
                         checked = draft.followSystemDarkMode,
                         backdrop = backdrop,
-                        onCheckedChange = { applyChange(draft.copy(followSystemDarkMode = it)) }
+                        onCheckedChange = {
+                            applyChange(draft.copy(followSystemDarkMode = it, darkMode = effectiveDarkMode))
+                        }
                     )
-                    SettingsDivider()
-                    SettingsToggleRow(
-                        title = "深色模式",
-                        subtitle = if (draft.followSystemDarkMode) "当前由系统外观决定。" else "手动切换应用外观。",
-                        checked = draft.darkMode,
-                        backdrop = backdrop,
-                        enabled = !draft.followSystemDarkMode,
-                        onCheckedChange = { applyChange(draft.copy(darkMode = it, followSystemDarkMode = false)) }
-                    )
-                    SettingsDivider()
+                }
+                SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
                     SettingsNavigationRow(
                         title = "液态玻璃",
-                        subtitle = "调整首页顶栏、表头和底栏的玻璃效果。",
                         onClick = onOpenLiquidGlass
                     )
                     SettingsDivider()
