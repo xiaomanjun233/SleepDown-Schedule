@@ -1071,8 +1071,6 @@ fun CourseScheduleAppUi(
 
     LaunchedEffect(
         pendingHomeAnchoredOverlay,
-        addButtonBounds,
-        personalizeButtonBounds,
         homeAnchoredMorphState.phase,
         screen
     ) {
@@ -1080,6 +1078,11 @@ fun CourseScheduleAppUi(
         if (screen !is Screen.Home || homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle) {
             return@LaunchedEffect
         }
+        // Top-bar anchors move on every Settings/Home frame. Observe them only for a pending
+        // open; reading them as effect keys recomposed this entire root during the page slide.
+        snapshotFlow {
+            if (pending == HomeAnchoredOverlayKind.Add) addButtonBounds else personalizeButtonBounds
+        }.first { it != null && it.width > 2f && it.height > 2f }
         openHomeAnchoredOverlay(pending, pendingHomeAnchoredSourceScale)
     }
     LaunchedEffect(screen) {
@@ -3595,13 +3598,17 @@ fun CourseScheduleAppUi(
         personalizePreviewProgress = personalizationPreviewProgress,
         sourceContent = { kind, sourceModifier ->
             if (kind == HomeAnchoredOverlayKind.Add) {
-                // The SDF shell owns the material throughout the morph. A second full glass
-                // button inside it would create a dark, independently moving "ghost" surface.
-                Box(sourceModifier, contentAlignment = Alignment.Center) {
-                    Icon(if (homeMenuFromDock) rememberVectorPainter(Icons.Rounded.Add)
-                        else homeActionIconPainter(R.drawable.ic_more_horizontal),
-                        null, Modifier.size(if (homeMenuFromDock) 24.dp else 21.dp),
-                        tint = if (homeMenuFromDock) ComposeColor.White else LocalAdaptiveGlass.current.contentColor)
+                // The shell fades out as this complete button fades in. An icon-only clone left
+                // the blue button surface missing until the real Dock returned on the last frame.
+                val snapshot = dockImportReturnSnapshot
+                if (homeMenuFromDock && snapshot != null) {
+                    Image(snapshot.asImageBitmap(), contentDescription = null, modifier = sourceModifier)
+                } else {
+                    HomeIconButtonVisual(
+                        backdrop = homeAnchoredOverlayBackdrop, config = state.config,
+                        iconRes = R.drawable.ic_more_horizontal, contentDescription = "添加菜单",
+                        modifier = sourceModifier, isInteractive = false
+                    )
                 }
             } else {
             HomeIconButtonVisual(

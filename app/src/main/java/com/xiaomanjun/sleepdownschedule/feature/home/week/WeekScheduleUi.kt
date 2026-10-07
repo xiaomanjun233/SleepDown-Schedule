@@ -622,7 +622,8 @@ internal fun SinglePillWeekScheduleScreen(
         LocalWeekEditMotionState provides weekEditOverlay,
         LocalWeekPageTail provides weekTail,
         LocalHomeTextContrastFrozen provides (LocalHomeTextContrastFrozen.current || weekTail.moving),
-        LocalCourseTextMotionFrozen provides (scrollState.isScrollInProgress || weekTail.moving)
+        LocalCourseTextMotionFrozen provides
+            (LocalHomeTextContrastFrozen.current || scrollState.isScrollInProgress || weekTail.moving)
     ) {
     Box(
         modifier = Modifier

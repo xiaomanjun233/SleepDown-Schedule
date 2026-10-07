@@ -202,6 +202,7 @@ private fun HomeMenuDestinationTransitionShell(
     temporaryClipActive: Boolean,
     clipStableEndpoint: Boolean,
     collapseHandedOff: Boolean,
+    contentAlpha: () -> Float,
     destinationShape: CornerBasedShape,
     destinationTestTag: String,
     content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit
@@ -214,7 +215,7 @@ private fun HomeMenuDestinationTransitionShell(
                     IntOffset(rect.left.roundToInt(), rect.top.roundToInt())
                 }
                 .graphicsLayer {
-                    alpha = if (collapseHandedOff) 0f else 1f
+                    alpha = if (collapseHandedOff) 0f else contentAlpha()
                     clip = temporaryClipActive || clipStableEndpoint
                     shape = destinationShape
                 }
@@ -243,7 +244,7 @@ private fun HomeMenuDestinationTransitionShell(
         envelope = envelope,
         geometry = geometry,
         temporaryClipActive = temporaryClipActive,
-        motionAlpha = { if (collapseHandedOff) 0f else 1f },
+        motionAlpha = { if (collapseHandedOff) 0f else contentAlpha() },
         modifier = Modifier.semantics { testTag = destinationTestTag }
     ) { stableEnvelope, currentGeometry ->
         val endpointClip = if (!temporaryClipActive && clipStableEndpoint) {
@@ -395,7 +396,7 @@ internal fun homeMenuDestinationTrajectoryGeometry(
         val p = rawProgress.coerceIn(0f, 1f)
         val elapsed = 1f - p
         val amount = DestinationReturnEasing.transform(elapsed)
-        val returnAlpha = destinationSmoothStep(0.32f, 0.66f, elapsed)
+        val returnAlpha = destinationSmoothStep(0.24f, 0.60f, elapsed)
         return HomeAnchoredMorphGeometry(
             rect = lerp(target, collapseBoundsInRoot, amount),
             cornerRadiusPx = targetCornerRadiusPx +
@@ -778,7 +779,7 @@ internal fun HomeMenuDestinationOverlayHost(
                     1f - destinationSmoothStep(sourceHandoffStart, sourceHandoffEnd, rawProgress)
                 }
                 val returnAlpha = if (destinationClosing) geometry.sourceAlpha else 0f
-                val destinationSurfaceAlpha = (1f - sourceCloneAlpha) * (1f - returnAlpha)
+                val destinationSurfaceAlpha = 1f - sourceCloneAlpha
                 val sourceContentBlurPx = if (destinationClosing) {
                     0f
                 } else {
@@ -811,7 +812,7 @@ internal fun HomeMenuDestinationOverlayHost(
                     destinationSurfaceAlpha = destinationSurfaceAlpha,
                     sourceContentBlurPx = sourceContentBlurPx,
                     destinationContentBlurPx = destinationContentBlurPx,
-                    destinationContentAlpha = destinationContentAlpha * (1f - returnAlpha),
+                    destinationContentAlpha = destinationContentAlpha,
                     destinationBlurMix = (
                         destinationContentBlurPx / maxContentBlurPx.coerceAtLeast(0.001f)
                         ).coerceIn(0f, 1f),
@@ -973,6 +974,7 @@ internal fun HomeMenuDestinationOverlayHost(
             temporaryClipActive = temporaryClipActive,
             clipStableEndpoint = !isFullScreen,
             collapseHandedOff = collapseHandedOff,
+            contentAlpha = { 1f - frame.value.returnAlpha },
             destinationShape = destinationShape,
             destinationTestTag = destinationTestTag
         ) {
@@ -1050,20 +1052,6 @@ internal fun HomeMenuDestinationOverlayHost(
                         shape = sourceMenuShape,
                         modifier = Modifier.fillMaxSize()
                     )
-                }
-            }
-            if (motionState.phase == HomeAnchoredOverlayPhase.Closing ||
-                motionState.phase == HomeAnchoredOverlayPhase.Disposing) {
-                Box(Modifier.align(Alignment.Center)
-                    .requiredSize(with(density) { shown.collapseBoundsInRoot.width.toDp() },
-                        with(density) { shown.collapseBoundsInRoot.height.toDp() })
-                    .graphicsLayer {
-                        val current = frame.value
-                        alpha = current.returnAlpha
-                        scaleX = current.geometry.sourceScale
-                        scaleY = current.geometry.sourceScale
-                    }) {
-                    collapseContent(Modifier.fillMaxSize())
                 }
             }
             if (isFullScreen && destinationContentPrepared) {
@@ -1201,6 +1189,24 @@ internal fun HomeMenuDestinationOverlayHost(
             }
             }
         }
+        if (motionState.phase == HomeAnchoredOverlayPhase.Closing ||
+            motionState.phase == HomeAnchoredOverlayPhase.Disposing) {
+            // Return the complete button above the fading form, outside its changing clip.
+            // Both siblings share the same alpha clock and moving center throughout the handoff.
+            Box(Modifier
+                .requiredSize(with(density) { shown.collapseBoundsInRoot.width.toDp() },
+                    with(density) { shown.collapseBoundsInRoot.height.toDp() })
+                .graphicsLayer {
+                    val current = frame.value
+                    translationX = current.geometry.rect.center.x - size.width / 2f
+                    translationY = current.geometry.rect.center.y - size.height / 2f
+                    alpha = if (collapseHandedOff) 0f else current.returnAlpha
+                    scaleX = current.geometry.sourceScale
+                    scaleY = current.geometry.sourceScale
+                }) {
+                collapseContent(Modifier.fillMaxSize())
+            }
+        }
         if (motionState.phase != HomeAnchoredOverlayPhase.Idle &&
             motionState.phase != HomeAnchoredOverlayPhase.Disposing
         ) {
@@ -1227,9 +1233,7 @@ internal fun HomeMenuDestinationOverlayHost(
                                     motionState.phase != HomeAnchoredOverlayPhase.Closing
                                 ) {
                                     frame.value.destinationContentAlpha
-                                } else {
-                                    1f
-                                }
+                                } else 1f - frame.value.returnAlpha
                                 clip = false
                             }
                     ) {
