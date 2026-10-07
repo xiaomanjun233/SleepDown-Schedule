@@ -19,4 +19,5 @@
 - `assembleGithubRelease --no-daemon --console=plain --no-parallel --max-workers=1` 成功，耗时 7m9s，包含 Kotlin、R8、lintVital、打包与签名。本轮未额外运行机械样式测试。
 - APK：`app/build/outputs/apk/github/release/app-github-release.apk`，版本 `1.2.7_beta3`（34），7,008,075 bytes，生成时间 2026-10-07 22:11:54，SHA-256 `7E7F3F039425F992066CEA0548F6FD0DC3D1DE1AC04ECC431FEF6B29841B2C38`。
 - 用户开启无线调试后，项目 ADB 5038 发现了之前目标手机的序列号，但广播端口连接超时。本机与手机处于同一网段，独立 TCP 探测也超时；未修改网络或配对设置。已请求刷新无线端口，尚未覆盖安装或测量帧耗时，不能据静态代码声称掉帧已经消失。
+- 后续安装：手机重新上线后，已通过 ADB 5038 对 PLJ110 执行 `install -r`，返回 `Success`。包管理器确认版本 `1.2.7_beta3`（34）、更新时间 2026-10-07 22:17:56，保留现有数据。未自动启动应用，实机动画与帧耗时仍未复测。
 - 待实机检查：日视图停课卡片完整显示/部分滚出列表时的展开与返回；设置返回日/周视图时壁纸采样连续性；加号 → 中心弹窗 → 加号的中途叠化；加号 → 教务导入 Activity 的原形态返回。
