@@ -13,5 +13,5 @@
 - `git diff --check`、Miuix 补丁正向/反向应用检查通过。
 - `assembleGithubRelease --no-daemon --console=plain --no-parallel --max-workers=1` 成功，耗时 7m27s，包含 Kotlin、资源编译、R8、lintVital、资源压缩、打包与签名。未额外添加机械样式测试。
 - APK：`app/build/outputs/apk/github/release/app-github-release.apk`，`1.2.7_beta3`（34），7,025,523 bytes，生成时间 2026-10-07 22:55:52，SHA-256 `83464E3A75DC635A228DA53316D3CBACD71345AAF2CDADB96EEEA39D34E3C7E9`。
-- ADB 5038 服务已核对为本机 Android SDK。mDNS 发现既有 PLJ110，直接连接一度成功；之后 TLS 读取中断、设备转为 offline，重连广播端点超时。构建后的安装流程在连接检查处停止，未执行 `install -r`，本轮尚未覆盖安装。已向用户询问手机当前显示的无线端点，没有改动网络或配对配置。
+- ADB 5038 服务已核对为本机 Android SDK。首次连接后出现 TLS 读取中断，重连超时；仅重启项目 5038 服务后连接恢复，核对既有手机序列号并执行 `install -r`，返回 `Success`。PLJ110 / Android 17 的包管理器确认 `1.2.7_beta3`（34），更新时间 2026-10-07 22:58:50。保留应用数据，未自动启动应用，未修改网络、配对配置或 5037 服务。
 - 尚未进行实机动画逐帧或帧耗时验收；源卡片修复依据代码中的样式差异，不能据编译成功断言实机衔接已经完全消除。
