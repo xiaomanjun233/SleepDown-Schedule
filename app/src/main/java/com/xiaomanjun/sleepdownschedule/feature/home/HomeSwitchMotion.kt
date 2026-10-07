@@ -217,15 +217,16 @@ internal fun Modifier.homeSwitchGroup(cardOrderFraction: Float? = null): Modifie
             group.intValue = (fraction * SwitchGroupCount).toInt().coerceIn(0, SwitchGroupCount - 1)
         }
     }
-    // At rest the translation is zero. Releasing this layer keeps card glass in the same
-    // clipping stack as its wallpaper sampler; the six staggered tracks are kept for motion.
-    return if (pages.any { it.motion.moving }) tracked.graphicsLayer {
-        translationX = pages.sumOf { page ->
+    // Keep the identity RenderNode in place between switches. Attaching/removing a layer on
+    // every course at the first/last moving frame rebuilds their coordinate/sampling chains.
+    // This layer never clips, blurs or forces an offscreen texture at rest.
+    return tracked.graphicsLayer {
+        translationX = if (pages.any { it.motion.moving }) pages.sumOf { page ->
             (page.direction * page.width.value *
                 (page.motion.progress.value - page.motion.groupProgress(group.intValue))).toDouble()
-        }.toFloat()
+        }.toFloat() else 0f
         clip = false
-    } else tracked
+    }
 }
 
 @Composable
