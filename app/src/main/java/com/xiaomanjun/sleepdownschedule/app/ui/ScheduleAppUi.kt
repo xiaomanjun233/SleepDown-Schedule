@@ -846,12 +846,14 @@ fun CourseScheduleAppUi(
     fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?, copyDraft: CourseEntity? = null, contextMessage: String? = null, sourceAdjustmentLabel: String? = null) {
         if (courseEditorRequest != null) return
         val sourceGrid = targetWeek?.let(courseEditorFlightRegistry::grid)
+        val clickedSource = courseEditorFlightRegistry.consumeSource(sourceBounds)
         courseEditorFlightRegistry.frozen = true
         courseEditorRequest = CourseEditorOverlayRequest(
             course = course,
             targetWeek = targetWeek,
             sourceBoundsInRoot = sourceBounds,
-            sourceClipBoundsInRoot = courseEditorFlightRegistry.consumeSourceClip(sourceBounds),
+            sourceClipBoundsInRoot = clickedSource?.visibleBounds,
+            sourceDayAppearance = clickedSource?.dayAppearance,
             sourceIsDayCard = homeMode != HomeMode.Week && sourceBounds != null,
             copyDraft = copyDraft,
             sourceGrid = sourceGrid,

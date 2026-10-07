@@ -5,21 +5,41 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.foundation.ScrollState
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.xiaomanjun.sleepdownschedule.CourseEntity
+import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import kotlin.math.abs
 import kotlin.math.sign
 import kotlin.math.roundToInt
 
 internal val LocalCourseEditorFlightRegistry = staticCompositionLocalOf<CourseEditorFlightRegistry?> { null }
 
+/** The rendered day occurrence can differ from the original course being edited. */
+data class CourseEditorDayAppearance(
+    val course: CourseEntity,
+    val periods: List<PeriodEntity>,
+    val showTime: Boolean,
+    val showWeeks: Boolean,
+    val tabletFontScale: Float,
+    val muted: Boolean,
+    val adjustmentLabel: String?
+)
+
+internal data class CourseEditorClickedSource(
+    val bounds: Rect,
+    val visibleBounds: Rect,
+    val dayAppearance: CourseEditorDayAppearance
+)
+
 internal class CourseEditorFlightRegistry {
     var frozen = false
     private val grids = mutableMapOf<Int, CourseEditorWeekGrid>()
-    private var clickedSource: Pair<Rect, Rect>? = null
-    fun captureSource(bounds: Rect, visibleBounds: Rect) { clickedSource = bounds to visibleBounds }
-    fun consumeSourceClip(bounds: Rect?): Rect? {
+    private var clickedSource: CourseEditorClickedSource? = null
+    fun captureSource(bounds: Rect, visibleBounds: Rect, appearance: CourseEditorDayAppearance) {
+        clickedSource = CourseEditorClickedSource(bounds, visibleBounds, appearance)
+    }
+    fun consumeSource(bounds: Rect?): CourseEditorClickedSource? {
         val source = clickedSource
         clickedSource = null
-        return source?.takeIf { it.first == bounds }?.second
+        return source?.takeIf { it.bounds == bounds }
     }
     fun record(week: Int, grid: CourseEditorWeekGrid) { if (!frozen) grids[week] = grid }
     fun grid(week: Int) = grids[week]

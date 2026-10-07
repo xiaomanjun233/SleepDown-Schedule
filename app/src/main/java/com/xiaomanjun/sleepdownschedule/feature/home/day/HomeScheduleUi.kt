@@ -2229,9 +2229,32 @@ internal fun DayCourseCardTextContent(
 }
 
 @Composable
+internal fun DayCourseCardContent(
+    course: CourseEntity,
+    periods: List<PeriodEntity>,
+    showTime: Boolean,
+    showWeeks: Boolean,
+    tabletFontScale: Float,
+    config: ScheduleConfigEntity,
+    muted: Boolean,
+    adjustmentLabel: String?
+) {
+    val badgeInset = if (adjustmentLabel != null) {
+        (courseBadgeContentInset(with(LocalDensity.current) { courseAdjustmentBadgeHeight() }, 24.dp) - 16.dp)
+            .coerceAtLeast(0.dp)
+    } else 0.dp
+    Box(Modifier.padding(bottom = badgeInset)) {
+        DayCourseCardTextContent(
+            course = course, periods = periods, showTime = showTime, showWeeks = showWeeks,
+            textColor = homeForegroundColor(config), tabletFontScale = tabletFontScale,
+            config = config, muted = muted
+        )
+    }
+}
+
+@Composable
 fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f, displayedWeek: Int? = null, muted: Boolean = false, adjustmentLabel: String? = null) {
     val resolvedCardColor = if (muted) MutedCourseLightColor else if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
-    val textColor = homeForegroundColor(config)
     val ownBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
     val visibleBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
     val flightRegistry = LocalCourseEditorFlightRegistry.current
@@ -2272,25 +2295,23 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             onClick = if (onClick != null) ({
                 val bounds = ownBounds[0]
                 val visible = visibleBounds[0]
-                if (bounds != null && visible != null) flightRegistry?.captureSource(bounds, visible)
+                if (bounds != null && visible != null) flightRegistry?.captureSource(
+                    bounds, visible,
+                    CourseEditorDayAppearance(course, periods, showTime, showWeeks, tabletFontScale, muted, adjustmentLabel)
+                )
                 onClick(bounds)
             }) else null
         ) {
-            Box(Modifier.padding(bottom = if (adjustmentLabel != null) {
-                (courseBadgeContentInset(with(LocalDensity.current) { courseAdjustmentBadgeHeight() }, 24.dp) - 16.dp)
-                    .coerceAtLeast(0.dp)
-            } else 0.dp)) {
-            DayCourseCardTextContent(
+            DayCourseCardContent(
                 course = course,
                 periods = periods,
                 showTime = showTime,
                 showWeeks = showWeeks,
-                textColor = textColor,
                 tabletFontScale = tabletFontScale,
                 config = config,
-                muted = muted
+                muted = muted,
+                adjustmentLabel = adjustmentLabel
             )
-            }
         }
         adjustmentLabel?.let {
             CourseAdjustmentBadge(it, backdrop, config,

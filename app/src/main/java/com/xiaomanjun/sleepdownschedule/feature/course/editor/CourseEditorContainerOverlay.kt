@@ -200,7 +200,8 @@ data class CourseEditorOverlayRequest(
     internal val sourceGrid: CourseEditorWeekGrid? = null,
     val contextMessage: String? = null,
     val sourceAdjustmentLabel: String? = null,
-    val sourceClipBoundsInRoot: Rect? = null
+    val sourceClipBoundsInRoot: Rect? = null,
+    val sourceDayAppearance: CourseEditorDayAppearance? = null
 )
 
 
@@ -621,8 +622,11 @@ internal fun CourseEditorContainerOverlayHost(
     }
     val closingMorph = overlayPhase == CourseEditorOverlayPhase.Closing ||
         overlayPhase == CourseEditorOverlayPhase.Disposing
-    val shellCourse = if (closingMorph) motionState.closingCourseOverride ?: shownRequest.course
-        else shownRequest.course
+    val dayAppearance = shownRequest.sourceDayAppearance
+    val sourceCourse = dayAppearance?.course ?: shownRequest.course
+    val shellCourse = if (closingMorph) motionState.closingCourseOverride ?: sourceCourse else sourceCourse
+    val sourceMuted = dayAppearance?.muted ?: (shownRequest.sourceAdjustmentLabel == "停")
+    val sourceBadge = dayAppearance?.adjustmentLabel ?: shownRequest.sourceAdjustmentLabel
     val frameState = remember(morphSpec, sourceRect, targetRect, closingMorph, overlayPhase, density, motionState) {
         derivedStateOf {
             morphSpec.frame(
@@ -769,7 +773,7 @@ internal fun CourseEditorContainerOverlayHost(
             backdrop = backdrop,
             config = config,
             course = shellCourse,
-            muted = shownRequest.sourceAdjustmentLabel == "停",
+            muted = sourceMuted,
             expandedOutlineLight = shownRequest.sourceIsDayCard,
             shape = shellShape,
             progressProvider = { morphFrame.shapeProgress },
@@ -807,7 +811,9 @@ internal fun CourseEditorContainerOverlayHost(
                         config = config,
                         sourceIsWide = !sourceIsWeekCard,
                         adaptiveMetrics = adaptiveMetrics,
-                        adjustmentLabel = shownRequest.sourceAdjustmentLabel,
+                        adjustmentLabel = sourceBadge,
+                        dayAppearance = dayAppearance,
+                        muted = sourceMuted,
                         sourceCorner = with(density) { sourceCornerPx.toDp() },
                         modifier = Modifier
                             // Measure the source once at its original card size. In particular,
@@ -830,18 +836,18 @@ internal fun CourseEditorContainerOverlayHost(
                 }
             }
         }
-        if (showSourceCover && shownRequest.sourceAdjustmentLabel != null) {
+        if (showSourceCover && sourceBadge != null) {
             // The original badge straddles the card's rounded edge. Keep its clone outside
             // the shell clip too, otherwise a stopped/makeup card starts with a cut-off badge.
             Box(animatedModifier.graphicsLayer {
                 alpha = sourceCoverAlpha.value
                 // Modulate the vector label directly so alpha does not crop its small outset.
                 compositingStrategy = CompositingStrategy.ModulateAlpha
-            }) {
+            }.courseEditorContentTaper { taper.value }) {
                 com.xiaomanjun.sleepdownschedule.feature.home.CourseAdjustmentBadge(
-                    shownRequest.sourceAdjustmentLabel, backdrop, config,
+                    sourceBadge, backdrop, config,
                     Modifier.align(Alignment.BottomEnd)
-                        .courseBadgeCornerAnchor(with(density) { sourceCornerPx.toDp() })
+                        .courseBadgeCornerAnchor(corner.value)
                 )
             }
         }
@@ -1015,6 +1021,8 @@ private fun CourseEditorSourceShell(
     sourceIsWide: Boolean,
     adaptiveMetrics: HomeAdaptiveMetrics,
     adjustmentLabel: String?,
+    dayAppearance: CourseEditorDayAppearance?,
+    muted: Boolean,
     sourceCorner: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier
 ) {
@@ -1023,39 +1031,21 @@ private fun CourseEditorSourceShell(
             with(LocalDensity.current) { courseAdjustmentBadgeHeight() }, sourceCorner
         ) else 0.dp
         if (sourceIsWide) {
-            Box(Modifier.padding(bottom = (badgeInset - 16.dp).coerceAtLeast(0.dp))) {
-            CourseEditorDaySourceContent(
+            DayCourseCardContent(
                 course = course,
+                periods = dayAppearance?.periods.orEmpty(),
+                showTime = dayAppearance?.showTime ?: false,
+                showWeeks = dayAppearance?.showWeeks ?: false,
                 config = config,
-                tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f,
-                muted = adjustmentLabel == "停"
+                tabletFontScale = dayAppearance?.tabletFontScale ?: if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f,
+                muted = muted,
+                adjustmentLabel = adjustmentLabel
             )
-            }
         } else {
             com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseOverlayCardContent(
-                course, config, muted = adjustmentLabel == "停", badgeInset = badgeInset)
+                course, config, muted = muted, badgeInset = badgeInset)
         }
     }
-}
-
-@Composable
-private fun CourseEditorDaySourceContent(
-    course: CourseEntity,
-    config: ScheduleConfigEntity,
-    tabletFontScale: Float,
-    muted: Boolean
-) {
-    val textColor = homeForegroundColor(config)
-    DayCourseCardTextContent(
-        course = course,
-        periods = emptyList(),
-        showTime = false,
-        showWeeks = false,
-        textColor = textColor,
-        tabletFontScale = tabletFontScale,
-        config = config,
-        muted = muted
-    )
 }
 
 private fun validSourceRect(rect: Rect?, rootSize: IntSize): Rect? {
