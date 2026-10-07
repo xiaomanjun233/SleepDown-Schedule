@@ -377,7 +377,7 @@
  import androidx.compose.ui.platform.LocalLayoutDirection
  import androidx.compose.ui.platform.LocalWindowInfo
  import androidx.compose.ui.text.TextStyle
-@@ -89,6 +97,12 @@
+@@ -89,6 +97,15 @@
      val itemTextStyle: TextStyle? = null,
      val itemVerticalPadding: Dp = 10.5.dp,
      val itemMinHeight: Dp = 0.dp,
@@ -387,10 +387,13 @@
 +    val interactionModifier: Modifier = Modifier,
 +    val border: BorderStroke? = null,
 +    val morphAnimation: Boolean = false,
++    val shadowElevation: Dp = 16.dp,
++    val ambientShadowColor: Color = Color.Black.copy(alpha = 0.125f),
++    val spotShadowColor: Color = Color.Black.copy(alpha = 0.125f),
  )
 
  /** Optional app-level material applied consistently to every Miuix list-popup host. */
-@@ -104,6 +118,9 @@
+@@ -104,6 +121,9 @@
      content: @Composable () -> Unit,
  ) {
      val scrollState = rememberScrollState()
@@ -400,7 +403,7 @@
 
      val measurePolicy = remember {
          object : MeasurePolicy {
-@@ -170,10 +187,11 @@
+@@ -170,10 +190,11 @@
      }
 
      Layout(
@@ -413,7 +416,7 @@
              .verticalScroll(state = scrollState),
          measurePolicy = measurePolicy,
      )
-@@ -644,11 +662,31 @@
+@@ -644,11 +665,31 @@
      localTransformOrigin: TransformOrigin,
      modifier: Modifier = Modifier,
      revealLimitHeight: Dp = 0.dp,
@@ -445,15 +448,26 @@
      val shadowAlpha = remember { Animatable(0f) }
      LaunchedEffect(Unit) {
          var previousFraction = fractionProgress()
-@@ -676,6 +714,7 @@
+@@ -676,12 +717,14 @@
 
      Box(
          modifier = modifier
 +            .then(visualStyle.interactionModifier)
              .graphicsLayer {
-                 shadowElevation = 16.dp.toPx()
+-                shadowElevation = 16.dp.toPx()
++                shadowElevation = visualStyle.shadowElevation.toPx()
                  shape = RoundedCornerShape(cornerRadius)
-@@ -709,8 +748,17 @@
+-                val color = Color.Black.copy(alpha = (32f / 255f) * shadowAlpha.value)
+-                ambientShadowColor = color
+-                spotShadowColor = color
++                ambientShadowColor = visualStyle.ambientShadowColor.copy(
++                    alpha = visualStyle.ambientShadowColor.alpha * shadowAlpha.value)
++                spotShadowColor = visualStyle.spotShadowColor.copy(
++                    alpha = visualStyle.spotShadowColor.alpha * shadowAlpha.value)
+             },
+     ) {
+         Box(
+@@ -709,8 +752,17 @@
                  cornerRadius = cornerRadius,
                  squircleEnabled = isSquircleEnabled(),
                  revealLimitHeightPx = with(LocalDensity.current) { revealLimitHeight.toPx() },
@@ -472,7 +486,7 @@
              .then(visualStyle.surfaceModifier)
              .background(color = backgroundColor),
          ) {
-@@ -734,6 +782,7 @@
+@@ -734,6 +786,7 @@
      cornerRadius: Dp,
      squircleEnabled: Boolean,
      revealLimitHeightPx: Float = 0f,
@@ -480,7 +494,7 @@
  ): Modifier = drawWithCache {
      val path = Path()
      onDrawWithContent {
-@@ -761,6 +810,7 @@
+@@ -761,6 +814,7 @@
          if (clipStart == 0f) {
              clipPath(path) {
                  this@onDrawWithContent.drawContent()
@@ -488,7 +502,7 @@
              }
          } else {
              translate(top = clipStart) {
-@@ -768,6 +818,7 @@
+@@ -768,6 +822,7 @@
                      translate(top = -clipStart) {
                          this@onDrawWithContent.drawContent()
                      }
@@ -985,7 +999,7 @@
                                  content()
 --- /dev/null
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupMorphContent.kt
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,209 @@
 +// Copyright 2026, SleepDown contributors
 +// SPDX-License-Identifier: Apache-2.0
 +
@@ -999,11 +1013,11 @@
 +import androidx.compose.ui.Modifier
 +import androidx.compose.ui.draw.drawWithCache
 +import androidx.compose.ui.geometry.CornerRadius
++import androidx.compose.ui.geometry.Offset
 +import androidx.compose.ui.geometry.Rect
 +import androidx.compose.ui.geometry.RoundRect
 +import androidx.compose.ui.geometry.Size
 +import androidx.compose.ui.graphics.BlurEffect
-+import androidx.compose.ui.graphics.Color
 +import androidx.compose.ui.graphics.Outline
 +import androidx.compose.ui.graphics.Path
 +import androidx.compose.ui.graphics.RenderEffect
@@ -1025,6 +1039,7 @@
 +import androidx.compose.ui.unit.dp
 +import androidx.compose.ui.unit.offset
 +import top.yukonga.miuix.kmp.theme.MiuixTheme
++import top.yukonga.miuix.kmp.squircle.addSquircleRect
 +import kotlin.math.abs
 +import kotlin.math.min
 +import kotlin.math.roundToInt
@@ -1042,7 +1057,13 @@
 +
 +private class PopupPanelOutline(private val rect: RoundRect) : Shape {
 +    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
-+        Outline.Rounded(rect)
++        Outline.Generic(Path().apply { addPopupPanel(rect) })
++}
++
++/** One continuous silhouette for material, labels, rim and the platform shadow. */
++private fun Path.addPopupPanel(rect: RoundRect) {
++    addSquircleRect(rect.width, rect.height, rect.topLeftCornerRadius.x)
++    translate(Offset(rect.left, rect.top))
 +}
 +
 +/** Material, expanded labels and the original value/arrow have independent animation layers. */
@@ -1100,9 +1121,9 @@
 +                    // Only the material fades. At fraction=0 the trigger clone is still visible.
 +                    alpha = (fractionProgress() * if (isEntering) 7f else 3.6f).coerceIn(0f, 1f)
 +                    shape = PopupPanelOutline(panel())
-+                    shadowElevation = 16.dp.toPx()
-+                    ambientShadowColor = Color.Black.copy(alpha = 0.125f)
-+                    spotShadowColor = ambientShadowColor
++                    shadowElevation = style.shadowElevation.toPx()
++                    ambientShadowColor = style.ambientShadowColor
++                    spotShadowColor = style.spotShadowColor
 +                }
 +                .drawWithCache {
 +                    val clip = Path()
@@ -1110,7 +1131,7 @@
 +                    onDrawWithContent {
 +                        val rect = panel()
 +                        clip.reset()
-+                        clip.addRoundRect(rect)
++                        clip.addPopupPanel(rect)
 +                        clipPath(clip) { this@onDrawWithContent.drawContent() }
 +                        style.border?.let { border ->
 +                            val strokeWidth = border.width.toPx()
@@ -1119,7 +1140,7 @@
 +                            val height = (rect.height - strokeWidth).coerceAtLeast(0f)
 +                            val radius = (rect.topLeftCornerRadius.x - inset).coerceAtLeast(0f)
 +                            rim.reset()
-+                            rim.addRoundRect(RoundRect(0f, 0f, width, height, CornerRadius(radius)))
++                            rim.addPopupPanel(RoundRect(0f, 0f, width, height, CornerRadius(radius)))
 +                            translate(rect.left + inset, rect.top + inset) {
 +                                val savedSize = drawContext.size
 +                                drawContext.size = Size(width, height)
@@ -1139,7 +1160,7 @@
 +                    onDrawWithContent {
 +                        val rect = panel()
 +                        clip.reset()
-+                        clip.addRoundRect(RoundRect(
++                        clip.addPopupPanel(RoundRect(
 +                            Rect(rect.left - room, rect.top - room, rect.right - room, rect.bottom - room),
 +                            rect.topLeftCornerRadius,
 +                        ))
