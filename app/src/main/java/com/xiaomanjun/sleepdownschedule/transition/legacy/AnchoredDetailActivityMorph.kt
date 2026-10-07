@@ -427,7 +427,7 @@ internal fun AnchoredDetailActivityMorph(
 }
 
 /** A single bounded expansion: page geometry never overshoots or reverses direction. */
-private const val HomeMenuPageOpenDurationMillis = 420
+private const val HomeMenuPageOpenDurationMillis = 320
 private val HomeMenuPageOpenEasing = CubicBezierEasing(0.24f, 0.12f, 0.24f, 1f)
 
 /** Full-page routes retain the complete source menu until its contents hand off inside the shell. */

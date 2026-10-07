@@ -941,12 +941,16 @@ internal fun HomeMenuDestinationOverlayHost(
             }
         }
 
-        val showSourceClone by remember(frame) {
-            derivedStateOf { frame.value.sourceCloneAlpha > 0.005f }
-        }
-        // Mount and warm the fixed blur layer while the source is still stationary. Creating
-        // this subtree at the first visible blur frame interrupts the geometry animation.
-        val retainBlurredDestinationContent = motionState.phase != HomeAnchoredOverlayPhase.Open
+        // Keep the cached source until the motion settles. Disposing its glass subtree at the
+        // alpha handoff interrupts the busiest part of the expansion, even though it is invisible.
+        val retainSourceClone = motionState.phase == HomeAnchoredOverlayPhase.Preparing ||
+            motionState.phase == HomeAnchoredOverlayPhase.Opening
+        // Centered forms use the original unblurred opening. Do not allocate a full-size blur
+        // copy for a transition whose blur mix stays zero throughout its opening.
+        val retainBlurredDestinationContent =
+            (isFullScreen && motionState.phase != HomeAnchoredOverlayPhase.Open) ||
+                motionState.phase == HomeAnchoredOverlayPhase.Closing ||
+                motionState.phase == HomeAnchoredOverlayPhase.Disposing
 
         Box(
             Modifier
@@ -1006,7 +1010,7 @@ internal fun HomeMenuDestinationOverlayHost(
                         )
                 )
             }
-            if (showSourceClone) {
+            if (retainSourceClone) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
