@@ -8,7 +8,7 @@
 2. `miuix-cascading-popup-surface.patch`：级联菜单的主/次表面、真实锚点及内容交接。
 3. `miuix-scaffold-underlay.patch`：新增 `Scaffold.underlayModifier`，把页面、TopBar 等放入底层布局，Popup/Dialog host 后绘制为同级节点，避免 Backdrop 自采样。
 4. `miuix-compact-dropdown.patch`：为列表菜单增加可选的条目文字样式、垂直内距和最小高度，默认值保留原排版。个性化面板借此将文字排布入口与菜单条目统一为其他选项的字号、字重和紧凑高度。
-5. `miuix-popup-slide-feedback.patch`：可选按住滑动选择、跨行触觉反馈、长菜单边缘滚动；允许取消背景压暗和锚点淡出，增加外层交互 Modifier。SleepDown 通过该接口接入 Kyant 跟手高光、形变和松手回弹，Miuix 保留触发与展开动画。级联主/次菜单各自传播样式，默认值仍保持上游行为。
+5. `miuix-popup-slide-feedback.patch`：可选按住滑动选择、跨行触觉反馈、长菜单边缘滚动；允许取消背景压暗和锚点淡出，增加外层交互 Modifier。SleepDown 通过该接口接入 Kyant 跟手高光、形变和松手回弹，Miuix 保留触发与展开动画。级联主/次菜单各自传播样式。展开模糊改为绘制阶段按需缓存的 8 档效果，静止后移除 RenderEffect。
 
 从全新官方源码按上述顺序 `git apply`，具体命令见根目录 README。旧补丁目录不要再次叠加新版完整补丁，应使用新的依赖目录。`sleepdown.miuixSourcePath` 指向打完补丁的源码根目录。
 
@@ -21,3 +21,5 @@
 ## Kyant Backdrop
 
 `kyant-backdrop-2.0.0-sleepdown.patch` 记录已纳入 `third-party/kyant-backdrop` 的差异，不要重复应用到该目录。来源与变更说明见该目录的说明文件和 `THIRD_PARTY_NOTICES.md`。
+
+2026-10-07 从确切的 `bebb11a` 上游文件重新导出该补丁，补齐此前已纳入源码的录制、密度和轮廓缓存差异，以及本次 Popup 坐标补偿和共享壁纸采样复用。源码目录仍是构建事实来源。

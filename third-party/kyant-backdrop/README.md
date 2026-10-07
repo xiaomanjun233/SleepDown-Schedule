@@ -35,6 +35,23 @@ version. No new platform target or upstream catalog implementation is bundled.
 Gradle adapter and new extension files live here. Compare/rebase against the exact tag above;
 do not substitute a newer binary without repeating equivalence and lifecycle validation.
 
+## Popup and shared sampling follow-up (2026-10-07)
+
+`LayerBackdrop.withTransformCompensation()` is opt-in for settings popups. It maps the producer's
+complete coordinate transform into the consumer, including ancestor scale/stretch and translation.
+Separate roots use an affine screen-space basis. This avoids sampling drift without changing the
+popup's trigger, reveal curve or the existing morph-specific backdrop wrappers.
+
+`cacheSharedSamples` is enabled only by ordinary course surfaces that sample a shared wallpaper
+without a custom backdrop draw transform. A live sample is reused only when the shared producer,
+content revision, relative position, buffer size, density, font scale and layout direction match.
+Movement, wallpaper edits, source replacement and effect geometry still refresh the recording.
+Frozen scenes retain their explicit complete-scene key. The cache owns no additional GPU layer.
+`Sample.SharedReuse` is a recording counter, not frame-rate evidence.
+
+The public patch was regenerated against the exact upstream baseline for this round, including
+previously implemented source changes that the older patch had not yet captured.
+
 ## Candidate limitations
 
 Fixed Morph and retained-node occlusion are diagnostics-only until phone/tablet visual and GPU

@@ -20,7 +20,9 @@ class BackdropRenderOptions(
     /** A retained scene may suppress position-only invalidation while its outer layer moves. */
     val coordinatesFrozen: () -> Boolean = { false },
     /** Complete scene identity; only a frozen, matching scene may reuse a sampled recording. */
-    val sampleRecordKey: () -> Any? = { null }
+    val sampleRecordKey: () -> Any? = { null },
+    /** Pure shared-wallpaper sampling: source revision + position fully determine its pixels. */
+    val cacheSharedSamples: Boolean = false
 ) {
     companion object {
         val Default = BackdropRenderOptions()

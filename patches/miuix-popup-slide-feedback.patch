@@ -1,4 +1,3 @@
-diff --git a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
 --- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
 +++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
 @@ -92,7 +92,7 @@
@@ -18,7 +17,6 @@ diff --git a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/
          onFractionProgress = onFractionProgress,
          revealLimitHeight = revealLimitHeight,
      ) {
-diff --git a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
 --- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
 +++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
 @@ -230,7 +230,7 @@
@@ -75,7 +73,6 @@ diff --git a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/prefer
          enabled = actualEnabled,
      )
  }
-diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
 @@ -16,6 +16,11 @@
@@ -90,7 +87,7 @@ diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown
  import androidx.compose.runtime.Immutable
  import androidx.compose.runtime.NonRestartableComposable
  import androidx.compose.runtime.Stable
-@@ -134,6 +139,17 @@
+@@ -134,6 +139,18 @@
      }
  
      val currentOnSelectedIndexChange by rememberUpdatedState(onSelectedIndexChange)
@@ -103,12 +100,13 @@ diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown
 +        slide?.items?.set(slideKey, slideItem)
 +    }
 +    DisposableEffect(slide, slideKey) { onDispose { slide?.items?.remove(slideKey) } }
-+    val highlightColor = Color(0xFF8E8E93).copy(alpha =
-+        if (MiuixTheme.colorScheme.background.luminance() > 0.5f) 0.20f else 0.28f)
++    val highlightColor = if (MiuixTheme.colorScheme.background.luminance() > 0.5f) {
++        Color.Black.copy(alpha = 0.10f)
++    } else Color.White.copy(alpha = 0.16f)
      val role = if (hasSubmenu) Role.Button else Role.RadioButton
      Row(
          verticalAlignment = Alignment.CenterVertically,
-@@ -146,8 +162,14 @@
+@@ -146,8 +163,14 @@
                  bottom = if (isLast) 8.dp else 0.dp,
              )
              .squircleClip(17.dp)
@@ -124,7 +122,6 @@ diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown
                  enabled = enabled,
                  role = role,
                  onClick = { currentOnSelectedIndexChange(index) },
-diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
 @@ -22,6 +22,8 @@
@@ -136,7 +133,18 @@ diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopu
  import androidx.compose.runtime.Immutable
  import androidx.compose.runtime.LaunchedEffect
  import androidx.compose.runtime.Stable
-@@ -89,6 +91,10 @@
+@@ -47,6 +49,10 @@
+ import androidx.compose.ui.layout.Placeable
+ import androidx.compose.ui.layout.onGloballyPositioned
+ import androidx.compose.ui.platform.LocalDensity
++import androidx.compose.ui.graphics.BlurEffect
++import androidx.compose.ui.graphics.RenderEffect
++import androidx.compose.ui.graphics.TileMode
++import kotlin.math.roundToInt
+ import androidx.compose.ui.platform.LocalLayoutDirection
+ import androidx.compose.ui.platform.LocalWindowInfo
+ import androidx.compose.ui.text.TextStyle
+@@ -89,6 +95,10 @@
      val itemTextStyle: TextStyle? = null,
      val itemVerticalPadding: Dp = 10.5.dp,
      val itemMinHeight: Dp = 0.dp,
@@ -147,7 +155,7 @@ diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopu
  )
  
  /** Optional app-level material applied consistently to every Miuix list-popup host. */
-@@ -104,6 +110,9 @@
+@@ -104,6 +114,9 @@
      content: @Composable () -> Unit,
  ) {
      val scrollState = rememberScrollState()
@@ -157,7 +165,7 @@ diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopu
  
      val measurePolicy = remember {
          object : MeasurePolicy {
-@@ -170,10 +179,11 @@
+@@ -170,10 +183,11 @@
      }
  
      Layout(
@@ -170,7 +178,16 @@ diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopu
              .verticalScroll(state = scrollState),
          measurePolicy = measurePolicy,
      )
-@@ -676,6 +686,7 @@
+@@ -649,6 +663,8 @@
+     val visualStyle = LocalListPopupVisualStyle.current
+     val cornerRadius = visualStyle.cornerRadius
+     val backgroundColor = visualStyle.backgroundColor ?: MiuixTheme.colorScheme.surfaceContainer
++    val density = LocalDensity.current
++    val blurSteps = remember(density) { arrayOfNulls<RenderEffect>(9) }
+     val shadowAlpha = remember { Animatable(0f) }
+     LaunchedEffect(Unit) {
+         var previousFraction = fractionProgress()
+@@ -676,6 +692,7 @@
  
      Box(
          modifier = modifier
@@ -178,72 +195,23 @@ diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopu
              .graphicsLayer {
                  shadowElevation = 16.dp.toPx()
                  shape = RoundedCornerShape(cornerRadius)
-diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
---- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
-+++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
-@@ -10,6 +10,7 @@
- import androidx.compose.foundation.layout.padding
- import androidx.compose.foundation.shape.RoundedCornerShape
- import androidx.compose.runtime.Composable
-+import androidx.compose.runtime.CompositionLocalProvider
- import androidx.compose.runtime.key
- import androidx.compose.runtime.remember
- import androidx.compose.ui.Modifier
-@@ -41,6 +42,7 @@
- import top.yukonga.miuix.kmp.basic.HorizontalDivider
- import top.yukonga.miuix.kmp.basic.ListPopupColumn
- import top.yukonga.miuix.kmp.basic.ListPopupVisualStyle
-+import top.yukonga.miuix.kmp.basic.LocalListPopupVisualStyle
- import top.yukonga.miuix.kmp.basic.PopupLayoutPosition
- import top.yukonga.miuix.kmp.basic.popupClipReveal
- import top.yukonga.miuix.kmp.squircle.isSquircleEnabled
-@@ -78,8 +80,10 @@
-     val isExpanded = expandedItem != null
-     val popupCornerRadius = visualStyle.cornerRadius
-     val shape = remember(popupCornerRadius) { RoundedCornerShape(popupCornerRadius) }
-+    CompositionLocalProvider(LocalListPopupVisualStyle provides visualStyle) {
-     Box(
-         modifier = Modifier
-+            .then(visualStyle.interactionModifier)
-             .graphicsLayer {
-                 val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
-                 scaleX = s
-@@ -153,12 +157,13 @@
-                 modifier = Modifier
-                     .matchParentSize()
-                     .graphicsLayer { alpha = maskAlpha() }
--                    .background(maskColor)
-+                    .background(if (visualStyle.dimBackground) maskColor else Color.Transparent)
-                     .pointerInput(Unit) {
-                         detectTapGestures(onTap = { onCollapseSecondary() })
-                     },
+@@ -710,7 +727,15 @@
+                 squircleEnabled = isSquircleEnabled(),
+                 revealLimitHeightPx = with(LocalDensity.current) { revealLimitHeight.toPx() },
              )
-         }
-+    }
-     }
- }
- 
-@@ -236,8 +241,10 @@
-     val secondaryTopLeft = secondaryLocalInUnion.topLeft
-     val secondaryWidth = secondaryLocalInUnion.width
- 
-+    CompositionLocalProvider(LocalListPopupVisualStyle provides visualStyle) {
-     Box(
-         modifier = Modifier
-+            .then(visualStyle.interactionModifier)
-             .graphicsLayer {
-                 val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
-                 scaleX = s
-@@ -346,6 +353,7 @@
-             )
-         }
-     }
-+    }
- }
- 
- /** Shared header + divider + children body for the secondary popup. Used by both the real
-diff --git a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt
-new file mode 100644
+-            .blur(radius = (8f * (1f - fractionProgress())).dp)
++            .graphicsLayer {
++                // Read progress in the layer phase: the old blur(Dp) recomposed the entire
++                // popup and recreated its effect graph at every spring tick.
++                val step = ((1f - fractionProgress()) * 8f).roundToInt().coerceIn(0, 8)
++                renderEffect = if (step == 0) null else blurSteps[step] ?: run {
++                    val radius = step.dp.toPx()
++                    BlurEffect(radius, radius, TileMode.Decal).also { blurSteps[step] = it }
++                }
++            }
+             .then(visualStyle.surfaceModifier)
+             .background(color = backgroundColor),
+         ) {
 --- /dev/null
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt
 @@ -0,0 +1,110 @@
@@ -357,3 +325,66 @@ new file mode 100644
 +            } finally { edgeScroll.cancel() }
 +        }
 +    }
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
+@@ -10,6 +10,7 @@
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.CompositionLocalProvider
+ import androidx.compose.runtime.key
+ import androidx.compose.runtime.remember
+ import androidx.compose.ui.Modifier
+@@ -41,6 +42,7 @@
+ import top.yukonga.miuix.kmp.basic.HorizontalDivider
+ import top.yukonga.miuix.kmp.basic.ListPopupColumn
+ import top.yukonga.miuix.kmp.basic.ListPopupVisualStyle
++import top.yukonga.miuix.kmp.basic.LocalListPopupVisualStyle
+ import top.yukonga.miuix.kmp.basic.PopupLayoutPosition
+ import top.yukonga.miuix.kmp.basic.popupClipReveal
+ import top.yukonga.miuix.kmp.squircle.isSquircleEnabled
+@@ -78,8 +80,10 @@
+     val isExpanded = expandedItem != null
+     val popupCornerRadius = visualStyle.cornerRadius
+     val shape = remember(popupCornerRadius) { RoundedCornerShape(popupCornerRadius) }
++    CompositionLocalProvider(LocalListPopupVisualStyle provides visualStyle) {
+     Box(
+         modifier = Modifier
++            .then(visualStyle.interactionModifier)
+             .graphicsLayer {
+                 val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
+                 scaleX = s
+@@ -153,12 +157,13 @@
+                 modifier = Modifier
+                     .matchParentSize()
+                     .graphicsLayer { alpha = maskAlpha() }
+-                    .background(maskColor)
++                    .background(if (visualStyle.dimBackground) maskColor else Color.Transparent)
+                     .pointerInput(Unit) {
+                         detectTapGestures(onTap = { onCollapseSecondary() })
+                     },
+             )
+         }
++    }
+     }
+ }
+ 
+@@ -236,8 +241,10 @@
+     val secondaryTopLeft = secondaryLocalInUnion.topLeft
+     val secondaryWidth = secondaryLocalInUnion.width
+ 
++    CompositionLocalProvider(LocalListPopupVisualStyle provides visualStyle) {
+     Box(
+         modifier = Modifier
++            .then(visualStyle.interactionModifier)
+             .graphicsLayer {
+                 val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
+                 scaleX = s
+@@ -346,6 +353,7 @@
+             )
+         }
+     }
++    }
+ }
+ 
+ /** Shared header + divider + children body for the secondary popup. Used by both the real

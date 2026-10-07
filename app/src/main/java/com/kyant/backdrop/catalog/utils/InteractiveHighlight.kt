@@ -35,6 +35,7 @@ class InteractiveHighlight(
     val ambientAlpha: Float = 0.08f,
     val spotAlpha: Float = 0.15f,
     val fallbackAlpha: Float = 0.25f,
+    val fadeOutAtReleasePosition: Boolean = false,
     private val pressProgressAnimationSpec: FiniteAnimationSpec<Float> = spring(0.5f, 300f, 0.001f),
     private val positionAnimationSpec: FiniteAnimationSpec<Offset> = spring(0.5f, 300f, Offset.VisibilityThreshold)
 ) {
@@ -48,6 +49,7 @@ class InteractiveHighlight(
     private var inputGeneration = 0L
     private var externalPressActive = false
     private var exactExternalPosition by mutableStateOf<Offset?>(null)
+    private var releasePosition by mutableStateOf<Offset?>(null)
     val pressProgress: Float get() = pressProgressAnimation.value
     val offset: Offset get() = positionAnimation.value - startPosition
 
@@ -72,7 +74,7 @@ half4 main(float2 coord) {
 
     private fun DrawScope.drawHighlightLayer() {
         val progress = pressProgressAnimation.value
-        val highlightPosition = exactExternalPosition ?: positionAnimation.value
+        val highlightPosition = exactExternalPosition ?: releasePosition ?: positionAnimation.value
         if (progress <= 0f) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shader != null) {
             if (ambientAlpha > 0f) {
@@ -137,6 +139,9 @@ half4 main(float2 coord) {
             // Release work is intentionally asynchronous so the spring can finish after UP. A
             // newer DOWN must invalidate this queued release before it can cancel the new press.
             if (generation != inputGeneration) return@launch
+            if (fadeOutAtReleasePosition && releasePosition == null) {
+                releasePosition = exactExternalPosition ?: positionAnimation.value
+            }
             launch { pressProgressAnimation.animateTo(0f, pressProgressAnimationSpec) }
             launch { positionAnimation.animateTo(startPosition, positionAnimationSpec) }
         }
@@ -150,6 +155,7 @@ half4 main(float2 coord) {
      */
     fun updateExternal(position: Offset, pressed: Boolean, followPointerExactly: Boolean = false) {
         if (pressed) {
+            releasePosition = null
             exactExternalPosition = position.takeIf { followPointerExactly }
             val newPress = !externalPressActive
             val generation = if (newPress) {
@@ -184,6 +190,7 @@ half4 main(float2 coord) {
             try {
                 inspectDragGestures(
                     onDragStart = { down ->
+                        releasePosition = null
                         gestureGeneration = ++inputGeneration
                         gestureAccepted = acceptsGesture(
                             Size(size.width.toFloat(), size.height.toFloat()),

@@ -1473,7 +1473,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                     alpha = when {
                         sourceHandedOff -> 0f
                         motionState.phase == HomeAnchoredOverlayPhase.Preparing || preparingCloseSurface -> 0.001f
-                        else -> 1f
+                        else -> 1f - dropFrame.value.sourceAlpha
                     }
                 }
                 .sleepDownDropletGlass(requireNotNull(backdrop), {
@@ -1580,11 +1580,9 @@ internal fun HomeAnchoredMorphOverlayHost(
                         scaleX = current.sourceScale
                         scaleY = current.sourceScale
                         compositingStrategy = CompositingStrategy.Offscreen
-                        val sourceContentBlurPx = maxContentBlurPx * homeMorphSmoothStep(
-                            0f,
-                            0.34f,
-                            current.pathProgress
-                        )
+                        val sourceContentBlurPx = if (motionState.phase == HomeAnchoredOverlayPhase.Closing) {
+                            maxContentBlurPx * (1f - current.sourceAlpha)
+                        } else maxContentBlurPx * homeMorphSmoothStep(0f, 0.34f, current.pathProgress)
                         renderEffect = if (sourceContentBlurPx > 0.01f) {
                             BlurEffect(sourceContentBlurPx, sourceContentBlurPx, TileMode.Clamp)
                         } else null
