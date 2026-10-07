@@ -1008,22 +1008,20 @@ fun BlueStatusGlassPill(
             shape = shape,
             tokens = GlassTokens.pill().copy(
                 blur = 4.dp,
-                surfaceAlpha = 0.68f,
+                // Match the old upper-body tint; contour light below owns the lower edge.
+                surfaceAlpha = 0.30f,
                 highlightAlpha = 0.10f,
                 innerShadowAlpha = 0.10f
             ),
             baseSurfaceColorOverride = accentColor,
-            bottomLitTint = true,
-            bottomLitTintFloor = 0.44f,
             modifier = Modifier.matchParentSize()
         ) {}
-        VerticalGlassAccentOverlay(
-            accentColor = accentColor,
-            shape = shape,
-            lightGlass = glassUsesLightStyle(config),
-            intensity = 0.86f,
-            expanded = true,
-            modifier = Modifier.matchParentSize()
+        Box(
+            Modifier.matchParentSize().statusPillContourLight(
+                accentColor = accentColor,
+                shape = shape,
+                lightGlass = glassUsesLightStyle(config)
+            )
         )
         content()
     }
