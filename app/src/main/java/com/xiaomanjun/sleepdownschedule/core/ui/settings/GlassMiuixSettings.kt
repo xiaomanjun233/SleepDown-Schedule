@@ -364,15 +364,17 @@ internal fun GlassMiuixDetailActivityScaffold(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(settingsPageBackground(pageConfig))
                     .glassBackdropProducer(backgroundBackdrop)
+                    .background(pageColor)
             )
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 underlayModifier = Modifier
                     .fillMaxSize()
-                    .background(settingsPageBackground(pageConfig))
-                    .centeredDialogSceneProducer(dialogSceneBackdrop),
+                    // The base must be inside the recorder. Transparent gaps in the sample
+                    // let the original, unblurred card edges show through popup/dialog blur.
+                    .centeredDialogSceneProducer(dialogSceneBackdrop)
+                    .background(pageColor),
                 containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
