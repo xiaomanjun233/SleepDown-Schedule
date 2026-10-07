@@ -232,9 +232,8 @@ private fun rememberMiuixListPopupStyle(
         ))
     }
     return ListPopupVisualStyle(
-    // Keep the stock Miuix reveal geometry; only the pixels painted inside that surface are
-    // replaced by the SleepDown glass material. Corner radius follows the NexioSchedule
-    // liquid-glass dropdown (25dp continuous).
+    // Independent size/origin tracks follow Nexio's current popup motion. Sampling remains
+    // in the stationary canvas, with our own material and neutral interaction feedback.
     surfaceModifier = Modifier.miuixCascadingPopupSurface(
         backdrop = backdrop,
         config = config,
@@ -243,6 +242,7 @@ private fun rememberMiuixListPopupStyle(
     backgroundColor = Color.Transparent,
     cornerRadius = cornerRadius,
     border = rim,
+    morphAnimation = true,
     slideSelection = true,
     dimBackground = false,
     holdAnchor = false,
