@@ -195,7 +195,8 @@ data class CourseEditorOverlayRequest(
     val sourceIsDayCard: Boolean = false,
     val copyDraft: CourseEntity? = null,
     internal val sourceGrid: CourseEditorWeekGrid? = null,
-    val contextMessage: String? = null
+    val contextMessage: String? = null,
+    val sourceAdjustmentLabel: String? = null
 )
 
 
@@ -349,6 +350,7 @@ internal fun CourseEditorContainerOverlayHost(
             }
             CourseEditorAnimatedContainer(
                 backdrop = dialogBackdrop, config = config, course = shown.copyDraft ?: shown.course,
+                muted = shown.sourceAdjustmentLabel == "停",
                 shape = RoundedRectangle(32.dp), progressProvider = { 1f }, alpha = 1f,
                 surfaceBackdrop = editorSurface, modifier = Modifier.fillMaxSize()
             ) {
@@ -740,6 +742,7 @@ internal fun CourseEditorContainerOverlayHost(
             backdrop = backdrop,
             config = config,
             course = shellCourse,
+            muted = shownRequest.sourceAdjustmentLabel == "停",
             shape = shellShape,
             progressProvider = { morphFrame.shapeProgress },
             alpha = morphSurfaceAlpha,
@@ -777,6 +780,8 @@ internal fun CourseEditorContainerOverlayHost(
                         config = config,
                         sourceIsWide = !sourceIsWeekCard,
                         adaptiveMetrics = adaptiveMetrics,
+                        adjustmentLabel = shownRequest.sourceAdjustmentLabel,
+                        sourceCorner = with(density) { sourceCornerPx.toDp() },
                         modifier = Modifier
                             .fillMaxSize()
                             .graphicsLayer {
@@ -902,6 +907,7 @@ private fun CourseEditorAnimatedContainer(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     course: CourseEntity,
+    muted: Boolean,
     shape: androidx.compose.ui.graphics.Shape,
     progressProvider: () -> Float,
     alpha: Float,
@@ -922,6 +928,7 @@ private fun CourseEditorAnimatedContainer(
         backdrop = backdrop,
         config = config,
         course = course,
+        muted = muted,
         modifier = modifier.graphicsLayer { this.alpha = alpha }.drawWithCache {
             // Keep the shell's outline in the parent recording across the fixed-allocation
             // handoff. Child RenderNodes may otherwise replay rectangular pixels for one frame
@@ -953,17 +960,30 @@ private fun CourseEditorSourceShell(
     config: ScheduleConfigEntity,
     sourceIsWide: Boolean,
     adaptiveMetrics: HomeAdaptiveMetrics,
+    adjustmentLabel: String?,
+    sourceCorner: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier
 ) {
     Box(modifier) {
+        val badgeInset = if (adjustmentLabel != null) com.xiaomanjun.sleepdownschedule.feature.home.courseBadgeContentInset(
+            with(LocalDensity.current) { courseAdjustmentBadgeHeight() }, sourceCorner
+        ) else 0.dp
         if (sourceIsWide) {
+            Box(Modifier.padding(bottom = (badgeInset - 16.dp).coerceAtLeast(0.dp))) {
             CourseEditorDaySourceContent(
                 course = course,
                 config = config,
-                tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f
+                tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f,
+                muted = adjustmentLabel == "停"
             )
+            }
         } else {
-            CourseEditorWeekSourceContent(course, backdrop, config)
+            com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseOverlayCardContent(
+                course, config, muted = adjustmentLabel == "停", badgeInset = badgeInset)
+        }
+        adjustmentLabel?.let {
+            com.xiaomanjun.sleepdownschedule.feature.home.CourseAdjustmentBadge(it, backdrop, config,
+                Modifier.align(Alignment.BottomEnd).courseBadgeCornerAnchor(sourceCorner))
         }
     }
 }
@@ -972,7 +992,8 @@ private fun CourseEditorSourceShell(
 private fun CourseEditorDaySourceContent(
     course: CourseEntity,
     config: ScheduleConfigEntity,
-    tabletFontScale: Float
+    tabletFontScale: Float,
+    muted: Boolean
 ) {
     val textColor = homeForegroundColor(config)
     DayCourseCardTextContent(
@@ -982,174 +1003,9 @@ private fun CourseEditorDaySourceContent(
         showWeeks = false,
         textColor = textColor,
         tabletFontScale = tabletFontScale,
-        config = config
+        config = config,
+        muted = muted
     )
-}
-
-@Composable
-private fun CourseEditorWeekSourceContent(
-    course: CourseEntity,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity
-) {
-    val locationText = course.location.orEmpty()
-    val hasLocation = locationText.isNotBlank()
-    val hasTeacher = !course.teacher.isNullOrBlank()
-    val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
-    val textColor =
-        if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else if (config.courseCardGlassEnabled) readableOn(cardColor)
-        else glassForegroundColor(config)
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val density = LocalDensity.current
-        val heightDp = maxHeight.value
-        val widthDp = maxWidth.value
-        val compact = heightDp < 78f
-        val tiny = heightDp < 52f
-        val verticalPadding = when {
-            tiny -> 1.dp
-            compact -> 2.dp
-            else -> 2.5.dp
-        }
-        val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
-        val fontScaleCompensation = density.fontScale.coerceAtLeast(1f)
-        val tabletFontBoost = if (maxWidth >= 120.dp) 1.18f else 1f
-        val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale
-        val courseFontScale = ((previewFontScale ?: config.courseCardFontScale) * tabletFontBoost)
-            .coerceIn(0.80f, 1.35f)
-        fun scaledCourseWeekText(value: TextUnit): TextUnit {
-            return (value.value * courseFontScale / fontScaleCompensation.coerceAtLeast(1f)).sp
-        }
-        val nameFont = scaledCourseWeekText(if (tiny) 8.8.sp else if (compact) 9.7.sp else 10.7.sp)
-        val nameLineHeight = scaledCourseWeekText(if (tiny) 8.2.sp else if (compact) 9.1.sp else 10.0.sp)
-        val locationFont = scaledCourseWeekText(if (tiny) 8.1.sp else if (compact) 8.7.sp else 9.5.sp)
-        val locationLineHeight = scaledCourseWeekText(if (tiny) 8.0.sp else if (compact) 8.6.sp else 9.3.sp)
-        val teacherFont = scaledCourseWeekText(8.4.sp)
-        val teacherLineHeight = scaledCourseWeekText(7.9.sp)
-        val contentWidthPx = with(density) { (maxWidth - horizontalPadding * 2f).coerceAtLeast(24.dp).toPx() }
-        val availableTextPx = with(density) { (maxHeight - verticalPadding * 2f).coerceAtLeast(0.dp).toPx() }
-
-        fun estimatedLines(text: String, fontSize: TextUnit): Int {
-            if (text.isBlank()) return 0
-            val averageCharPx = with(density) { fontSize.toPx() } * 1.08f
-            val charsPerLine = (contentWidthPx / averageCharPx.coerceAtLeast(1f)).toInt().coerceAtLeast(1)
-            return ceil(text.length.toFloat() / charsPerLine).toInt().coerceAtLeast(1)
-        }
-
-        val canShowTeacher = hasTeacher && heightDp >= 52f
-        val teacherLines = if (canShowTeacher) 1 else 0
-        val teacherPx = if (teacherLines > 0) with(density) { teacherLineHeight.toPx() } else 0f
-        val usablePx = (availableTextPx - teacherPx).coerceAtLeast(0f)
-        val averageLinePx = minOf(with(density) { nameLineHeight.toPx() }, with(density) { locationLineHeight.toPx() }).coerceAtLeast(1f)
-        val totalSlots = (usablePx / averageLinePx).toInt().coerceAtLeast(1)
-        val maxNameLines = when {
-            heightDp >= 150f -> 12
-            heightDp >= 112f -> 9
-            heightDp >= 78f -> 6
-            else -> 4
-        }
-        val wantedNameLines = estimatedLines(course.name, nameFont).coerceIn(1, maxNameLines)
-        val wantedLocationLines = if (hasLocation) {
-            estimatedLines(locationText, locationFont).coerceIn(1, if (heightDp >= 150f) 4 else if (heightDp >= 96f) 3 else 2)
-        } else {
-            0
-        }
-        val nameMinimum = 1
-        val locationMinimum = if (hasLocation && (totalSlots >= 2 || tiny)) 1 else 0
-        var remainingSlots = (totalSlots - nameMinimum - locationMinimum).coerceAtLeast(0)
-        var nameLines = nameMinimum
-        var locationLines = locationMinimum
-        var nameNeed = (wantedNameLines - nameLines).coerceAtLeast(0)
-        var locationNeed = (wantedLocationLines - locationLines).coerceAtLeast(0)
-        while (remainingSlots > 0 && (nameNeed > 0 || locationNeed > 0)) {
-            if (nameNeed >= locationNeed && nameNeed > 0) {
-                nameLines += 1
-                nameNeed -= 1
-            } else if (locationNeed > 0) {
-                locationLines += 1
-                locationNeed -= 1
-            } else {
-                nameLines += 1
-                nameNeed -= 1
-            }
-            remainingSlots -= 1
-        }
-        if (remainingSlots > 0 && nameLines < maxNameLines) {
-            val extraNameLines = minOf(remainingSlots, maxNameLines - nameLines)
-            nameLines += extraNameLines
-            remainingSlots -= extraNameLines
-        }
-        if (remainingSlots > 0 && hasLocation) {
-            locationLines += remainingSlots
-        }
-        if (tiny && hasLocation) {
-            locationLines = 1
-            nameLines = (totalSlots - locationLines).coerceAtLeast(1)
-        }
-
-        val renderedLocationLines = minOf(locationLines, wantedLocationLines).coerceAtLeast(0)
-        val locationReserve = if (hasLocation && renderedLocationLines > 0) {
-            with(density) { (locationLineHeight.toPx() * renderedLocationLines).toDp() }
-        } else {
-            0.dp
-        }
-        val teacherReserve = if (canShowTeacher) {
-            with(density) { teacherLineHeight.toPx().toDp() }
-        } else {
-            0.dp
-        }
-        val centerReserve = maxOf(locationReserve, teacherReserve) + 1.dp
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = horizontalPadding, vertical = verticalPadding)
-        ) {
-            if (hasLocation && locationLines > 0) {
-                Text(
-                    locationText,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth(),
-                    fontSize = locationFont,
-                    lineHeight = locationLineHeight,
-                    fontWeight = FontWeight.Medium,
-                    color = textColor.copy(alpha = 0.78f),
-                    maxLines = locationLines,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
-                )
-            }
-            Text(
-                course.name,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth()
-                    .padding(vertical = centerReserve),
-                fontSize = nameFont,
-                lineHeight = nameLineHeight,
-                fontWeight = FontWeight.SemiBold,
-                color = textColor,
-                maxLines = nameLines,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
-            if (canShowTeacher) {
-                Text(
-                    course.teacher,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth(),
-                    fontSize = teacherFont,
-                    lineHeight = teacherLineHeight,
-                    fontWeight = FontWeight.Normal,
-                    color = textColor.copy(alpha = 0.58f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
-    }
 }
 
 private fun validSourceRect(rect: Rect?, rootSize: IntSize): Rect? {

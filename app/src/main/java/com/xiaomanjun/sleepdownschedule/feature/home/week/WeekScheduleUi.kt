@@ -126,6 +126,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -1137,124 +1138,133 @@ private fun WeekEditOverlayHost(
 }
 
 @Composable
-internal fun WeekCourseOverlayCardContent(course: CourseEntity, config: ScheduleConfigEntity) {
-    val pageForeground = homeForegroundColor(config)
-    val coloredText = config.courseCardColoredTextEnabled
-    val cardTextAlign = config.weekCardTextAlign()
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val density = LocalDensity.current
-        val heightDp = maxHeight.value
-        val widthDp = maxWidth.value
-        val locationText = course.location.orEmpty()
-        val hasLocation = config.weekCardShowLocation && locationText.isNotBlank()
-        val hasTeacher = config.weekCardShowTeacher && !course.teacher.isNullOrBlank()
-        val textColor = homeCourseTextColor(config, course, pageForeground, muted = false)
-        val compact = heightDp < 78f
-        val tiny = heightDp < 52f
-        val verticalPadding = when {
-            tiny -> 1.dp
-            compact -> 2.dp
-            else -> 2.5.dp
-        }
-        val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
-        val tabletFontBoost = if (widthDp >= 120f) 1.18f else 1f
-        val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale
-        val courseFontScale = ((previewFontScale ?: config.courseCardFontScale) * tabletFontBoost)
-            .coerceIn(0.80f, 1.35f)
-        fun scaledOverlayText(value: TextUnit): TextUnit =
-            scaledWeekText((value.value * courseFontScale).sp, density.fontScale)
-        val nameFont = scaledOverlayText(if (tiny) 8.8.sp else if (compact) 9.7.sp else 10.7.sp)
-        val nameLineHeight = scaledOverlayText(if (tiny) 8.2.sp else if (compact) 9.1.sp else 10.0.sp)
-        val locationFont = scaledOverlayText(if (tiny) 8.1.sp else if (compact) 8.7.sp else 9.5.sp)
-        val locationLineHeight = scaledOverlayText(if (tiny) 8.0.sp else if (compact) 8.6.sp else 9.3.sp)
-        val teacherFont = scaledOverlayText(8.4.sp)
-        val teacherLineHeight = scaledOverlayText(7.9.sp)
-        val contentWidthPx = with(density) { (maxWidth - horizontalPadding * 2f).coerceAtLeast(24.dp).toPx() }
-        val availableTextPx = with(density) { (maxHeight - verticalPadding * 2f).coerceAtLeast(0.dp).toPx() }
-
-        fun estimatedLines(text: String, fontSize: TextUnit): Int {
-            if (text.isBlank()) return 0
-            val averageCharPx = with(density) { fontSize.toPx() } * 1.08f
-            val charsPerLine = (contentWidthPx / averageCharPx.coerceAtLeast(1f)).toInt().coerceAtLeast(1)
-            return ceil(text.length.toFloat() / charsPerLine).toInt().coerceAtLeast(1)
-        }
-
-        val canShowTeacher = hasTeacher && heightDp >= 52f
-        val teacherPx = if (canShowTeacher) with(density) { teacherLineHeight.toPx() } else 0f
-        val usablePx = (availableTextPx - teacherPx).coerceAtLeast(0f)
-        val averageLinePx = minOf(
-            with(density) { nameLineHeight.toPx() },
-            with(density) { locationLineHeight.toPx() }
-        ).coerceAtLeast(1f)
-        val totalSlots = (usablePx / averageLinePx).toInt().coerceAtLeast(1)
-        val maxNameLines = if (config.weekCardContentLayout == WeekCardContentLayout.TOP_DOWN) totalSlots else when {
-            heightDp >= 150f -> 12
-            heightDp >= 112f -> 9
-            heightDp >= 78f -> 6
-            else -> 4
-        }
-        val wantedNameLines = estimatedLines(course.name, nameFont).coerceIn(1, maxNameLines)
-        val wantedLocationLines = if (hasLocation) {
-            estimatedLines(locationText, locationFont).coerceIn(1, if (heightDp >= 150f) 4 else if (heightDp >= 96f) 3 else 2)
-        } else {
-            0
-        }
-        val nameMinimum = 1
-        val locationMinimum = if (hasLocation && (totalSlots >= 2 || tiny)) 1 else 0
-        var remainingSlots = (totalSlots - nameMinimum - locationMinimum).coerceAtLeast(0)
-        var nameLines = nameMinimum
-        var locationLines = locationMinimum
-        var nameNeed = (wantedNameLines - nameLines).coerceAtLeast(0)
-        var locationNeed = (wantedLocationLines - locationLines).coerceAtLeast(0)
-        while (remainingSlots > 0 && (nameNeed > 0 || locationNeed > 0)) {
-            if (nameNeed >= locationNeed && nameNeed > 0) {
-                nameLines += 1
-                nameNeed -= 1
-            } else if (locationNeed > 0) {
-                locationLines += 1
-                locationNeed -= 1
-            } else {
-                nameLines += 1
-                nameNeed -= 1
-            }
-            remainingSlots -= 1
-        }
-        if (remainingSlots > 0 && nameLines < maxNameLines) {
-            val extraNameLines = minOf(remainingSlots, maxNameLines - nameLines)
-            nameLines += extraNameLines
-            remainingSlots -= extraNameLines
-        }
-        if (remainingSlots > 0 && hasLocation) {
-            locationLines += remainingSlots
-        }
-        if (tiny && hasLocation) {
-            locationLines = 1
-            nameLines = (totalSlots - locationLines).coerceAtLeast(1)
-        }
-        val renderedLocationLines = minOf(locationLines, wantedLocationLines).coerceAtLeast(0)
-        val locationReserve = if (hasLocation && renderedLocationLines > 0) {
-            with(density) { (locationLineHeight.toPx() * renderedLocationLines).toDp() }
-        } else {
-            0.dp
-        }
-        val teacherReserve = if (canShowTeacher) {
-            with(density) { teacherLineHeight.toPx().toDp() }
-        } else {
-            0.dp
-        }
-        val centerReserve = maxOf(locationReserve, teacherReserve) + 1.dp
-        WeekCardTextBody(
-            course = course, locationText = locationText, locationLines = locationLines,
-            nameLines = nameLines, showTeacher = canShowTeacher,
-            nameFont = nameFont, nameLineHeight = nameLineHeight,
-            locationFont = locationFont, locationLineHeight = locationLineHeight,
-            teacherFont = teacherFont, teacherLineHeight = teacherLineHeight,
-            textColor = textColor, coloredText = coloredText,
-            currentTextAlign = cardTextAlign, layout = config.weekCardContentLayout,
-            horizontalPadding = horizontalPadding, verticalPadding = verticalPadding,
-            centerReserve = centerReserve, adaptiveContrast = false
-        )
+internal fun WeekCourseOverlayCardContent(
+    course: CourseEntity, config: ScheduleConfigEntity, muted: Boolean = false, badgeInset: Dp = 0.dp
+) {
+    BoxWithConstraints(Modifier.fillMaxSize().padding(bottom = badgeInset)) {
+        WeekCourseCardTextContent(course, config, maxWidth, maxHeight, maxWidth, muted,
+            adaptiveContrast = false)
     }
+}
+
+@Composable
+private fun WeekCourseCardTextContent(
+    course: CourseEntity, config: ScheduleConfigEntity, cardLayoutWidth: Dp, textHeight: Dp,
+    gridColumnWidth: Dp, muted: Boolean, adaptiveContrast: Boolean = true
+) {
+    val density = LocalDensity.current
+    val coloredText = !muted && config.courseCardColoredTextEnabled
+    val cardTextAlign = config.weekCardTextAlign()
+    val courseTextColor = homeCourseTextColor(config, course, homeForegroundColor(config), muted)
+    val locationText = course.location.orEmpty()
+    val hasLocation = config.weekCardShowLocation && locationText.isNotBlank()
+    val hasTeacher = config.weekCardShowTeacher && !course.teacher.isNullOrBlank()
+    val heightDp = textHeight.value
+    val widthDp = cardLayoutWidth.value
+    val compact = heightDp < 78f
+    val tiny = heightDp < 52f
+    val verticalPadding = when {
+        tiny -> 1.dp
+        compact -> 2.dp
+        else -> 2.5.dp
+    }
+    val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
+    val fontScaleCompensation = density.fontScale.coerceAtLeast(1f)
+    val tabletFontBoost = if (gridColumnWidth >= 120.dp) 1.18f else 1f
+    val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale
+    val courseFontScale = ((previewFontScale ?: config.courseCardFontScale) * tabletFontBoost)
+        .coerceIn(0.80f, 1.35f)
+    fun scaledCourseWeekText(value: TextUnit): TextUnit = scaledWeekText((value.value * courseFontScale).sp, fontScaleCompensation)
+    val nameFont = scaledCourseWeekText(if (tiny) 8.8.sp else if (compact) 9.7.sp else 10.7.sp)
+    val nameLineHeight = (nameFont.value * 1.15f).sp
+    val locationFont = scaledCourseWeekText(if (tiny) 8.1.sp else if (compact) 8.7.sp else 9.5.sp)
+    val locationLineHeight = (locationFont.value * 1.15f).sp
+    val teacherFont = scaledCourseWeekText(8.4.sp)
+    val teacherLineHeight = (teacherFont.value * 1.15f).sp
+    val contentWidthPx = with(density) { (cardLayoutWidth - horizontalPadding * 2f).coerceAtLeast(24.dp).toPx() }
+    val availableTextPx = with(density) { (textHeight - verticalPadding * 2f).coerceAtLeast(0.dp).toPx() }
+
+    fun estimatedLines(text: String, fontSize: TextUnit): Int {
+        if (text.isBlank()) return 0
+        val averageCharPx = with(density) { fontSize.toPx() } * 1.08f
+        val charsPerLine = (contentWidthPx / averageCharPx.coerceAtLeast(1f)).toInt().coerceAtLeast(1)
+        return ceil(text.length.toFloat() / charsPerLine).toInt().coerceAtLeast(1)
+    }
+
+    val canShowTeacher = hasTeacher && heightDp >= 52f
+    val teacherLines = if (canShowTeacher) 1 else 0
+    val teacherPx = if (teacherLines > 0) with(density) { teacherLineHeight.toPx() } else 0f
+    val usablePx = (availableTextPx - teacherPx).coerceAtLeast(0f)
+    val averageLinePx = minOf(with(density) { nameLineHeight.toPx() }, with(density) { locationLineHeight.toPx() }).coerceAtLeast(1f)
+    val totalSlots = (usablePx / averageLinePx).toInt().coerceAtLeast(1)
+    val maxNameLines = if (config.weekCardContentLayout == WeekCardContentLayout.TOP_DOWN) totalSlots else when {
+        heightDp >= 150f -> 12
+        heightDp >= 112f -> 9
+        heightDp >= 78f -> 6
+        else -> 4
+    }
+    val wantedNameLines = estimatedLines(course.name, nameFont).coerceIn(1, maxNameLines)
+    val wantedLocationLines = if (hasLocation) {
+        estimatedLines(locationText, locationFont).coerceIn(1, if (heightDp >= 150f) 4 else if (heightDp >= 96f) 3 else 2)
+    } else {
+        0
+    }
+    val nameMinimum = 1
+    val locationMinimum = if (hasLocation && (totalSlots >= 2 || tiny)) 1 else 0
+    var remainingSlots = (totalSlots - nameMinimum - locationMinimum).coerceAtLeast(0)
+    var nameLines = nameMinimum
+    var locationLines = locationMinimum
+    var nameNeed = (wantedNameLines - nameLines).coerceAtLeast(0)
+    var locationNeed = (wantedLocationLines - locationLines).coerceAtLeast(0)
+    while (remainingSlots > 0 && (nameNeed > 0 || locationNeed > 0)) {
+        if (nameNeed >= locationNeed && nameNeed > 0) {
+            nameLines += 1
+            nameNeed -= 1
+        } else if (locationNeed > 0) {
+            locationLines += 1
+            locationNeed -= 1
+        } else {
+            nameLines += 1
+            nameNeed -= 1
+        }
+        remainingSlots -= 1
+    }
+    if (remainingSlots > 0 && nameLines < maxNameLines) {
+        val extraNameLines = minOf(remainingSlots, maxNameLines - nameLines)
+        nameLines += extraNameLines
+        remainingSlots -= extraNameLines
+    }
+    if (remainingSlots > 0 && hasLocation) {
+        locationLines += remainingSlots
+    }
+    if (tiny && hasLocation) {
+        locationLines = 1
+        nameLines = (totalSlots - locationLines).coerceAtLeast(1)
+    }
+
+    val renderedLocationLines = minOf(locationLines, wantedLocationLines).coerceAtLeast(0)
+    val locationReserve = if (hasLocation && renderedLocationLines > 0) {
+        with(density) { (locationLineHeight.toPx() * renderedLocationLines).toDp() }
+    } else {
+        0.dp
+    }
+    val teacherReserve = if (canShowTeacher) {
+        with(density) { teacherLineHeight.toPx().toDp() }
+    } else {
+        0.dp
+    }
+    val centerReserve = maxOf(locationReserve, teacherReserve) + 1.dp
+    WeekCardTextBody(
+        course = course, locationText = locationText, locationLines = locationLines,
+        nameLines = nameLines, showTeacher = canShowTeacher,
+        nameFont = nameFont, nameLineHeight = nameLineHeight,
+        locationFont = locationFont, locationLineHeight = locationLineHeight,
+        teacherFont = teacherFont, teacherLineHeight = teacherLineHeight,
+        textColor = courseTextColor, coloredText = coloredText,
+        currentTextAlign = cardTextAlign, layout = config.weekCardContentLayout,
+        horizontalPadding = horizontalPadding, verticalPadding = verticalPadding,
+        centerReserve = centerReserve, adaptiveContrast = adaptiveContrast
+    )
 }
 
 private fun ScheduleConfigEntity.weekCardTextAlign(): TextAlign = when (weekCardTextAlignment) {
@@ -1287,9 +1297,10 @@ private fun WeekCardTextBody(
 ) {
     Box(Modifier.fillMaxSize().padding(horizontal = horizontalPadding, vertical = verticalPadding)) {
         if (layout == WeekCardContentLayout.CURRENT) {
+            Column(Modifier.fillMaxSize()) {
             if (locationLines > 0) {
                 CourseCardText(locationText, coloredText = coloredText,
-                    modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth(),
                     fontSize = locationFont, lineHeight = locationLineHeight,
                     fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Medium,
                     color = textColor.copy(alpha = 0.78f), maxLines = locationLines,
@@ -1297,7 +1308,7 @@ private fun WeekCardTextBody(
                     adaptiveContrast = adaptiveContrast)
             }
             CourseCardText(course.name, coloredText = coloredText,
-                modifier = Modifier.align(Alignment.Center).fillMaxWidth().padding(vertical = centerReserve),
+                modifier = Modifier.fillMaxWidth().weight(1f).wrapContentHeight(Alignment.CenterVertically),
                 fontSize = nameFont, lineHeight = nameLineHeight,
                 fontWeight = if (coloredText) FontWeight.Bold else FontWeight.SemiBold,
                 color = textColor, maxLines = nameLines,
@@ -1305,12 +1316,13 @@ private fun WeekCardTextBody(
                 adaptiveContrast = adaptiveContrast)
             if (showTeacher) {
                 CourseCardText(course.teacher.orEmpty(), coloredText = coloredText,
-                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth(),
                     fontSize = teacherFont, lineHeight = teacherLineHeight,
                     fontWeight = if (coloredText) FontWeight.Bold else FontWeight.Normal,
                     color = textColor.copy(alpha = 0.58f), maxLines = 1,
                     overflow = TextOverflow.Ellipsis, textAlign = currentTextAlign,
                     adaptiveContrast = adaptiveContrast)
+            }
             }
         } else {
             val textAlign = if (layout == WeekCardContentLayout.CENTERED) TextAlign.Center else TextAlign.Start
@@ -3776,114 +3788,8 @@ fun WeekCourseBlock(
             }
             Box(Modifier.fillMaxWidth().height(displayedHeight).clip(cardShape)
                 .padding(bottom = badgeInset)) {
-            val density = LocalDensity.current
-            val textHeight = (displayedHeight - badgeInset).coerceAtLeast(0.dp)
-            val heightDp = textHeight.value
-            val widthDp = cardLayoutWidth.value
-            val compact = heightDp < 78f
-            val tiny = heightDp < 52f
-            val verticalPadding = when {
-                tiny -> 1.dp
-                compact -> 2.dp
-                else -> 2.5.dp
-            }
-            val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
-            val fontScaleCompensation = density.fontScale.coerceAtLeast(1f)
-            val tabletFontBoost = if (gridColumnWidth >= 120.dp) 1.18f else 1f
-            val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale
-            val courseFontScale = ((previewFontScale ?: config.courseCardFontScale) * tabletFontBoost)
-                .coerceIn(0.80f, 1.35f)
-            fun scaledCourseWeekText(value: TextUnit): TextUnit = scaledWeekText((value.value * courseFontScale).sp, fontScaleCompensation)
-            val nameFont = scaledCourseWeekText(if (tiny) 8.8.sp else if (compact) 9.7.sp else 10.7.sp)
-            val nameLineHeight = scaledCourseWeekText(if (tiny) 8.2.sp else if (compact) 9.1.sp else 10.0.sp)
-            val locationFont = scaledCourseWeekText(if (tiny) 8.1.sp else if (compact) 8.7.sp else 9.5.sp)
-            val locationLineHeight = scaledCourseWeekText(if (tiny) 8.0.sp else if (compact) 8.6.sp else 9.3.sp)
-            val teacherFont = scaledCourseWeekText(8.4.sp)
-            val teacherLineHeight = scaledCourseWeekText(7.9.sp)
-            val contentWidthPx = with(density) { (cardLayoutWidth - horizontalPadding * 2f).coerceAtLeast(24.dp).toPx() }
-            val availableTextPx = with(density) { (textHeight - verticalPadding * 2f).coerceAtLeast(0.dp).toPx() }
-
-            fun estimatedLines(text: String, fontSize: TextUnit): Int {
-                if (text.isBlank()) return 0
-                val averageCharPx = with(density) { fontSize.toPx() } * 1.08f
-                val charsPerLine = (contentWidthPx / averageCharPx.coerceAtLeast(1f)).toInt().coerceAtLeast(1)
-                return ceil(text.length.toFloat() / charsPerLine).toInt().coerceAtLeast(1)
-            }
-
-            val canShowTeacher = hasTeacher && heightDp >= 52f
-            val teacherLines = if (canShowTeacher) 1 else 0
-            val teacherPx = if (teacherLines > 0) with(density) { teacherLineHeight.toPx() } else 0f
-            val usablePx = (availableTextPx - teacherPx).coerceAtLeast(0f)
-            val averageLinePx = minOf(with(density) { nameLineHeight.toPx() }, with(density) { locationLineHeight.toPx() }).coerceAtLeast(1f)
-            val totalSlots = (usablePx / averageLinePx).toInt().coerceAtLeast(1)
-            val maxNameLines = if (config.weekCardContentLayout == WeekCardContentLayout.TOP_DOWN) totalSlots else when {
-                heightDp >= 150f -> 12
-                heightDp >= 112f -> 9
-                heightDp >= 78f -> 6
-                else -> 4
-            }
-            val wantedNameLines = estimatedLines(course.name, nameFont).coerceIn(1, maxNameLines)
-            val wantedLocationLines = if (hasLocation) {
-                estimatedLines(locationText, locationFont).coerceIn(1, if (heightDp >= 150f) 4 else if (heightDp >= 96f) 3 else 2)
-            } else {
-                0
-            }
-            val nameMinimum = 1
-            val locationMinimum = if (hasLocation && (totalSlots >= 2 || tiny)) 1 else 0
-            var remainingSlots = (totalSlots - nameMinimum - locationMinimum).coerceAtLeast(0)
-            var nameLines = nameMinimum
-            var locationLines = locationMinimum
-            var nameNeed = (wantedNameLines - nameLines).coerceAtLeast(0)
-            var locationNeed = (wantedLocationLines - locationLines).coerceAtLeast(0)
-            while (remainingSlots > 0 && (nameNeed > 0 || locationNeed > 0)) {
-                if (nameNeed >= locationNeed && nameNeed > 0) {
-                    nameLines += 1
-                    nameNeed -= 1
-                } else if (locationNeed > 0) {
-                    locationLines += 1
-                    locationNeed -= 1
-                } else {
-                    nameLines += 1
-                    nameNeed -= 1
-                }
-                remainingSlots -= 1
-            }
-            if (remainingSlots > 0 && nameLines < maxNameLines) {
-                val extraNameLines = minOf(remainingSlots, maxNameLines - nameLines)
-                nameLines += extraNameLines
-                remainingSlots -= extraNameLines
-            }
-            if (remainingSlots > 0 && hasLocation) {
-                locationLines += remainingSlots
-            }
-            if (tiny && hasLocation) {
-                locationLines = 1
-                nameLines = (totalSlots - locationLines).coerceAtLeast(1)
-            }
-
-            val renderedLocationLines = minOf(locationLines, wantedLocationLines).coerceAtLeast(0)
-            val locationReserve = if (hasLocation && renderedLocationLines > 0) {
-                with(density) { (locationLineHeight.toPx() * renderedLocationLines).toDp() }
-            } else {
-                0.dp
-            }
-            val teacherReserve = if (canShowTeacher) {
-                with(density) { teacherLineHeight.toPx().toDp() }
-            } else {
-                0.dp
-            }
-            val centerReserve = maxOf(locationReserve, teacherReserve) + 1.dp
-            WeekCardTextBody(
-                course = course, locationText = locationText, locationLines = locationLines,
-                nameLines = nameLines, showTeacher = canShowTeacher,
-                nameFont = nameFont, nameLineHeight = nameLineHeight,
-                locationFont = locationFont, locationLineHeight = locationLineHeight,
-                teacherFont = teacherFont, teacherLineHeight = teacherLineHeight,
-                textColor = courseTextColor, coloredText = coloredText,
-                currentTextAlign = cardTextAlign, layout = config.weekCardContentLayout,
-                horizontalPadding = horizontalPadding, verticalPadding = verticalPadding,
-                centerReserve = centerReserve
-            )
+            WeekCourseCardTextContent(course, config, cardLayoutWidth,
+                (displayedHeight - badgeInset).coerceAtLeast(0.dp), gridColumnWidth, muted)
             }
             }
             }

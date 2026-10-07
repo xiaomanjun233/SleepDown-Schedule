@@ -45,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.draw.drawWithContent
@@ -563,6 +565,7 @@ internal fun HomeMenuDestinationOverlayHost(
     var collapseHandedOff by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val destinationContentLayer = rememberGraphicsLayer()
+    var destinationPixels by remember { mutableStateOf<ImageBitmap?>(null) }
     val sourceMenuLayer = rememberGraphicsLayer()
     val sourceMenuRecorded = remember { AtomicBoolean(false) }
     val destinationSurfaceBackdrop = rememberGlassLayerBackdrop(
@@ -600,6 +603,7 @@ internal fun HomeMenuDestinationOverlayHost(
             renderedRequest = request
             collapseHandedOff = false
             destinationContentPrepared = false
+            destinationPixels = null
             destinationContentRecorded.set(false)
             destinationClosingRecorded.set(false)
             sourceMenuRecorded.set(false)
@@ -620,6 +624,14 @@ internal fun HomeMenuDestinationOverlayHost(
             // backdrop layers are resident before the source menu starts changing geometry.
             withFrameNanos { }
             latestAwaitOpeningGate()
+            // A recorded GraphicsLayer still references live descendants, including glass
+            // consumers. Flatten once before travel so the GPU moves pixels, not a form's
+            // nested backdrop graph. Release the temporary image as soon as interaction resumes.
+            if (destinationContentRecorded.get()) {
+                try { destinationPixels = destinationContentLayer.toImageBitmap() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (failure: Exception) { android.util.Log.w("HomeMenuMorph", "Could not flatten prepared form", failure) }
+            }
             motionState.phase = HomeAnchoredOverlayPhase.Opening
             coroutineScope {
                 launch {
@@ -655,8 +667,16 @@ internal fun HomeMenuDestinationOverlayHost(
                 }
             }
             motionState.phase = HomeAnchoredOverlayPhase.Open
+            destinationPixels = null
         } else if (renderedRequest != null) {
             motionState.phase = HomeAnchoredOverlayPhase.Closing
+            withFrameNanos { }
+            withFrameNanos { }
+            if (destinationClosingRecorded.get()) {
+                try { destinationPixels = destinationContentLayer.toImageBitmap() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (failure: Exception) { android.util.Log.w("HomeMenuMorph", "Could not flatten closing form", failure) }
+            }
             coroutineScope {
                 launch {
                     motionState.progress.animateTo(
@@ -679,6 +699,7 @@ internal fun HomeMenuDestinationOverlayHost(
             destinationContentRecorded.set(false)
             destinationClosingRecorded.set(false)
             renderedRequest = null
+            destinationPixels = null
             motionState.phase = HomeAnchoredOverlayPhase.Idle
             motionState.kind = null
             latestClosed()
@@ -1115,7 +1136,7 @@ internal fun HomeMenuDestinationOverlayHost(
                                 // Transform only the recorded pixels. Live layout/backdrop
                                 // coordinates remain stable during preparation and after Open.
                                 scale(homeMenuDestinationContentScale(frame.value.geometry.rect, target)) {
-                                    drawLayer(destinationContentLayer)
+                                    destinationPixels?.let { drawImage(it) } ?: drawLayer(destinationContentLayer)
                                 }
                             }
                         }
@@ -1174,7 +1195,7 @@ internal fun HomeMenuDestinationOverlayHost(
                             .requiredSize(targetWidth, targetHeight)
                             .drawWithContent {
                                 scale(homeMenuDestinationContentScale(frame.value.geometry.rect, target)) {
-                                    drawLayer(destinationContentLayer)
+                                    destinationPixels?.let { drawImage(it) } ?: drawLayer(destinationContentLayer)
                                 }
                             }
                             .graphicsLayer {

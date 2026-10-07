@@ -5,11 +5,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
@@ -45,19 +48,15 @@ internal fun Modifier.courseBadgeCornerAnchor(corner: Dp): Modifier = layout { m
 
 @Composable
 internal fun CourseAdjustmentBadge(label: String, backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier) {
-    GlassSurface(
-        backdrop = backdrop, config = config, modifier = modifier,
-        shape = Capsule(),
-        // The card's pager layer already moves this badge. Avoid replaying its glass in
-        // another placement layer when the pager reuses the containing card.
-        placementLayer = false,
-        baseSurfaceColorOverride = if (label == "停") MutedCourseLightColor else Color(0xFFFFB928),
-        tokens = GlassTokens.pill(0.65f).copy(blur = 6.dp, surfaceAlpha = 0.30f,
-            lensHeight = 4.dp, lensAmount = 4.dp, shadowAlpha = 0f)
-    ) {
+    // Paint in the course's own display list. A tiny status label must not create another
+    // backdrop consumer, blur texture or refractive layer on every card during pager motion.
+    val tint = if (label == "停") MutedCourseLightColor else Color(0xFFFFC654)
+    Box(modifier.background(Brush.verticalGradient(listOf(
+        androidx.compose.ui.graphics.lerp(tint, Color.White, 0.26f), tint
+    )), Capsule()).border(0.5.dp, Color.White.copy(alpha = 0.38f), Capsule())) {
         Box(Modifier.sizeIn(minWidth = 16.dp, minHeight = 16.dp).padding(horizontal = 2.dp, vertical = 1.dp), contentAlignment = Alignment.Center) {
             Text(label, fontSize = 9.sp, lineHeight = 11.sp, fontWeight = FontWeight.SemiBold,
-                color = glassForegroundColor(config))
+                color = Color(0xFF352C1D))
         }
     }
 }

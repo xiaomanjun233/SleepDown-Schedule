@@ -843,7 +843,7 @@ fun CourseScheduleAppUi(
     val courseEditorMotionState = rememberCourseEditorMotionState()
     val courseEditorFlightRegistry = remember { CourseEditorFlightRegistry() }
     val courseEditorOverlayPhase = courseEditorMotionState.phase
-    fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?, copyDraft: CourseEntity? = null, contextMessage: String? = null) {
+    fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?, copyDraft: CourseEntity? = null, contextMessage: String? = null, sourceAdjustmentLabel: String? = null) {
         if (courseEditorRequest != null) return
         val sourceGrid = targetWeek?.let(courseEditorFlightRegistry::grid)
         courseEditorFlightRegistry.frozen = true
@@ -854,7 +854,8 @@ fun CourseScheduleAppUi(
             sourceIsDayCard = homeMode != HomeMode.Week && sourceBounds != null,
             copyDraft = copyDraft,
             sourceGrid = sourceGrid,
-            contextMessage = contextMessage
+            contextMessage = contextMessage,
+            sourceAdjustmentLabel = sourceAdjustmentLabel
         )
     }
     fun openAdjustedCourseEditor(courseId: Long, date: LocalDate, sourceBounds: Rect?) {
@@ -867,7 +868,8 @@ fun CourseScheduleAppUi(
         } else if (adjustment != null) {
             "$date 已停课。这里编辑保留的原课程；当天是否上课由调休安排决定。"
         } else null
-        openCourseEditor(original, originalWeek, sourceBounds, contextMessage = message)
+        openCourseEditor(original, originalWeek, sourceBounds, contextMessage = message,
+            sourceAdjustmentLabel = adjustment?.let { if (it.sourceDate == null) "停" else "补" })
     }
     fun closeCourseEditor() {
         courseEditorRequest = null
