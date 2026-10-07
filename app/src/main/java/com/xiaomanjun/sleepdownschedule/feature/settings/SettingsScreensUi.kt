@@ -146,7 +146,7 @@ fun GeneralSettingsScreen(
                         onSelected = { applyChange(draft.copy(darkMode = it, followSystemDarkMode = false)) }
                     )
                     SettingsToggleRow(
-                        title = "自动切换",
+                        title = "跟随系统",
                         subtitle = "",
                         checked = draft.followSystemDarkMode,
                         backdrop = backdrop,
@@ -154,10 +154,10 @@ fun GeneralSettingsScreen(
                             applyChange(draft.copy(followSystemDarkMode = it, darkMode = effectiveDarkMode))
                         }
                     )
-                }
-                SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                    SettingsDivider()
                     SettingsNavigationRow(
                         title = "液态玻璃",
+                        subtitle = "调整首页顶栏、表头和底栏的玻璃效果。",
                         onClick = onOpenLiquidGlass
                     )
                     SettingsDivider()
@@ -180,12 +180,7 @@ fun GeneralSettingsScreen(
                             AppIconManager.setMode(context, mode)
                         }
                     )
-                }
-            }
-        }
-        item(key = "general-layout-mode") {
-            GlassPreferenceSection("首页与模式") {
-                SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
+                    SettingsDivider()
                     SleepDownLiquidDropdownPreference(
                         title = "导航模式",
                         summary = "手机竖屏下的底栏布局。",
@@ -1024,35 +1019,28 @@ fun AiImportSettingsSection(
                 .padding(horizontal = 20.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("连接测试", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SettingsActionButton(
-                    "网络诊断",
-                    backdrop,
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("连接测试", modifier = Modifier.weight(1f),
+                    style = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.headline1,
+                    fontWeight = FontWeight.Medium)
+                var testing by remember { mutableStateOf(false) }
+                DialogLiquidButton(
+                    label = if (testing) "测试中" else "测试连接",
+                    backdrop = backdrop,
+                    iconRes = R.drawable.ic_refresh,
+                    enabled = !testing,
                     onClick = {
                         val nextKey = apiKeyInput.ifBlank { saved.apiKey }
-                        testResult = "正在诊断网络..."
-                        scope.launch {
-                            diagnoseAiProviderNetwork(AiImportSettings(profile, nextKey))
-                                .onSuccess { testResult = it }
-                                .onFailure { testResult = it.message ?: "网络诊断失败" }
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-                SettingsActionButton(
-                    "测试连接",
-                    backdrop,
-                    onClick = {
-                        val nextKey = apiKeyInput.ifBlank { saved.apiKey }
+                        testing = true
                         testResult = "正在测试连接..."
                         scope.launch {
-                            testAiProviderConnection(AiImportSettings(profile, nextKey))
-                                .onSuccess { testResult = it }
-                                .onFailure { testResult = it.message ?: "连接测试失败" }
+                            try {
+                                testAiProviderConnection(AiImportSettings(profile, nextKey))
+                                    .onSuccess { testResult = it }
+                                    .onFailure { testResult = it.message ?: "连接测试失败" }
+                            } finally { testing = false }
                         }
-                    },
-                    modifier = Modifier.weight(1f)
+                    }
                 )
             }
             testResult?.let {

@@ -60,12 +60,12 @@ internal fun CourseQuietSettingsGroup(backdrop: Backdrop?, config: ScheduleConfi
             finally { busy = false }
         }
     }
-    GlassPreferenceSection("上课自动安静") {
+    GlassPreferenceSection("自动勿扰") {
         SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
-            SettingsToggleRow("自动勿扰", "在上课期间自动打开勿扰模式", settings.doNotDisturbEnabled,
+            SettingsToggleRow("自动勿扰", "", settings.doNotDisturbEnabled,
                 backdrop, enabled = !busy, onCheckedChange = { update(settings.copy(doNotDisturbEnabled = it)) })
             SettingsDivider()
-            SettingsToggleRow("自动静音／震动", "与自动勿扰分别开关。", settings.soundEnabled,
+            SettingsToggleRow("自动静音／震动", "", settings.soundEnabled,
                 backdrop, enabled = !busy, onCheckedChange = { update(settings.copy(soundEnabled = it)) })
             AnimatedVisibility(settings.soundEnabled,
                 enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {

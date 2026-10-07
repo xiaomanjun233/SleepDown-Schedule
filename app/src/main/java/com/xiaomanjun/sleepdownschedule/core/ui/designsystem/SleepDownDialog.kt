@@ -54,6 +54,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -700,6 +701,7 @@ fun DialogLiquidButton(
     shadowStyle: Shadow = Shadow.Default,
     height: Dp = 40.dp,
     horizontalPadding: Dp = 18.dp,
+    enabled: Boolean = true,
     content: (@Composable () -> Unit)? = null
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
@@ -734,9 +736,12 @@ fun DialogLiquidButton(
     }
     if (backdrop != null) {
         LiquidButton(
-            onClick = onClick,
+            onClick = { if (enabled) onClick() },
             backdrop = backdrop,
-            modifier = if (useRoundIcon) modifier.size(42.dp) else modifier,
+            modifier = (if (useRoundIcon) modifier.size(42.dp) else modifier)
+                .semantics { if (!enabled) disabled() },
+            clickTargetEnabled = enabled,
+            isInteractive = enabled,
             height = if (useRoundIcon) 42.dp else height,
             surfaceColor = surfaceColor,
             contentPadding = if (useRoundIcon) PaddingValues(0.dp) else PaddingValues(horizontal = horizontalPadding),
@@ -774,7 +779,7 @@ fun DialogLiquidButton(
                         )
                     )
                 )
-                .clickable(onClick = onClick)
+                .clickable(enabled = enabled, onClick = onClick)
                 .then(if (useRoundIcon) Modifier else Modifier.padding(horizontal = horizontalPadding)),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically

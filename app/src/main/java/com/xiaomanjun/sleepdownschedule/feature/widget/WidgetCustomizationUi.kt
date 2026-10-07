@@ -72,6 +72,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
@@ -387,7 +388,7 @@ fun WidgetCustomizationScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsToggleRow(
                         title = "使用自定义背景",
-                        subtitle = if (current.wallpaperUri == null) "先选择一张图片" else "关闭不会删除图片和取景",
+                        subtitle = if (current.wallpaperUri == null) "先选择一张图片" else "关闭后保留图片与取景，再次开启即可沿用。",
                         checked = current.enabled,
                         backdrop = backdrop,
                         enabled = current.wallpaperUri != null,
@@ -436,7 +437,7 @@ fun WidgetCustomizationScreen(
                         title = "恢复默认",
                         subtitle = "清除当前组件类型的背景",
                         buttonText = "恢复",
-                        iconRes = R.drawable.ic_download,
+                        iconRes = R.drawable.ic_refresh,
                         backdrop = backdrop,
                         onClick = {
                             val targetType = selectedType
@@ -527,8 +528,10 @@ private fun WidgetSliderRow(
             .padding(horizontal = 18.dp, vertical = 14.dp)
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(valueText, color = MaterialTheme.colorScheme.primary)
+            Text(title, style = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.headline1,
+                fontWeight = FontWeight.Medium)
+            Text(valueText, style = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.body2,
+                color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
         if (backdrop != null) {
             Box(Modifier.fillMaxWidth()) {

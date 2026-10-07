@@ -189,7 +189,7 @@ fun ScheduleSettingsContent(
                         SettingsDivider()
                         SettingsTextFieldRow("当前周", currentWeek, { onCurrentWeekChange(it.filter(Char::isDigit)) }, KeyboardType.Number, enabled = !autoCurrentWeek)
                         SettingsDivider()
-                        SettingsToggleRow("自动计算当前周", detectedWeekDescription, autoCurrentWeek, backdrop, onCheckedChange = onAutoCurrentWeekChange)
+                        SettingsToggleRow("自动计算当前周", "", autoCurrentWeek, backdrop, onCheckedChange = onAutoCurrentWeekChange)
                         SettingsDivider()
                         SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
                     }
@@ -244,7 +244,7 @@ fun ScheduleSettingsContent(
                         SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                             SettingsToggleRow(
                                 title = "课程提醒",
-                                subtitle = if (notificationsEnabled) "将按设置提前提醒即将开始的课程。" else "关闭后不会发送课程提醒。",
+                                subtitle = "",
                                 checked = notificationsEnabled,
                                 backdrop = backdrop,
                                 onCheckedChange = onNotificationsEnabledChange
@@ -372,15 +372,14 @@ fun ScheduleSettingsContent(
                 item(key = "notification-live-settings") {
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                         SettingsInfoRow(
-                            title = if (experimentalNotifications.superIslandEnabled) "设置超级岛" else "设置实时活动",
-                            body = if (experimentalNotifications.superIslandEnabled)
-                                "请在系统中允许 SleepDown 显示通知。"
-                            else "请在系统中允许 SleepDown 显示通知和实时活动。"
+                            title = "系统权限",
+                            body = "允许通知与后台运行，及时接收课程提醒。"
                         )
                         SettingsDivider()
-                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
+                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             SettingsActionButton(
-                                "打开通知设置",
+                                "通知设置",
                                 backdrop,
                                 onClick = {
                                     val intent = if (experimentalNotifications.superIslandEnabled) {
@@ -391,24 +390,11 @@ fun ScheduleSettingsContent(
                                     }
                                     appContext.startActivity(intent)
                                 },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.weight(1f),
                                 monochrome = true
                             )
-                        }
-                    }
-                }
-                item(key = "notification-background-settings") {
-                    SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                        SettingsInfoRow(
-                            title = "允许后台活动",
-                            body = if (experimentalNotifications.superIslandEnabled)
-                                "允许应用在后台运行，避免锁屏或切到后台后延迟课程提醒与超级岛更新。"
-                            else "允许应用在后台运行，避免锁屏或切到后台后延迟课程提醒与实时活动更新。"
-                        )
-                        SettingsDivider()
-                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)) {
                             SettingsActionButton(
-                                "打开后台运行设置",
+                                "后台运行",
                                 backdrop,
                                 onClick = {
                                     // 系统后台入口各不相同，统一打开本应用的权限管理页
@@ -418,7 +404,7 @@ fun ScheduleSettingsContent(
                                     )
                                     appContext.startActivity(intent)
                                 },
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier.weight(1f),
                                 monochrome = true
                             )
                         }
@@ -520,9 +506,9 @@ fun ScheduleSettingsContentFixed(
                 SettingsDivider()
                 SettingsTextFieldRow("当前周", currentWeek, { onCurrentWeekChange(it.filter(Char::isDigit)) }, KeyboardType.Number, enabled = !autoCurrentWeek)
                 SettingsDivider()
-                SettingsToggleRow("自动计算当前周", detectedWeekDescription, autoCurrentWeek, backdrop, onCheckedChange = onAutoCurrentWeekChange)
+                SettingsToggleRow("自动计算当前周", "", autoCurrentWeek, backdrop, onCheckedChange = onAutoCurrentWeekChange)
                 SettingsDivider()
-                SettingsToggleRow("隐藏空周末", "当前周周六、周日没有课程时自动收起周末列", hideEmptyWeekends, backdrop, onCheckedChange = onHideEmptyWeekendsChange)
+                SettingsToggleRow("隐藏空周末", "", hideEmptyWeekends, backdrop, onCheckedChange = onHideEmptyWeekendsChange)
                 SettingsDivider()
                 SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
             }

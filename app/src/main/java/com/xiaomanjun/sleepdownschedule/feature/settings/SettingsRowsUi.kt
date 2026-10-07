@@ -391,7 +391,7 @@ fun SettingsNavigationRow(
             startAction = {
                 leadingIcon?.let {
                     Icon(it, contentDescription = null, tint = iconTint,
-                        modifier = Modifier.padding(end = 12.dp).size(23.dp))
+                        modifier = Modifier.padding(start = 4.dp, end = 8.dp).size(23.dp))
                 }
             },
             modifier = Modifier
@@ -438,7 +438,7 @@ fun SettingsNavigationRow(
     ) {
         leadingIcon?.let {
             Icon(it, contentDescription = null, tint = iconTint,
-                modifier = Modifier.padding(end = 12.dp).size(23.dp))
+                modifier = Modifier.padding(start = 4.dp, end = 8.dp).size(23.dp))
         }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
@@ -1625,7 +1625,6 @@ fun SettingsLiveUpdateChipTextRow(
         items = labels,
         selectedIndex = options.indexOf(visibleSelected).coerceAtLeast(0),
         title = "岛上缩略态",
-        summary = "可显示上课地点、剩余时间或课程名称。",
         backdrop = backdrop,
         config = config,
         modifier = Modifier.fillMaxWidth(),
