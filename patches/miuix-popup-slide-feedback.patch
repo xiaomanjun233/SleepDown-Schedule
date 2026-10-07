@@ -124,7 +124,15 @@
                  onClick = { currentOnSelectedIndexChange(index) },
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
-@@ -22,6 +22,8 @@
+@@ -6,6 +6,7 @@
+ import androidx.compose.animation.core.Animatable
+ import androidx.compose.animation.core.spring
+ import androidx.compose.animation.core.tween
++import androidx.compose.foundation.BorderStroke
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.focusGroup
+ import androidx.compose.foundation.shape.RoundedCornerShape
+@@ -22,6 +23,8 @@
  import androidx.compose.foundation.rememberScrollState
  import androidx.compose.foundation.verticalScroll
  import androidx.compose.runtime.Composable
@@ -133,7 +141,15 @@
  import androidx.compose.runtime.Immutable
  import androidx.compose.runtime.LaunchedEffect
  import androidx.compose.runtime.Stable
-@@ -47,6 +49,10 @@
+@@ -35,6 +38,7 @@
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.TransformOrigin
+ import androidx.compose.ui.graphics.drawscope.clipPath
++import androidx.compose.ui.graphics.drawscope.Stroke
+ import androidx.compose.ui.graphics.drawscope.translate
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.layout.IntrinsicMeasurable
+@@ -47,6 +51,10 @@
  import androidx.compose.ui.layout.Placeable
  import androidx.compose.ui.layout.onGloballyPositioned
  import androidx.compose.ui.platform.LocalDensity
@@ -144,7 +160,7 @@
  import androidx.compose.ui.platform.LocalLayoutDirection
  import androidx.compose.ui.platform.LocalWindowInfo
  import androidx.compose.ui.text.TextStyle
-@@ -89,6 +95,10 @@
+@@ -89,6 +97,11 @@
      val itemTextStyle: TextStyle? = null,
      val itemVerticalPadding: Dp = 10.5.dp,
      val itemMinHeight: Dp = 0.dp,
@@ -152,10 +168,11 @@
 +    val dimBackground: Boolean = true,
 +    val holdAnchor: Boolean = true,
 +    val interactionModifier: Modifier = Modifier,
++    val border: BorderStroke? = null,
  )
  
  /** Optional app-level material applied consistently to every Miuix list-popup host. */
-@@ -104,6 +114,9 @@
+@@ -104,6 +117,9 @@
      content: @Composable () -> Unit,
  ) {
      val scrollState = rememberScrollState()
@@ -165,7 +182,7 @@
  
      val measurePolicy = remember {
          object : MeasurePolicy {
-@@ -170,10 +183,11 @@
+@@ -170,10 +186,11 @@
      }
  
      Layout(
@@ -178,7 +195,7 @@
              .verticalScroll(state = scrollState),
          measurePolicy = measurePolicy,
      )
-@@ -649,6 +663,8 @@
+@@ -649,6 +666,8 @@
      val visualStyle = LocalListPopupVisualStyle.current
      val cornerRadius = visualStyle.cornerRadius
      val backgroundColor = visualStyle.backgroundColor ?: MiuixTheme.colorScheme.surfaceContainer
@@ -187,7 +204,7 @@
      val shadowAlpha = remember { Animatable(0f) }
      LaunchedEffect(Unit) {
          var previousFraction = fractionProgress()
-@@ -676,6 +692,7 @@
+@@ -676,6 +695,7 @@
  
      Box(
          modifier = modifier
@@ -195,9 +212,11 @@
              .graphicsLayer {
                  shadowElevation = 16.dp.toPx()
                  shape = RoundedCornerShape(cornerRadius)
-@@ -710,7 +727,15 @@
+@@ -709,8 +729,17 @@
+                 cornerRadius = cornerRadius,
                  squircleEnabled = isSquircleEnabled(),
                  revealLimitHeightPx = with(LocalDensity.current) { revealLimitHeight.toPx() },
++                border = visualStyle.border,
              )
 -            .blur(radius = (8f * (1f - fractionProgress())).dp)
 +            .graphicsLayer {
@@ -212,6 +231,30 @@
              .then(visualStyle.surfaceModifier)
              .background(color = backgroundColor),
          ) {
+@@ -734,6 +763,7 @@
+     cornerRadius: Dp,
+     squircleEnabled: Boolean,
+     revealLimitHeightPx: Float = 0f,
++    border: BorderStroke? = null,
+ ): Modifier = drawWithCache {
+     val path = Path()
+     onDrawWithContent {
+@@ -761,6 +791,7 @@
+         if (clipStart == 0f) {
+             clipPath(path) {
+                 this@onDrawWithContent.drawContent()
++                border?.let { drawPath(path, it.brush, style = Stroke(it.width.toPx() * 2f)) }
+             }
+         } else {
+             translate(top = clipStart) {
+@@ -768,6 +799,7 @@
+                     translate(top = -clipStart) {
+                         this@onDrawWithContent.drawContent()
+                     }
++                    border?.let { drawPath(path, it.brush, style = Stroke(it.width.toPx() * 2f)) }
+                 }
+             }
+         }
 --- /dev/null
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt
 @@ -0,0 +1,110 @@
@@ -335,7 +378,15 @@
  import androidx.compose.runtime.key
  import androidx.compose.runtime.remember
  import androidx.compose.ui.Modifier
-@@ -41,6 +42,7 @@
+@@ -21,6 +22,7 @@
+ import androidx.compose.ui.graphics.Path
+ import androidx.compose.ui.graphics.TransformOrigin
+ import androidx.compose.ui.graphics.drawscope.clipPath
++import androidx.compose.ui.graphics.drawscope.Stroke
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.graphics.shadow.Shadow
+ import androidx.compose.ui.input.pointer.pointerInput
+@@ -41,6 +43,7 @@
  import top.yukonga.miuix.kmp.basic.HorizontalDivider
  import top.yukonga.miuix.kmp.basic.ListPopupColumn
  import top.yukonga.miuix.kmp.basic.ListPopupVisualStyle
@@ -343,7 +394,7 @@
  import top.yukonga.miuix.kmp.basic.PopupLayoutPosition
  import top.yukonga.miuix.kmp.basic.popupClipReveal
  import top.yukonga.miuix.kmp.squircle.isSquircleEnabled
-@@ -78,8 +80,10 @@
+@@ -78,8 +81,10 @@
      val isExpanded = expandedItem != null
      val popupCornerRadius = visualStyle.cornerRadius
      val shape = remember(popupCornerRadius) { RoundedCornerShape(popupCornerRadius) }
@@ -354,7 +405,17 @@
              .graphicsLayer {
                  val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
                  scaleX = s
-@@ -153,12 +157,13 @@
+@@ -93,7 +98,8 @@
+                 scaleY = s
+                 this.transformOrigin = transformOrigin
+             }
+-            .popupClipReveal(enterFraction, popupLayoutPosition, popupCornerRadius, isSquircleEnabled())
++            .popupClipReveal(enterFraction, popupLayoutPosition, popupCornerRadius, isSquircleEnabled(),
++                border = visualStyle.border)
+             .dropShadow(shape = shape, shadow = CascadeShadow)
+             .then(visualStyle.surfaceModifier)
+             .background(color = visualStyle.backgroundColor ?: surfaceColor),
+@@ -153,12 +159,13 @@
                  modifier = Modifier
                      .matchParentSize()
                      .graphicsLayer { alpha = maskAlpha() }
@@ -369,7 +430,7 @@
      }
  }
  
-@@ -236,8 +241,10 @@
+@@ -236,8 +243,10 @@
      val secondaryTopLeft = secondaryLocalInUnion.topLeft
      val secondaryWidth = secondaryLocalInUnion.width
  
@@ -380,7 +441,19 @@
              .graphicsLayer {
                  val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
                  scaleX = s
-@@ -346,6 +353,7 @@
+@@ -287,6 +296,11 @@
+                     )
+                     clipPath(innerPath) {
+                         this@onDrawWithContent.drawContent()
++                        // Stroke the actual morph path, not the union-size material rectangle.
++                        // The outer half is clipped so the highlight remains inside the glass.
++                        visualStyle.border?.let {
++                            drawPath(innerPath, it.brush, style = Stroke(it.width.toPx() * 2f))
++                        }
+                     }
+                 }
+             }
+@@ -346,6 +360,7 @@
              )
          }
      }

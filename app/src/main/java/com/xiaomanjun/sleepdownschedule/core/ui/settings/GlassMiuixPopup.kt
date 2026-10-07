@@ -14,6 +14,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.sleepDownPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogRenderInRootScaffold
 import android.os.Build
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
@@ -127,7 +128,7 @@ private fun Modifier.miuixCascadingPopupSurface(
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
         return background(if (dark) Color(0xFF242424) else Color.White)
     }
-    val effectiveBlur = blurRadius.coerceAtMost(12.dp)
+    val effectiveBlur = blurRadius.coerceAtMost(24.dp)
     // Keep the lens gentle: an overlarge lens/refraction band refracts content against the
     // rounded popup corners and reads as torn glass lines at the bottom corners.
     val lensHeight = 12.dp
@@ -221,6 +222,14 @@ private fun rememberMiuixListPopupStyle(
     }
     // Kyant's observer does not consume input: Miuix continues to own selection and dismissal.
     val interaction = Modifier.liquidButtonVisualTransform(highlight).then(highlight.gestureModifier)
+    val rim = remember(dark) {
+        BorderStroke(1.dp, Brush.linearGradient(
+            0f to Color.White.copy(alpha = if (dark) 0.62f else 0.90f),
+            0.38f to Color.White.copy(alpha = 0.16f),
+            0.65f to Color.White.copy(alpha = 0.08f),
+            1f to Color.White.copy(alpha = if (dark) 0.34f else 0.56f)
+        ))
+    }
     return ListPopupVisualStyle(
     // Keep the stock Miuix reveal geometry; only the pixels painted inside that surface are
     // replaced by the SleepDown glass material. Corner radius follows the NexioSchedule
@@ -228,10 +237,11 @@ private fun rememberMiuixListPopupStyle(
     surfaceModifier = Modifier.miuixCascadingPopupSurface(
         backdrop = backdrop,
         config = config,
-        blurRadius = 8.dp
+        blurRadius = 18.dp
     ).then(highlight.modifier),
     backgroundColor = Color.Transparent,
     cornerRadius = cornerRadius,
+    border = rim,
     slideSelection = true,
     dimBackground = false,
     holdAnchor = false,
@@ -242,10 +252,8 @@ private fun rememberMiuixListPopupStyle(
 @Composable
 private fun rememberSleepDownPopupRowColors(contentColor: Color? = null): DropdownColors {
     val defaults = DropdownDefaults.dropdownColors()
-    val neutral = MiuixTheme.colorScheme.onSurface
-    val selectedColor = neutral.copy(alpha = 0.10f)
     val indicatorColor = MiuixTheme.colorScheme.onSurfaceVariantActions
-    return remember(defaults, contentColor, selectedColor, indicatorColor) {
+    return remember(defaults, contentColor, indicatorColor) {
         defaults.copy(
             contentColor = contentColor ?: defaults.contentColor,
             summaryColor = contentColor?.copy(alpha = 0.62f) ?: defaults.summaryColor,
@@ -253,7 +261,7 @@ private fun rememberSleepDownPopupRowColors(contentColor: Color? = null): Dropdo
             selectedContentColor = contentColor ?: defaults.selectedContentColor,
             selectedSummaryColor = contentColor?.copy(alpha = 0.72f)
                 ?: defaults.selectedSummaryColor,
-            selectedContainerColor = selectedColor,
+            selectedContainerColor = Color.Transparent,
             selectedIndicatorColor = indicatorColor
         )
     }
