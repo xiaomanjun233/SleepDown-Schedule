@@ -46,6 +46,22 @@ internal val HomeImportButtonColor = Color(0xFF007AFF)
 internal fun homeImportButtonGlassColor(light: Boolean): Color =
     HomeImportButtonColor.copy(alpha = homeChromeGlassSurfaceAlpha(light))
 
+/** The return endpoint is the resting button, without the captured press deformation. */
+@Composable
+internal fun HomeImportButtonReturnVisual(
+    backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier
+) {
+    SleepDownFloatingAddButton(
+        backdrop = backdrop,
+        contentDescription = "添加与导入",
+        onClick = {},
+        surfaceColor = homeImportButtonGlassColor(LocalAdaptiveGlass.current.lightGlass),
+        blurRadius = homeChromeBlur(1.3.dp, config),
+        enabled = false,
+        modifier = modifier
+    )
+}
+
 /** Owns only the Dock split. Menus and their destinations use the shared anchored overlay host. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

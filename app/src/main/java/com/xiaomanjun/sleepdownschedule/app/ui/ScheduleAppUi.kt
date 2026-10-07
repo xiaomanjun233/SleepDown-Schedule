@@ -3618,9 +3618,8 @@ fun CourseScheduleAppUi(
             if (kind == HomeAnchoredOverlayKind.Add) {
                 // The shell fades out as this complete button fades in. An icon-only clone left
                 // the blue button surface missing until the real Dock returned on the last frame.
-                val snapshot = dockImportReturnSnapshot
-                if (homeMenuFromDock && snapshot != null) {
-                    Image(snapshot.asImageBitmap(), contentDescription = null, modifier = sourceModifier)
+                if (homeMenuFromDock) {
+                    HomeImportButtonReturnVisual(homeAnchoredOverlayBackdrop, state.config, sourceModifier)
                 } else {
                     HomeIconButtonVisual(
                         backdrop = homeAnchoredOverlayBackdrop, config = state.config,
@@ -3794,9 +3793,8 @@ fun CourseScheduleAppUi(
             else if (parallelPhoneNavigation) homeAddActions.takeLast(3) else homeAddActions,
         onSourceHandoff = { homeMenuSourceHidden = true },
         collapseContent = { returnModifier ->
-            val snapshot = dockImportReturnSnapshot
-            if (homeMenuFromDock && snapshot != null) {
-                Image(snapshot.asImageBitmap(), contentDescription = null, modifier = returnModifier)
+            if (homeMenuFromDock) {
+                HomeImportButtonReturnVisual(homeMenuDestinationBackdrop, state.config, returnModifier)
             } else {
                 HomeIconButtonVisual(
                     backdrop = homeMenuDestinationBackdrop, config = state.config,
