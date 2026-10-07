@@ -29,3 +29,15 @@
 - 用户改用无线调试后，经 mDNS 找到与原 USB 序列号相同的设备，在项目 5038 通道连接成功。PLJ110 / Android 17 上 `install -r` 返回 `Success`；包名 `com.xiaomanjun.sleepdownschedule`，版本 `1.2.7_beta3` / code 34，安装更新时间 `2026-10-07 18:44:07`。
 - 未自动启动或驱动手机界面；本轮未做同场景帧率对照与首次进入布局的实机复测，视觉和帧率收益仍需实机体验确认。
 - 本轮为布局、材质、动效与观察范围调整，不追加无关业务测试。
+
+## Popup 材质追加调整
+
+按随后反馈，背景模糊从 8dp 提高到 18dp，并取消已选中行的常驻灰底，仅保留灰色对勾。按压和滑动选项的临时反馈继续使用原有交互。
+
+新增 1dp 渐变高光描边。描边由 Miuix 轮廓层绘制：普通及一级 Popup 复用自身的 squircle 裁切路径，二级 Popup 复用展开过程中的实际圆角路径，避免在材质的矩形采样区域上画框而露出不贴合的边角。描边裁在轮廓内，不新增模糊层或改变触发方式、开合曲线。
+
+本地 Miuix 改动同步到 `patches/miuix-popup-slide-feedback.patch`，已通过基线正向应用检查和本地源码反向应用检查。
+
+追加版本 `assembleGithubRelease --no-daemon --console=plain --no-parallel --max-workers=1` 成功，耗时 6 分 31 秒，包含本地 Miuix / 应用 Kotlin 编译、R8、资源压缩、lintVital 和签名。APK 位于 `app/build/outputs/apk/github/release/app-github-release.apk`。
+
+覆盖安装时无线设备变为 `offline`；mDNS 无可用端点，对此前同一手机连接执行一次重连也超时。已请求当前无线调试端点，本追加版本尚未安装或实机复测。
