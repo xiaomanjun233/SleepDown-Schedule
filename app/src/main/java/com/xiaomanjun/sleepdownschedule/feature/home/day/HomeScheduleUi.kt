@@ -2349,8 +2349,12 @@ fun ImportPreviewCourseCard(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(course.name, style = MaterialTheme.typography.titleMedium, color = textColor)
-            Text(if (effective.isHiddenByPeriodAlignment()) "暂不显示 · 原始第 ${course.periods.joinToString("、")} 节"
-                else courseHomeTimeDetail(effective, periods), color = textColor.copy(alpha = 0.86f))
+            Text(
+                text = "周${weekdayLabel(course.weekday)} · " +
+                    if (effective.isHiddenByPeriodAlignment()) "暂不显示 · 原始第 ${course.periods.joinToString("、")} 节"
+                    else courseHomeTimeDetail(effective, periods),
+                color = textColor.copy(alpha = 0.86f)
+            )
             if (!course.location.isNullOrBlank()) Text("地点：" + course.location, color = textColor.copy(alpha = 0.86f))
             if (!course.teacher.isNullOrBlank()) Text("教师：" + course.teacher, color = textColor.copy(alpha = 0.86f))
             Text("周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity), color = textColor.copy(alpha = 0.86f))
