@@ -26,7 +26,7 @@ internal fun Modifier.statusPillContourLight(
     if (size.width <= 0f || size.height <= 0f) return@drawWithCache onDrawBehind { }
     val outline = Path().apply { addOutline(shape.createOutline(size, layoutDirection, this@drawWithCache)) }
     val measure = PathMeasure().apply { setPath(outline, forceClosed = true) }
-    val spread = minOf(4.5.dp.toPx(), size.minDimension * 0.18f)
+    val spread = minOf(5.2.dp.toPx(), size.minDimension * 0.20f)
     val segments = 80
     val bands = 12
     val positions = ArrayList<Offset>((segments + 1) * (bands + 1))
@@ -39,7 +39,7 @@ internal fun Modifier.statusPillContourLight(
         var inward = Offset(-tangent.y, tangent.x) / tangent.getDistance().coerceAtLeast(0.0001f)
         val toCenter = Offset(size.width / 2f, size.height / 2f) - point
         if (inward.x * toCenter.x + inward.y * toCenter.y < 0f) inward = -inward
-        val lowerHalf = ((point.y / size.height.coerceAtLeast(1f) - 0.35f) / 0.65f).coerceIn(0f, 1f)
+        val lowerHalf = ((point.y / size.height.coerceAtLeast(1f) - 0.46f) / 0.54f).coerceIn(0f, 1f)
         val direction = lowerHalf * lowerHalf * (3f - 2f * lowerHalf)
         for (band in 0..bands) {
             val t = band.toFloat() / bands
@@ -60,8 +60,8 @@ internal fun Modifier.statusPillContourLight(
     val rim = Brush.verticalGradient(
         0f to Color.White.copy(alpha = if (lightGlass) 0.28f else 0.16f),
         0.26f to Color.Transparent,
-        0.42f to Color.Transparent,
-        0.70f to Color.White.copy(alpha = 0.045f),
+        0.54f to Color.Transparent,
+        0.78f to Color.White.copy(alpha = 0.045f),
         1f to Color.White.copy(alpha = 0.16f),
         endY = size.height
     )
