@@ -16,6 +16,7 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.withEffectiveCourseArran
 import com.xiaomanjun.sleepdownschedule.domain.schedule.hasNetPeriodTopologyChange
 import com.xiaomanjun.sleepdownschedule.domain.schedule.schemeConfig
 import com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode
+import com.xiaomanjun.sleepdownschedule.model.withImportedCourseCardDefaults
 import com.xiaomanjun.sleepdownschedule.domain.course.conflictsWith
 
 import androidx.room.withTransaction
@@ -722,7 +723,8 @@ class ScheduleRepository(private val database: AppDatabase) {
                 oldActiveId
             }
             val importedPeriods = normalizePeriodsForSchedule(draft.periods, scheduleId)
-            val importedConfig = configWithCountsFromPeriods(draft.config.withGlobalSettingsFrom(globalConfig), importedPeriods)
+            val importedConfig = configWithCountsFromPeriods(
+                draft.config.withImportedCourseCardDefaults().withGlobalSettingsFrom(globalConfig), importedPeriods)
             configDao.upsertConfig(normalizeConfigForSchedule(importedConfig, scheduleId))
             configDao.deletePeriods(scheduleId)
             configDao.upsertPeriods(importedPeriods)
