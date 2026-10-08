@@ -824,6 +824,10 @@ class ScheduleViewModel(
                 "当前通知由厂商课程组件处理，请使用流体云测试入口"
             NotificationScheduler.LiveUpdatePreviewResult.DELIVERY_FAILED ->
                 "测试通知发送失败，请稍后重试"
+            NotificationScheduler.LiveUpdatePreviewResult.ISLAND_PRIVILEGE_REQUIRED ->
+                "请先为超级岛授权 Shizuku 或 Root"
+            NotificationScheduler.LiveUpdatePreviewResult.ISLAND_FOCUS_REQUIRED ->
+                "请在系统通知设置中允许本应用的焦点通知／超级岛"
         }
     }
 

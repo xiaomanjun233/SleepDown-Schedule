@@ -7,5 +7,5 @@ internal object XiaomiRootBridge {
     fun isAuthorized(context: Context): Boolean = false
     fun requestAuthorization(context: Context): Boolean = false
     fun restoreIfInterrupted(context: Context): Boolean = true
-    fun postWithTemporaryBypass(context: Context, post: () -> Unit) = post()
+    fun postWithTemporaryBypass(context: Context, post: () -> Unit): Boolean { post(); return false }
 }

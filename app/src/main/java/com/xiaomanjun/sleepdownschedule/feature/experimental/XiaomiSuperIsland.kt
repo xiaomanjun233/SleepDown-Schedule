@@ -50,7 +50,7 @@ internal object XiaomiSuperIsland {
         context.contentResolver.call(
             Uri.parse("content://miui.statusbar.notification.public"),
             "canShowFocus", null, extras
-        )?.getBoolean("canShowFocus")
+        )?.takeIf { it.containsKey("canShowFocus") }?.getBoolean("canShowFocus")
     }.getOrNull()
 
     fun isSelected(context: Context): Boolean = BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES &&
@@ -112,6 +112,8 @@ internal object XiaomiSuperIsland {
         ).apply {
             description = "课程提醒超级岛通知"
             setShowBadge(true)
+            // Match Nexio: an app-managed course DND rule must not suppress its own island.
+            if (manager.isNotificationPolicyAccessGranted) setBypassDnd(true)
         })
     }
 
@@ -139,11 +141,11 @@ internal object XiaomiSuperIsland {
     fun isRootAuthorized(context: Context): Boolean = XiaomiRootBridge.isAuthorized(context)
     fun requestRootAuthorization(context: Context): Boolean = XiaomiRootBridge.requestAuthorization(context)
 
-    fun post(context: Context, notification: Notification, action: () -> Unit) {
-        if (isEnabled(context) && notification.extras.containsKey(FocusParameter)) {
+    fun post(context: Context, notification: Notification, action: () -> Unit): Boolean {
+        return if (isEnabled(context) && notification.extras.containsKey(FocusParameter)) {
             if (XiaomiShizukuBridge.isAuthorized()) XiaomiShizukuBridge.postWithTemporaryBypass(context, action)
             else XiaomiRootBridge.postWithTemporaryBypass(context, action)
-        } else action()
+        } else { action(); true }
     }
 
     fun decorate(
@@ -271,7 +273,7 @@ internal object XiaomiSuperIsland {
         val parameters = JSONObject()
             .put("protocol", 1)
             .put("business", "course_reminder")
-            .put("enableFloat", true)
+            .put("enableFloat", beforeClass)
             .put("updatable", true)
             .put("outEffectSrc", if (options.expandGlow) "outer_glow" else "")
             .put("aodTitle", aodText)
@@ -292,3 +294,6 @@ internal object XiaomiSuperIsland {
         put("timerSystemCurrent", if (timerAt != null) nowMillis else 0L)
     }
 }
+
+/** Binder getters return an effective ALLOW/DENY rule; DEFAULT is retained for OEM variants. */
+internal fun isKnownIslandFirewallRule(rule: Int?): Boolean = rule != null && rule in 0..2

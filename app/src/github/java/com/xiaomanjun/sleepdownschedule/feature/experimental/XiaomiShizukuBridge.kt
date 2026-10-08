@@ -76,35 +76,42 @@ internal object XiaomiShizukuBridge {
     }
 
     /** The regular notification path is always called exactly once. */
-    fun postWithTemporaryBypass(context: Context, post: () -> Unit) {
+    fun postWithTemporaryBypass(context: Context, post: () -> Unit): Boolean {
         if (!isAuthorized()) {
             post()
-            return
+            return false
         }
         synchronized(lock) {
             if (!restoreIfInterrupted(context)) {
                 post()
-                return
+                return false
             }
             val firewall = runCatching { Firewall() }.getOrNull()
             val uid = runCatching { context.packageManager.getPackageUid(XmsfPackage, 0) }.getOrNull()
             val oldRule = if (firewall != null && uid != null) runCatching { firewall.rule(uid) }.getOrNull() else null
             val chainEnabled = if (firewall != null) runCatching { firewall.chainEnabled() }.getOrNull() else null
-            if (firewall == null || uid == null || oldRule != DefaultRule || chainEnabled == null) {
+            // Android reads effective rules as ALLOW (1) / DENY (2), not DEFAULT (0).
+            // Accept both representations and restore exactly what was read.
+            if (firewall == null || uid == null || !isKnownIslandFirewallRule(oldRule) || chainEnabled == null) {
+                Log.w(Tag, "Cannot read Xiaomi service firewall state")
                 post()
-                return
+                return false
+            }
+            if (chainEnabled && oldRule == DenyRule) {
+                post()
+                return true
             }
             val prefs = context.getSharedPreferences(Prefs, Context.MODE_PRIVATE)
             if (!prefs.edit().putBoolean(Pending, true).putInt(PreviousUid, uid)
-                    .putInt(PreviousRule, oldRule).putBoolean(PreviousChainEnabled, chainEnabled)
+                    .putInt(PreviousRule, requireNotNull(oldRule)).putBoolean(PreviousChainEnabled, chainEnabled)
                     .commit()) {
                 post()
-                return
+                return false
             }
             if (!scheduleRecoveryAlarm(context)) {
                 prefs.edit().clear().commit()
                 post()
-                return
+                return false
             }
             var posted = false
             try {
@@ -120,6 +127,7 @@ internal object XiaomiShizukuBridge {
                 restoreIfInterrupted(context)
             }
             if (!posted) post()
+            return posted
         }
     }
 

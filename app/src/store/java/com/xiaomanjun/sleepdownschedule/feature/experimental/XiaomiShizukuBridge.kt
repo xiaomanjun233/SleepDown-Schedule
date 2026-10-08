@@ -8,5 +8,5 @@ internal object XiaomiShizukuBridge {
     fun isAuthorized(): Boolean = false
     fun requestPermission(onResult: (Boolean) -> Unit) = onResult(false)
     fun restoreIfInterrupted(context: Context): Boolean = true
-    fun postWithTemporaryBypass(context: Context, post: () -> Unit) = post()
+    fun postWithTemporaryBypass(context: Context, post: () -> Unit): Boolean { post(); return false }
 }

@@ -10,6 +10,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class XiaomiSuperIslandTest {
+    @Test fun effectiveAllowRuleDoesNotSilentlySkipTheTemporaryBypass() {
+        assertTrue(isKnownIslandFirewallRule(1))
+        assertTrue(isKnownIslandFirewallRule(0))
+        assertTrue(isKnownIslandFirewallRule(2))
+        assertFalse(isKnownIslandFirewallRule(null))
+        assertFalse(isKnownIslandFirewallRule(-1))
+        assertFalse(isKnownIslandFirewallRule(3))
+    }
     private val start = 1_800_000_000_000L
     private val end = start + 45 * 60_000L
     private val course = LiveUpdatePayload(
@@ -50,7 +58,7 @@ class XiaomiSuperIslandTest {
         val island = root.getJSONObject("param_island").getJSONObject("bigIslandArea")
         val hint = root.getJSONObject("hintInfo")
 
-        assertTrue(root.getBoolean("enableFloat"))
+        assertFalse(root.getBoolean("enableFloat"))
         assertTrue(root.getBoolean("islandFirstFloat"))
         assertEquals("reopen", root.getString("reopen"))
         assertEquals(2, island.getInt("templateNo"))

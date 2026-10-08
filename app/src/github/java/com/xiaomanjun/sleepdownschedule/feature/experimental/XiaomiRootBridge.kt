@@ -57,32 +57,32 @@ internal object XiaomiRootBridge {
         restored
     }
 
-    fun postWithTemporaryBypass(context: Context, post: () -> Unit) {
+    fun postWithTemporaryBypass(context: Context, post: () -> Unit): Boolean {
         if (!isAuthorized(context)) {
             post()
-            return
+            return false
         }
         synchronized(lock) {
             if (!restoreIfInterrupted(context)) {
                 Log.w(Tag, "temporary bypass skipped: previous rule could not be restored")
                 post()
-                return
+                return false
             }
             val uid = runCatching { context.packageManager.getPackageUid("com.xiaomi.xmsf", 0) }.getOrNull()
             if (uid == null || uid < 0) {
                 Log.w(Tag, "temporary bypass skipped: Xiaomi service unavailable")
                 post()
-                return
+                return false
             }
             val state = firewallState(context, uid)
             if (state == null) {
                 Log.w(Tag, "temporary bypass skipped: OEM firewall state unavailable")
                 post()
-                return
+                return false
             }
             if (state.chainEnabled && state.rule == 2) {
                 post()
-                return
+                return true
             }
             val prefs = context.getSharedPreferences(Prefs, Context.MODE_PRIVATE)
             if (!prefs.edit().putInt(PendingUid, uid)
@@ -94,13 +94,13 @@ internal object XiaomiRootBridge {
                 prefs.edit().remove(PendingUid).remove(PendingMode)
                     .remove(PreviousRule).remove(PreviousChainEnabled).commit()
                 post()
-                return
+                return false
             }
             if (!firewallCommand(context, "deny", uid).succeeded()) {
                 Log.w(Tag, "temporary bypass skipped: OEM firewall deny failed")
                 restoreIfInterrupted(context)
                 post()
-                return
+                return false
             }
             Log.i(Tag, "OEM_DENY bypass active for focus notification")
             try {
@@ -109,6 +109,7 @@ internal object XiaomiRootBridge {
             } finally {
                 if (!restoreIfInterrupted(context)) Log.e(Tag, "temporary bypass restore failed")
             }
+            return true
         }
     }
 

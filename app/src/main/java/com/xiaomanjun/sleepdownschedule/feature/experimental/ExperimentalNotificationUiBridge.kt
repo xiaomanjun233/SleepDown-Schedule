@@ -207,7 +207,9 @@ internal fun ExperimentalNotificationPreview(
                             }
                             NotificationScheduler.LiveUpdatePreviewResult.NOTIFICATIONS_UNAVAILABLE -> "通知权限或渠道不可用"
                             NotificationScheduler.LiveUpdatePreviewResult.VENDOR_HANDLES_PREVIEW -> "当前样式由厂商组件处理"
-                            NotificationScheduler.LiveUpdatePreviewResult.DELIVERY_FAILED -> "测试通知发送失败"
+                            NotificationScheduler.LiveUpdatePreviewResult.DELIVERY_FAILED -> "超级岛发送失败，请确认 Shizuku 或 Root 仍可用后重试"
+                            NotificationScheduler.LiveUpdatePreviewResult.ISLAND_PRIVILEGE_REQUIRED -> "请先授权 Shizuku 或 Root"
+                            NotificationScheduler.LiveUpdatePreviewResult.ISLAND_FOCUS_REQUIRED -> "请在系统通知设置中允许焦点通知／超级岛"
                         }
                     } catch (error: Exception) {
                         android.util.Log.e("SleepDownLiveUpdate", "island preview failed", error)

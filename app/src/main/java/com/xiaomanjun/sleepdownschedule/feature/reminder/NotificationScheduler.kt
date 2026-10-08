@@ -65,6 +65,9 @@ object NotificationScheduler {
     private const val SUPER_ISLAND_ID = 20260524
     private const val SUPER_ISLAND_ALTERNATE_ID = 20260525
     private const val EXTRA_LIVE_UPDATE_IDENTITY = "sleepdown.live_update_identity"
+    private const val EXTRA_ISLAND_PREVIEW = "sleepdown.island_preview"
+    private const val SUPER_ISLAND_TEST_ID = 20261008
+    private const val SUPER_ISLAND_TEST_ALTERNATE_ID = 20261009
     private val liveUpdatePostLock = Any()
     private const val SCHEDULE_HORIZON_DAYS = 8L
     private const val EVENT_COURSE = "course"
@@ -360,7 +363,7 @@ object NotificationScheduler {
         }
         if (!config.notificationsEnabled || config.notificationMode != NotificationMode.LIVE_UPDATE) {
             Log.d(TAG, "skip immediate live update: disabled or mode=${config.notificationMode}")
-            cancelLiveUpdateNotifications(context)
+            cancelLiveUpdateNotifications(context, includePreview = !XiaomiSuperIsland.hasActivePreview(context))
             stopLiveUpdateService(context)
             return
         }
@@ -403,13 +406,11 @@ object NotificationScheduler {
         }
         if (isMutedForPayload(context, activePayload, nowMillis)) {
             Log.d(TAG, "skip immediate live update: muted key=${activePayload.muteKey}")
-            cancelLiveUpdateNotifications(context)
+            cancelLiveUpdateNotifications(context, includePreview = !XiaomiSuperIsland.hasActivePreview(context))
             stopLiveUpdateService(context)
             return
         }
-        // Real schedule events take priority over a test preview, including when the preview
-        // was posted shortly before a class and would otherwise mask the whole class.
-        if (XiaomiSuperIsland.hasActivePreview(context)) XiaomiSuperIsland.clearPreview(context)
+        // Real courses and test previews use separate slots, so either can update independently.
         startLiveUpdateService(context, activePayload)
     }
 
@@ -697,7 +698,8 @@ object NotificationScheduler {
     fun liveUpdateId(): Int = LIVE_UPDATE_ID
 
     internal enum class LiveUpdatePreviewResult {
-        POSTED, NOTIFICATIONS_UNAVAILABLE, VENDOR_HANDLES_PREVIEW, DELIVERY_FAILED
+        POSTED, NOTIFICATIONS_UNAVAILABLE, VENDOR_HANDLES_PREVIEW, DELIVERY_FAILED,
+        ISLAND_PRIVILEGE_REQUIRED, ISLAND_FOCUS_REQUIRED
     }
 
     internal fun showLiveUpdatePreview(context: Context, config: ScheduleConfigEntity): LiveUpdatePreviewResult {
@@ -708,10 +710,18 @@ object NotificationScheduler {
         }
         createChannel(context)
         if (!canPostNotifications(context)) return LiveUpdatePreviewResult.NOTIFICATIONS_UNAVAILABLE
-        // A test should be a fresh focus event. Reposting across the two live-update slots
-        // makes Xiaomi treat repeated tests as updates and may suppress the first float.
+        if (XiaomiSuperIsland.isSelected(context)) {
+            if (!XiaomiSuperIsland.hasPrivilege(context)) return LiveUpdatePreviewResult.ISLAND_PRIVILEGE_REQUIRED
+            if (XiaomiSuperIsland.focusPermission(context) == false) return LiveUpdatePreviewResult.ISLAND_FOCUS_REQUIRED
+            if (context.getSystemService(NotificationManager::class.java)
+                    ?.getNotificationChannel(XiaomiSuperIsland.ChannelId)?.importance == NotificationManager.IMPORTANCE_NONE) {
+                return LiveUpdatePreviewResult.NOTIFICATIONS_UNAVAILABLE
+            }
+        }
+        // Island tests alternate dedicated slots, producing a fresh focus event without
+        // replacing an active course notification.
         stopLiveUpdateService(context)
-        cancelLiveUpdateNotifications(context)
+        if (!XiaomiSuperIsland.isEnabled(context)) cancelLiveUpdateNotifications(context)
         return runCatching { startLiveUpdateService(context, liveUpdatePreviewPayload(config)) }
             .onFailure { Log.e(TAG, "live update preview delivery failed", it) }
             .getOrDefault(false)
@@ -823,6 +833,7 @@ object NotificationScheduler {
                 }
                 .build().also { notification ->
                     notification.extras.putString(EXTRA_LIVE_UPDATE_IDENTITY, notificationIdentity)
+                    notification.extras.putBoolean(EXTRA_ISLAND_PREVIEW, payload.isPreview())
                     val dndTitle = dndActionTitle(context)
                     notification.extras.putBundle("miui.focus.actions", Bundle().apply {
                         putParcelable(XiaomiSuperIsland.DndActionKey,
@@ -1280,7 +1291,7 @@ object NotificationScheduler {
             // prevents the Xiaomi float from appearing.
             stopLiveUpdateService(context)
             try {
-                postLiveUpdateNotification(context, notification)
+                if (!postLiveUpdateNotification(context, notification)) return false
                 if (payload.isPreview()) {
                     XiaomiSuperIsland.markPreview(context, payload.startAtMillis() ?: 0L)
                 }
@@ -1315,15 +1326,22 @@ object NotificationScheduler {
         notification: Notification,
         attachForeground: ((Int, Notification) -> Unit)? = null
     ) = synchronized(liveUpdatePostLock) {
-        val manager = context.getSystemService(NotificationManager::class.java) ?: return@synchronized
+        val manager = context.getSystemService(NotificationManager::class.java) ?: return@synchronized false
         val active = manager.activeNotifications.filter {
             it.id == LIVE_UPDATE_ID || it.id == LIVE_UPDATE_ALTERNATE_ID ||
-                it.id == SUPER_ISLAND_ID || it.id == SUPER_ISLAND_ALTERNATE_ID
+                it.id == SUPER_ISLAND_ID || it.id == SUPER_ISLAND_ALTERNATE_ID ||
+                it.id == SUPER_ISLAND_TEST_ID || it.id == SUPER_ISLAND_TEST_ALTERNATE_ID
         }.sortedByDescending { it.postTime }
         val identity = notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY).orEmpty()
         val island = XiaomiSuperIsland.isEnabled(context) &&
             notification.channelId == XiaomiSuperIsland.ChannelId
-        val id = if (island) {
+        val preview = island && notification.extras.getBoolean(EXTRA_ISLAND_PREVIEW)
+        val id = if (preview) {
+            liveUpdateNotificationSlot(active.filter {
+                it.id == SUPER_ISLAND_TEST_ID || it.id == SUPER_ISLAND_TEST_ALTERNATE_ID
+            }.map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
+                identity, SUPER_ISLAND_TEST_ID, SUPER_ISLAND_TEST_ALTERNATE_ID)
+        } else if (island) {
             liveUpdateNotificationSlot(
                 active.filter { it.id == SUPER_ISLAND_ID || it.id == SUPER_ISLAND_ALTERNATE_ID }
                     .map { it.id to it.notification.extras.getString(EXTRA_LIVE_UPDATE_IDENTITY) },
@@ -1338,21 +1356,27 @@ object NotificationScheduler {
         }
         logLiveUpdateIcon(context, notification)
         // Post first. Reattach the running foreground service before removing its former slot.
-        XiaomiSuperIsland.post(context, notification) {
+        val delivered = XiaomiSuperIsland.post(context, notification) {
             manager.notify(id, notification)
             attachForeground?.invoke(id, notification)
         }
-        listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID, SUPER_ISLAND_ID, SUPER_ISLAND_ALTERNATE_ID)
+        (if (preview) listOf(SUPER_ISLAND_TEST_ID, SUPER_ISLAND_TEST_ALTERNATE_ID)
+            else listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID, SUPER_ISLAND_ID, SUPER_ISLAND_ALTERNATE_ID))
             .filter { it != id }.forEach(manager::cancel)
+        delivered
     }
 
-    internal fun cancelLiveUpdateNotifications(context: Context) = synchronized(liveUpdatePostLock) {
-        XiaomiSuperIsland.clearPreview(context)
+    internal fun cancelLiveUpdateNotifications(context: Context, includePreview: Boolean = true) = synchronized(liveUpdatePostLock) {
         val manager = NotificationManagerCompat.from(context)
         manager.cancel(LIVE_UPDATE_ID)
         manager.cancel(LIVE_UPDATE_ALTERNATE_ID)
         manager.cancel(SUPER_ISLAND_ID)
         manager.cancel(SUPER_ISLAND_ALTERNATE_ID)
+        if (includePreview) {
+            XiaomiSuperIsland.clearPreview(context)
+            manager.cancel(SUPER_ISLAND_TEST_ID)
+            manager.cancel(SUPER_ISLAND_TEST_ALTERNATE_ID)
+        }
     }
 
     internal fun logLiveUpdateIcon(context: Context, notification: Notification) {
