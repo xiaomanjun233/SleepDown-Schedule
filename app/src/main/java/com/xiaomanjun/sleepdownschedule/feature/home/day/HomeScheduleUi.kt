@@ -704,6 +704,7 @@ internal fun HomeScreen(
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onWeekHeaderPreview: (Int?) -> Unit = {},
     onWeekJumpSettled: (Int) -> Unit = {},
+    onRenderedCardCountChanged: (HomeMode, Int) -> Unit = { _, _ -> },
     dayAgentBackgroundMotionState: DayAgentBackgroundMotionState,
     onAgentPagerSettledChange: (Boolean) -> Unit = {},
     onAgentPrepareOpen: suspend () -> Unit = {},
@@ -812,6 +813,7 @@ internal fun HomeScreen(
                         dayAgentBackdrop = dayAgentBackdrop,
                         onSwipeDay = onSwipeDay,
                         onContentUnderTopBarChange = { if (mode == targetMode) onContentUnderTopBarChange(it) },
+                        onRenderedCardCountChanged = { onRenderedCardCountChanged(HomeMode.Day, it) },
                         dayAgentBackgroundMotionState = dayAgentBackgroundMotionState,
                         onAgentPagerSettledChange = onAgentPagerSettledChange,
                         onAgentPrepareOpen = onAgentPrepareOpen,
@@ -851,6 +853,7 @@ internal fun HomeScreen(
                             onSwipeWeek = onSwipeWeek,
                             onWeekHeaderPreview = onWeekHeaderPreview,
                             onWeekJumpSettled = onWeekJumpSettled,
+                            onRenderedCardCountChanged = { onRenderedCardCountChanged(HomeMode.Week, it) },
                             onContentUnderTopBarChange = { if (mode == targetMode) onContentUnderTopBarChange(it) },
                             style = weekViewStyle,
                             weekEditMode = weekEditMode,
@@ -1600,6 +1603,7 @@ internal fun DayScheduleScreen(
     dayAgentBackdrop: Backdrop? = backdrop,
     onSwipeDay: (Int) -> Unit,
     onContentUnderTopBarChange: (Boolean) -> Unit,
+    onRenderedCardCountChanged: (Int) -> Unit = {},
     dayAgentBackgroundMotionState: DayAgentBackgroundMotionState,
     onAgentPagerSettledChange: (Boolean) -> Unit,
     onAgentPrepareOpen: suspend () -> Unit,
@@ -1845,6 +1849,10 @@ internal fun DayScheduleScreen(
             // day had no classes, which made the mode look as if it only worked on Today.
             val visibleSecondaryDate = secondaryDate?.takeIf {
                 shouldRenderSecondaryDay(displayDayCount, secondaryCourses)
+            }
+            if (targetDate == displayDate) SideEffect {
+                onRenderedCardCountChanged(dayCourses.size +
+                    if (visibleSecondaryDate != null) secondaryCourses.size else 0)
             }
             val courseList: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
                 if (dayCourses.isEmpty()) item(key = "primary-empty-$targetDate") {

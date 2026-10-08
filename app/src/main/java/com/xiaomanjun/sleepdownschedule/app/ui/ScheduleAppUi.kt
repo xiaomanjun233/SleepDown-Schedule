@@ -808,10 +808,14 @@ fun CourseScheduleAppUi(
     var homeMode by remember(state.loaded, state.config.defaultHomeMode) {
         mutableStateOf(state.config.defaultHomeMode.toHomeMode())
     }
-    val rootPageMotion = rememberHomeSwitchMotion(screen is Screen.Config, "home-settings")
+    var dayRenderedCardCount by remember(state.config.id) { mutableIntStateOf(0) }
+    var weekRenderedCardCount by remember(state.config.id) { mutableIntStateOf(0) }
+    val rootPageMotion = rememberHomeSwitchMotion(screen is Screen.Config, "home-settings",
+        renderedCardCount = { if (homeMode == HomeMode.Week) weekRenderedCardCount else dayRenderedCardCount })
     val homeModeMotion = key(state.loaded) {
         rememberHomeSwitchMotion(homeMode == HomeMode.Week, "day-week",
-            animate = !rootPageMotion.landscape || !rootPageMotion.moving)
+            animate = !rootPageMotion.landscape || !rootPageMotion.moving,
+            renderedCardCount = { maxOf(dayRenderedCardCount, weekRenderedCardCount) })
     }
     val rootPageStateHolder = rememberSaveableStateHolder()
     var homeDialog by remember { mutableStateOf<HomeDialog?>(null) }
@@ -2901,6 +2905,10 @@ fun CourseScheduleAppUi(
                                      personalizationPreviewState = personalizationPreviewState,
                                      mode = homeMode,
                                      modeMotion = homeModeMotion,
+                                     onRenderedCardCountChanged = { mode, count ->
+                                         if (mode == HomeMode.Week) weekRenderedCardCount = count
+                                         else dayRenderedCardCount = count
+                                     },
                                      dayViewMode = dayViewMode,
                                      weekViewStyle = weekViewStyle,
                                      adaptiveMetrics = sidebarContentMetrics,

@@ -357,6 +357,7 @@ internal fun SinglePillWeekScheduleScreen(
     onContentUnderTopBarChange: (Boolean) -> Unit,
     onWeekHeaderPreview: (Int?) -> Unit = {},
     onWeekJumpSettled: (Int) -> Unit = {},
+    onRenderedCardCountChanged: (Int) -> Unit = {},
     style: WeekViewStyle = WeekViewStyle.BOUNDLESS,
     weekEditMode: Boolean = false,
     onEnterWeekEditMode: () -> Unit = {},
@@ -840,6 +841,8 @@ internal fun SinglePillWeekScheduleScreen(
                                     end = weekGridEndPadding
                                 ),
                                 courses = pageCourses,
+                                onRenderedCardCountChanged = if (pageWeek == displayWeek)
+                                    onRenderedCardCountChanged else null,
                                 showSupplementaryRows = supplementaryRowCount > 0,
                                 weekdays = pageWeekdays,
                                 periods = state.periods,
@@ -2063,6 +2066,7 @@ private fun WeekDayColumn(
 fun WeekCourseColumnsLayer(
     modifier: Modifier = Modifier,
     courses: List<CourseEntity>,
+    onRenderedCardCountChanged: ((Int) -> Unit)? = null,
     showSupplementaryRows: Boolean = false,
     weekdays: List<Int>,
     periods: List<PeriodEntity>,
@@ -2150,6 +2154,12 @@ fun WeekCourseColumnsLayer(
                 conflictFocusCourseKey = conflictFocusCourseKey
             )
         }
+    }
+    // Reuse the actual render plan, including cancelled/makeup occurrences and split cards.
+    // Adjacent retained weeks must not overwrite the current page's animation policy.
+    if (onRenderedCardCountChanged != null) SideEffect {
+        onRenderedCardCountChanged(renderedSegmentsByDay.values.sumOf { it.size } +
+            if (showSupplementaryRows) weekdays.sumOf { supplementaryCoursesByDay[it].orEmpty().size } else 0)
     }
     val tailCardOrder = remember(renderedSegmentsByDay, supplementaryCoursesByDay, weekdays, periods) {
         val cards = weekdays.flatMapIndexed { column, day ->
