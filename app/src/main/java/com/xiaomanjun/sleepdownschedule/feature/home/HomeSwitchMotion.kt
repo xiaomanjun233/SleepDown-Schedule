@@ -76,8 +76,9 @@ internal class HomeSwitchMotion(
     private var settledSecondary by mutableStateOf(initialSecondary)
     private var running by mutableStateOf(false)
     // Latch once per switch (including reversals), so a count update cannot jump live cards.
-    var plainSlide by mutableStateOf(false)
-        private set
+    private var latchedPlainSlide by mutableStateOf(false)
+    // Decide while idle as data loads, before the first moving frame mounts card layers.
+    val plainSlide: Boolean get() = if (running) latchedPlainSlide else renderedCardCount() > 10
     val progress: State<Float> = page.asState()
     val moving: Boolean get() = running || settledSecondary != target.value
 
@@ -104,7 +105,7 @@ internal class HomeSwitchMotion(
         else tracks[group.coerceIn(0, SwitchGroupCount - 1)].value
 
     suspend fun settleAt(secondary: Boolean) {
-        plainSlide = renderedCardCount() > 10
+        latchedPlainSlide = renderedCardCount() > 10
         val destination = if (secondary) 1f else 0f
         page.snapTo(destination)
         tracks.forEach { it.snapTo(destination) }
@@ -115,7 +116,7 @@ internal class HomeSwitchMotion(
     }
 
     suspend fun animateTo(secondary: Boolean) {
-        if (!running) plainSlide = renderedCardCount() > 10
+        if (!running) latchedPlainSlide = renderedCardCount() > 10
         val destination = if (secondary) 1f else 0f
         if (page.value == destination && pageVelocity == 0f &&
             tracks.all { it.value == destination } && velocities.all { it == 0f }) {
@@ -233,7 +234,7 @@ private val LocalSwitchPages = staticCompositionLocalOf<List<SwitchPageScope>> {
 @Composable
 internal fun Modifier.homeSwitchGroup(cardOrderFraction: Float? = null): Modifier {
     val pages = LocalSwitchPages.current
-    if (pages.isEmpty() || pages.all { it.motion.landscape }) return this
+    if (pages.isEmpty() || pages.all { it.motion.landscape || it.motion.plainSlide }) return this
     val group = remember { mutableIntStateOf(-1) }
     val tracked = onGloballyPositioned { coordinates ->
         if (group.intValue < 0 || pages.none { it.motion.moving }) {
@@ -248,9 +249,8 @@ internal fun Modifier.homeSwitchGroup(cardOrderFraction: Float? = null): Modifie
             group.intValue = (fraction * SwitchGroupCount).toInt().coerceIn(0, SwitchGroupCount - 1)
         }
     }
-    // Keep the identity RenderNode in place between switches. Attaching/removing a layer on
-    // every course at the first/last moving frame rebuilds their coordinate/sampling chains.
-    // This layer never clips, blurs or forces an offscreen texture at rest.
+    // Sparse pages retain their stagger layer. Dense pages returned above: one page transform
+    // moves all cards, without retaining a redundant transform RenderNode on every card.
     return tracked.graphicsLayer {
         translationX = pages.sumOf { page ->
             // A plain slide never observes per-frame page progress in each card's layer.

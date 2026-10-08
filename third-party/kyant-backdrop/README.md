@@ -49,6 +49,18 @@ Movement, wallpaper edits, source replacement and effect geometry still refresh 
 Frozen scenes retain their explicit complete-scene key. The cache owns no additional GPU layer.
 `Sample.SharedReuse` is a recording counter, not frame-rate evidence.
 
+## Shared course sampling follow-up (2026-10-09)
+
+Common page translation can leave float rounding noise in `localPositionOf`. Shared sample keys
+now retain the last recorded offset within 0.001 pixels; comparisons use that recorded baseline,
+so actual motion still accumulates and refreshes. A 20-card native rendering regression originally
+observed 30 unnecessary recordings across five source-and-card translations.
+
+For opted-in shared consumers with no local RenderEffect, padding, export or custom transform,
+draw the clipped shared blur directly instead of recording it into another per-card texture.
+The shape clip, tint and decorations remain in their original order. Refraction and frozen scenes
+keep the existing sample path. `Sample.SharedBlit` records use of the direct path, not GPU time.
+
 Live shared consumers observe their own source revision and relative offset, without subscribing
 to unrelated page/group animation keys. Global position notifications with an unchanged relative
 offset do not dirty the sample layer. Frozen and non-shared consumers retain the complete scene

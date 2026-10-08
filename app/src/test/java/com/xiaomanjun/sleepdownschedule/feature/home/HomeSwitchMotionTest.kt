@@ -11,6 +11,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HomeSwitchMotionTest {
+    @Test fun densePagesSelectPlainSlideBeforeTheFirstTransitionFrame() {
+        var count = 0
+        val motion = HomeSwitchMotion(false, mutableStateOf(false), renderedCardCount = { count })
+        assertFalse(motion.plainSlide)
+        count = 20
+        assertTrue(motion.plainSlide)
+        assertFalse(motion.moving)
+    }
+
     private class Frames {
         val clock = BroadcastFrameClock()
         private var time = 0L

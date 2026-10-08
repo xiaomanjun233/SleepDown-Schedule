@@ -57,6 +57,11 @@ private val DefaultOnDrawBackdrop: DrawScope.(DrawScope.() -> Unit) -> Unit = { 
 
 private data class SharedSampleKey(val source: SharedBlurBackdrop, val revision: Int, val offset: Offset)
 
+// Equal page transforms can leave a few float ULPs in localPositionOf. Ignore only numerical
+// noise, not subpixel animation. Compare with the last recorded position so real motion accumulates.
+private fun sameSampleOffset(a: Offset?, b: Offset): Boolean = a != null &&
+    kotlin.math.abs(a.x - b.x) < 0.001f && kotlin.math.abs(a.y - b.y) < 0.001f
+
 fun Modifier.drawPlainBackdrop(
     backdrop: Backdrop,
     shape: () -> Shape,
@@ -293,6 +298,7 @@ private class DrawBackdropNode(
     private var layoutCoordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
     private var lastSharedPositionSource: SharedBlurBackdrop? = null
     private var lastSharedPosition: Offset? = null
+    private var lastRecordedSharedOffset: Offset? = null
 
     private var padding by mutableFloatStateOf(0f)
 
@@ -318,7 +324,7 @@ private class DrawBackdropNode(
         canvas.restore()
     }
 
-    private val drawBackdropLayer: DrawScope.() -> Unit = {
+    private val drawBackdropLayer: DrawScope.() -> Unit = drawBackdropLayer@{
         val layer = graphicsLayer
         if (layer != null) {
             val padding = padding
@@ -337,6 +343,27 @@ private class DrawBackdropNode(
             val directSharedSample = sharedLayer != null && shared?.sampleScale == sampleScale &&
                 sourceCoordinates?.isAttached == true && cardCoordinates?.isAttached == true &&
                 layerBlock == null && shapeProvider.options.bounds() == null && exportedBackdrop == null
+            // Shared blur is already filtered. Without a card-local effect, another card
+            // recording/texture adds no pixels. Match Nexio's direct shared-layer path; the
+            // outer shape clip and full-resolution tint/decorations remain unchanged.
+            if (directSharedSample && shapeProvider.options.cacheSharedSamples && padding == 0f &&
+                layer.renderEffect == null && !shapeProvider.options.coordinatesFrozen()
+            ) {
+                val source = checkNotNull(sourceCoordinates)
+                val card = checkNotNull(cardCoordinates)
+                val offset = try { source.localPositionOf(card) } catch (_: IllegalArgumentException) {
+                    card.positionInWindow() - source.positionInWindow()
+                }
+                val canvas = drawContext.canvas
+                canvas.save()
+                canvas.clipRect(0f, 0f, size.width, size.height)
+                canvas.scale(1f / sampleScale, 1f / sampleScale)
+                canvas.translate(-offset.x * sampleScale, -offset.y * sampleScale)
+                onDrawBackdrop { drawLayer(checkNotNull(sharedLayer)) }
+                canvas.restore()
+                BackdropDiagnostics.event("Sample.SharedBlit")
+                return@drawBackdropLayer
+            }
             val frozen = shapeProvider.options.coordinatesFrozen()
             // Live shared cards depend on their own relative position/revision. Observing the
             // page-wide animation key here wakes every card for every other group's spring.
@@ -352,7 +379,8 @@ private class DrawBackdropNode(
                 }
             } else null
             val liveSharedKey = if (shapeProvider.options.cacheSharedSamples && sharedOffset != null) {
-                SharedSampleKey(checkNotNull(shared), shared.contentRevision, sharedOffset)
+                SharedSampleKey(checkNotNull(shared), shared.contentRevision,
+                    lastRecordedSharedOffset?.takeIf { sameSampleOffset(it, sharedOffset) } ?: sharedOffset)
             } else null
             val recordKey = if (frozen) frozenRecordKey else liveSharedKey
             val reuseSample = (frozen || liveSharedKey != null) &&
@@ -381,6 +409,7 @@ private class DrawBackdropNode(
 
                 layerDiagnostics.recorded(layer.size)
                 sampleRecordingCache.recorded(recordKey, recordingSize, density, fontScale, layoutDirection)
+                lastRecordedSharedOffset = sharedOffset
             } else {
                 BackdropDiagnostics.event(if (frozen) "Sample.FrozenReuse" else "Sample.SharedReuse")
             }
@@ -488,7 +517,7 @@ private class DrawBackdropNode(
                         }
                     } else null
                     if (relativePosition != null && layoutCoordinates === coordinates &&
-                        lastSharedPositionSource === shared && lastSharedPosition == relativePosition
+                        lastSharedPositionSource === shared && sameSampleOffset(lastSharedPosition, relativePosition)
                     ) {
                         // Wallpaper and card can travel together. Their screen positions changed,
                         // but the retained sample and lens did not. Source revisions are observed
@@ -598,5 +627,6 @@ private class DrawBackdropNode(
 
     fun invalidateSampleRecording() {
         sampleRecordingCache.clear()
+        lastRecordedSharedOffset = null
     }
 }
