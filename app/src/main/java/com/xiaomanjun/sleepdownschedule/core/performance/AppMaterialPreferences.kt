@@ -11,22 +11,12 @@ enum class AppMaterialLevel { QUALITY, PERFORMANCE, SUPER_PERFORMANCE }
 /** Full-screen scene blur is intentionally independent of dense control materials. */
 enum class MaterialUsage { CONTROL, SCENE_BLUR }
 
-private val NoMaterialOverride: androidx.compose.runtime.State<Boolean> = mutableStateOf(false)
-internal val LocalMaterialPerformanceOverride = androidx.compose.runtime.compositionLocalOf { NoMaterialOverride }
-
-internal fun effectiveMaterialLevel(saved: AppMaterialLevel, densePageMoving: Boolean): AppMaterialLevel =
-    if (saved == AppMaterialLevel.QUALITY && densePageMoving) AppMaterialLevel.PERFORMANCE else saved
-
-internal fun densePageNeedsPerformance(cardCount: Int, moving: Boolean): Boolean = cardCount > 10 && moving
-
 /** A restore can import appearance values, but cannot lift the device's active material guard. */
 internal fun restoredMaterialLevel(current: AppMaterialLevel, archived: AppMaterialLevel): AppMaterialLevel =
     if (current == AppMaterialLevel.SUPER_PERFORMANCE) current else archived
 
 @androidx.compose.runtime.Composable
-internal fun effectiveAppMaterialPolicy(): EffectiveMaterialPolicy = EffectiveMaterialPolicy(
-    effectiveMaterialLevel(AppMaterialPreferences.level, LocalMaterialPerformanceOverride.current.value)
-)
+internal fun effectiveAppMaterialPolicy(): EffectiveMaterialPolicy = AppMaterialPreferences.policy
 
 data class EffectiveMaterialPolicy(val level: AppMaterialLevel) {
     val denseMaterials: Boolean get() = level != AppMaterialLevel.SUPER_PERFORMANCE
@@ -35,7 +25,7 @@ data class EffectiveMaterialPolicy(val level: AppMaterialLevel) {
     fun courseSamples(glass: Boolean, gaussian: Boolean, hasWallpaper: Boolean): Boolean =
         denseMaterials && hasWallpaper && (glass || gaussian)
     fun opacity(blur: Float, maximum: Float): Float =
-        0.55f + 0.45f * (if (blur.isFinite()) blur / maximum.coerceAtLeast(1f) else 1f).coerceIn(0f, 1f)
+        0.15f + 0.85f * (if (blur.isFinite()) blur / maximum.coerceAtLeast(1f) else 1f).coerceIn(0f, 1f)
 }
 
 /** Device-wide rendering preference; schedule appearance values remain intact. */

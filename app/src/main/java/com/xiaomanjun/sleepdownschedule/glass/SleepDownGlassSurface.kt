@@ -10,6 +10,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 
@@ -59,6 +62,14 @@ private val DefaultGlassBackdropDraw: DrawScope.(DrawScope.() -> Unit) -> Unit =
 }
 
 /** Observe animated outlines in drawing, without a retained offscreen/material layer. */
+internal fun flatControlColor(dark: Boolean): Color = if (dark) Color(0xFF2C2C2E) else Color(0xFFF5F5F7)
+internal fun flatControlBorder(dark: Boolean): Color =
+    if (dark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.14f)
+
+internal fun flatMaterialOpacity(role: GlassMaterialRole, blur: Float, override: Float? = null): Float =
+    if (role == GlassMaterialRole.Popup) 0.90f
+    else override?.coerceIn(0f, 1f) ?: AppMaterialPreferences.policy.opacity(blur, 64f)
+
 private fun Modifier.flatMaterial(shape: () -> Shape, color: Color, enabled: () -> Boolean = { true }) =
     drawWithCache {
         val outline = shape().createOutline(size, layoutDirection, this)
@@ -71,6 +82,7 @@ private fun Modifier.flatMaterial(shape: () -> Shape, color: Color, enabled: () 
             clipPath(path) {
                 if (enabled()) drawRect(color)
                 this@onDrawWithContent.drawContent()
+                if (enabled()) drawPath(path, flatControlBorder(color.luminance() < 0.5f), style = Stroke(1.dp.toPx() * 2f))
             }
         }
     }
@@ -208,11 +220,12 @@ fun Modifier.sleepDownGlassSurface(
     backdropSampleScale: Float = 1f,
     cacheSharedSamples: Boolean = false,
     usage: MaterialUsage = MaterialUsage.CONTROL,
-    fallbackColor: Color? = null
+    fallbackColor: Color? = null,
+    fallbackOpacity: Float? = null
 ): Modifier {
     if (!AppMaterialPreferences.policy.samples(usage)) {
-        val color = fallbackColor ?: MaterialTheme.colorScheme.surface
-        val opacity = AppMaterialPreferences.policy.opacity(material.blur.value, 24f)
+        val color = fallbackColor ?: flatControlColor(MaterialTheme.colorScheme.background.luminance() < 0.5f)
+        val opacity = flatMaterialOpacity(material.role, material.blur.value, fallbackOpacity)
         return flatMaterial(shape, color.copy(alpha = opacity), renderEnabled)
     }
     if (sampleBackdrop) retainGlassSources(backdrop)
@@ -461,7 +474,8 @@ fun Modifier.sleepDownPlainGlassSurface(
     effects: BackdropEffectScope.() -> Unit
 ): Modifier {
     if (!AppMaterialPreferences.policy.samples(usage)) {
-        val color = MaterialTheme.colorScheme.surface.copy(alpha = AppMaterialPreferences.policy.opacity(material.blur.value, 24f))
+        val color = flatControlColor(MaterialTheme.colorScheme.background.luminance() < 0.5f)
+            .copy(alpha = flatMaterialOpacity(material.role, material.blur.value))
         return flatMaterial(shape, color)
     }
     retainGlassSources(backdrop)

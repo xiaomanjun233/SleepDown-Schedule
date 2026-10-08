@@ -33,6 +33,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -105,6 +108,7 @@ fun LiquidBottomTabs(
     leadingContent: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable RowScope.() -> Unit
 ) {
+    val superPerformance = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
     val isLightTheme = isLightThemeOverride ?: !isSystemInDarkTheme()
     // Theme ownership can change when a dock moves between wallpaper-adaptive Home and the app
     // themed settings page. Keep one Kyant surface alive and crossfade its material after the tab
@@ -305,6 +309,7 @@ fun LiquidBottomTabs(
                     backdrop = backdrop,
                     descriptor = containerDescriptor,
                     material = containerMaterial,
+                    fallbackColor = com.xiaomanjun.sleepdownschedule.glass.flatControlColor(!isLightTheme),
                     renderEnabled = { containerSurfaceEnabled },
                     shape = { Capsule() },
                     effectFrame = GlassEffectFrame(blur = null),
@@ -330,7 +335,14 @@ fun LiquidBottomTabs(
                         drawRect(lightContainerSurface, alpha = themeBlend)
                     }
                 )
-                .then(interactiveHighlight.modifier)
+                .then(if (superPerformance) Modifier.drawBehind {
+                    val inset = (horizontalPadding + leadingWidth).toPx()
+                    val logicalX = inset + dampedDragAnimation.value * tabWidth
+                    val pillHeight = indicatorHeight.toPx()
+                    drawRoundRect(Color(0xFFE2E2E2),
+                        topLeft = Offset(if (isLtr) logicalX else size.width - logicalX - tabWidth, (size.height - pillHeight) / 2f),
+                        size = Size(tabWidth, pillHeight), cornerRadius = CornerRadius(pillHeight / 2f))
+                } else interactiveHighlight.modifier)
                 .height(containerHeight)
                 .fillMaxWidth()
                 .padding(horizontalPadding),
@@ -340,7 +352,7 @@ fun LiquidBottomTabs(
             content()
         }
 
-        if (movingAccentContent) {
+        if (movingAccentContent && !superPerformance) {
             CompositionLocalProvider(
                 LocalLiquidBottomTabScale provides {
                     lerp(1f, pressedContentScale, dampedDragAnimation.pressProgress)
@@ -409,6 +421,7 @@ fun LiquidBottomTabs(
                     backdrop = rememberGlassCombinedBackdrop(backdrop, tabsBackdrop),
                     descriptor = indicatorDescriptor,
                     material = indicatorMaterial,
+                    renderEnabled = { !superPerformance },
                     shape = { Capsule() },
                     effectFrame = GlassEffectFrame(blur = null),
                     effectsOverride = {

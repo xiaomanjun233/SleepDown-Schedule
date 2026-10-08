@@ -159,7 +159,11 @@ fun GeneralSettingsScreen(
                     SettingsDivider()
                     SleepDownLiquidDropdownPreference(
                         title = "材质分级",
-                        summary = "质感保留完整效果；性能沿用轻量玻璃；超级性能以纯色控件替代材质，保留页面渐变模糊与弹窗背景模糊。",
+                        summary = when (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.level) {
+                            com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialLevel.QUALITY -> "提供完整的液态玻璃和光感视效"
+                            com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialLevel.PERFORMANCE -> "提供部分液态玻璃和光感视效"
+                            com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialLevel.SUPER_PERFORMANCE -> "不提供任何液态玻璃和光感视效"
+                        },
                         items = listOf("质感", "性能", "超级性能"),
                         selectedIndex = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.level.ordinal,
                         backdrop = backdrop, config = visualConfig,

@@ -2076,7 +2076,8 @@ fun CourseScheduleAppUi(
             currentWeek = resolvedWeek,
             autoCurrentWeek = config.autoCurrentWeek,
             hideEmptyWeekends = config.hideEmptyWeekends,
-            termStartDate = config.termStartDate.orEmpty()
+            termStartDate = config.termStartDate.orEmpty(),
+            showNonCurrentWeekCourses = config.showNonCurrentWeekCourses
         )
     }
 
@@ -2389,15 +2390,7 @@ fun CourseScheduleAppUi(
     val homeCourseClick = remember {
         { course: CourseEntity, week: Int, bounds: Rect? -> currentHomeCourseClick.value(course, week, bounds) }
     }
-    val densePageMaterialOverride = remember(rootPageMotion, homeModeMotion, homeSidebarState) {
-        derivedStateOf {
-            com.xiaomanjun.sleepdownschedule.core.performance.densePageNeedsPerformance(
-                maxOf(dayRenderedCardCount, weekRenderedCardCount),
-                rootPageMotion.moving || homeModeMotion.moving || homeSidebarState.moving)
-        }
-    }
     CompositionLocalProvider(
-        LocalMaterialPerformanceOverride provides densePageMaterialOverride,
         LocalHomeAssistant provides homeAssistant,
         LocalDayAgentCountdownCinematic provides dayAgentCountdownCinematic,
         LocalAdjustedCourseEditor provides adjustedCourseEditor,
@@ -3939,7 +3932,8 @@ fun CourseScheduleAppUi(
                     currentWeek = manualWeek,
                     termStartDate = draft.termStartDate.ifBlank { null },
                     autoCurrentWeek = draft.autoCurrentWeek,
-                    hideEmptyWeekends = draft.hideEmptyWeekends
+                    hideEmptyWeekends = draft.hideEmptyWeekends,
+                    showNonCurrentWeekCourses = draft.showNonCurrentWeekCourses
                 )
                 val periods = latest.allPeriods.filter { it.scheduleId == draft.scheduleId }
                     .ifEmpty { defaultPeriods(draft.scheduleId) }
@@ -5819,7 +5813,6 @@ private const val PersonalizeWeekHeightSlider = "week-height"
 private const val PersonalizeWeekLocationChange = "week-location"
 private const val PersonalizeWeekTeacherChange = "week-teacher"
 private const val PersonalizeWeekLayoutChange = "week-layout"
-private const val PersonalizeWeekAlignmentChange = "week-alignment"
 internal const val PersonalizeWeekCornerSlider = "week-corner"
 private const val PersonalizeCardColorChange = "card-color"
 internal const val PersonalizeCardAlphaSlider = "card-alpha"
@@ -5871,7 +5864,7 @@ internal fun mergePersonalizationCandidate(
     )
     PersonalizeWeekLocationChange -> current.copy(weekCardShowLocation = candidate.weekCardShowLocation)
     PersonalizeWeekTeacherChange -> current.copy(weekCardShowTeacher = candidate.weekCardShowTeacher)
-    PersonalizeWeekLayoutChange, PersonalizeWeekAlignmentChange -> current.copy(
+    PersonalizeWeekLayoutChange -> current.copy(
         weekCardContentLayout = candidate.weekCardContentLayout, weekCardTextAlignment = candidate.weekCardTextAlignment)
     PersonalizeCardColorChange -> current.copy(
         cardColorArgb = candidate.cardColorArgb,
@@ -6586,7 +6579,7 @@ fun PersonalizePanel(
     val rowReveal = remember { Animatable(0f) }
     val rowDensity = LocalDensity.current
     val rowEasing = remember { CubicBezierEasing(0.22f, 0f, 0.30f, 1f) }
-    val weekContentRows = if (mode == HomeMode.Week) 5 else 0
+    val weekContentRows = if (mode == HomeMode.Week) 4 else 0
     val rowEntranceDurationMillis = 580 + weekContentRows * 15
     LaunchedEffect(rowEntranceActive, rowEntranceDurationMillis) {
         if (rowEntranceActive) {
@@ -6895,25 +6888,10 @@ fun PersonalizePanel(
                         )
                     }
                     val textLayouts = listOf(
-                        WeekCardContentLayout.CURRENT to "默认",
-                        WeekCardContentLayout.MIDDLE to "中部",
-                        WeekCardContentLayout.TOP to "顶部"
-                    )
-                    val alignments = listOf(WeekCardTextAlignment.START, WeekCardTextAlignment.CENTER, WeekCardTextAlignment.END)
-                    SleepDownLiquidDropdownPreference(
-                        items = listOf("居左", "居中", "居右"), title = "水平对齐",
-                        selectedIndex = alignments.indexOf(state.config.effectiveWeekCardTextAlignment()),
-                        backdrop = backdrop, config = state.config, showAnchorPressFeedback = false,
-                        insideMargin = PaddingValues(horizontal = 0.dp, vertical = 6.dp),
-                        onSelectedIndexChange = { index -> alignments.getOrNull(index)?.let { alignment ->
-                            onUpdateConfig(PersonalizeWeekAlignmentChange, state.config.copy(
-                                weekCardTextAlignment = alignment,
-                                weekCardContentLayout = when (state.config.weekCardContentLayout) {
-                                    WeekCardContentLayout.CENTERED -> WeekCardContentLayout.MIDDLE
-                                    WeekCardContentLayout.TOP_DOWN -> WeekCardContentLayout.TOP
-                                    else -> state.config.weekCardContentLayout
-                                }))
-                        } }
+                        WeekCardContentLayout.TOP to WeekCardTextAlignment.START,
+                        WeekCardContentLayout.TOP to WeekCardTextAlignment.CENTER,
+                        WeekCardContentLayout.MIDDLE to WeekCardTextAlignment.START,
+                        WeekCardContentLayout.MIDDLE to WeekCardTextAlignment.CENTER
                     )
                     val rowTextColor = LocalContentColor.current
                     val rowTextStyle = MaterialTheme.typography.labelLarge
@@ -6923,13 +6901,11 @@ fun PersonalizePanel(
                         onSurfaceVariantActions = rowTextColor.copy(alpha = 0.72f)
                     )) {
                         SleepDownLiquidDropdownPreference(
-                            items = textLayouts.map { it.second },
-                            selectedIndex = textLayouts.indexOfFirst { it.first == when (state.config.weekCardContentLayout) {
-                                WeekCardContentLayout.CENTERED -> WeekCardContentLayout.MIDDLE
-                                WeekCardContentLayout.TOP_DOWN -> WeekCardContentLayout.TOP
-                                else -> state.config.weekCardContentLayout
-                            } },
-                            title = "垂直位置",
+                            items = listOf("顶部居左", "顶部居中", "中部居左", "中部居中"),
+                            selectedIndex = (if (state.config.weekCardContentLayout in listOf(
+                                WeekCardContentLayout.MIDDLE, WeekCardContentLayout.CENTERED)) 2 else 0) +
+                                (if (state.config.effectiveWeekCardTextAlignment() == WeekCardTextAlignment.CENTER) 1 else 0),
+                            title = "内容对齐",
                             modifier = Modifier.rowEntrance(8).fillMaxWidth()
                                 .heightIn(max = rowMaxHeight)
                                 .personalizePreviewVisibility(previewSliderKey, previewProgress),
@@ -6940,10 +6916,10 @@ fun PersonalizePanel(
                             backdrop = backdrop,
                             config = state.config,
                             onSelectedIndexChange = { index ->
-                                textLayouts.getOrNull(index)?.let { (layout, _) ->
+                                textLayouts.getOrNull(index)?.let { (layout, alignment) ->
                                     onUpdateConfig(PersonalizeWeekLayoutChange,
                                         state.config.copy(weekCardContentLayout = layout,
-                                            weekCardTextAlignment = state.config.effectiveWeekCardTextAlignment()))
+                                            weekCardTextAlignment = alignment))
                                 }
                             }
                         )
@@ -7074,7 +7050,7 @@ fun PersonalizePanel(
                             maxCourseCardBlur * 100f,
                         valueRange = 0f..100f,
                         backdrop = backdrop,
-                        label = { if (superPerformance) "课程卡片不透明度 ${(55 + it * 0.45f).toInt()}%" else "课程卡片模糊 ${it.toInt()}%" },
+                        label = { if (superPerformance) "课程卡片不透明度 ${(AppMaterialPreferences.policy.opacity(it, 100f) * 100).toInt()}%" else "课程卡片模糊 ${it.toInt()}%" },
                         onCommit = {
                             onUpdateConfig(
                                 PersonalizeCardBlurSlider,
@@ -8180,6 +8156,7 @@ fun LiquidControlToggle(
             onSelect = { if (enabled) onCheckedChange(it) },
             backdrop = backdrop,
             compact = compact,
+            enabled = enabled,
             modifier = modifier.graphicsLayer { this.alpha = alpha }
         )
     } else {

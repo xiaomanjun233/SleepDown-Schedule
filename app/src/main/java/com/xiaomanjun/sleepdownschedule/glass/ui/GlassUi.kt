@@ -612,6 +612,7 @@ fun GlassSurface(
             backdrop = glassBackdrop,
             descriptor = descriptor,
             material = tokens,
+            fallbackColor = com.xiaomanjun.sleepdownschedule.glass.flatControlColor(!lightGlass),
             shape = shapeProvider ?: { shape },
             effectFrame = effectFrame,
             placementLayer = placementLayer,
@@ -640,7 +641,12 @@ fun GlassSurface(
                 this.shape = morphAllocation.envelope.insetShapeFor(morphAllocation.geometry())
                 clip = true
             })
-            .background(surfaceColor.copy(alpha = surfaceColor.alpha.coerceAtLeast(0.86f)))
+            .background(if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance)
+                com.xiaomanjun.sleepdownschedule.glass.flatControlColor(!lightGlass).copy(alpha =
+                    com.xiaomanjun.sleepdownschedule.glass.flatMaterialOpacity(tokens.role, tokens.blur.value))
+                else surfaceColor.copy(alpha = surfaceColor.alpha.coerceAtLeast(0.86f)))
+            .then(if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance)
+                Modifier.border(1.dp, com.xiaomanjun.sleepdownschedule.glass.flatControlBorder(!lightGlass), shape) else Modifier)
             .graphicsLayer {
                 val scale = 1f + 0.04f * pressProgress
                 scaleX = scale

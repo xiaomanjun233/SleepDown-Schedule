@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.agent
 
+import androidx.compose.ui.graphics.luminance
+
 import com.xiaomanjun.sleepdownschedule.feature.agent.background.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.*
@@ -2547,6 +2549,7 @@ internal fun DayAgentConversationDialog(
               } }
               if (composerVisible) AgentInputLiquidCapsule(
                      backdrop = composerBackdrop,
+                    foreground = foreground,
                     config = state.config,
                     heightOverride = homeInputHeight.takeIf { homePresentation },
                     expanded = imageAttachment != null && !compactHomeInput,
@@ -2905,6 +2908,7 @@ private fun AgentComposerTextField(
 @Composable
 private fun AgentInputLiquidCapsule(
     backdrop: Backdrop?,
+    foreground: Color,
     config: ScheduleConfigEntity,
     modifier: Modifier,
     expanded: Boolean,
@@ -2928,6 +2932,9 @@ private fun AgentInputLiquidCapsule(
     }
     val dockHeight = heightOverride ?: if (expanded) 94.dp else 56.dp
     val pressExpansion = 1.5.dp
+    val surfaceBase = if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance)
+        com.xiaomanjun.sleepdownschedule.glass.flatControlColor(foreground.luminance() > 0.5f)
+        else baseSurfaceColorOverride
 
     Box(
         modifier = modifier
@@ -2947,7 +2954,8 @@ private fun AgentInputLiquidCapsule(
                 lensHeight = 18.dp,
                 lensAmount = 28.dp,
                 chromaticAberration = false,
-                surfaceColor = baseSurfaceColorOverride.copy(alpha = tokens.surfaceAlpha),
+                surfaceColor = surfaceBase.copy(alpha = tokens.surfaceAlpha),
+                flatOpacity = 0.90f,
                 shadowEnabled = false,
                 highlightEnabled = true,
                 isInteractive = true,
@@ -2966,7 +2974,7 @@ private fun AgentInputLiquidCapsule(
                 modifier = Modifier.fillMaxSize().graphicsLayer { alpha = surfaceVisibility() },
                 shape = shape,
                 tokens = tokens,
-                baseSurfaceColorOverride = baseSurfaceColorOverride
+                baseSurfaceColorOverride = surfaceBase
             ) {}
         }
         Box(
@@ -3026,7 +3034,9 @@ private fun AgentAttachmentLiquidButton(
             lensHeight = 18.dp,
             lensAmount = 28.dp,
             chromaticAberration = false,
-            surfaceColor = if (darkSurface) Color.Black.copy(alpha = 0.56f)
+            surfaceColor = if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance)
+                com.xiaomanjun.sleepdownschedule.glass.flatControlColor(foreground.luminance() > 0.5f)
+                else if (darkSurface) Color.Black.copy(alpha = 0.56f)
                 else Color.White.copy(alpha = if (appUsesDarkTheme(config)) 0.08f else 0.14f),
             shadowEnabled = true,
             pressExpansion = 1.5.dp

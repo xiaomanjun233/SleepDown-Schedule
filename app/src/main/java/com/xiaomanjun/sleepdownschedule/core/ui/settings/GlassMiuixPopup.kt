@@ -130,6 +130,10 @@ private fun Modifier.miuixCascadingPopupSurface(
     blurRadius: Dp
 ): Modifier {
     val dark = appUsesDarkTheme(config)
+    if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance) {
+        // The popup host owns its rounded outline and border on every Android version.
+        return background(com.xiaomanjun.sleepdownschedule.glass.flatControlColor(dark).copy(alpha = 0.90f))
+    }
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
         return background(if (dark) Color(0xFF242424) else Color.White)
     }
@@ -240,7 +244,8 @@ private fun rememberMiuixListPopupStyle(
     itemTextStyle = MiuixTheme.textStyles.main.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium),
     itemVerticalPadding = 7.dp,
     itemMinHeight = 40.dp,
-    border = rim,
+    border = if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance)
+        BorderStroke(1.dp, com.xiaomanjun.sleepdownschedule.glass.flatControlBorder(dark)) else rim,
     morphAnimation = true,
     slideSelection = true,
     dimBackground = false,

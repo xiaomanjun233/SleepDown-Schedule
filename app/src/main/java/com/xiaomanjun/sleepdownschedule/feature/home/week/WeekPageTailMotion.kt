@@ -264,17 +264,9 @@ internal fun WeekPageSamplingScope(
     page: Int,
     homeSwitching: State<Boolean>,
     jump: AdjacentWeekJump? = null,
-    cardCount: State<Int>,
     content: @Composable () -> Unit
 ) {
     val parentKey = LocalGlassSampleRecordKey.current
-    val parentMaterialOverride = com.xiaomanjun.sleepdownschedule.core.performance.LocalMaterialPerformanceOverride.current
-    val materialOverride = remember(parentMaterialOverride, motion, cardCount) {
-        derivedStateOf {
-            parentMaterialOverride.value || com.xiaomanjun.sleepdownschedule.core.performance.densePageNeedsPerformance(
-                cardCount.value, motion.moving)
-        }
-    }
     val paneVisible = LocalHomePaneVisible.current
     // An idle retained pane keeps only its settled page measured and composed. The outer pane
     // suppresses its drawing/sampling, so switching modes can reuse these glass nodes.
@@ -309,7 +301,6 @@ internal fun WeekPageSamplingScope(
         derivedStateOf { parentTextFrozen.value || motion.moving }
     }
     CompositionLocalProvider(
-        com.xiaomanjun.sleepdownschedule.core.performance.LocalMaterialPerformanceOverride provides materialOverride,
         LocalWeekPageSlot provides page,
         LocalGlassSampleRecordKey provides sampleKey,
         LocalHomeTextContrastFrozen provides textFrozen

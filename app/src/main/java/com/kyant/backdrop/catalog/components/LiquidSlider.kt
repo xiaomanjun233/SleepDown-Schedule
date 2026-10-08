@@ -552,6 +552,8 @@ fun LiquidSlider(
                         ),
                         descriptor = descriptor,
                         material = material,
+                        fallbackColor = Color.White,
+                        fallbackOpacity = 1f,
                         shape = { Capsule() },
                         effectFrame = GlassEffectFrame(blur = null),
                         effectsOverride = {

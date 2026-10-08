@@ -851,7 +851,7 @@ internal fun SinglePillWeekScheduleScreen(
                                 }
                             }
                             val pageCardCount = remember(pageWeek) { mutableIntStateOf(0) }
-                            WeekPageSamplingScope(weekTail, page, homeSwitching, weekJump, pageCardCount) {
+                            WeekPageSamplingScope(weekTail, page, homeSwitching, weekJump) {
                             WeekCourseColumnsLayer(
                                 modifier = Modifier.padding(
                                     start = rowHeaderWidth,

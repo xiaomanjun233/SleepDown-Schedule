@@ -136,7 +136,8 @@ data class QuickScheduleDraft(
     val currentWeek: Int,
     val autoCurrentWeek: Boolean,
     val hideEmptyWeekends: Boolean,
-    val termStartDate: String
+    val termStartDate: String,
+    val showNonCurrentWeekCourses: Boolean = false
 )
 
 private fun daysInMonth(year: Int, month: Int): Int =
@@ -378,6 +379,15 @@ fun QuickScheduleSettingsSheets(
                             latestDraft()?.let { latest ->
                                 commitDraft(latest.copy(hideEmptyWeekends = checked))
                             }
+                        }
+                    )
+                    SettingsToggleRow(
+                        title = "显示非本周课程",
+                        subtitle = "以灰色显示，与本周课程重叠时隐藏",
+                        checked = value.showNonCurrentWeekCourses,
+                        backdrop = backdrop,
+                        onCheckedChange = { checked ->
+                            latestDraft()?.let { commitDraft(it.copy(showNonCurrentWeekCourses = checked)) }
                         }
                     )
                     SettingsPickerValueRow(
