@@ -53,6 +53,7 @@ private const val UpdatePreferences = "app_update_state"
 private const val LastCheckDateKey = "last_check_date"
 private const val LatestTagKey = "latest_tag"
 private const val IncludeBetaKey = "include_beta"
+private const val BetaDefaultMigrationKey = "beta_default_enabled_v1"
 
 data class GiteeReleaseInfo(
     val name: String,
@@ -98,11 +99,24 @@ object GiteeAppUpdater {
     private val _downloadState = MutableStateFlow<UpdateDownloadState>(UpdateDownloadState.Idle)
     val downloadState: StateFlow<UpdateDownloadState> = _downloadState.asStateFlow()
 
-    fun includesBeta(context: Context): Boolean = preferences(context).getBoolean(IncludeBetaKey, false)
+    @Synchronized
+    fun includesBeta(context: Context): Boolean {
+        val prefs = preferences(context)
+        if (!prefs.getBoolean(BetaDefaultMigrationKey, false)) {
+            prefs.edit {
+                putBoolean(IncludeBetaKey, true)
+                putBoolean(BetaDefaultMigrationKey, true)
+                remove(LastCheckDateKey)
+                remove(LatestTagKey)
+            }
+        }
+        return prefs.getBoolean(IncludeBetaKey, true)
+    }
 
     fun setIncludesBeta(context: Context, enabled: Boolean) {
         preferences(context).edit {
             putBoolean(IncludeBetaKey, enabled)
+            putBoolean(BetaDefaultMigrationKey, true)
             remove(LastCheckDateKey)
             remove(LatestTagKey)
         }

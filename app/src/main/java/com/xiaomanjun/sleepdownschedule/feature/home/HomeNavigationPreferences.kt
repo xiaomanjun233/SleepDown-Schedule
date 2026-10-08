@@ -13,7 +13,7 @@ internal object HomeNavigationPreferences {
 
     fun isParallel(context: Context): Boolean =
         context.applicationContext.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
-            .getBoolean(ParallelKey, false)
+            .getBoolean(ParallelKey, true)
 
     fun setParallel(context: Context, enabled: Boolean) {
         context.applicationContext.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
