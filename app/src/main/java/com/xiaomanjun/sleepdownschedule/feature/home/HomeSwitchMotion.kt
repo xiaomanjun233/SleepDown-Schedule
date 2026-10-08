@@ -215,9 +215,9 @@ internal fun Modifier.homeSwitchLayer(
             scaleY = 1f
             renderEffect = null
             translationX = direction * size.width * ((if (secondary) 1f else 0f) - motion.progress.value)
-            // Dense pages keep rectangular clipping; sparse pages round through the trailing rebound.
+            // Both motion styles keep the original rounded page clip while moving.
             clip = pageClip != HomeSwitchClip.None && motion.moving
-            shape = if (clip && !motion.plainSlide) {
+            shape = if (clip) {
                 val radius = 32.dp * motion.cornerFraction
                 val bottom = if (pageClip == HomeSwitchClip.TopBar) 0.dp else radius
                 RoundedCornerShape(topStart = radius, topEnd = radius, bottomEnd = bottom, bottomStart = bottom)
