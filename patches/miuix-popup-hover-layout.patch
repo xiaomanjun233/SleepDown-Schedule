@@ -8,7 +8,7 @@
  import androidx.compose.foundation.gestures.awaitEachGesture
  import androidx.compose.foundation.gestures.awaitFirstDown
  import androidx.compose.runtime.*
-@@ -17,78 +16,79 @@
+@@ -17,78 +16,80 @@
  import androidx.compose.ui.layout.boundsInWindow
  import androidx.compose.ui.layout.onGloballyPositioned
  import kotlinx.coroutines.coroutineScope
@@ -20,6 +20,7 @@
  internal val LocalPopupSlideSelection = staticCompositionLocalOf<PopupSlideSelection?> { null }
 +internal val LocalPopupSlideViewport = staticCompositionLocalOf<PopupSlideViewport?> { null }
 +internal val LocalPopupSlideActive = staticCompositionLocalOf<() -> Boolean> { { true } }
++internal val LocalPopupInputEnabled = staticCompositionLocalOf { true }
 +
 +internal class PopupSlideViewport(val canScroll: () -> Boolean) {
 +    var coordinates: LayoutCoordinates? = null
@@ -123,7 +124,7 @@
                              if (next != state.highlighted) {
                                  state.highlighted = next
                                  if (next != null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-@@ -103,8 +103,12 @@
+@@ -103,8 +104,12 @@
                                  break
                              }
                          }
@@ -148,7 +149,16 @@
  
  @Immutable
  data class ListPopupVisualStyle(
-@@ -122,7 +121,13 @@
+@@ -106,6 +105,8 @@
+     val shadowElevation: Dp = 16.dp,
+     val ambientShadowColor: Color = Color.Black.copy(alpha = 0.125f),
+     val spotShadowColor: Color = Color.Black.copy(alpha = 0.125f),
++    // Keep visual settling, but detach the pointer observer while a child menu owns input.
++    val suspendedInteractionModifier: Modifier = Modifier,
+ )
+ 
+ /** Optional app-level material applied consistently to every Miuix list-popup host. */
+@@ -122,7 +123,13 @@
  ) {
      val scrollState = rememberScrollState()
      val slideEnabled = LocalListPopupVisualStyle.current.slideSelection
@@ -163,7 +173,7 @@
      val haptic = LocalHapticFeedback.current
  
      val measurePolicy = remember {
-@@ -177,9 +182,10 @@
+@@ -177,9 +184,10 @@
                      val w = measurables[i].maxIntrinsicWidth(Int.MAX_VALUE)
                      if (w > maxIntrinsic) maxIntrinsic = w
                  }
@@ -177,7 +187,7 @@
                  var height = 0
                  for (i in 0 until heightCount) {
                      height += measurables[i].minIntrinsicHeight(listWidth)
-@@ -190,11 +196,16 @@
+@@ -190,12 +198,17 @@
      }
  
      Layout(
@@ -191,14 +201,32 @@
              .focusGroup()
              .height(IntrinsicSize.Min)
 -            .popupSlideSelection(selection, scrollState, haptic)
+-            .verticalScroll(state = scrollState),
 +            .onGloballyPositioned { viewport.coordinates = it }
 +            .then(if (inheritedSelection == null) Modifier.popupSlideSelection(selection, haptic) else Modifier)
-             .verticalScroll(state = scrollState),
++            .verticalScroll(state = scrollState, enabled = LocalPopupInputEnabled.current),
          measurePolicy = measurePolicy,
      )
+ }
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
-@@ -42,7 +42,6 @@
+@@ -5,6 +5,7 @@
+ 
+ import androidx.compose.foundation.Image
+ import androidx.compose.foundation.clickable
++import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Column
+ import androidx.compose.foundation.layout.Row
+@@ -30,6 +31,7 @@
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.drawBehind
++import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.BlendMode
+ import androidx.compose.ui.graphics.BlendModeColorFilter
+ import androidx.compose.ui.graphics.Color
+@@ -42,7 +44,6 @@
  import androidx.compose.ui.unit.sp
  import top.yukonga.miuix.kmp.squircle.squircleClip
  import top.yukonga.miuix.kmp.icon.MiuixIcons
@@ -206,7 +234,15 @@
  import top.yukonga.miuix.kmp.icon.basic.ArrowUpDown
  import top.yukonga.miuix.kmp.icon.basic.Check
  import top.yukonga.miuix.kmp.theme.MiuixTheme
-@@ -140,11 +139,14 @@
+@@ -99,6 +100,7 @@
+     onSelectedIndexChange: (Int) -> Unit,
+ ) {
+     val visualStyle = LocalListPopupVisualStyle.current
++    val inputEnabled = enabled && LocalPopupInputEnabled.current
+     val backgroundColor = if (isSelected) {
+         dropdownColors.selectedContainerColor
+     } else {
+@@ -140,11 +142,14 @@
  
      val currentOnSelectedIndexChange by rememberUpdatedState(onSelectedIndexChange)
      val slide = if (dialogMode) null else LocalPopupSlideSelection.current
@@ -214,14 +250,33 @@
      val slideKey = remember { Any() }
      val slideItem = remember { PopupSlideSelection.Item(enabled) { currentOnSelectedIndexChange(index) } }
      SideEffect {
-         slideItem.enabled = enabled
+-        slideItem.enabled = enabled
++        slideItem.enabled = inputEnabled
          slideItem.activate = { currentOnSelectedIndexChange(index) }
 +        slideItem.viewport = slideViewport
 +        slideItem.onHover = if (hasSubmenu) { { currentOnSelectedIndexChange(index) } } else null
          slide?.items?.set(slideKey, slideItem)
      }
      DisposableEffect(slide, slideKey) { onDispose { slide?.items?.remove(slideKey) } }
-@@ -180,7 +182,7 @@
+@@ -162,7 +167,7 @@
+                 top = if (isFirst) 8.dp else 0.dp,
+                 bottom = if (isLast) 8.dp else 0.dp,
+             )
+-            .squircleClip(17.dp)
++            .then(if (dialogMode) Modifier.squircleClip(17.dp) else Modifier.clip(CircleShape))
+             .drawBehind {
+                 drawRect(backgroundColorState.value)
+                 if (slide?.highlighted == slideKey) drawRect(highlightColor)
+@@ -171,7 +176,7 @@
+             .clickable(
+                 interactionSource = remember { MutableInteractionSource() },
+                 indication = if (slide != null) null else androidx.compose.foundation.LocalIndication.current,
+-                enabled = enabled,
++                enabled = inputEnabled,
+                 role = role,
+                 onClick = { currentOnSelectedIndexChange(index) },
+             )
+@@ -180,7 +185,7 @@
              .padding(horizontal = 14.dp, vertical = visualStyle.itemVerticalPadding),
      ) {
          Row(
@@ -230,7 +285,7 @@
              verticalAlignment = Alignment.CenterVertically,
              horizontalArrangement = Arrangement.Start,
          ) {
-@@ -204,9 +206,7 @@
+@@ -204,9 +209,7 @@
          }
  
          if (hasSubmenu) {
@@ -241,7 +296,7 @@
              val chevronColor = when {
                  !enabled -> MiuixTheme.colorScheme.disabledOnSecondaryVariant
                  isSelected -> dropdownColors.selectedContentColor
-@@ -217,7 +217,7 @@
+@@ -217,7 +220,7 @@
              }
              Image(
                  modifier = ChevronIconBaseModifier,
@@ -252,7 +307,15 @@
              )
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingListPopupLayout.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingListPopupLayout.kt
-@@ -31,6 +31,10 @@
+@@ -22,6 +22,7 @@
+ import androidx.compose.runtime.rememberUpdatedState
+ import androidx.compose.runtime.setValue
+ import androidx.compose.runtime.snapshotFlow
++import androidx.compose.runtime.withFrameNanos
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.graphicsLayer
+@@ -31,6 +32,10 @@
  import androidx.compose.ui.layout.onGloballyPositioned
  import androidx.compose.ui.layout.positionInWindow
  import androidx.compose.ui.platform.LocalLayoutDirection
@@ -263,7 +326,30 @@
  import androidx.compose.ui.unit.Constraints
  import androidx.compose.ui.unit.Density
  import androidx.compose.ui.unit.Dp
-@@ -117,6 +121,10 @@
+@@ -64,10 +69,11 @@
+ internal val CascadingPopupCornerRadius = 16.dp
+ 
+ private const val MAIN_SPRING_DAMPING = 0.95f
+-private const val EXPAND_SPRING_DAMPING = 0.99f
+-private const val EXPAND_SPRING_RESPONSE = 0.45f
++// Reference recording: most expansion happens in ~180ms, followed by a soft settle.
++private const val EXPAND_SPRING_DAMPING = 0.82f
++private const val EXPAND_SPRING_RESPONSE = 0.34f
+ private const val COLLAPSE_SPRING_RESPONSE = 0.2f
+-private const val ARROW_EXPAND_SPRING_RESPONSE = 0.2f
++private const val ARROW_EXPAND_SPRING_RESPONSE = EXPAND_SPRING_RESPONSE
+ private const val ARROW_COLLAPSE_SPRING_RESPONSE = 0.3f
+ private const val PRIMARY_SHRUNK_SCALE = 0.95f
+ internal const val ENTER_SCALE_FROM = 0.15f
+@@ -100,6 +106,7 @@
+     var expandedItem by remember { mutableStateOf<DropdownItem?>(null) }
+     // Outlives [expandedItem] until the collapse spring settles so the secondary stays subcomposed.
+     var displayedItem by remember { mutableStateOf<DropdownItem?>(null) }
++    var measuredSecondaryItem by remember { mutableStateOf<DropdownItem?>(null) }
+     val expandFraction = remember { Animatable(0f) }
+     val primaryScale = remember { Animatable(1f) }
+     val maskAlpha = remember { Animatable(0f) }
+@@ -117,6 +124,10 @@
      var primarySize by remember { mutableStateOf(IntSize.Zero) }
      var hostPositionInWindow by remember { mutableStateOf(IntOffset.Zero) }
      var hostMeasured by remember { mutableStateOf(false) }
@@ -274,7 +360,26 @@
  
      LaunchedEffect(show) {
          if (show) {
-@@ -294,6 +302,7 @@
+@@ -141,10 +152,16 @@
+ 
+     LaunchedEffect(expandedItem) {
+         val item = expandedItem
+-        if (item != null) displayedItem = item
++        if (item != null) {
++            displayedItem = item
++            // Compose/measure both the probe and visible child before starting the clock.
++            // Otherwise a cold submenu can skip the anchor frame and appear to jump open.
++            snapshotFlow { measuredSecondaryItem }.first { it == item }
++            if (expandFraction.value == 0f) withFrameNanos { }
++        }
+         val target = if (item != null) 1f else 0f
+         val mainSpec = if (target == 1f) {
+-            folmeSpring(EXPAND_SPRING_DAMPING, EXPAND_SPRING_RESPONSE)
++            folmeSpring(EXPAND_SPRING_DAMPING, EXPAND_SPRING_RESPONSE, 0.001f)
+         } else {
+             folmeSpring<Float>(MAIN_SPRING_DAMPING, COLLAPSE_SPRING_RESPONSE)
+         }
+@@ -294,6 +311,7 @@
                  Box(
                      modifier = popupModifier
                          .fillMaxSize()
@@ -282,7 +387,7 @@
                          .onGloballyPositioned { coords ->
                              val pos = coords.positionInWindow()
                              hostPositionInWindow = IntOffset(pos.x.toInt(), pos.y.toInt())
-@@ -308,6 +317,7 @@
+@@ -308,6 +326,7 @@
                              })
                          },
                  ) {
@@ -290,7 +395,15 @@
                      CascadingMorphSubLayout(
                          entries = entries,
                          expandedItem = expandedItem,
-@@ -350,6 +360,7 @@
+@@ -328,6 +347,7 @@
+                             }
+                         },
+                         onPrimarySizeChange = { primarySize = it },
++                        onSecondaryMeasured = { measuredSecondaryItem = it },
+                         windowBounds = layoutInfo.windowBounds,
+                         popupMargin = layoutInfo.popupMargin,
+                         parentBounds = parentBounds,
+@@ -350,6 +370,7 @@
                          surfaceColor = surfaceColor,
                          maskColor = maskColor,
                      )
@@ -298,7 +411,41 @@
                  }
              }
          }
-@@ -472,6 +483,7 @@
+@@ -378,6 +399,7 @@
+     getAnchorBounds: (DropdownItem) -> IntRect?,
+     setAnchorBounds: (DropdownItem, IntRect) -> Unit,
+     onPrimarySizeChange: (IntSize) -> Unit,
++    onSecondaryMeasured: (DropdownItem?) -> Unit,
+     windowBounds: IntRect,
+     popupMargin: IntRect,
+     parentBounds: IntRect,
+@@ -418,7 +440,7 @@
+         // collapse spring; primary's mask/chevron use [expandedItem] for instant input feedback.
+         val activeExpanded = displayedItem
+         val anchorRect = activeExpanded?.let { getAnchorBounds(it) }
+-        val (anchorPaddingTopPx, _) = if (activeExpanded != null) {
++        val (anchorPaddingTopPx, anchorPaddingBottomPx) = if (activeExpanded != null) {
+             computeAnchorPaddingPx(activeExpanded, entries)
+         } else {
+             0 to 0
+@@ -432,7 +454,7 @@
+         val primaryPlaceables = subcompose(SLOT_PRIMARY) {
+             CascadingPrimaryContent(
+                 entries = entries,
+-                expandedItem = expandedItem,
++                isFrozen = expandedItem != null || displayedItem != null,
+                 onExpand = onExpand,
+                 onLeafSelected = onLeafSelected,
+                 onAnchorBounds = setAnchorBounds,
+@@ -446,7 +468,6 @@
+                 primaryScale = primaryScale,
+                 maskAlpha = maskAlpha,
+                 maskColor = maskColor,
+-                onCollapseSecondary = onCollapseSecondary,
+             )
+         }.map { it.measure(primaryConstraints) }
+ 
+@@ -472,6 +493,7 @@
          // known before the real secondary is measured at union size for its anchor-to-final slide.
          val probeConstraints = primaryConstraints.copy(
              minWidth = primaryWidth.coerceAtMost(primaryConstraints.maxWidth),
@@ -306,7 +453,7 @@
              maxHeight = resolvedMaxHeightPx.coerceAtMost(constraints.maxHeight),
          )
  
-@@ -483,6 +495,10 @@
+@@ -483,6 +505,10 @@
          val secondaryLayout: SecondaryLayout? =
              if (activeExpanded != null && anchorRect != null) {
                  val measured = subcompose(SLOT_SECONDARY_PROBE) {
@@ -317,7 +464,11 @@
                      Box(propagateMinConstraints = true) {
                          CascadingSecondaryColumn(
                              triggerItem = activeExpanded,
-@@ -494,6 +510,7 @@
+@@ -491,9 +517,11 @@
+                             arrowRotation = ProbeArrowRotation,
+                             anchorHeightPx = 0,
+                             anchorPaddingTopPx = 0,
++                            anchorPaddingBottomPx = 0,
                              onHeaderClick = ProbeOnHeaderClick,
                              onLeafSelected = ProbeOnLeafSelected,
                          )
@@ -325,29 +476,146 @@
                      }
                  }.firstOrNull()?.measure(probeConstraints)
                  val secondarySize = if (measured != null) {
+@@ -535,6 +563,7 @@
+                             secondaryLocalInUnion = secondaryLocalInUnion,
+                             anchorLocalInUnion = anchorLocalInUnion,
+                             anchorPaddingTopPx = anchorPaddingTopPx,
++                            anchorPaddingBottomPx = anchorPaddingBottomPx,
+                             isAnchorPopupLast = isAnchorPopupLast,
+                             secondaryContentMaxHeight = resolvedMaxHeightPx,
+                             enterFraction = enterFraction,
+@@ -572,6 +601,7 @@
+                 val uy = unionRect.top - host.y
+                 placeables.forEach { it.place(ux, uy) }
+             }
++            onSecondaryMeasured(activeExpanded.takeIf { secondaryLayout != null })
+         }
+     }
+ }
+@@ -636,16 +666,9 @@
+         if (idx != -1) {
+             val isPopupFirst = entryIdx == firstNonEmptyIdx && idx == 0
+             val isPopupLast = entryIdx == lastNonEmptyIdx && idx == entry.items.lastIndex
+-            val top = if (isPopupFirst) {
+-                DropdownDefaults.FirstLastVerticalPadding.roundToPx()
+-            } else {
+-                DropdownDefaults.MiddleVerticalPadding.roundToPx()
+-            }
+-            val bottom = if (isPopupLast) {
+-                DropdownDefaults.FirstLastVerticalPadding.roundToPx()
+-            } else {
+-                DropdownDefaults.MiddleVerticalPadding.roundToPx()
+-            }
++            // Match DropdownImpl's actual popup inset, not its legacy 20/12dp constants.
++            val top = if (isPopupFirst) 8.dp.roundToPx() else 0
++            val bottom = if (isPopupLast) 8.dp.roundToPx() else 0
+             return top to bottom
+         }
+     }
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
-@@ -44,6 +44,7 @@
+@@ -4,7 +4,8 @@
+ package top.yukonga.miuix.kmp.layout
+ 
+ import androidx.compose.foundation.background
+-import androidx.compose.foundation.gestures.detectTapGestures
++import androidx.compose.foundation.gestures.awaitEachGesture
++import androidx.compose.foundation.gestures.awaitFirstDown
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.fillMaxWidth
+ import androidx.compose.foundation.layout.padding
+@@ -26,6 +27,8 @@
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.graphics.shadow.Shadow
+ import androidx.compose.ui.input.pointer.pointerInput
++import androidx.compose.ui.input.pointer.PointerEventPass
++import androidx.compose.ui.semantics.clearAndSetSemantics
+ import androidx.compose.ui.layout.layout
+ import androidx.compose.ui.layout.onGloballyPositioned
+ import androidx.compose.ui.layout.positionInWindow
+@@ -44,6 +47,8 @@
  import top.yukonga.miuix.kmp.basic.ListPopupColumn
  import top.yukonga.miuix.kmp.basic.ListPopupVisualStyle
  import top.yukonga.miuix.kmp.basic.LocalListPopupVisualStyle
 +import top.yukonga.miuix.kmp.basic.LocalPopupSlideActive
++import top.yukonga.miuix.kmp.basic.LocalPopupInputEnabled
  import top.yukonga.miuix.kmp.basic.PopupLayoutPosition
  import top.yukonga.miuix.kmp.basic.popupClipReveal
  import top.yukonga.miuix.kmp.squircle.isSquircleEnabled
-@@ -81,7 +82,10 @@
-     val isExpanded = expandedItem != null
+@@ -62,7 +67,7 @@
+ @Composable
+ internal fun CascadingPrimaryContent(
+     entries: List<DropdownEntry>,
+-    expandedItem: DropdownItem?,
++    isFrozen: Boolean,
+     onExpand: (DropdownItem) -> Unit,
+     onLeafSelected: (DropdownItem) -> Unit,
+     onAnchorBounds: (DropdownItem, IntRect) -> Unit,
+@@ -76,15 +81,18 @@
+     primaryScale: () -> Float,
+     maskAlpha: () -> Float,
+     maskColor: Color,
+-    onCollapseSecondary: () -> Unit,
+ ) {
+-    val isExpanded = expandedItem != null
      val popupCornerRadius = visualStyle.cornerRadius
      val shape = remember(popupCornerRadius) { RoundedCornerShape(popupCornerRadius) }
 -    CompositionLocalProvider(LocalListPopupVisualStyle provides visualStyle) {
 +    CompositionLocalProvider(
 +        LocalListPopupVisualStyle provides visualStyle,
-+        LocalPopupSlideActive provides { !isExpanded }
++        LocalPopupSlideActive provides { !isFrozen },
++        LocalPopupInputEnabled provides !isFrozen
 +    ) {
      Box(
          modifier = Modifier
-             .then(visualStyle.interactionModifier)
-@@ -243,7 +247,10 @@
+-            .then(visualStyle.interactionModifier)
++            .then(if (isFrozen) visualStyle.suspendedInteractionModifier else visualStyle.interactionModifier)
++            .then(if (isFrozen) Modifier.clearAndSetSemantics { } else Modifier)
+             .graphicsLayer {
+                 val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
+                 scaleX = s
+@@ -122,6 +130,7 @@
+                                 isLast = isLastEntry && itemIndex == lastItemIdx,
+                                 dropdownColors = dropdownColors,
+                                 onClick = {
++                                    if (isFrozen) return@CascadingPrimaryRow
+                                     val children = item.children?.takeIf { it.isNotEmpty() }
+                                     if (children != null) {
+                                         if (!deeperChildrenWarned &&
+@@ -154,14 +163,22 @@
+                 }
+             }
+         }
+-        if (isExpanded) {
++        if (isFrozen) {
+             Box(
+                 modifier = Modifier
+                     .matchParentSize()
+                     .graphicsLayer { alpha = maskAlpha() }
+                     .background(if (visualStyle.dimBackground) maskColor else Color.Transparent)
+                     .pointerInput(Unit) {
+-                        detectTapGestures(onTap = { onCollapseSecondary() })
++                        // The covered menu is inert, including its exposed edge. Returning is
++                        // owned by the secondary header/back action, not the frozen parent.
++                        awaitEachGesture {
++                            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial).consume()
++                            do {
++                                val event = awaitPointerEvent(PointerEventPass.Initial)
++                                event.changes.forEach { it.consume() }
++                            } while (event.changes.any { it.pressed })
++                        }
+                     },
+             )
+         }
+@@ -223,6 +240,7 @@
+     secondaryLocalInUnion: IntRect,
+     anchorLocalInUnion: IntRect,
+     anchorPaddingTopPx: Int,
++    anchorPaddingBottomPx: Int,
+     isAnchorPopupLast: Boolean,
+     secondaryContentMaxHeight: Int,
+     enterFraction: () -> Float,
+@@ -243,7 +261,10 @@
      val secondaryTopLeft = secondaryLocalInUnion.topLeft
      val secondaryWidth = secondaryLocalInUnion.width
  
@@ -359,18 +627,56 @@
      Box(
          modifier = Modifier
              .then(visualStyle.interactionModifier)
-@@ -387,11 +394,6 @@
+@@ -259,7 +280,8 @@
+                 val innerPath = Path()
+                 onDrawWithContent {
+                     val frac = expandFraction()
+-                    val rTop = cornerPx * frac
++                    val anchorRadius = minOf(cornerPx, anchorLocalInUnion.height / 2f)
++                    val rTop = lerp(anchorRadius, cornerPx, frac.coerceIn(0f, 1f))
+                     // Last-row anchors share primary's rounded bottom — keep both bottom corners
+                     // full. Mid-list anchors must shrink uniformly into a flat internal row.
+                     val rBottom = if (isAnchorPopupLast) cornerPx else rTop
+@@ -355,6 +377,7 @@
+                 arrowRotation = arrowRotation,
+                 anchorHeightPx = anchorLocalInUnion.height,
+                 anchorPaddingTopPx = anchorPaddingTopPx,
++                anchorPaddingBottomPx = anchorPaddingBottomPx,
+                 onHeaderClick = onCollapseSecondary,
+                 onLeafSelected = onLeafSelected,
+             )
+@@ -363,7 +386,7 @@
+     }
+ }
+ 
+-/** Shared header + divider + children body for the secondary popup. Used by both the real
++/** Shared header + children body for the secondary popup. Used by both the real
+  *  animated layout and the measurement probe so their sizes can't diverge. */
+ @Composable
+ internal fun CascadingSecondaryColumn(
+@@ -373,6 +396,7 @@
+     arrowRotation: () -> Float,
+     anchorHeightPx: Int,
+     anchorPaddingTopPx: Int,
++    anchorPaddingBottomPx: Int,
+     onHeaderClick: () -> Unit,
+     onLeafSelected: (DropdownItem) -> Unit,
+ ) {
+@@ -384,13 +408,9 @@
+             expandFraction = expandFraction,
+             anchorHeightPx = anchorHeightPx,
+             anchorPaddingTopPx = anchorPaddingTopPx,
++            anchorPaddingBottomPx = anchorPaddingBottomPx,
              dropdownColors = dropdownColors,
              onClick = onHeaderClick,
-         )
+-        )
 -        HorizontalDivider(
 -            modifier = Modifier
 -                .padding(horizontal = 20.dp, vertical = 4.dp),
 -            thickness = 1.5.dp,
--        )
+         )
          val lastChildIdx = children.lastIndex
          children.forEachIndexed { index, child ->
-             key(child) {
 --- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/MorphHeaderRow.kt
 +++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/MorphHeaderRow.kt
 @@ -14,6 +14,8 @@
@@ -410,7 +716,15 @@
  import top.yukonga.miuix.kmp.theme.MiuixTheme
  
  /**
-@@ -61,6 +74,20 @@
+@@ -47,6 +60,7 @@
+     expandFraction: () -> Float,
+     anchorHeightPx: Int,
+     anchorPaddingTopPx: Int,
++    anchorPaddingBottomPx: Int,
+     dropdownColors: DropdownColors,
+     onClick: () -> Unit,
+ ) {
+@@ -61,6 +75,20 @@
          BlendModeColorFilter(chevronColor, BlendMode.SrcIn)
      }
      val currentOnClick by rememberUpdatedState(onClick)
@@ -431,7 +745,7 @@
  
      Layout(
          content = {
-@@ -69,10 +96,10 @@
+@@ -69,10 +97,10 @@
                  horizontalArrangement = Arrangement.SpaceBetween,
                  modifier = Modifier
                      .fillMaxWidth()
@@ -444,7 +758,7 @@
                      verticalAlignment = Alignment.CenterVertically,
                      horizontalArrangement = Arrangement.Start,
                  ) {
-@@ -89,7 +116,7 @@
+@@ -89,7 +117,7 @@
                      Column {
                          Text(
                              text = triggerItem.text,
@@ -453,7 +767,7 @@
                              fontWeight = FontWeight.Medium,
                              color = titleColor,
                          )
-@@ -109,8 +136,8 @@
+@@ -109,8 +137,8 @@
                              width = DropdownDefaults.ChevronSize.width,
                              height = DropdownDefaults.ChevronSize.height,
                          )
@@ -464,7 +778,7 @@
                      colorFilter = chevronColorFilter,
                      contentDescription = null,
                  )
-@@ -120,7 +147,16 @@
+@@ -120,7 +148,16 @@
          // interpolated row height (paddings included), not just the inner Row's content.
          modifier = Modifier
              .fillMaxWidth()
@@ -476,13 +790,13 @@
 +                    val inset = 8.dp.toPx()
 +                    drawRoundRect(highlightColor, topLeft = Offset(inset, inset),
 +                        size = Size((size.width - inset * 2).coerceAtLeast(0f), (size.height - inset).coerceAtLeast(0f)),
-+                        cornerRadius = CornerRadius(17.dp.toPx()))
++                        cornerRadius = CornerRadius((size.height - inset).coerceAtLeast(0f) / 2f))
 +                }
 +            }
              .selectable(
                  selected = true,
                  enabled = true,
-@@ -128,13 +164,13 @@
+@@ -128,13 +165,14 @@
                  onClick = { currentOnClick() },
              ),
      ) { measurables, constraints ->
@@ -492,6 +806,7 @@
 +        val intrinsicBottom = 0
          val frac = expandFraction()
          val padTop = lerp(anchorPaddingTopPx.toFloat(), intrinsicTop.toFloat(), frac).toInt()
++        val padBottom = lerp(anchorPaddingBottomPx.toFloat(), intrinsicBottom.toFloat(), frac).toInt()
  
          val placeable = measurables.first().measure(constraints.copy(minHeight = 0))
 -        val intrinsicTotal = placeable.height + intrinsicTop + intrinsicBottom
@@ -499,3 +814,13 @@
          val target = if (anchorHeightPx <= 0) {
              intrinsicTotal
          } else {
+@@ -145,7 +183,8 @@
+         val width = placeable.width.coerceAtMost(constraints.maxWidth)
+ 
+         layout(width, target) {
+-            placeable.place(0, padTop)
++            val centeredInset = ((target - padTop - padBottom - placeable.height) / 2).coerceAtLeast(0)
++            placeable.place(0, padTop + centeredInset)
+         }
+     }
+ }

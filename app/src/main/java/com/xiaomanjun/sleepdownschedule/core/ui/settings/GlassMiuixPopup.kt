@@ -211,7 +211,8 @@ private fun rememberMiuixListPopupStyle(
             fadeOutAtReleasePosition = true)
     }
     // Kyant's observer does not consume input: Miuix continues to own selection and dismissal.
-    val interaction = Modifier.liquidButtonVisualTransform(highlight).then(highlight.gestureModifier)
+    val visualInteraction = Modifier.liquidButtonVisualTransform(highlight)
+    val interaction = visualInteraction.then(highlight.gestureModifier)
     val rim = remember(dark) {
         BorderStroke(1.dp, Brush.verticalGradient(
             0f to Color.White.copy(alpha = if (dark) 0.38f else 0.66f),
@@ -245,7 +246,8 @@ private fun rememberMiuixListPopupStyle(
     shadowElevation = if (dark) 16.dp else 24.dp,
     ambientShadowColor = Color.Black.copy(alpha = if (dark) 0.125f else 0.22f),
     spotShadowColor = Color.Black.copy(alpha = 0.125f),
-    interactionModifier = interaction
+    interactionModifier = interaction,
+    suspendedInteractionModifier = visualInteraction
     )
 }
 
