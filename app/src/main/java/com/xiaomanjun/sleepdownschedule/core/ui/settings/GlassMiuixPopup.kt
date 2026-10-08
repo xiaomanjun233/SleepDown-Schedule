@@ -14,6 +14,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.sleepDownPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogRenderInRootScaffold
 import android.os.Build
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.size
@@ -25,8 +26,10 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -41,6 +44,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.withTransformCompensation
+import com.kyant.backdrop.catalog.utils.InteractiveHighlight
+import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
@@ -121,14 +128,14 @@ private fun Modifier.miuixCascadingPopupSurface(
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
         return background(if (dark) Color(0xFF242424) else Color.White)
     }
-    val effectiveBlur = blurRadius.coerceAtMost(12.dp)
+    val effectiveBlur = blurRadius.coerceAtMost(24.dp)
     // Keep the lens gentle: an overlarge lens/refraction band refracts content against the
     // rounded popup corners and reads as torn glass lines at the bottom corners.
-    val lensHeight = 16.dp
-    val lensAmount = 22.dp
-    val surfaceAlpha = if (dark) 0.74f else 0.64f
-    val surfaceColor = if (dark) Color(0xFF242424) else Color.White
-    val topHighlightAlpha = if (dark) 0.10f else 0.07f
+    val lensHeight = 12.dp
+    val lensAmount = 24.dp
+    // Match the Home menu's translucent material so the moving light is not buried in white.
+    val surfaceAlpha = if (dark) 0.40f else 0.28f
+    val surfaceColor = if (dark) Color(0xFF050505) else Color(0xFFF2F4F8)
     val material = GlassMaterialSpec.popup(effectiveBlur).copy(
         lensHeight = lensHeight,
         lensAmount = lensAmount,
@@ -145,8 +152,11 @@ private fun Modifier.miuixCascadingPopupSurface(
         domain = GlassBackdropDomain.DialogBridge,
         materialRole = GlassMaterialRole.Popup
     )
+    val sampleBackdrop = remember(backdrop) {
+        if (backdrop is LayerBackdrop) backdrop.withTransformCompensation() else backdrop
+    }
     return sleepDownGlassSurface(
-        backdrop = backdrop,
+        backdrop = sampleBackdrop,
         descriptor = descriptor,
         material = material,
         // Backdrop's lens shader requires a CornerBasedShape. A zero-radius rounded rect is
@@ -166,7 +176,8 @@ private fun Modifier.miuixCascadingPopupSurface(
         ),
         // Keep the Nexio/Miuix effect order and let the surface tint stay light enough for the
         // stronger lens to remain visible through both primary and cascading popup layers.
-        effectsOverride = {
+        effectInputKey = material,
+        effectsOverride = remember(effectiveBlur, lensHeight, lensAmount) { {
             vibrancy()
             blur(effectiveBlur.toPx())
             lens(
@@ -175,19 +186,9 @@ private fun Modifier.miuixCascadingPopupSurface(
                 depthEffect = false,
                 chromaticAberration = false
             )
-        },
+        } },
         onDrawSurface = {
             drawRect(surfaceColor.copy(alpha = surfaceAlpha))
-            drawRect(
-                brush = Brush.verticalGradient(
-                    colorStops = arrayOf(
-                        0f to Color.White.copy(alpha = topHighlightAlpha),
-                        0.22f to Color.White.copy(alpha = topHighlightAlpha * 0.34f),
-                        1f to Color.Transparent
-                    ),
-                    endY = size.height * 0.52f
-                )
-            )
         }
     )
 }
@@ -197,23 +198,58 @@ private fun rememberMiuixListPopupStyle(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     cornerRadius: Dp = 25.dp
-): ListPopupVisualStyle = ListPopupVisualStyle(
-    // Keep the stock Miuix reveal geometry; only the pixels painted inside that surface are
-    // replaced by the SleepDown glass material. Corner radius follows the NexioSchedule
-    // liquid-glass dropdown (25dp continuous).
+): ListPopupVisualStyle {
+    val scope = rememberCoroutineScope()
+    val dark = appUsesDarkTheme(config)
+    val radiusCapPx = with(LocalDensity.current) { 90.dp.toPx() }
+    val highlight = remember(scope, radiusCapPx, dark) {
+        InteractiveHighlight(scope, radius = { minOf(it.minDimension * 0.65f, radiusCapPx) },
+            ambientAlpha = if (dark) 0.08f else 0.025f,
+            spotAlpha = 0.20f, fallbackAlpha = 0.25f,
+            contrastHalo = if (dark) Color.Transparent else Color.Black.copy(alpha = 0.09f),
+            fadeOutAtReleasePosition = true)
+    }
+    // Kyant's observer does not consume input: Miuix continues to own selection and dismissal.
+    val interaction = Modifier.liquidButtonVisualTransform(highlight).then(highlight.gestureModifier)
+    val rim = remember(dark) {
+        BorderStroke(1.dp, Brush.verticalGradient(
+            0f to Color.White.copy(alpha = if (dark) 0.38f else 0.66f),
+            0.07f to Color.White.copy(alpha = 0.10f),
+            0.18f to Color.Transparent,
+            0.82f to Color.Transparent,
+            0.93f to Color.White.copy(alpha = 0.10f),
+            1f to Color.White.copy(alpha = if (dark) 0.38f else 0.66f)
+        ))
+    }
+    return ListPopupVisualStyle(
+    // Independent size/origin tracks follow Nexio's current popup motion. Sampling remains
+    // in the stationary canvas, with our own material and neutral interaction feedback.
     surfaceModifier = Modifier.miuixCascadingPopupSurface(
         backdrop = backdrop,
         config = config,
         blurRadius = 10.dp
-    ),
+    ).then(highlight.modifier),
     backgroundColor = Color.Transparent,
-    cornerRadius = cornerRadius
-)
+    cornerRadius = cornerRadius,
+    border = rim,
+    morphAnimation = true,
+    slideSelection = true,
+    dimBackground = false,
+    holdAnchor = true,
+    // Broad ambient shadow separates the light panel from white settings cards without
+    // adding a second blurred backdrop or a dark, hard outline.
+    shadowElevation = if (dark) 16.dp else 24.dp,
+    ambientShadowColor = Color.Black.copy(alpha = if (dark) 0.125f else 0.22f),
+    spotShadowColor = Color.Black.copy(alpha = 0.125f),
+    interactionModifier = interaction
+    )
+}
 
 @Composable
 private fun rememberSleepDownPopupRowColors(contentColor: Color? = null): DropdownColors {
     val defaults = DropdownDefaults.dropdownColors()
-    return remember(defaults, contentColor) {
+    val indicatorColor = MiuixTheme.colorScheme.onSurfaceVariantActions
+    return remember(defaults, contentColor, indicatorColor) {
         defaults.copy(
             contentColor = contentColor ?: defaults.contentColor,
             summaryColor = contentColor?.copy(alpha = 0.62f) ?: defaults.summaryColor,
@@ -221,7 +257,8 @@ private fun rememberSleepDownPopupRowColors(contentColor: Color? = null): Dropdo
             selectedContentColor = contentColor ?: defaults.selectedContentColor,
             selectedSummaryColor = contentColor?.copy(alpha = 0.72f)
                 ?: defaults.selectedSummaryColor,
-            selectedContainerColor = Color.Transparent
+            selectedContainerColor = Color.Transparent,
+            selectedIndicatorColor = indicatorColor
         )
     }
 }
@@ -241,6 +278,7 @@ internal fun SleepDownLiquidDropdownPreference(
     compactTextStyle: TextStyle? = null,
     @Suppress("UNUSED_PARAMETER") expanded: Boolean? = null,
     enabled: Boolean = true,
+    showAnchorPressFeedback: Boolean = true,
     onExpandedChange: (Boolean) -> Unit = {},
     onSelectedIndexChange: (Int) -> Unit
 ) {
@@ -249,7 +287,8 @@ internal fun SleepDownLiquidDropdownPreference(
     // content and low-level overlays) instead of only the flat background passed by the caller.
     val completeUnderlayBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     val renderInRootScaffold = LocalCenteredDialogRenderInRootScaffold.current
-    val popupVisualStyle = rememberMiuixListPopupStyle(completeUnderlayBackdrop, config).let { style ->
+    val popupVisualStyle = rememberMiuixListPopupStyle(completeUnderlayBackdrop, config)
+        .copy(holdAnchor = showAnchorPressFeedback).let { style ->
         if (compactTextStyle == null) style else style.copy(
             itemTextStyle = compactTextStyle,
             itemVerticalPadding = 6.dp,

@@ -202,6 +202,7 @@ private fun HomeMenuDestinationTransitionShell(
     temporaryClipActive: Boolean,
     clipStableEndpoint: Boolean,
     collapseHandedOff: Boolean,
+    contentAlpha: () -> Float,
     destinationShape: CornerBasedShape,
     destinationTestTag: String,
     content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit
@@ -214,7 +215,7 @@ private fun HomeMenuDestinationTransitionShell(
                     IntOffset(rect.left.roundToInt(), rect.top.roundToInt())
                 }
                 .graphicsLayer {
-                    alpha = if (collapseHandedOff) 0f else 1f
+                    alpha = if (collapseHandedOff) 0f else contentAlpha()
                     clip = temporaryClipActive || clipStableEndpoint
                     shape = destinationShape
                 }
@@ -243,7 +244,7 @@ private fun HomeMenuDestinationTransitionShell(
         envelope = envelope,
         geometry = geometry,
         temporaryClipActive = temporaryClipActive,
-        motionAlpha = { if (collapseHandedOff) 0f else 1f },
+        motionAlpha = { if (collapseHandedOff) 0f else contentAlpha() },
         modifier = Modifier.semantics { testTag = destinationTestTag }
     ) { stableEnvelope, currentGeometry ->
         val endpointClip = if (!temporaryClipActive && clipStableEndpoint) {
@@ -395,7 +396,7 @@ internal fun homeMenuDestinationTrajectoryGeometry(
         val p = rawProgress.coerceIn(0f, 1f)
         val elapsed = 1f - p
         val amount = DestinationReturnEasing.transform(elapsed)
-        val returnAlpha = destinationSmoothStep(0.52f, 0.86f, elapsed)
+        val returnAlpha = destinationSmoothStep(0.24f, 0.60f, elapsed)
         return HomeAnchoredMorphGeometry(
             rect = lerp(target, collapseBoundsInRoot, amount),
             cornerRadiusPx = targetCornerRadiusPx +
@@ -563,6 +564,8 @@ internal fun HomeMenuDestinationOverlayHost(
     var collapseHandedOff by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val destinationContentLayer = rememberGraphicsLayer()
+    val sourceMenuLayer = rememberGraphicsLayer()
+    val sourceMenuRecorded = remember { AtomicBoolean(false) }
     val destinationSurfaceBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.DialogBridge,
         providerId = "home-destination-shell"
@@ -600,6 +603,7 @@ internal fun HomeMenuDestinationOverlayHost(
             destinationContentPrepared = false
             destinationContentRecorded.set(false)
             destinationClosingRecorded.set(false)
+            sourceMenuRecorded.set(false)
             motionState.phase = HomeAnchoredOverlayPhase.Preparing
             motionState.progress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
@@ -705,6 +709,16 @@ internal fun HomeMenuDestinationOverlayHost(
             )
         }
         val maxContentBlurPx = with(density) { 5.dp.toPx() }
+        val sourceBlurEffects = remember(maxContentBlurPx) {
+            List(17) { step ->
+                if (step == 0) null else BlurEffect(
+                    maxContentBlurPx * step / 16f, maxContentBlurPx * step / 16f, TileMode.Clamp
+                )
+            }
+        }
+        val destinationBlurEffect = remember(maxContentBlurPx) {
+            BlurEffect(maxContentBlurPx, maxContentBlurPx, TileMode.Clamp)
+        }
         val morphSpec = remember(
             shown,
             target,
@@ -765,7 +779,7 @@ internal fun HomeMenuDestinationOverlayHost(
                     1f - destinationSmoothStep(sourceHandoffStart, sourceHandoffEnd, rawProgress)
                 }
                 val returnAlpha = if (destinationClosing) geometry.sourceAlpha else 0f
-                val destinationSurfaceAlpha = (1f - sourceCloneAlpha) * (1f - returnAlpha)
+                val destinationSurfaceAlpha = 1f - sourceCloneAlpha
                 val sourceContentBlurPx = if (destinationClosing) {
                     0f
                 } else {
@@ -928,15 +942,16 @@ internal fun HomeMenuDestinationOverlayHost(
             }
         }
 
-        val showSourceClone by remember(frame) {
-            derivedStateOf { frame.value.sourceCloneAlpha > 0.005f }
-        }
-        val showBlurredDestinationContent by remember(frame) {
-            derivedStateOf {
-                frame.value.destinationContentAlpha > 0.01f &&
-                    frame.value.destinationBlurMix > 0.005f
-            }
-        }
+        // Keep the cached source until the motion settles. Disposing its glass subtree at the
+        // alpha handoff interrupts the busiest part of the expansion, even though it is invisible.
+        val retainSourceClone = motionState.phase == HomeAnchoredOverlayPhase.Preparing ||
+            motionState.phase == HomeAnchoredOverlayPhase.Opening
+        // Centered forms use the original unblurred opening. Do not allocate a full-size blur
+        // copy for a transition whose blur mix stays zero throughout its opening.
+        val retainBlurredDestinationContent =
+            (isFullScreen && motionState.phase != HomeAnchoredOverlayPhase.Open) ||
+                motionState.phase == HomeAnchoredOverlayPhase.Closing ||
+                motionState.phase == HomeAnchoredOverlayPhase.Disposing
 
         Box(
             Modifier
@@ -959,6 +974,7 @@ internal fun HomeMenuDestinationOverlayHost(
             temporaryClipActive = temporaryClipActive,
             clipStableEndpoint = !isFullScreen,
             collapseHandedOff = collapseHandedOff,
+            contentAlpha = { 1f - frame.value.returnAlpha },
             destinationShape = destinationShape,
             destinationTestTag = destinationTestTag
         ) {
@@ -996,11 +1012,24 @@ internal fun HomeMenuDestinationOverlayHost(
                         )
                 )
             }
-            if (showSourceClone) {
+            if (retainSourceClone) {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .graphicsLayer { alpha = frame.value.sourceCloneAlpha }
+                        .graphicsLayer {
+                            alpha = frame.value.sourceCloneAlpha
+                            val step = (frame.value.sourceContentBlurPx / maxContentBlurPx * 16f)
+                                .roundToInt().coerceIn(0, 16)
+                            renderEffect = sourceBlurEffects[step]
+                        }
+                        .drawWithContent {
+                            if (motionState.phase == HomeAnchoredOverlayPhase.Preparing ||
+                                !sourceMenuRecorded.get()) {
+                                sourceMenuLayer.record { this@drawWithContent.drawContent() }
+                                sourceMenuRecorded.set(true)
+                            }
+                            drawLayer(sourceMenuLayer)
+                        }
                 ) {
                     HomeAddMenuMorphPanel(
                         backdrop = backdrop,
@@ -1018,25 +1047,11 @@ internal fun HomeMenuDestinationOverlayHost(
                         },
                         surfaceAlphaProvider = { 1f },
                         contentAlphaProvider = { 1f },
-                        contentBlurRadiusPxProvider = { frame.value.sourceContentBlurPx },
+                        contentBlurRadiusPxProvider = { 0f },
                         interactive = false,
                         shape = sourceMenuShape,
                         modifier = Modifier.fillMaxSize()
                     )
-                }
-            }
-            if (motionState.phase == HomeAnchoredOverlayPhase.Closing ||
-                motionState.phase == HomeAnchoredOverlayPhase.Disposing) {
-                Box(Modifier.align(Alignment.Center)
-                    .requiredSize(with(density) { shown.collapseBoundsInRoot.width.toDp() },
-                        with(density) { shown.collapseBoundsInRoot.height.toDp() })
-                    .graphicsLayer {
-                        val current = frame.value
-                        alpha = current.returnAlpha
-                        scaleX = current.geometry.sourceScale
-                        scaleY = current.geometry.sourceScale
-                    }) {
-                    collapseContent(Modifier.fillMaxSize())
                 }
             }
             if (isFullScreen && destinationContentPrepared) {
@@ -1052,6 +1067,11 @@ internal fun HomeMenuDestinationOverlayHost(
                     modifier = Modifier
                         .align(Alignment.TopCenter)
                         .requiredSize(targetWidth, targetHeight)
+                        .graphicsLayer {
+                            val current = frame.value
+                            alpha = if (motionState.phase == HomeAnchoredOverlayPhase.Preparing) 0.001f
+                                else current.destinationContentAlpha * (1f - current.destinationBlurMix)
+                        }
                         .drawWithContent {
                             val phase = motionState.phase
                             if (phase == HomeAnchoredOverlayPhase.Preparing &&
@@ -1087,13 +1107,10 @@ internal fun HomeMenuDestinationOverlayHost(
                                 }
                             }
                         }
-                        .graphicsLayer {
-                            val current = frame.value
-                            alpha = current.destinationContentAlpha * (1f - current.destinationBlurMix)
-                        }
                 ) {
                     CompositionLocalProvider(
-                        com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen provides freezeDestinationCoordinates
+                        com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen provides freezeDestinationCoordinates,
+                        com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey provides { shown }
                     ) {
                         when (shown.kind) {
                             HomeMenuDestinationKind.AddCourse -> top.yukonga.miuix.kmp.basic.Scaffold(
@@ -1139,7 +1156,7 @@ internal fun HomeMenuDestinationOverlayHost(
                         }
                     }
                 }
-                if (showBlurredDestinationContent) {
+                if (retainBlurredDestinationContent) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
@@ -1151,13 +1168,10 @@ internal fun HomeMenuDestinationOverlayHost(
                             }
                             .graphicsLayer {
                                 val current = frame.value
-                                alpha = current.destinationContentAlpha * current.destinationBlurMix
+                                alpha = if (motionState.phase == HomeAnchoredOverlayPhase.Preparing) 0.001f
+                                    else current.destinationContentAlpha * current.destinationBlurMix
                                 compositingStrategy = CompositingStrategy.Offscreen
-                                renderEffect = BlurEffect(
-                                    maxContentBlurPx,
-                                    maxContentBlurPx,
-                                    TileMode.Clamp
-                                )
+                                renderEffect = destinationBlurEffect
                             }
                     )
                 }
@@ -1173,6 +1187,24 @@ internal fun HomeMenuDestinationOverlayHost(
                         }
                 )
             }
+            }
+        }
+        if (motionState.phase == HomeAnchoredOverlayPhase.Closing ||
+            motionState.phase == HomeAnchoredOverlayPhase.Disposing) {
+            // Return the complete button above the fading form, outside its changing clip.
+            // Both siblings share the same alpha clock and moving center throughout the handoff.
+            Box(Modifier
+                .requiredSize(with(density) { shown.collapseBoundsInRoot.width.toDp() },
+                    with(density) { shown.collapseBoundsInRoot.height.toDp() })
+                .graphicsLayer {
+                    val current = frame.value
+                    translationX = current.geometry.rect.center.x - size.width / 2f
+                    translationY = current.geometry.rect.center.y - size.height / 2f
+                    alpha = if (collapseHandedOff) 0f else current.returnAlpha
+                    scaleX = current.geometry.sourceScale
+                    scaleY = current.geometry.sourceScale
+                }) {
+                collapseContent(Modifier.fillMaxSize())
             }
         }
         if (motionState.phase != HomeAnchoredOverlayPhase.Idle &&
@@ -1201,9 +1233,7 @@ internal fun HomeMenuDestinationOverlayHost(
                                     motionState.phase != HomeAnchoredOverlayPhase.Closing
                                 ) {
                                     frame.value.destinationContentAlpha
-                                } else {
-                                    1f
-                                }
+                                } else 1f - frame.value.returnAlpha
                                 clip = false
                             }
                     ) {

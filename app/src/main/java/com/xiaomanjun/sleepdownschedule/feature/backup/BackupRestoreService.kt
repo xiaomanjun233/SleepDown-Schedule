@@ -58,23 +58,24 @@ class BackupRestoreService(
 ) {
     private val appContext = context.applicationContext
 
-    suspend fun readTargetSnapshot(): BackupImportTargetSnapshot = database.withTransaction {
-        val knownPreferenceFiles = listOf(
-            "app_icon_preferences",
-            "day_agent_preferences",
-            "ai_import_settings",
-            "ai_import_history"
-        )
-        BackupImportTargetSnapshot(
-            scheduleIds = database.scheduleProfileDao().getProfiles().mapTo(linkedSetOf()) { it.id },
-            courseIds = database.courseDao().getAllCourses().mapTo(linkedSetOf()) { it.id },
-            schemeIds = database.periodSchemeDao().getAllSchemes().mapTo(linkedSetOf()) { it.id },
-            messageIds = database.agentDao().getAllMessages().mapTo(linkedSetOf()) { it.id },
-            hasPreferences = knownPreferenceFiles.any {
-                appContext.getSharedPreferences(it, Context.MODE_PRIVATE).all.isNotEmpty()
-            } || AiImportHistoryStore.loadForBackup(appContext).isNotEmpty(),
-            hasWidgetAppearances = database.widgetAppearanceDao().getAll().isNotEmpty()
-        )
+    suspend fun readTargetSnapshot(): BackupImportTargetSnapshot {
+        com.xiaomanjun.sleepdownschedule.data.repository.ScheduleRepository(database)
+            .migrateLegacyPeriodSchemeLibrary(appContext)
+        return database.withTransaction {
+            val knownPreferenceFiles = listOf(
+                "app_icon_preferences", "day_agent_preferences", "ai_import_settings", "ai_import_history"
+            )
+            BackupImportTargetSnapshot(
+                scheduleIds = database.scheduleProfileDao().getProfiles().mapTo(linkedSetOf()) { it.id },
+                courseIds = database.courseDao().getAllCourses().mapTo(linkedSetOf()) { it.id },
+                schemeIds = database.periodSchemeDao().getAllSchemes().mapTo(linkedSetOf()) { it.id },
+                messageIds = database.agentDao().getAllMessages().mapTo(linkedSetOf()) { it.id },
+                hasPreferences = knownPreferenceFiles.any {
+                    appContext.getSharedPreferences(it, Context.MODE_PRIVATE).all.isNotEmpty()
+                } || AiImportHistoryStore.loadForBackup(appContext).isNotEmpty(),
+                hasWidgetAppearances = database.widgetAppearanceDao().getAll().isNotEmpty()
+            )
+        }
     }
 
     suspend fun restore(
@@ -88,6 +89,8 @@ class BackupRestoreService(
             archive.manifest.sourcePackageName,
             appContext.packageName
         )
+        com.xiaomanjun.sleepdownschedule.data.repository.ScheduleRepository(database)
+            .migrateLegacyPeriodSchemeLibrary(appContext)
         val journal = BackupRestoreJournal(appContext.filesDir, operationId)
         val fingerprint = archiveFingerprint(archive)
         var marker = journal.readMarker()
@@ -157,7 +160,8 @@ class BackupRestoreService(
                 dbMayBeCommitted = true
                 marker = marker.copy(
                     state = BackupRestoreState.DB_COMMITTED,
-                    dbCommitStarted = false
+                    dbCommitStarted = false,
+                    sharedSchemeGraphCommitted = true
                 )
                 journal.writeMarker(marker)
                 failureInjector.check(BackupRestoreFaultPoint.AFTER_DATABASE_COMMIT)
@@ -246,6 +250,30 @@ class BackupRestoreService(
     ): BackupRestoreResult {
         var current = marker
         val warnings = planWarnings(current.plan).toMutableList()
+        if (!current.sharedSchemeGraphCommitted) {
+            // A previous app version may have committed its schedule rows and stopped before
+            // applying the preference-only library. Finish that import in Room, without replacing
+            // the already committed schedules or relying on the retired preference writer.
+            val payload = journal.readPayload()
+            if (payload.data.sharedPeriodSchemes == null && payload.preferences.savedPeriodSchemes != null) {
+                val libraryArchive = DecodedBackupArchive(payload.manifest,
+                    payload.data.copy(schedules = emptyList(), widgetAppearances = emptyList()),
+                    BackupPreferences(BackupFormatV1.PREFERENCES_VERSION,
+                        savedPeriodSchemes = payload.preferences.savedPeriodSchemes), payload.checksums, emptyList())
+                val libraryPlan = BackupImportPlanBuilder.build(libraryArchive, current.operationId,
+                    BackupImportTargetSnapshot(schemeIds = database.periodSchemeDao().getAllSchemes().mapTo(linkedSetOf()) { it.id }))
+                val rows = BackupRoomRestoreMapper.map(libraryArchive, libraryPlan)
+                database.withTransaction {
+                    val dao = database.periodSchemeDao()
+                    val merge = mergeBackupSchemeRows(dao.getAllSchemes(), dao.getAllTimes(),
+                        rows.periodSchemes, rows.periodSchemeTimes, current.operationId)
+                    if (merge.additions.isNotEmpty()) dao.upsertSchemes(merge.additions)
+                    if (merge.times.isNotEmpty()) dao.upsertTimes(merge.times)
+                }
+            }
+            current = current.copy(sharedSchemeGraphCommitted = true)
+            journal.writeMarker(current)
+        }
         if (current.state.ordinal < BackupRestoreState.PREFS_COMMITTED.ordinal) {
             failureInjector.check(BackupRestoreFaultPoint.BEFORE_PREFERENCES_COMMIT)
             val preferences = journal.readPreferences()

@@ -9,7 +9,7 @@ import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-/** Android-facing read-only export orchestration; it never mutates Room, prefs or source files. */
+/** Finishes the one-time legacy library migration, then exports a coherent read-only snapshot. */
 class BackupExportService(
     context: Context,
     private val database: AppDatabase
@@ -19,6 +19,8 @@ class BackupExportService(
 
     suspend fun export(metadata: BackupSourceMetadata = defaultMetadata()): BackupArchive =
         withContext(Dispatchers.IO) {
+            com.xiaomanjun.sleepdownschedule.data.repository.ScheduleRepository(database)
+                .migrateLegacyPeriodSchemeLibrary(appContext)
             val snapshot = BackupRoomSnapshotReader(database).read()
             val idMapping = BackupExportMapper.createIdMapping(snapshot)
             val preferences = BackupPreferencesReader.read(

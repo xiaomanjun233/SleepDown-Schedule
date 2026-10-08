@@ -22,6 +22,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.SharedBlurSampleScale
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.materialEffectsOnly
 import androidx.compose.foundation.layout.fillMaxSize
@@ -480,6 +481,8 @@ fun courseCardTonalPreview(seed: Long): List<Long> {
         ))
     )
 }
+
+internal const val FlatCourseCardMinimumAlpha = 0.35f
 
 internal fun courseGlassTintAlpha(cardAlpha: Float, quality: Float, hasWallpaper: Boolean): Float {
     val maximum = if (hasWallpaper) 0.68f else 0.16f
@@ -1005,22 +1008,20 @@ fun BlueStatusGlassPill(
             shape = shape,
             tokens = GlassTokens.pill().copy(
                 blur = 4.dp,
-                surfaceAlpha = 0.68f,
+                // Match the old upper-body tint; contour light below owns the lower edge.
+                surfaceAlpha = 0.30f,
                 highlightAlpha = 0.10f,
                 innerShadowAlpha = 0.10f
             ),
             baseSurfaceColorOverride = accentColor,
-            bottomLitTint = true,
-            bottomLitTintFloor = 0.44f,
             modifier = Modifier.matchParentSize()
         ) {}
-        VerticalGlassAccentOverlay(
-            accentColor = accentColor,
-            shape = shape,
-            lightGlass = glassUsesLightStyle(config),
-            intensity = 0.86f,
-            expanded = true,
-            modifier = Modifier.matchParentSize()
+        Box(
+            Modifier.matchParentSize().statusPillContourLight(
+                accentColor = accentColor,
+                shape = shape,
+                lightGlass = glassUsesLightStyle(config)
+            )
         )
         content()
     }
@@ -1039,6 +1040,7 @@ fun CourseGlassCard(
     renderSurface: Boolean = true,
     mountMaterial: Boolean = true,
     viewportMaterialVisible: Boolean = true,
+    cacheSharedSamples: Boolean = true,
     backdropSampleScale: Float = 1f,
     sampledShape: Shape? = null,
     expandedOutlineLight: Boolean = false,
@@ -1112,6 +1114,7 @@ fun CourseGlassCard(
     }
     val liveCardAlpha = (previewState?.cardAlpha ?: config.cardAlpha).coerceIn(0f, 1f)
     val textSurfaceAlpha = when {
+        !hasWallpaper -> liveCardAlpha.coerceAtLeast(FlatCourseCardMinimumAlpha)
         useGlass -> courseGlassTintAlpha(if (outlineLightEnabled) 0.75f else liveCardAlpha, quality, hasWallpaper) *
             courseCardBrightnessAttenuation(config.wallpaperBrightness, outlineLightEnabled)
         simpleBlurBackdrop != null -> courseSimpleBlurTintAlpha(liveCardAlpha, quality, hasWallpaper)
@@ -1126,6 +1129,7 @@ fun CourseGlassCard(
             (if (useGlass) liquidEffectFrame.blur ?: 0.dp else simpleBlurValue.dp).toPx()
         },
         outline = useGlass && outlineLightEnabled, expanded = expandedOutlineLight,
+        flatBackground = if (!hasWallpaper) homeFlatBackgroundColor(appUsesDarkTheme(config)) else null,
         ready = textCardReady, cardBounds = textCardBounds
     )
     val simpleMaterial = GlassMaterialSpec.simpleBlur(simpleBlurValue.dp)
@@ -1235,12 +1239,16 @@ fun CourseGlassCard(
                             material = tokens,
                             shape = { shape },
                             effectFrame = if (unifiedLiquidSurface) unifiedLiquidEffectFrame else cardEffects,
+                            effectInputKey = if (unifiedLiquidSurface) unifiedLiquidEffectFrame.materialEffectsOnly() else cardEffects,
+                            cacheSharedSamples = cacheSharedSamples,
                             backdropSampleScale = when {
                                 morphAllocation != null -> 1f
                                 // The shared recorder becomes ready during the first home draw.
-                                // Keep the card buffer at one resolution across that handoff;
-                                // dense weeks would otherwise jump from 0.75/0.5 to 1.0.
-                                sharedWallpaperCompatible -> 1f
+                                // Match its buffer even before that handoff: the lens keeps one
+                                // resolution, and the shared pixels go directly into the card.
+                                // Node-internal sampling scales effect density and geometry;
+                                // tint, text, highlights and shadows stay at full resolution.
+                                sharedWallpaperCompatible -> SharedBlurSampleScale
                                 else -> activeBackdropSampleScale
                             },
                             cacheDecorations = morphAllocation == null,
@@ -1274,18 +1282,15 @@ fun CourseGlassCard(
                         val alpha = liveAlpha.coerceIn(0f, 1f)
                         drawRect(
                             baseColor.copy(
-                                alpha = if (
+                                alpha = if (!hasWallpaper) {
+                                    alpha.coerceAtLeast(FlatCourseCardMinimumAlpha)
+                                } else if (
                                     !config.courseCardGlassEnabled &&
                                     !config.courseCardGaussianBlurEnabled &&
                                     hasWallpaper
                                 ) {
                                     // 纯纯色卡片：透明度拉满时也不能完全消失，保留可辨识底座
                                     alpha.coerceAtLeast(0.35f)
-                                } else if (
-                                    !config.courseCardGlassEnabled &&
-                                    !config.courseCardGaussianBlurEnabled
-                                ) {
-                                    alpha.coerceAtLeast(0.92f)
                                 } else {
                                     alpha.coerceAtLeast(0.86f)
                                 }

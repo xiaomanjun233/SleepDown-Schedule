@@ -67,6 +67,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -75,9 +76,11 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Constraints
@@ -195,7 +198,10 @@ data class CourseEditorOverlayRequest(
     val sourceIsDayCard: Boolean = false,
     val copyDraft: CourseEntity? = null,
     internal val sourceGrid: CourseEditorWeekGrid? = null,
-    val contextMessage: String? = null
+    val contextMessage: String? = null,
+    val sourceAdjustmentLabel: String? = null,
+    val sourceClipBoundsInRoot: Rect? = null,
+    val sourceDayAppearance: CourseEditorDayAppearance? = null
 )
 
 
@@ -287,6 +293,7 @@ internal fun CourseEditorContainerOverlayHost(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     adaptiveMetrics: HomeAdaptiveMetrics,
+    sourceCardBackdrop: Backdrop? = backdrop,
     modifier: Modifier = Modifier,
     landscapeContentInsets: PaddingValues = PaddingValues(0.dp),
     awaitOpeningGate: suspend () -> Unit = {},
@@ -349,6 +356,8 @@ internal fun CourseEditorContainerOverlayHost(
             }
             CourseEditorAnimatedContainer(
                 backdrop = dialogBackdrop, config = config, course = shown.copyDraft ?: shown.course,
+                muted = shown.sourceAdjustmentLabel == "停",
+                expandedOutlineLight = shown.sourceIsDayCard,
                 shape = RoundedRectangle(32.dp), progressProvider = { 1f }, alpha = 1f,
                 surfaceBackdrop = editorSurface, modifier = Modifier.fillMaxSize()
             ) {
@@ -555,6 +564,7 @@ internal fun CourseEditorContainerOverlayHost(
     // targetWeek is also required when a day-view course is edited, so it cannot identify
     // the visual source. Keep the source layout captured with the request instead.
     val sourceIsWeekCard = !shownRequest.sourceIsDayCard
+    val dayAppearance = shownRequest.sourceDayAppearance
     val previewCornerProgress = LocalPersonalizationPreview.current?.weekCardCornerProgress
         ?: config.weekCardCornerProgress
     val sourceCornerPx = remember(
@@ -562,6 +572,7 @@ internal fun CourseEditorContainerOverlayHost(
         density,
         adaptiveMetrics,
         sourceIsWeekCard,
+        dayAppearance?.cornerRadius,
         previewCornerProgress
     ) {
         with(density) {
@@ -574,7 +585,7 @@ internal fun CourseEditorContainerOverlayHost(
                     progress = previewCornerProgress
                 ).toPx()
             } else {
-                24.dp.toPx()
+                (dayAppearance?.cornerRadius ?: DayCourseCardCornerRadius).toPx()
             }
         }
     }
@@ -614,8 +625,10 @@ internal fun CourseEditorContainerOverlayHost(
     }
     val closingMorph = overlayPhase == CourseEditorOverlayPhase.Closing ||
         overlayPhase == CourseEditorOverlayPhase.Disposing
-    val shellCourse = if (closingMorph) motionState.closingCourseOverride ?: shownRequest.course
-        else shownRequest.course
+    val sourceCourse = dayAppearance?.course ?: shownRequest.course
+    val shellCourse = if (closingMorph) motionState.closingCourseOverride ?: sourceCourse else sourceCourse
+    val sourceMuted = dayAppearance?.muted ?: (shownRequest.sourceAdjustmentLabel == "停")
+    val sourceBadge = dayAppearance?.adjustmentLabel ?: shownRequest.sourceAdjustmentLabel
     val frameState = remember(morphSpec, sourceRect, targetRect, closingMorph, overlayPhase, density, motionState) {
         derivedStateOf {
             morphSpec.frame(
@@ -669,9 +682,17 @@ internal fun CourseEditorContainerOverlayHost(
             val placeable = measurable.measure(Constraints.fixed(width, height))
             layout(width, height) { placeable.place(0, 0) }
         }
-    val corner = remember(frameState, density) {
+    val corner = remember(frameState, density, sourceIsWeekCard, sourceCornerPx, sourceRect) {
         derivedStateOf {
-            with(density) { morphFrame.cornerRadiusPx.coerceIn(6.dp.toPx(), 36.dp.toPx()).toDp() }
+            with(density) {
+                val radius = if (sourceIsWeekCard) morphFrame.cornerRadiusPx else {
+                    courseEditorDayCornerRadius(
+                        sourceCornerPx, courseEditorDaySourceScale(sourceRect, morphFrame.rect),
+                        32.dp.toPx(), morphFrame.content.destinationContentAlpha
+                    )
+                }
+                radius.coerceIn(6.dp.toPx(), 36.dp.toPx()).toDp()
+            }
         }
     }
     // A copy can land elsewhere, but its upper/lower taper still follows the opening source.
@@ -696,6 +717,13 @@ internal fun CourseEditorContainerOverlayHost(
             )
         }
     }
+    // Day cards sample only wallpaper. Start from those same pixels before introducing the
+    // complete page underlay, rather than replacing a stopped card's material at the first frame.
+    val morphBackdrop = com.xiaomanjun.sleepdownschedule.glass.ui.rememberCrossfadeBackdrop(
+        source = if (shownRequest.sourceIsDayCard && hasSourceTransform) sourceCardBackdrop else backdrop,
+        destination = backdrop,
+        progress = { smoothStep(0.12f, 0.62f, morphFrame.shapeProgress) }
+    )
     val morphSurfaceAlpha = 1f
     val sourceCoverAlpha = remember(frameState, hasSourceTransform, overlayPhase) {
         derivedStateOf {
@@ -727,6 +755,28 @@ internal fun CourseEditorContainerOverlayHost(
         modifier = modifier
             .fillMaxSize()
             .onSizeChanged { rootSize = it }
+            .drawWithContent {
+                val sourceClip = shownRequest.sourceClipBoundsInRoot
+                    ?.takeIf { sourceRect == shownRequest.sourceBoundsInRoot }
+                if (sourceClip == null || sourceClip == sourceRect || morphFrame.shapeProgress >= 0.999f) {
+                    drawContent()
+                } else {
+                    // Keep the LazyColumn's cropped edges at the source endpoint, then release
+                    // them with the morph. Geometry and text still use the full original card.
+                    val rect = morphFrame.rect
+                    val remaining = 1f - morphFrame.shapeProgress.coerceIn(0f, 1f)
+                    clipRect(
+                        left = if (sourceClip.left > sourceRect.left)
+                            rect.left + (sourceClip.left - sourceRect.left) * remaining else 0f,
+                        top = if (sourceClip.top > sourceRect.top)
+                            rect.top + (sourceClip.top - sourceRect.top) * remaining else 0f,
+                        right = if (sourceClip.right < sourceRect.right)
+                            rect.right - (sourceRect.right - sourceClip.right) * remaining else size.width,
+                        bottom = if (sourceClip.bottom < sourceRect.bottom)
+                            rect.bottom - (sourceRect.bottom - sourceClip.bottom) * remaining else size.height
+                    ) { this@drawWithContent.drawContent() }
+                }
+            }
     ) {
         Box(
             modifier = Modifier
@@ -737,9 +787,11 @@ internal fun CourseEditorContainerOverlayHost(
                 ) { dismissEditor() }
         )
         CourseEditorAnimatedContainer(
-            backdrop = backdrop,
+            backdrop = morphBackdrop,
             config = config,
             course = shellCourse,
+            muted = sourceMuted,
+            expandedOutlineLight = shownRequest.sourceIsDayCard,
             shape = shellShape,
             progressProvider = { morphFrame.shapeProgress },
             alpha = morphSurfaceAlpha,
@@ -773,13 +825,28 @@ internal fun CourseEditorContainerOverlayHost(
                 if (showSourceCover) {
                     CourseEditorSourceShell(
                         course = shellCourse,
-                        backdrop = backdrop,
                         config = config,
                         sourceIsWide = !sourceIsWeekCard,
                         adaptiveMetrics = adaptiveMetrics,
+                        adjustmentLabel = sourceBadge,
+                        dayAppearance = dayAppearance,
+                        muted = sourceMuted,
+                        sourceCorner = with(density) { sourceCornerPx.toDp() },
                         modifier = Modifier
-                            .fillMaxSize()
+                            // Measure the source once at its original card size. In particular,
+                            // stopped day cards must not rewrap their text as the shell widens.
+                            .wrapContentSize(Alignment.TopStart, unbounded = true)
+                            .requiredSize(
+                                with(density) { sourceRect.width.toDp() },
+                                with(density) { sourceRect.height.toDp() }
+                            )
                             .graphicsLayer {
+                                transformOrigin = TransformOrigin(0f, 0f)
+                                scaleX = morphFrame.rect.width / sourceRect.width
+                                // A day card is much shorter than the destination. Scaling Y
+                                // independently changes glyph proportions and line spacing.
+                                scaleY = if (sourceIsWeekCard) morphFrame.rect.height / sourceRect.height
+                                    else courseEditorDaySourceScale(sourceRect, morphFrame.rect)
                                 alpha = sourceCoverAlpha.value
                                 val blurPx = morphFrame.content.sourceBlurPx
                                 compositingStrategy = CompositingStrategy.Offscreen
@@ -787,6 +854,21 @@ internal fun CourseEditorContainerOverlayHost(
                             }
                     )
                 }
+            }
+        }
+        if (showSourceCover && sourceBadge != null) {
+            // The original badge straddles the card's rounded edge. Keep its clone outside
+            // the shell clip too, otherwise a stopped/makeup card starts with a cut-off badge.
+            Box(animatedModifier.graphicsLayer {
+                alpha = sourceCoverAlpha.value
+                // Modulate the vector label directly so alpha does not crop its small outset.
+                compositingStrategy = CompositingStrategy.ModulateAlpha
+            }.courseEditorContentTaper { taper.value }) {
+                com.xiaomanjun.sleepdownschedule.feature.home.CourseAdjustmentBadge(
+                    sourceBadge, backdrop, config,
+                    Modifier.align(Alignment.BottomEnd)
+                        .courseBadgeCornerAnchor(corner.value)
+                )
             }
         }
     }
@@ -902,6 +984,8 @@ private fun CourseEditorAnimatedContainer(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     course: CourseEntity,
+    muted: Boolean,
+    expandedOutlineLight: Boolean,
     shape: androidx.compose.ui.graphics.Shape,
     progressProvider: () -> Float,
     alpha: Float,
@@ -915,13 +999,17 @@ private fun CourseEditorAnimatedContainer(
     val editorBlur by remember(config.courseCardBlur) {
         derivedStateOf {
             interpolateFloat(config.courseCardBlur, finalDialogBlur,
-                smoothStep(0.62f, 1f, currentProgress.value.invoke()))
+                quantizeHomeProgressiveBackdropBlurProgress(
+                    smoothStep(0.62f, 1f, currentProgress.value.invoke())
+                ))
         }
     }
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
         course = course,
+        muted = muted,
+        expandedOutlineLight = expandedOutlineLight,
         modifier = modifier.graphicsLayer { this.alpha = alpha }.drawWithCache {
             // Keep the shell's outline in the parent recording across the fixed-allocation
             // handoff. Child RenderNodes may otherwise replay rectangular pixels for one frame
@@ -949,205 +1037,33 @@ private fun CourseEditorAnimatedContainer(
 @Composable
 private fun CourseEditorSourceShell(
     course: CourseEntity,
-    backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     sourceIsWide: Boolean,
     adaptiveMetrics: HomeAdaptiveMetrics,
+    adjustmentLabel: String?,
+    dayAppearance: CourseEditorDayAppearance?,
+    muted: Boolean,
+    sourceCorner: androidx.compose.ui.unit.Dp,
     modifier: Modifier = Modifier
 ) {
     Box(modifier) {
+        val badgeInset = if (adjustmentLabel != null) com.xiaomanjun.sleepdownschedule.feature.home.courseBadgeContentInset(
+            with(LocalDensity.current) { courseAdjustmentBadgeHeight() }, sourceCorner
+        ) else 0.dp
         if (sourceIsWide) {
-            CourseEditorDaySourceContent(
+            DayCourseCardContent(
                 course = course,
+                periods = dayAppearance?.periods.orEmpty(),
+                showTime = dayAppearance?.showTime ?: false,
+                showWeeks = dayAppearance?.showWeeks ?: false,
                 config = config,
-                tabletFontScale = if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f
+                tabletFontScale = dayAppearance?.tabletFontScale ?: if (adaptiveMetrics.isTabletLandscape) 1.10f else 1f,
+                muted = muted,
+                adjustmentLabel = adjustmentLabel
             )
         } else {
-            CourseEditorWeekSourceContent(course, backdrop, config)
-        }
-    }
-}
-
-@Composable
-private fun CourseEditorDaySourceContent(
-    course: CourseEntity,
-    config: ScheduleConfigEntity,
-    tabletFontScale: Float
-) {
-    val textColor = homeForegroundColor(config)
-    DayCourseCardTextContent(
-        course = course,
-        periods = emptyList(),
-        showTime = false,
-        showWeeks = false,
-        textColor = textColor,
-        tabletFontScale = tabletFontScale,
-        config = config
-    )
-}
-
-@Composable
-private fun CourseEditorWeekSourceContent(
-    course: CourseEntity,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity
-) {
-    val locationText = course.location.orEmpty()
-    val hasLocation = locationText.isNotBlank()
-    val hasTeacher = !course.teacher.isNullOrBlank()
-    val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
-    val textColor =
-        if (backdrop != null && config.courseCardGlassEnabled) LocalAdaptiveGlass.current.contentColor
-        else if (config.courseCardGlassEnabled) readableOn(cardColor)
-        else glassForegroundColor(config)
-    BoxWithConstraints(Modifier.fillMaxSize()) {
-        val density = LocalDensity.current
-        val heightDp = maxHeight.value
-        val widthDp = maxWidth.value
-        val compact = heightDp < 78f
-        val tiny = heightDp < 52f
-        val verticalPadding = when {
-            tiny -> 1.dp
-            compact -> 2.dp
-            else -> 2.5.dp
-        }
-        val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
-        val fontScaleCompensation = density.fontScale.coerceAtLeast(1f)
-        val tabletFontBoost = if (maxWidth >= 120.dp) 1.18f else 1f
-        val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale
-        val courseFontScale = ((previewFontScale ?: config.courseCardFontScale) * tabletFontBoost)
-            .coerceIn(0.80f, 1.35f)
-        fun scaledCourseWeekText(value: TextUnit): TextUnit {
-            return (value.value * courseFontScale / fontScaleCompensation.coerceAtLeast(1f)).sp
-        }
-        val nameFont = scaledCourseWeekText(if (tiny) 8.8.sp else if (compact) 9.7.sp else 10.7.sp)
-        val nameLineHeight = scaledCourseWeekText(if (tiny) 8.2.sp else if (compact) 9.1.sp else 10.0.sp)
-        val locationFont = scaledCourseWeekText(if (tiny) 8.1.sp else if (compact) 8.7.sp else 9.5.sp)
-        val locationLineHeight = scaledCourseWeekText(if (tiny) 8.0.sp else if (compact) 8.6.sp else 9.3.sp)
-        val teacherFont = scaledCourseWeekText(8.4.sp)
-        val teacherLineHeight = scaledCourseWeekText(7.9.sp)
-        val contentWidthPx = with(density) { (maxWidth - horizontalPadding * 2f).coerceAtLeast(24.dp).toPx() }
-        val availableTextPx = with(density) { (maxHeight - verticalPadding * 2f).coerceAtLeast(0.dp).toPx() }
-
-        fun estimatedLines(text: String, fontSize: TextUnit): Int {
-            if (text.isBlank()) return 0
-            val averageCharPx = with(density) { fontSize.toPx() } * 1.08f
-            val charsPerLine = (contentWidthPx / averageCharPx.coerceAtLeast(1f)).toInt().coerceAtLeast(1)
-            return ceil(text.length.toFloat() / charsPerLine).toInt().coerceAtLeast(1)
-        }
-
-        val canShowTeacher = hasTeacher && heightDp >= 52f
-        val teacherLines = if (canShowTeacher) 1 else 0
-        val teacherPx = if (teacherLines > 0) with(density) { teacherLineHeight.toPx() } else 0f
-        val usablePx = (availableTextPx - teacherPx).coerceAtLeast(0f)
-        val averageLinePx = minOf(with(density) { nameLineHeight.toPx() }, with(density) { locationLineHeight.toPx() }).coerceAtLeast(1f)
-        val totalSlots = (usablePx / averageLinePx).toInt().coerceAtLeast(1)
-        val maxNameLines = when {
-            heightDp >= 150f -> 12
-            heightDp >= 112f -> 9
-            heightDp >= 78f -> 6
-            else -> 4
-        }
-        val wantedNameLines = estimatedLines(course.name, nameFont).coerceIn(1, maxNameLines)
-        val wantedLocationLines = if (hasLocation) {
-            estimatedLines(locationText, locationFont).coerceIn(1, if (heightDp >= 150f) 4 else if (heightDp >= 96f) 3 else 2)
-        } else {
-            0
-        }
-        val nameMinimum = 1
-        val locationMinimum = if (hasLocation && (totalSlots >= 2 || tiny)) 1 else 0
-        var remainingSlots = (totalSlots - nameMinimum - locationMinimum).coerceAtLeast(0)
-        var nameLines = nameMinimum
-        var locationLines = locationMinimum
-        var nameNeed = (wantedNameLines - nameLines).coerceAtLeast(0)
-        var locationNeed = (wantedLocationLines - locationLines).coerceAtLeast(0)
-        while (remainingSlots > 0 && (nameNeed > 0 || locationNeed > 0)) {
-            if (nameNeed >= locationNeed && nameNeed > 0) {
-                nameLines += 1
-                nameNeed -= 1
-            } else if (locationNeed > 0) {
-                locationLines += 1
-                locationNeed -= 1
-            } else {
-                nameLines += 1
-                nameNeed -= 1
-            }
-            remainingSlots -= 1
-        }
-        if (remainingSlots > 0 && nameLines < maxNameLines) {
-            val extraNameLines = minOf(remainingSlots, maxNameLines - nameLines)
-            nameLines += extraNameLines
-            remainingSlots -= extraNameLines
-        }
-        if (remainingSlots > 0 && hasLocation) {
-            locationLines += remainingSlots
-        }
-        if (tiny && hasLocation) {
-            locationLines = 1
-            nameLines = (totalSlots - locationLines).coerceAtLeast(1)
-        }
-
-        val renderedLocationLines = minOf(locationLines, wantedLocationLines).coerceAtLeast(0)
-        val locationReserve = if (hasLocation && renderedLocationLines > 0) {
-            with(density) { (locationLineHeight.toPx() * renderedLocationLines).toDp() }
-        } else {
-            0.dp
-        }
-        val teacherReserve = if (canShowTeacher) {
-            with(density) { teacherLineHeight.toPx().toDp() }
-        } else {
-            0.dp
-        }
-        val centerReserve = maxOf(locationReserve, teacherReserve) + 1.dp
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = horizontalPadding, vertical = verticalPadding)
-        ) {
-            if (hasLocation && locationLines > 0) {
-                Text(
-                    locationText,
-                    modifier = Modifier
-                        .align(Alignment.TopCenter)
-                        .fillMaxWidth(),
-                    fontSize = locationFont,
-                    lineHeight = locationLineHeight,
-                    fontWeight = FontWeight.Medium,
-                    color = textColor.copy(alpha = 0.78f),
-                    maxLines = locationLines,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
-                )
-            }
-            Text(
-                course.name,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .fillMaxWidth()
-                    .padding(vertical = centerReserve),
-                fontSize = nameFont,
-                lineHeight = nameLineHeight,
-                fontWeight = FontWeight.SemiBold,
-                color = textColor,
-                maxLines = nameLines,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
-            if (canShowTeacher) {
-                Text(
-                    course.teacher,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth(),
-                    fontSize = teacherFont,
-                    lineHeight = teacherLineHeight,
-                    fontWeight = FontWeight.Normal,
-                    color = textColor.copy(alpha = 0.58f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center
-                )
-            }
+            com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseOverlayCardContent(
+                course, config, muted = muted, badgeInset = badgeInset)
         }
     }
 }
@@ -1157,16 +1073,9 @@ private fun validSourceRect(rect: Rect?, rootSize: IntSize): Rect? {
     if (rootSize.width <= 0 || rootSize.height <= 0) return null
     val root = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
     if (!rect.overlaps(root)) return null
-    // The full-screen snapshot is clipped to the Compose root. Keep the Morph geometry on the
-    // exact same clipped rectangle; otherwise a partially off-screen card produces a smaller
-    // bitmap that is stretched back over its original, larger bounds on the first/last frame.
-    val clipped = Rect(
-        left = maxOf(rect.left, root.left),
-        top = maxOf(rect.top, root.top),
-        right = minOf(rect.right, root.right),
-        bottom = minOf(rect.bottom, root.bottom)
-    )
-    return clipped.takeIf { it.width > 2f && it.height > 2f }
+    // The source is now rendered as a real card, not a cropped screenshot. Preserve its
+    // geometry; the window clips pixels outside the root without stretching the remainder.
+    return rect
 }
 
 private fun interpolateFloat(start: Float, stop: Float, fraction: Float): Float {

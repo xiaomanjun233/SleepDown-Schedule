@@ -184,7 +184,7 @@ internal fun HomeAssistantHost(
 
     if (controller.stage == HomeAssistantStage.Conversation && !decided) {
         LiquidAlertDialog(
-            title = "启用AI助理？",
+            title = "启用 AI 助理？",
             message = "下拉首页即可与助手对话。课程提醒与倒计时在本机计算，对话和文件解析使用你选择的 AI 服务。",
             actions = listOf(
                 LiquidAlertAction("暂不启用", LiquidAlertActionStyle.Secondary) {

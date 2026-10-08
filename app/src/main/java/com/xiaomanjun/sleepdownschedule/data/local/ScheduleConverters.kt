@@ -22,6 +22,12 @@ class ScheduleConverters {
     fun parityToString(value: WeekParity): String = value.name
 
     @TypeConverter
+    fun periodAlignmentModeToString(value: PeriodAlignmentMode): String = value.name
+
+    @TypeConverter
+    fun stringToPeriodAlignmentMode(value: String): PeriodAlignmentMode = PeriodAlignmentMode.valueOf(value)
+
+    @TypeConverter
     fun stringToParity(value: String): WeekParity =
         runCatching { WeekParity.valueOf(value) }.getOrDefault(WeekParity.ALL)
 

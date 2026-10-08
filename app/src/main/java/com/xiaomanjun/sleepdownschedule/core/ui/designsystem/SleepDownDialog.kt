@@ -4,6 +4,7 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
@@ -34,6 +35,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -51,6 +53,11 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -289,12 +296,83 @@ fun LiquidDialogFooter(
 }
 
 @Composable
+internal fun LiquidDialogChoiceCard(
+    title: String,
+    selected: Boolean,
+    config: ScheduleConfigEntity,
+    onClick: () -> Unit,
+    description: String = "",
+    badgeText: String? = null
+) {
+    val foreground = sleepDownPanelForegroundColor(config)
+    val dark = appUsesDarkTheme(config)
+    val accent = Color(0xFF0A84FF)
+    val optionSelected = selected
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.RadioButton
+                this.selected = optionSelected
+            },
+        shape = RoundedRectangle(
+            cornerRadius = SleepDownDesignTokens.CenteredDialog.Corner -
+                SleepDownDesignTokens.CenteredDialog.ContentPadding -
+                SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset,
+            style = RoundedCornerStyle.Continuous
+        ),
+        color = if (selected) {
+            accent.copy(alpha = if (dark) 0.24f else 0.13f)
+        } else {
+            foreground.copy(alpha = if (dark) 0.09f else 0.055f)
+        },
+        border = BorderStroke(
+            width = if (selected) 1.5.dp else 1.dp,
+            color = if (selected) accent.copy(alpha = 0.88f) else foreground.copy(alpha = 0.14f)
+        ),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = foreground, style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold)
+                badgeText?.let {
+                    Text(it, color = accent, style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(top = 4.dp).clip(Capsule())
+                            .background(accent.copy(alpha = 0.12f)).padding(horizontal = 8.dp, vertical = 3.dp))
+                }
+                if (description.isNotBlank()) {
+                    Text(description, color = foreground.copy(alpha = 0.62f),
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Box(
+                modifier = Modifier.size(20.dp).clip(Capsule())
+                    .background(if (selected) accent else foreground.copy(alpha = 0.10f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (selected) {
+                    Box(Modifier.size(8.dp).clip(Capsule()).background(Color.White))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun LiquidAlertContent(
     title: String,
     message: String,
     actions: List<LiquidAlertAction>,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
+    messageMaxHeight: Dp,
+    scrollableMessageContent: Boolean,
     messageContent: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
@@ -353,7 +431,9 @@ private fun LiquidAlertContent(
                     .padding(
                         horizontal = SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset
                     )
-                    .heightIn(max = 240.dp)
+                    .then(if (scrollableMessageContent) Modifier.weight(1f, fill = false) else Modifier)
+                    .heightIn(max = messageMaxHeight)
+                    .then(if (scrollableMessageContent) Modifier.verticalScroll(rememberScrollState()) else Modifier)
             ) {
                 messageContent()
             }
@@ -366,7 +446,7 @@ private fun LiquidAlertContent(
                     .padding(
                         horizontal = SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset
                     )
-                    .heightIn(max = 240.dp)
+                    .heightIn(max = messageMaxHeight)
                     .verticalScroll(rememberScrollState()),
                 style = MaterialTheme.typography.bodyMedium,
                 lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
@@ -440,6 +520,8 @@ fun LiquidAlertDialog(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     onDismissRequest: () -> Unit,
+    messageMaxHeight: Dp = 240.dp,
+    scrollableMessageContent: Boolean = false,
     messageContent: (@Composable () -> Unit)? = null
 ) {
     val completeUnderlayBackdrop = LocalCenteredDialogSceneBackdrop.current ?: backdrop
@@ -498,6 +580,8 @@ fun LiquidAlertDialog(
             actions = animatedActions,
             backdrop = completeUnderlayBackdrop,
             config = config,
+            messageMaxHeight = messageMaxHeight,
+            scrollableMessageContent = scrollableMessageContent,
             messageContent = messageContent
         )
     }
@@ -616,7 +700,9 @@ fun DialogLiquidButton(
     shadowEnabled: Boolean = true,
     shadowStyle: Shadow = Shadow.Default,
     height: Dp = 40.dp,
-    horizontalPadding: Dp = 18.dp
+    horizontalPadding: Dp = 18.dp,
+    enabled: Boolean = true,
+    content: (@Composable () -> Unit)? = null
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val useMonochromeNeutral = role == DialogButtonRole.Neutral && monochromeNeutral
@@ -650,9 +736,12 @@ fun DialogLiquidButton(
     }
     if (backdrop != null) {
         LiquidButton(
-            onClick = onClick,
+            onClick = { if (enabled) onClick() },
             backdrop = backdrop,
-            modifier = if (useRoundIcon) modifier.size(42.dp) else modifier,
+            modifier = (if (useRoundIcon) modifier.size(42.dp) else modifier)
+                .semantics { if (!enabled) disabled() },
+            clickTargetEnabled = enabled,
+            isInteractive = enabled,
             height = if (useRoundIcon) 42.dp else height,
             surfaceColor = surfaceColor,
             contentPadding = if (useRoundIcon) PaddingValues(0.dp) else PaddingValues(horizontal = horizontalPadding),
@@ -663,18 +752,20 @@ fun DialogLiquidButton(
             shadowEnabled = shadowEnabled,
             shadowStyle = shadowStyle
         ) {
-            resolvedIconRes?.let {
-                Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
-            }
-            if (!useRoundIcon) {
-                Text(
-                    label,
-                    color = textColor,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    softWrap = false
-                )
+            if (content != null) content() else {
+                resolvedIconRes?.let {
+                    Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
+                }
+                if (!useRoundIcon) {
+                    Text(
+                        label,
+                        color = textColor,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
         }
     } else {
@@ -688,23 +779,25 @@ fun DialogLiquidButton(
                         )
                     )
                 )
-                .clickable(onClick = onClick)
+                .clickable(enabled = enabled, onClick = onClick)
                 .then(if (useRoundIcon) Modifier else Modifier.padding(horizontal = horizontalPadding)),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            resolvedIconRes?.let {
-                Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
-            }
-            if (!useRoundIcon) {
-                Text(
-                    label,
-                    color = textColor,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    softWrap = false
-                )
+            if (content != null) content() else {
+                resolvedIconRes?.let {
+                    Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
+                }
+                if (!useRoundIcon) {
+                    Text(
+                        label,
+                        color = textColor,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
         }
     }

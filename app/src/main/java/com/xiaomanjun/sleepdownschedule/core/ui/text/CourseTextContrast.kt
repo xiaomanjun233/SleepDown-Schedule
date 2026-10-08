@@ -8,6 +8,7 @@ import kotlin.math.roundToInt
 
 internal class CourseTextBackground(
     val frozen: Boolean,
+    val flatLuminance: Float? = null,
     val sample: (Rect) -> FloatArray?
 )
 
@@ -54,22 +55,18 @@ private fun courseHue(seed: Color): Float {
 
 /** Keep the course hue vivid while lifting colored lettering over wallpaper glass. */
 internal fun courseTextColorForPage(seed: Color, hasWallpaper: Boolean, lightText: Boolean): Color {
-    if (!hasWallpaper) return seed.copy(alpha = 1f)
     val value = maxOf(seed.red, seed.green, seed.blue)
     val chroma = value - minOf(seed.red, seed.green, seed.blue)
     val saturation = if (value > 0f) chroma / value else 0f
-    // Nexio's card treatment doubles saturation before blending white into the glyph.
-    // A slightly smaller white mix on light pages keeps the course hue legible.
-    val saturated = Color.hsv(
+    // Resolve a luminous version of the same hue first, including on flat cards. Returning
+    // the seed on a flat card painted the glyph and its background with identical ink.
+    // Lift value AND reduce saturation: every channel becomes lighter than the original.
+    return Color.hsv(
         hue = courseHue(seed),
-        saturation = (saturation * 2f).coerceAtMost(1f),
-        value = value
-    )
-    val whiteMix = if (lightText) 0.4f else 0.32f
-    return Color(
-        red = saturated.red + (1f - saturated.red) * whiteMix,
-        green = saturated.green + (1f - saturated.green) * whiteMix,
-        blue = saturated.blue + (1f - saturated.blue) * whiteMix
+        saturation = saturation * if (hasWallpaper) {
+            if (lightText) 0.62f else 0.68f
+        } else 0.46f,
+        value = 1f
     )
 }
 

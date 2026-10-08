@@ -16,7 +16,9 @@ data class BackupRoomRestoreRows(
     val periodSchemeTimes: List<PeriodSchemeTimeEntity>,
     val agentDailySessions: List<AgentDailySessionEntity>,
     val agentMessages: List<AgentMessageEntity>,
-    val widgetAppearances: List<WidgetAppearanceEntity>
+    val widgetAppearances: List<WidgetAppearanceEntity>,
+    val restoreOperationId: String = "",
+    val deduplicateLegacySchemes: Boolean = true
 )
 
 /**
@@ -31,6 +33,10 @@ object BackupRoomRestoreMapper {
         attachmentFileNamesByAssetId: Map<String, String> = emptyMap()
     ): BackupRoomRestoreRows {
         val schedules = archive.data.schedules
+        val schemeGraph = backupSchemeGraph(archive)
+        // A restore journal created by an older app mapped only its local scheme rows. Extend
+        // that immutable plan deterministically for legacy library/visible-timeline additions.
+        val schemeIds = completeBackupSchemeIds(plan.schemeIds, schemeGraph.schemes.map { it.id })
         require(plan.scheduleIds.keys == schedules.mapTo(linkedSetOf()) { it.id }) {
             "ImportPlan schedule 映射与 archive 不一致"
         }
@@ -80,8 +86,10 @@ object BackupRoomRestoreMapper {
         val configRows = schedules.map { schedule ->
             val targetScheduleId = plan.scheduleIds.getValue(schedule.id)
             val config = schedule.config
+            val activeScheme = schemeGraph.schemes.firstOrNull { it.id == schemeGraph.activeIds[schedule.id] }
             ScheduleConfigEntity(
                 id = targetScheduleId,
+                activePeriodSchemeId = schemeGraph.activeIds[schedule.id]?.let(schemeIds::getValue),
                 totalWeeks = config.totalWeeks,
                 currentWeek = config.currentWeek,
                 notificationLeadMinutes = config.notificationLeadMinutes,
@@ -165,6 +173,8 @@ object BackupRoomRestoreMapper {
                 ),
                 hideEmptyWeekends = config.hideEmptyWeekends,
                 scheduleAdjustmentsJson = config.scheduleAdjustmentsJson,
+                periodAlignmentMode = strictBackupEnum<com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode>(
+                    config.periodAlignmentMode, "periodAlignmentMode"),
                 dockAlignment = strictBackupEnum<DockAlignment>(config.dockAlignment, "dockAlignment"),
                 defaultHomeMode = strictBackupEnum<HomeStartMode>(config.defaultHomeMode, "defaultHomeMode"),
                 liveUpdateActionsEnabled = config.liveUpdateActionsEnabled,
@@ -172,12 +182,12 @@ object BackupRoomRestoreMapper {
                     config.liveUpdateChipTextMode,
                     "liveUpdateChipTextMode"
                 ),
-                classDurationMinutes = config.classDurationMinutes,
-                breakDurationMinutes = config.breakDurationMinutes,
-                morningPeriodCount = config.morningPeriodCount,
-                noonPeriodCount = config.noonPeriodCount,
-                afternoonPeriodCount = config.afternoonPeriodCount,
-                eveningPeriodCount = config.eveningPeriodCount,
+                classDurationMinutes = activeScheme?.classDurationMinutes ?: config.classDurationMinutes,
+                breakDurationMinutes = activeScheme?.breakDurationMinutes ?: config.breakDurationMinutes,
+                morningPeriodCount = activeScheme?.morningPeriodCount ?: config.morningPeriodCount,
+                noonPeriodCount = activeScheme?.noonPeriodCount ?: config.noonPeriodCount,
+                afternoonPeriodCount = activeScheme?.afternoonPeriodCount ?: config.afternoonPeriodCount,
+                eveningPeriodCount = activeScheme?.eveningPeriodCount ?: config.eveningPeriodCount,
                 hideFromRecents = config.hideFromRecents,
                 autoCheckUpdates = config.autoCheckUpdates
             )
@@ -193,7 +203,10 @@ object BackupRoomRestoreMapper {
 
         val periodRows = schedules.flatMap { schedule ->
             val targetScheduleId = plan.scheduleIds.getValue(schedule.id)
-            schedule.periods.map { period ->
+            val active = schemeGraph.schemes.firstOrNull { it.id == schemeGraph.activeIds[schedule.id] }
+            val periods = active?.times?.map { BackupPeriod(it.periodIndex, it.startTime, it.endTime) }
+                ?: schedule.periods
+            periods.map { period ->
                 PeriodEntity(
                     periodIndex = period.periodIndex,
                     startTime = period.startTime,
@@ -206,7 +219,7 @@ object BackupRoomRestoreMapper {
         val courseRows = schedules.flatMap { schedule ->
             val targetScheduleId = plan.scheduleIds.getValue(schedule.id)
             schedule.courses.map { course ->
-                CourseEntity(
+                com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes(CourseEntity(
                     id = plan.courseIds.getValue(course.id),
                     name = course.name,
                     teacher = course.teacher,
@@ -220,20 +233,25 @@ object BackupRoomRestoreMapper {
                     customEndTime = course.customEndTime,
                     customColorArgb = course.customColorArgb,
                     customPeriodTimes = course.customPeriodTimes,
+                    originalPeriodTimes = course.originalPeriodTimes,
                     scheduleId = targetScheduleId
-                )
+                ), schedule.periods.map { PeriodEntity(it.periodIndex, it.startTime, it.endTime, targetScheduleId) })
             }
         }
 
-        val schemeRows = schedules.flatMap { schedule ->
-            val targetScheduleId = plan.scheduleIds.getValue(schedule.id)
-            schedule.periodSchemes.map { scheme ->
+        val schemeRows = schemeGraph.schemes.map { scheme ->
                 PeriodSchemeEntity(
-                    id = plan.schemeIds.getValue(scheme.id),
-                    scheduleId = targetScheduleId,
+                    id = schemeIds.getValue(scheme.id),
+                    scheduleId = 0,
+                    publicId = scheme.publicId.ifBlank { scheme.id },
+                    sourceScheduleName = scheme.sourceScheduleName,
+                    morningPeriodCount = scheme.morningPeriodCount,
+                    noonPeriodCount = scheme.noonPeriodCount,
+                    afternoonPeriodCount = scheme.afternoonPeriodCount,
+                    eveningPeriodCount = scheme.eveningPeriodCount,
                     name = scheme.name,
                     mode = strictBackupEnum<PeriodSchemeMode>(scheme.mode, "period scheme mode"),
-                    isActive = scheme.isActive,
+                    isActive = false,
                     classDurationMinutes = scheme.classDurationMinutes,
                     breakDurationMinutes = scheme.breakDurationMinutes,
                     morningStartTime = scheme.morningStartTime,
@@ -243,12 +261,10 @@ object BackupRoomRestoreMapper {
                     specialBreaksJson = scheme.specialBreaksJson,
                     overridesJson = scheme.overridesJson
                 )
-            }
         }
 
-        val schemeTimeRows = schedules.flatMap { schedule ->
-            schedule.periodSchemes.flatMap { scheme ->
-                val targetSchemeId = plan.schemeIds.getValue(scheme.id)
+        val schemeTimeRows = schemeGraph.schemes.flatMap { scheme ->
+                val targetSchemeId = schemeIds.getValue(scheme.id)
                 scheme.times.map { time ->
                     PeriodSchemeTimeEntity(
                         schemeId = targetSchemeId,
@@ -257,7 +273,6 @@ object BackupRoomRestoreMapper {
                         endTime = time.endTime
                     )
                 }
-            }
         }
 
         val sessionRows = schedules.flatMap { schedule ->
@@ -357,7 +372,9 @@ object BackupRoomRestoreMapper {
             periodSchemeTimes = schemeTimeRows,
             agentDailySessions = sessionRows,
             agentMessages = messageRows,
-            widgetAppearances = widgetRows
+            widgetAppearances = widgetRows,
+            restoreOperationId = plan.operationId,
+            deduplicateLegacySchemes = archive.data.sharedPeriodSchemes == null
         )
     }
 }
@@ -365,22 +382,25 @@ object BackupRoomRestoreMapper {
 class BackupRoomReplaceTransaction(private val database: AppDatabase) {
     suspend fun replace(rows: BackupRoomRestoreRows) {
         database.withTransaction {
+            val schemeDao = database.periodSchemeDao()
+            val merge = mergeBackupSchemeRows(schemeDao.getAllSchemes(), schemeDao.getAllTimes(),
+                rows.periodSchemes, rows.periodSchemeTimes, rows.restoreOperationId, rows.deduplicateLegacySchemes)
+            if (merge.additions.isNotEmpty()) schemeDao.upsertSchemes(merge.additions)
+            if (merge.times.isNotEmpty()) schemeDao.upsertTimes(merge.times)
             database.agentDao().deleteAllMessages()
             database.agentDao().deleteAllDailySessions()
             database.widgetAppearanceDao().deleteAll()
-            database.periodSchemeDao().deleteAllTimes()
-            database.periodSchemeDao().deleteAllSchemes()
             database.courseDao().deleteAllRows()
             database.configDao().deleteAllPeriods()
             database.configDao().deleteAllConfigs()
             database.scheduleProfileDao().deleteAllProfiles()
 
             if (rows.schedules.isNotEmpty()) database.scheduleProfileDao().upsertProfiles(rows.schedules)
-            if (rows.configs.isNotEmpty()) database.configDao().upsertConfigs(rows.configs)
+            if (rows.configs.isNotEmpty()) database.configDao().upsertConfigs(rows.configs.map {
+                it.copy(activePeriodSchemeId = it.activePeriodSchemeId?.let(merge.ids::getValue))
+            })
             if (rows.periods.isNotEmpty()) database.configDao().upsertPeriods(rows.periods)
             if (rows.courses.isNotEmpty()) database.courseDao().insertCourses(rows.courses)
-            if (rows.periodSchemes.isNotEmpty()) database.periodSchemeDao().upsertSchemes(rows.periodSchemes)
-            if (rows.periodSchemeTimes.isNotEmpty()) database.periodSchemeDao().upsertTimes(rows.periodSchemeTimes)
             if (rows.agentDailySessions.isNotEmpty()) database.agentDao().upsertDailySessions(rows.agentDailySessions)
             if (rows.agentMessages.isNotEmpty()) database.agentDao().upsertMessages(rows.agentMessages)
             rows.widgetAppearances.forEach { database.widgetAppearanceDao().upsert(it) }

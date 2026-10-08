@@ -161,7 +161,8 @@ fun Modifier.sleepDownGlassSurface(
     cacheDecorations: Boolean = false,
     clipGenericOutlineInDraw: Boolean = true,
     placementLayer: Boolean = true,
-    backdropSampleScale: Float = 1f
+    backdropSampleScale: Float = 1f,
+    cacheSharedSamples: Boolean = false
 ): Modifier {
     if (sceneState?.diagnosticsEnabled == true) {
         check(descriptor.materialRole == material.role) {
@@ -193,7 +194,7 @@ fun Modifier.sleepDownGlassSurface(
     val currentSampleRecordKey = rememberUpdatedState(LocalGlassSampleRecordKey.current)
     val renderOptions = remember(
         sampleBackdrop, allocationPaddingPx, cacheDecorations,
-        clipGenericOutlineInDraw, placementLayer, backdropSampleScale
+        clipGenericOutlineInDraw, placementLayer, backdropSampleScale, cacheSharedSamples
     ) {
         com.kyant.backdrop.BackdropRenderOptions(
             enabled = { currentRenderEnabled.value.invoke() },
@@ -206,7 +207,8 @@ fun Modifier.sleepDownGlassSurface(
             placementLayer = placementLayer,
             sampleScale = backdropSampleScale,
             coordinatesFrozen = { currentCoordinatesFrozen.value.invoke() },
-            sampleRecordKey = { currentSampleRecordKey.value.invoke() }
+            sampleRecordKey = { currentSampleRecordKey.value.invoke() },
+            cacheSharedSamples = cacheSharedSamples
         )
     }
     val diagnosticSceneState = sceneState?.takeIf { it.diagnosticsEnabled }

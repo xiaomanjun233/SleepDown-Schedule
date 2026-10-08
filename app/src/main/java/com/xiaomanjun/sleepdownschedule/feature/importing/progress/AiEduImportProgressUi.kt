@@ -242,7 +242,9 @@ internal fun AiEduImportProgressPage(
     val historicalMode = historicalProgress != null && historicalDraft != null
     var localProgress by remember(historicalProgress) { mutableStateOf(historicalProgress) }
     var localPreviewDraft by remember(historicalDraft) { mutableStateOf(historicalDraft) }
-    var ownedRevisionTaskId by remember(historicalProgress) { mutableStateOf<String?>(null) }
+    var ownedRevisionTaskId by androidx.compose.runtime.saveable.rememberSaveable(taskId, historicalEntryId) {
+        mutableStateOf<String?>(null)
+    }
     val sessionProgress = observedSessionProgress?.takeIf {
         taskId.isNullOrBlank() || it.taskId == taskId
     }
@@ -353,10 +355,13 @@ internal fun AiEduImportProgressPage(
             ownedRevisionTaskId = null
         }
     }
-    LaunchedEffect(current.finished) {
+    LaunchedEffect(current.taskId, current.finished) {
         if (current.finished) {
             executionExpanded = false
             conversationSending = false
+            withFrameNanos { }
+            val last = listState.layoutInfo.totalItemsCount - 1
+            if (last >= 0) listState.animateScrollToItem(last)
         }
     }
     BackHandler(enabled = current.awaitingConfirmation) {
@@ -509,18 +514,22 @@ internal fun AiEduImportProgressPage(
                         )
                     }
                 }
-                if (current.requestSent && !current.finished && current.error == null && !current.awaitingConfirmation) {
-                    item(key = "live-model-reasoning") {
-                        AiImportReasoningPanel(taskId = current.taskId, textColor = textColor)
-                    }
-                }
                 val summary = current.reasoningOutput.ifBlank {
                     current.liveSummary.takeIf { current.finished || current.awaitingConfirmation }.orEmpty()
                 }
-                if (summary.isNotBlank()) item(key = "model-summary") {
+                val completedWithPreview = current.finished && current.error == null && previewDraft != null && !current.awaitingUserInput
+                if (completedWithPreview) item(key = "finished-process") {
+                    AiEduModelSummary(summary, textColor, title = "处理过程") {
+                        AgentRunTrace(
+                            statuses = aiEduAgentRunStatuses(current), expanded = true,
+                            foreground = textColor, active = false, onToggle = {}
+                        )
+                    }
+                }
+                if (!completedWithPreview && summary.isNotBlank()) item(key = "model-summary") {
                     AiEduModelSummary(summary = summary, textColor = textColor)
                 }
-                if (current.steps.isNotEmpty()) item {
+                if (!completedWithPreview && current.steps.isNotEmpty()) item {
                     AgentRunTrace(
                         statuses = aiEduAgentRunStatuses(current),
                         expanded = executionExpanded,
@@ -549,7 +558,22 @@ internal fun AiEduImportProgressPage(
                         )
                     }
                 }
-                previewDraft?.let { draft ->
+                if (current.requestSent && !current.finished && current.error == null && !current.awaitingConfirmation) {
+                    item(key = "live-model-reasoning") {
+                        AiImportReasoningPanel(taskId = current.taskId, textColor = textColor,
+                            listState = listState)
+                    }
+                }
+                if (current.awaitingUserInput) item(key = "model-questions") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("需要你补充", color = textColor, style = MaterialTheme.typography.titleMedium)
+                        Text(current.liveSummary, color = textColor.copy(alpha = 0.75f), style = MaterialTheme.typography.bodyMedium)
+                        current.clarificationQuestions.forEachIndexed { index, question ->
+                            Text("${index + 1}. $question", color = textColor, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+                previewDraft?.takeIf { current.finished && !current.awaitingUserInput && current.error == null }?.let { draft ->
                     item {
                         AiEduInlineImportPreview(
                             draft = draft,
@@ -569,7 +593,10 @@ internal fun AiEduImportProgressPage(
                 }
                 AiEduConversationComposer(
                     value = conversationInput,
-                    sending = conversationSending,
+                    sending = conversationSending || (!current.finished && !current.awaitingConfirmation),
+                    canInterrupt = AiImportTaskManager.canInterrupt(current.taskId),
+                    awaitingUserInput = current.awaitingUserInput,
+                    onStop = { AiImportTaskManager.pauseImport(context, current.taskId) },
                     config = config,
                     backdrop = conversationContentBackdrop,
                     runtimePickerState = runtimePickerState,
@@ -585,13 +612,17 @@ internal fun AiEduImportProgressPage(
                         val prompt = conversationInput.trim().ifBlank {
                             if (current.awaitingConfirmation) current.userPrompt else return@send
                         }
-                        if (conversationSending) return@send
-                        conversationInput = ""
                         if (current.awaitingConfirmation) {
+                            conversationInput = ""
                             updateProgress(current.copy(userPrompt = prompt))
                             AiEduImportProgressSession.confirm()
+                        } else if (AiImportTaskManager.canInterrupt(current.taskId)) {
+                            ownedRevisionTaskId = AiImportTaskManager.continueImport(context, current.taskId, prompt)
+                            if (ownedRevisionTaskId != null) conversationInput = ""
                         } else {
+                            if (conversationSending || !current.finished) return@send
                             val baseDraft = previewDraft ?: return@send
+                            conversationInput = ""
                             conversationSending = true
                             val settings = AiImportSettingsStore.loadForRuntime(context)
                                 ?: AiImportSettingsStore.load(context)
@@ -661,7 +692,10 @@ private fun AiEduConversationTurnSummary(
 }
 
 @Composable
-private fun AiEduModelSummary(summary: String, textColor: Color) {
+private fun AiEduModelSummary(
+    summary: String, textColor: Color, title: String = "模型摘要",
+    details: (@Composable () -> Unit)? = null
+) {
     var expanded by androidx.compose.runtime.saveable.rememberSaveable(summary) { mutableStateOf(false) }
     Column(
         modifier = Modifier
@@ -674,11 +708,14 @@ private fun AiEduModelSummary(summary: String, textColor: Color) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text("模型摘要", color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
+            Text(title, color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
             Text(if (expanded) "收起" else "展开", color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
         }
         androidx.compose.animation.AnimatedVisibility(expanded) {
-            Text(summary, color = textColor.copy(alpha = 0.86f), style = MaterialTheme.typography.bodyMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (summary.isNotBlank()) Text(summary, color = textColor.copy(alpha = 0.86f), style = MaterialTheme.typography.bodyMedium)
+                details?.invoke()
+            }
         }
     }
 }
@@ -1387,7 +1424,7 @@ private fun AiEduInlineImportPreview(
             ImportPreviewCourseCard(course, draft.periods, draft.config)
         }
         Text(
-            "如果内容不对，直接在下方告诉 AI 怎么修改。确认无误后再选择导入方式。",
+            "如果内容不对，直接在下方告诉 AI 怎么修改。确认导入后会打开该课表，并引导你设置开学周。",
             color = textColor.copy(alpha = 0.62f),
             style = MaterialTheme.typography.bodySmall
         )
@@ -1406,6 +1443,9 @@ private fun AiEduInlineImportPreview(
 private fun AiEduConversationComposer(
     value: String,
     sending: Boolean,
+    canInterrupt: Boolean,
+    awaitingUserInput: Boolean,
+    onStop: () -> Unit,
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     runtimePickerState: AiRuntimePickerState,
@@ -1453,7 +1493,11 @@ private fun AiEduConversationComposer(
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (value.isBlank()) {
                                 AutoFitSingleLineText(
-                                    text = if (attachmentVisible) {
+                                    text = if (awaitingUserInput) {
+                                        "回答问题，或补充导入要求…"
+                                    } else if (sending && canInterrupt) {
+                                        "可停止解析，或补充要求…"
+                                    } else if (attachmentVisible) {
                                         "帮我按规则导入…"
                                     } else {
                                         "告诉 AI 哪里需要修改…"
@@ -1474,7 +1518,7 @@ private fun AiEduConversationComposer(
                 )
                 if (backdrop != null) {
                     LiquidButton(
-                        onClick = onSend,
+                        onClick = { if (sending && canInterrupt && value.isBlank()) onStop() else onSend() },
                         backdrop = backdrop,
                         modifier = Modifier.size(40.dp),
                         height = 40.dp,
@@ -1487,14 +1531,16 @@ private fun AiEduConversationComposer(
                         chromaticAberration = false
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text(if (sending && canInterrupt && value.isBlank()) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     }
                 } else {
                     Box(
-                        Modifier.size(40.dp).clip(CircleShape).background(Color(0xFF0A84FF)).clickable(onClick = onSend),
+                        Modifier.size(40.dp).clip(CircleShape).background(Color(0xFF0A84FF)).clickable {
+                            if (sending && canInterrupt && value.isBlank()) onStop() else onSend()
+                        },
                         contentAlignment = Alignment.Center
-                    ) { Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold) }
+                    ) { Text(if (sending && canInterrupt && value.isBlank()) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold) }
                 }
             }
         }

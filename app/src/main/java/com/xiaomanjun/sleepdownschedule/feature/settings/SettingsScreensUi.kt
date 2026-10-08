@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -138,23 +139,22 @@ fun GeneralSettingsScreen(
         contentBottomPadding = DockScrollPadding
     ) {
         item(key = "general-appearance") {
-            GlassPreferenceSection("外观与布局") {
+            GlassPreferenceSection("外观") {
                 SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
+                    val effectiveDarkMode = appUsesDarkTheme(draft)
+                    SettingsThemeModeOptions(
+                        darkMode = effectiveDarkMode,
+                        defaultHomeMode = draft.defaultHomeMode,
+                        onSelected = { applyChange(draft.copy(darkMode = it, followSystemDarkMode = false)) }
+                    )
                     SettingsToggleRow(
                         title = "跟随系统",
-                        subtitle = "开启后将跟随系统切换浅色或深色模式。",
+                        subtitle = "",
                         checked = draft.followSystemDarkMode,
                         backdrop = backdrop,
-                        onCheckedChange = { applyChange(draft.copy(followSystemDarkMode = it)) }
-                    )
-                    SettingsDivider()
-                    SettingsToggleRow(
-                        title = "深色模式",
-                        subtitle = if (draft.followSystemDarkMode) "当前由系统外观决定。" else "手动切换应用外观。",
-                        checked = draft.darkMode,
-                        backdrop = backdrop,
-                        enabled = !draft.followSystemDarkMode,
-                        onCheckedChange = { applyChange(draft.copy(darkMode = it, followSystemDarkMode = false)) }
+                        onCheckedChange = {
+                            applyChange(draft.copy(followSystemDarkMode = it, darkMode = effectiveDarkMode))
+                        }
                     )
                     SettingsDivider()
                     SettingsNavigationRow(
@@ -185,8 +185,8 @@ fun GeneralSettingsScreen(
                 }
             }
         }
-        item(key = "general-layout-mode") {
-            GlassPreferenceSection("首页与模式") {
+        item(key = "general-navigation-layout") {
+            GlassPreferenceSection("导航与布局") {
                 SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
                     SleepDownLiquidDropdownPreference(
                         title = "导航模式",
@@ -320,15 +320,15 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
         contentBottomPadding = DockScrollPadding
     ) {
         item {
-            GlassPreferenceSection("AI助理") {
+            GlassPreferenceSection("AI 助理") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsInfoRow(
-                        "AI助理",
+                        "AI 助理",
                         "日视图展示今日安排；周视图下拉进入对话，在课前与开始时提醒。两个入口共享消息记录。"
                     )
                     SettingsDivider()
                     SettingsToggleRow(
-                        title = "启用AI助理",
+                        title = "启用 AI 助理",
                         subtitle = "显示课程、空档、天气与问答入口。",
                         checked = enabled,
                         backdrop = backdrop,
@@ -339,7 +339,7 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
                     )
                     SettingsDivider()
                     SettingsToggleRow(
-                        title = "周视图AI助理",
+                        title = "周视图 AI 助理",
                         subtitle = "启用首页下拉对话与课程节点提醒。",
                         checked = weekAssistantEnabled,
                         backdrop = backdrop,
@@ -821,7 +821,7 @@ fun AiImportSettingsSection(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
         SettingsInfoRow(
             "AI 设置",
-            "配置AI助理、AI 对话、教务课表解析等智能功能共用的模型服务。API Key 按服务商分别加密保存在本机，不会写入课表数据库或诊断日志。选择“无”可停用所有联网 AI 能力，本地课表功能不受影响。"
+            "配置 AI 助理、AI 对话、教务课表解析等智能功能共用的模型服务。API Key 按服务商分别加密保存在本机，不会写入课表数据库或诊断日志。选择“无”可停用所有联网 AI 能力，本地课表功能不受影响。"
         )
         AiProviderPickerRow(
             value = if (isCustomProvider) customProviderDisplayName else selectedPreset.displayName,
@@ -838,7 +838,7 @@ fun AiImportSettingsSection(
             SettingsDivider()
             SettingsInfoRow(
                 "AI 功能已停用",
-                "AI助理将使用本地时间与课程模板，AI 对话和 AI 教务解析入口不会发起模型请求。已保存的其他服务商 Key 会保留，重新选择后可继续使用。"
+                "AI 助理将使用本地时间与课程模板，AI 对话和 AI 教务解析入口不会发起模型请求。已保存的其他服务商 Key 会保留，重新选择后可继续使用。"
             )
         }
                 }
@@ -954,7 +954,7 @@ fun AiImportSettingsSection(
         SettingsToggleRow(
             title = "Responses API",
             subtitle = if (modelSupportsResponses) {
-                "开启后 AI 导入与AI助理的所有请求统一使用 /responses。"
+                "开启后 AI 导入与 AI 助理的所有请求统一使用 /responses。"
             } else {
                 "当前模型没有已知的 Responses 能力，将继续使用 Chat Completions。"
             },
@@ -984,7 +984,7 @@ fun AiImportSettingsSection(
         if (isCustomProvider) {
             SettingsToggleRow(
                 title = "文件上传",
-                subtitle = "允许AI助理向该兼容接口发送图片附件。",
+                subtitle = "允许 AI 助理向该兼容接口发送图片附件。",
                 checked = supportsFileUpload,
                 backdrop = backdrop,
                 onCheckedChange = {
@@ -1026,35 +1026,28 @@ fun AiImportSettingsSection(
                 .padding(horizontal = 20.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Text("连接测试", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                SettingsActionButton(
-                    "网络诊断",
-                    backdrop,
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("连接测试", modifier = Modifier.weight(1f),
+                    style = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.headline1,
+                    fontWeight = FontWeight.Medium)
+                var testing by remember { mutableStateOf(false) }
+                DialogLiquidButton(
+                    label = if (testing) "测试中" else "测试连接",
+                    backdrop = backdrop,
+                    iconRes = R.drawable.ic_refresh,
+                    enabled = !testing,
                     onClick = {
                         val nextKey = apiKeyInput.ifBlank { saved.apiKey }
-                        testResult = "正在诊断网络..."
-                        scope.launch {
-                            diagnoseAiProviderNetwork(AiImportSettings(profile, nextKey))
-                                .onSuccess { testResult = it }
-                                .onFailure { testResult = it.message ?: "网络诊断失败" }
-                        }
-                    },
-                    modifier = Modifier.weight(1f)
-                )
-                SettingsActionButton(
-                    "测试连接",
-                    backdrop,
-                    onClick = {
-                        val nextKey = apiKeyInput.ifBlank { saved.apiKey }
+                        testing = true
                         testResult = "正在测试连接..."
                         scope.launch {
-                            testAiProviderConnection(AiImportSettings(profile, nextKey))
-                                .onSuccess { testResult = it }
-                                .onFailure { testResult = it.message ?: "连接测试失败" }
+                            try {
+                                testAiProviderConnection(AiImportSettings(profile, nextKey))
+                                    .onSuccess { testResult = it }
+                                    .onFailure { testResult = it.message ?: "连接测试失败" }
+                            } finally { testing = false }
                         }
-                    },
-                    modifier = Modifier.weight(1f)
+                    }
                 )
             }
             testResult?.let {

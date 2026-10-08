@@ -99,7 +99,7 @@ internal fun homeDropletFrame(
     val corner = lerp(minOf(width, height) / 2f, targetCorner * reboundScale, expansion.pow(3f))
     val contentAlpha = if (closing) 1f - dropletReveal(0f, 0.24f, closeElapsed)
         else dropletReveal(0.24f, 0.76f, expansion)
-    val sourceAlpha = if (closing) dropletReveal(0.74f, 0.96f, closeElapsed)
+    val sourceAlpha = if (closing) dropletReveal(0.34f, 0.64f, closeElapsed)
         else 1f - dropletReveal(0.01f, 0.12f, p)
     val menuBlend = dropletReveal(0.10f, 0.52f, expansion)
     val rect = Rect(center.x - width / 2f, center.y - height / 2f,

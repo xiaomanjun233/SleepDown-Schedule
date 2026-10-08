@@ -102,6 +102,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.material.icons.rounded.Settings
+import androidx.compose.material.icons.rounded.Widgets
+import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.Notifications
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.ChatBubble
+import androidx.compose.material.icons.rounded.SettingsBackupRestore
+import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.platform.LocalView
@@ -354,6 +364,7 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
 import com.xiaomanjun.sleepdownschedule.transition.transitionRouteIdOrNull
 import com.xiaomanjun.sleepdownschedule.domain.schedule.formatScheduleDate
+import com.xiaomanjun.sleepdownschedule.domain.schedule.previewCourseEdits
 import com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate
 import com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate
 import top.yukonga.miuix.kmp.squircle.squircleClip
@@ -441,7 +452,7 @@ internal fun HomeStartMode.toHomeMode(): HomeMode = when (this) {
     HomeStartMode.WEEK -> HomeMode.Week
 }
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
+enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, PeriodSchemes, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
 
 /** Matches the navigation motion used by the bundled Miuix system-style navigator. */
 private class MiuixSettingsNavigationEasing(
@@ -507,8 +518,9 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.LiquidGlass -> "液态玻璃"
     SettingsPage.Widgets -> "小组件设置"
     SettingsPage.AiImport -> "AI 设置"
-    SettingsPage.DayAgent -> "AI助理"
+    SettingsPage.DayAgent -> "AI 助理"
     SettingsPage.Schedule -> "课表详细设置"
+    SettingsPage.PeriodSchemes -> "作息管理"
     SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
@@ -523,6 +535,7 @@ private fun SettingsPage.title(): String = when (this) {
 internal fun SettingsPage.usesPersistentCenteredSettingsTitle(): Boolean = when (this) {
     SettingsPage.LiquidGlass,
     SettingsPage.Widgets,
+    SettingsPage.PeriodSchemes,
     SettingsPage.AutoRefreshSchedule,
     SettingsPage.About,
 	SettingsPage.Changelog,
@@ -830,18 +843,22 @@ fun CourseScheduleAppUi(
     val courseEditorMotionState = rememberCourseEditorMotionState()
     val courseEditorFlightRegistry = remember { CourseEditorFlightRegistry() }
     val courseEditorOverlayPhase = courseEditorMotionState.phase
-    fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?, copyDraft: CourseEntity? = null, contextMessage: String? = null) {
+    fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?, copyDraft: CourseEntity? = null, contextMessage: String? = null, sourceAdjustmentLabel: String? = null) {
         if (courseEditorRequest != null) return
         val sourceGrid = targetWeek?.let(courseEditorFlightRegistry::grid)
+        val clickedSource = courseEditorFlightRegistry.consumeSource(sourceBounds)
         courseEditorFlightRegistry.frozen = true
         courseEditorRequest = CourseEditorOverlayRequest(
             course = course,
             targetWeek = targetWeek,
             sourceBoundsInRoot = sourceBounds,
+            sourceClipBoundsInRoot = clickedSource?.visibleBounds,
+            sourceDayAppearance = clickedSource?.dayAppearance,
             sourceIsDayCard = homeMode != HomeMode.Week && sourceBounds != null,
             copyDraft = copyDraft,
             sourceGrid = sourceGrid,
-            contextMessage = contextMessage
+            contextMessage = contextMessage,
+            sourceAdjustmentLabel = sourceAdjustmentLabel
         )
     }
     fun openAdjustedCourseEditor(courseId: Long, date: LocalDate, sourceBounds: Rect?) {
@@ -854,7 +871,8 @@ fun CourseScheduleAppUi(
         } else if (adjustment != null) {
             "$date 已停课。这里编辑保留的原课程；当天是否上课由调休安排决定。"
         } else null
-        openCourseEditor(original, originalWeek, sourceBounds, contextMessage = message)
+        openCourseEditor(original, originalWeek, sourceBounds, contextMessage = message,
+            sourceAdjustmentLabel = adjustment?.let { if (it.sourceDate == null) "停" else "补" })
     }
     fun closeCourseEditor() {
         courseEditorRequest = null
@@ -896,7 +914,7 @@ fun CourseScheduleAppUi(
                 val latest = latestCopyState.value
                 when {
                     latest.config.id != candidate.scheduleId -> "课表已切换，请重新选择"
-                    else -> conflictWeeksForAddedCourses(listOf(candidate), latest.courses, latest.periods)
+                    else -> conflictWeeksForAddedCourses(latest.previewCourseEdits(listOf(candidate)), latest.courses, latest.periods)
                         .takeIf { it.isNotEmpty() }
                         ?.let { "课程冲突，请换个位置" }
                 }
@@ -911,7 +929,7 @@ fun CourseScheduleAppUi(
     var homeAnchoredOverlayRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
     var homeMenuFromDock by remember { mutableStateOf(false) }
     var dockImportButtonBounds by remember { mutableStateOf<Rect?>(null) }
-    var dockImportReturnSnapshot by remember { mutableStateOf<Bitmap?>(null) }
+    var dockImportReturnLayer by remember { mutableStateOf<androidx.compose.ui.graphics.layer.GraphicsLayer?>(null) }
     var jumpWeekDialogMounted by remember { mutableStateOf(false) }
     var jumpWeekDialogVisible by remember { mutableStateOf(false) }
     var pendingJumpWeekDialog by remember { mutableStateOf(false) }
@@ -1010,7 +1028,7 @@ fun CourseScheduleAppUi(
         if (kind == HomeAnchoredOverlayKind.Add) {
             homeMenuFromDock = false
             homeAddMenuBoundsInRoot = null
-            dockImportReturnSnapshot = null
+            dockImportReturnLayer = null
         }
         homeAnchoredOverlayRequest = HomeAnchoredOverlayRequest(kind, bounds, sourcePressedScale)
     }
@@ -1056,8 +1074,6 @@ fun CourseScheduleAppUi(
 
     LaunchedEffect(
         pendingHomeAnchoredOverlay,
-        addButtonBounds,
-        personalizeButtonBounds,
         homeAnchoredMorphState.phase,
         screen
     ) {
@@ -1065,6 +1081,11 @@ fun CourseScheduleAppUi(
         if (screen !is Screen.Home || homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle) {
             return@LaunchedEffect
         }
+        // Top-bar anchors move on every Settings/Home frame. Observe them only for a pending
+        // open; reading them as effect keys recomposed this entire root during the page slide.
+        snapshotFlow {
+            if (pending == HomeAnchoredOverlayKind.Add) addButtonBounds else personalizeButtonBounds
+        }.first { it != null && it.width > 2f && it.height > 2f }
         openHomeAnchoredOverlay(pending, pendingHomeAnchoredSourceScale)
     }
     LaunchedEffect(screen) {
@@ -1169,7 +1190,9 @@ fun CourseScheduleAppUi(
             result.data?.getStringExtra(ScheduleAdjustmentsActivity.ArrangementsExtra)?.let { value ->
                 val scheduleId = result.data?.getIntExtra(ScheduleAdjustmentsActivity.ScheduleIdExtra, -1) ?: -1
                 val original = result.data?.getStringExtra(ScheduleAdjustmentsActivity.OriginalArrangementsExtra)
-                if (scheduleId > 0 && original != null) viewModel.saveScheduleAdjustments(scheduleId, original, value)
+                if (scheduleId > 0 && original != null &&
+                    result.data?.getBooleanExtra(ScheduleAdjustmentsActivity.SavedExtra, false) != true
+                ) viewModel.saveScheduleAdjustments(scheduleId, original, value)
             }
         }
     }
@@ -1181,11 +1204,15 @@ fun CourseScheduleAppUi(
     }
     LaunchedEffect(aiFinalImportRequest) {
         aiFinalImportRequest?.let { request ->
-            viewModel.importDraft(request.draft, request.createNewSchedule) {
+            viewModel.importDraft(request.draft, request.createNewSchedule, onFailure = {
+                homeDialog = HomeDialog.ConfirmImport(request.draft, returnDialog = null)
+            }) { scheduleId ->
                 dismissHomeDialog()
                 screen = Screen.Home
-                pendingImportedSetupId = null
+                homeMode = HomeMode.Week
+                pendingImportedSetupId = scheduleId
             }
+            // Claim this one-shot request now so Activity recreation cannot import it twice.
             AiEduImportProgressSession.consumeFinalImportRequest()
         }
     }
@@ -1218,6 +1245,13 @@ fun CourseScheduleAppUi(
     val backgroundBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Background,
         providerId = "home-background",
+        sceneState = glassSceneState
+    )
+    // Record before page translation/rounding. Course cards compare their relative position
+    // with this moving origin; the wallpaper pixels and shared blur stay unchanged on a tab switch.
+    val courseWallpaperBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Background,
+        providerId = "home-course-wallpaper",
         sceneState = glassSceneState
     )
     val contentBackdrop = rememberGlassLayerBackdrop(
@@ -1521,6 +1555,12 @@ fun CourseScheduleAppUi(
     // behind it stay aligned (see homeAnchoredOverlayBackdrop).
     val courseEditorBackdrop = rememberScreenScaledBackdrop(
         backdrop = cachedWeekHomeBackdrop,
+        scale = { courseEditorMotionState.backgroundZoom.value },
+        rootPositionOnScreen = { homeRootPositionOnScreen },
+        rootSize = { homeReadabilityRootSize }
+    )
+    val courseEditorSourceBackdrop = rememberScreenScaledBackdrop(
+        backdrop = courseWallpaperBackdrop,
         scale = { courseEditorMotionState.backgroundZoom.value },
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
@@ -2036,6 +2076,7 @@ fun CourseScheduleAppUi(
     LaunchedEffect(pendingImportedSetupId) {
         val scheduleId = pendingImportedSetupId ?: return@LaunchedEffect
         screen = Screen.Home
+        homeMode = HomeMode.Week
         dismissHomeDialog()
         snapshotFlow {
             val latest = latestAllSchedulesState.value
@@ -2221,11 +2262,12 @@ fun CourseScheduleAppUi(
         hasWallpaper = visualState.config.hasAnyWallpaper()
     )
     val sharedCourseRadiusPx = with(LocalDensity.current) { (sharedCourseFrame.blur ?: 0.dp).toPx() }
-    val sharedCourseBackdrop = remember(backgroundBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy) {
-        com.kyant.backdrop.backdrops.SharedBlurBackdrop(backgroundBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
+    val sharedCourseBackdrop = remember(courseWallpaperBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy) {
+        com.kyant.backdrop.backdrops.SharedBlurBackdrop(courseWallpaperBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
     }
-    val sharedCourseBackdropExpected = rootPageMotion.retains(false) &&
-        visualState.config.courseCardGlassEnabled && visualState.config.hasAnyWallpaper() &&
+    // Retained timetable cards must retain their material source as well. Removing this on
+    // Settings used to replace every card's sampler and allocate it again on the return frame.
+    val sharedCourseBackdropExpected = visualState.config.courseCardGlassEnabled && visualState.config.hasAnyWallpaper() &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val useSharedCourseBackdrop = sharedCourseBackdropExpected && wallpaperImages.source != null
     lateinit var handleHomeAgentAction: AgentActionHandler
@@ -2772,9 +2814,16 @@ fun CourseScheduleAppUi(
                         })
                         .background(transitionBackground)
                 ) {
-                    if (rootPageMotion.retains(false)) {
-                        Box(Modifier.fillMaxSize().homeSwitchLayer(rootPageMotion, secondary = false,
-                            pageClip = HomeSwitchClip.Page)) {
+                    run {
+                        Box(Modifier.fillMaxSize()
+                            .drawWithContent { if (rootPageMotion.retains(false)) drawContent() }
+                            .homeSwitchLayer(rootPageMotion, secondary = false, pageClip = HomeSwitchClip.Page)
+                            .glassBackdropProducer(courseWallpaperBackdrop, recordKey = {
+                                homeWallpaperRecordKey.value?.let { imageKey ->
+                                    imageKey to (personalizationPreviewState.wallpaperBrightness
+                                        ?: visualState.config.wallpaperBrightness)
+                                }
+                            })) {
                         if (!visualState.loaded) {
                             HomeBackdropFallback(
                                 noWallpaper = !visualState.config.hasAnyWallpaper()
@@ -2825,11 +2874,14 @@ fun CourseScheduleAppUi(
                     }
                 }
                 if (useSharedCourseBackdrop) {
-                    Box(Modifier.fillMaxSize().then(sharedCourseBackdrop.preRenderModifier {
-                        // Include the corners: they follow the tail after the faster page lands.
+                    Box(Modifier.fillMaxSize()
+                        .drawWithContent { if (rootPageMotion.retains(false)) drawContent() }
+                        .then(sharedCourseBackdrop.preRenderModifier {
+                        // This source is inside the page transform: neither translation nor
+                        // page corners change its pixels. Each card still samples its live offset.
                         homeWallpaperRecordKey.value?.let { imageKey ->
-                            listOf(imageKey, personalizationPreviewState.wallpaperBrightness
-                                ?: visualState.config.wallpaperBrightness, rootPageMotion.pageSampleKey)
+                            imageKey to (personalizationPreviewState.wallpaperBrightness
+                                ?: visualState.config.wallpaperBrightness)
                         }
                     }))
                 }
@@ -2856,7 +2908,7 @@ fun CourseScheduleAppUi(
                                     displayWeek = homeDisplayWeek,
                                     returnToCurrentWeekRequest = returnHomeWeekRequest,
                                     displayDate = homeDisplayDate,
-                                    backdrop = backgroundBackdrop,
+                                    backdrop = courseWallpaperBackdrop,
                                     dayAgentBackdrop = dayAgentBackdrop,
                                     // Dragged week cards must not sample contentBackdrop/chromeBackdrop:
                                     // they live inside contentBackdrop, so sampling it can recursively include themselves.
@@ -3034,23 +3086,14 @@ fun CourseScheduleAppUi(
                             buttonHidden = homeMenuFromDock && addButtonHidden,
                             onOpenMenu = { bounds, returnButtonLayer ->
                                 if (!homeBackgroundOverlayActive && !homeDialogVisible) {
-                                    appScope.launch {
-                                        // Capture only the 54dp button before it is hidden. Avoid a
-                                        // full-window readback when opening this compact menu.
-                                        val returnSnapshot = runCatching {
-                                            returnButtonLayer.toImageBitmap().asAndroidBitmap()
-                                        }.getOrNull()
-                                        if (homeAnchoredOverlayRequest == null) {
-                                            performButtonHaptic(dockButtonView)
-                                            dockImportReturnSnapshot = returnSnapshot
-                                            dockImportButtonBounds = bounds
-                                            homeMenuFromDock = true
-                                            homeAddMenuBoundsInRoot = null
-                                            homeAnchoredOverlayRequest = HomeAnchoredOverlayRequest(
-                                                HomeAnchoredOverlayKind.Add, bounds, fromDock = true
-                                            )
-                                        }
-                                    }
+                                    performButtonHaptic(dockButtonView)
+                                    dockImportReturnLayer = returnButtonLayer
+                                    dockImportButtonBounds = bounds
+                                    homeMenuFromDock = true
+                                    homeAddMenuBoundsInRoot = null
+                                    homeAnchoredOverlayRequest = HomeAnchoredOverlayRequest(
+                                        HomeAnchoredOverlayKind.Add, bounds, fromDock = true
+                                    )
                                 }
                             }
                         )
@@ -3269,8 +3312,11 @@ fun CourseScheduleAppUi(
                     detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
                 }.getOrNull()
                 val sourceSnapshot = fullFrame?.cropToAnchoredBounds(sourceBoundsInRoot)
-                val collapseSnapshot = if (homeMenuFromDock) dockImportReturnSnapshot
-                    else fullFrame?.cropToAnchoredBounds(collapseBoundsInRoot)
+                // Only crossing an Activity boundary needs a bitmap. By now the hidden dock
+                // has recorded the normal, non-interactive button during the preparing frame.
+                val collapseSnapshot = if (homeMenuFromDock) runCatching {
+                    dockImportReturnLayer?.toImageBitmap()?.asAndroidBitmap()
+                }.getOrNull() else fullFrame?.cropToAnchoredBounds(collapseBoundsInRoot)
                 // Never hide the accepted glass menu unless both the complete opening source and
                 // the real top-right return button have been captured successfully.
                 if (sourceSnapshot == null || collapseSnapshot == null) {
@@ -3578,13 +3624,16 @@ fun CourseScheduleAppUi(
         personalizePreviewProgress = personalizationPreviewProgress,
         sourceContent = { kind, sourceModifier ->
             if (kind == HomeAnchoredOverlayKind.Add) {
-                // The SDF shell owns the material throughout the morph. A second full glass
-                // button inside it would create a dark, independently moving "ghost" surface.
-                Box(sourceModifier, contentAlignment = Alignment.Center) {
-                    Icon(if (homeMenuFromDock) rememberVectorPainter(Icons.Rounded.Add)
-                        else homeActionIconPainter(R.drawable.ic_more_horizontal),
-                        null, Modifier.size(if (homeMenuFromDock) 24.dp else 21.dp),
-                        tint = if (homeMenuFromDock) ComposeColor.White else LocalAdaptiveGlass.current.contentColor)
+                // The shell fades out as this complete button fades in. An icon-only clone left
+                // the blue button surface missing until the real Dock returned on the last frame.
+                if (homeMenuFromDock) {
+                    HomeImportButtonReturnVisual(homeAnchoredOverlayBackdrop, state.config, sourceModifier)
+                } else {
+                    HomeIconButtonVisual(
+                        backdrop = homeAnchoredOverlayBackdrop, config = state.config,
+                        iconRes = R.drawable.ic_more_horizontal, contentDescription = "添加菜单",
+                        modifier = sourceModifier, isInteractive = false
+                    )
                 }
             } else {
             HomeIconButtonVisual(
@@ -3752,9 +3801,8 @@ fun CourseScheduleAppUi(
             else if (parallelPhoneNavigation) homeAddActions.takeLast(3) else homeAddActions,
         onSourceHandoff = { homeMenuSourceHidden = true },
         collapseContent = { returnModifier ->
-            val snapshot = dockImportReturnSnapshot
-            if (homeMenuFromDock && snapshot != null) {
-                Image(snapshot.asImageBitmap(), contentDescription = null, modifier = returnModifier)
+            if (homeMenuFromDock) {
+                HomeImportButtonReturnVisual(homeMenuDestinationBackdrop, state.config, returnModifier)
             } else {
                 HomeIconButtonVisual(
                     backdrop = homeMenuDestinationBackdrop, config = state.config,
@@ -3772,7 +3820,7 @@ fun CourseScheduleAppUi(
             destinationOwnsButtonReturn = false
         },
         onAddCourses = { courses ->
-            val conflictWeeks = conflictWeeksForAddedCourses(courses, state.courses, state.periods)
+            val conflictWeeks = conflictWeeksForAddedCourses(state.previewCourseEdits(courses), state.courses, state.periods)
             if (conflictWeeks.isEmpty()) {
                 viewModel.addCourses(courses)
                 closeHomeMenuDestination()
@@ -3989,6 +4037,7 @@ fun CourseScheduleAppUi(
             request = courseEditorRequest,
             state = state,
             backdrop = courseEditorBackdrop,
+            sourceCardBackdrop = courseEditorSourceBackdrop,
             config = state.config,
             adaptiveMetrics = homeAdaptiveMetrics,
             modifier = Modifier.zIndex(100f),
@@ -4058,7 +4107,7 @@ fun CourseScheduleAppUi(
     if (showManagedFreeAiOffer) {
         LiquidAlertDialog(
             title = "启用每日免费 AI？",
-            message = "SleepDown 为尚未配置模型服务的用户提供每日免费 AI 额度，可用于AI助理、AI 对话和 AI 教务导入。固定使用 gpt-5.6-luna 与 Responses 接口，可随时在 AI 设置中切换或关闭。",
+            message = "SleepDown 为尚未配置模型服务的用户提供每日免费 AI 额度，可用于 AI 助理、AI 对话和 AI 教务导入。固定使用 gpt-5.6-luna 与 Responses 接口，可随时在 AI 设置中切换或关闭。",
             actions = listOf(
                 LiquidAlertAction("暂不启用", LiquidAlertActionStyle.Secondary) {
                     AiImportSettingsStore.declineManagedFreeAi(context)
@@ -4191,8 +4240,8 @@ fun CourseScheduleAppUi(
                     courseEditorHasOccurrence(dialog.original, dialog.targetWeek),
                 onSingle = {
                     val conflictWeeks = conflictWeeksForSingleWeekEdit(
-                        dialog.original,
-                        singleEdited,
+                        state.previewCourseEdits(listOf(dialog.original)).single(),
+                        state.previewCourseEdits(listOf(singleEdited)).single(),
                         dialog.targetWeek,
                         state.courses,
                         state.periods
@@ -4218,7 +4267,7 @@ fun CourseScheduleAppUi(
                 },
                 onAll = {
                     val conflictWeeks = conflictWeeksForEditedCourseGroup(
-                        allScope.originals, allScope.edited, state.courses, state.periods
+                        state.previewCourseEdits(allScope.originals), state.previewCourseEdits(allScope.edited), state.courses, state.periods
                     )
                     if (conflictWeeks.isEmpty()) {
                         if (allScope.originals.size == 1 && allScope.edited.size == 1) {
@@ -4467,7 +4516,8 @@ fun CourseScheduleAppUi(
                                 dismissHomeDialog()
                                 if (dialog.draft.source == ImportDraftSource.AI_EDU) {
                                     screen = Screen.Home
-                                    pendingImportedSetupId = null
+                                    homeMode = HomeMode.Week
+                                    pendingImportedSetupId = scheduleId
                                 } else {
                                     pendingImportedSetupId = scheduleId
                                 }
@@ -5082,8 +5132,9 @@ internal fun AppTopBar(
                         SettingsPage.LiquidGlass -> "液态玻璃"
                         SettingsPage.Widgets -> "小组件设置"
                         SettingsPage.AiImport -> "AI 设置"
-                        SettingsPage.DayAgent -> "AI助理"
+                        SettingsPage.DayAgent -> "AI 助理"
                         SettingsPage.Schedule -> "课表详细设置"
+                        SettingsPage.PeriodSchemes -> "作息管理"
                         SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
                         SettingsPage.Notifications -> "通知设置"
                         SettingsPage.ScheduleManager -> "课表设置"
@@ -6810,6 +6861,7 @@ fun PersonalizePanel(
                             insideMargin = PaddingValues(horizontal = 0.dp, vertical = 6.dp),
                             maxHeight = 260.dp,
                             compactTextStyle = rowTextStyle,
+                            showAnchorPressFeedback = false,
                             backdrop = backdrop,
                             config = state.config,
                             onSelectedIndexChange = { index ->
@@ -6898,6 +6950,7 @@ fun PersonalizePanel(
                     onOpenPalette = { openCourseColorDialog(CourseCardColorMode.COLORFUL) }
                 )
                 val glassLocked = !state.config.hasAnyWallpaper()
+                val minimumCardAlpha = if (glassLocked) FlatCourseCardMinimumAlpha else 0f
                 val alphaLabel = when {
                     !glassLocked &&
                         state.config.courseCardGlassEnabled &&
@@ -6908,8 +6961,8 @@ fun PersonalizePanel(
                 PersonalizeValueSlider(
                     sliderKey = PersonalizeCardAlphaSlider,
                     modifier = Modifier.rowEntrance(9 + weekContentRows),
-                    value = state.config.cardAlpha.coerceIn(0f, 1f),
-                    valueRange = 0f..1f,
+                    value = state.config.cardAlpha.coerceIn(minimumCardAlpha, 1f),
+                    valueRange = minimumCardAlpha..1f,
                     backdrop = backdrop,
                     label = { "$alphaLabel ${(it * 100).toInt()}%" },
                     onCommit = {
@@ -7357,7 +7410,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                 val closeSettings: () -> Unit = { (transitionRequestClose ?: { finish() })() }
                 val requestExit: () -> Unit = {
                     when (section) {
-                        SettingsPage.Schedule -> scheduleExitRequest++
+                        SettingsPage.Schedule, SettingsPage.PeriodSchemes -> scheduleExitRequest++
                         else -> closeSettings()
                     }
                 }
@@ -7437,6 +7490,18 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 exitCommitRequest = scheduleExitRequest,
                                 onExitCommitFinished = { saved -> if (saved) closeSettings() },
                                 onExitInterceptionChange = { interceptSystemBack = it }
+                            )
+                        }
+                        SettingsPage.PeriodSchemes -> if (!scheduleEditReady) {
+                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                androidx.compose.material3.CircularProgressIndicator()
+                            }
+                        } else {
+                            PeriodSchemeManagementScreen(
+                                state = scheduleEditState, backdrop = backdrop, exitCommitRequest = scheduleExitRequest,
+                                onExitCommitFinished = { saved -> if (saved) closeSettings() },
+                                onExitInterceptionChange = { interceptSystemBack = it },
+                                onOpenScheduleSettings = if (customizeScheduleId != null) closeSettings else null
                             )
                         }
                         SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
@@ -7603,7 +7668,10 @@ private fun scheduleConfigStateForEdit(state: AppState, scheduleId: Int): AppSta
         ?: defaultConfig(scheduleId)
     val targetPeriods = state.allPeriods.filter { it.scheduleId == scheduleId }
         .ifEmpty { state.periods.takeIf { targetConfig.id == state.config.id } ?: defaultPeriods(scheduleId) }
-    return state.copy(config = targetConfig.copy(id = scheduleId), periods = targetPeriods)
+    return state.copy(
+        config = targetConfig.copy(id = scheduleId), periods = targetPeriods,
+        courses = state.allCourses.filter { it.scheduleId == scheduleId }
+    )
 }
 
 open class EduSchoolSelectActivityHost : ComponentActivity() {
@@ -7827,7 +7895,10 @@ open class EduImportActivityHost : ComponentActivity() {
                                 backdrop = backdrop,
                                 onCancel = { pendingDraft = null },
                                 onConfirm = { createNewSchedule ->
-                                    viewModel.importDraft(previewDraft, createNewSchedule) {
+                                    viewModel.importDraft(previewDraft, createNewSchedule) { scheduleId ->
+                                        if (previewDraft.source == ImportDraftSource.AI_EDU) {
+                                            PendingImportSetupStore.put(this@EduImportActivityHost, scheduleId)
+                                        }
                                         returnToScheduleHome()
                                     }
                                 }
@@ -8101,6 +8172,7 @@ fun SettingsScreen(
                 mutableStateOf(TabletSettingsNavigationState())
             }
             var detailNavigationDirection by remember { mutableIntStateOf(0) }
+            var periodSchemeReturnRequest by remember { mutableIntStateOf(0) }
             var tabletWidgetEditorVisible by remember { mutableStateOf(false) }
             var pendingPageName by remember { mutableStateOf<String?>(null) }
             var scheduleExitInFlight by remember { mutableStateOf(false) }
@@ -8158,6 +8230,7 @@ fun SettingsScreen(
             fun popTabletDetailPage() {
                 val nextNavigation = tabletNavigation.popDetail()
                 if (nextNavigation == tabletNavigation) return
+                if (displayedPage == SettingsPage.PeriodSchemes) periodSchemeReturnRequest++
                 detailNavigationDirection = -1
                 tabletNavigation = nextNavigation
             }
@@ -8310,7 +8383,9 @@ fun SettingsScreen(
                                         if (needsInterception) put(targetPage, true) else remove(targetPage)
                                     }
                                 },
-                                autoRefreshWarehouseRequest = autoRefreshWarehouseRequest
+                                autoRefreshWarehouseRequest = autoRefreshWarehouseRequest,
+                                onOpenScheduleSettings = ::popTabletDetailPage,
+                                periodSchemeReturnRequest = periodSchemeReturnRequest
                             )
                         }
                     }
@@ -8368,7 +8443,9 @@ private fun SettingsPageContent(
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
     onExitInterceptionChange: (Boolean) -> Unit = {},
-    autoRefreshWarehouseRequest: Int = 0
+    autoRefreshWarehouseRequest: Int = 0,
+    onOpenScheduleSettings: (() -> Unit)? = null,
+    periodSchemeReturnRequest: Int = 0
 ) {
     when (page) {
         SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange = onPageChange)
@@ -8397,7 +8474,7 @@ private fun SettingsPageContent(
             onExitCommitFinished = onExitCommitFinished
         )
         SettingsPage.DayAgent -> DayAgentSettingsScreen(state, backdrop)
-        SettingsPage.Schedule -> ScheduleConfigScreen(
+        SettingsPage.Schedule -> key(periodSchemeReturnRequest) { ScheduleConfigScreen(
             state = state,
             backdrop = backdrop,
             section = SettingsSection.Schedule,
@@ -8405,7 +8482,14 @@ private fun SettingsPageContent(
             onPreviewLiveUpdate = onPreviewLiveUpdate,
             exitCommitRequest = exitCommitRequest,
             onExitCommitFinished = onExitCommitFinished,
-            onExitInterceptionChange = onExitInterceptionChange
+            onExitInterceptionChange = onExitInterceptionChange,
+            onOpenPeriodSchemes = { onPageChange(SettingsPage.PeriodSchemes) }
+        ) }
+        SettingsPage.PeriodSchemes -> PeriodSchemeManagementScreen(
+            state = state, backdrop = backdrop, exitCommitRequest = exitCommitRequest,
+            onExitCommitFinished = onExitCommitFinished,
+            onExitInterceptionChange = onExitInterceptionChange,
+            onOpenScheduleSettings = onOpenScheduleSettings ?: { onPageChange(SettingsPage.Schedule) }
         )
         SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
             state = state,
@@ -8575,7 +8659,7 @@ fun SettingsRootScreen(
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth().homeSwitchGroup()) {
                 top.yukonga.miuix.kmp.preference.ArrowPreference(
                     title = appName,
-                    summary = "开发者：小漫君",
+                    summary = null,
                     startAction = {
                         Image(
                             painter = painterResource(currentIconResId(context, darkTheme)),
@@ -8603,18 +8687,18 @@ fun SettingsRootScreen(
                                 alpha = if (selectedPage == SettingsPage.Changelog) 0.10f else 0f
                             )
                         ),
-                    insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                    insideMargin = PaddingValues(start = 14.dp, end = 22.dp, top = 12.dp, bottom = 12.dp),
                     onClick = { onPageChange(SettingsPage.Changelog) }
                 )
                 if (AppDistribution.supportsSelfUpdate) {
                     SettingsNavigationRow(
                         "检查更新",
-                        when (updateDialog) {
-                            SettingsUpdateDialog.Checking -> "正在检查 Gitee Release…"
-                            is SettingsUpdateDialog.Downloading -> "正在下载 APK 安装包…"
-                            else -> if (updateAvailable) "发现新版本，点击查看" else "从 Gitee 检查新版本"
+                        leadingIcon = Icons.Rounded.SystemUpdate,
+                        badgeText = when (updateDialog) {
+                            SettingsUpdateDialog.Checking -> "检查中"
+                            is SettingsUpdateDialog.Downloading -> "下载中"
+                            else -> if (updateAvailable) "有新版" else null
                         },
-                        badgeText = if (updateAvailable) "有新版" else null,
                         onClick = ::checkForUpdate
                     )
                 }
@@ -8625,36 +8709,37 @@ fun SettingsRootScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow(
                         "通用设置",
-                        "深色模式与系统外观",
+                        leadingIcon = Icons.Rounded.Settings,
+                        leadingIconTint = ComposeColor(0xFF0A84FF),
                         selected = selectedPage == SettingsPage.General,
                         onClick = { onPageChange(SettingsPage.General) }
                     )
-                    SettingsDivider()
                     SettingsNavigationRow(
                         "小组件设置",
-                        "自定义小组件背景",
+                        leadingIcon = Icons.Rounded.Widgets,
+                        leadingIconTint = ComposeColor(0xFFFF9500),
                         selected = selectedPage == SettingsPage.Widgets,
                         onClick = { onPageChange(SettingsPage.Widgets) }
                     )
-                    SettingsDivider()
                     SettingsNavigationRow(
                         "当前课表详细设置",
-                        "编辑当前课表的周数、节次与显示规则",
+                        leadingIcon = Icons.Rounded.Tune,
+                        leadingIconTint = ComposeColor(0xFF5856D6),
                         selected = selectedPage == SettingsPage.Schedule,
                         onClick = { onPageChange(SettingsPage.Schedule) }
                     )
-                    SettingsDivider()
                     SettingsNavigationRow(
                         "自动刷新课表",
-                        "连接教务系统，手动或定时同步课程",
+                        leadingIcon = Icons.Rounded.Sync,
+                        leadingIconTint = ComposeColor(0xFF34C759),
                         badgeText = "实验功能",
                         selected = selectedPage == SettingsPage.AutoRefreshSchedule,
                         onClick = { onPageChange(SettingsPage.AutoRefreshSchedule) }
                     )
-                    SettingsDivider()
                     SettingsNavigationRow(
                         "通知设置",
-                        "上课提醒与实时活动",
+                        leadingIcon = Icons.Rounded.Notifications,
+                        leadingIconTint = ComposeColor(0xFF0A84FF),
                         selected = selectedPage == SettingsPage.Notifications,
                         onClick = { onPageChange(SettingsPage.Notifications) }
                     )
@@ -8666,14 +8751,15 @@ fun SettingsRootScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow(
                         "AI 设置",
-                        "配置智能功能共用的服务商、模型和 API Key。",
+                        leadingIcon = Icons.Rounded.AutoAwesome,
+                        leadingIconTint = ComposeColor(0xFFAF52DE),
                         selected = selectedPage == SettingsPage.AiImport,
                         onClick = { onPageChange(SettingsPage.AiImport) }
                     )
-                    SettingsDivider()
                     SettingsNavigationRow(
-                        "AI助理",
-                        "管理日视图助手、天气与预警。",
+                        "AI 助理",
+                        leadingIcon = Icons.Rounded.ChatBubble,
+                        leadingIconTint = ComposeColor(0xFF00A9C7),
                         selected = selectedPage == SettingsPage.DayAgent,
                         onClick = { onPageChange(SettingsPage.DayAgent) }
                     )
@@ -8685,14 +8771,15 @@ fun SettingsRootScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow(
                         "备份与恢复",
-                        "保存课表和设置，或从备份恢复",
+                        leadingIcon = Icons.Rounded.SettingsBackupRestore,
+                        leadingIconTint = ComposeColor(0xFF0A84FF),
                         selected = selectedPage == SettingsPage.BackupRestore,
                         onClick = { onPageChange(SettingsPage.BackupRestore) }
                     )
-                    SettingsDivider()
                     SettingsNavigationRow(
                         "捐赠支持",
-                        "如果它帮到了你，可以请作者喝杯奶茶",
+                        leadingIcon = Icons.Rounded.Favorite,
+                        leadingIconTint = ComposeColor(0xFFFF2D55),
                         selected = selectedPage == SettingsPage.Donate,
                         onClick = { onPageChange(SettingsPage.Donate) }
                     )
@@ -9070,7 +9157,7 @@ fun AboutSettingsScreen(state: AppState, backdrop: Backdrop?) {
                     SettingsDivider()
                     SettingsInfoRow(
                         "会回答，也会动手，但最后由你做主",
-                        "AI助理可以查询课程和空闲时间；涉及课程或设置修改时，会先说明要改什么，再等你确认。"
+                        "AI 助理可以查询课程和空闲时间；涉及课程或设置修改时，会先说明要改什么，再等你确认。"
                     )
                     SettingsDivider()
                     SettingsInfoRow(
@@ -9646,7 +9733,7 @@ fun ChangelogSettingsScreen(
             item(key = "about-feature-assistant") {
                 AboutFeatureCard(
                     imageRes = R.drawable.about_feature_assistant,
-                    eyebrow = "AI助理",
+                    eyebrow = "AI 助理",
                     title = "会回答，也会动手，但最后由你做主"
                 )
             }
@@ -9693,6 +9780,33 @@ fun ChangelogSettingsScreen(
                 // One continuous panel. Canvas clipping avoids a texture as tall as all expanded
                 // versions; each details animation still owns only its own small graphics layer.
                 AboutGlassPanel(darkTheme, Modifier.fillMaxWidth(), longContent = true) {
+            changelogItem(
+                    "1.2.7_beta4",
+                    "AI 导入持续显示模型输出，生成完整预览后自动收起处理过程，仍可展开查看；不提供思考内容的模型会被要求返回阶段摘要。\n" +
+                    "AI 导入支持中途停止、补充要求并继续处理；文件缺少必要信息时可向用户提问。新建或覆盖课表后自动打开目标课表，并引导设置开学日期与当前周。\n" +
+                    "导入预览补齐每条课程的上课星期，与上课时间、节次和周次一起展示，便于区分同一门课在不同日期的安排。\n" +
+                    "修复云端下发的部分 AI 配置鉴权方式不匹配、导致无法连接的问题，优化 AI 设置中的连接测试入口。\n" +
+                    "优化首页加号与三点菜单的二级展开，区分中心弹窗与页面转场；返回时提前叠化为原始按钮，调整页面切换的回弹与速度，减少首页切换和玻璃绘制的重复工作。\n" +
+                    "作息编辑改为按钮连续形变、作息行逐行进入、时间轴随后淡入，改善展开时的布局衔接。\n" +
+                    "增强课程卡片浅亮彩色文字的可读性，扩大并柔化文字阴影；无壁纸时也可调整卡片透明度，并保留最低不透明度。调整胶囊表头底部轮廓光，使圆角处过渡更柔和。\n" +
+                    "修复日视图滚动或切换日期后偶发的玻璃缺失，调整停课、补课卡片与编辑器之间的形变交接，保持原卡片的圆角、文字比例和角标布局。\n" +
+                    "统一 Popup 的连续曲率圆角、模糊、柔和描边和浅色阴影，加入跟手高光、形变与滑动反馈；修复设置卡片间隙的背景采样，个性化弹窗内的菜单入口不再持续压灰。\n" +
+                    "精简设置首页与通用设置的说明，增加彩色图标，调整分组、开关尺寸与对齐。深浅色选项加入随默认日／周视图变化的课表预览；应用图标深浅色修改后不再立即重启应用。\n" +
+                    "优化小组件设置的文字和滑块样式，关闭自定义背景后保留已选图片；通知设置统一使用“自动勿扰”，合并权限入口并精简说明。\n" +
+                    "获取到与已有内容完全相同的节假日调休安排时直接提示，避免重复设置；保存后不再提示未保存，统一日期与标题样式。\n" +
+                    "赞赏页面优先展示赞赏码，为前三位支持者增加领奖台展示。"
+                )
+            changelogItem(
+                    "1.2.7_beta3",
+                    "新增独立作息管理页面，可在课表详细设置中进入。多个课表可共用同一套作息，原有相同作息自动归并，支持新建、编辑、复制和删除。\n" +
+                    "切换作息时可选择按原节次或按实际时间对齐，并预览受影响的课程。目标节数不足时保留超出部分，切回原作息后可恢复；完全无法匹配的普通课程仍可在课程列表中找到。\n" +
+                    "切换作息不会覆盖课程自带的上课时间，整门和逐节自定义时间都可保留；首页、课程详情、小组件和提醒跟随当前安排。\n" +
+                    "课表详细设置中编辑作息仅影响当前课表；在作息管理中修改共用方案前，会提示受影响的课表。导入、分享及备份恢复保留课程时间与作息关系。\n" +
+                    "新增上课自动勿扰和静音／震动，可设置提前开启与延后恢复，整门课程期间持续生效，包含课内休息；完善开关动画与权限引导。\n" +
+                    "优化作息管理的卡片和操作按钮，调整复制图标与新增按钮；作息对齐选项和教务工具选择弹窗统一样式，内容过长时可在弹窗内滚动。\n" +
+                    "调整课程卡片滑动时的玻璃绘制和位置更新，减少重复计算。\n" +
+                    "修复切换作息后，AI 删除部分节次可能改写剩余课程原来的上课时间、导致切回后消失的问题；按指定周删除和只修改课程名称等信息也会保留原始安排。"
+                )
             changelogItem(
                     "1.2.7_beta2",
                     "重做平板与横屏布局：悬浮侧栏集中呈现今日、课程表、设置、课表操作和导入入口，也可收为顶部文字导航。今日助手、课程管理和设置采用双栏布局，课程管理保留双列课程卡片。\n" +

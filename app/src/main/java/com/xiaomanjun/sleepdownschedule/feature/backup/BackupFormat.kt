@@ -167,7 +167,9 @@ data class BackupChecksums(
 data class BackupData(
     val dataVersion: Int,
     val schedules: List<BackupSchedule> = emptyList(),
-    val widgetAppearances: List<BackupWidgetAppearance> = emptyList()
+    val widgetAppearances: List<BackupWidgetAppearance> = emptyList(),
+    /** Null identifies older archives whose schemes belonged to individual schedules. */
+    val sharedPeriodSchemes: List<BackupPeriodScheme>? = null
 )
 
 @Serializable
@@ -180,7 +182,8 @@ data class BackupSchedule(
     val periods: List<BackupPeriod> = emptyList(),
     val periodSchemes: List<BackupPeriodScheme> = emptyList(),
     val agentDailySessions: List<BackupAgentDailySession> = emptyList(),
-    val agentMessages: List<BackupAgentMessage> = emptyList()
+    val agentMessages: List<BackupAgentMessage> = emptyList(),
+    val activePeriodSchemeId: String? = null
 )
 
 /** Protocol DTO for ScheduleConfigEntity. It intentionally has no database id or URI field. */
@@ -248,7 +251,8 @@ data class BackupScheduleConfig(
     val autoCheckUpdates: Boolean,
     val homeChromeBlurScale: Float = DefaultHomeChromeBlurScale,
     val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale,
-    val scheduleAdjustmentsJson: String = ""
+    val scheduleAdjustmentsJson: String = "",
+    val periodAlignmentMode: String = "INDEX"
 )
 
 @Serializable
@@ -265,7 +269,8 @@ data class BackupCourse(
     val customStartTime: String? = null,
     val customEndTime: String? = null,
     val customColorArgb: Long? = null,
-    val customPeriodTimes: String? = null
+    val customPeriodTimes: String? = null,
+    val originalPeriodTimes: String? = null
 )
 
 @Serializable
@@ -289,7 +294,13 @@ data class BackupPeriodScheme(
     val eveningStartTime: String,
     val specialBreaksJson: String,
     val overridesJson: String,
-    val times: List<BackupPeriodSchemeTime> = emptyList()
+    val times: List<BackupPeriodSchemeTime> = emptyList(),
+    val publicId: String = "",
+    val sourceScheduleName: String = "",
+    val morningPeriodCount: Int = 0,
+    val noonPeriodCount: Int = 0,
+    val afternoonPeriodCount: Int = 0,
+    val eveningPeriodCount: Int = 0
 )
 
 @Serializable
@@ -348,7 +359,9 @@ data class BackupPreferences(
     val dayAgent: BackupDayAgentPreferences? = null,
     val aiImport: BackupAiImportPreferences? = null,
     val aiImportHistoryRetentionDays: Int = BackupFormatV1.DEFAULT_AI_IMPORT_HISTORY_RETENTION_DAYS,
-    val aiImportHistory: List<BackupAiImportHistoryEntry> = emptyList()
+    val aiImportHistory: List<BackupAiImportHistoryEntry> = emptyList(),
+    val savedPeriodSchemes: List<com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme>? = null,
+    val courseQuietSettings: com.xiaomanjun.sleepdownschedule.domain.schedule.CourseQuietSettings? = null
 )
 
 @Serializable

@@ -137,7 +137,6 @@ fun SettingsAppIconStyleRow(
         title = "图标风格",
         backdrop = backdrop,
         config = config,
-        summary = "选择看板娘或简约图标风格",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 260.dp,
@@ -158,10 +157,9 @@ fun SettingsAppIconModeRow(
     SleepDownLiquidDropdownPreference(
         items = options.map { it.label },
         selectedIndex = selectedIndex,
-        title = "应用图标",
+        title = "应用图标深浅色",
         backdrop = backdrop,
         config = config,
-        summary = "选择浅色、深色或跟随应用深色模式",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 260.dp,
@@ -189,7 +187,6 @@ fun SettingsDockAlignmentRow(
         title = "Dock 栏位置",
         backdrop = backdrop,
         config = config,
-        summary = "调整首页底部切换栏对齐方式",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 260.dp,
@@ -213,7 +210,6 @@ fun SettingsHomeStartModeRow(
         title = "默认首页视图",
         backdrop = backdrop,
         config = config,
-        summary = "选择每次打开应用时进入日视图或周视图",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 240.dp,
@@ -296,7 +292,6 @@ fun SettingsDefaultWallpaperRow(
         title = "默认壁纸",
         backdrop = backdrop,
         config = config,
-        summary = "未设置自定义壁纸时使用",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 240.dp,
@@ -379,22 +374,33 @@ fun SettingsGroup(
 @Composable
 fun SettingsNavigationRow(
     title: String,
-    subtitle: String,
+    subtitle: String? = null,
     badgeText: String? = null,
     selected: Boolean = false,
+    leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    leadingIconTint: ComposeColor = MaterialTheme.colorScheme.primary,
     onClick: () -> Unit
 ) {
     val neutralSelection = MaterialTheme.colorScheme.onSurface
+    val iconTint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f)
+        androidx.compose.ui.graphics.lerp(leadingIconTint, ComposeColor.White, 0.18f) else leadingIconTint
     if (LocalGlassMiuixEnabled.current) {
         MiuixArrowPreference(
             title = title,
             summary = subtitle,
+            startAction = {
+                leadingIcon?.let {
+                    Icon(it, contentDescription = null, tint = iconTint,
+                        modifier = Modifier.padding(start = 4.dp, end = 8.dp).size(23.dp))
+                }
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .background(
                     neutralSelection.copy(alpha = if (selected) 0.10f else 0f)
                 ),
-            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            insideMargin = PaddingValues(start = 14.dp, end = if (leadingIcon != null) 22.dp else 14.dp,
+                top = 12.dp, bottom = 12.dp),
             endActions = {
                 if (badgeText != null) {
                     Text(
@@ -417,7 +423,7 @@ fun SettingsNavigationRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(70.dp)
+            .heightIn(min = if (subtitle == null) 58.dp else 70.dp)
             .background(
                 neutralSelection.copy(
                     alpha = when {
@@ -428,12 +434,16 @@ fun SettingsNavigationRow(
                 )
             )
             .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
-            .padding(horizontal = 20.dp),
+            .padding(start = 20.dp, end = if (leadingIcon != null) 28.dp else 20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        leadingIcon?.let {
+            Icon(it, contentDescription = null, tint = iconTint,
+                modifier = Modifier.padding(start = 4.dp, end = 8.dp).size(23.dp))
+        }
         Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (badgeText != null) {
             Text(
@@ -474,15 +484,11 @@ fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdro
             title = title,
             summary = subtitle.takeIf { it.isNotBlank() },
             badgeText = badgeText,
-            controlWidth = 64.dp,
-            controlHeight = 28.dp,
+            controlWidth = 52.dp,
+            controlHeight = 24.dp,
             enabled = enabled
         ) {
-            if (enabled) {
-                LiquidControlToggle(checked, onCheckedChange, backdrop)
-            } else {
-                LiquidControlToggle(checked, {}, backdrop)
-            }
+            LiquidControlToggle(checked, onCheckedChange, backdrop, enabled = enabled, compact = true)
         }
         return
     }
@@ -504,11 +510,7 @@ fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdro
             if (subtitle.isNotBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         Spacer(Modifier.width(12.dp))
-        if (enabled) {
-            LiquidControlToggle(checked, onCheckedChange, backdrop)
-        } else {
-            LiquidControlToggle(checked, {}, backdrop)
-        }
+        LiquidControlToggle(checked, onCheckedChange, backdrop, enabled = enabled, compact = true)
     }
 }
 
@@ -750,7 +752,6 @@ internal fun SettingsDayViewModeRow(
         title = "日视图模式",
         backdrop = backdrop,
         config = config,
-        summary = "两日模式会在原日视图下方继续显示第二天课程",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 220.dp,
@@ -773,7 +774,6 @@ internal fun SettingsWeekViewStyleRow(
         title = "周视图模式",
         backdrop = backdrop,
         config = config,
-        summary = "无界模式会隐藏原来的表头、周切换按钮，页面更沉浸",
         modifier = Modifier.fillMaxWidth(),
         insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
         maxHeight = 220.dp,
@@ -1076,7 +1076,8 @@ internal fun SettingsMinutePickerRow(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     enabled: Boolean = true,
-    range: IntRange = 0..180
+    range: IntRange = 0..180,
+    pickerTitle: String = "选择提前时间"
 ) {
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     var showPicker by remember { mutableStateOf(false) }
@@ -1090,7 +1091,7 @@ internal fun SettingsMinutePickerRow(
     )
     SleepDownPickerDialog(
         show = showPicker,
-        title = "选择提前时间",
+        title = pickerTitle,
         onDismissRequest = { showPicker = false },
         backdrop = popupBackdrop,
         config = config,
@@ -1347,6 +1348,8 @@ fun SettingsInfoRow(title: String, body: String, badgeText: String? = null) {
 }
 
 private val changelogReleaseDates = mapOf(
+    "1.2.7_beta4" to "2026-10-08",
+    "1.2.7_beta3" to "2026-10-06",
     "1.2.7_beta2" to "2026-10-02",
     "1.2.7_beta1" to "2026-09-29",
     "1.2.6" to "2026-09-25",
@@ -1533,28 +1536,21 @@ private fun GlassMiuixInteractivePreference(
     badgeText: String? = null,
     content: @Composable () -> Unit
 ) {
-    Box(
+    MiuixBasicComponent(
+        enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
-            .graphicsLayer(alpha = if (enabled) 1f else 0.48f)
-    ) {
-        MiuixBasicComponent(
-            enabled = enabled,
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(end = controlWidth + 12.dp),
-            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
-        ) { SettingsPreferenceText(title, summary, badgeText, enabled) }
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 14.dp)
-                .size(controlWidth, controlHeight),
-            contentAlignment = Alignment.Center
-        ) {
-            content()
+            .graphicsLayer(alpha = if (enabled) 1f else 0.48f),
+        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        endActions = {
+            // Let Miuix measure the multiline label and its control in the same row. A separate
+            // overlay could retain the first-pass center while the summary wrapped on entry.
+            Box(Modifier.size(controlWidth, controlHeight),
+                contentAlignment = Alignment.Center) {
+                content()
+            }
         }
-    }
+    ) { SettingsPreferenceText(title, summary, badgeText, enabled) }
 }
 
 @Composable
@@ -1624,7 +1620,6 @@ fun SettingsLiveUpdateChipTextRow(
         items = labels,
         selectedIndex = options.indexOf(visibleSelected).coerceAtLeast(0),
         title = "岛上缩略态",
-        summary = "可显示上课地点、剩余时间或课程名称。",
         backdrop = backdrop,
         config = config,
         modifier = Modifier.fillMaxWidth(),

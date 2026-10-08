@@ -9,15 +9,17 @@ data class CoursePeriodTime(val index: Int, val start: LocalTime, val end: Local
 
 /** The same lesson boundaries drive the live activity and the home assistant. */
 fun courseTimeSegments(course: CourseEntity, periods: List<PeriodEntity>): List<CoursePeriodTime> {
+    course.effectiveArrangementOrNull()?.let { return it.times.map(AlignedCourseTime::time) }
     val custom = runCatching { parseCoursePeriodTimes(course.customPeriodTimes) }.getOrDefault(emptyList())
     if (custom.isNotEmpty() && custom.map(CoursePeriodTime::index) == course.periods.distinct().sorted()) {
         return custom
     }
-    course.customTimeRangeOrNull()?.let { (start, end) ->
+    if (custom.isEmpty()) course.customTimeRangeOrNull()?.let { (start, end) ->
         return listOf(CoursePeriodTime(course.periods.minOrNull() ?: 0, start, end))
     }
     val periodByIndex = periods.associateBy(PeriodEntity::periodIndex)
     return course.periods.distinct().sorted().mapNotNull { index ->
+        custom.firstOrNull { it.index == index }?.let { return@mapNotNull it }
         val period = periodByIndex[index] ?: return@mapNotNull null
         val start = runCatching { LocalTime.parse(period.startTime) }.getOrNull() ?: return@mapNotNull null
         val end = runCatching { LocalTime.parse(period.endTime) }.getOrNull() ?: return@mapNotNull null
@@ -33,7 +35,7 @@ data class NormalizedCourseClock(
 
 /**
  * `3,10:10-10:50;4,11:05-11:45` is a compact, stable field shared by Room, backups and SDCT1.
- * A complete list is required so an unknown break is never silently inferred from another campus.
+ * Partial lists override only their named lessons; uncovered lessons use the selected scheme.
  */
 fun normalizeCourseClock(
     start: String?,
@@ -43,8 +45,8 @@ fun normalizeCourseClock(
 ): NormalizedCourseClock {
     val bells = parseCoursePeriodTimes(periodTimes)
     if (bells.isNotEmpty()) {
-        require(bells.map(CoursePeriodTime::index) == periods.distinct().sorted()) {
-            "课程逐节时间必须覆盖该课程的全部节次"
+        require(bells.all { it.index in periods }) {
+            "课程逐节时间包含该课程之外的节次"
         }
         bells.zipWithNext().forEach { (previous, next) ->
             require(!next.start.isBefore(previous.end)) { "课程逐节时间相互重叠" }
@@ -58,13 +60,14 @@ fun normalizeCourseClock(
     if (parsedStart != null && parsedEnd != null) {
         require(parsedStart < parsedEnd) { "课程结束时间必须晚于开始时间" }
     }
-    if (bells.isNotEmpty()) {
+    val complete = bells.isNotEmpty() && bells.map(CoursePeriodTime::index) == periods.distinct().sorted()
+    if (complete) {
         require(parsedStart == null || parsedStart == bells.first().start) { "课程起始时间与逐节铃声不一致" }
         require(parsedEnd == null || parsedEnd == bells.last().end) { "课程结束时间与逐节铃声不一致" }
     }
     return NormalizedCourseClock(
-        start = (parsedStart ?: bells.firstOrNull()?.start)?.toString(),
-        end = (parsedEnd ?: bells.lastOrNull()?.end)?.toString(),
+        start = (parsedStart ?: bells.firstOrNull()?.start?.takeIf { complete })?.toString(),
+        end = (parsedEnd ?: bells.lastOrNull()?.end?.takeIf { complete })?.toString(),
         periodTimes = bells.takeIf { it.isNotEmpty() }?.joinToString(";") {
             "${it.index},${it.start}-${it.end}"
         }

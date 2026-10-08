@@ -63,6 +63,20 @@ internal object ColorOSCourseMapper {
         periodDefinitions: List<PeriodEntity>,
         color: Int
     ): List<ExportedCourse> {
+        if (course.arrangementProjection != null) {
+            val sessions = courseReminderSessions(course, periodDefinitions)
+            val anchors = sessions.map { it.periods.minOrNull() ?: 0 }.toSet()
+            val used = mutableSetOf<Int>()
+            return sessions.mapNotNull { session ->
+                val start = courseStartTime(session, periodDefinitions) ?: return@mapNotNull null
+                val end = courseEndTime(session, periodDefinitions) ?: return@mapNotNull null
+                val anchor = session.periods.minOrNull() ?: 0
+                // Exact-time fragments can share a display anchor, but the provider needs distinct IDs.
+                val key = if (anchor !in used) anchor else (1..999).first { it !in anchors && it !in used }
+                used += key
+                exportedCourse(session, key, start, end, color)
+            }
+        }
         course.customTimeRangeOrNull()?.let { (start, end) ->
             return listOf(exportedCourse(course, course.periods.minOrNull() ?: 0, start, end, color))
         }

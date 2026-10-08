@@ -2,6 +2,11 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeCourseClock
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+import com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangements
+import com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -30,7 +35,8 @@ data class ScheduleImportPayload(
 )
 
 @Serializable
-data class ScheduleConfigPayload(val totalWeeks: Int, val periods: List<PeriodPayload>)
+data class ScheduleConfigPayload(val totalWeeks: Int, val periods: List<PeriodPayload>,
+    val periodAlignmentMode: String = "INDEX")
 
 @Serializable
 data class PeriodPayload(val index: Int, val startTime: String, val endTime: String)
@@ -48,7 +54,8 @@ data class ScheduleImportCourse(
     val customStartTime: String? = null,
     val customEndTime: String? = null,
     val customColorArgb: Long? = null,
-    val customPeriodTimes: String? = null
+    val customPeriodTimes: String? = null,
+    val originalPeriodTimes: String? = null
 )
 
 @Serializable
@@ -118,6 +125,15 @@ C=大学英语|-|B203|3|3-4|2-18|O|-|10:10|11:45|-
 }
 
 object ScheduleImportParser {
+    /** Local AI revisions reuse validation while retaining trusted source snapshots and custom bells. */
+    internal fun validateEditedDraft(draft: ImportDraft): ImportDraft = validatePayload(ScheduleImportPayload(
+        1, ScheduleConfigPayload(draft.config.totalWeeks, draft.periods.map {
+            PeriodPayload(it.periodIndex, it.startTime, it.endTime)
+        }, draft.config.periodAlignmentMode.name), draft.courses.map { course ->
+            ScheduleImportCourse(course.name, course.teacher, course.location, course.weekday, course.periods,
+                course.weeks, WeekParityPayload.valueOf(course.weekParity.name), course.note, course.customStartTime,
+                course.customEndTime, course.customColorArgb, course.customPeriodTimes, course.originalPeriodTimes)
+        }), draft.config, allowImportedBellTimes = true).copy(source = draft.source)
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -326,7 +342,15 @@ object ScheduleImportParser {
             require(course.name.isNotBlank()) { "$row name 不能为空" }
             require(course.weekday in 1..7) { "$row weekday 必须在 1 到 7 之间" }
             require(course.periods.isNotEmpty()) { "$row periods 不能为空" }
-            require(course.periods.all { it in validPeriodIndexes }) { "$row 引用了不存在的节次" }
+            require(course.periods.all { it > 0 } && (course.periods.all { it in validPeriodIndexes } ||
+                (allowImportedBellTimes && course.originalPeriodTimes != null) ||
+                (course.customStartTime != null && course.customEndTime != null) ||
+                (allowImportedBellTimes && course.periods.all { index -> index in validPeriodIndexes ||
+                    parseCoursePeriodTimes(course.customPeriodTimes).any { it.index == index } }))) { "$row 引用了不存在的节次" }
+            require(allowImportedBellTimes || course.originalPeriodTimes == null) { "$row 原始安排只接受特殊分享口令" }
+            course.originalPeriodTimes?.let { snapshot ->
+                require(parseCoursePeriodTimes(snapshot).all { it.index in course.periods }) { "$row 原始时间快照包含其他节次" }
+            }
             require(course.weeks.isNotEmpty()) { "$row weeks 不能为空" }
             require(course.weeks.all { it in 1..payload.scheduleConfig.totalWeeks }) { "$row weeks 超出 totalWeeks" }
             require(allowImportedBellTimes || course.customPeriodTimes == null) {
@@ -358,14 +382,21 @@ object ScheduleImportParser {
                 customStartTime = clock.start,
                 customEndTime = clock.end,
                 customColorArgb = course.customColorArgb,
-                customPeriodTimes = clock.periodTimes
+                customPeriodTimes = clock.periodTimes,
+                originalPeriodTimes = course.originalPeriodTimes
             )
         }
+        val config = baseConfig.copy(
+            totalWeeks = payload.scheduleConfig.totalWeeks,
+            periodAlignmentMode = PeriodAlignmentMode.valueOf(payload.scheduleConfig.periodAlignmentMode),
+            currentWeek = effectiveCurrentWeek(baseConfig).coerceIn(1, payload.scheduleConfig.totalWeeks)
+        )
+        // Validate a detached display calculation before confirmation; keep the import source intact.
+        if (config.periodAlignmentMode == PeriodAlignmentMode.TIME) {
+            projectCourseArrangements(courses.map { captureOriginalPeriodTimes(it, periods) }, config, periods)
+        }
         return ImportDraft(
-            config = baseConfig.copy(
-                totalWeeks = payload.scheduleConfig.totalWeeks,
-                currentWeek = effectiveCurrentWeek(baseConfig).coerceIn(1, payload.scheduleConfig.totalWeeks)
-            ),
+            config = config,
             periods = periods,
             courses = courses
         )
@@ -382,6 +413,7 @@ object ScheduleImportParser {
     }
 
     private fun parseSleepDownToken(input: String): ScheduleImportPayload {
+        var alignmentMode = "INDEX"
         val lines = input.lines().map { it.trim() }.filter { it.isNotEmpty() }
         val startIndex = lines.indexOfFirst { it.contains("SDCT1") }
         require(startIndex >= 0) { "未找到 SleepDown 课程表口令 SDCT1" }
@@ -391,6 +423,7 @@ object ScheduleImportParser {
         lines.drop(startIndex + 1).forEach { line ->
             when {
                 line.startsWith("T=") -> totalWeeks = line.removePrefix("T=").trim().toInt()
+                line.startsWith("A=") -> alignmentMode = line.removePrefix("A=").trim()
                 line.startsWith("P=") -> {
                     line.removePrefix("P=").split(';').map { it.trim() }.filter { it.isNotEmpty() }.forEach { item ->
                         val parts = item.split(',', limit = 2)
@@ -422,14 +455,15 @@ object ScheduleImportParser {
                             encoded.toLongOrNull()
                                 ?: throw IllegalArgumentException("课程颜色必须是十进制 ARGB")
                         },
-                        customPeriodTimes = tokenText(fields.getOrNull(11))
+                        customPeriodTimes = tokenText(fields.getOrNull(11)),
+                        originalPeriodTimes = tokenText(fields.getOrNull(12))?.let { if (it == "~") "" else it }
                     )
                 }
             }
         }
         require(periods.isNotEmpty()) { "口令缺少 P= 节次定义" }
         require(courses.isNotEmpty()) { "口令缺少 C= 课程定义" }
-        return ScheduleImportPayload(1, ScheduleConfigPayload(totalWeeks, periods), courses)
+        return ScheduleImportPayload(1, ScheduleConfigPayload(totalWeeks, periods, alignmentMode), courses)
     }
 
     private fun tokenText(value: String?): String? {
@@ -507,6 +541,7 @@ fun buildSleepDownScheduleToken(
         .sortedBy { it.periodIndex }
         .joinToString(";") { "${it.periodIndex},${it.startTime}-${it.endTime}" }
     val courseLines = courses
+        .map { it.originalArrangement() }
         .sortedWith(compareBy<CourseEntity> { it.weekday }.thenBy { it.periods.minOrNull() ?: 0 }.thenBy { it.name })
         .map { course ->
             val commonFields = listOf(
@@ -526,11 +561,14 @@ fun buildSleepDownScheduleToken(
                 tokenField(course.customEndTime),
                 course.customColorArgb?.toString() ?: "-"
             )
-            (commonFields + listOfNotNull(course.customPeriodTimes)).joinToString("|")
+            val clockFields = if (course.originalPeriodTimes != null) listOf(course.customPeriodTimes ?: "-",
+                course.originalPeriodTimes.ifBlank { "~" }) else listOfNotNull(course.customPeriodTimes)
+            (commonFields + clockFields).joinToString("|")
         }
     return buildString {
         appendLine("SDCT1")
         appendLine("T=${config.totalWeeks.coerceIn(1, 60)}")
+        if (config.periodAlignmentMode != PeriodAlignmentMode.INDEX) appendLine("A=${config.periodAlignmentMode.name}")
         appendLine("P=$periodLine")
         courseLines.forEach { appendLine("C=$it") }
     }.trimEnd()

@@ -33,6 +33,38 @@ class AiManagedProtocolRegressionTest {
         assertFalse(config().copy(baseUrl = "https://token-plan-cn.xiaomimimo.com.evil.example/v1").usesMimoProtocol())
     }
 
+    @Test fun managedProviderSwitchDropsCachedMimoAuthentication() {
+        for (endpoint in listOf(AiEndpointStyle.CHAT_COMPLETIONS, AiEndpointStyle.RESPONSES)) {
+            val path = if (endpoint == AiEndpointStyle.RESPONSES) "responses" else "chat/completions"
+            val url = "https://gateway.example/v1/$path"
+            val c = config().copy(
+                baseUrl = url, model = "managed-model", endpointStyle = endpoint,
+                authType = AiAuthType.CustomHeader
+            ).normalizedForRequest()
+            assertEquals(AiAuthType.ApiKeyBearer, managedAiAuthType(url))
+            assertEquals(AiAuthType.ApiKeyBearer, c.authType)
+            assertEquals(endpoint, c.endpointStyle)
+            assertEquals(url, c.resolveRequestEndpoint())
+        }
+    }
+
+    @Test fun managedMimoAuthRequiresAnExactOfficialHttpsHost() {
+        for (host in listOf("api", "token-plan-cn", "token-plan-sgp", "token-plan-ams")) {
+            assertEquals(AiAuthType.CustomHeader, managedAiAuthType("https://$host.xiaomimimo.com/v1/responses"))
+        }
+        for (url in listOf("https://api.xiaomimimo.com.evil.example/v1/responses",
+            "https://gateway.example/api.xiaomimimo.com", "http://api.xiaomimimo.com/v1", "")) {
+            assertEquals(AiAuthType.ApiKeyBearer, managedAiAuthType(url))
+        }
+    }
+
+    @Test fun customProviderAuthenticationRemainsExplicit() {
+        val c = config("custom:own-gateway").copy(baseUrl = "https://gateway.example/endpoint",
+            authType = AiAuthType.CustomHeader).normalizedForRequest()
+        assertEquals(AiAuthType.CustomHeader, c.authType)
+        assertEquals("https://gateway.example/endpoint", c.resolveRequestEndpoint())
+    }
+
     @Test fun thinkingImportAndPatchUseAutoForBothProtocols() {
         for (endpoint in listOf(AiEndpointStyle.CHAT_COMPLETIONS, AiEndpointStyle.RESPONSES)) {
             val c = config(AiProviderPresets.deepSeek.id).copy(endpointStyle = endpoint)

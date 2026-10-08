@@ -1,5 +1,12 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.management
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalTimeSegments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.previewCourseEdits
+import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
+import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.isHiddenByPeriodAlignment
+
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
@@ -460,7 +467,9 @@ internal fun ManagedCourseListCardContent(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             group.courses.forEach { arrangement ->
                 Text(
-                    text = "周${weekdayLabel(arrangement.weekday)} ${courseTimeLabel(arrangement, periods)}",
+                    text = "周${weekdayLabel(arrangement.weekday)} " + if (arrangement.isHiddenByPeriodAlignment()) {
+                        "暂不显示 · 原始第${arrangement.originalArrangement().periods.joinToString("、")}节"
+                    } else courseTimeLabel(arrangement, periods),
                     color = summaryColor,
                     style = MiuixTheme.textStyles.body2,
                     lineHeight = 20.sp,
@@ -545,7 +554,7 @@ internal fun CourseManagementDetailPage(
     var selectedColor by remember(group.key) { mutableStateOf(group.representative.customColorArgb) }
     var nextLocalKey by remember(group.key) { mutableLongStateOf(-1L) }
     var arrangements by remember(group.key) {
-        mutableStateOf(group.courses.map { ManagedArrangementDraft(it.id, it) })
+        mutableStateOf(group.courses.map { ManagedArrangementDraft(it.id, it.originalArrangement()) })
     }
     var pickerRequest by remember { mutableStateOf<CourseEditorPickerRequest?>(null) }
     var pickerVisible by remember { mutableStateOf(false) }
@@ -571,7 +580,7 @@ internal fun CourseManagementDetailPage(
     }
 
     val replacements = replacementsForSave()
-    val hasChanges = name != group.representative.name || replacements != group.courses
+    val hasChanges = name != group.representative.name || replacements != group.courses.map { it.originalArrangement() }
 
     fun finishBack() {
         saving = false
@@ -596,7 +605,8 @@ internal fun CourseManagementDetailPage(
 
     fun updateArrangement(localKey: Long, transform: (CourseEntity) -> CourseEntity) {
         arrangements = arrangements.map { draft ->
-            if (draft.localKey == localKey) draft.copy(course = transform(draft.course)) else draft
+            if (draft.localKey == localKey) draft.copy(course = captureOriginalPeriodTimes(
+                transform(draft.course), state.periods, draft.course)) else draft
         }
     }
 
@@ -612,8 +622,8 @@ internal fun CourseManagementDetailPage(
             return
         }
         val conflictWeeks = conflictWeeksForEditedCourseGroup(
-            originals = group.courses,
-            edited = replacementsToSave,
+            originals = state.previewCourseEdits(group.courses),
+            edited = state.previewCourseEdits(replacementsToSave),
             courses = state.courses,
             periodDefinitions = state.periods
         )
@@ -1012,7 +1022,17 @@ private fun CourseArrangementEditorCard(
     onCourseChange: (CourseEntity) -> Unit,
     onOpenPicker: (CourseEditorPickerRequest) -> Unit
 ) {
+    val effective = projectCourseArrangement(captureOriginalPeriodTimes(course, periods), config, periods)
+    val hidden = effective.arrangementProjection?.hiddenPeriods.orEmpty()
     CourseManagementSettingsSection(title = "上课安排 ${index + 1}") {
+        if (hidden.isNotEmpty()) {
+            val originalTimes = course.originalTimeSegments().joinToString("；") { "${it.start}–${it.end}" }
+            Text(buildString {
+                append("原始安排：${course.periods.joinToString("、")} 节")
+                if (originalTimes.isNotBlank()) append(" · $originalTimes")
+                append("\n${hidden.joinToString("、")} 节当前未显示。")
+            }, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.body2)
+        }
         CourseManagementArrowRow(
             title = "上课星期",
             value = "周${weekdayLabel(course.weekday)}",
@@ -1034,10 +1054,10 @@ private fun CourseArrangementEditorCard(
         )
         CourseManagementArrowRow(
             title = "上课节次",
-            value = if (course.hasCustomTime()) courseTimeLabel(course, periods)
+            value = if (course.hasCustomTime()) courseTimeLabel(effective, periods)
             else "第${course.periods.minOrNull() ?: 1}-${course.periods.maxOrNull() ?: 1}节",
             onClick = {
-                val values = periods.map(PeriodEntity::periodIndex).distinct().sorted().ifEmpty { listOf(1) }
+                val values = (periods.map(PeriodEntity::periodIndex) + course.periods).distinct().sorted().ifEmpty { listOf(1) }
                 val startIndex = values.indexOf(course.periods.minOrNull()).coerceAtLeast(0)
                 val endIndex = values.indexOf(course.periods.maxOrNull()).coerceAtLeast(startIndex)
                 onOpenPicker(
@@ -1055,6 +1075,7 @@ private fun CourseArrangementEditorCard(
                             onCourseChange(
                                 course.copy(
                                     periods = values.subList(start, end + 1),
+                                    originalPeriodTimes = null,
                                     customStartTime = null,
                                     customEndTime = null,
                                     customPeriodTimes = null
@@ -1068,6 +1089,7 @@ private fun CourseArrangementEditorCard(
                             onCourseChange(
                                 course.copy(
                                     periods = anchors,
+                                    originalPeriodTimes = null,
                                     customStartTime = startText,
                                     customEndTime = endText,
                                     customPeriodTimes = null

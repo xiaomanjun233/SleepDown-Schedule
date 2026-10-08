@@ -182,14 +182,15 @@ object AppIconManager {
         preferences(context).edit {
             putString(ModeKey, mode.name)
         }
-        applyStoredMode(context)
+        // CourseScheduleApp publishes launcher aliases on process ON_STOP. Changing the
+        // foreground activity's alias can make OEM launchers destroy the visible task even
+        // with DONT_KILL_APP; retain the user's selection now and apply it after they leave.
     }
 
     fun setStyle(context: Context, style: AppIconStyle) {
         preferences(context).edit {
             putString(StyleKey, style.name)
         }
-        applyStoredMode(context)
     }
 
     fun syncAppearance(

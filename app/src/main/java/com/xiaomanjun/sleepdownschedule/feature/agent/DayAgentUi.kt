@@ -404,8 +404,8 @@ fun TodayAgentHost(
 
     if (!hasDecision) {
         LiquidAlertDialog(
-            title = "启用 AI助理？",
-            message = "AI助理会在日视图显示下一节课、实时倒计时与天气。课程和倒计时均在本地计算；绑定 API Key 后，点击卡片可以继续对话。你可以随时在AI助理设置中关闭。",
+            title = "启用 AI 助理？",
+            message = "AI 助理会在日视图显示下一节课、实时倒计时与天气。课程和倒计时均在本地计算；绑定 API Key 后，点击卡片可以继续对话。你可以随时在 AI 助理设置中关闭。",
             actions = listOf(
                 LiquidAlertAction("暂不启用", LiquidAlertActionStyle.Secondary) {
                     DayAgentPreferences.setEnabled(context, false)
@@ -2461,7 +2461,7 @@ internal fun DayAgentConversationDialog(
                   else Row(
                       Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically
                   ) {
-                      Text("✦ AI助理", color = foreground, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                      Text("✦ AI 助理", color = foreground, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
                       Text(providerName, color = foreground.copy(alpha = 0.58f), style = MaterialTheme.typography.labelSmall)
                   }
               }

@@ -18,9 +18,14 @@ class HolidayApiTest {
         assertTrue(importedPlan.isAlreadyAdded(importedEntries.reversed() + ScheduleAdjustment("2026-12-01")))
     }
 
-    @Test fun preservesSchoolPairingWhenTheHolidayGroupWasAlreadyAdded() {
+    @Test fun differentTeachingDateStillRequiresReview() {
         val edited = importedEntries.map { if (it.date == "2026-10-10") it.copy(sourceDate = "2026-10-05") else it }
-        assertTrue(importedPlan.isAlreadyAdded(edited))
+        assertFalse(importedPlan.isAlreadyAdded(edited))
+    }
+
+    @Test fun missingSuggestedTeachingDateCannotSilentlySkipReview() {
+        val unknownPairing = importedPlan.copy(makeups = importedPlan.makeups.map { it.copy(suggestedSource = null) })
+        assertFalse(unknownPairing.isAlreadyAdded(importedEntries))
     }
 
     @Test fun partialOrChangedDayTypesAreNotReportedAsACompleteAddedGroup() {

@@ -364,15 +364,17 @@ internal fun GlassMiuixDetailActivityScaffold(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(settingsPageBackground(pageConfig))
                     .glassBackdropProducer(backgroundBackdrop)
+                    .background(pageColor)
             )
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 underlayModifier = Modifier
                     .fillMaxSize()
-                    .background(settingsPageBackground(pageConfig))
-                    .centeredDialogSceneProducer(dialogSceneBackdrop),
+                    // The base must be inside the recorder. Transparent gaps in the sample
+                    // let the original, unblurred card edges show through popup/dialog blur.
+                    .centeredDialogSceneProducer(dialogSceneBackdrop)
+                    .background(pageColor),
                 containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
@@ -392,6 +394,7 @@ internal fun GlassMiuixDetailActivityScaffold(
                                 translationY = 28.dp.toPx() * editorProgress.floatValue
                                 scaleX = 1f - 0.04f * editorProgress.floatValue
                                 scaleY = scaleX
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
                                 alpha = 1f - editorProgress.floatValue
                                 renderEffect = if (editorProgress.floatValue > 0f && editorProgress.floatValue < 1f) editorUnderlayBlur else null
                             }

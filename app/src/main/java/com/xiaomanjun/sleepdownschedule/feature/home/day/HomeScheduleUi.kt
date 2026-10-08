@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.isHiddenByPeriodAlignment
+import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
+
 import com.xiaomanjun.sleepdownschedule.feature.agent.excludeHomeAssistantPull
 
 import androidx.compose.runtime.SideEffect
@@ -1104,6 +1108,9 @@ internal fun WallpaperGlassSamplingToneOverlay(
     )
 }
 
+internal fun homeFlatBackgroundColor(dark: Boolean): ComposeColor =
+    if (dark) ComposeColor(0xFF18181C) else ComposeColor(0xFFF1F1F3)
+
 @Composable
 fun HomeBackdropFallback(noWallpaper: Boolean = true) {
     val colors = MaterialTheme.colorScheme
@@ -1112,7 +1119,7 @@ fun HomeBackdropFallback(noWallpaper: Boolean = true) {
     Canvas(Modifier.fillMaxSize()) {
         if (noWallpaper) {
             // 无壁纸时背景带一点点灰，深浅色模式都调
-            drawRect(if (dark) ComposeColor(0xFF18181C) else ComposeColor(0xFFF1F1F3))
+            drawRect(homeFlatBackgroundColor(dark))
             return@Canvas
         }
         drawRect(colors.background)
@@ -1294,7 +1301,7 @@ internal fun courseWeeksChanged(original: CourseEntity, edited: CourseEntity): B
 
 internal fun coursesVisibleInWeek(courses: List<CourseEntity>, week: Int): List<CourseEntity> {
     val visible = courses.filter { course ->
-        week in course.weeks && parityMatches(course.weekParity, week)
+        !course.isHiddenByPeriodAlignment() && week in course.weeks && parityMatches(course.weekParity, week)
     }
     val singleWeekOverrideKeys = visible
         .filter { it.weeks.distinct() == listOf(week) }
@@ -2142,6 +2149,7 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
             course = course,
             modifier = Modifier.wrapContentWidth(),
             shape = Capsule(),
+            cacheSharedSamples = false,
             expandedOutlineLight = true,
             muted = subdued
         ) {
@@ -2165,6 +2173,8 @@ fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<Peri
             adjustmentLabel = if (readOnly) { if (muted) "停" else "补" } else null)
     }
 }
+
+internal val DayCourseCardCornerRadius = 24.dp
 
 @Composable
 internal fun DayCourseCardTextContent(
@@ -2222,23 +2232,55 @@ internal fun DayCourseCardTextContent(
 }
 
 @Composable
+internal fun DayCourseCardContent(
+    course: CourseEntity,
+    periods: List<PeriodEntity>,
+    showTime: Boolean,
+    showWeeks: Boolean,
+    tabletFontScale: Float,
+    config: ScheduleConfigEntity,
+    muted: Boolean,
+    adjustmentLabel: String?
+) {
+    val badgeInset = if (adjustmentLabel != null) {
+        (courseBadgeContentInset(with(LocalDensity.current) { courseAdjustmentBadgeHeight() }, DayCourseCardCornerRadius) - 16.dp)
+            .coerceAtLeast(0.dp)
+    } else 0.dp
+    Box(Modifier.padding(bottom = badgeInset)) {
+        DayCourseCardTextContent(
+            course = course, periods = periods, showTime = showTime, showWeeks = showWeeks,
+            textColor = homeForegroundColor(config), tabletFontScale = tabletFontScale,
+            config = config, muted = muted
+        )
+    }
+}
+
+@Composable
 fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Boolean = true, showWeeks: Boolean = true, cardColor: ComposeColor = MaterialTheme.colorScheme.surfaceVariant, backdrop: Backdrop? = null, config: ScheduleConfigEntity = defaultConfig(), onClick: ((Rect?) -> Unit)? = null, enableSharedTransition: Boolean = true, tabletFontScale: Float = 1f, displayedWeek: Int? = null, muted: Boolean = false, adjustmentLabel: String? = null) {
     val resolvedCardColor = if (muted) MutedCourseLightColor else if (courseCardUsesAssignments(config)) courseCardBaseColor(config, course) else cardColor
-    val textColor = homeForegroundColor(config)
     val ownBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
+    val visibleBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
+    val flightRegistry = LocalCourseEditorFlightRegistry.current
     val editId = LocalEditingCourseId.current
     val startupPhase = LocalStartupPhase.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && enableSharedTransition && course.id > 0L) LocalSharedTransitionScope.current else null
     val boundsModifier = Modifier
         .onGloballyPositioned { coordinates ->
-            ownBounds[0] = coordinates.boundsInRoot()
+            // boundsInRoot intersects LazyColumn's clip. Morph the complete card, including
+            // a partially scrolled title, rather than stretching its visible fragment.
+            val topLeft = coordinates.localToRoot(Offset.Zero)
+            val bottomRight = coordinates.localToRoot(
+                Offset(coordinates.size.width.toFloat(), coordinates.size.height.toFloat())
+            )
+            ownBounds[0] = Rect(topLeft, bottomRight)
+            visibleBounds[0] = coordinates.boundsInRoot()
         }
     CourseBoundsSource(
         courseId = course.id,
         visible = editId != course.id,
         sharedScope = sharedScope,
         modifier = Modifier.fillMaxWidth(),
-        shape = RoundedRectangle(24.dp)
+        shape = RoundedRectangle(DayCourseCardCornerRadius)
     ) { sharedModifier ->
     Box(
         modifier = sharedModifier.then(boundsModifier).then(
@@ -2250,30 +2292,38 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             config = config,
             course = course,
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedRectangle(24.dp),
+            shape = RoundedRectangle(DayCourseCardCornerRadius),
+            // Lazy rows are detached/reused while scrolling and paging. Share the wallpaper
+            // blur, but record each visible row's current sample on draw instead of retaining
+            // its position-dependent display list across those lifecycle transitions.
+            cacheSharedSamples = false,
             expandedOutlineLight = true,
             muted = muted,
-            onClick = if (onClick != null) ({ onClick(ownBounds[0]) }) else null
+            onClick = if (onClick != null) ({
+                val bounds = ownBounds[0]
+                val visible = visibleBounds[0]
+                if (bounds != null && visible != null) flightRegistry?.captureSource(
+                    bounds, visible,
+                    CourseEditorDayAppearance(course, periods, showTime, showWeeks, tabletFontScale, muted,
+                        adjustmentLabel, cornerRadius = DayCourseCardCornerRadius)
+                )
+                onClick(bounds)
+            }) else null
         ) {
-            Box(Modifier.padding(bottom = if (adjustmentLabel != null) {
-                (courseBadgeContentInset(with(LocalDensity.current) { courseAdjustmentBadgeHeight() }, 24.dp) - 16.dp)
-                    .coerceAtLeast(0.dp)
-            } else 0.dp)) {
-            DayCourseCardTextContent(
+            DayCourseCardContent(
                 course = course,
                 periods = periods,
                 showTime = showTime,
                 showWeeks = showWeeks,
-                textColor = textColor,
                 tabletFontScale = tabletFontScale,
                 config = config,
-                muted = muted
+                muted = muted,
+                adjustmentLabel = adjustmentLabel
             )
-            }
         }
         adjustmentLabel?.let {
             CourseAdjustmentBadge(it, backdrop, config,
-                Modifier.align(Alignment.BottomEnd).courseBadgeCornerAnchor(24.dp).zIndex(7f))
+                Modifier.align(Alignment.BottomEnd).courseBadgeCornerAnchor(DayCourseCardCornerRadius).zIndex(7f))
         }
     }
     }
@@ -2285,6 +2335,9 @@ fun ImportPreviewCourseCard(
     periods: List<PeriodEntity>,
     config: ScheduleConfigEntity = defaultConfig()
 ) {
+    val effective = remember(course, periods, config.periodAlignmentMode) {
+        projectCourseArrangement(captureOriginalPeriodTimes(course, periods), config, periods)
+    }
     val cardColor = courseCardBaseColor(config, course).copy(alpha = config.cardAlpha.coerceIn(0f, 1f))
     val textColor = readableOn(cardColor)
     CourseGlassCard(
@@ -2296,7 +2349,12 @@ fun ImportPreviewCourseCard(
     ) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Text(course.name, style = MaterialTheme.typography.titleMedium, color = textColor)
-            Text(courseHomeTimeDetail(course, periods), color = textColor.copy(alpha = 0.86f))
+            Text(
+                text = "周${weekdayLabel(course.weekday)} · " +
+                    if (effective.isHiddenByPeriodAlignment()) "暂不显示 · 原始第 ${course.periods.joinToString("、")} 节"
+                    else courseHomeTimeDetail(effective, periods),
+                color = textColor.copy(alpha = 0.86f)
+            )
             if (!course.location.isNullOrBlank()) Text("地点：" + course.location, color = textColor.copy(alpha = 0.86f))
             if (!course.teacher.isNullOrBlank()) Text("教师：" + course.teacher, color = textColor.copy(alpha = 0.86f))
             Text("周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity), color = textColor.copy(alpha = 0.86f))

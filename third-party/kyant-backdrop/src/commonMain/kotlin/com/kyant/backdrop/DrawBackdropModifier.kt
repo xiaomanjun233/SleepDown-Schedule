@@ -55,6 +55,8 @@ private val DefaultHighlight = { Highlight.Default }
 private val DefaultShadow = { Shadow.Default }
 private val DefaultOnDrawBackdrop: DrawScope.(DrawScope.() -> Unit) -> Unit = { it() }
 
+private data class SharedSampleKey(val source: SharedBlurBackdrop, val revision: Int, val offset: Offset)
+
 fun Modifier.drawPlainBackdrop(
     backdrop: Backdrop,
     shape: () -> Shape,
@@ -289,6 +291,8 @@ private class DrawBackdropNode(
     // coordinates from draw so movement invalidates the layer that actually records the glass.
     // LayoutCoordinates mutates in place, so assigning the same instance must still notify it.
     private var layoutCoordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
+    private var lastSharedPositionSource: SharedBlurBackdrop? = null
+    private var lastSharedPosition: Offset? = null
 
     private var padding by mutableFloatStateOf(0f)
 
@@ -322,31 +326,45 @@ private class DrawBackdropNode(
             val allocationPadding = shapeProvider.options.allocationPadding ?: padding
             require(allocationPadding >= padding) { "Fixed allocation must cover effect padding" }
 
-            val parentRecordKey = shapeProvider.options.sampleRecordKey()
-            val recordKey = (backdrop as? SharedBlurBackdrop)?.let { shared ->
-                parentRecordKey?.let { it to shared.contentRevision }
-            } ?: parentRecordKey
             val recordingSize = IntSize(
                 ceil(size.width * sampleScale + allocationPadding * 2).toInt().coerceAtLeast(1),
                 ceil(size.height * sampleScale + allocationPadding * 2).toInt().coerceAtLeast(1)
             )
-            val reuseSample = shapeProvider.options.coordinatesFrozen() &&
+            val shared = backdrop as? SharedBlurBackdrop
+            val sharedLayer = shared?.layer
+            val sourceCoordinates = shared?.source?.layerCoordinates
+            val cardCoordinates = layoutCoordinates
+            val directSharedSample = sharedLayer != null && shared?.sampleScale == sampleScale &&
+                sourceCoordinates?.isAttached == true && cardCoordinates?.isAttached == true &&
+                layerBlock == null && shapeProvider.options.bounds() == null && exportedBackdrop == null
+            val frozen = shapeProvider.options.coordinatesFrozen()
+            // Live shared cards depend on their own relative position/revision. Observing the
+            // page-wide animation key here wakes every card for every other group's spring.
+            val frozenRecordKey = if (frozen || !directSharedSample || !shapeProvider.options.cacheSharedSamples) {
+                val parentKey = shapeProvider.options.sampleRecordKey()
+                if (shared != null && parentKey != null) parentKey to shared.contentRevision else parentKey
+            } else null
+            val sharedOffset = if (directSharedSample && !frozen) {
+                val source = checkNotNull(sourceCoordinates)
+                val card = checkNotNull(cardCoordinates)
+                try { source.localPositionOf(card) } catch (_: IllegalArgumentException) {
+                    card.positionInWindow() - source.positionInWindow()
+                }
+            } else null
+            val liveSharedKey = if (shapeProvider.options.cacheSharedSamples && sharedOffset != null) {
+                SharedSampleKey(checkNotNull(shared), shared.contentRevision, sharedOffset)
+            } else null
+            val recordKey = if (frozen) frozenRecordKey else liveSharedKey
+            val reuseSample = (frozen || liveSharedKey != null) &&
                 !sampleRecordingCache.needsRecord(recordKey, recordingSize, density, fontScale, layoutDirection)
             if (!reuseSample) {
-                val shared = backdrop as? SharedBlurBackdrop
-                val sharedLayer = shared?.layer
-                val sourceCoordinates = shared?.source?.layerCoordinates
-                val cardCoordinates = layoutCoordinates
-                val directSharedSample = sharedLayer != null && shared?.sampleScale == sampleScale &&
-                    sourceCoordinates?.isAttached == true && cardCoordinates?.isAttached == true &&
-                    layerBlock == null && shapeProvider.options.bounds() == null && exportedBackdrop == null
                 if (directSharedSample) {
                     // Nexio 2971759: shared wallpaper and card buffer use the same resolution.
                     // Translate directly in sampled pixels, then apply this card's lens. Avoid the
                     // expand-source -> shrink-consumer pair used by the generic Backdrop interface.
                     val source = checkNotNull(sourceCoordinates)
                     val card = checkNotNull(cardCoordinates)
-                    val offset = try { source.localPositionOf(card) } catch (_: IllegalArgumentException) {
+                    val offset = sharedOffset ?: try { source.localPositionOf(card) } catch (_: IllegalArgumentException) {
                         card.positionInWindow() - source.positionInWindow()
                     }
                     recordLayer(layer, size = recordingSize) {
@@ -364,7 +382,7 @@ private class DrawBackdropNode(
                 layerDiagnostics.recorded(layer.size)
                 sampleRecordingCache.recorded(recordKey, recordingSize, density, fontScale, layoutDirection)
             } else {
-                BackdropDiagnostics.event("Sample.FrozenReuse")
+                BackdropDiagnostics.event(if (frozen) "Sample.FrozenReuse" else "Sample.SharedReuse")
             }
             layer.topLeft = IntOffset.Zero
             drawContext.canvas.save()
@@ -459,7 +477,31 @@ private class DrawBackdropNode(
                 // Always accept a new node; retained scene contents keep their recorded position.
                 // Moving foreground cards still resample the live wallpaper at every position.
                 if (!shapeProvider.options.coordinatesFrozen() || layoutCoordinates !== coordinates) {
-                    invalidateSampleRecording()
+                    val shared = backdrop as? SharedBlurBackdrop
+                    val source = shared?.source?.layerCoordinates
+                    val relativePosition = if (shapeProvider.options.cacheSharedSamples &&
+                        source?.isAttached == true && layerBlock == null && exportedBackdrop == null &&
+                        shapeProvider.options.bounds() == null
+                    ) {
+                        try { source.localPositionOf(coordinates) } catch (_: IllegalArgumentException) {
+                            coordinates.positionInWindow() - source.positionInWindow()
+                        }
+                    } else null
+                    if (relativePosition != null && layoutCoordinates === coordinates &&
+                        lastSharedPositionSource === shared && lastSharedPosition == relativePosition
+                    ) {
+                        // Wallpaper and card can travel together. Their screen positions changed,
+                        // but the retained sample and lens did not. Source revisions are observed
+                        // independently by draw; resize/density/effect changes still invalidate.
+                        return
+                    }
+                    lastSharedPositionSource = shared
+                    lastSharedPosition = relativePosition
+                    // Live shared samples validate their relative position in draw. A global
+                    // position callback alone does not mean that the sampled pixels changed.
+                    if (!shapeProvider.options.cacheSharedSamples || layoutCoordinates !== coordinates) {
+                        invalidateSampleRecording()
+                    }
                     layoutCoordinates = coordinates
                 }
             } else {
@@ -549,6 +591,8 @@ private class DrawBackdropNode(
         lastEffectKey = null
         lastEffectShape = null
         layoutCoordinates = null
+        lastSharedPositionSource = null
+        lastSharedPosition = null
         exportedBackdrop?.layerCoordinates = null
     }
 

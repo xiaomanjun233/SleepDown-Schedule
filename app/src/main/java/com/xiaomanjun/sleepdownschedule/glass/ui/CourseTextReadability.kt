@@ -22,14 +22,21 @@ internal fun rememberCourseTextBackground(
     blurPx: Float,
     outline: Boolean,
     expanded: Boolean,
+    flatBackground: Color? = null,
     ready: Boolean,
     cardBounds: () -> Rect?
 ): CourseTextBackground {
     val wallpaper = LocalHomeReadability.current
     val frozen = LocalHomeBackgroundFrozen.current ||
         LocalCourseTextMotionFrozen.current || LocalHomeTextContrastFrozen.current
-    return remember(wallpaper, frozen, base, tintAlpha, blurred, blurPx, outline, expanded, ready) {
-        CourseTextBackground(frozen) { windowBounds ->
+    return remember(wallpaper, frozen, base, tintAlpha, blurred, blurPx, outline, expanded, ready, flatBackground) {
+        val flatLuminance = flatBackground?.let {
+            base.copy(alpha = tintAlpha.coerceIn(0f, 1f)).compositeOver(it).luminance()
+        }
+        CourseTextBackground(frozen, flatLuminance) { windowBounds ->
+            // Flat cards have an exact composite; no wallpaper/position read is needed, even
+            // when transparency is low or the card has not received its first layout callback.
+            if (flatLuminance != null) return@CourseTextBackground floatArrayOf(flatLuminance)
             if (!ready) return@CourseTextBackground null
             val bounds = windowBounds.translate(-wallpaper.rootOffsetInWindow)
             val colors = sampleVisibleWallpaperColors(wallpaper,

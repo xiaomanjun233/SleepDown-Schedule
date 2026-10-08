@@ -23,6 +23,11 @@ object BackupPreferencesApplier {
             DayAgentPreferences.applyBackupPreferences(context, it, scheduleRoomIdsByStableId)
         }
         preferences.aiImport?.let { AiImportSettingsStore.applyBackupPreferences(context, it) }
+        // Scheme preferences from older backups are imported with the Room transaction. Replaying
+        // preference finalization must not merge a second copy or resurrect removed schemes.
+        preferences.courseQuietSettings?.let {
+            com.xiaomanjun.sleepdownschedule.feature.reminder.CourseQuietPreferences.write(context, it)
+        }
         AiImportHistoryStore.applyBackup(
             context = context,
             entries = preferences.aiImportHistory,

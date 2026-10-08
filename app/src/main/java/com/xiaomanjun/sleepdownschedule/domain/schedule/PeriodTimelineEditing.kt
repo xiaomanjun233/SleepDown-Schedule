@@ -41,7 +41,9 @@ internal data class PeriodTimelineSession(
 
 internal fun PeriodSchemeDraft.materializeForTimeline(config: ScheduleConfigEntity) = copy(
     scheme = scheme.copy(mode = PeriodSchemeMode.MANUAL),
-    times = resolveSchemeTimes(config, this),
+    // Opening the editor is not a regeneration command. Persisted bells are authoritative,
+    // including older AUTO_MATCH rows whose generation parameters no longer reproduce them.
+    times = times.takeIf { it.isNotEmpty() }?.sortedBy { it.periodIndex } ?: resolveSchemeTimes(config, this),
     specialBreaks = emptyMap(),
     overriddenPeriods = emptySet()
 ).rebaseTimelineAnchors(config)

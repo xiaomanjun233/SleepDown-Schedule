@@ -16,6 +16,10 @@ private fun officialMimoUri(value: String): URI? = runCatching { URI(value.trim(
 
 internal fun isOfficialMimoEndpoint(value: String): Boolean = officialMimoUri(value) != null
 
+/** Managed credentials follow the currently published endpoint, not the previous provider. */
+internal fun managedAiAuthType(baseUrl: String): AiAuthType =
+    if (isOfficialMimoEndpoint(baseUrl)) AiAuthType.CustomHeader else AiAuthType.ApiKeyBearer
+
 internal fun mimoResponsesEffort(effort: AiReasoningEffort): String = when (effort) {
     AiReasoningEffort.NONE -> "none"
     AiReasoningEffort.MINIMAL, AiReasoningEffort.LOW -> "low"

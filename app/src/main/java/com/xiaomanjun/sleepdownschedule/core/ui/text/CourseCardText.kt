@@ -53,8 +53,12 @@ internal fun CourseCardText(
     // title, so background differences cannot turn individual labels into opposing colors.
     val displayedColor = if (coloredText) color.copy(alpha = 1f) else color
     val background = if (adaptiveContrast) LocalCourseTextBackground.current else null
+    val flatShadowStrength = background?.flatLuminance?.let {
+        softTextShadowStrength(floatArrayOf(it), displayedColor.luminance(), displayedColor.alpha)
+    }
     var targetShadowStrength by remember(displayedColor) { mutableFloatStateOf(0f) }
-    val shadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "course-text-soft-shadow")
+    val animatedShadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "course-text-soft-shadow")
+    val shadowStrength = flatShadowStrength ?: animatedShadowStrength
     val coordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
     val layout = remember { arrayOfNulls<TextLayoutResult>(1) }
     val lastBounds = remember(background, displayedColor) { arrayOfNulls<Rect>(1) }
@@ -95,6 +99,10 @@ internal fun CourseCardText(
         return true
     }
     fun updateAfterMotion() {
+        // The page resumes sampling through LaunchedEffect(background) after settling.
+        // Keep the coordinate reference current without mapping every label to the window
+        // or starting settle jobs on each frame of a pager swipe or vertical scroll.
+        if (background == null || background.frozen) return
         val position = coordinates[0]?.takeIf { it.isAttached } ?: return
         val origin = position.localToWindow(Offset.Zero)
         if (observedOrigin[0] == origin) {
@@ -128,16 +136,17 @@ internal fun CourseCardText(
     val shadowStyle = if (shadowStrength <= 0.001f) style else {
         val radius = with(density) {
             if (coloredText) {
-                (effectiveFontSize.toPx() * 0.26f).coerceIn(3.dp.toPx(), 5.5.dp.toPx())
+                (effectiveFontSize.toPx() * 0.82f).coerceIn(8.dp.toPx(), 18.dp.toPx())
             } else {
-                (effectiveFontSize.toPx() * 0.30f).coerceIn(3.dp.toPx(), 6.dp.toPx())
+                (effectiveFontSize.toPx() * 0.62f).coerceIn(6.dp.toPx(), 14.dp.toPx())
             }
         }
-        // Fixed monochrome ink needs a faint, diffuse backing rather than a visible rim.
+        // A centered, low-density halo backs the glyphs without tracing their edges.
+        // Wallpaper and flat cards use the same spread; samples only choose its strength.
         val maximumShadowAlpha = when {
-            coloredText -> if (lightText) 0.34f else 0.26f
-            lightText -> 0.28f
-            else -> 0.18f
+            coloredText -> if (lightText) 0.42f else 0.24f
+            lightText -> 0.22f
+            else -> 0.15f
         }
         style.copy(shadow = Shadow(
             color = (if (lightText) Color.Black else Color.White).copy(
@@ -149,7 +158,10 @@ internal fun CourseCardText(
     }
     Text(
         text = text,
-        modifier = modifier.onGloballyPositioned { coordinates[0] = it; updateAfterMotion() },
+        modifier = if (background == null || flatShadowStrength != null) modifier else modifier.onGloballyPositioned {
+            coordinates[0] = it
+            updateAfterMotion()
+        },
         color = displayedColor,
         style = shadowStyle,
         fontWeight = if (coloredText) maxOf(fontWeight ?: style.fontWeight ?: FontWeight.Normal, FontWeight.Bold) else fontWeight,

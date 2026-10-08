@@ -1,0 +1,1229 @@
+--- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
++++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/popup/OverlayDropdownPopup.kt
+@@ -47,6 +47,7 @@
+     collapseOnSelection: Boolean = true,
+     onFractionProgress: ((Float) -> Unit)? = null,
+     revealLimitHeight: Dp = 0.dp,
++    collapseContent: (@Composable () -> Unit)? = null,
+ ) {
+     val entries = remember(entry) { listOf(entry) }
+     OverlayDropdownPopup(
+@@ -62,6 +63,7 @@
+         collapseOnSelection = collapseOnSelection,
+         onFractionProgress = onFractionProgress,
+         revealLimitHeight = revealLimitHeight,
++        collapseContent = collapseContent,
+     )
+ }
+
+@@ -84,6 +86,7 @@
+     collapseOnSelection: Boolean = entries.size <= 1,
+     onFractionProgress: ((Float) -> Unit)? = null,
+     revealLimitHeight: Dp = 0.dp,
++    collapseContent: (@Composable () -> Unit)? = null,
+ ) {
+     val hapticFeedback = LocalHapticFeedback.current
+     val currentEntries by rememberUpdatedState(entries)
+@@ -92,7 +95,7 @@
+     val currentHapticFeedback by rememberUpdatedState(hapticFeedback)
+     val onItemClicked: (Int, Int) -> Unit = remember {
+         { entryIdx, itemIdx ->
+-            currentHapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
++            if (!popupVisualStyle.slideSelection) currentHapticFeedback.performHapticFeedback(HapticFeedbackType.Confirm)
+             currentEntries.getOrNull(entryIdx)?.let { entry ->
+                 entry.items.getOrNull(itemIdx)?.onClick?.invoke()
+             }
+@@ -110,8 +113,10 @@
+         renderInRootScaffold = renderInRootScaffold,
+         excludeFromBackdropCapture = excludeFromBackdropCapture,
+         visualStyle = popupVisualStyle,
++        enableWindowDim = popupVisualStyle.dimBackground,
+         onFractionProgress = onFractionProgress,
+         revealLimitHeight = revealLimitHeight,
++        collapseContent = collapseContent,
+     ) {
+         ListPopupColumn {
+             DropdownEntriesPopupContent(
+--- a/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
++++ b/miuix-preference/src/commonMain/kotlin/top/yukonga/miuix/kmp/preference/OverlayDropdownPreference.kt
+@@ -7,9 +7,11 @@
+ import androidx.compose.animation.core.tween
+ import androidx.compose.foundation.interaction.MutableInteractionSource
+ import androidx.compose.foundation.layout.PaddingValues
++import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.runtime.Composable
+ import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.MutableState
+ import androidx.compose.runtime.State
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
+@@ -17,8 +19,10 @@
+ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.rememberUpdatedState
+ import androidx.compose.runtime.snapshotFlow
++import androidx.compose.runtime.withFrameNanos
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+ import androidx.compose.ui.platform.LocalHapticFeedback
+@@ -41,6 +45,36 @@
+ import top.yukonga.miuix.kmp.basic.Text
+ import top.yukonga.miuix.kmp.popup.OverlayDropdownPopup
+ import top.yukonga.miuix.kmp.theme.MiuixTheme
++
++@Composable
++private fun rememberPopupTriggerTransferred(show: Boolean, morph: Boolean): MutableState<Boolean> {
++    val transferred = remember { mutableStateOf(false) }
++    LaunchedEffect(show, morph) {
++        if (!morph) transferred.value = false
++        else if (show) {
++            // Give the overlay time to measure the anchor before it owns these glyphs.
++            repeat(2) { withFrameNanos {} }
++            transferred.value = true
++        }
++    }
++    return transferred
++}
++
++@Composable
++private fun PopupTriggerContent(text: String?, actionColor: Color, modifier: Modifier = Modifier) {
++    Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
++        if (!text.isNullOrEmpty()) {
++            Text(
++                text = text,
++                modifier = Modifier.padding(end = 8.dp).weight(1f, fill = false),
++                fontSize = MiuixTheme.textStyles.body2.fontSize,
++                color = actionColor,
++                textAlign = TextAlign.End,
++            )
++        }
++        DropdownArrowEndAction(actionColor = actionColor)
++    }
++}
+
+ @Composable
+ private fun rememberPopupAnchorContentAlpha(fractionState: State<Float>): Float {
+@@ -187,8 +221,11 @@
+     }
+
+     val fractionState = remember { mutableFloatStateOf(0f) }
+-    val anchorContentAlpha = rememberPopupAnchorContentAlpha(fractionState)
++    val trackAnchorAlpha = popupVisualStyle.holdAnchor && !popupVisualStyle.morphAnimation
++    val anchorContentAlpha = if (trackAnchorAlpha) rememberPopupAnchorContentAlpha(fractionState) else 1f
+     val revealLimitHeight = if (entry.items.size > 2) 112.dp else 0.dp
++    val triggerTransferred = rememberPopupTriggerTransferred(isDropdownExpanded.value, popupVisualStyle.morphAnimation)
++    val selectedValueText = if (showValue) entry.items.firstOrNull { it.selected }?.text else null
+
+     val itemsNotEmpty = entry.items.isNotEmpty()
+     val actualEnabled = enabled && itemsNotEmpty
+@@ -221,47 +258,59 @@
+         summaryColor = summaryColor,
+         startAction = startAction,
+         endActions = {
+-            if (showValue && itemsNotEmpty) {
+-                val text = entry.items.firstOrNull { it.selected }?.text
+-                if (!text.isNullOrEmpty()) {
++            if (popupVisualStyle.morphAnimation) {
++                PopupTriggerContent(
++                    text = selectedValueText,
++                    actionColor = actionColor,
++                    modifier = Modifier.graphicsLayer { alpha = if (triggerTransferred.value) 0f else 1f },
++                )
++            } else {
++                if (!selectedValueText.isNullOrEmpty()) {
+                     Text(
+-                        text = text,
++                        text = selectedValueText,
+                         modifier = Modifier
+                             .padding(end = 8.dp)
+                             .align(Alignment.CenterVertically)
+                             .weight(1f, fill = false)
+-                            .graphicsLayer { alpha = anchorContentAlpha },
++                            .graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
+                         fontSize = MiuixTheme.textStyles.body2.fontSize,
+                         color = actionColor,
+                         textAlign = TextAlign.End,
+                     )
+                 }
+-            }
+-            DropdownArrowEndAction(
+-                actionColor = actionColor,
+-                modifier = Modifier.graphicsLayer { alpha = anchorContentAlpha },
+-            )
++                DropdownArrowEndAction(
++                    actionColor = actionColor,
++                    modifier = Modifier.graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
++                )
++            }
+             if (itemsNotEmpty) {
+                 OverlayDropdownPopup(
+                     entry = entry,
+                     show = isDropdownExpanded.value,
+                     onDismiss = { setExpanded(false) },
+-                    onDismissFinished = { isHoldDown.value = false },
++                    onDismissFinished = {
++                        isHoldDown.value = false
++                        triggerTransferred.value = false
++                    },
+                     maxHeight = maxHeight,
+                     dropdownColors = dropdownColors,
+                     renderInRootScaffold = renderInRootScaffold,
+                     excludeFromBackdropCapture = excludeFromBackdropCapture,
+                     popupVisualStyle = popupVisualStyle,
+                     collapseOnSelection = collapseOnSelection,
+-                    onFractionProgress = { fractionState.floatValue = it },
++                    onFractionProgress = if (trackAnchorAlpha) ({ fractionState.floatValue = it }) else null,
+                     revealLimitHeight = revealLimitHeight,
++                    collapseContent = if (popupVisualStyle.morphAnimation) {
++                        { PopupTriggerContent(selectedValueText, actionColor) }
++                    } else null,
+                 )
+             }
+         },
+         bottomAction = bottomAction,
+         onClick = handleClick,
+         role = Role.DropdownList,
+-        holdDownState = isHoldDown.value,
++        holdDownState = isHoldDown.value && popupVisualStyle.holdAnchor,
++        showIndication = popupVisualStyle.holdAnchor,
+         enabled = actualEnabled,
+     )
+ }
+@@ -303,8 +352,10 @@
+     }
+
+     val fractionState = remember { mutableFloatStateOf(0f) }
+-    val anchorContentAlpha = rememberPopupAnchorContentAlpha(fractionState)
+-
++    val trackAnchorAlpha = popupVisualStyle.holdAnchor && !popupVisualStyle.morphAnimation
++    val anchorContentAlpha = if (trackAnchorAlpha) rememberPopupAnchorContentAlpha(fractionState) else 1f
++
++    val triggerTransferred = rememberPopupTriggerTransferred(isDropdownExpanded.value, popupVisualStyle.morphAnimation)
+     val nonEmptyEntries = entries.filter { it.items.isNotEmpty() }
+     val hasEntries = nonEmptyEntries.isNotEmpty()
+     val revealLimitHeight = if (nonEmptyEntries.sumOf { it.items.size } > 2) 112.dp else 0.dp
+@@ -338,50 +389,65 @@
+         summaryColor = summaryColor,
+         startAction = startAction,
+         endActions = {
+-            val selectedValueText = nonEmptyEntries
++            val selectedValueText = if (showValue) nonEmptyEntries
+                 .asSequence()
+                 .flatMap { group -> group.items }
+                 .filter { it.selected }
+                 .map { it.text }
+                 .filter { it.isNotBlank() }
+                 .joinToString("\n")
+-                .ifBlank { null }
+-            if (showValue && hasEntries && !selectedValueText.isNullOrBlank()) {
+-                Text(
++                .ifBlank { null } else null
++            if (popupVisualStyle.morphAnimation) {
++                PopupTriggerContent(
+                     text = selectedValueText,
+-                    modifier = Modifier
+-                        .padding(end = 8.dp)
+-                        .graphicsLayer { alpha = anchorContentAlpha },
+-                    fontSize = MiuixTheme.textStyles.body2.fontSize,
+-                    color = actionColor,
+-                    textAlign = TextAlign.End,
+-                )
+-            }
+-            DropdownArrowEndAction(
+-                actionColor = actionColor,
+-                modifier = Modifier.graphicsLayer { alpha = anchorContentAlpha },
+-            )
++                    actionColor = actionColor,
++                    modifier = Modifier.graphicsLayer { alpha = if (triggerTransferred.value) 0f else 1f },
++                )
++            } else {
++                if (hasEntries && !selectedValueText.isNullOrBlank()) {
++                    Text(
++                        text = selectedValueText,
++                        modifier = Modifier
++                            .padding(end = 8.dp)
++                            .graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
++                        fontSize = MiuixTheme.textStyles.body2.fontSize,
++                        color = actionColor,
++                        textAlign = TextAlign.End,
++                    )
++                }
++                DropdownArrowEndAction(
++                    actionColor = actionColor,
++                    modifier = Modifier.graphicsLayer { alpha = if (popupVisualStyle.holdAnchor) anchorContentAlpha else 1f },
++                )
++            }
+             if (hasEntries) {
+                 OverlayDropdownPopup(
+                     entries = nonEmptyEntries,
+                     show = isDropdownExpanded.value,
+                     onDismiss = { setExpanded(false) },
+-                    onDismissFinished = { isHoldDown.value = false },
++                    onDismissFinished = {
++                        isHoldDown.value = false
++                        triggerTransferred.value = false
++                    },
+                     maxHeight = maxHeight,
+                     dropdownColors = dropdownColors,
+                     renderInRootScaffold = renderInRootScaffold,
+                     excludeFromBackdropCapture = excludeFromBackdropCapture,
+                     popupVisualStyle = popupVisualStyle,
+                     collapseOnSelection = collapseOnSelection,
+-                    onFractionProgress = { fractionState.floatValue = it },
++                    onFractionProgress = if (trackAnchorAlpha) ({ fractionState.floatValue = it }) else null,
+                     revealLimitHeight = revealLimitHeight,
++                    collapseContent = if (popupVisualStyle.morphAnimation) {
++                        { PopupTriggerContent(selectedValueText, actionColor) }
++                    } else null,
+                 )
+             }
+         },
+         bottomAction = bottomAction,
+         onClick = handleClick,
+         role = Role.DropdownList,
+-        holdDownState = isHoldDown.value,
++        holdDownState = isHoldDown.value && popupVisualStyle.holdAnchor,
++        showIndication = popupVisualStyle.holdAnchor,
+         enabled = actualEnabled,
+     )
+ }
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
+@@ -16,6 +16,11 @@
+ import androidx.compose.foundation.layout.sizeIn
+ import androidx.compose.foundation.layout.widthIn
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.SideEffect
++import androidx.compose.foundation.interaction.MutableInteractionSource
++import androidx.compose.ui.layout.onGloballyPositioned
++import androidx.compose.ui.graphics.luminance
+ import androidx.compose.runtime.Immutable
+ import androidx.compose.runtime.NonRestartableComposable
+ import androidx.compose.runtime.Stable
+@@ -134,6 +139,18 @@
+     }
+
+     val currentOnSelectedIndexChange by rememberUpdatedState(onSelectedIndexChange)
++    val slide = if (dialogMode) null else LocalPopupSlideSelection.current
++    val slideKey = remember { Any() }
++    val slideItem = remember { PopupSlideSelection.Item(enabled) { currentOnSelectedIndexChange(index) } }
++    SideEffect {
++        slideItem.enabled = enabled
++        slideItem.activate = { currentOnSelectedIndexChange(index) }
++        slide?.items?.set(slideKey, slideItem)
++    }
++    DisposableEffect(slide, slideKey) { onDispose { slide?.items?.remove(slideKey) } }
++    val highlightColor = if (MiuixTheme.colorScheme.background.luminance() > 0.5f) {
++        Color.Black.copy(alpha = 0.10f)
++    } else Color.White.copy(alpha = 0.16f)
+     val role = if (hasSubmenu) Role.Button else Role.RadioButton
+     Row(
+         verticalAlignment = Alignment.CenterVertically,
+@@ -146,8 +163,14 @@
+                 bottom = if (isLast) 8.dp else 0.dp,
+             )
+             .squircleClip(17.dp)
+-            .drawBehind { drawRect(backgroundColorState.value) }
++            .drawBehind {
++                drawRect(backgroundColorState.value)
++                if (slide?.highlighted == slideKey) drawRect(highlightColor)
++            }
++            .onGloballyPositioned { slideItem.coordinates = it }
+             .clickable(
++                interactionSource = remember { MutableInteractionSource() },
++                indication = if (slide != null) null else androidx.compose.foundation.LocalIndication.current,
+                 enabled = enabled,
+                 role = role,
+                 onClick = { currentOnSelectedIndexChange(index) },
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
+@@ -6,6 +6,7 @@
+ import androidx.compose.animation.core.Animatable
+ import androidx.compose.animation.core.spring
+ import androidx.compose.animation.core.tween
++import androidx.compose.foundation.BorderStroke
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.focusGroup
+ import androidx.compose.foundation.shape.RoundedCornerShape
+@@ -22,6 +23,8 @@
+ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.verticalScroll
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.CompositionLocalProvider
++import androidx.compose.ui.platform.LocalHapticFeedback
+ import androidx.compose.runtime.Immutable
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.Stable
+@@ -35,6 +38,7 @@
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.TransformOrigin
+ import androidx.compose.ui.graphics.drawscope.clipPath
++import androidx.compose.ui.graphics.drawscope.Stroke
+ import androidx.compose.ui.graphics.drawscope.translate
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.layout.IntrinsicMeasurable
+@@ -47,6 +51,10 @@
+ import androidx.compose.ui.layout.Placeable
+ import androidx.compose.ui.layout.onGloballyPositioned
+ import androidx.compose.ui.platform.LocalDensity
++import androidx.compose.ui.graphics.BlurEffect
++import androidx.compose.ui.graphics.RenderEffect
++import androidx.compose.ui.graphics.TileMode
++import kotlin.math.roundToInt
+ import androidx.compose.ui.platform.LocalLayoutDirection
+ import androidx.compose.ui.platform.LocalWindowInfo
+ import androidx.compose.ui.text.TextStyle
+@@ -89,6 +97,15 @@
+     val itemTextStyle: TextStyle? = null,
+     val itemVerticalPadding: Dp = 10.5.dp,
+     val itemMinHeight: Dp = 0.dp,
++    val slideSelection: Boolean = false,
++    val dimBackground: Boolean = true,
++    val holdAnchor: Boolean = true,
++    val interactionModifier: Modifier = Modifier,
++    val border: BorderStroke? = null,
++    val morphAnimation: Boolean = false,
++    val shadowElevation: Dp = 16.dp,
++    val ambientShadowColor: Color = Color.Black.copy(alpha = 0.125f),
++    val spotShadowColor: Color = Color.Black.copy(alpha = 0.125f),
+ )
+
+ /** Optional app-level material applied consistently to every Miuix list-popup host. */
+@@ -104,6 +121,9 @@
+     content: @Composable () -> Unit,
+ ) {
+     val scrollState = rememberScrollState()
++    val slideEnabled = LocalListPopupVisualStyle.current.slideSelection
++    val selection = remember(slideEnabled) { if (slideEnabled) PopupSlideSelection() else null }
++    val haptic = LocalHapticFeedback.current
+
+     val measurePolicy = remember {
+         object : MeasurePolicy {
+@@ -170,10 +190,11 @@
+     }
+
+     Layout(
+-        content = content,
++        content = { CompositionLocalProvider(LocalPopupSlideSelection provides selection, content = content) },
+         modifier = Modifier
+             .focusGroup()
+             .height(IntrinsicSize.Min)
++            .popupSlideSelection(selection, scrollState, haptic)
+             .verticalScroll(state = scrollState),
+         measurePolicy = measurePolicy,
+     )
+@@ -644,11 +665,31 @@
+     localTransformOrigin: TransformOrigin,
+     modifier: Modifier = Modifier,
+     revealLimitHeight: Dp = 0.dp,
++    originProgress: () -> Float = fractionProgress,
++    isEntering: Boolean = true,
++    morphAnchor: PopupMorphAnchor? = null,
++    collapseContent: (@Composable () -> Unit)? = null,
+     content: @Composable () -> Unit,
+ ) {
+     val visualStyle = LocalListPopupVisualStyle.current
++    if (visualStyle.morphAnimation) {
++        MorphingListPopupContent(
++            modifier = modifier,
++            fractionProgress = fractionProgress,
++            originProgress = originProgress,
++            isEntering = isEntering,
++            anchor = morphAnchor,
++            fallbackOrigin = localTransformOrigin,
++            onSizeChanged = onPopupContentSizeChange,
++            collapseContent = collapseContent,
++            content = content,
++        )
++        return
++    }
+     val cornerRadius = visualStyle.cornerRadius
+     val backgroundColor = visualStyle.backgroundColor ?: MiuixTheme.colorScheme.surfaceContainer
++    val density = LocalDensity.current
++    val blurSteps = remember(density) { arrayOfNulls<RenderEffect>(9) }
+     val shadowAlpha = remember { Animatable(0f) }
+     LaunchedEffect(Unit) {
+         var previousFraction = fractionProgress()
+@@ -676,12 +717,14 @@
+
+     Box(
+         modifier = modifier
++            .then(visualStyle.interactionModifier)
+             .graphicsLayer {
+-                shadowElevation = 16.dp.toPx()
++                shadowElevation = visualStyle.shadowElevation.toPx()
+                 shape = RoundedCornerShape(cornerRadius)
+-                val color = Color.Black.copy(alpha = (32f / 255f) * shadowAlpha.value)
+-                ambientShadowColor = color
+-                spotShadowColor = color
++                ambientShadowColor = visualStyle.ambientShadowColor.copy(
++                    alpha = visualStyle.ambientShadowColor.alpha * shadowAlpha.value)
++                spotShadowColor = visualStyle.spotShadowColor.copy(
++                    alpha = visualStyle.spotShadowColor.alpha * shadowAlpha.value)
+             },
+     ) {
+         Box(
+@@ -709,8 +752,17 @@
+                 cornerRadius = cornerRadius,
+                 squircleEnabled = isSquircleEnabled(),
+                 revealLimitHeightPx = with(LocalDensity.current) { revealLimitHeight.toPx() },
++                border = visualStyle.border,
+             )
+-            .blur(radius = (8f * (1f - fractionProgress())).dp)
++            .graphicsLayer {
++                // Read progress in the layer phase: the old blur(Dp) recomposed the entire
++                // popup and recreated its effect graph at every spring tick.
++                val step = ((1f - fractionProgress()) * 8f).roundToInt().coerceIn(0, 8)
++                renderEffect = if (step == 0) null else blurSteps[step] ?: run {
++                    val radius = step.dp.toPx()
++                    BlurEffect(radius, radius, TileMode.Decal).also { blurSteps[step] = it }
++                }
++            }
+             .then(visualStyle.surfaceModifier)
+             .background(color = backgroundColor),
+         ) {
+@@ -734,6 +786,7 @@
+     cornerRadius: Dp,
+     squircleEnabled: Boolean,
+     revealLimitHeightPx: Float = 0f,
++    border: BorderStroke? = null,
+ ): Modifier = drawWithCache {
+     val path = Path()
+     onDrawWithContent {
+@@ -761,6 +814,7 @@
+         if (clipStart == 0f) {
+             clipPath(path) {
+                 this@onDrawWithContent.drawContent()
++                border?.let { drawPath(path, it.brush, style = Stroke(it.width.toPx() * 2f)) }
+             }
+         } else {
+             translate(top = clipStart) {
+@@ -768,6 +822,7 @@
+                     translate(top = -clipStart) {
+                         this@onDrawWithContent.drawContent()
+                     }
++                    border?.let { drawPath(path, it.brush, style = Stroke(it.width.toPx() * 2f)) }
+                 }
+             }
+         }
+--- /dev/null
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt
+@@ -0,0 +1,110 @@
++// Copyright 2026, compose-miuix-ui contributors
++// SPDX-License-Identifier: Apache-2.0
++package top.yukonga.miuix.kmp.basic
++
++import androidx.compose.foundation.ScrollState
++import androidx.compose.foundation.gestures.awaitEachGesture
++import androidx.compose.foundation.gestures.awaitFirstDown
++import androidx.compose.runtime.*
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.hapticfeedback.HapticFeedback
++import androidx.compose.ui.hapticfeedback.HapticFeedbackType
++import androidx.compose.ui.input.pointer.PointerEventPass
++import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
++import androidx.compose.ui.input.pointer.pointerInput
++import androidx.compose.ui.layout.LayoutCoordinates
++import androidx.compose.ui.layout.boundsInWindow
++import androidx.compose.ui.layout.onGloballyPositioned
++import kotlinx.coroutines.coroutineScope
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.flow.first
++
++internal val LocalPopupSlideSelection = staticCompositionLocalOf<PopupSlideSelection?> { null }
++
++internal class PopupSlideSelection {
++    class Item(var enabled: Boolean, var activate: () -> Unit) {
++        var coordinates: LayoutCoordinates? = null
++    }
++    val items = linkedMapOf<Any, Item>()
++    var highlighted by mutableStateOf<Any?>(null)
++    var coordinates: LayoutCoordinates? = null
++    var pointer by mutableStateOf<Offset?>(null)
++    fun hit(position: Offset): Any? {
++        val host = coordinates?.takeIf { it.isAttached } ?: return null
++        if (position.x !in 0f..host.size.width.toFloat() || position.y !in 0f..host.size.height.toFloat()) return null
++        val window = host.localToWindow(position)
++        return items.entries.firstOrNull { (_, item) ->
++            item.enabled && item.coordinates?.takeIf { it.isAttached }?.boundsInWindow()?.contains(window) == true
++        }?.key
++    }
++}
++
++internal fun Modifier.popupSlideSelection(
++    state: PopupSlideSelection?, scroll: ScrollState, haptic: HapticFeedback
++): Modifier = if (state == null) this else onGloballyPositioned { state.coordinates = it }
++    .pointerInput(state, scroll, haptic) {
++        coroutineScope {
++            // Retain access to overflow rows while holding near a viewport edge.
++            val edgeScroll = launch {
++                var lastFrame = 0L
++                while (true) {
++                    snapshotFlow { state.pointer }.first { it != null }
++                    lastFrame = 0L
++                    while (state.pointer != null) {
++                    withFrameNanos { now ->
++                        val dt = if (lastFrame == 0L) 0f else ((now - lastFrame) / 1_000_000_000f).coerceAtMost(0.04f)
++                        lastFrame = now
++                        val point = state.pointer
++                        if (point != null && scroll.maxValue > 0) {
++                            val edge = 28f * density
++                            val direction = when {
++                                point.y < edge -> -1f
++                                point.y > size.height - edge -> 1f
++                                else -> 0f
++                            }
++                            scroll.dispatchRawDelta(direction * 240f * density * dt)
++                            val next = state.hit(point)
++                            if (next != state.highlighted) {
++                                state.highlighted = next
++                                if (next != null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
++                            }
++                        }
++                    }
++                    }
++                }
++            }
++            try {
++                awaitEachGesture {
++                    val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
++                    // Header/back controls are not selection rows. Leave their complete
++                    // gesture to the existing Miuix clickable instead of swallowing its UP.
++                    val initialItem = state.hit(down.position) ?: return@awaitEachGesture
++                    state.pointer = down.position
++                    state.highlighted = initialItem
++                    down.consume()
++                    try {
++                        while (true) {
++                            val event = awaitPointerEvent(PointerEventPass.Initial)
++                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
++                            state.pointer = change.position
++                            val next = state.hit(change.position)
++                            if (next != state.highlighted) {
++                                state.highlighted = next
++                                if (next != null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
++                            }
++                            val released = change.changedToUpIgnoreConsumed()
++                            change.consume()
++                            if (!change.pressed) {
++                                val action = if (released) next?.let { state.items[it] }?.takeIf { it.enabled }?.activate else null
++                                state.highlighted = null
++                                state.pointer = null
++                                action?.invoke()
++                                break
++                            }
++                        }
++                    } finally { state.highlighted = null; state.pointer = null }
++                }
++            } finally { edgeScroll.cancel() }
++        }
++    }
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
+@@ -10,6 +10,7 @@
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.CompositionLocalProvider
+ import androidx.compose.runtime.key
+ import androidx.compose.runtime.remember
+ import androidx.compose.ui.Modifier
+@@ -21,6 +22,7 @@
+ import androidx.compose.ui.graphics.Path
+ import androidx.compose.ui.graphics.TransformOrigin
+ import androidx.compose.ui.graphics.drawscope.clipPath
++import androidx.compose.ui.graphics.drawscope.Stroke
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.graphics.shadow.Shadow
+ import androidx.compose.ui.input.pointer.pointerInput
+@@ -41,6 +43,7 @@
+ import top.yukonga.miuix.kmp.basic.HorizontalDivider
+ import top.yukonga.miuix.kmp.basic.ListPopupColumn
+ import top.yukonga.miuix.kmp.basic.ListPopupVisualStyle
++import top.yukonga.miuix.kmp.basic.LocalListPopupVisualStyle
+ import top.yukonga.miuix.kmp.basic.PopupLayoutPosition
+ import top.yukonga.miuix.kmp.basic.popupClipReveal
+ import top.yukonga.miuix.kmp.squircle.isSquircleEnabled
+@@ -78,8 +81,10 @@
+     val isExpanded = expandedItem != null
+     val popupCornerRadius = visualStyle.cornerRadius
+     val shape = remember(popupCornerRadius) { RoundedCornerShape(popupCornerRadius) }
++    CompositionLocalProvider(LocalListPopupVisualStyle provides visualStyle) {
+     Box(
+         modifier = Modifier
++            .then(visualStyle.interactionModifier)
+             .graphicsLayer {
+                 val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
+                 scaleX = s
+@@ -93,7 +98,8 @@
+                 scaleY = s
+                 this.transformOrigin = transformOrigin
+             }
+-            .popupClipReveal(enterFraction, popupLayoutPosition, popupCornerRadius, isSquircleEnabled())
++            .popupClipReveal(enterFraction, popupLayoutPosition, popupCornerRadius, isSquircleEnabled(),
++                border = visualStyle.border)
+             .dropShadow(shape = shape, shadow = CascadeShadow)
+             .then(visualStyle.surfaceModifier)
+             .background(color = visualStyle.backgroundColor ?: surfaceColor),
+@@ -153,12 +159,13 @@
+                 modifier = Modifier
+                     .matchParentSize()
+                     .graphicsLayer { alpha = maskAlpha() }
+-                    .background(maskColor)
++                    .background(if (visualStyle.dimBackground) maskColor else Color.Transparent)
+                     .pointerInput(Unit) {
+                         detectTapGestures(onTap = { onCollapseSecondary() })
+                     },
+             )
+         }
++    }
+     }
+ }
+
+@@ -236,8 +243,10 @@
+     val secondaryTopLeft = secondaryLocalInUnion.topLeft
+     val secondaryWidth = secondaryLocalInUnion.width
+
++    CompositionLocalProvider(LocalListPopupVisualStyle provides visualStyle) {
+     Box(
+         modifier = Modifier
++            .then(visualStyle.interactionModifier)
+             .graphicsLayer {
+                 val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
+                 scaleX = s
+@@ -287,6 +296,11 @@
+                     )
+                     clipPath(innerPath) {
+                         this@onDrawWithContent.drawContent()
++                        // Stroke the actual morph path, not the union-size material rectangle.
++                        // The outer half is clipped so the highlight remains inside the glass.
++                        visualStyle.border?.let {
++                            drawPath(innerPath, it.brush, style = Stroke(it.width.toPx() * 2f))
++                        }
+                     }
+                 }
+             }
+@@ -346,6 +360,7 @@
+             )
+         }
+     }
++    }
+ }
+
+ /** Shared header + divider + children body for the secondary popup. Used by both the real
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Component.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Component.kt
+@@ -3,6 +3,7 @@
+
+ package top.yukonga.miuix.kmp.basic
+
++import androidx.compose.foundation.LocalIndication
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.interaction.MutableInteractionSource
+ import androidx.compose.foundation.layout.Arrangement
+@@ -50,6 +51,7 @@
+  * @param onClickLabel Optional label describing the click action for accessibility services.
+  * @param role The semantic [Role] of the [BasicComponent] for accessibility services.
+  * @param holdDownState Used to determine whether it is in the pressed state.
++ * @param showIndication Whether to draw the row's press feedback; click and accessibility remain active.
+  * @param enabled Whether the [BasicComponent] is enabled.
+  * @param interactionSource The [MutableInteractionSource] for the [BasicComponent].
+  *   The value should remain null or non-null for the lifetime of this component;
+@@ -72,6 +74,7 @@
+     holdDownState: Boolean = false,
+     enabled: Boolean = true,
+     interactionSource: MutableInteractionSource? = null,
++    showIndication: Boolean = true,
+ ) {
+     BasicComponent(
+         startAction = startAction,
+@@ -85,6 +88,7 @@
+         holdDownState = holdDownState,
+         enabled = enabled,
+         interactionSource = interactionSource,
++        showIndication = showIndication,
+     ) {
+         if (title != null) {
+             Text(
+@@ -116,6 +120,7 @@
+  * @param onClickLabel Optional label describing the click action for accessibility services.
+  * @param role The semantic [Role] of the [BasicComponent] for accessibility services.
+  * @param holdDownState Used to determine whether it is in the pressed state.
++ * @param showIndication Whether to draw the row's press feedback; click and accessibility remain active.
+  * @param enabled Whether the [BasicComponent] is enabled.
+  * @param interactionSource The [MutableInteractionSource] for the [BasicComponent].
+  *   The value should remain null or non-null for the lifetime of this component;
+@@ -135,6 +140,7 @@
+     holdDownState: Boolean = false,
+     enabled: Boolean = true,
+     interactionSource: MutableInteractionSource? = null,
++    showIndication: Boolean = true,
+     content: @Composable ColumnScope.() -> Unit,
+ ) {
+     @Suppress("NAME_SHADOWING")
+@@ -143,10 +149,12 @@
+
+     HoldDownObserver(holdDownState, interactionSource)
+
+-    val clickableModifier = remember(enabled, onClick != null, interactionSource, role, onClickLabel) {
++    val indication = if (showIndication) LocalIndication.current else null
++    val clickableModifier = remember(enabled, onClick != null, interactionSource, role, onClickLabel, indication) {
+         if (enabled && onClick != null) {
+             Modifier.clickable(
+                 interactionSource = interactionSource,
++                indication = indication,
+                 onClickLabel = onClickLabel,
+                 role = role,
+                 onClick = { currentOnClick?.invoke() },
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/ListPopupLayout.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/ListPopupLayout.kt
+@@ -4,6 +4,9 @@
+ package top.yukonga.miuix.kmp.layout
+
+ import androidx.compose.animation.core.Animatable
++import androidx.compose.animation.core.CubicBezierEasing
++import androidx.compose.animation.core.spring
++import androidx.compose.animation.core.tween
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.gestures.detectTapGestures
+ import androidx.compose.foundation.layout.Box
+@@ -22,6 +25,7 @@
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.geometry.Offset
+ import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.graphics.TransformOrigin
+ import androidx.compose.ui.input.pointer.pointerInput
+ import androidx.compose.ui.layout.layout
+ import androidx.compose.ui.layout.onGloballyPositioned
+@@ -42,11 +46,19 @@
+ import top.yukonga.miuix.kmp.basic.ListPopupVisualStyle
+ import top.yukonga.miuix.kmp.basic.LocalListPopupVisualStyle
+ import top.yukonga.miuix.kmp.basic.PopupPositionProvider
++import top.yukonga.miuix.kmp.basic.PopupMorphAnchor
++import top.yukonga.miuix.kmp.basic.popupMorphInsetPx
+ import top.yukonga.miuix.kmp.basic.rememberListPopupLayoutInfo
+ import top.yukonga.miuix.kmp.overlay.OverlayListPopup
+ import top.yukonga.miuix.kmp.theme.LocalDismissState
+ import top.yukonga.miuix.kmp.theme.MiuixTheme
+ import top.yukonga.miuix.kmp.window.WindowListPopup
++import kotlin.math.abs
++
++private val PanelEnterSpec = spring<Float>(0.77f, 220f, 0.0001f)
++private val PanelExitSpec = spring<Float>(0.85f, 650f, 0.0001f)
++private val OriginEnterSpec = spring<Float>(0.77f, 420f, 0.0001f)
++private val OriginExitSpec = tween<Float>(340, easing = CubicBezierEasing(0f, 0f, 0f, 1f))
+
+ /**
+  * Internal shared layout logic for [OverlayListPopup] and [WindowListPopup].
+@@ -84,9 +96,14 @@
+     visualStyle: ListPopupVisualStyle? = null,
+     onFractionProgress: ((Float) -> Unit)? = null,
+     revealLimitHeight: Dp = 0.dp,
++    collapseContent: (@Composable () -> Unit)? = null,
+     content: @Composable () -> Unit,
+ ) {
+     val fractionProgress = remember { Animatable(0f) }
++    val originProgress = remember { Animatable(0f) }
++    val resolvedVisualStyle = visualStyle ?: LocalListPopupVisualStyle.current
++    val morph = resolvedVisualStyle.morphAnimation
++    val morphAnchor = remember { PopupMorphAnchor() }
+     val alphaProgress = remember { Animatable(0f) }
+     val dimProgress = remember { Animatable(0f) }
+     val currentOnDismiss by rememberUpdatedState(onDismissRequest)
+@@ -97,29 +114,33 @@
+     var popupContentSize by remember { mutableStateOf(IntSize.Zero) }
+     var hostPositionInWindow by remember { mutableStateOf(Offset.Zero) }
+
+-    LaunchedEffect(Unit) {
++    LaunchedEffect(onFractionProgress != null) {
++        if (currentOnFractionProgress == null) return@LaunchedEffect
+         snapshotFlow { fractionProgress.value }
+             .collect { currentOnFractionProgress?.invoke(it) }
+     }
+
+-    LaunchedEffect(show) {
++    LaunchedEffect(show, morph) {
+         if (show) {
+             internalVisible.value = true
+-            launch { fractionProgress.animateTo(1f, ListPopupDefaults.FractionEnterAnimationSpec) }
++            launch { fractionProgress.animateTo(1f, if (morph) PanelEnterSpec else ListPopupDefaults.FractionEnterAnimationSpec) }
++            if (morph) launch { originProgress.animateTo(1f, OriginEnterSpec) }
+             launch { alphaProgress.animateTo(1f, ListPopupDefaults.AlphaEnterAnimationSpec) }
+             if (enableWindowDim) {
+                 launch { dimProgress.animateTo(1f, ListPopupDefaults.DimEnterAnimationSpec) }
+             }
+         } else {
+             if (!internalVisible.value) return@LaunchedEffect
+-            launch { fractionProgress.animateTo(0f, ListPopupDefaults.FractionExitAnimationSpec) }
++            launch { fractionProgress.animateTo(0f, if (morph) PanelExitSpec else ListPopupDefaults.FractionExitAnimationSpec) }
+             if (enableWindowDim) {
+                 launch { dimProgress.animateTo(0f, ListPopupDefaults.DimExitAnimationSpec) }
+             }
+-            // Alpha controls the master timing: once content fades out, unmount immediately.
+-            alphaProgress.animateTo(0f, ListPopupDefaults.AlphaExitAnimationSpec)
++            // A morph finishes at the anchor after its labels have faded, independently of size.
++            if (morph) originProgress.animateTo(0f, OriginExitSpec)
++            else alphaProgress.animateTo(0f, ListPopupDefaults.AlphaExitAnimationSpec)
+             // Force-settle remaining tracks so the next enter starts from a clean zero baseline.
+             fractionProgress.snapTo(0f)
++            originProgress.snapTo(0f)
+             alphaProgress.snapTo(0f)
+             dimProgress.snapTo(0f)
+             internalVisible.value = false
+@@ -169,7 +190,8 @@
+                     // joinAll keeps the three reset coroutines as children of this launch so
+                     // structural cancellation propagates if a new gesture supersedes the reset.
+                     joinAll(
+-                        launch { fractionProgress.animateTo(1f, ListPopupDefaults.ResetAnimationSpec) },
++                        launch { fractionProgress.animateTo(1f, if (morph) tween(150) else ListPopupDefaults.ResetAnimationSpec) },
++                        launch { originProgress.animateTo(1f, if (morph) tween(150) else OriginEnterSpec) },
+                         launch { alphaProgress.animateTo(1f, ListPopupDefaults.AlphaEnterAnimationSpec) },
+                         launch { dimProgress.animateTo(1f, ListPopupDefaults.DimEnterAnimationSpec) },
+                     )
+@@ -189,6 +211,7 @@
+                     ) {
+                         val progress = transitionState.latestEvent.progress
+                         fractionProgress.snapTo(1f - progress)
++                        originProgress.snapTo(1f - progress)
+                         alphaProgress.snapTo(1f - progress)
+                         dimProgress.snapTo(1f - progress)
+                     }
+@@ -223,19 +246,28 @@
+                         val windowBounds = layoutInfo.windowBounds
+                         val popupMargin = layoutInfo.popupMargin
+                         val minHeightPx = ListPopupDefaults.MinPopupHeight.roundToPx()
++                        val chrome = if (morph) popupMorphInsetPx() else 0
++                        morphAnchor.size = parentBounds.size
++                        // Include the chrome in constraints but exclude it from positioning.
++                        // The content measures once at its natural size; the outline can overshoot.
++                        val availableHeight = (windowBounds.height - popupMargin.top - popupMargin.bottom)
++                            .coerceAtLeast(minHeightPx)
++                        val panelMaxHeight = (maxHeight?.roundToPx() ?: availableHeight)
++                            .coerceIn(minHeightPx, availableHeight)
+                         val placeable = measurable.measure(
+                             constraints.copy(
+-                                maxHeight = maxHeight?.roundToPx()?.coerceAtLeast(minHeightPx)
+-                                    ?: (windowBounds.height - popupMargin.top - popupMargin.bottom)
+-                                        .coerceAtLeast(minHeightPx),
+-                                minHeight = if (minHeightPx <= constraints.maxHeight) minHeightPx else constraints.maxHeight,
++                                maxHeight = (panelMaxHeight + chrome * 2).coerceAtMost(constraints.maxHeight),
++                                minHeight = (minHeightPx + chrome * 2).coerceAtMost(constraints.maxHeight),
+                                 maxWidth = constraints.maxWidth,
+-                                minWidth = minWidth.roundToPx().coerceAtMost(constraints.maxWidth),
++                                minWidth = (minWidth.roundToPx() + chrome * 2).coerceAtMost(constraints.maxWidth),
+                             ),
+                         )
+-                        val measuredSize = IntSize(placeable.width, placeable.height)
+-
+-                        val calculatedOffset = popupPositionProvider.calculatePosition(
++                        val measuredSize = IntSize(
++                            (placeable.width - chrome * 2).coerceAtLeast(0),
++                            (placeable.height - chrome * 2).coerceAtLeast(0),
++                        )
++
++                        val stockOffset = popupPositionProvider.calculatePosition(
+                             parentBounds,
+                             windowBounds,
+                             layoutDirection,
+@@ -244,9 +276,44 @@
+                             alignment,
+                         )
+
++                        // A dropdown starts over the value/arrow, with 7x5dp room around it.
++                        // Custom context-menu providers keep their own positioning contract.
++                        val calculatedOffset = if (morph &&
++                            popupPositionProvider === ListPopupDefaults.DropdownPositionProvider) {
++                            val endAligned = when (alignment) {
++                                PopupPositionProvider.Align.End, PopupPositionProvider.Align.TopEnd,
++                                PopupPositionProvider.Align.BottomEnd -> true
++                                else -> false
++                            } != (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl)
++                            val x = if (endAligned) parentBounds.right - measuredSize.width + 7.dp.roundToPx()
++                                else parentBounds.left - 7.dp.roundToPx()
++                            val y = when {
++                                windowBounds.bottom - parentBounds.bottom > measuredSize.height ->
++                                    parentBounds.top - 5.dp.roundToPx()
++                                parentBounds.top - windowBounds.top > measuredSize.height ->
++                                    parentBounds.bottom - measuredSize.height + 5.dp.roundToPx()
++                                else -> parentBounds.top + (parentBounds.height - measuredSize.height) / 2
++                            }
++                            IntOffset(
++                                x.coerceIn(windowBounds.left, (windowBounds.right - measuredSize.width).coerceAtLeast(windowBounds.left)),
++                                y.coerceIn(windowBounds.top, (windowBounds.bottom - measuredSize.height).coerceAtLeast(windowBounds.top)),
++                            )
++                        } else stockOffset
++
+                         val adjustedOffset = IntOffset(
+-                            x = calculatedOffset.x - hostPositionInWindow.x.toInt(),
+-                            y = calculatedOffset.y - hostPositionInWindow.y.toInt(),
++                            x = calculatedOffset.x - hostPositionInWindow.x.toInt() - chrome,
++                            y = calculatedOffset.y - hostPositionInWindow.y.toInt() - chrome,
++                        )
++
++                        // Compute from this pass's measured size, not the previous frame's
++                        // onSizeChanged report. This also handles upward and edge-clamped menus.
++                        val rightAligned = abs(calculatedOffset.x + measuredSize.width - parentBounds.right) <
++                            abs(calculatedOffset.x - parentBounds.left)
++                        val popupCenterY = calculatedOffset.y + measuredSize.height / 2f
++                        val anchorCenterY = parentBounds.top + parentBounds.height / 2f
++                        morphAnchor.origin = TransformOrigin(
++                            if (rightAligned) 1f else 0f,
++                            if (popupCenterY > anchorCenterY) 0f else if (popupCenterY < anchorCenterY) 1f else 0.5f,
+                         )
+
+                         layout(constraints.maxWidth, constraints.maxHeight) {
+@@ -256,7 +323,7 @@
+             ) {
+                 CompositionLocalProvider(
+                     LocalListPopupVisualStyle provides
+-                        (visualStyle ?: LocalListPopupVisualStyle.current)
++                        resolvedVisualStyle
+                 ) {
+                     ListPopupContent(
+                         popupContentSize = popupContentSize,
+@@ -266,6 +333,10 @@
+                         popupLayoutPosition = layoutInfo.popupLayoutPosition,
+                         localTransformOrigin = layoutInfo.localTransformOrigin,
+                         revealLimitHeight = revealLimitHeight,
++                        originProgress = { originProgress.value },
++                        isEntering = show,
++                        morphAnchor = morphAnchor,
++                        collapseContent = collapseContent,
+                         content = {
+                             CompositionLocalProvider(LocalDismissState provides requestDismiss) {
+                                 content()
+--- /dev/null
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupMorphContent.kt
+@@ -0,0 +1,209 @@
++// Copyright 2026, SleepDown contributors
++// SPDX-License-Identifier: Apache-2.0
++
++package top.yukonga.miuix.kmp.basic
++
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.padding
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.remember
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.drawWithCache
++import androidx.compose.ui.geometry.CornerRadius
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.geometry.Rect
++import androidx.compose.ui.geometry.RoundRect
++import androidx.compose.ui.geometry.Size
++import androidx.compose.ui.graphics.BlurEffect
++import androidx.compose.ui.graphics.Outline
++import androidx.compose.ui.graphics.Path
++import androidx.compose.ui.graphics.RenderEffect
++import androidx.compose.ui.graphics.Shape
++import androidx.compose.ui.graphics.TileMode
++import androidx.compose.ui.graphics.TransformOrigin
++import androidx.compose.ui.graphics.drawscope.Stroke
++import androidx.compose.ui.graphics.drawscope.clipPath
++import androidx.compose.ui.graphics.drawscope.translate
++import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.layout.Layout
++import androidx.compose.ui.layout.onSizeChanged
++import androidx.compose.ui.platform.LocalDensity
++import androidx.compose.ui.semantics.clearAndSetSemantics
++import androidx.compose.ui.unit.Constraints
++import androidx.compose.ui.unit.Density
++import androidx.compose.ui.unit.IntSize
++import androidx.compose.ui.unit.LayoutDirection
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.offset
++import top.yukonga.miuix.kmp.theme.MiuixTheme
++import top.yukonga.miuix.kmp.squircle.addSquircleRect
++import kotlin.math.abs
++import kotlin.math.min
++import kotlin.math.roundToInt
++
++private val PopupMorphRoom = 14.dp
++private val PopupMorphShadowPadding = 24.dp
++internal fun Density.popupMorphInsetPx(): Int =
++    PopupMorphRoom.roundToPx() + PopupMorphShadowPadding.roundToPx()
++
++/** Written by the host's measure/placement pass, before the first draw. */
++class PopupMorphAnchor {
++    var origin: TransformOrigin = TransformOrigin.Center
++    var size: IntSize = IntSize.Zero
++}
++
++private class PopupPanelOutline(private val rect: RoundRect) : Shape {
++    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
++        Outline.Generic(Path().apply { addPopupPanel(rect) })
++}
++
++/** One continuous silhouette for material, labels, rim and the platform shadow. */
++private fun Path.addPopupPanel(rect: RoundRect) {
++    addSquircleRect(rect.width, rect.height, rect.topLeftCornerRadius.x)
++    translate(Offset(rect.left, rect.top))
++}
++
++/** Material, expanded labels and the original value/arrow have independent animation layers. */
++@Composable
++internal fun MorphingListPopupContent(
++    modifier: Modifier,
++    fractionProgress: () -> Float,
++    originProgress: () -> Float,
++    isEntering: Boolean,
++    anchor: PopupMorphAnchor?,
++    fallbackOrigin: TransformOrigin,
++    onSizeChanged: (IntSize) -> Unit,
++    collapseContent: (@Composable () -> Unit)?,
++    content: @Composable () -> Unit,
++) {
++    val style = LocalListPopupVisualStyle.current
++    val density = LocalDensity.current
++    val corner = with(density) { style.cornerRadius.toPx() }
++    // Match the integer placement below exactly, including fractional device densities.
++    val room = with(density) { PopupMorphRoom.roundToPx().toFloat() }
++    val fallbackSize = with(density) { 28.dp.toPx() }
++    val extraWidth = with(density) { 14.dp.toPx() }
++    val extraHeight = with(density) { 10.dp.toPx() }
++    val background = style.backgroundColor ?: MiuixTheme.colorScheme.surfaceContainer
++    val blurSteps = remember(density) { arrayOfNulls<RenderEffect>(7) }
++    // Layout owns this value. All three layers use the same natural size in the same pass.
++    val naturalSize = remember { arrayOf(IntSize.Zero) }
++    val panel: () -> RoundRect = {
++        val natural = naturalSize[0]
++        val f = fractionProgress()
++        val origin = anchor?.origin ?: fallbackOrigin
++        val startWidth = (anchor?.size?.width?.takeIf { it > 0 }?.toFloat() ?: fallbackSize) + extraWidth
++        val startHeight = (anchor?.size?.height?.takeIf { it > 0 }?.toFloat() ?: fallbackSize) + extraHeight
++        val rawWidth = startWidth + (natural.width - startWidth) * f
++        val rawHeight = startHeight + (natural.height - startHeight) * f
++        val widthScale = if (natural.width > 0) rawWidth / natural.width else 1f
++        val migration = originProgress() * (1f - widthScale)
++        val canvasWidth = natural.width + 2f * room
++        val canvasHeight = natural.height + 2f * room
++        val width = rawWidth.coerceIn(0f, canvasWidth)
++        val height = rawHeight.coerceIn(0f, canvasHeight)
++        val x = (room + origin.pivotFractionX * (natural.width - rawWidth) +
++            (0.5f - origin.pivotFractionX) * natural.width * migration)
++            .coerceIn(0f, (canvasWidth - width).coerceAtLeast(0f))
++        val y = (room + origin.pivotFractionY * (natural.height - rawHeight) +
++            (0.5f - origin.pivotFractionY) * natural.height * migration)
++            .coerceIn(0f, (canvasHeight - height).coerceAtLeast(0f))
++        RoundRect(Rect(x, y, x + width, y + height), CornerRadius(min(corner, min(width, height) / 2f)))
++    }
++    Layout(
++        modifier = modifier.padding(PopupMorphShadowPadding).then(style.interactionModifier),
++        content = {
++            Box(Modifier
++                .graphicsLayer {
++                    // Only the material fades. At fraction=0 the trigger clone is still visible.
++                    alpha = (fractionProgress() * if (isEntering) 7f else 3.6f).coerceIn(0f, 1f)
++                    shape = PopupPanelOutline(panel())
++                    shadowElevation = style.shadowElevation.toPx()
++                    ambientShadowColor = style.ambientShadowColor
++                    spotShadowColor = style.spotShadowColor
++                }
++                .drawWithCache {
++                    val clip = Path()
++                    val rim = Path()
++                    onDrawWithContent {
++                        val rect = panel()
++                        clip.reset()
++                        clip.addPopupPanel(rect)
++                        clipPath(clip) { this@onDrawWithContent.drawContent() }
++                        style.border?.let { border ->
++                            val strokeWidth = border.width.toPx()
++                            val inset = strokeWidth / 2f
++                            val width = (rect.width - strokeWidth).coerceAtLeast(0f)
++                            val height = (rect.height - strokeWidth).coerceAtLeast(0f)
++                            val radius = (rect.topLeftCornerRadius.x - inset).coerceAtLeast(0f)
++                            rim.reset()
++                            rim.addPopupPanel(RoundRect(0f, 0f, width, height, CornerRadius(radius)))
++                            translate(rect.left + inset, rect.top + inset) {
++                                val savedSize = drawContext.size
++                                drawContext.size = Size(width, height)
++                                try { drawPath(rim, border.brush, style = Stroke(strokeWidth)) }
++                                finally { drawContext.size = savedSize }
++                            }
++                        }
++                    }
++                }
++                .then(style.surfaceModifier)
++                .background(background)
++            )
++            Box(Modifier
++                .onSizeChanged(onSizeChanged)
++                .drawWithCache {
++                    val clip = Path()
++                    onDrawWithContent {
++                        val rect = panel()
++                        clip.reset()
++                        clip.addPopupPanel(RoundRect(
++                            Rect(rect.left - room, rect.top - room, rect.right - room, rect.bottom - room),
++                            rect.topLeftCornerRadius,
++                        ))
++                        clipPath(clip) { this@onDrawWithContent.drawContent() }
++                    }
++                }
++                .graphicsLayer {
++                    val rect = panel()
++                    val f = fractionProgress()
++                    val from = if (isEntering) 0.22f else 0.30f
++                    val to = if (isEntering) 0.62f else 0.78f
++                    alpha = ((f - from) / (to - from)).coerceIn(0f, 1f)
++                    scaleX = if (size.width > 0f) rect.width / size.width else 1f
++                    scaleY = scaleX
++                    translationX = (rect.left + rect.right - size.width) / 2f - room
++                    translationY = (rect.top + rect.bottom - size.height) / 2f - room
++                    val step = (6f * (1f - abs(2f * f - 1f)).coerceIn(0f, 1f)).roundToInt()
++                    renderEffect = if (step == 0) null else blurSteps[step] ?: run {
++                        val radius = step.dp.toPx()
++                        BlurEffect(radius, radius, TileMode.Decal).also { blurSteps[step] = it }
++                    }
++                }
++            ) { content() }
++            Box(Modifier.clearAndSetSemantics {}.graphicsLayer {
++                val rect = panel()
++                alpha = (1f - fractionProgress() * if (isEntering) 3.2f else 1.7f).coerceIn(0f, 1f)
++                translationX = (rect.left + rect.right - size.width) / 2f
++                translationY = (rect.top + rect.bottom - size.height) / 2f
++            }) { collapseContent?.invoke() }
++        },
++    ) { measurables, constraints ->
++        val roomPx = room.toInt()
++        val labels = measurables[1].measure(constraints.offset(-roomPx * 2, -roomPx * 2))
++        naturalSize[0] = IntSize(labels.width, labels.height)
++        val canvasWidth = labels.width + roomPx * 2
++        val canvasHeight = labels.height + roomPx * 2
++        val material = measurables[0].measure(Constraints.fixed(canvasWidth, canvasHeight))
++        val trigger = measurables[2].measure(Constraints(
++            maxWidth = (anchor?.size?.width?.takeIf { it > 0 } ?: labels.width).coerceAtLeast(0),
++            maxHeight = constraints.maxHeight,
++        ))
++        layout(canvasWidth, canvasHeight) {
++            material.place(0, 0)
++            labels.place(roomPx, roomPx)
++            trigger.place(0, 0)
++        }
++    }
++}
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayListPopup.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayListPopup.kt
+@@ -51,6 +51,7 @@
+     visualStyle: ListPopupVisualStyle? = null,
+     onFractionProgress: ((Float) -> Unit)? = null,
+     revealLimitHeight: Dp = 0.dp,
++    collapseContent: (@Composable () -> Unit)? = null,
+     content: @Composable () -> Unit,
+ ) {
+     ListPopupLayout(
+@@ -81,6 +82,7 @@
+         visualStyle = visualStyle,
+         onFractionProgress = onFractionProgress,
+         revealLimitHeight = revealLimitHeight,
++        collapseContent = collapseContent,
+         content = content,
+     )
+ }

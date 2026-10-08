@@ -27,12 +27,14 @@ internal fun PeriodPickerActions(
     onCancel: () -> Unit, onConfirm: () -> Unit,
     cancelText: String = "取消", confirmText: String = "确定"
 ) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)) {
-        QuickSheetLiquidAction(cancelText, true, backdrop, config, modifier = Modifier.weight(1f),
-            height = SleepDownDesignTokens.CenteredDialog.ActionHeight, onClick = onCancel)
-        QuickSheetLiquidAction(confirmText, true, backdrop, config, modifier = Modifier.weight(1f), primary = true,
-            height = SleepDownDesignTokens.CenteredDialog.ActionHeight, onClick = onConfirm)
-    }
+    LiquidAlertActions(
+        actions = listOf(
+            LiquidAlertAction(cancelText, LiquidAlertActionStyle.Secondary, onClick = onCancel),
+            LiquidAlertAction(confirmText, LiquidAlertActionStyle.Primary, onClick = onConfirm)
+        ),
+        backdrop = backdrop,
+        config = config
+    )
 }
 
 @Composable

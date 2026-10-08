@@ -86,6 +86,10 @@ $env:GRADLE_USER_HOME='C:\Users\23085\.gradle'
 
 按机器内存减少 worker；避免同时运行多个高内存构建。开发可使用 `-Psleepdown.skipReleaseResourceShrink=true`，正式候选保留资源压缩、R8、lintVital、打包与签名。Release 签名位于仓库外。
 
-用户要求安装时先运行 `adb devices -l`，确认目标后覆盖安装签名 Release：`app/build/outputs/apk/github/release/app-github-release.apk`。默认不自动启动，除非用户要求。
+本机 Android SDK 的 ADB 使用独立 `5038` 端口，默认连接为 `ADB_SERVER_SOCKET=tcp:127.0.0.1:5038`；SDK 路径为 `D:\Android studio\AndroidSDK\platform-tools\adb.exe`。OPPO 互联使用的 `5037` 服务端不作为本项目安装入口。当前应用进程可能尚未继承用户环境，项目命令统一显式使用 `adb -P 5038`，避免混用服务端。
+
+复用 `scripts/Invoke-Adb.ps1` 可固定 SDK 来源与 `5038` 通道；本机 PowerShell 7 / Windows PowerShell 5 的 `adb` 命令也转到该入口。入口通过 `server-status` 核对实际服务端程序和当前用户配对密钥目录；5038 被其他来源占用时，仅重启这条通道，确认 SDK 接管后才发送项目命令。只固定客户端路径或端口不能保证服务端来源正确。用户环境同时设置 `ANDROID_ADB_SERVER_PORT=5038`，供 Android Studio / DDMLib 识别同一端口；修改前已运行的程序需重启才会继承用户环境。连接结果以 `connected to` / `already connected to` 及后续设备状态为准，不能只凭原生 ADB 的退出码判断成功；该脚本将打印连接失败却返回 `0` 的情况修正为失败退出码。无线端口可能变化，优先使用已配对设备的 mDNS 服务发现当前端点，不固化旧手机端口。
+
+用户要求安装时先运行 `adb -P 5038 devices -l`，确认目标后使用 `adb -P 5038 -s <设备地址> install -r app/build/outputs/apk/github/release/app-github-release.apk` 覆盖安装签名 Release。默认不自动启动，除非用户要求。
 
 只报告实际执行的验证；实机记录设备、系统、场景和结果。未执行项说明原因。完成回复简洁交代修改及原因、主要文件与影响、构建/测试和安装结果；面向用户的更新日志使用产品语言。

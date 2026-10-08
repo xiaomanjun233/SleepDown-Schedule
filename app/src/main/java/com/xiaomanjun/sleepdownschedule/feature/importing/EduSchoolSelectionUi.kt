@@ -29,9 +29,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -44,7 +44,6 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
@@ -63,7 +62,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Search
@@ -218,8 +216,10 @@ fun EduSchoolPickerScreen(
             backdrop = backdrop,
             config = state.config,
             onDismissRequest = { adapterChoices = null },
+            messageMaxHeight = SleepDownDesignTokens.CenteredDialog.SelectionContentMaxHeight,
+            scrollableMessageContent = true,
             messageContent = {
-                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(modifier = Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     choices.forEach { adapter ->
                         EduAdapterChoiceCard(
                             adapter = adapter,
@@ -243,84 +243,19 @@ private fun EduAdapterChoiceCard(
     config: ScheduleConfigEntity,
     onClick: () -> Unit
 ) {
-    val foreground = sleepDownPanelForegroundColor(config)
-    val dark = appUsesDarkTheme(config)
-    val accent = ComposeColor(0xFF0A84FF)
     val details = buildList {
         add(eduAdapterCategoryLabel(adapter.category))
         adapter.maintainer.takeIf(String::isNotBlank)?.let { add(it) }
         adapter.description.takeIf(String::isNotBlank)?.let { add(it) }
     }.joinToString(" · ")
-    Surface(
+    LiquidDialogChoiceCard(
+        title = adapter.adapterName,
+        selected = selected,
+        config = config,
         onClick = onClick,
-        modifier = Modifier
-            .fillMaxWidth()
-            .heightIn(min = 68.dp),
-        shape = RoundedRectangle(
-            cornerRadius = SleepDownDesignTokens.CenteredDialog.Corner -
-                SleepDownDesignTokens.CenteredDialog.ContentPadding -
-                SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset,
-            style = RoundedCornerStyle.Continuous
-        ),
-        color = if (selected) {
-            accent.copy(alpha = if (dark) 0.24f else 0.13f)
-        } else {
-            foreground.copy(alpha = if (dark) 0.09f else 0.055f)
-        },
-        border = BorderStroke(
-            width = if (selected) 1.5.dp else 1.dp,
-            color = if (selected) accent.copy(alpha = 0.88f) else foreground.copy(alpha = 0.14f)
-        ),
-        tonalElevation = 0.dp,
-        shadowElevation = 0.dp
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 11.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = adapter.adapterName,
-                    color = foreground,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.SemiBold
-                )
-                badgeText?.let {
-                    Text(it, color = accent, style = MaterialTheme.typography.labelSmall,
-                        modifier = Modifier.padding(top = 4.dp).clip(Capsule())
-                            .background(accent.copy(alpha = 0.12f)).padding(horizontal = 8.dp, vertical = 3.dp))
-                }
-                if (details.isNotBlank()) {
-                    Text(
-                        text = details,
-                        color = foreground.copy(alpha = 0.62f),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-            Box(
-                modifier = Modifier
-                    .size(20.dp)
-                    .clip(Capsule())
-                    .background(
-                        if (selected) accent else foreground.copy(alpha = 0.10f)
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                if (selected) {
-                    Box(
-                        Modifier
-                            .size(8.dp)
-                            .clip(Capsule())
-                            .background(ComposeColor.White)
-                    )
-                }
-            }
-        }
-    }
+        description = details,
+        badgeText = badgeText
+    )
 }
 
 private data class EduSchoolAdapterGroup(

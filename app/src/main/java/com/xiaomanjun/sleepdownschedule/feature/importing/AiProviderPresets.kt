@@ -61,8 +61,8 @@ object AiProviderPresets {
         id = "sleepdown_daily_free",
         displayName = "每日免费 AI",
         providerType = AiProviderType.OpenAIResponses,
-        // The hosted MiMo endpoint authenticates with `api-key`, not an OpenAI Bearer token.
-        authType = AiAuthType.CustomHeader,
+        // The active endpoint resolves authentication when the managed profile is loaded.
+        authType = AiAuthType.ApiKeyBearer,
         baseUrl = "",
         defaultModel = "",
         capabilities = AiProviderCapabilities(

@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -24,7 +26,7 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustment
 import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 
-/** Edits the calling detailed-settings draft; only its owner commits the configuration. */
+/** Commits only adjustments; the calling detailed-settings page retains its other drafts. */
 class ScheduleAdjustmentsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         ActivityTransitionCoordinator.prepareDestinationBeforeOnCreate(this)
@@ -45,6 +47,9 @@ class ScheduleAdjustmentsActivity : ComponentActivity() {
                 if (storedConfig == null || !state.loaded) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 } else {
+                    val originalStored = remember(scheduleId) { storedConfig.scheduleAdjustmentsJson }
+                    var saving by remember { mutableStateOf(false) }
+                    var saveError by remember { mutableStateOf<String?>(null) }
                     val draftState = remember(state, storedConfig) {
                         state.copy(
                             config = storedConfig.copy(
@@ -58,14 +63,26 @@ class ScheduleAdjustmentsActivity : ComponentActivity() {
                             periods = state.allPeriods.filter { it.scheduleId == scheduleId }
                         )
                     }
-                    ScheduleAdjustmentsScreen(draftState, initial,
-                        onDismiss = { finish() },
+                    ScheduleAdjustmentsScreen(draftState, initial, saving = saving, saveError = saveError,
+                        onDismiss = { if (!saving) finish() },
                         onConfirm = { arrangements ->
-                            setResult(Activity.RESULT_OK, Intent()
-                                .putExtra(ScheduleIdExtra, scheduleId)
-                                .putExtra(OriginalArrangementsExtra, encodeScheduleAdjustments(initial))
-                                .putExtra(ArrangementsExtra, encodeScheduleAdjustments(arrangements)))
-                            finish()
+                            if (!saving) {
+                                saving = true
+                                saveError = null
+                                val value = encodeScheduleAdjustments(arrangements)
+                                viewModel.saveScheduleAdjustments(scheduleId, originalStored, value,
+                                    onSuccess = {
+                                        setResult(Activity.RESULT_OK, Intent()
+                                            .putExtra(ScheduleIdExtra, scheduleId)
+                                            .putExtra(OriginalArrangementsExtra, encodeScheduleAdjustments(initial))
+                                            .putExtra(SavedExtra, true)
+                                            .putExtra(ArrangementsExtra, value))
+                                        finish()
+                                    }, onFailure = {
+                                        saving = false
+                                        saveError = "保存失败，草稿已保留。请确认安排没有被其他入口修改后重试。"
+                                    })
+                            }
                         }
                     )
                 }
@@ -77,6 +94,7 @@ class ScheduleAdjustmentsActivity : ComponentActivity() {
         internal const val ArrangementsExtra = "schedule_adjustments_draft"
         internal const val ScheduleIdExtra = "schedule_id"
         internal const val OriginalArrangementsExtra = "original_schedule_adjustments"
+        internal const val SavedExtra = "schedule_adjustments_saved"
         private const val TotalWeeksExtra = "total_weeks"
         private const val CurrentWeekExtra = "current_week"
         private const val AutoWeekExtra = "auto_current_week"

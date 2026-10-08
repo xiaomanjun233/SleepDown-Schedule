@@ -2,18 +2,61 @@ package com.xiaomanjun.sleepdownschedule.feature.course.editor
 
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.ScrollState
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.xiaomanjun.sleepdownschedule.CourseEntity
+import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import kotlin.math.abs
 import kotlin.math.sign
 import kotlin.math.roundToInt
 
 internal val LocalCourseEditorFlightRegistry = staticCompositionLocalOf<CourseEditorFlightRegistry?> { null }
 
+/** The rendered day occurrence can differ from the original course being edited. */
+data class CourseEditorDayAppearance(
+    val course: CourseEntity,
+    val periods: List<PeriodEntity>,
+    val showTime: Boolean,
+    val showWeeks: Boolean,
+    val tabletFontScale: Float,
+    val muted: Boolean,
+    val adjustmentLabel: String?,
+    val cornerRadius: Dp = 24.dp
+)
+
+/** A short day card grows into a tall editor; glyphs must not stretch with its height. */
+internal fun courseEditorDaySourceScale(source: Rect, current: Rect): Float =
+    current.width / source.width.coerceAtLeast(1f)
+
+/** The original corner hands off to the editor together with the source content. */
+internal fun courseEditorDayCornerRadius(
+    sourceRadius: Float, sourceScale: Float, targetRadius: Float, destinationAlpha: Float
+): Float {
+    val fraction = destinationAlpha.coerceIn(0f, 1f)
+    val radius = sourceRadius * sourceScale
+    return radius + (targetRadius - radius) * fraction
+}
+
+internal data class CourseEditorClickedSource(
+    val bounds: Rect,
+    val visibleBounds: Rect,
+    val dayAppearance: CourseEditorDayAppearance
+)
+
 internal class CourseEditorFlightRegistry {
     var frozen = false
     private val grids = mutableMapOf<Int, CourseEditorWeekGrid>()
+    private var clickedSource: CourseEditorClickedSource? = null
+    fun captureSource(bounds: Rect, visibleBounds: Rect, appearance: CourseEditorDayAppearance) {
+        clickedSource = CourseEditorClickedSource(bounds, visibleBounds, appearance)
+    }
+    fun consumeSource(bounds: Rect?): CourseEditorClickedSource? {
+        val source = clickedSource
+        clickedSource = null
+        return source?.takeIf { it.bounds == bounds }
+    }
     fun record(week: Int, grid: CourseEditorWeekGrid) { if (!frozen) grids[week] = grid }
     fun grid(week: Int) = grids[week]
     fun remove(week: Int) { grids.remove(week) }

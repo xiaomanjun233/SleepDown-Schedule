@@ -39,7 +39,7 @@ private val SleepDownPrivacyPolicySections = listOf(
     ),
     PrivacyPolicySection(
         "四、AI 与第三方服务",
-        "当你主动使用 AI 对话、AI助理或 AI 教务导入时，你提交的文字、课程上下文以及主动选择的图片或文件会直接发送给你选定的模型服务商。SleepDown 后端只下发加密配置，不代理或保存这些 AI 请求正文。若使用“每日免费 AI”，应用会在本机校验并解密后直接访问后台指定的模型接口；若使用自己的 API Key，Key 会加密保存在本机，也不会写入普通课表备份。第三方模型服务商会依据其自身条款和隐私政策处理数据，请勿提交无权提供或不希望交由第三方处理的信息。"
+        "当你主动使用 AI 对话、AI 助理或 AI 教务导入时，你提交的文字、课程上下文以及主动选择的图片或文件会直接发送给你选定的模型服务商。SleepDown 后端只下发加密配置，不代理或保存这些 AI 请求正文。若使用“每日免费 AI”，应用会在本机校验并解密后直接访问后台指定的模型接口；若使用自己的 API Key，Key 会加密保存在本机，也不会写入普通课表备份。第三方模型服务商会依据其自身条款和隐私政策处理数据，请勿提交无权提供或不希望交由第三方处理的信息。"
     ),
     PrivacyPolicySection(
         "五、教务、天气与外部页面",
@@ -92,7 +92,7 @@ fun PrivacyPolicySettingsScreen(state: AppState, backdrop: Backdrop?) {
     }
 }
 
-private fun RemoteDonationEntry.formattedAmount(): String {
+internal fun RemoteDonationEntry.formattedAmount(): String {
     val number = BigDecimal.valueOf(amountCents, 2).toPlainString()
     return when (currency) {
         "CNY" -> "¥$number"
@@ -108,24 +108,28 @@ fun DonationThanksPanel(
 	backdrop: Backdrop?,
 	section: RemoteDonationSection
 ) {
+	val entries = section.entries.filter(RemoteDonationEntry::enabled).sortedBy { it.displayOrder }
 	SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
 		SettingsInfoRow(
 			section.title.ifBlank { "捐赠致谢" },
 			section.message.ifBlank { "感谢每一份支持。" }
 		)
+		if (entries.isNotEmpty()) DonationPodium(entries.take(3))
+		if (entries.size > 3) {
 		SettingsDivider()
 		Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
 			Text("ID", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			Text("捐赠金额", modifier = Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}
-		section.entries.filter(RemoteDonationEntry::enabled).forEach { item ->
+		entries.drop(3).forEach { item ->
 			SettingsDivider()
 			Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 15.dp)) {
 				Text(item.supporterId, modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Medium)
 				Text(item.formattedAmount(), modifier = Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
 			}
 		}
-		if (section.entries.none(RemoteDonationEntry::enabled)) {
+		}
+		if (entries.isEmpty()) {
 			SettingsDivider()
 			Text("名单已发布，暂时还没有公开条目。", modifier = Modifier.fillMaxWidth().padding(20.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 		}

@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.backup
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.widget.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
@@ -133,9 +135,6 @@ object BackupExportMapper {
         require(snapshot.courses.all { it.scheduleId in scheduleRoomIds }) {
             "course 引用了不存在的 schedule profile"
         }
-        require(snapshot.periodSchemes.all { it.scheduleId in scheduleRoomIds }) {
-            "period scheme 引用了不存在的 schedule profile"
-        }
         val schemeRoomIds = snapshot.periodSchemes.mapTo(HashSet()) { it.id }
         require(snapshot.periodSchemeTimes.all { it.schemeId in schemeRoomIds }) {
             "period scheme time 引用了不存在的 period scheme"
@@ -148,7 +147,8 @@ object BackupExportMapper {
         }
         val periodsBySchedule = snapshot.periods.groupBy { it.scheduleId }
         val coursesBySchedule = snapshot.courses.groupBy { it.scheduleId }
-        val schemesBySchedule = snapshot.periodSchemes.groupBy { it.scheduleId }
+        val schemesById = snapshot.periodSchemes.associateBy { it.id }
+        val schemeTimesByScheme = snapshot.periodSchemeTimes.groupBy { it.schemeId }
 
         val courseIds = snapshot.courses.associate { course ->
             require(course.id > 0) { "course 的 Room ID 必须为正数" }
@@ -161,6 +161,30 @@ object BackupExportMapper {
             scheme.id to BackupStableId.new(BackupStableId.SCHEME_PREFIX)
         }
         require(schemeIds.size == snapshot.periodSchemes.size) { "period scheme 存在重复 Room ID" }
+        require(snapshot.configs.all { it.activePeriodSchemeId == null || it.activePeriodSchemeId in schemeRoomIds }) {
+            "课表引用了不存在的共享作息"
+        }
+        val sharedSchemes = snapshot.periodSchemes.map { scheme ->
+            val times = schemeTimesByScheme[scheme.id].orEmpty().sortedBy { it.periodIndex }
+            val ownCounts = listOf(scheme.morningPeriodCount, scheme.noonPeriodCount,
+                scheme.afternoonPeriodCount, scheme.eveningPeriodCount)
+            val config = configs[scheme.scheduleId]
+            val oldCounts = config?.let { listOf(it.morningPeriodCount, it.noonPeriodCount,
+                it.afternoonPeriodCount, it.eveningPeriodCount) }
+            val inferred = inferPeriodCounts(times.map { PeriodEntity(it.periodIndex, it.startTime, it.endTime) })
+            val counts = ownCounts.takeIf { it.sum() == times.size && it.sum() > 0 }
+                ?: oldCounts?.takeIf { it.sum() == times.size && it.sum() > 0 }
+                ?: listOf(inferred.morning, inferred.noon, inferred.afternoon, inferred.evening)
+            BackupPeriodScheme(id = schemeIds.getValue(scheme.id), publicId = scheme.publicId.ifBlank { "legacy-${scheme.id}" },
+                sourceScheduleName = scheme.sourceScheduleName, name = scheme.name, mode = scheme.mode.name,
+                isActive = false, classDurationMinutes = scheme.classDurationMinutes,
+                breakDurationMinutes = scheme.breakDurationMinutes, morningStartTime = scheme.morningStartTime,
+                noonStartTime = scheme.noonStartTime, afternoonStartTime = scheme.afternoonStartTime,
+                eveningStartTime = scheme.eveningStartTime, specialBreaksJson = scheme.specialBreaksJson,
+                overridesJson = scheme.overridesJson, morningPeriodCount = counts[0], noonPeriodCount = counts[1],
+                afternoonPeriodCount = counts[2], eveningPeriodCount = counts[3],
+                times = times.map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime) })
+        }
 
         val sessionsByKey = snapshot.agentDailySessions.associateBy { AgentSessionRoomKey(it.scheduleId, it.date) }
         require(sessionsByKey.size == snapshot.agentDailySessions.size) { "agent session 存在重复复合主键" }
@@ -256,6 +280,7 @@ object BackupExportMapper {
                 defaultWallpaperStyle = config.defaultWallpaperStyle.name,
                 hideEmptyWeekends = config.hideEmptyWeekends,
                 scheduleAdjustmentsJson = config.scheduleAdjustmentsJson,
+                periodAlignmentMode = config.periodAlignmentMode.name,
                 dockAlignment = config.dockAlignment.name,
                 defaultHomeMode = config.defaultHomeMode.name,
                 liveUpdateActionsEnabled = config.liveUpdateActionsEnabled,
@@ -280,13 +305,16 @@ object BackupExportMapper {
             val periodIndexes = periodsBySchedule[profile.id].orEmpty()
                 .sortedBy { it.periodIndex }
                 .map { BackupPeriod(it.periodIndex, it.startTime, it.endTime) }
-            val schemeTimesByScheme = snapshot.periodSchemeTimes.groupBy { it.schemeId }
-            val backupSchemes = schemesBySchedule[profile.id].orEmpty().map { scheme ->
+            val activeScheme = config.activePeriodSchemeId?.let(schemesById::get)
+                ?: snapshot.periodSchemes.firstOrNull { it.scheduleId == profile.id && it.isActive }
+            // Older clients still receive a local active snapshot. Its ID must be distinct from
+            // the canonical shared entry because stable IDs are unique throughout the archive.
+            val backupSchemes = listOfNotNull(activeScheme).map { scheme ->
                 BackupPeriodScheme(
-                    id = schemeIds.getValue(scheme.id),
+                    id = BackupStableId.new(BackupStableId.SCHEME_PREFIX),
                     name = scheme.name,
                     mode = scheme.mode.name,
-                    isActive = scheme.isActive,
+                    isActive = true,
                     classDurationMinutes = scheme.classDurationMinutes,
                     breakDurationMinutes = scheme.breakDurationMinutes,
                     morningStartTime = scheme.morningStartTime,
@@ -300,7 +328,8 @@ object BackupExportMapper {
                         .map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime) }
                 )
             }
-            val backupCourses = coursesBySchedule[profile.id].orEmpty().map { course ->
+            val backupCourses = coursesBySchedule[profile.id].orEmpty().map { displayed ->
+                val course = displayed.originalArrangement()
                 BackupCourse(
                     id = courseIds.getValue(course.id),
                     name = course.name,
@@ -314,7 +343,8 @@ object BackupExportMapper {
                     customStartTime = course.customStartTime,
                     customEndTime = course.customEndTime,
                     customColorArgb = course.customColorArgb,
-                    customPeriodTimes = course.customPeriodTimes
+                    customPeriodTimes = course.customPeriodTimes,
+                    originalPeriodTimes = course.originalPeriodTimes
                 )
             }
             val backupSessions = snapshot.agentDailySessions
@@ -371,7 +401,8 @@ object BackupExportMapper {
                 periods = periodIndexes,
                 periodSchemes = backupSchemes,
                 agentDailySessions = backupSessions,
-                agentMessages = backupMessages
+                agentMessages = backupMessages,
+                activePeriodSchemeId = activeScheme?.let { schemeIds.getValue(it.id) }
             )
         }
 
@@ -409,9 +440,23 @@ object BackupExportMapper {
             data = BackupData(
                 dataVersion = BackupFormatV1.DATA_VERSION,
                 schedules = backupSchedules,
-                widgetAppearances = backupWidgets
+                widgetAppearances = backupWidgets,
+                sharedPeriodSchemes = sharedSchemes
             ),
-            preferences = preferences,
+            preferences = preferences.copy(savedPeriodSchemes = sharedSchemes.map { scheme ->
+                com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme(
+                    id = scheme.publicId, name = scheme.name,
+                    morningPeriodCount = scheme.morningPeriodCount, noonPeriodCount = scheme.noonPeriodCount,
+                    afternoonPeriodCount = scheme.afternoonPeriodCount, eveningPeriodCount = scheme.eveningPeriodCount,
+                    classDurationMinutes = scheme.classDurationMinutes, breakDurationMinutes = scheme.breakDurationMinutes,
+                    morningStartTime = scheme.morningStartTime, noonStartTime = scheme.noonStartTime,
+                    afternoonStartTime = scheme.afternoonStartTime, eveningStartTime = scheme.eveningStartTime,
+                    mode = PeriodSchemeMode.valueOf(scheme.mode), specialBreaksJson = scheme.specialBreaksJson,
+                    overridesJson = scheme.overridesJson,
+                    times = scheme.times.map { com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodTime(
+                        it.periodIndex, it.startTime, it.endTime) }
+                )
+            }),
             assets = assetsById.values.toList()
         )
     }

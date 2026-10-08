@@ -27,7 +27,10 @@ import java.net.Socket
 import java.net.URL
 
 
-class AiScheduleImportService(private val context: Context) {
+class AiScheduleImportService(
+    private val context: Context,
+    private val interaction: AiImportInteraction? = null
+) {
     suspend fun parseScheduleFile(
         file: AiImportFile,
         settings: AiImportSettings,
@@ -50,8 +53,8 @@ class AiScheduleImportService(private val context: Context) {
                     onReasoningUpdate = onReasoningUpdate
                 )
                 val result = when {
-                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
-                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext)
+                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
+                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
                 }
                 AiScheduleImportResult(
                     output = result.content,
@@ -81,8 +84,8 @@ class AiScheduleImportService(private val context: Context) {
                 val input = AiScheduleInput.ExtractedText(cleaned, sourceName)
                 val networkContext = input.networkContext(context, "TEXT", onHttpPhase, onReasoningUpdate = onReasoningUpdate)
                 val result = when {
-                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
-                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext)
+                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
+                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
                 }
                 AiScheduleImportResult(
                     output = result.content,
@@ -130,8 +133,8 @@ class AiScheduleImportService(private val context: Context) {
                     onReasoningUpdate = onReasoningUpdate
                 )
                 val result = when {
-                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
-                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext)
+                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
+                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
                 }
                 val routeMessage = if (screenshots.isEmpty()) {
                     "已提取当前教务页面文本，使用 AI 解析。"
@@ -163,6 +166,7 @@ class AiScheduleImportService(private val context: Context) {
             val repairPrompt = AiImportRepairManager.buildRepairPrompt(output, failure)
             val input = AiScheduleInput.ExtractedText(repairPrompt, "上轮 AI JSON")
             val networkContext = input.networkContext(context, "REPAIR", onHttpPhase, onReasoningUpdate = onReasoningUpdate)
+                .copy(interaction = interaction)
             val result = when {
                 config.endpointStyle == AiEndpointStyle.RESPONSES ->
                     OpenAiResponsesProvider().parseSchedule(config, input, networkContext)
@@ -193,6 +197,7 @@ class AiScheduleImportService(private val context: Context) {
             val request = buildAiRevisionInput(draft, instruction, history)
             val networkContext = AiImportNetworkContext(
                 inputType = "REVISION",
+                interaction = interaction,
                 imageCount = history.screenshotPreviews.size,
                 screenshotCount = history.screenshotPreviews.size,
                 onPhase = onHttpPhase,
@@ -427,13 +432,13 @@ private fun applyAiSchedulePatch(base: ImportDraft, patchText: String): ImportDr
         periods = periods,
         courses = courses
     )
-    val validated = ScheduleImportParser.parse(draftToPayload(candidate).toString(), base.config).getOrThrow()
+    val validated = ScheduleImportParser.validateEditedDraft(candidate)
     return validated.copy(
         courses = validated.courses.zip(candidate.courses).map { (course, source) ->
             course.copy(customPeriodTimes = source.customPeriodTimes?.takeIf {
                 course.periods == source.periods && course.customStartTime == source.customStartTime &&
                     course.customEndTime == source.customEndTime
-            })
+            }, originalPeriodTimes = source.originalPeriodTimes)
         },
         source = ImportDraftSource.AI_EDU
     )
@@ -466,6 +471,9 @@ private fun revisionCourseFromJson(value: JsonObject, previous: CourseEntity): C
         note = value["note"]?.jsonPrimitive?.contentOrNull?.trim()?.ifBlank { null },
         customStartTime = customRange.first,
         customEndTime = customRange.second,
+        originalPeriodTimes = previous.originalPeriodTimes?.takeIf {
+            revisedPeriods == previous.periods && customRange == (previous.customStartTime to previous.customEndTime)
+        },
         customPeriodTimes = periodTimes
     )
 }

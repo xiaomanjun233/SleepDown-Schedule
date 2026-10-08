@@ -59,6 +59,7 @@ object SleepDownDesignTokens {
         val MaxBlur = 16.dp
         val ActionHeight = 50.dp
         val ActionSpacing = 10.dp
+        val SelectionContentMaxHeight = 320.dp
         val MessageActionSpacing = 28.dp
         // Short-copy alerts may tighten this gap without changing their action geometry or the
         // action-to-edge spacing.

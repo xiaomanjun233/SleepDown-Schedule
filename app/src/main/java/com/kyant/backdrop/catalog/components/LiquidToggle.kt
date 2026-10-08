@@ -6,6 +6,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.*
 
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,8 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -30,6 +31,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.util.lerp
@@ -53,6 +55,7 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import kotlinx.coroutines.flow.collectLatest
+import kotlin.math.roundToInt
 
 @Composable
 fun LiquidToggle(
@@ -158,8 +161,8 @@ fun LiquidToggle(
     )
 
     Box(
-        modifier,
-        contentAlignment = Alignment.CenterStart
+        modifier.size(trackWidth, trackHeight),
+        contentAlignment = Alignment.TopStart
     ) {
         Box(
             Modifier
@@ -174,12 +177,14 @@ fun LiquidToggle(
 
         Box(
             Modifier
-                .graphicsLayer {
+                .offset {
                     val fraction = dampedDragAnimation.value
-                    val padding = 2f.dp.toPx()
-                    translationX =
-                        if (isLtr) lerp(padding, padding + dragWidth, fraction)
-                        else lerp(-padding, -(padding + dragWidth), fraction)
+                    // Relative placement mirrors in RTL. Track and thumb share the same
+                    // layout origin, including the very first unchecked frame.
+                    IntOffset(
+                        x = (2.dp.toPx() + dragWidth * fraction).roundToInt(),
+                        y = ((trackHeight - thumbHeight) / 2).roundToPx()
+                    )
                 }
                 .semantics {
                     role = Role.Switch
@@ -192,8 +197,8 @@ fun LiquidToggle(
                             val progress = dampedDragAnimation.pressProgress
                             val scaleX = lerp(2f / 3f, 0.75f, progress)
                             val scaleY = lerp(0f, 0.75f, progress)
-                            scale(scaleX, scaleY) {
-                                drawBackdrop()
+                            if (scaleY > 0f) {
+                                scale(scaleX, scaleY) { drawBackdrop() }
                             }
                         }
                     ),
@@ -201,6 +206,10 @@ fun LiquidToggle(
                     material = material,
                     shape = { Capsule() },
                     effectFrame = GlassEffectFrame(blur = null),
+                    // An opaque resting thumb needs no sampled/offscreen glass. Draw its
+                    // white fill as ordinary local content below; keep refraction on press.
+                    renderEnabled = { dampedDragAnimation.pressProgress > 0f },
+                    placementLayer = false,
                     effectsOverride = {
                         val progress = dampedDragAnimation.pressProgress
                         vibrancy()
@@ -238,12 +247,14 @@ fun LiquidToggle(
                         val velocity = dampedDragAnimation.velocity / 50f
                         scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
                         scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
-                    },
-                    onDrawSurface = {
-                        val progress = dampedDragAnimation.pressProgress
-                        drawRect(Color.White.copy(alpha = 1f - progress))
                     }
                 )
+                .drawBehind {
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 1f - dampedDragAnimation.pressProgress),
+                        cornerRadius = CornerRadius(size.height / 2f)
+                    )
+                }
                 .size(thumbWidth, thumbHeight)
         )
     }

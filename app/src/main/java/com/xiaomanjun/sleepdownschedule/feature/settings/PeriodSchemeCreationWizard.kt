@@ -23,7 +23,8 @@ internal fun PeriodSchemeCreationWizard(
     backdrop: Backdrop?,
     visualConfig: ScheduleConfigEntity,
     onDismiss: () -> Unit,
-    onCreated: (PeriodTimelineSession) -> Unit
+    onCreated: (PeriodTimelineSession) -> Unit,
+    standalone: Boolean = false
 ) {
     val active = draft.schemes.first { it.scheme.id == draft.activeSchemeId }
     var name by remember { mutableStateOf("新作息") }
@@ -91,8 +92,8 @@ internal fun PeriodSchemeCreationWizard(
         }
         val conflict = validateResolvedPeriodTimes(times)
         if (conflict != null) { error = conflict; return }
-        val resized = resizeTimelineStructure(PeriodTimelineSession(config, draft), targetConfig)
-        if (resized == null) { error = "现有作息没有足够的时间容纳新增节次，请减少总节数或先调整现有作息"; return }
+        val resized = if (standalone) null else resizeTimelineStructure(PeriodTimelineSession(config, draft), targetConfig)
+        if (!standalone && resized == null) { error = "现有作息没有足够的时间容纳新增节次，请减少总节数或先调整现有作息"; return }
         val scheme = PeriodSchemeEntity(
             id = id, scheduleId = config.id, name = name.trim(), mode = PeriodSchemeMode.MANUAL,
             classDurationMinutes = duration, breakDurationMinutes = gap,
@@ -101,8 +102,10 @@ internal fun PeriodSchemeCreationWizard(
             afternoonStartTime = timelineMinuteText(starts.getValue(PeriodDayPart.AFTERNOON)),
             eveningStartTime = timelineMinuteText(starts.getValue(PeriodDayPart.EVENING))
         )
-        created = resized.copy(draft = resized.draft.copy(
-            schemes = resized.draft.schemes + PeriodSchemeDraft(scheme, times), activeSchemeId = id
+        val createdDraft = PeriodSchemeDraft(scheme, times)
+        created = if (standalone) PeriodTimelineSession(targetConfig, SchedulePeriodSchemesDraft(listOf(createdDraft), id))
+        else resized!!.copy(draft = resized.draft.copy(
+            schemes = resized.draft.schemes + createdDraft, activeSchemeId = id
         ))
         visible = false
     }

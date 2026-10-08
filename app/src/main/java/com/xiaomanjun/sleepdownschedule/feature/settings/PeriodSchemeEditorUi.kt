@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.*
@@ -27,6 +28,7 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.geometry.Size
@@ -34,6 +36,9 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.unit.IntOffset
+import com.xiaomanjun.sleepdownschedule.R
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -64,15 +69,21 @@ private val TimelineInsertEasing = CubicBezierEasing(0.2f, 0f, 0.2f, 1f)
 private val TimelineRemoveEasing = CubicBezierEasing(0.4f, 0f, 1f, 1f)
 private val TimelineMinuteHeight = 4.dp
 private val TimelineDragMinuteStep = 8.dp
+private const val TimelineEnterDuration = 480
 private fun timelineSceneProgress(progress: Float, closing: Boolean): Float =
     if (closing) 1f - TimelineExitEasing.transform(1f - progress) else TimelineEnterEasing.transform(progress)
 
 private fun timelineRowProgress(progress: Float, order: Int, closing: Boolean): Float {
-    val delay = order.coerceAtMost(8) * 0.024f
+    val delay = if (closing) order.coerceAtMost(8) * 0.018f
+        else 0.10f + order.coerceAtMost(8) * 0.032f
     val elapsed = if (closing) 1f - progress else progress
-    val local = ((elapsed - delay) / (1f - delay)).coerceIn(0f, 1f)
+    val local = ((elapsed - delay) / if (closing) (1f - delay) else 0.48f).coerceIn(0f, 1f)
     return if (closing) 1f - TimelineExitEasing.transform(local) else TimelineEnterEasing.transform(local)
 }
+
+private fun timelineRailProgress(progress: Float, closing: Boolean): Float =
+    if (closing) ((progress - 0.68f) / 0.32f).coerceIn(0f, 1f)
+    else TimelineEnterEasing.transform(((progress - 0.85f) / 0.15f).coerceIn(0f, 1f))
 // The moving action needs its position before the underlay starts to sink.
 private fun LayoutCoordinates.timelineBoundsInRoot() = Rect(
     localToRoot(Offset.Zero), Size(size.width.toFloat(), size.height.toFloat())
@@ -101,9 +112,14 @@ private data class TimelineBlock(
     val color get() = if (isBreak) TimelineBreakColor else TimelineCourseColor
 }
 
+/** Stored bells are authoritative for both the summary and the editor's entry points. */
+internal fun periodSchemeTimelineTimes(config: ScheduleConfigEntity, active: PeriodSchemeDraft): List<PeriodSchemeTimeEntity> =
+    if (active.times.isNotEmpty()) active.times.sortedBy { it.periodIndex }
+    else resolveSchemeTimes(config, active).sortedBy { it.periodIndex }
+
 private fun timelineBlocks(config: ScheduleConfigEntity, active: PeriodSchemeDraft,
     includeLeading: Boolean = false): List<TimelineBlock> {
-    val times = resolveSchemeTimes(config, active).sortedBy { it.periodIndex }
+    val times = periodSchemeTimelineTimes(config, active)
     return buildList {
         times.forEachIndexed { position, time ->
             val part = PeriodDayPart.entries.firstOrNull { time.periodIndex in config.periodRange(it) } ?: return@forEachIndexed
@@ -138,6 +154,19 @@ private fun resizeTimelineEntry(session: PeriodTimelineSession, block: TimelineB
     ) else resizeTimelineBlock(session, block.period, block.isBreak, minutes)
 }
 
+/** Opening the timeline materializes automatic rules, which a rename must not overwrite. */
+internal fun preservePeriodSchemeMetadataForRename(
+    original: PeriodTimelineSession,
+    edited: PeriodTimelineSession
+): PeriodTimelineSession {
+    val withoutRename = edited.updateActive(edited.active.copy(scheme = edited.active.scheme.copy(
+        name = original.active.scheme.name)))
+    return if (!withoutRename.hasChangesFrom(original)) {
+        original.updateActive(original.active.copy(scheme = original.active.scheme.copy(
+            name = edited.active.scheme.name)))
+    } else edited
+}
+
 @Composable
 internal fun PeriodSchemeEditor(
     state: AppState,
@@ -147,16 +176,19 @@ internal fun PeriodSchemeEditor(
     onDraftChange: (SchedulePeriodSchemesDraft) -> Unit,
     onCountsChange: (Int, Int, Int, Int) -> Unit,
     topPadding: androidx.compose.ui.unit.Dp,
-    leadingContent: @Composable () -> Unit
+    leadingContent: @Composable () -> Unit,
+    managementContent: (@Composable (hideSource: Boolean) -> Unit)? = null,
+    managementRequest: PeriodSchemeManagementRequest? = null,
+    onSaveSession: (suspend (PeriodTimelineSession) -> Unit)? = null,
+    onEditorFinished: () -> Unit = {},
+    exitCommitRequest: Int = 0
 ) {
     val active = draft.schemes.firstOrNull { it.scheme.id == draft.activeSchemeId } ?: return
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     val chromeProgress = LocalSettingsEditorProgress.current
     var session by remember(config.id) { mutableStateOf<PeriodTimelineSession?>(null) }
     var initialSession by remember(config.id) { mutableStateOf<PeriodTimelineSession?>(null) }
-    var showChoice by remember { mutableStateOf(false) }
     var showWizard by remember { mutableStateOf(false) }
-    var showDeleteScheme by remember { mutableStateOf(false) }
     var showExitConfirmation by remember { mutableStateOf(false) }
     var deletingBlock by remember { mutableStateOf<TimelineBlock?>(null) }
     var pickingBlock by remember { mutableStateOf<TimelineBlock?>(null) }
@@ -175,10 +207,13 @@ internal fun PeriodSchemeEditor(
     val breakExpansion = remember { Animatable(1f) }
     var previousBreakHeights by remember { mutableStateOf(emptyMap<String, Dp>()) }
     val motion = remember { Animatable(0f) }
+    val editorOpen by remember { derivedStateOf { motion.value == 1f } }
     val scope = rememberCoroutineScope()
     val normalScroll = rememberScrollState()
     var actionSource by remember { mutableStateOf(Rect.Zero) }
     var frozenActionSource by remember { mutableStateOf(Rect.Zero) }
+    var editorOrigin by remember { mutableStateOf(Offset.Zero) }
+    var actionDestination by remember { mutableStateOf(Rect.Zero) }
     val density = LocalDensity.current
     val sunkenBlur = remember(density) { platformMotionBlurRenderEffect(with(density) { 10.dp.toPx() }) }
     val headerTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp
@@ -189,7 +224,11 @@ internal fun PeriodSchemeEditor(
         drawRect(pageColor)
         drawContent()
     }
-    SideEffect { chromeProgress?.floatValue = timelineSceneProgress(motion.value, closing) }
+    LaunchedEffect(motion, chromeProgress, closing) {
+        snapshotFlow { timelineSceneProgress(motion.value, closing) }.collect {
+            chromeProgress?.floatValue = it
+        }
+    }
     DisposableEffect(chromeProgress) { onDispose { chromeProgress?.floatValue = 0f } }
 
     fun enter(value: PeriodTimelineSession) {
@@ -225,9 +264,9 @@ internal fun PeriodSchemeEditor(
             additionError = if (blocked != null) {
                 val name = blocked.scheme.name.ifBlank { "未命名作息" }
                 val invalid = validateResolvedPeriodTimes(resolveSchemeTimes(current.config, blocked))
-                if (invalid != null) "“$name”的时间有误：$invalid。所有作息共用节次结构，请先修正该作息。"
-                else "“$name”的${part.timelineLabel()}没有足够空间${action}节次。所有作息共用节次结构，请先调整该作息的时间。"
-            } else "所有作息必须同时满足节数和时间限制，当前无法${action}节次，请检查各作息的时间安排。"
+                if (invalid != null) "“$name”的时间有误：$invalid。请先修正这套作息。"
+                else "“$name”的${part.timelineLabel()}没有足够空间${action}节次，请先调整这套作息的时间。"
+            } else "当前作息无法${action}节次，请检查节数和时间安排。"
             return
         }
         val after = (value.draft.topologyOperations.last() as PeriodTopologyOperation.AddAfter).periodIndex
@@ -259,8 +298,23 @@ internal fun PeriodSchemeEditor(
         val hasChanges = initialSession?.let { current.hasChangesFrom(it) } ?: true
         closing = true
         scope.launch {
+            if (commit && hasChanges && onSaveSession != null) {
+                try {
+                    val initial = initialSession
+                    // The timeline materializes automatic rules for manipulation. A name-only
+                    // edit must keep the original generation mode, overrides and special breaks.
+                    val savedSession = if (managementRequest?.creating == false && initial != null)
+                        preservePeriodSchemeMetadataForRename(initial, current) else current
+                    onSaveSession(savedSession)
+                } catch (failure: Exception) {
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
+                    localError = failure.message ?: "作息保存失败"
+                    closing = false
+                    return@launch
+                }
+            }
             motion.animateTo(0f, tween(260, easing = LinearEasing))
-            if (commit && hasChanges) {
+            if (commit && hasChanges && onSaveSession == null) {
                 onCountsChange(current.config.morningPeriodCount, current.config.noonPeriodCount,
                     current.config.afternoonPeriodCount, current.config.eveningPeriodCount)
                 onDraftChange(current.draft)
@@ -270,6 +324,7 @@ internal fun PeriodSchemeEditor(
             editorLaidOut = false
             closing = false
             localError = null
+            onEditorFinished()
         }
     }
     fun requestExit() {
@@ -283,18 +338,40 @@ internal fun PeriodSchemeEditor(
     LaunchedEffect(session != null, editorLaidOut) {
         if (session != null && editorLaidOut) {
             withFrameNanos { }
-            motion.animateTo(1f, tween(360, easing = LinearEasing))
+            motion.animateTo(1f, tween(TimelineEnterDuration, easing = LinearEasing))
         }
     }
     BackHandler(enabled = session != null) { requestExit() }
-    LaunchedEffect(motion.value == 1f, requestedBlock) {
-        if (motion.value == 1f && requestedBlock != null) {
+    LaunchedEffect(managementRequest?.id) {
+        val request = managementRequest ?: return@LaunchedEffect
+        actionSource = request.source
+        if (request.creating) showWizard = true
+        else enter(request.session.updateActive(request.session.active.materializeForTimeline(request.session.config)))
+    }
+    LaunchedEffect(exitCommitRequest) {
+        if (exitCommitRequest > 0 && session != null) requestExit()
+    }
+    LaunchedEffect(editorOpen, requestedBlock) {
+        if (editorOpen && requestedBlock != null) {
             pickingBlock = requestedBlock
             requestedBlock = null
         }
     }
 
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().onGloballyPositioned { editorOrigin = it.localToRoot(Offset.Zero) }) {
+        if (managementContent != null) {
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                val p = timelineSceneProgress(motion.value, closing)
+                alpha = 1f - p
+                translationY = 28.dp.toPx() * p
+                scaleX = 1f - 0.04f * p
+                scaleY = scaleX
+                transformOrigin = TransformOrigin(0.5f, 0f)
+                renderEffect = if (motion.value > 0f && motion.value < 1f) sunkenBlur else null
+            }.then(if (session != null) Modifier.clearAndSetSemantics { } else Modifier)) {
+                managementContent(editorLaidOut)
+            }
+        } else {
         Column(
             Modifier.fillMaxSize()
                 .graphicsLayer {
@@ -303,6 +380,7 @@ internal fun PeriodSchemeEditor(
                     translationY = 28.dp.toPx() * p
                     scaleX = 1f - 0.04f * p
                     scaleY = scaleX
+                    transformOrigin = TransformOrigin(0.5f, 0f)
                     renderEffect = if (motion.value > 0f && motion.value < 1f) sunkenBlur else null
                 }
                 .then(if (session != null) Modifier.clearAndSetSemantics { } else Modifier)
@@ -311,33 +389,12 @@ internal fun PeriodSchemeEditor(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             leadingContent()
-            GlassPreferenceSection("作息安排") {
-                SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
-                    SleepDownLiquidDropdownPreference(
-                        items = draft.schemes.map { it.scheme.name },
-                        selectedIndex = draft.schemes.indexOf(active).coerceAtLeast(0),
-                        title = "当前作息", backdrop = backdrop, config = state.config,
-                        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                        maxHeight = 318.dp, onExpandedChange = {},
-                        onSelectedIndexChange = { index ->
-                            draft.schemes.getOrNull(index)?.let { onDraftChange(draft.copy(activeSchemeId = it.scheme.id)) }
-                        }
-                    )
-                    SettingsDivider()
-                    SettingsTextFieldRow("作息名称", active.scheme.name, { name ->
-                        onDraftChange(draft.copy(schemes = draft.schemes.map {
-                            if (it == active) it.copy(scheme = it.scheme.copy(name = name)) else it
-                        }))
-                    })
-                    if (draft.schemes.size > 1) Row(Modifier.fillMaxWidth().padding(14.dp)) {
-                        DialogLiquidButton(backdrop, "删除作息", { showDeleteScheme = true }, monochromeNeutral = true)
-                    }
-                }
-            }
             Column(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     GlassPreferenceCategory("详细节次", modifier = Modifier.weight(1f))
-                    DialogLiquidButton(backdrop, "编辑", { showChoice = true }, role = DialogButtonRole.Confirm,
+                    DialogLiquidButton(backdrop, "编辑", {
+                        enter(PeriodTimelineSession(config, draft).updateActive(active.materializeForTimeline(config)))
+                    }, role = DialogButtonRole.Confirm,
                         height = 32.dp, horizontalPadding = 12.dp, shadowEnabled = false,
                         modifier = Modifier.minimumInteractiveComponentSize()
                             .onGloballyPositioned {
@@ -379,6 +436,7 @@ internal fun PeriodSchemeEditor(
                 }
             }
         }
+        }
         session?.let { edit ->
             // Keep the sinking underlay from receiving editor touches.
             Box(Modifier.fillMaxSize().clickable(interactionSource = null, indication = null) {})
@@ -386,7 +444,7 @@ internal fun PeriodSchemeEditor(
             val editScroll = rememberScrollState()
             var viewportHeight by remember { mutableIntStateOf(0) }
             var retainedScroll by remember { mutableIntStateOf(0) }
-            val interactive = motion.value == 1f && !closing && !changingStructure
+            val interactive = editorOpen && !closing && !changingStructure
             LaunchedEffect(editScroll) {
                 snapshotFlow { editScroll.isScrollInProgress to editScroll.value }.collect { (scrolling, offset) ->
                     if (scrolling && dragBase == null) retainedScroll = offset
@@ -407,9 +465,19 @@ internal fun PeriodSchemeEditor(
                 .heightIn(min = with(density) { (retainedScroll + viewportHeight).toDp() })
                 .padding(start = 16.dp, end = 16.dp, top = headerTop + 64.dp, bottom = navBottom + 40.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间；节次增删会同步到所有作息", fontSize = 12.sp,
+                Text(if (managementContent != null)
+                    "拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间；保存后同步到引用这套作息的全部课表"
+                    else "拖动右下角调整时长 · 每格 1 分钟\n仅修改当前课表，保存作息修改时创建公共副本", fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) })
+                if (managementContent != null) {
+                    Box(Modifier.fillMaxWidth().graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) }) {
+                        SettingsTextFieldRow("作息名称", edit.active.scheme.name, { name ->
+                            if (interactive) session = edit.updateActive(edit.active.copy(
+                                scheme = edit.active.scheme.copy(name = name.take(60))))
+                        }, enabled = interactive)
+                    }
+                }
                 var order = 0
                 PeriodDayPart.entries.forEach { part ->
                     val partBlocks = blocks.filter { it.part == part }
@@ -463,7 +531,7 @@ internal fun PeriodSchemeEditor(
                                                 first = blockIndex == 0 || hasAddAfter(partBlocks[blockIndex - 1]) || partBlocks[blockIndex - 1].minutes == 0,
                                                 last = blockIndex == partBlocks.lastIndex || hasAddAfter(block) || partBlocks[blockIndex + 1].minutes == 0,
                                                 modifier = Modifier.matchParentSize().graphicsLayer {
-                                                    alpha = timelineSceneProgress(motion.value, closing) *
+                                                    alpha = timelineRailProgress(motion.value, closing) *
                                                         if (stableKey in changingKeys) cardMotion.value else 1f
                                                 })
                                             }
@@ -516,18 +584,24 @@ internal fun PeriodSchemeEditor(
                     })
                 Text("编辑作息", modifier = Modifier.weight(1f).graphicsLayer { alpha = motion.value },
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.SemiBold)
-                var actionDestination by remember { mutableStateOf(Rect.Zero) }
                 Box(Modifier.onGloballyPositioned { actionDestination = it.timelineBoundsInRoot() }) {
-                    DialogLiquidButton(editorBackdrop, if (timelineSceneProgress(motion.value, closing) < 0.5f) "编辑" else "完成", { requestExit() }, role = DialogButtonRole.Confirm,
-                        modifier = Modifier.graphicsLayer {
-                            val p = timelineSceneProgress(motion.value, closing)
-                            alpha = if (editorLaidOut && actionDestination != Rect.Zero) 1f else 0f
-                            if (frozenActionSource != Rect.Zero && actionDestination != Rect.Zero) {
-                                translationX = (frozenActionSource.left - actionDestination.left) * (1f - p)
-                                translationY = (frozenActionSource.top - actionDestination.top) * (1f - p)
-                            }
-                        })
+                    // Measure the destination once. The shared action is drawn at the root,
+                    // outside the scrolling rows, so no viewport can slice it during travel.
+                    DialogLiquidButton(editorBackdrop, "完成", {}, role = DialogButtonRole.Confirm,
+                        modifier = Modifier.graphicsLayer { alpha = 0f }.clearAndSetSemantics {})
                 }
+            }
+            if (editorLaidOut && actionDestination != Rect.Zero) {
+                TimelineMovingAction(
+                    backdrop = editorBackdrop,
+                    source = frozenActionSource.takeUnless { it == Rect.Zero } ?: actionDestination,
+                    destination = actionDestination, rootOrigin = editorOrigin,
+                    sourceIcon = if (managementRequest != null) {
+                        if (managementRequest.creating) R.drawable.ic_add_course else R.drawable.ic_edit
+                    } else null,
+                    progress = { timelineSceneProgress(motion.value, closing) },
+                    onClick = { requestExit() }
+                )
             }
         }
     }
@@ -536,32 +610,21 @@ internal fun PeriodSchemeEditor(
             listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { additionError = null })),
             popupBackdrop, state.config, { additionError = null })
     }
-    if (showExitConfirmation) LiquidAlertDialog("保存作息调整", "要保存本次作息调整吗？",
+    if (showExitConfirmation) LiquidAlertDialog("保存作息调整",
+        if (managementRequest?.creating == true) "要保存这套新作息吗？保存后可在课表设置中选择。"
+        else if (managementContent != null) "要保存本次作息调整吗？${managementRequest?.original?.usages.orEmpty().size} 张引用此作息的课表会同步更新。"
+        else "要保留本次作息调整吗？保存课表设置时会创建公共副本，仅影响当前课表。",
         listOf(
             LiquidAlertAction("保存", LiquidAlertActionStyle.Primary, onClick = { showExitConfirmation = false; leave(true) }),
             LiquidAlertAction("不保存", LiquidAlertActionStyle.Destructive, onClick = { showExitConfirmation = false; leave(false) }),
             LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Secondary, onClick = { showExitConfirmation = false })
         ), popupBackdrop, state.config, { showExitConfirmation = false })
-    if (showChoice) LiquidAlertDialog("编辑作息", "要新建一个作息，还是在当前作息调整？",
-        listOf(
-            LiquidAlertAction("调整当前作息", LiquidAlertActionStyle.Primary, onClick = {
-                showChoice = false
-                enter(PeriodTimelineSession(config, draft).updateActive(active.materializeForTimeline(config)))
-            }),
-            LiquidAlertAction("新建作息", LiquidAlertActionStyle.Secondary, onClick = { showChoice = false; showWizard = true })
-        ), popupBackdrop, state.config, { showChoice = false })
     if (showWizard) PeriodSchemeCreationWizard(config, draft, popupBackdrop, state.config,
-        onDismiss = { showWizard = false }, onCreated = { showWizard = false; enter(it) })
-    if (showDeleteScheme) LiquidAlertDialog("删除作息", "删除“${active.scheme.name}”？其他作息会保留。",
-        listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = { showDeleteScheme = false }),
-            LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive, onClick = {
-                val remaining = draft.schemes.filterNot { it.scheme.id == active.scheme.id }
-                if (remaining.isNotEmpty()) onDraftChange(draft.copy(schemes = remaining, activeSchemeId = remaining.first().scheme.id))
-                showDeleteScheme = false
-            })), popupBackdrop, state.config, { showDeleteScheme = false })
+        onDismiss = { showWizard = false; if (managementContent != null) onEditorFinished() },
+        onCreated = { showWizard = false; enter(it) }, standalone = managementContent != null)
     deletingBlock?.let { block ->
-        LiquidAlertDialog("移除${block.title}", if (block.isBreak) "后续课程将在当前时段内提前 ${block.minutes} 分钟，节次编号和其他作息不变。"
-            else "节次编号将连续调整，其他作息也会同步减少这一节。删除后可从课间下方添加节次，课程对应关系会在保存详细设置时确认。",
+        LiquidAlertDialog("移除${block.title}", if (block.isBreak) "后续课程将在当前时段内提前 ${block.minutes} 分钟，节次编号不变。"
+            else "这套作息的节次编号将连续调整，删除后可从课间下方添加节次。如果课程占用了被删除的节次，保存会被阻止。",
             listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary, onClick = { deletingBlock = null }),
                 LiquidAlertAction("移除", LiquidAlertActionStyle.Destructive, onClick = {
                     session?.let { edit ->
@@ -608,6 +671,39 @@ internal fun PeriodSchemeEditor(
         session?.let { edit -> TimelinePartStartPicker(part, edit, popupBackdrop, state.config,
             onDismiss = { pickingPart = null }, onChange = { session = it; pickingPart = null }) }
     }
+}
+
+@Composable
+private fun TimelineMovingAction(
+    backdrop: Backdrop?, source: Rect, destination: Rect,
+    rootOrigin: Offset, sourceIcon: Int?, progress: () -> Float, onClick: () -> Unit
+) {
+    val p = progress()
+    val bounds = androidx.compose.ui.geometry.lerp(source, destination, p)
+    val density = LocalDensity.current
+    val contentProgress = ((p - 0.20f) / 0.50f).coerceIn(0f, 1f)
+    DialogLiquidButton(
+        backdrop = backdrop,
+        label = "完成", onClick = onClick, role = DialogButtonRole.Confirm,
+        height = with(density) { bounds.height.toDp() }, horizontalPadding = 0.dp,
+        shadowEnabled = false,
+        modifier = Modifier.offset {
+            IntOffset((bounds.left - rootOrigin.x).roundToInt(), (bounds.top - rootOrigin.y).roundToInt())
+        }.width(with(density) { bounds.width.toDp() }).semantics { contentDescription = "完成编辑作息" },
+        content = {
+            Box(contentAlignment = Alignment.Center) {
+                Box(Modifier.graphicsLayer { alpha = 1f - contentProgress }) {
+                    if (sourceIcon != null) Icon(painterResource(sourceIcon), null,
+                        Modifier.size(20.dp), tint = Color.White)
+                    else Text("编辑", color = Color.White, style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                }
+                Text("完成", modifier = Modifier.graphicsLayer { alpha = contentProgress }, color = Color.White,
+                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, softWrap = false)
+            }
+        }
+    )
 }
 
 @Composable

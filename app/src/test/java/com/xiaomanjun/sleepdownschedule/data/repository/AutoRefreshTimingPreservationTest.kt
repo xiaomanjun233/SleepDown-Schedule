@@ -46,12 +46,13 @@ class AutoRefreshTimingPreservationTest {
     }
 
     @Test
-    fun newSectionNeedsManualImportInsteadOfReplacingTimes() {
+    fun newSectionRetainsImportedSourceWithoutReplacingTheSelectedScheme() {
         val current = defaultConfig()
         val fetched = ImportDraft(current, defaultPeriods(), listOf(course(3)))
 
-        assertThrows(IllegalArgumentException::class.java) {
-            preserveTimingForAutoRefresh(current, currentPeriods, fetched)
-        }
+        val result = preserveTimingForAutoRefresh(current, currentPeriods, fetched)
+        assertEquals(currentPeriods, result.periods)
+        assertEquals(listOf(3), result.courses.single().periods)
+        assertEquals("3,${fetched.periods[2].startTime}-${fetched.periods[2].endTime}", result.courses.single().originalPeriodTimes)
     }
 }

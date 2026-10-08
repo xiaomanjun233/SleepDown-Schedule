@@ -53,8 +53,8 @@ import kotlin.math.min
 private const val SwitchGroupCount = 6
 private const val SwitchGroupDelayMillis = 18
 private val SwitchContentSpring = spring<Float>(dampingRatio = 0.74f, stiffness = 260f, visibilityThreshold = 0.0015f)
-// The page/background leads every content group, brakes early and has only a small rebound.
-private val SwitchPageSpring = spring<Float>(dampingRatio = 0.86f, stiffness = 700f, visibilityThreshold = 0.0015f)
+// Only the content tracks overshoot. The wallpaper/page settles monotonically underneath them.
+private val SwitchPageMotion = tween<Float>(360, easing = CubicBezierEasing(0.22f, 0.72f, 0.20f, 1f))
 
 internal enum class HomeSwitchClip { None, Page, TopBar }
 
@@ -126,8 +126,7 @@ internal class HomeSwitchMotion(initialSecondary: Boolean, private val target: S
             }
             coroutineScope {
                 launch {
-                    page.animateTo(destination, animationSpec = SwitchPageSpring,
-                        initialVelocity = pageVelocity) {
+                    page.animateTo(destination, animationSpec = SwitchPageMotion) {
                         pageVelocity = velocity
                     }
                     pageVelocity = 0f
@@ -186,7 +185,7 @@ internal fun Modifier.homeSwitchLayer(
     return graphicsLayer {
         translationX = direction * size.width * ((if (secondary) 1f else 0f) - motion.progress.value)
         // Keep rounding through the trailing content's rebound, then release the clip at rest.
-        // Do not clamp the translation: the spring must be allowed to overshoot and return.
+        // Page motion is bounded; the independent content groups still carry the trailing spring.
         clip = pageClip != HomeSwitchClip.None && motion.moving
         shape = if (clip) {
             val radius = 32.dp * motion.cornerFraction
@@ -218,15 +217,16 @@ internal fun Modifier.homeSwitchGroup(cardOrderFraction: Float? = null): Modifie
             group.intValue = (fraction * SwitchGroupCount).toInt().coerceIn(0, SwitchGroupCount - 1)
         }
     }
-    // At rest the translation is zero. Releasing this layer keeps card glass in the same
-    // clipping stack as its wallpaper sampler; the six staggered tracks are kept for motion.
-    return if (pages.any { it.motion.moving }) tracked.graphicsLayer {
-        translationX = pages.sumOf { page ->
+    // Keep the identity RenderNode in place between switches. Attaching/removing a layer on
+    // every course at the first/last moving frame rebuilds their coordinate/sampling chains.
+    // This layer never clips, blurs or forces an offscreen texture at rest.
+    return tracked.graphicsLayer {
+        translationX = if (pages.any { it.motion.moving }) pages.sumOf { page ->
             (page.direction * page.width.value *
                 (page.motion.progress.value - page.motion.groupProgress(group.intValue))).toDouble()
-        }.toFloat()
+        }.toFloat() else 0f
         clip = false
-    } else tracked
+    }
 }
 
 @Composable

@@ -1,64 +1,60 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing.progress
 
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.background
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiEduImportProgressSession
-import kotlinx.coroutines.flow.collectLatest
 
 @Composable
-internal fun AiImportReasoningPanel(taskId: String, textColor: Color) {
-    // Only this small reading window collects streaming text; the conversation and glass host
+internal fun AiImportReasoningPanel(taskId: String, textColor: Color, listState: LazyListState) {
+    // Only the output at the conversation tail collects streaming text; the glass host
     // continue to observe coarse task progress, not individual model tokens.
     val live by AiEduImportProgressSession.liveReasoning.collectAsStateWithLifecycle()
     val text = live.text.takeIf { live.taskId == taskId }.orEmpty()
-    val scroll = rememberScrollState()
+    val dragging by listState.interactionSource.collectIsDraggedAsState()
+    var following by remember(taskId) { mutableStateOf(true) }
+    LaunchedEffect(dragging) {
+        if (dragging) following = false
+        else if (!listState.canScrollForward) following = true
+    }
     LaunchedEffect(taskId, text) {
-        // Follow every new chunk and the measured height it produces. Comparing the old scroll
-        // offset with the newly grown maxValue incorrectly stopped following on the first wrap.
-        snapshotFlow { scroll.maxValue }.collectLatest { bottom ->
-            if (bottom != Int.MAX_VALUE) {
-                scroll.animateScrollTo(bottom, animationSpec = tween(80, easing = LinearEasing))
+        if (following) {
+            withFrameNanos { }
+            val last = listState.layoutInfo.totalItemsCount - 1
+            if (last >= 0) {
+                if (listState.layoutInfo.visibleItemsInfo.none { it.index == last }) listState.scrollToItem(last)
+                // The output item may be taller than the viewport. Scroll to its actual tail.
+                val layout = listState.layoutInfo
+                layout.visibleItemsInfo.lastOrNull { it.index == last }?.let { item ->
+                    val distance = item.offset + item.size - layout.viewportEndOffset + layout.afterContentPadding
+                    if (distance > 0) listState.scrollBy(distance.toFloat())
+                }
             }
         }
     }
     Column(
-        Modifier.fillMaxWidth().clip(RoundedRectangle(20.dp))
-            .background(textColor.copy(alpha = 0.055f)).padding(14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
+        Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        Text("模型思考", color = textColor.copy(alpha = 0.60f), style = MaterialTheme.typography.labelMedium)
-        Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) {
-            if (text.isBlank()) {
-                Text("等待模型返回思考内容…", color = textColor.copy(alpha = 0.48f), style = MaterialTheme.typography.bodySmall)
-            } else {
-                Text(
-                    text, modifier = Modifier.fillMaxSize().verticalScroll(scroll),
-                    color = textColor.copy(alpha = 0.85f), style = MaterialTheme.typography.bodyMedium
-                )
-            }
-        }
+        Text("正在处理", color = textColor.copy(alpha = 0.60f), style = MaterialTheme.typography.labelMedium)
+        Text(text.ifBlank { "等待模型返回阶段摘要…" },
+            color = textColor.copy(alpha = if (text.isBlank()) 0.48f else 0.85f),
+            style = MaterialTheme.typography.bodyMedium)
     }
 }
