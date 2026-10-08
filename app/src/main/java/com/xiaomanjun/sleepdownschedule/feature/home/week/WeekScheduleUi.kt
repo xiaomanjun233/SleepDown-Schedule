@@ -401,6 +401,7 @@ internal fun SinglePillWeekScheduleScreen(
         val sourceWeek = source?.let { com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate(state.config, it, today) } ?: week
         onCourseClick(original, sourceWeek, bounds)
     }
+    val currentOpenOccurrence = rememberUpdatedState<(CourseEntity, Int, Rect?) -> Unit>(::openOccurrence)
     val weekBuckets = bucketsForWeek(displayWeek)
     var weekJump by remember { mutableStateOf<AdjacentWeekJump?>(null) }
     val visibleCourses = weekBuckets.visibleCourses
@@ -470,7 +471,7 @@ internal fun SinglePillWeekScheduleScreen(
     val latestWeekHeaderPreview by rememberUpdatedState(onWeekHeaderPreview)
     val latestWeekJumpSettled by rememberUpdatedState(onWeekJumpSettled)
     val weekTail = rememberWeekPageTailMotion(pagerState)
-    val homeSwitching = LocalHomeTextContrastFrozen.current.value
+    val homeSwitching = LocalHomeTextContrastFrozen.current
     LaunchedEffect(pagerState, boundless) {
         try {
             snapshotFlow {
@@ -622,12 +623,17 @@ internal fun SinglePillWeekScheduleScreen(
         }
     }
 
+    val pageTextFrozen = remember(homeSwitching, weekTail) {
+        derivedStateOf { homeSwitching.value || weekTail.moving }
+    }
+    val courseTextFrozen = remember(homeSwitching, weekTail, scrollState) {
+        derivedStateOf { homeSwitching.value || scrollState.isScrollInProgress || weekTail.moving }
+    }
     CompositionLocalProvider(
         LocalWeekEditMotionState provides weekEditOverlay,
         LocalWeekPageTail provides weekTail,
-        LocalHomeTextContrastFrozen provides rememberUpdatedState(LocalHomeTextContrastFrozen.current.value || weekTail.moving),
-        LocalCourseTextMotionFrozen provides
-            rememberUpdatedState(LocalHomeTextContrastFrozen.current.value || scrollState.isScrollInProgress || weekTail.moving)
+        LocalHomeTextContrastFrozen provides pageTextFrozen,
+        LocalCourseTextMotionFrozen provides courseTextFrozen
     ) {
     Box(
         modifier = Modifier
@@ -833,6 +839,11 @@ internal fun SinglePillWeekScheduleScreen(
                                 visibleWeekdaysForBuckets(pageBuckets, state.config.hideEmptyWeekends)
                             }
                             val isActivePage = programmaticPage < 0 && pageWeek == displayWeek && pagerState.settledPage == page
+                            val openPageOccurrence = remember(pageWeek) {
+                                { course: CourseEntity, bounds: Rect? ->
+                                    currentOpenOccurrence.value(course, pageWeek, bounds)
+                                }
+                            }
                             WeekPageSamplingScope(weekTail, page, homeSwitching, weekJump) {
                             WeekCourseColumnsLayer(
                                 modifier = Modifier.padding(
@@ -898,9 +909,7 @@ internal fun SinglePillWeekScheduleScreen(
                                     )
                                 },
                                 onCancelWeekEditOverlay = weekEditOverlay::cancelGesture,
-                                onCourseClick = { course, sourceBounds ->
-                                    openOccurrence(course, pageWeek, sourceBounds)
-                                }
+                                onCourseClick = openPageOccurrence
                             )
                             }
                         }

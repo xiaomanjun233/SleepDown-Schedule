@@ -2368,10 +2368,25 @@ fun CourseScheduleAppUi(
         }
         }
     }
+    // Local function references capture the current host inputs. Keep the provided callback
+    // itself stable: every course card consumes it, including ordinary cards, and a tab change
+    // must not invalidate that whole subtree just to keep its eventual click up to date.
+    val currentAdjustedCourseEditor = rememberUpdatedState<(Long, LocalDate, Rect?) -> Unit>(::openAdjustedCourseEditor)
+    val adjustedCourseEditor = remember {
+        { courseId: Long, date: LocalDate, bounds: Rect? ->
+            currentAdjustedCourseEditor.value(courseId, date, bounds)
+        }
+    }
+    val currentHomeCourseClick = rememberUpdatedState<(CourseEntity, Int, Rect?) -> Unit>({ course, week, bounds ->
+        openCourseEditor(course, week, bounds)
+    })
+    val homeCourseClick = remember {
+        { course: CourseEntity, week: Int, bounds: Rect? -> currentHomeCourseClick.value(course, week, bounds) }
+    }
     CompositionLocalProvider(
         LocalHomeAssistant provides homeAssistant,
         LocalDayAgentCountdownCinematic provides dayAgentCountdownCinematic,
-        LocalAdjustedCourseEditor provides ::openAdjustedCourseEditor,
+        LocalAdjustedCourseEditor provides adjustedCourseEditor,
         LocalCourseShortcuts provides courseShortcuts,
         LocalCourseCopy provides courseCopy,
         LocalCourseRemoval provides courseRemoval,
@@ -2956,9 +2971,7 @@ fun CourseScheduleAppUi(
                                         }
                                     },
                                     onAgentDismissed = {},
-                                    onCourseClick = { course, week, sourceBounds ->
-                                        openCourseEditor(course, week, sourceBounds)
-                                    },
+                                    onCourseClick = homeCourseClick,
                                     onAddCourse = viewModel::addCourse,
                                     onAgentAction = handleHomeAgentAction,
                                     onUpdateCourseSingleWeek = viewModel::updateCourseSingleWeek,

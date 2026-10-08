@@ -321,13 +321,25 @@ internal fun HomeSwitchPane(
         // instead invalidate every retained glass consumer when this pane appears/disappears.
         val frozen = remember { { !currentVisible.value || currentParentFrozen.value() } }
         val sampleKey = remember { { if (currentVisible.value) currentParentKey.value() else hiddenKey } }
+        val parentVisible = LocalHomePaneVisible.current
+        val parentBackgroundFrozen = LocalHomeBackgroundFrozen.current
+        val parentTextFrozen = LocalHomeTextContrastFrozen.current
+        val paneVisible = remember(parentVisible) {
+            derivedStateOf { parentVisible.value && currentVisible.value }
+        }
+        val backgroundFrozen = remember(parentBackgroundFrozen) {
+            derivedStateOf { parentBackgroundFrozen.value || !currentVisible.value }
+        }
+        val textFrozen = remember(parentTextFrozen) {
+            derivedStateOf { parentTextFrozen.value || !currentVisible.value }
+        }
         CompositionLocalProvider(
             LocalSwitchPages provides pages,
-            LocalHomePaneVisible provides (LocalHomePaneVisible.current && visible),
+            LocalHomePaneVisible provides paneVisible,
             LocalGlassCoordinatesFrozen provides frozen,
             LocalGlassSampleRecordKey provides sampleKey,
-            LocalHomeBackgroundFrozen provides rememberUpdatedState(LocalHomeBackgroundFrozen.current.value || !visible),
-            LocalHomeTextContrastFrozen provides rememberUpdatedState(LocalHomeTextContrastFrozen.current.value || !visible)
+            LocalHomeBackgroundFrozen provides backgroundFrozen,
+            LocalHomeTextContrastFrozen provides textFrozen
         ) { content() }
     }
 }
@@ -335,10 +347,10 @@ internal fun HomeSwitchPane(
 /** A retained day page must not leak neighbouring cards through the outer page's rebound. */
 @Composable
 internal fun HomeDayPageDrawingScope(pager: PagerState, page: Int, content: @Composable () -> Unit) {
-    val homeSwitching = LocalHomeTextContrastFrozen.current.value
+    val homeSwitching = LocalHomeTextContrastFrozen.current
     val visible by remember(pager, page, homeSwitching) {
         derivedStateOf {
-            if (homeSwitching) page == pager.settledPage else {
+            if (homeSwitching.value) page == pager.settledPage else {
                 val position = pager.currentPage + pager.currentPageOffsetFraction
                 page > position - 1f && page < position + 1f
             }
@@ -357,12 +369,23 @@ internal fun HomeDayPageDrawingScope(pager: PagerState, page: Int, content: @Com
         }
     }
     val sampleKey = remember(key) { { key.value } }
+    val parentVisible = LocalHomePaneVisible.current
+    val parentBackgroundFrozen = LocalHomeBackgroundFrozen.current
+    val paneVisible = remember(parentVisible) {
+        derivedStateOf { parentVisible.value && currentVisible.value }
+    }
+    val backgroundFrozen = remember(parentBackgroundFrozen) {
+        derivedStateOf { parentBackgroundFrozen.value || !currentVisible.value }
+    }
+    val textFrozen = remember(homeSwitching, pager) {
+        derivedStateOf { homeSwitching.value || !currentVisible.value || pager.isScrollInProgress }
+    }
     CompositionLocalProvider(
         LocalGlassCoordinatesFrozen provides frozen,
         LocalGlassSampleRecordKey provides sampleKey,
-        LocalHomePaneVisible provides (LocalHomePaneVisible.current && visible),
-        LocalHomeBackgroundFrozen provides rememberUpdatedState(LocalHomeBackgroundFrozen.current.value || !visible),
-        LocalHomeTextContrastFrozen provides rememberUpdatedState(homeSwitching || !visible || pager.isScrollInProgress)
+        LocalHomePaneVisible provides paneVisible,
+        LocalHomeBackgroundFrozen provides backgroundFrozen,
+        LocalHomeTextContrastFrozen provides textFrozen
     ) {
         Box(Modifier.drawWithContent { if (visible) drawContent() }) { content() }
     }

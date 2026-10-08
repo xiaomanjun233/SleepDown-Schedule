@@ -254,7 +254,7 @@ internal fun Modifier.weekPageTail(
 internal fun WeekPageSamplingScope(
     motion: WeekPageTailMotion,
     page: Int,
-    homeSwitching: Boolean,
+    homeSwitching: State<Boolean>,
     jump: AdjacentWeekJump? = null,
     content: @Composable () -> Unit
 ) {
@@ -265,9 +265,9 @@ internal fun WeekPageSamplingScope(
     // While visible, release other weeks only after their last tail group leaves.
     val mounted by remember(motion, page, homeSwitching, jump, paneVisible) {
         derivedStateOf {
-            if (!paneVisible) page == motion.pager.settledPage else
+            if (!paneVisible.value) page == motion.pager.settledPage else
                 (jump == null || jump.contains(page)) &&
-                    (if (homeSwitching) page == motion.pager.settledPage else
+                    (if (homeSwitching.value) page == motion.pager.settledPage else
                         jump?.targetPage == page || motion.pageVisible(page))
         }
     }
@@ -284,10 +284,14 @@ internal fun WeekPageSamplingScope(
         derivedStateOf { Triple(parentKey(), motion.sampleKey, mountedSampleRevision.intValue) }
     }
     val sampleKey = remember(key) { { key.value } }
+    val parentTextFrozen = LocalHomeTextContrastFrozen.current
+    val textFrozen = remember(parentTextFrozen, motion) {
+        derivedStateOf { parentTextFrozen.value || motion.moving }
+    }
     CompositionLocalProvider(
         LocalWeekPageSlot provides page,
         LocalGlassSampleRecordKey provides sampleKey,
-        LocalHomeTextContrastFrozen provides rememberUpdatedState(LocalHomeTextContrastFrozen.current.value || motion.moving)
+        LocalHomeTextContrastFrozen provides textFrozen
     ) {
         content()
     }

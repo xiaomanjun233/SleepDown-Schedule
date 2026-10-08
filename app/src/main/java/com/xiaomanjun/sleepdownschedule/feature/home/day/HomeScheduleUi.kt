@@ -759,6 +759,8 @@ internal fun HomeScreen(
     // Recomputing it here on tablets discarded live slider updates and made personalization look
     // broken even though the config was saved correctly.
     val effectiveWeekCardHeight = weekCardHeight
+    val currentMode = rememberUpdatedState(mode)
+    val currentContentUnderTopBarChange = rememberUpdatedState(onContentUnderTopBarChange)
 
     LaunchedEffect(state.config.id, weekEditInteractionEnabled) {
         if (!weekEditInteractionEnabled) {
@@ -798,11 +800,16 @@ internal fun HomeScreen(
                 }
             }
     ) {
-        BackHandler(enabled = LocalHomePaneVisible.current && mode == HomeMode.Week && weekEditMode) {
+        BackHandler(enabled = weekEditMode && mode == HomeMode.Week && LocalHomePaneVisible.current.value) {
             weekEditMode = false
         }
         HomeMode.entries.forEach { targetMode ->
             key(targetMode) {
+            val reportContentUnderTopBar = remember(targetMode) {
+                { under: Boolean ->
+                    if (currentMode.value == targetMode) currentContentUnderTopBarChange.value(under)
+                }
+            }
             HomeSwitchPane(
                 motion = modeMotion,
                 secondary = targetMode == HomeMode.Week,
@@ -827,7 +834,7 @@ internal fun HomeScreen(
                         backdrop = backdrop,
                         dayAgentBackdrop = dayAgentBackdrop,
                         onSwipeDay = onSwipeDay,
-                        onContentUnderTopBarChange = { if (mode == targetMode) onContentUnderTopBarChange(it) },
+                        onContentUnderTopBarChange = reportContentUnderTopBar,
                         onRenderedCardCountChanged = { onRenderedCardCountChanged(HomeMode.Day, it) },
                         dayAgentBackgroundMotionState = dayAgentBackgroundMotionState,
                         onAgentPagerSettledChange = onAgentPagerSettledChange,
@@ -869,7 +876,7 @@ internal fun HomeScreen(
                             onWeekHeaderPreview = onWeekHeaderPreview,
                             onWeekJumpSettled = onWeekJumpSettled,
                             onRenderedCardCountChanged = { onRenderedCardCountChanged(HomeMode.Week, it) },
-                            onContentUnderTopBarChange = { if (mode == targetMode) onContentUnderTopBarChange(it) },
+                            onContentUnderTopBarChange = reportContentUnderTopBar,
                             style = weekViewStyle,
                             weekEditMode = weekEditMode,
                             onEnterWeekEditMode = { weekEditMode = true },
@@ -1646,14 +1653,15 @@ internal fun DayScheduleScreen(
     }
 
     val paneVisible = LocalHomePaneVisible.current
+    val currentPagerSettledChange by rememberUpdatedState(onAgentPagerSettledChange)
     LaunchedEffect(pagerState, displayDate, paneVisible) {
         snapshotFlow {
-            paneVisible && !pagerState.isScrollInProgress &&
+            paneVisible.value && !pagerState.isScrollInProgress &&
                 pagerState.currentPage == pagerState.settledPage &&
                 kotlin.math.abs(pagerState.currentPageOffsetFraction) < 0.0005f &&
                 dateForPage(pagerState.settledPage) == displayDate
         }.distinctUntilChanged().collect {
-            onAgentPagerSettledChange(it)
+            currentPagerSettledChange(it)
         }
     }
     DisposableEffect(Unit) {
@@ -1715,7 +1723,7 @@ internal fun DayScheduleScreen(
         key = { it }
     ) { page ->
         HomeDayPageDrawingScope(pagerState, page) {
-            val targetDate = dateForPage(page)
+            val targetDate = remember(anchorDate, page) { dateForPage(page) }
             val targetAdjustment = remember(state.config.scheduleAdjustmentsJson, targetDate) {
                 com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(state.config, targetDate)
             }
@@ -1801,7 +1809,7 @@ internal fun DayScheduleScreen(
                         backdrop = dayAgentBackdrop,
                         textColor = textColor,
                         collapsed = agentCollapsed,
-                        isActive = paneVisible && page == pagerState.settledPage,
+                        isActive = paneVisible.value && page == pagerState.settledPage,
                         backgroundMotionState = dayAgentBackgroundMotionState,
                         onPrepareOpen = onAgentPrepareOpen,
                         onAgentDismissed = onAgentDismissed,
