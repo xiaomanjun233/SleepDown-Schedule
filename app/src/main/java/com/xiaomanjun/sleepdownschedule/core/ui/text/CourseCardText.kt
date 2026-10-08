@@ -4,6 +4,7 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -156,12 +157,22 @@ internal fun CourseCardText(
             blurRadius = radius
         ))
     }
+    // Text treats a new onTextLayout callback as a layout input. Freeze/resume and shadow
+    // animation used to replace it for every label, rebuilding paragraphs at each page edge.
+    // Keep node callbacks stable while forwarding to the current contrast calculation.
+    val currentPositioned = rememberUpdatedState<(LayoutCoordinates) -> Unit> {
+        coordinates[0] = it
+        updateAfterMotion()
+    }
+    val currentTextLayout = rememberUpdatedState<(TextLayoutResult) -> Unit> {
+        layout[0] = it
+        if (settleJob[0]?.isActive != true) resolved[0] = updateShadow()
+    }
+    val onPositioned = remember { { value: LayoutCoordinates -> currentPositioned.value(value) } }
+    val onLayout = remember { { value: TextLayoutResult -> currentTextLayout.value(value) } }
     Text(
         text = text,
-        modifier = if (background == null || flatShadowStrength != null) modifier else modifier.onGloballyPositioned {
-            coordinates[0] = it
-            updateAfterMotion()
-        },
+        modifier = if (background == null || flatShadowStrength != null) modifier else modifier.onGloballyPositioned(onPositioned),
         color = displayedColor,
         style = shadowStyle,
         fontWeight = if (coloredText) maxOf(fontWeight ?: style.fontWeight ?: FontWeight.Normal, FontWeight.Bold) else fontWeight,
@@ -170,6 +181,6 @@ internal fun CourseCardText(
         textAlign = textAlign,
         maxLines = maxLines,
         overflow = overflow,
-        onTextLayout = { layout[0] = it; if (settleJob[0]?.isActive != true) resolved[0] = updateShadow() }
+        onTextLayout = onLayout
     )
 }

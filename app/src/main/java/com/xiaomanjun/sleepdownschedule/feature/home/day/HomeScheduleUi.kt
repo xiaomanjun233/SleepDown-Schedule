@@ -496,13 +496,24 @@ fun HomeReadableText(
             blurRadius = radius
         ))
     }
+    // Updating contrast/shadow must not replace Text's layout callback and invalidate its
+    // paragraph cache. Only real text, typography or constraints should request remeasurement.
+    val currentPositioned = rememberUpdatedState<(androidx.compose.ui.layout.LayoutCoordinates) -> Unit> {
+        coordinates[0] = it
+        updateContrast()
+    }
+    val currentTextLayout = rememberUpdatedState<(TextLayoutResult) -> Unit> {
+        textLayout.value = it
+        updateContrast()
+    }
+    val onPositioned = remember {
+        { value: androidx.compose.ui.layout.LayoutCoordinates -> currentPositioned.value(value) }
+    }
+    val onLayout = remember { { value: TextLayoutResult -> currentTextLayout.value(value) } }
     Box(modifier = modifier.homeCountdownShockwave(0.55f)) {
         Text(
             text = text,
-            modifier = Modifier.onGloballyPositioned {
-                coordinates[0] = it
-                updateContrast()
-            },
+            modifier = Modifier.onGloballyPositioned(onPositioned),
             color = color,
             style = shadowStyle,
             fontWeight = fontWeight,
@@ -512,10 +523,7 @@ fun HomeReadableText(
             maxLines = maxLines,
             softWrap = softWrap,
             overflow = overflow,
-            onTextLayout = {
-                textLayout.value = it
-                updateContrast()
-            }
+            onTextLayout = onLayout
         )
     }
 }
