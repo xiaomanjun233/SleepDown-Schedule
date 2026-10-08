@@ -59,6 +59,31 @@ class AiInteractiveImportTest {
 
     @After fun resetSession() = AiEduImportProgressSession.update(null)
 
+    @Test fun enabledMemorySurvivesProgressContinuationInBothProtocols() {
+        for (style in listOf(AiEndpointStyle.CHAT_COMPLETIONS, AiEndpointStyle.RESPONSES)) {
+            val requests = mutableListOf<JsonObject>()
+            requestScheduleImport(config(style), body(style), AiImportNetworkContext("TEXT", assistantMemory = "课程名称保留英文")) { request, _ ->
+                requests += request
+                if (requests.size == 1) response(style, "<import_progress>正在核对</import_progress>")
+                else response(style, "", ScheduleImportToolName to """{"courses":[]}""")
+            }
+            val key = if (style == AiEndpointStyle.RESPONSES) "input" else "messages"
+            requests.forEach { request ->
+                val contents = request[key]!!.jsonArray.map { it.jsonObject["content"]!!.jsonPrimitive.content }
+                val memory = contents.single { it.startsWith("{\"kind\":\"user_memory_context\"") }
+                assertEquals("课程名称保留英文", Json.parseToJsonElement(memory).jsonObject["content"]!!.jsonPrimitive.content)
+                assertTrue(contents.contains("synthetic schedule source"))
+            }
+        }
+    }
+
+    @Test fun formatRepairNeverReceivesAssistantMemory() {
+        requestScheduleImport(config(), body(AiEndpointStyle.RESPONSES), AiImportNetworkContext("REPAIR", assistantMemory = "私有偏好")) { request, _ ->
+            assertFalse(request.toString().contains("私有偏好"))
+            response(AiEndpointStyle.RESPONSES, "", ScheduleImportToolName to """{"courses":[]}""")
+        }
+    }
+
     @Test fun partialSummaryIsNotShownAndMarkedSummaryDoesNotCorruptFinalJson() {
         val partial = "<import_progress>已识别课程"
         assertEquals("", importProgressSummary(partial))

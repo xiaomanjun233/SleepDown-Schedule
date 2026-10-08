@@ -62,6 +62,7 @@ object DayAgentPreferences {
         )
     }
 
+    @Synchronized
     fun applyBackupPreferences(
         context: Context,
         backup: BackupDayAgentPreferences,
@@ -146,15 +147,19 @@ object DayAgentPreferences {
         mutableChanges.value += 1
     }
 
+    @Synchronized
     fun saveMemory(context: Context, memory: String) {
         saveMemoryInternal(context, memory)
     }
 
-    fun saveMemoryFromAgent(context: Context, memory: String, date: LocalDate) {
+    @Synchronized
+    fun saveMemoryFromAgent(context: Context, memory: String, date: LocalDate, expectedMemory: String): Boolean {
+        if (this.memory(context) != expectedMemory || memory.length > MemoryMaxLength) return false
         saveMemoryInternal(context, memory)
         prefs(context).edit {
                 putString("memory_last_agent_update_day", date.toString())
             }
+        return true
     }
 
     private fun saveMemoryInternal(context: Context, memory: String) {
@@ -170,6 +175,7 @@ object DayAgentPreferences {
         mutableChanges.value += 1
     }
 
+    @Synchronized
     fun clearMemory(context: Context) {
         prefs(context).edit {remove("memory")}
         mutableChanges.value += 1

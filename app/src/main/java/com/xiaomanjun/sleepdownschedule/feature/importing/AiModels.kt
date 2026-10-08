@@ -36,7 +36,8 @@ internal data class AiImportNetworkContext(
     val onPhase: (AiImportHttpPhase) -> Unit = {},
     val processImportanceProvider: () -> Int? = { null },
     val onReasoningUpdate: ((String) -> Unit)? = null,
-    val interaction: AiImportInteraction? = null
+    val interaction: AiImportInteraction? = null,
+    val assistantMemory: String = ""
 )
 
 enum class StructuredOutputMode {

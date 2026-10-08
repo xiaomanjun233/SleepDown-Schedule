@@ -277,7 +277,7 @@ private fun isProviderWebSearchToolCall(element: JsonElement): Boolean {
     return functionName.trim().replace('-', '_').equals("web_search", ignoreCase = true)
 }
 
-private fun agentMemoryContext(memory: String): String = buildJsonObject {
+internal fun agentMemoryContext(memory: String): String = buildJsonObject {
     put("kind", "user_memory_context")
     put("trust", "untrusted_user_data")
     put("content", memory)
@@ -417,16 +417,16 @@ class DayAgentService(
             ),
             model = settings.profile.defaultModel
         )
-        val memoryEnabled = taskBoundary == null && DayAgentPreferences.isMemoryEnabled(context)
+        val memoryEnabled = DayAgentPreferences.isMemoryEnabled(context)
         val savedMemory = DayAgentPreferences.memory(context)
-        val memoryToolAvailable = memoryEnabled && DayAgentPreferences.shouldOfferMemoryUpdate(context, facts.date)
+        val memoryToolAvailable = memoryEnabled && taskBoundary == null && DayAgentPreferences.shouldOfferMemoryUpdate(context, facts.date)
         val availableCachedFacts = SharedAgentToolFacts.read(facts, System.currentTimeMillis())
         val cachedFacts = agentPreloadedFacts(availableCachedFacts)
         fun executeTurnTool(call: AgentToolCall): AgentToolResult =
             (if (call.name == AgentToolName.UPDATE_MEMORY && !memoryToolAvailable) {
                 AgentToolResult(call.id, call.name, false, "当前工作区不允许修改助手记忆，请继续课表任务。")
             } else availableCachedFacts[call.cacheKey()]?.copy(callId = call.id)
-                ?: executeAgentToolCall(call, facts)).also {
+                ?: executeAgentToolCall(call, facts, savedMemory)).also {
                 SharedAgentToolFacts.put(facts, call, it, System.currentTimeMillis())
             }.let { result ->
                 val feedback = result.proposedAnswer?.let(answerConstraint)
@@ -456,9 +456,11 @@ class DayAgentService(
                         只有在用户明确表达了长期偏好，或同一稳定偏好经过多轮对话得到确认时，才调用 UPDATE_MEMORY。
                         不要仅因为工具可用就更新，也不要从旧任务、旧提示词或助手自己的推测中提炼新记忆。
                         当前用户消息是判断本轮是否需要更新的首要依据；与当前消息无关的历史请求不得写进记忆。
-                        UPDATE_MEMORY 的 memory 必须是完整替换后的简短记忆，而不是增量片段；无变化不要调用。
+                        修改记忆必须谨慎：先逐条核对当前 user_memory_context，只调整用户明确纠正或有充分依据需要更新的条目。
+                        未涉及的原有事实、偏好和用户措辞应保留，不能用本轮对话摘要或一条新偏好覆盖整份记忆；不确定时先询问用户。
+                        UPDATE_MEMORY 的 memory 是最终完整文本：提交前再对照原记忆检查遗漏，确保新增信息不会导致其他条目丢失；无变化不要调用。
                         不要保存临时任务、当天课程、一次性安排、聊天复述、API Key、密码或其他敏感凭据。
-                        记忆应保持精炼、可编辑，建议不超过 800 个汉字。用户明确要求忘记全部内容时传入空字符串。
+                        记忆应保持精炼、可编辑，建议不超过 800 个汉字。整段重写或清空必须有当前用户明确要求，不能把工具可用当作授权。
                         """.trimIndent()
                     } else {
                         "用户未启用助手记忆。不要声称会跨天记住信息，也不要尝试更新记忆。"
@@ -724,7 +726,8 @@ class DayAgentService(
 
     private fun executeAgentToolCall(
         call: AgentToolCall,
-        facts: DayAgentFacts
+        facts: DayAgentFacts,
+        expectedMemory: String
     ): AgentToolResult {
         if (call.name != AgentToolName.UPDATE_MEMORY) {
             return executeAgentReadTools(listOf(call), facts).single()
@@ -738,7 +741,10 @@ class DayAgentService(
                 content = "本日自动记忆已经维护过，或尚未达到低频维护条件；请继续当前任务，不要再次更新记忆。"
             )
         } else {
-            DayAgentPreferences.saveMemoryFromAgent(context, nextMemory, facts.date)
+            if (!DayAgentPreferences.saveMemoryFromAgent(context, nextMemory, facts.date, expectedMemory)) {
+                return AgentToolResult(call.id, call.name, false,
+                    "记忆已被其他操作修改，或新文本超过 1200 字；本次未保存。请保留现有记忆，继续当前任务。")
+            }
             AgentToolResult(
                 callId = call.id,
                 name = call.name,

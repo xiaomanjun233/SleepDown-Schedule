@@ -39,6 +39,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -277,6 +278,13 @@ internal fun AiEduImportProgressPage(
         onImportSubmitted()
     }
     val listState = rememberLazyListState()
+    val previousArtifacts = remember(current.conversationTurns, config) {
+        current.conversationTurns.map { turn ->
+            turn.artifactPayload.takeIf(String::isNotBlank)?.let {
+                ScheduleImportParser.parseStoredDraft(it, config).getOrNull()
+            }
+        }
+    }
     val textColor = glassForegroundColor(settingsVisualConfig(config))
     val pageTitle = current.routeLabel.takeIf { it.isNotBlank() } ?: "AI 教务导入"
     var executionExpanded by remember { mutableStateOf(!current.finished) }
@@ -364,9 +372,16 @@ internal fun AiEduImportProgressPage(
         if (current.finished) {
             executionExpanded = false
             conversationSending = false
-            withFrameNanos { }
-            val last = listState.layoutInfo.totalItemsCount - 1
-            if (last >= 0) listState.animateScrollToItem(last)
+        }
+        // Enter every task at its latest result, including an already running task.
+        withFrameNanos { }
+        val last = listState.layoutInfo.totalItemsCount - 1
+        if (last >= 0) {
+            listState.scrollToItem(last)
+            val layout = listState.layoutInfo
+            layout.visibleItemsInfo.lastOrNull()?.let { item ->
+                listState.scrollBy((item.offset + item.size + layout.afterContentPadding - layout.viewportEndOffset).coerceAtLeast(0).toFloat())
+            }
         }
     }
     BackHandler(enabled = current.awaitingConfirmation) {
@@ -502,7 +517,16 @@ internal fun AiEduImportProgressPage(
                     ) {
                 current.conversationTurns.forEachIndexed { index, turn ->
                     item(key = "conversation-turn-$index") {
-                        AiEduConversationTurnSummary(turn, index + 1, textColor, config)
+                        AiEduConversationTurnSummary(turn, index + 1, textColor)
+                    }
+                    previousArtifacts[index]?.let { draft ->
+                        item(key = "conversation-artifact-$index") {
+                            Text("交付物 ${index + 1} · ${draft.courses.size} 门课程",
+                                color = textColor.copy(alpha = 0.64f), style = MaterialTheme.typography.labelMedium)
+                        }
+                        itemsIndexed(draft.courses, key = { courseIndex, _ -> "conversation-course-$index-$courseIndex" }) { _, course ->
+                            ImportPreviewCourseCard(course, draft.periods, draft.config)
+                        }
                     }
                 }
                 item {
@@ -679,12 +703,8 @@ private fun Bitmap.cropToWindowBounds(
 private fun AiEduConversationTurnSummary(
     turn: AiEduImportConversationTurn,
     index: Int,
-    textColor: Color,
-    config: ScheduleConfigEntity
+    textColor: Color
 ) {
-    val artifact = remember(turn.artifactPayload, config) {
-        turn.artifactPayload.takeIf(String::isNotBlank)?.let { ScheduleImportParser.parseStoredDraft(it, config).getOrNull() }
-    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -695,11 +715,6 @@ private fun AiEduConversationTurnSummary(
         AgentMarkdownText(turn.userPrompt, textColor, MaterialTheme.typography.bodyMedium)
         if (turn.reasoningOutput.isNotBlank()) AiEduModelSummary(turn.reasoningOutput, textColor)
         if (turn.assistantMessage.isNotBlank()) AgentMarkdownText(turn.assistantMessage, textColor, MaterialTheme.typography.bodyMedium)
-        artifact?.let { draft ->
-            AiEduModelSummary("", textColor, "交付物 $index · ${draft.courses.size} 门课程") {
-                draft.courses.forEach { ImportPreviewCourseCard(it, draft.periods, draft.config) }
-            }
-        }
     }
 }
 
@@ -708,27 +723,15 @@ private fun AiEduModelSummary(
     summary: String, textColor: Color, title: String = "模型摘要",
     details: (@Composable () -> Unit)? = null
 ) {
-    var expanded by androidx.compose.runtime.saveable.rememberSaveable(summary) { mutableStateOf(false) }
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Text(title, color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
-            Text(if (expanded) "收起" else "展开", color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
-        }
-        androidx.compose.animation.AnimatedVisibility(expanded) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (summary.isNotBlank()) AgentMarkdownText(summary, textColor.copy(alpha = 0.86f), MaterialTheme.typography.bodyMedium)
-                details?.invoke()
-            }
-        }
+        Text(title, modifier = Modifier.padding(vertical = 8.dp), color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
+        if (summary.isNotBlank()) AgentMarkdownText(summary, textColor.copy(alpha = 0.86f), MaterialTheme.typography.bodyMedium)
+        details?.invoke()
     }
 }
 

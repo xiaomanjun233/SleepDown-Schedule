@@ -217,6 +217,8 @@ private fun AiScheduleInput.networkContext(
     screenshotCount = screenshotCount,
     onPhase = onHttpPhase,
     onReasoningUpdate = onReasoningUpdate,
+    assistantMemory = if (inputType != "REPAIR" && com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentPreferences.isMemoryEnabled(context))
+        com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentPreferences.memory(context) else "",
     processImportanceProvider = { currentAiProcessImportance(context) }
 )
 

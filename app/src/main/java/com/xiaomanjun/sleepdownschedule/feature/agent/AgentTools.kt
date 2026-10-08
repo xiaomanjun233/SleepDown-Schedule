@@ -254,7 +254,8 @@ private fun agentMemoryToolDefinition(strict: Boolean) = buildJsonObject {
         put("name", AgentToolName.UPDATE_MEMORY.name)
         put(
             "description",
-            "完整替换用户已授权保存的简短长期记忆。仅保存跨天仍有价值的稳定偏好或背景；" +
+            "谨慎调整长期记忆：先核对当前记忆，只改动有明确依据的条目，保留所有未涉及内容，再提交完整结果。" +
+                "不能用本轮摘要或新偏好覆盖整份记忆；整段重写、清空必须有当前用户明确要求，不确定先询问。仅保存跨天仍有价值的稳定偏好或背景；" +
                 "不得保存临时任务、当天安排、聊天复述或敏感凭据。没有值得更新的内容时不要调用。"
         )
         put("parameters", buildJsonObject {
@@ -264,7 +265,7 @@ private fun agentMemoryToolDefinition(strict: Boolean) = buildJsonObject {
                     put("type", "string")
                     put(
                         "description",
-                        "完整的新记忆文本，不是增量。用简短条目表达；明确忘记全部内容时传空字符串。"
+                        "谨慎合并后的完整记忆文本，未涉及的原有条目必须保留。提交前逐条检查是否遗漏；只有用户明确要求忘记全部内容时才传空字符串。"
                     )
                     put("maxLength", 1200)
                 })
