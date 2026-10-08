@@ -469,6 +469,7 @@ open class TodayAssistantWidgetProviderHost : AppWidgetProvider() {
 
 internal object MiuixTodayWidgetRenderer {
     private var publishedPreviewIconResId: Int? = null
+    private var publishedTodayTomorrowPreview = false
     private val ACTION_REFRESH = "${BuildConfig.APPLICATION_ID}.action.REFRESH_TODAY_WIDGET"
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -507,6 +508,15 @@ internal object MiuixTodayWidgetRenderer {
         // Generated previews can reflect preferences; XML previews cannot. A rejected
         // (rate-limited) update is retried only on the next ordinary widget refresh.
         if (Build.VERSION.SDK_INT >= 35) {
+            if (!publishedTodayTomorrowPreview) {
+                val preview = RemoteViews(context.packageName, R.layout.widget_preview_today_tomorrow)
+                val size = canonicalWidgetPreviewSize(WidgetAppearanceVariant.TODAY_TOMORROW)
+                publishedTodayTomorrowPreview = manager.setWidgetPreview(
+                    ComponentName(context, TodayTomorrowWidgetProvider::class.java),
+                    android.appwidget.AppWidgetProviderInfo.WIDGET_CATEGORY_HOME_SCREEN,
+                    RemoteViews(mapOf(SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to preview))
+                )
+            }
             val iconResId = currentIconResId(context)
             if (publishedPreviewIconResId != iconResId) {
                 val preview = RemoteViews(context.packageName, R.layout.widget_preview_today_courses).apply {

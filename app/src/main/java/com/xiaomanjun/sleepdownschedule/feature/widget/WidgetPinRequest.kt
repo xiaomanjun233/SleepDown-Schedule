@@ -10,6 +10,10 @@ import android.os.Bundle
 import android.widget.Toast
 import com.xiaomanjun.sleepdownschedule.TodayCoursesWidgetProvider
 
+internal fun requiresManualWidgetPin(brand: String, manufacturer: String): Boolean =
+    brand.lowercase(java.util.Locale.ROOT) in setOf("xiaomi", "redmi", "poco") ||
+        manufacturer.equals("xiaomi", ignoreCase = true)
+
 /** The launcher owns the consent dialog; BIND_APPWIDGET is a host-only permission. */
 internal fun requestWidgetPin(context: Context, provider: ComponentName, preview: Bundle) {
     val manager = AppWidgetManager.getInstance(context)

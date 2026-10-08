@@ -21,6 +21,7 @@
     <string name="widget_preview_weather">☀️ 25°C 晴</string>
     <string name="widget_preview_assistant_hint">点击卡片和助手对话</string>
     <string name="widget_preview_tomorrow_friday">明日课程 · 周五</string>
+    <string name="widget_preview_today_thursday">今日课程 · 周四</string>
     <string name="widget_preview_week_three">第3周</string>
     <string name="widget_preview_morning_time">10:05\n11:40</string>
     <string name="widget_preview_materials_detail" tools:ignore="TypographyDashes">材料化学\n第3&#45;4节 | 北区 J8&#45;0302</string>

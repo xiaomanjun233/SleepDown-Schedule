@@ -6,6 +6,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 
 import com.xiaomanjun.sleepdownschedule.*
@@ -133,6 +134,16 @@ fun WidgetCustomizationScreen(
     onEditorVisibilityChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
+    var showManualWidgetHelp by remember { mutableStateOf(false) }
+    if (showManualWidgetHelp) {
+        LiquidAlertDialog(
+            title = "手动添加安卓小部件",
+            message = "小米桌面限制了应用内直接添加。请返回桌面，长按空白处进入桌面设置，选择“添加小部件” → “安卓小部件”，找到 SleepDown 后选择需要的小组件。不同桌面版本的入口名称可能略有不同。",
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { showManualWidgetHelp = false })),
+            backdrop = backdrop, config = state.config,
+            onDismissRequest = { showManualWidgetHelp = false }
+        )
+    }
     val scope = rememberCoroutineScope()
     val app = context.applicationContext as CourseScheduleApp
     val repository = app.widgetAppearanceRepository
@@ -349,7 +360,9 @@ fun WidgetCustomizationScreen(
                             val extras = Bundle().apply {
                                 if (preview != null) putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, preview)
                             }
-                            requestWidgetPin(context, providerComponent(selectedType), extras)
+                            if (requiresManualWidgetPin(android.os.Build.BRAND, android.os.Build.MANUFACTURER)) {
+                                showManualWidgetHelp = true
+                            } else requestWidgetPin(context, providerComponent(selectedType), extras)
                         },
                         modifier = Modifier.weight(1f),
                         textColorOverride = Color.White,
@@ -693,7 +706,7 @@ private fun WidgetRemoteViewsPreview(
         val scale = with(density) {
             (maxWidth.toPx() / renderSize.widthDp.dp.toPx()).coerceAtLeast(0.1f)
         }
-        AndroidView(
+        key(type) { AndroidView(
             factory = { viewContext ->
                 FrameLayout(viewContext).apply {
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -705,7 +718,7 @@ private fun WidgetRemoteViewsPreview(
                 val remote = remoteViews ?: return@AndroidView
                 if (host.tag !== remote) {
                     runCatching {
-                        if (host.childCount == 1 && host.tag != null) {
+                        if (host.childCount == 1 && (host.tag as? RemoteViews)?.layoutId == remote.layoutId) {
                             remote.reapply(host.context, host.getChildAt(0))
                         } else {
                             val view = remote.apply(host.context, host)
@@ -730,7 +743,7 @@ private fun WidgetRemoteViewsPreview(
                     scaleX = scale
                     scaleY = scale
                 }
-        )
+        ) }
     }
 }
 
