@@ -249,7 +249,11 @@ fun WidgetCustomizationScreen(
     val currentId = WidgetDefaultAppearanceId
     val current = widgetAppearanceForType(appearances, selectedType, currentId)
     val darkPage = appUsesDarkTheme(state.config)
-    val hasWallpaper = current.wallpaperUri != null
+    val hasWallpaper = current.enabled && current.wallpaperUri != null
+    val hasBackgroundImage = appearances.any { it.variant == selectedType.key && it.wallpaperUri != null }
+    val backgroundEnabled = current.enabled || appearances.any {
+        it.variant == selectedType.key && it.enabled && it.wallpaperUri != null
+    }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -356,13 +360,18 @@ fun WidgetCustomizationScreen(
                         backdrop = backdrop,
                         label = "添加到桌面",
                         onClick = {
-                            val preview = widgetPreviews[selectedType]
-                            val extras = Bundle().apply {
-                                if (preview != null) putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, preview)
-                            }
                             if (requiresManualWidgetPin(android.os.Build.BRAND, android.os.Build.MANUFACTURER)) {
                                 showManualWidgetHelp = true
-                            } else requestWidgetPin(context, providerComponent(selectedType), extras)
+                            } else {
+                                try {
+                                    val preview = widgetPinPreview(context, selectedType, widgetPreviews[selectedType])
+                                    val extras = Bundle().apply { putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, preview) }
+                                    requestWidgetPin(context, providerComponent(selectedType), extras)
+                                } catch (error: Exception) {
+                                    android.util.Log.e("WidgetPreview", "Unable to prepare pin preview for ${selectedType.key}", error)
+                                    Toast.makeText(context, "小组件预览生成失败，请稍后重试", Toast.LENGTH_LONG).show()
+                                }
+                            }
                         },
                         modifier = Modifier.weight(1f),
                         textColorOverride = Color.White,
@@ -397,12 +406,18 @@ fun WidgetCustomizationScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsToggleRow(
                         title = "使用自定义背景",
-                        subtitle = if (current.wallpaperUri == null) "先选择一张图片" else "关闭后保留图片与取景，再次开启即可沿用。",
-                        checked = current.enabled,
+                        subtitle = if (!hasBackgroundImage) "先选择一张图片" else "同时控制已添加的同类组件；关闭后保留各自图片与取景。",
+                        checked = backgroundEnabled,
                         backdrop = backdrop,
-                        enabled = current.wallpaperUri != null,
+                        enabled = hasBackgroundImage,
                         onCheckedChange = { enabled ->
-                            saveDefault(selectedType) { it.copy(enabled = enabled) }
+                            val targetType = selectedType
+                            appearances = appearances.map { if (it.variant == targetType.key) it.copy(enabled = enabled) else it }
+                            scope.launch {
+                                repository.setBackgroundEnabled(targetType, enabled)
+                                reload()
+                                refresh(targetType)
+                            }
                         }
                     )
                     SettingsDivider()
@@ -600,10 +615,11 @@ private fun WidgetRemoteViewsPreview(
 ) {
     val context = LocalContext.current
     val renderSize = remember(type) { canonicalWidgetPreviewSize(type) }
+    val systemUiMode = androidx.compose.ui.platform.LocalConfiguration.current.uiMode
     var remoteViews by remember(type) { mutableStateOf<RemoteViews?>(null) }
     val latestOnReady = rememberUpdatedState(onReady)
     val latestOnRemoteViewsReady = rememberUpdatedState(onRemoteViewsReady)
-    LaunchedEffect(type, appearance, state, transparentBackground) {
+    LaunchedEffect(type, appearance, state, transparentBackground, systemUiMode) {
         // Slider/crop gestures can emit dozens of appearance snapshots per second. Keep the
         // last valid preview on screen and collapse that burst into one expensive bitmap pass.
         if (remoteViews != null) delay(90)

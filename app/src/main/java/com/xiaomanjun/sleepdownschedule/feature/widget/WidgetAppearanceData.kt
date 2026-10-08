@@ -150,6 +150,17 @@ class WidgetAppearanceRepository(
         return normalized
     }
 
+    /** The type-level visibility switch also controls already pinned instances; crops stay private. */
+    suspend fun setBackgroundEnabled(type: WidgetAppearanceVariant, enabled: Boolean) {
+        database.withTransaction {
+            ensureDefaults()
+            val updated = System.currentTimeMillis()
+            dao.getAll().filter { it.variant == type.key }.forEach {
+                dao.upsert(it.copy(enabled = enabled, updatedAt = updated))
+            }
+        }
+    }
+
     suspend fun reset(type: WidgetAppearanceVariant, appWidgetId: Int): WidgetAppearanceEntity {
         val reset = if (appWidgetId == WidgetDefaultAppearanceId) {
             WidgetAppearanceEntity.defaults(type).copy(updatedAt = System.currentTimeMillis())

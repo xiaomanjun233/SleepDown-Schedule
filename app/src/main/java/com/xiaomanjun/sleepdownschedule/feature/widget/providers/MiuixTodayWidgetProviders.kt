@@ -954,9 +954,9 @@ internal object MiuixTodayWidgetRenderer {
         return com.xiaomanjun.sleepdownschedule.domain.schedule.coursesForDate(state, date)
     }
 
-    internal fun usesDarkTheme(context: Context, config: ScheduleConfigEntity): Boolean {
-        if (!config.followSystemDarkMode) return config.darkMode
-        val mode = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
+    internal fun usesDarkTheme(context: Context, @Suppress("UNUSED_PARAMETER") config: ScheduleConfigEntity): Boolean {
+        // RemoteViews belong to the launcher, independently of the app's selected theme.
+        val mode = context.applicationContext.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
         return mode == Configuration.UI_MODE_NIGHT_YES
     }
 
@@ -1129,10 +1129,7 @@ internal object TodayAssistantWidgetRenderer {
         }
         val alert = weather?.let(::widgetWeatherAlert)
         val trailingText = alert?.let { "⚠️ $it" }.orEmpty()
-        val dark = if (!state.config.followSystemDarkMode) state.config.darkMode else {
-            val mode = context.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK
-            mode == Configuration.UI_MODE_NIGHT_YES
-        }
+        val dark = MiuixTodayWidgetRenderer.usesDarkTheme(context, state.config)
         val custom = WidgetBackgroundRenderer.render(context, appearance, size, 2, dark)
         val typography = assistantWidgetTypography(context, size)
         val layout = assistantWidgetLayoutMetrics(size, context.resources.configuration.fontScale)
