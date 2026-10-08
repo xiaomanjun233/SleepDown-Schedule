@@ -2689,7 +2689,7 @@ fun CourseScheduleAppUi(
             topBar = {
                 HomeSwitchPane(rootPageMotion, secondary = false,
                     modifier = Modifier.fillMaxWidth().homeSidebarContentInset(homeSidebarState),
-                    pageClip = HomeSwitchClip.TopBar) {
+                    pageClip = HomeSwitchClip.TopBar, retainContent = true) {
                 TopBarEntranceContainer(
                     phase = startupPhase,
                     modifier = Modifier
@@ -2701,7 +2701,9 @@ fun CourseScheduleAppUi(
                             )
                         )
                 ) {
-                    if (rootPageMotion.retains(false)) {
+                    // The pane suppresses hidden drawing and input. Keep the chrome's text
+                    // layouts and glass nodes alive, just like the retained course pages.
+                    run {
                         AnimatedVisibility(
                             visible = homeContentUnderTopBar,
                             modifier = Modifier
@@ -2766,10 +2768,25 @@ fun CourseScheduleAppUi(
                             onBackHome = { screen = Screen.Home }
                         )
                     }
-                    if (homeModeMotion.retains(true) && weekViewStyle == WeekViewStyle.BOUNDLESS) {
+                    if (weekViewStyle == WeekViewStyle.BOUNDLESS) {
                         // Boundless week header lives on the top bar layer (above the gradient
                         // blur) so weekday labels are never covered; geometry mirrors the course
                         // grid (rowHeaderWidth slot + equal columns + weekGridEndPadding).
+                        HomeSwitchPane(
+                            motion = homeModeMotion,
+                            secondary = true,
+                            retainContent = true,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .zIndex(12f)
+                                .fillMaxWidth()
+                                .padding(top = homeAdaptiveMetrics.safeTop + 66.dp)
+                                .padding(
+                                    start = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp,
+                                    end = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp
+                                )
+                                .homeCountdownShockwave(0.70f)
+                        ) {
                         BoundlessWeekdayHeaderRow(
                             displayWeek = homeWeekHeaderPreview.value ?: homeDisplayWeek,
                             courses = visualState.courses,
@@ -2783,18 +2800,9 @@ fun CourseScheduleAppUi(
                             } else {
                                 BoundlessWeekGridEndPadding
                             },
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .zIndex(12f)
-                                .fillMaxWidth()
-                                .padding(top = homeAdaptiveMetrics.safeTop + 66.dp)
-                                .padding(
-                                    start = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp,
-                                    end = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp
-                                )
-                                .homeSwitchLayer(homeModeMotion, secondary = true)
-                                .homeCountdownShockwave(0.70f)
+                            modifier = Modifier.fillMaxWidth()
                         )
+                        }
                     }
                 }
                 }
