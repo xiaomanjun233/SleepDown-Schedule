@@ -122,7 +122,7 @@ object ColorOSCourseBridge {
             val baseRows = Bundle()
             repeat(8) { offset ->
                 val date = today.plusDays(offset.toLong())
-                val base = ColorOSCourseMapper.export(date, snapshot, zone, courseColor).json
+                val base = ColorOSCourseMapper.export(date, snapshot, zone, courseColor, System.currentTimeMillis()).json
                 val key = "course|$date"
                 baseRows.putString(key, base)
                 rows.putString(key, ColorOSCourseExperiment.appendTestPreview(context, base, date, zone))

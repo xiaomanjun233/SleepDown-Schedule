@@ -38,6 +38,18 @@ final class WakeUpSnapshotStore {
 
     synchronized long generation() { return generation; }
 
+    synchronized long nextExpiry(long now, String zone) {
+        long next = Long.MAX_VALUE;
+        for (Map.Entry<String, Entry> item : entries.entrySet()) {
+            Entry entry = item.getValue();
+            if (!item.getKey().startsWith("course|") || !entry.zone.equals(zone) || entry.validUntil <= now) continue;
+            next = Math.min(next, entry.validUntil);
+            if (entry.previewUntil > now) next = Math.min(next, entry.previewUntil);
+            next = Math.min(next, WakeUpCourseExpiry.nextEnd(entry.dataAt(now), now));
+        }
+        return next;
+    }
+
     synchronized Entry get(String key, long now, String zone) {
         Entry entry = entries.get(key);
         return entry != null && entry.zone.equals(zone) && now >= entry.createdAt
@@ -119,7 +131,7 @@ final class WakeUpSnapshotStore {
         }
 
         String dataAt(long now) {
-            return previewUntil > 0 && now >= previewUntil ? baseData : data;
+            return WakeUpCourseExpiry.remaining(previewUntil > 0 && now >= previewUntil ? baseData : data, now);
         }
     }
 }

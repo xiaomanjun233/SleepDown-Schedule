@@ -37,6 +37,7 @@ public final class WakeUpProxyProvider extends ContentProvider {
             try { snapshots = new WakeUpSnapshotStore(file, false); }
             catch (IOException impossible) { return false; }
         }
+        scheduleExpiry();
         return true;
     }
 
@@ -77,6 +78,7 @@ public final class WakeUpProxyProvider extends ContentProvider {
                             extras.getString("base_data", data), zone.getId(), createdAt, validUntil,
                             extras.getLong("preview_until", 0L));
                     boolean changed = snapshots.put(key, fresh, generation);
+                    if (changed) scheduleExpiry();
                     if (changed && (previous == null || !previous.dataAt(createdAt).equals(fresh.dataAt(createdAt)))) {
                         notifySystem(getContext());
                     }
@@ -102,6 +104,11 @@ public final class WakeUpProxyProvider extends ContentProvider {
     }
 
     @Override public Bundle call(String method, String arg, Bundle extras) {
+        if ("expire".equals(method)) {
+            notifySystem(getContext());
+            scheduleExpiry();
+            return Bundle.EMPTY;
+        }
         if (!"refresh".equals(method)) return super.call(method, arg, extras);
         Context context = getContext();
         // Read endpoints remain public for the system; replacing snapshots is a signed write.
@@ -131,6 +138,7 @@ public final class WakeUpProxyProvider extends ContentProvider {
             }
             // Atomically replaces the entire export, including valid [] after deletions.
             snapshots.replace(fresh);
+            scheduleExpiry();
             notifySystem(context);
             result.putBoolean("refresh_accepted", true);
         } catch (IOException | IllegalArgumentException error) {
@@ -143,6 +151,17 @@ public final class WakeUpProxyProvider extends ContentProvider {
     public static void notifySystem(Context context) {
         // Launching the component is not a data invalidation.
         context.getContentResolver().notifyChange(REFRESH_URI, null);
+    }
+
+    private synchronized void scheduleExpiry() {
+        Context context = getContext();
+        android.app.AlarmManager manager = context.getSystemService(android.app.AlarmManager.class);
+        android.app.PendingIntent pending = android.app.PendingIntent.getBroadcast(context, 41,
+                new android.content.Intent(context, WakeUpRestoreReceiver.class).setAction(WakeUpRestoreReceiver.EXPIRE),
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT | android.app.PendingIntent.FLAG_IMMUTABLE);
+        long next = snapshots.nextExpiry(System.currentTimeMillis(), ZoneId.systemDefault().getId());
+        if (next == Long.MAX_VALUE) manager.cancel(pending);
+        else manager.setAndAllowWhileIdle(android.app.AlarmManager.RTC_WAKEUP, next, pending);
     }
 
     private static boolean isCourse(String path) {

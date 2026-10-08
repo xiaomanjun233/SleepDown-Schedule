@@ -26,7 +26,8 @@ internal object ColorOSCourseMapper {
         zoneId: ZoneId = ZoneId.systemDefault(),
         colorForCourse: (CourseEntity) -> Int = { course ->
             (course.customColorArgb ?: state.config.cardColorArgb).toInt()
-        }
+        },
+        nowMillis: Long = Long.MIN_VALUE
     ): ColorOSCourseExport {
         val exported = mutableListOf<ExportedCourse>()
         var skippedCount = 0
@@ -38,7 +39,8 @@ internal object ColorOSCourseMapper {
                 exported += sessions
             }
         }
-        val ordered = exported.sortedWith(compareBy<ExportedCourse> { it.startTime }.thenBy { it.id })
+        val ordered = exported.filter { date.atTime(it.endTime).atZone(zoneId).toInstant().toEpochMilli() > nowMillis }
+            .sortedWith(compareBy<ExportedCourse> { it.startTime }.thenBy { it.id })
         val json = buildJsonArray {
             ordered.forEach { course ->
                 add(buildJsonObject {
