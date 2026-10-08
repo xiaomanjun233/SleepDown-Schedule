@@ -522,6 +522,25 @@ internal fun HomeMenuActivitySourceFallback(
     }
 }
 
+internal fun newManagedCourseArrangement(
+    template: CourseEntity,
+    config: ScheduleConfigEntity,
+    periods: List<PeriodEntity>
+): CourseEntity = template.copy(
+    id = 0,
+    weekday = 1,
+    periods = listOf(periods.firstOrNull()?.periodIndex ?: 1),
+    weeks = (1..config.totalWeeks.coerceAtLeast(1)).toList(),
+    weekParity = WeekParity.ALL,
+    customStartTime = null,
+    customEndTime = null,
+    customPeriodTimes = null,
+    // The new arrangement owns a new clock; the template's snapshot/projection describes its old periods.
+    originalPeriodTimes = null,
+    arrangementProjection = null,
+    scheduleId = config.id
+)
+
 private data class ManagedArrangementDraft(
     val localKey: Long,
     val course: CourseEntity
@@ -676,19 +695,9 @@ internal fun CourseManagementDetailPage(
                 label = "添加安排",
                 onClick = {
                     val template = arrangements.lastOrNull()?.course ?: group.representative
-                    val firstPeriod = state.periods.firstOrNull()?.periodIndex ?: 1
-                    val added = template.copy(
-                        id = 0,
+                    val added = newManagedCourseArrangement(template, state.config, state.periods).copy(
                         name = name.ifBlank { template.name },
-                        weekday = 1,
-                        periods = listOf(firstPeriod),
-                        weeks = (1..state.config.totalWeeks.coerceAtLeast(1)).toList(),
-                        weekParity = WeekParity.ALL,
-                        customStartTime = null,
-                        customEndTime = null,
-                        customPeriodTimes = null,
-                        customColorArgb = selectedColor,
-                        scheduleId = state.config.id
+                        customColorArgb = selectedColor
                     )
                     arrangements = arrangements + ManagedArrangementDraft(nextLocalKey--, added)
                     scope.launch { listState.animateScrollToItem(arrangements.lastIndex + 1) }
