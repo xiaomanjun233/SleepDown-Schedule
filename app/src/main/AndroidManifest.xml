@@ -296,6 +296,7 @@
             android:name=".AiImportForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <receiver android:name=".feature.widget.WidgetPinnedReceiver" android:exported="false" />
         <receiver
             android:name=".TodayCoursesWidgetProvider"
             android:label="@string/widget_today_courses_name"

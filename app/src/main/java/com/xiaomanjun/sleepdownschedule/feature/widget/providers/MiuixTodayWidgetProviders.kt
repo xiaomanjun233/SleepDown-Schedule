@@ -387,7 +387,11 @@ internal fun launchWidgetWork(
 ): Job {
     val app = context.applicationContext as CourseScheduleApp
     return app.applicationScope.launch(Dispatchers.IO) {
-        widgetWorkMutex.withLock { block() }
+        widgetWorkMutex.withLock {
+            try { block() } finally {
+                MiuixTodayWidgetRenderer.scheduleNextBoundaryRefresh(context, app.repository.activeSnapshot())
+            }
+        }
     }
 }
 
@@ -470,6 +474,8 @@ internal object MiuixTodayWidgetRenderer {
 
     fun isRefreshAction(action: String?): Boolean =
         action == ACTION_REFRESH ||
+            action == Intent.ACTION_USER_PRESENT ||
+            action == Intent.ACTION_CONFIGURATION_CHANGED ||
             action == Intent.ACTION_MY_PACKAGE_REPLACED ||
             action == Intent.ACTION_BOOT_COMPLETED ||
             action == Intent.ACTION_DATE_CHANGED ||
@@ -580,7 +586,6 @@ internal object MiuixTodayWidgetRenderer {
             runCatching { manager.updateAppWidget(id, result) }
                 .onFailure { Log.e("ScheduleWidget", "Failed to update courses widget $id", it) }
         }
-        scheduleNextBoundaryRefresh(context, state)
     }
 
     internal fun buildViews(
@@ -956,7 +961,15 @@ internal object MiuixTodayWidgetRenderer {
         return PendingIntent.getBroadcast(context, 2402, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
     }
 
-    private fun scheduleNextBoundaryRefresh(context: Context, state: AppState) {
+    internal fun scheduleNextBoundaryRefresh(context: Context, state: AppState) {
+        val manager = AppWidgetManager.getInstance(context)
+        val providers = listOf(TodayCoursesWidgetProvider::class.java, TodayCoursesSquareWidgetProvider::class.java,
+            TodayTomorrowWidgetProvider::class.java, WeekScheduleWidgetProvider::class.java, TodayAssistantWidgetProvider::class.java)
+        val alarm = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
+        if (providers.none { manager.getAppWidgetIds(ComponentName(context, it)).isNotEmpty() }) {
+            alarm.cancel(refreshPendingIntent(context))
+            return
+        }
         val zone = ZoneId.systemDefault()
         val today = LocalDate.now(zone)
         val now = LocalTime.now(zone)
@@ -974,12 +987,19 @@ internal object MiuixTodayWidgetRenderer {
                 ZonedDateTime.of(today.plusDays(1), LocalTime.MIDNIGHT, zone).plusSeconds(2)
             now < LocalTime.of(6, 0) ->
                 ZonedDateTime.of(today, LocalTime.of(6, 0), zone).plusSeconds(2)
-            else -> ZonedDateTime.of(today.plusDays(1), LocalTime.of(22, 0), zone)
+            else -> ZonedDateTime.of(today, LocalTime.of(22, 0), zone)
         }
         val trigger = listOfNotNull(boundaryTrigger, stateTransitionTrigger).minOrNull()
             ?: stateTransitionTrigger
-        val alarm = context.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
-        alarm.set(AlarmManager.RTC, trigger.toInstant().toEpochMilli(), refreshPendingIntent(context))
+        val pending = refreshPendingIntent(context)
+        val timestamp = trigger.toInstant().toEpochMilli()
+        try {
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || alarm.canScheduleExactAlarms()) {
+                alarm.setExact(AlarmManager.RTC, timestamp, pending)
+            } else alarm.set(AlarmManager.RTC, timestamp, pending)
+        } catch (_: SecurityException) {
+            alarm.set(AlarmManager.RTC, timestamp, pending)
+        }
     }
 }
 

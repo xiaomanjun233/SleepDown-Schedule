@@ -78,6 +78,9 @@ class CourseScheduleApp : Application() {
             IntentFilter(Intent.ACTION_SCREEN_ON).apply { addAction(Intent.ACTION_USER_PRESENT) },
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
+        ContextCompat.registerReceiver(this, TodayCoursesWidgetProvider(),
+            IntentFilter(Intent.ACTION_USER_PRESENT).apply { addAction(Intent.ACTION_CONFIGURATION_CHANGED) },
+            ContextCompat.RECEIVER_NOT_EXPORTED)
         // Before Android 10, interruption-filter broadcasts reach only registered receivers.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
             ContextCompat.registerReceiver(

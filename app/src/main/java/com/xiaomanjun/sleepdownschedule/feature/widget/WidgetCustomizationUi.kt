@@ -343,17 +343,13 @@ fun WidgetCustomizationScreen(
                     ) {
                     LiquidMenuButton(
                         backdrop = backdrop,
-                        label = if (widgetPreviews[selectedType] == null) "加载预览…" else "添加到桌面",
+                        label = "添加到桌面",
                         onClick = {
-                            val preview = widgetPreviews[selectedType] ?: return@LiquidMenuButton
+                            val preview = widgetPreviews[selectedType]
                             val extras = Bundle().apply {
-                                putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, preview)
+                                if (preview != null) putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, preview)
                             }
-                            val requested = manager.isRequestPinAppWidgetSupported &&
-                                manager.requestPinAppWidget(providerComponent(selectedType), extras, null)
-                            if (!requested) {
-                                Toast.makeText(context, "当前桌面不支持直接添加，请在桌面长按空白处添加小组件", Toast.LENGTH_LONG).show()
-                            }
+                            requestWidgetPin(context, providerComponent(selectedType), extras)
                         },
                         modifier = Modifier.weight(1f),
                         textColorOverride = Color.White,
