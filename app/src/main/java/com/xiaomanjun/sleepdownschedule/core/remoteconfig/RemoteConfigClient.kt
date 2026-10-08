@@ -19,6 +19,7 @@ internal class RemoteConfigClient(
     fun fetchBootstrap(etag: String?): BootstrapFetchResult {
         val connection = (URL("$apiBaseUrl/api/v1/bootstrap").openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
+            useCaches = false
             connectTimeout = 8_000
             readTimeout = 8_000
             setRequestProperty("Accept", "application/json")
@@ -62,7 +63,7 @@ internal class RemoteConfigClient(
     private fun validateBootstrap(bootstrap: RemoteBootstrap) {
         require(bootstrap.schemaVersion == 1) { "Unsupported bootstrap schema" }
         require(bootstrap.serverTime > 0) { "Invalid server time" }
-        bootstrap.ai?.let { ai ->
+        bootstrap.managedAiConfigs().forEach { ai ->
             require(ai.baseUrl.startsWith("https://")) { "Remote AI base URL must use HTTPS" }
             require(ai.endpointStyle == "responses" || ai.endpointStyle == "chat_completions") { "Unknown AI endpoint style" }
             require(!ai.enabled || (ai.nonce.isNotBlank() && ai.ciphertext.isNotBlank())) { "Enabled AI config has no ciphertext" }

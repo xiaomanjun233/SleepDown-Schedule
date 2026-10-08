@@ -10,8 +10,15 @@ data class RemoteBootstrap(
     val agreements: RemoteAgreementSet = RemoteAgreementSet(),
     val ai: RemoteAiConfig? = null,
     val donations: RemoteDonationSection = RemoteDonationSection(),
-    val transitions: RemoteTransitionConfig = RemoteTransitionConfig()
+    val transitions: RemoteTransitionConfig = RemoteTransitionConfig(),
+    val aiConfigs: List<RemoteAiConfig>? = null
 )
+
+/** A missing pool is a legacy server; an explicitly empty pool revokes all managed routes. */
+internal fun RemoteBootstrap.managedAiConfigs(): List<RemoteAiConfig> =
+    (aiConfigs ?: listOfNotNull(ai)).sortedWith(
+        compareBy<RemoteAiConfig> { it.priority }.thenByDescending { it.configVersion }
+    )
 
 /** Server-side kill switches. Missing or stale configuration always keeps native transitions off. */
 @Serializable
@@ -83,7 +90,9 @@ data class RemoteAiConfig(
     val ciphertext: String,
     val issuedAt: Long,
     val expiresAt: Long,
-    val message: String = ""
+    val message: String = "",
+    val providerName: String = "每日免费 AI",
+    val priority: Int = 0
 )
 
 internal enum class RemoteAiAvailability { AVAILABLE, DISABLED, EXPIRED, UNSUPPORTED }

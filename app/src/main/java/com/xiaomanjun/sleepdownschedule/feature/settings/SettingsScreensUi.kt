@@ -708,7 +708,8 @@ fun AiImportSettingsSection(
         remoteConfigState.bootstrap?.ai?.configVersion,
         remoteConfigState.bootstrap?.ai?.enabled,
         remoteConfigState.bootstrap?.ai?.keyId,
-        remoteConfigState.bootstrap?.ai?.message
+        remoteConfigState.bootstrap?.ai?.message,
+        remoteConfigState.bootstrap?.aiConfigs
     ) {
         if (isManagedFreeProvider) reload()
     }

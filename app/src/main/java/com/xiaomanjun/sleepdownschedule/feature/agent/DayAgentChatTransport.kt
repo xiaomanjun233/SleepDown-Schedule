@@ -69,7 +69,7 @@ internal class DayAgentChatTransport(
                     ?.use { it.readText() }
                     .orEmpty()
                     .take(300)
-                throw IllegalStateException(formatAiRequestError(code, error, settings.profile.id))
+                throw AiServiceResponseException(formatAiRequestError(code, error, settings.profile.id), error, httpStatus = code)
             }
             if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
                 val response = connection.inputStream.bufferedReader().use { it.readText() }
@@ -212,7 +212,7 @@ private fun HttpURLConnection.readResponse(providerId: String): String {
     val stream = if (code in 200..299) inputStream else errorStream
     val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
     if (code !in 200..299) {
-        throw IllegalStateException(formatAiRequestError(code, text, providerId))
+        throw AiServiceResponseException(formatAiRequestError(code, text, providerId), text, httpStatus = code)
     }
     return text
 }

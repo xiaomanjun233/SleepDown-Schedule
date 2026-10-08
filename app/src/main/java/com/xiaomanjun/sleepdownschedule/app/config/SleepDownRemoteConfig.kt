@@ -87,20 +87,27 @@ object SleepDownRemoteConfig {
     }
 
     fun managedFreeSettings(context: Context, effort: AiReasoningEffort): AiImportSettings {
-        val ai = mutableState.value.bootstrap?.ai
-        val profile = managedProfile(ai, effort)
-        val key = if (ai?.availability(estimatedServerTimeSeconds()) == RemoteAiAvailability.AVAILABLE) {
-            runCatching {
-                require(BuildConfig.SLEEPDOWN_REMOTE_AI_ENABLED && BuildConfig.SLEEPDOWN_REMOTE_CONFIG_SECRET.isNotBlank())
-                RemoteSecretCrypto.decrypt(
-                    BuildConfig.SLEEPDOWN_REMOTE_CONFIG_SECRET,
-                    SigningCertificateDigest.current(context),
-                    ai,
-                    context.packageName
-                )
-            }.getOrDefault("")
-        } else ""
-        return AiImportSettings(profile, key)
+        val candidates = managedFreeCandidates(context, effort)
+        val selected = candidates.firstOrNull()
+            ?: return AiImportSettings(managedProfile(mutableState.value.bootstrap?.managedAiConfigs()?.firstOrNull(), effort))
+        // The entry point exposes pool capabilities. Each network attempt still uses its own flags.
+        val vision = candidates.any { it.profile.supportsVision }
+        return selected.copy(profile = selected.profile.copy(supportsVision = vision,
+            capabilities = selected.profile.capabilities.copy(supportsImageInput = vision)))
+    }
+
+    internal fun managedFreeCandidates(context: Context, effort: AiReasoningEffort): List<AiImportSettings> {
+        if (!BuildConfig.SLEEPDOWN_REMOTE_AI_ENABLED || BuildConfig.SLEEPDOWN_REMOTE_CONFIG_SECRET.isBlank()) return emptyList()
+        val certificate = SigningCertificateDigest.current(context)
+        val now = estimatedServerTimeSeconds()
+        return mutableState.value.bootstrap?.managedAiConfigs().orEmpty()
+            .filter { it.availability(now) == RemoteAiAvailability.AVAILABLE }
+            .mapNotNull { ai ->
+                val key = runCatching {
+                    RemoteSecretCrypto.decrypt(BuildConfig.SLEEPDOWN_REMOTE_CONFIG_SECRET, certificate, ai, context.packageName)
+                }.getOrNull()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+                AiImportSettings(managedProfile(ai, effort), key, "${ai.keyId}:${ai.configVersion}")
+            }
     }
 
     fun isManagedFreeAvailable(context: Context): Boolean = managedFreeSettings(
@@ -109,7 +116,10 @@ object SleepDownRemoteConfig {
     ).let { it.apiKey.isNotBlank() && it.profile.baseUrl.isNotBlank() && it.profile.defaultModel.isNotBlank() }
 
     fun managedFreeStatusMessage(context: Context): String {
-        val ai = mutableState.value.bootstrap?.ai ?: return "正在获取每日免费 AI 配置，请稍后重试。"
+        val candidates = managedFreeCandidates(context, AiProviderPresets.dailyFree.reasoningEffort)
+        val configs = mutableState.value.bootstrap?.managedAiConfigs().orEmpty()
+        val ai = configs.firstOrNull { "${it.keyId}:${it.configVersion}" == candidates.firstOrNull()?.managedRouteId }
+            ?: configs.firstOrNull() ?: return "暂无每日免费 AI 配置，请刷新后重试。"
         when (ai.availability(estimatedServerTimeSeconds())) {
             RemoteAiAvailability.DISABLED -> return ai.message.ifBlank { "每日免费 AI 当前正在维护，请稍后重试，或使用自己的 API Key。" }
             RemoteAiAvailability.EXPIRED -> return ai.message.ifBlank { "每日免费 AI 配置已过期，请稍后重试。" }
@@ -118,7 +128,8 @@ object SleepDownRemoteConfig {
         }
         if (!BuildConfig.SLEEPDOWN_REMOTE_AI_ENABLED) return "当前构建未启用每日免费 AI，请使用自己的 API Key。"
         if (!isManagedFreeAvailable(context)) return "每日免费 AI 安全配置校验失败，请刷新配置或使用自己的 API Key。"
-        return ai.message.ifBlank { "服务正常 · ${ai.model}" }
+        return ai.message.ifBlank { "服务正常 · ${ai.model}" } +
+            if (candidates.size > 1) " · ${candidates.size} 组配置自动切换" else ""
     }
 
     fun markNoticeShown(context: Context, notice: RemoteNotice) {

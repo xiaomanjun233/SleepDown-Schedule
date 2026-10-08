@@ -387,22 +387,31 @@ object AiImportTaskManager {
             },
             requestRepair = { output, failure, _ ->
                 currentCoroutineContext().ensureActive()
-                AiScheduleImportService(context, interaction).repairScheduleJson(
-                    output = output,
-                    failure = failure,
-                    settings = settings,
-                    onHttpPhase = { phase ->
-                        if (phase == AiImportHttpPhase.BODY_WRITE_END) {
-                            updateMicroStatus(taskId, "修复请求已发送，正在等待模型返回 JSON。")
+                val repairSettings = aiResult.managedRouteId?.let { route ->
+                    com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
+                        .managedFreeCandidates(context, settings.profile.reasoningEffort)
+                        .firstOrNull { it.managedRouteId == route }
+                } ?: settings.takeIf { aiResult.managedRouteId == null }
+                if (repairSettings == null) {
+                    Result.failure(IllegalStateException("原解析配置已失效，无法继续修复，请重新导入。"))
+                } else {
+                    AiScheduleImportService(context, interaction).repairScheduleJson(
+                        output = output,
+                        failure = failure,
+                        settings = repairSettings,
+                        onHttpPhase = { phase ->
+                            if (phase == AiImportHttpPhase.BODY_WRITE_END) {
+                                updateMicroStatus(taskId, "修复请求已发送，正在等待模型返回 JSON。")
+                            }
+                        },
+                        onReasoningUpdate = AiEduImportProgressSession.beginReasoning(taskId)
+                    ).onSuccess { repairResult ->
+                        update(taskId) { progress ->
+                            progress.copy(
+                                reasoningOutput = repairResult.reasoningOutput.ifBlank { progress.reasoningOutput },
+                                aiOutput = repairResult.rawOutput
+                            )
                         }
-                    },
-                    onReasoningUpdate = AiEduImportProgressSession.beginReasoning(taskId)
-                ).onSuccess { repairResult ->
-                    update(taskId) { progress ->
-                        progress.copy(
-                            reasoningOutput = repairResult.reasoningOutput.ifBlank { progress.reasoningOutput },
-                            aiOutput = repairResult.rawOutput
-                        )
                     }
                 }
             }

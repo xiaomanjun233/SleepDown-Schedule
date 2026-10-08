@@ -272,7 +272,7 @@ internal class OpenAiResponsesAgentRunner(
         val response = source?.bufferedReader()?.use { it.readText() }.orEmpty()
         connection.disconnect()
         if (code !in 200..299) {
-            throw IllegalStateException(formatAiRequestError(code, response, settings.profile.id))
+            throw AiServiceResponseException(formatAiRequestError(code, response, settings.profile.id), response, httpStatus = code)
         }
         return response
     }
@@ -288,7 +288,7 @@ internal class OpenAiResponsesAgentRunner(
         if (code !in 200..299) {
             val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
             connection.disconnect()
-            throw IllegalStateException(formatAiRequestError(code, error, settings.profile.id))
+            throw AiServiceResponseException(formatAiRequestError(code, error, settings.profile.id), error, httpStatus = code)
         }
         if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
             val response = connection.inputStream.bufferedReader().use { it.readText() }

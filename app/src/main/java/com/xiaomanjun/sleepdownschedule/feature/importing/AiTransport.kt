@@ -62,7 +62,7 @@ internal fun HttpURLConnection.readAiBodyOrThrow(providerId: String? = null): St
     val status = responseCode
     if (status !in 200..299) {
         val text = errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text)
+        throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text, httpStatus = status)
     }
     return inputStream.bufferedReader().use { it.readText() }
 }

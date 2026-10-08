@@ -1459,7 +1459,8 @@ fun CourseScheduleAppUi(
         automaticUpdateDialog,
         courseEditorRequest,
         remoteConfigState.bootstrap?.ai?.configVersion,
-        remoteConfigState.bootstrap?.ai?.enabled
+        remoteConfigState.bootstrap?.ai?.enabled,
+        remoteConfigState.bootstrap?.aiConfigs
     ) {
         if (
             state.loaded &&

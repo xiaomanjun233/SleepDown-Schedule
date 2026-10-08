@@ -119,7 +119,8 @@ data class AiProviderProfile(
 
 data class AiImportSettings(
     val profile: AiProviderProfile = AiProviderPresets.none,
-    val apiKey: String = ""
+    val apiKey: String = "",
+    val managedRouteId: String? = null
 )
 
 data class AiProviderConfig(
@@ -214,7 +215,8 @@ data class AiScheduleImportResult(
     val output: String,
     val routeMessage: String,
     val rawOutput: String = output,
-    val reasoningOutput: String = ""
+    val reasoningOutput: String = "",
+    val managedRouteId: String? = null
 )
 
 data class AiProviderTextResult(
@@ -226,7 +228,8 @@ data class AiProviderTextResult(
 class AiServiceResponseException(
     message: String,
     val rawBody: String,
-    cause: Throwable? = null
+    cause: Throwable? = null,
+    val httpStatus: Int? = null
 ) : IllegalStateException(message, cause)
 
 fun Throwable.aiRawResponseBody(): String? {

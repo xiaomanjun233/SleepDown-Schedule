@@ -38,7 +38,7 @@ private fun request(url: String, apiKey: String, method: String, body: ByteArray
         val status = connection.responseCode
         val stream = if (status in 200..299) connection.inputStream else connection.errorStream
         val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
-        if (status !in 200..299) throw AiServiceResponseException("AI 请求失败 ($status)：${text.take(300)}", text)
+        if (status !in 200..299) throw AiServiceResponseException("AI 请求失败 ($status)：${text.take(300)}", text, httpStatus = status)
         text
     } finally {
         connection.disconnect()
@@ -163,7 +163,7 @@ private fun safeRequest(
         trace.mark(AiImportHttpPhase.HEADERS_RECEIVED)
         if (status !in 200..299) {
             val text = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text)
+            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text, httpStatus = status)
         }
         trace.mark(AiImportHttpPhase.BODY_READ_START)
         val text = connection.inputStream.bufferedReader().use { it.readText() }
@@ -245,7 +245,7 @@ private fun postChatCompletionStreaming(
         trace.mark(AiImportHttpPhase.HEADERS_RECEIVED)
         if (status !in 200..299) {
             val text = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text)
+            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text, httpStatus = status)
         }
         if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
             trace.mark(AiImportHttpPhase.BODY_READ_START)
@@ -317,7 +317,7 @@ private fun postResponsesStreaming(
         trace.mark(AiImportHttpPhase.HEADERS_RECEIVED)
         if (status !in 200..299) {
             val text = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text)
+            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text, httpStatus = status)
         }
         if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
             trace.mark(AiImportHttpPhase.BODY_READ_START)

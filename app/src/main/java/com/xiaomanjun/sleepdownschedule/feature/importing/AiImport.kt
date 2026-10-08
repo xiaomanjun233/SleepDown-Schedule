@@ -39,6 +39,25 @@ class AiScheduleImportService(
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
+                withManagedAiFailover(context, settings, requiresVision = file.isImage || (file.isPdf && extractAiImportTextPreview(file) == null)) { candidate, attempt ->
+                    interaction?.checkActive()
+                    val phases: (AiImportHttpPhase) -> Unit = { attempt.observe(it); onHttpPhase(it) }
+                    val reasoning: (String) -> Unit = { if (it.isNotBlank()) attempt.commit(); onReasoningUpdate(it) }
+                    parseScheduleFileOnce(file, candidate, phases, reasoning).getOrThrow()
+                        .copy(managedRouteId = candidate.managedRouteId)
+                }
+            }
+        }
+    }
+
+    private suspend fun parseScheduleFileOnce(
+        file: AiImportFile,
+        settings: AiImportSettings,
+        onHttpPhase: (AiImportHttpPhase) -> Unit,
+        onReasoningUpdate: (String) -> Unit = {}
+    ): Result<AiScheduleImportResult> {
+        return withContext(Dispatchers.IO) {
+            runCatching {
                 require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
                 require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
                 require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
@@ -75,6 +94,26 @@ class AiScheduleImportService(
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
+                withManagedAiFailover(context, settings, requiresVision = false) { candidate, attempt ->
+                    interaction?.checkActive()
+                    val phases: (AiImportHttpPhase) -> Unit = { attempt.observe(it); onHttpPhase(it) }
+                    val reasoning: (String) -> Unit = { if (it.isNotBlank()) attempt.commit(); onReasoningUpdate(it) }
+                    parseScheduleTextOnce(text, sourceName, candidate, phases, reasoning).getOrThrow()
+                        .copy(managedRouteId = candidate.managedRouteId)
+                }
+            }
+        }
+    }
+
+    private suspend fun parseScheduleTextOnce(
+        text: String,
+        sourceName: String,
+        settings: AiImportSettings,
+        onHttpPhase: (AiImportHttpPhase) -> Unit,
+        onReasoningUpdate: (String) -> Unit = {}
+    ): Result<AiScheduleImportResult> {
+        return withContext(Dispatchers.IO) {
+            runCatching {
                 require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
                 require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
                 require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
@@ -98,6 +137,28 @@ class AiScheduleImportService(
     }
 
     suspend fun parseScheduleCapturedPage(
+        text: String,
+        screenshots: List<RenderedPageImage>,
+        sourceName: String,
+        warnings: List<String>,
+        settings: AiImportSettings,
+        onHttpPhase: (AiImportHttpPhase) -> Unit,
+        onReasoningUpdate: (String) -> Unit = {}
+    ): Result<AiScheduleImportResult> {
+        return withContext(Dispatchers.IO) {
+            runCatching {
+                withManagedAiFailover(context, settings, requiresVision = screenshots.isNotEmpty()) { candidate, attempt ->
+                    interaction?.checkActive()
+                    val phases: (AiImportHttpPhase) -> Unit = { attempt.observe(it); onHttpPhase(it) }
+                    val reasoning: (String) -> Unit = { if (it.isNotBlank()) attempt.commit(); onReasoningUpdate(it) }
+                    parseScheduleCapturedPageOnce(text, screenshots, sourceName, warnings, candidate, phases, reasoning).getOrThrow()
+                        .copy(managedRouteId = candidate.managedRouteId)
+                }
+            }
+        }
+    }
+
+    private suspend fun parseScheduleCapturedPageOnce(
         text: String,
         screenshots: List<RenderedPageImage>,
         sourceName: String,

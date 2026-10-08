@@ -385,9 +385,43 @@ class DayAgentService(
     private val interaction: AiImportInteraction? = null,
     private val onReasoning: ((String) -> Unit)? = null
 ) {
+    private var onCommitted: () -> Unit = {}
     private val chatTransport = DayAgentChatTransport(interaction, onReasoning)
 
     suspend fun chat(
+        facts: DayAgentFacts,
+        history: List<AgentMessageEntity>,
+        question: String,
+        imageAttachment: AgentImageAttachment? = null,
+        onStatus: (AgentRunStatus) -> Unit,
+        onDelta: (String) -> Unit,
+        onStreamReset: () -> Unit = {},
+        settingsOverride: AiImportSettings? = null,
+        taskBoundary: String? = null,
+        answerConstraint: (String) -> String? = { null }
+    ): String = withContext(Dispatchers.IO) {
+        val settings = settingsOverride ?: AiImportSettingsStore.loadForRuntime(context)
+            ?: AiImportSettingsStore.load(context)
+        withManagedAiFailover(context, settings, requiresVision = imageAttachment != null,
+            onSwitch = { onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在切换备用配置", it.profile.defaultModel)) }
+        ) { candidate, attempt ->
+            interaction?.checkActive()
+            val reasoning: (String) -> Unit = { if (it.isNotBlank()) attempt.commit(); onReasoning?.invoke(it) }
+            val previousPhase = interaction?.onHttpPhase
+            interaction?.onHttpPhase = { attempt.observe(it); previousPhase?.invoke(it) }
+            try {
+                DayAgentService(context, interaction, reasoning).apply { onCommitted = attempt::commit }.chatOnce(
+                    facts, history, question, imageAttachment, onStatus,
+                    { if (it.isNotBlank()) attempt.commit(); onDelta(it) }, onStreamReset,
+                    candidate, taskBoundary, answerConstraint
+                )
+            } finally {
+                if (previousPhase != null) interaction?.onHttpPhase = previousPhase
+            }
+        }
+    }
+
+    private suspend fun chatOnce(
         facts: DayAgentFacts,
         history: List<AgentMessageEntity>,
         question: String,
@@ -422,8 +456,9 @@ class DayAgentService(
         val memoryToolAvailable = memoryEnabled && taskBoundary == null && DayAgentPreferences.shouldOfferMemoryUpdate(context, facts.date)
         val availableCachedFacts = SharedAgentToolFacts.read(facts, System.currentTimeMillis())
         val cachedFacts = agentPreloadedFacts(availableCachedFacts)
-        fun executeTurnTool(call: AgentToolCall): AgentToolResult =
-            (if (call.name == AgentToolName.UPDATE_MEMORY && !memoryToolAvailable) {
+        fun executeTurnTool(call: AgentToolCall): AgentToolResult {
+            onCommitted()
+            return (if (call.name == AgentToolName.UPDATE_MEMORY && !memoryToolAvailable) {
                 AgentToolResult(call.id, call.name, false, "当前工作区不允许修改助手记忆，请继续课表任务。")
             } else availableCachedFacts[call.cacheKey()]?.copy(callId = call.id)
                 ?: executeAgentToolCall(call, facts, savedMemory)).also {
@@ -432,6 +467,7 @@ class DayAgentService(
                 val feedback = result.proposedAnswer?.let(answerConstraint)
                 if (feedback == null) result else result.copy(success = false, content = feedback, proposedAnswer = null)
             }
+        }
         val turnTools = AgentTurnToolSession(cachedFacts, ::executeTurnTool)
         if (imageAttachment != null) {
             require(AiProviderPresets.supportsImageInput(settings.profile)) {
