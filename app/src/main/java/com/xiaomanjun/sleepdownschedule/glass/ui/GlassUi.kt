@@ -1172,7 +1172,7 @@ fun CourseGlassCard(
             if (outlineLightEnabled && lightGlass) 0.55f else 1f,
         enabled = { viewportMaterialVisible },
         bounds = { morphAllocation?.localBounds() },
-        uniform = performanceMaterial
+        strokeWidth = if (performanceMaterial) 0.8.dp else 0.5.dp
     )
     val configuredAlpha = config.cardAlpha
     val configuredBrightness = config.wallpaperBrightness
