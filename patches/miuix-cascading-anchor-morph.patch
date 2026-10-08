@@ -1,0 +1,312 @@
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/ListPopupLayout.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/ListPopupLayout.kt
+@@ -55,10 +55,10 @@
+ import top.yukonga.miuix.kmp.window.WindowListPopup
+ import kotlin.math.abs
+ 
+-private val PanelEnterSpec = spring<Float>(0.77f, 220f, 0.0001f)
+-private val PanelExitSpec = spring<Float>(0.85f, 650f, 0.0001f)
+-private val OriginEnterSpec = spring<Float>(0.77f, 420f, 0.0001f)
+-private val OriginExitSpec = tween<Float>(340, easing = CubicBezierEasing(0f, 0f, 0f, 1f))
++internal val PanelEnterSpec = spring<Float>(0.77f, 220f, 0.0001f)
++internal val PanelExitSpec = spring<Float>(0.85f, 650f, 0.0001f)
++internal val OriginEnterSpec = spring<Float>(0.77f, 420f, 0.0001f)
++internal val OriginExitSpec = tween<Float>(340, easing = CubicBezierEasing(0f, 0f, 0f, 1f))
+ 
+ /**
+  * Internal shared layout logic for [OverlayListPopup] and [WindowListPopup].
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingListPopupLayout.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingListPopupLayout.kt
+@@ -26,6 +26,7 @@
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.graphics.TransformOrigin
+ import androidx.compose.ui.input.pointer.pointerInput
+ import androidx.compose.ui.layout.Placeable
+ import androidx.compose.ui.layout.SubcomposeLayout
+@@ -62,6 +63,8 @@
+ import top.yukonga.miuix.kmp.basic.ListPopupVisualStyle
+ import top.yukonga.miuix.kmp.basic.LocalListPopupVisualStyle
+ import top.yukonga.miuix.kmp.basic.PopupPositionProvider
++import top.yukonga.miuix.kmp.basic.PopupMorphAnchor
++import top.yukonga.miuix.kmp.basic.popupMorphInsetPx
+ import top.yukonga.miuix.kmp.basic.rememberListPopupLayoutInfo
+ import top.yukonga.miuix.kmp.theme.LocalDismissState
+ import top.yukonga.miuix.kmp.theme.MiuixTheme
+@@ -97,9 +100,13 @@
+     visualStyle: ListPopupVisualStyle = LocalListPopupVisualStyle.current,
+     secondaryVisualStyle: ListPopupVisualStyle = visualStyle,
+     collapseOnSelection: Boolean = true,
++    morphFromAnchor: Boolean = false,
++    collapseContent: (@Composable () -> Unit)? = null,
+ ) {
+     val internalVisible = remember { mutableStateOf(false) }
+     val enterFraction = remember { Animatable(0f) }
++    val originFraction = remember { Animatable(0f) }
++    val morphAnchor = remember { PopupMorphAnchor() }
+     val enterAlpha = remember { Animatable(0f) }
+     val dimProgress = remember { Animatable(0f) }
+ 
+@@ -129,21 +136,25 @@
+     }
+     val slideHaptic = LocalHapticFeedback.current
+ 
+-    LaunchedEffect(show) {
++    LaunchedEffect(show, morphFromAnchor) {
+         if (show) {
+             internalVisible.value = true
+             launch { dimProgress.animateTo(1f, ListPopupDefaults.DimEnterAnimationSpec) }
+             snapshotFlow { primarySize to hostMeasured }
+                 .first { (size, ready) -> size != IntSize.Zero && ready }
+-            launch { enterFraction.animateTo(1f, ListPopupDefaults.FractionAnimationSpec) }
++            launch { enterFraction.animateTo(1f, if (morphFromAnchor) PanelEnterSpec else ListPopupDefaults.FractionAnimationSpec) }
++            if (morphFromAnchor) launch { originFraction.animateTo(1f, OriginEnterSpec) }
+             launch { enterAlpha.animateTo(1f, ListPopupDefaults.AlphaEnterAnimationSpec) }
+         } else {
+             if (!internalVisible.value) return@LaunchedEffect
+             expandedItem = null
+-            launch { enterFraction.animateTo(0f, ListPopupDefaults.FractionAnimationSpec) }
++            launch { enterFraction.animateTo(0f, if (morphFromAnchor) PanelExitSpec else ListPopupDefaults.FractionAnimationSpec) }
+             launch { dimProgress.animateTo(0f, ListPopupDefaults.DimExitAnimationSpec) }
+-            enterAlpha.animateTo(0f, ListPopupDefaults.AlphaExitAnimationSpec)
+-            enterFraction.stop()
++            if (morphFromAnchor) originFraction.animateTo(0f, OriginExitSpec)
++            else enterAlpha.animateTo(0f, ListPopupDefaults.AlphaExitAnimationSpec)
++            enterFraction.snapTo(0f)
++            originFraction.snapTo(0f)
++            enterAlpha.snapTo(0f)
+             dimProgress.stop()
+             internalVisible.value = false
+             currentOnDismissFinished?.invoke()
+@@ -237,6 +248,7 @@
+                         } else {
+                             joinAll(
+                                 launch { enterFraction.animateTo(1f, ListPopupDefaults.ResetAnimationSpec) },
++                                launch { originFraction.animateTo(1f, OriginEnterSpec) },
+                                 launch { enterAlpha.animateTo(1f, ListPopupDefaults.AlphaEnterAnimationSpec) },
+                                 launch { dimProgress.animateTo(1f, ListPopupDefaults.DimEnterAnimationSpec) },
+                             )
+@@ -285,6 +297,7 @@
+                         } else {
+                             // Preview popup → spawn corner retreat along the entry tree.
+                             enterFraction.snapTo(inv)
++                            originFraction.snapTo(inv)
+                             enterAlpha.snapTo(inv)
+                             dimProgress.snapTo(inv)
+                         }
+@@ -360,6 +373,10 @@
+                     secondaryVisualStyle = secondaryVisualStyle,
+                     dropdownColors = dropdownColors,
+                         enterFraction = { enterFraction.value },
++                        originFraction = { originFraction.value },
++                        morphAnchor = morphAnchor.takeIf { morphFromAnchor },
++                        isEntering = show,
++                        collapseContent = collapseContent,
+                         enterAlpha = { enterAlpha.value },
+                         primaryScale = { primaryScale.value },
+                         maskAlpha = { maskAlpha.value },
+@@ -412,6 +429,10 @@
+     secondaryVisualStyle: ListPopupVisualStyle,
+     dropdownColors: DropdownColors,
+     enterFraction: () -> Float,
++    originFraction: () -> Float,
++    morphAnchor: PopupMorphAnchor?,
++    isEntering: Boolean,
++    collapseContent: (@Composable () -> Unit)?,
+     enterAlpha: () -> Float,
+     primaryScale: () -> Float,
+     maskAlpha: () -> Float,
+@@ -423,6 +444,8 @@
+     maskColor: Color,
+ ) {
+     SubcomposeLayout(modifier = Modifier.fillMaxSize()) { constraints ->
++        val chrome = if (morphAnchor != null) popupMorphInsetPx() else 0
++        morphAnchor?.size = parentBounds.size
+         val availableHeightPx = (windowBounds.height - popupMargin.top - popupMargin.bottom)
+             .coerceAtLeast(50.dp.roundToPx())
+         val resolvedMaxHeightPx = (maxHeight?.roundToPx() ?: availableHeightPx)
+@@ -430,10 +453,10 @@
+             .coerceAtMost(availableHeightPx)
+         val minWidthPx = minWidth.roundToPx().coerceAtMost(constraints.maxWidth)
+         val primaryConstraints = Constraints(
+-            minWidth = minWidthPx,
++            minWidth = (minWidthPx + chrome * 2).coerceAtMost(constraints.maxWidth),
+             maxWidth = constraints.maxWidth,
+             minHeight = 0,
+-            maxHeight = resolvedMaxHeightPx.coerceAtMost(constraints.maxHeight),
++            maxHeight = (resolvedMaxHeightPx + chrome * 2).coerceAtMost(constraints.maxHeight),
+         )
+ 
+         // Secondary subcomposition tracks [displayedItem] so the morphing surface survives the
+@@ -459,6 +482,10 @@
+                 onLeafSelected = onLeafSelected,
+                 onAnchorBounds = setAnchorBounds,
+                 enterFraction = enterFraction,
++                originFraction = originFraction,
++                morphAnchor = morphAnchor,
++                isEntering = isEntering,
++                collapseContent = collapseContent,
+                 enterAlpha = enterAlpha,
+                 popupLayoutPosition = layoutInfo.popupLayoutPosition,
+                 transformOrigin = layoutInfo.localTransformOrigin,
+@@ -471,8 +498,8 @@
+             )
+         }.map { it.measure(primaryConstraints) }
+ 
+-        val primaryWidth = primaryPlaceables.maxOfOrZero { it.width }
+-        val primaryHeight = primaryPlaceables.sumOfOrZero { it.height }
++        val primaryWidth = (primaryPlaceables.maxOfOrZero { it.width } - chrome * 2).coerceAtLeast(0)
++        val primaryHeight = (primaryPlaceables.sumOfOrZero { it.height } - chrome * 2).coerceAtLeast(0)
+         val primaryMeasuredSize = IntSize(primaryWidth, primaryHeight)
+         onPrimarySizeChange(primaryMeasuredSize)
+ 
+@@ -488,6 +515,12 @@
+                 alignment,
+             )
+         }
++
++        morphAnchor?.origin = TransformOrigin(
++            if (kotlin.math.abs(primaryOffsetWindow.x + primaryWidth - parentBounds.right) <
++                kotlin.math.abs(primaryOffsetWindow.x - parentBounds.left)) 1f else 0f,
++            if (primaryOffsetWindow.y + primaryHeight / 2f < parentBounds.top + parentBounds.height / 2f) 1f else 0f,
++        )
+ 
+         // Probe secondary's natural size first so the union rect (primary ∪ secondary) is
+         // known before the real secondary is measured at union size for its anchor-to-final slide.
+@@ -589,8 +622,8 @@
+ 
+         val host = hostOriginInWindow()
+         layout(constraints.maxWidth, constraints.maxHeight) {
+-            val primaryDxLocal = primaryOffsetWindow.x - host.x
+-            val primaryDyLocal = primaryOffsetWindow.y - host.y
++            val primaryDxLocal = primaryOffsetWindow.x - host.x - chrome
++            val primaryDyLocal = primaryOffsetWindow.y - host.y - chrome
+             var py = primaryDyLocal
+             primaryPlaceables.forEach { placeable ->
+                 placeable.place(primaryDxLocal, py)
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
+@@ -49,6 +49,8 @@
+ import top.yukonga.miuix.kmp.basic.LocalListPopupVisualStyle
+ import top.yukonga.miuix.kmp.basic.LocalPopupSlideActive
+ import top.yukonga.miuix.kmp.basic.LocalPopupInputEnabled
++import top.yukonga.miuix.kmp.basic.MorphingListPopupContent
++import top.yukonga.miuix.kmp.basic.PopupMorphAnchor
+ import top.yukonga.miuix.kmp.basic.PopupLayoutPosition
+ import top.yukonga.miuix.kmp.basic.popupClipReveal
+ import top.yukonga.miuix.kmp.squircle.isSquircleEnabled
+@@ -72,6 +74,10 @@
+     onLeafSelected: (DropdownItem) -> Unit,
+     onAnchorBounds: (DropdownItem, IntRect) -> Unit,
+     enterFraction: () -> Float,
++    originFraction: () -> Float,
++    morphAnchor: PopupMorphAnchor?,
++    isEntering: Boolean,
++    collapseContent: (@Composable () -> Unit)?,
+     enterAlpha: () -> Float,
+     popupLayoutPosition: PopupLayoutPosition,
+     transformOrigin: TransformOrigin,
+@@ -85,33 +91,13 @@
+     val popupCornerRadius = visualStyle.cornerRadius
+     val shape = remember(popupCornerRadius) { RoundedCornerShape(popupCornerRadius) }
+     CompositionLocalProvider(
+-        LocalListPopupVisualStyle provides visualStyle,
++        LocalListPopupVisualStyle provides visualStyle.copy(
++            interactionModifier = if (isFrozen) visualStyle.suspendedInteractionModifier else visualStyle.interactionModifier
++        ),
+         LocalPopupSlideActive provides { !isFrozen },
+         LocalPopupInputEnabled provides !isFrozen
+     ) {
+-    Box(
+-        modifier = Modifier
+-            .then(if (isFrozen) visualStyle.suspendedInteractionModifier else visualStyle.interactionModifier)
+-            .then(if (isFrozen) Modifier.clearAndSetSemantics { } else Modifier)
+-            .graphicsLayer {
+-                val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
+-                scaleX = s
+-                scaleY = s
+-                alpha = enterAlpha()
+-                this.transformOrigin = transformOrigin
+-            }
+-            .graphicsLayer {
+-                val s = primaryScale()
+-                scaleX = s
+-                scaleY = s
+-                this.transformOrigin = transformOrigin
+-            }
+-            .popupClipReveal(enterFraction, popupLayoutPosition, popupCornerRadius, isSquircleEnabled(),
+-                border = visualStyle.border)
+-            .dropShadow(shape = shape, shadow = CascadeShadow)
+-            .then(visualStyle.surfaceModifier)
+-            .background(color = visualStyle.backgroundColor ?: surfaceColor),
+-    ) {
++    val primaryContent: @Composable () -> Unit = { Box {
+         Box {
+             ListPopupColumn {
+                 val lastEntryIdx = entries.lastIndex
+@@ -182,6 +168,45 @@
+                     },
+             )
+         }
++    } }
++    val depthModifier = Modifier
++        .then(if (isFrozen) Modifier.clearAndSetSemantics { } else Modifier)
++        .graphicsLayer {
++            scaleX = primaryScale()
++            scaleY = primaryScale()
++            this.transformOrigin = transformOrigin
++        }
++    if (morphAnchor != null) {
++        // Reuse the settings popup's material/outline/label renderer and timing tracks.
++        MorphingListPopupContent(
++            modifier = depthModifier,
++            fractionProgress = enterFraction,
++            originProgress = originFraction,
++            isEntering = isEntering,
++            anchor = morphAnchor,
++            fallbackOrigin = transformOrigin,
++            onSizeChanged = {},
++            collapseContent = collapseContent,
++            content = primaryContent,
++        )
++    } else {
++        Box(
++            modifier = Modifier
++                .then(if (isFrozen) visualStyle.suspendedInteractionModifier else visualStyle.interactionModifier)
++                .graphicsLayer {
++                    val s = ENTER_SCALE_FROM + ENTER_SCALE_RANGE * enterFraction()
++                    scaleX = s
++                    scaleY = s
++                    alpha = enterAlpha()
++                    this.transformOrigin = transformOrigin
++                }
++                .then(depthModifier)
++                .popupClipReveal(enterFraction, popupLayoutPosition, popupCornerRadius, isSquircleEnabled(),
++                    border = visualStyle.border)
++                .dropShadow(shape = shape, shadow = CascadeShadow)
++                .then(visualStyle.surfaceModifier)
++                .background(color = visualStyle.backgroundColor ?: surfaceColor),
++        ) { primaryContent() }
+     }
+     }
+ }
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayCascadingListPopup.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/overlay/OverlayCascadingListPopup.kt
+@@ -58,6 +58,8 @@
+     secondaryVisualStyle: ListPopupVisualStyle = visualStyle,
+     dropdownColors: DropdownColors = DropdownDefaults.dropdownColors(),
+     collapseOnSelection: Boolean = true,
++    morphFromAnchor: Boolean = false,
++    collapseContent: (@Composable () -> Unit)? = null,
+ ) {
+     CascadingListPopupLayout(
+         show = show,
+@@ -89,5 +91,7 @@
+         secondaryVisualStyle = secondaryVisualStyle,
+         dropdownColors = dropdownColors,
+         collapseOnSelection = collapseOnSelection,
++        morphFromAnchor = morphFromAnchor,
++        collapseContent = collapseContent,
+     )
+ }

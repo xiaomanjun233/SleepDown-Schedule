@@ -21,6 +21,7 @@ import com.kyant.shapes.Capsule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -32,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -188,6 +190,10 @@ internal fun AiRuntimePicker(
         )
     )
     var anchorBounds by remember { mutableStateOf(Rect.Zero) }
+    var triggerTransferred by remember { mutableStateOf(false) }
+    LaunchedEffect(state.expanded) {
+        if (state.expanded) triggerTransferred = true
+    }
     Box(
         modifier = Modifier
             .wrapContentSize()
@@ -215,6 +221,7 @@ internal fun AiRuntimePicker(
         if (embedded) {
             Box(
                 modifier = modifier
+                    .graphicsLayer { alpha = if (triggerTransferred) 0f else 1f }
                     .heightIn(min = 32.dp)
                     .clip(shape)
                     .background(foreground.copy(alpha = 0.045f))
@@ -235,7 +242,8 @@ internal fun AiRuntimePicker(
             GlassSurface(
                 backdrop = backdrop,
                 config = config,
-                modifier = modifier.heightIn(min = 32.dp),
+                modifier = modifier.heightIn(min = 32.dp)
+                    .graphicsLayer { alpha = if (triggerTransferred) 0f else 1f },
                 shape = shape,
                 tokens = GlassTokens.pill(intensity = 0.72f).copy(
                     blur = 8.dp,
@@ -259,7 +267,10 @@ internal fun AiRuntimePicker(
             onDismissRequest = state::dismiss,
             backdrop = popupBackdrop,
             config = config,
-            contentColor = popupForeground
+            contentColor = popupForeground,
+            morphFromAnchor = true,
+            collapseContent = labelContent,
+            onDismissFinished = { triggerTransferred = false }
         )
     }
 }

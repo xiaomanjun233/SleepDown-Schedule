@@ -79,7 +79,10 @@ internal data class SleepDownLiquidMenuItem(
 )
 
 private class UpwardDropdownPositionProvider(
-    horizontalSafeInset: Dp
+    horizontalSafeInset: Dp,
+    private val overlapAnchor: Boolean = false,
+    private val morphHorizontalInset: Int = 0,
+    private val morphVerticalInset: Int = 0
 ) : PopupPositionProvider {
     private val margins = PaddingValues(horizontal = horizontalSafeInset, vertical = 8.dp)
 
@@ -99,9 +102,9 @@ private class UpwardDropdownPositionProvider(
             else -> layoutDirection == LayoutDirection.Rtl
         }
         val preferredX = if (endAligned) {
-            anchorBounds.right - popupContentSize.width - popupMargin.right
+            anchorBounds.right - popupContentSize.width - popupMargin.right + morphHorizontalInset
         } else {
-            anchorBounds.left + popupMargin.left
+            anchorBounds.left + popupMargin.left - morphHorizontalInset
         }
         val minX = windowBounds.left
         val maxX = (windowBounds.right - popupContentSize.width - popupMargin.right)
@@ -111,7 +114,8 @@ private class UpwardDropdownPositionProvider(
             .coerceAtLeast(minY)
         return IntOffset(
             x = preferredX.coerceIn(minX, maxX),
-            y = (anchorBounds.top - popupContentSize.height - popupMargin.top)
+            y = (if (overlapAnchor) anchorBounds.bottom - popupContentSize.height + morphVerticalInset
+                else anchorBounds.top - popupContentSize.height - popupMargin.top)
                 .coerceIn(minY, maxY)
         )
     }
@@ -378,7 +382,10 @@ internal fun SleepDownLiquidCascadingPopup(
     menuMaxHeight: Dp? = null,
     horizontalSafeInset: Dp = 0.dp,
     contentColor: Color? = null,
-    collapseOnSelection: Boolean = true
+    collapseOnSelection: Boolean = true,
+    morphFromAnchor: Boolean = false,
+    collapseContent: (@Composable () -> Unit)? = null,
+    onDismissFinished: (() -> Unit)? = null
 ) {
     val completeUnderlayBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     val renderInRootScaffold = LocalCenteredDialogRenderInRootScaffold.current
@@ -401,9 +408,14 @@ internal fun SleepDownLiquidCascadingPopup(
         cornerRadius = 25.dp
     )
     val popupVisualStyle = basePrimaryVisualStyle.copy(
-        surfaceModifier = Modifier
+        // Capture the complete parent (including labels) for the child glass. The settings
+        // morph renderer draws its material and labels as siblings inside this container.
+        interactionModifier = Modifier
             .glassBackdropProducer(primaryPopupBackdrop)
-            .then(basePrimaryVisualStyle.surfaceModifier)
+            .then(basePrimaryVisualStyle.interactionModifier),
+        suspendedInteractionModifier = Modifier
+            .glassBackdropProducer(primaryPopupBackdrop)
+            .then(basePrimaryVisualStyle.suspendedInteractionModifier)
     )
     val secondaryPopupVisualStyle = rememberMiuixListPopupStyle(
         backdrop = secondaryUnderlayBackdrop,
@@ -413,13 +425,17 @@ internal fun SleepDownLiquidCascadingPopup(
     val popupRowColors = rememberSleepDownPopupRowColors(
         contentColor ?: sleepDownPanelForegroundColor(config)
     )
-    val popupPositionProvider = remember(horizontalSafeInset) {
-        UpwardDropdownPositionProvider(horizontalSafeInset)
+    val density = LocalDensity.current
+    val popupPositionProvider = remember(horizontalSafeInset, morphFromAnchor, density) {
+        UpwardDropdownPositionProvider(horizontalSafeInset, overlapAnchor = morphFromAnchor,
+            morphHorizontalInset = if (morphFromAnchor) with(density) { 7.dp.roundToPx() } else 0,
+            morphVerticalInset = if (morphFromAnchor) with(density) { 5.dp.roundToPx() } else 0)
     }
     OverlayCascadingListPopup(
         show = show,
         entries = listOf(entry),
         onDismissRequest = onDismissRequest,
+        onDismissFinished = onDismissFinished,
         popupPositionProvider = popupPositionProvider,
         alignment = PopupPositionProvider.Align.End,
         enableWindowDim = false,
@@ -434,6 +450,8 @@ internal fun SleepDownLiquidCascadingPopup(
         // be a later sibling during the first reveal frame. Keep the popup entry above that input
         // layer for the entire enter/exit handoff.
         popupModifier = Modifier.zIndex(1000f),
-        collapseOnSelection = collapseOnSelection
+        collapseOnSelection = collapseOnSelection,
+        morphFromAnchor = morphFromAnchor,
+        collapseContent = collapseContent
     )
 }
