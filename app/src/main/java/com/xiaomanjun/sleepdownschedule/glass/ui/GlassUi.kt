@@ -1170,10 +1170,17 @@ fun CourseGlassCard(
         enabled = { viewportMaterialVisible },
         bounds = { morphAllocation?.localBounds() }
     )
-    val liquidSurfaceDraw: DrawScope.() -> Unit = {
-        val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
+    val configuredAlpha = config.cardAlpha
+    val configuredBrightness = config.wallpaperBrightness
+    // Like Nexio's CourseCard, retain the actual surface callback, not only a wrapper.
+    // Replacing a callback stored in snapshot state invalidates the sampled draw even if
+    // its pixels are identical, which otherwise repeats work on unrelated recompositions.
+    val liquidSurfaceDraw: DrawScope.() -> Unit = remember(previewState, configuredAlpha,
+        configuredBrightness, outlineLightEnabled, quality, hasWallpaper, baseColor,
+        expandedOutlineLight, lightGlass) { {
+        val liveAlpha = previewState?.cardAlpha ?: configuredAlpha
         val brightnessAttenuation = courseCardBrightnessAttenuation(
-            config.wallpaperBrightness,
+            configuredBrightness,
             outlineLightEnabled
         )
         val tintStrength = if (outlineLightEnabled) 0.75f else liveAlpha
@@ -1190,7 +1197,10 @@ fun CourseGlassCard(
             blendMode = BlendMode.Screen
         )
         drawRect(Color.Black.copy(alpha = if (lightGlass) 0.004f else 0.014f))
-    }
+    } }
+    val stableCardShape: () -> Shape = remember(shape) { { shape } }
+    val stableMaterialEnabled: () -> Boolean = remember(drawMaterialNodes) { { drawMaterialNodes } }
+    val stableMaterialBounds: () -> Rect? = remember(morphAllocation) { { morphAllocation?.localBounds() } }
     val materialAlphaModifier = if (materialCrossfadeActive) {
         Modifier.graphicsLayer {
             alpha = materialRevealProgress().coerceIn(0f, 1f)
@@ -1237,7 +1247,7 @@ fun CourseGlassCard(
                             backdrop = requireNotNull(sampledSource),
                             descriptor = liquidDescriptor,
                             material = tokens,
-                            shape = { shape },
+                            shape = stableCardShape,
                             effectFrame = if (unifiedLiquidSurface) unifiedLiquidEffectFrame else cardEffects,
                             effectInputKey = if (unifiedLiquidSurface) unifiedLiquidEffectFrame.materialEffectsOnly() else cardEffects,
                             cacheSharedSamples = cacheSharedSamples,
@@ -1253,8 +1263,8 @@ fun CourseGlassCard(
                             },
                             cacheDecorations = morphAllocation == null,
                             placementLayer = morphAllocation != null,
-                            renderEnabled = { drawMaterialNodes },
-                            renderBounds = { morphAllocation?.localBounds() },
+                            renderEnabled = stableMaterialEnabled,
+                            renderBounds = stableMaterialBounds,
                             allocationPaddingPx = morphAllocation?.paddingPx,
                             onDrawSurface = if (unifiedLiquidSurface) liquidSurfaceDraw else null
                     )
@@ -1268,9 +1278,9 @@ fun CourseGlassCard(
                         backdrop = simpleBlurBackdrop,
                         descriptor = simpleDescriptor,
                         material = simpleMaterial,
-                        renderEnabled = { drawMaterialNodes },
+                        renderEnabled = stableMaterialEnabled,
                         placementLayer = false,
-                        shape = { shape },
+                        shape = stableCardShape,
                         effectFrame = GlassEffectFrame(blur = simpleBlurValue.dp)
                     )
             } else {
