@@ -132,3 +132,16 @@ test checks proportional dp conversion, stable updates and restoration to full r
 
 `testAndroidHostTest` checks completed recording reuse, unkeyed dynamic frames, content/geometry
 changes and lifecycle reset. These tests do not measure GPU execution or prove pixel equivalence.
+
+The 2026-10-09 refraction follow-up uses Nexio
+[`a259d6f` RuntimeShaderCache](https://github.com/HaoZai000/NexioSchedule/blob/a259d6f45cc7eeb4526113cab48c7b9b19d98fc2/app/src/main/java/com/kyant/backdrop/RuntimeShaderCache.kt)
+as the shared-program reference. Effect consumers now share compiled shader builders while each
+card immediately creates its own native RenderEffect with its own uniforms. The 0.48 sampled
+geometry, per-card refraction buffer, effect key, rounded draw clipping and full-resolution
+decorations stay unchanged. Direct shared-layer blitting remains limited to effect-free cards.
+
+SleepDown limits sharing to effect builders: cached highlight Paint shaders retain node ownership.
+The registry is local to the rendering thread, keys include both name and source, and the last
+consumer releases a program. Thus switching to material-free rendering does not leave a process-wide
+shader pool alive. `Shader.ProgramCreated`, `Shader.ProgramReused` and `Shader.ProgramReleased`
+report this ownership; they do not measure GPU shader execution time.

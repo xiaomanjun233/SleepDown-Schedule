@@ -21,6 +21,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.Modifier
@@ -78,7 +79,11 @@ internal class HomeSwitchMotion(
     // Latch once per switch (including reversals), so a count update cannot jump live cards.
     private var latchedPlainSlide by mutableStateOf(false)
     // Decide while idle as data loads, before the first moving frame mounts card layers.
-    val plainSlide: Boolean get() = if (running) latchedPlainSlide else renderedCardCount() > 10
+    // Cards subscribe to the chosen style, not the start/end flags themselves. Both branches
+    // remain true for a dense page; forwarding running would recompose every unchanged card.
+    val plainSlide: Boolean by derivedStateOf(structuralEqualityPolicy()) {
+        if (running) latchedPlainSlide else renderedCardCount() > 10
+    }
     val progress: State<Float> = page.asState()
     val moving: Boolean get() = running || settledSecondary != target.value
 

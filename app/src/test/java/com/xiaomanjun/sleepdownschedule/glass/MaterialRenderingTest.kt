@@ -82,8 +82,7 @@ class MaterialRenderingTest {
             val pager = androidx.compose.foundation.pager.rememberPagerState { 1 }
             val motion = com.xiaomanjun.sleepdownschedule.feature.home.week.rememberWeekPageTailMotion(pager, enabled)
             com.xiaomanjun.sleepdownschedule.feature.home.week.WeekPageSamplingScope(
-                motion, 0, androidx.compose.runtime.remember { mutableStateOf(false) },
-                cardCount = androidx.compose.runtime.remember { mutableStateOf(12) }) { Box(Modifier.size(50.dp)) }
+                motion, 0, androidx.compose.runtime.remember { mutableStateOf(false) }) { Box(Modifier.size(50.dp)) }
         }
         compose.waitForIdle()
         assertEquals(0L, MaterialSamplingDiagnostics.dedicatedRefreshes)

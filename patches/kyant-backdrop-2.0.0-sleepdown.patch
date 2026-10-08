@@ -32,7 +32,7 @@
 @@ -1,6 +1,8 @@
 +// Modified for SleepDown on 2026-09-08; upstream 2.0.0, Apache-2.0 (see README.md).
  package com.kyant.backdrop
- 
+
  import androidx.compose.ui.geometry.Size
 +import androidx.compose.ui.geometry.Offset
  import androidx.compose.ui.graphics.RenderEffect
@@ -40,13 +40,13 @@
  import androidx.compose.ui.graphics.drawscope.DrawScope
 @@ -10,6 +12,7 @@
  sealed interface BackdropEffectScope : Density, RuntimeShaderCache {
- 
+
      val size: Size
 +    val effectOffset: Offset
- 
+
      val layoutDirection: LayoutDirection
- 
-@@ -25,6 +28,7 @@
+
+@@ -25,23 +28,24 @@
      override var density: Float = 1f
      override var fontScale: Float = 1f
      override var size: Size = Size.Unspecified
@@ -54,10 +54,14 @@
      override var layoutDirection: LayoutDirection = LayoutDirection.Ltr
      override var padding: Float = 0f
      override var renderEffect: RenderEffect? = null
-@@ -35,13 +39,13 @@
+
+-    private val runtimeShaderCache = RuntimeShaderCacheImpl()
++    private val runtimeShaderCache = RuntimeShaderCacheImpl(shareEffects = true)
+
+     override fun obtainRuntimeShader(key: String, string: String): RuntimeShader {
          return runtimeShaderCache.obtainRuntimeShader(key, string)
      }
- 
+
 -    fun update(scope: DrawScope): Boolean {
 -        val newDensity = scope.density
 +    fun update(scope: DrawScope, effectSize: Size = scope.size, offset: Offset = Offset.Zero, densityScale: Float = 1f): Boolean {
@@ -66,7 +70,7 @@
 -        val newSize = scope.size
 +        val newSize = effectSize
          val newLayoutDirection = scope.layoutDirection
- 
+
 -        val changed = newDensity != density ||
 +        val changed = offset != effectOffset || newDensity != density ||
                  newFontScale != fontScale ||
@@ -79,7 +83,7 @@
 +            effectOffset = offset
              layoutDirection = newLayoutDirection
          }
- 
+
 --- /dev/null
 +++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/BackdropRenderOptions.kt
 @@ -0,0 +1,30 @@
@@ -1310,6 +1314,85 @@
              shadowLayer = null
          }
      }
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/RuntimeShaderCache.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/RuntimeShaderCache.kt
+@@ -1,3 +1,4 @@
++// Modified for SleepDown on 2026-10-09; Nexio shared-effect program strategy (see README.md).
+ package com.kyant.backdrop
+
+ import org.intellij.lang.annotations.Language
+@@ -7,16 +8,56 @@
+     fun obtainRuntimeShader(key: String, @Language("AGSL") string: String): RuntimeShader
+ }
+
+-internal class RuntimeShaderCacheImpl : RuntimeShaderCache {
++internal class RuntimeShaderCacheImpl(shareEffects: Boolean = false) : RuntimeShaderCache {
+
+-    private val runtimeShaders = mutableMapOf<String, RuntimeShader>()
++    private val shared = if (shareEffects) sharedEffectShaderRegistry() else null
++    private val runtimeShaders = mutableMapOf<ShaderProgramKey, RuntimeShader>()
+
+     override fun obtainRuntimeShader(key: String, string: String): RuntimeShader {
+-        return runtimeShaders.getOrPut(key) { RuntimeShader(string) }
++        val program = ShaderProgramKey(key, string)
++        return runtimeShaders.getOrPut(program) {
++            shared?.acquire(program) ?: RuntimeShader(string)
++        }
+     }
+
+     fun clear() {
++        if (shared != null) runtimeShaders.keys.forEach(shared::release)
+         runtimeShaders.clear()
+     }
+ }
+
++internal data class ShaderProgramKey(val name: String, val source: String)
++
++/**
++ * RenderEffect snapshots uniforms immediately, so effect builders may share compiled programs.
++ * Direct-paint highlight shaders retain node ownership. Keep this registry on the drawing thread
++ * and release programs with their last consumer instead of retaining an unbounded process cache.
++ */
++internal class EffectShaderRegistry {
++    private class Entry(val shader: RuntimeShader, var owners: Int = 1)
++    private val programs = mutableMapOf<ShaderProgramKey, Entry>()
++
++    fun acquire(key: ShaderProgramKey): RuntimeShader {
++        val existing = programs[key]
++        if (existing != null) {
++            existing.owners++
++            BackdropDiagnostics.event("Shader.ProgramReused")
++            return existing.shader
++        }
++        val shader = RuntimeShader(key.source)
++        programs[key] = Entry(shader)
++        BackdropDiagnostics.event("Shader.ProgramCreated")
++        return shader
++    }
++
++    fun release(key: ShaderProgramKey) {
++        val entry = checkNotNull(programs[key])
++        if (--entry.owners == 0) {
++            programs.remove(key)
++            BackdropDiagnostics.event("Shader.ProgramReleased")
++        }
++    }
++}
++
++internal expect fun sharedEffectShaderRegistry(): EffectShaderRegistry
++
+--- /dev/null
++++ b/backdrop/src/androidMain/kotlin/com/kyant/backdrop/RuntimeShaderCache.kt
+@@ -0,0 +1,9 @@
++package com.kyant.backdrop
++
++// Each effect sets uniforms then immediately snapshots a native RenderEffect on this thread.
++// Other render/preview threads must never mutate the same RuntimeShader builder concurrently.
++private val effectShaders = object : ThreadLocal<EffectShaderRegistry>() {
++    override fun initialValue() = EffectShaderRegistry()
++}
++
++internal actual fun sharedEffectShaderRegistry(): EffectShaderRegistry = checkNotNull(effectShaders.get())
 --- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/shadow/ShadowModifier.kt
 +++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/shadow/ShadowModifier.kt
 @@ -1,5 +1,7 @@

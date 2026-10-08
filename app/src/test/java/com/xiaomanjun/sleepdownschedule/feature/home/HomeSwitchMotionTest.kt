@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.feature.home
 
 import androidx.compose.runtime.BroadcastFrameClock
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.launch
@@ -12,10 +13,10 @@ import org.junit.Test
 
 class HomeSwitchMotionTest {
     @Test fun densePagesSelectPlainSlideBeforeTheFirstTransitionFrame() {
-        var count = 0
-        val motion = HomeSwitchMotion(false, mutableStateOf(false), renderedCardCount = { count })
+        val count = mutableIntStateOf(0)
+        val motion = HomeSwitchMotion(false, mutableStateOf(false), renderedCardCount = { count.intValue })
         assertFalse(motion.plainSlide)
-        count = 20
+        count.intValue = 20
         assertTrue(motion.plainSlide)
         assertFalse(motion.moving)
     }

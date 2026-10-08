@@ -41,6 +41,7 @@ class SharedCourseMotionTest {
         val pageX = mutableFloatStateOf(0f)
         val cardX = mutableFloatStateOf(0f)
         val refraction = mutableStateOf(true)
+        val mounted = mutableStateOf(true)
         val counts = mutableMapOf<String, Long>()
         BackdropDiagnostics.observer = { event, count -> counts[event] = (counts[event] ?: 0L) + count }
         compose.setContent {
@@ -52,10 +53,10 @@ class SharedCourseMotionTest {
                         .glassBackdropProducer(source, recordKey = { "wallpaper" }).background(Color.Blue))
                     Box(Modifier.size(320.dp, 480.dp).then(shared.preRenderModifier { "wallpaper" }))
                     Box(Modifier.size(320.dp, 480.dp).graphicsLayer { translationX = pageX.floatValue }) {
-                        repeat(20) { index ->
+                        repeat(if (mounted.value) 20 else 0) { index ->
                             val spec = GlassMaterialSpec.courseCard(8f)
                             val descriptor = rememberGlassSurfaceDescriptor("card-$index", GlassBackdropDomain.Content, spec.role)
-                            Box(Modifier.offset((index % 4 * 72).dp, (index / 4 * 76).dp).size(64.dp, 68.dp)
+                            Box(Modifier.offset((index % 4 * 72).dp, (index / 4 * 76).dp).size((62 + index % 3).dp, 68.dp)
                                 .graphicsLayer { translationX = cardX.floatValue }
                                 .sleepDownGlassSurface(shared, descriptor, spec, { RoundedCornerShape(10.dp) },
                                     GlassEffectFrame(blur = null, lensHeight = if (refraction.value) 8.dp else null,
@@ -77,6 +78,8 @@ class SharedCourseMotionTest {
         }
         draw(); draw()
         assertTrue("Expected real sampled cards: $counts", (counts["Sample.SharedDirect"] ?: 0L) >= 20)
+        assertEquals("Twenty lenses must share one compiled program: $counts", 1L, counts["Shader.ProgramCreated"] ?: 0L)
+        assertEquals(19L, counts["Shader.ProgramReused"] ?: 0L)
         counts.clear()
         for (x in listOf(3.14f, 18.91f, 73.29f, 143.17f, 0f)) {
             compose.runOnIdle { pageX.floatValue = x }
@@ -93,5 +96,14 @@ class SharedCourseMotionTest {
         draw()
         assertTrue("Effect-free cards must draw the shared blur directly: $counts", (counts["Sample.SharedBlit"] ?: 0L) >= 20)
         assertEquals(0L, counts["Sample.Recorded"] ?: 0L)
+        counts.clear()
+        compose.runOnIdle { mounted.value = false }
+        draw()
+        assertEquals("Last consumer must release the shared program: $counts", 1L, counts["Shader.ProgramReleased"] ?: 0L)
+        counts.clear()
+        compose.runOnIdle { refraction.value = true; mounted.value = true }
+        draw(); draw()
+        assertEquals("Reopening must recreate one shared program: $counts", 1L, counts["Shader.ProgramCreated"] ?: 0L)
+        assertEquals(19L, counts["Shader.ProgramReused"] ?: 0L)
     }
 }

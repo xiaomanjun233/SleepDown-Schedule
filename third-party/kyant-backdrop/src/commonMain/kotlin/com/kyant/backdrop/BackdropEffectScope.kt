@@ -33,7 +33,7 @@ internal abstract class BackdropEffectScopeImpl : BackdropEffectScope, RuntimeSh
     override var padding: Float = 0f
     override var renderEffect: RenderEffect? = null
 
-    private val runtimeShaderCache = RuntimeShaderCacheImpl()
+    private val runtimeShaderCache = RuntimeShaderCacheImpl(shareEffects = true)
 
     override fun obtainRuntimeShader(key: String, string: String): RuntimeShader {
         return runtimeShaderCache.obtainRuntimeShader(key, string)
