@@ -119,22 +119,29 @@ internal fun todayTomorrowWidgetLayoutMetrics(
 }
 
 internal fun widgetRenderSize(manager: AppWidgetManager, id: Int, type: WidgetAppearanceVariant): WidgetRenderSize {
-    val options = manager.getAppWidgetOptions(id) ?: Bundle.EMPTY
+    return legacyWidgetRenderSizes(manager.getAppWidgetOptions(id) ?: Bundle.EMPTY, type).first()
+}
+
+/** Legacy ranges pair portrait min-width/max-height with landscape max-width/min-height. */
+internal fun legacyWidgetRenderSizes(options: Bundle, type: WidgetAppearanceVariant): List<WidgetRenderSize> {
     val fallback = when (type) {
         WidgetAppearanceVariant.COURSES_SQUARE -> WidgetRenderSize(160, 160)
         WidgetAppearanceVariant.WEEK_SCHEDULE -> WidgetRenderSize(320, 240)
         else -> WidgetRenderSize(320, 160)
     }
-    return normalizedWidgetRenderSize(
-        options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, fallback.widthDp),
-        options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, fallback.heightDp)
-    )
+    fun positive(key: String, default: Int) = options.getInt(key, default).takeIf { it > 0 } ?: default
+    val minWidth = positive(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, fallback.widthDp)
+    val minHeight = positive(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, fallback.heightDp)
+    val maxWidth = positive(AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH, minWidth).coerceAtLeast(minWidth)
+    val maxHeight = positive(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, minHeight).coerceAtLeast(minHeight)
+    return listOf(normalizedWidgetRenderSize(minWidth, maxHeight),
+        normalizedWidgetRenderSize(maxWidth, minHeight)).distinct()
 }
 
 internal fun widgetRenderSizes(manager: AppWidgetManager, id: Int, type: WidgetAppearanceVariant): List<WidgetRenderSize> {
-    val fallback = widgetRenderSize(manager, id, type)
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return listOf(fallback)
-    val options = manager.getAppWidgetOptions(id) ?: return listOf(fallback)
+    val options = manager.getAppWidgetOptions(id) ?: Bundle.EMPTY
+    val fallback = legacyWidgetRenderSizes(options, type)
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return fallback
     val sizes = BundleCompat.getParcelableArrayList(
         options,
         AppWidgetManager.OPTION_APPWIDGET_SIZES,
@@ -144,7 +151,15 @@ internal fun widgetRenderSizes(manager: AppWidgetManager, id: Int, type: WidgetA
         .map { WidgetRenderSize(it.width.roundToInt(), it.height.roundToInt()) }
         .filter { it.widthDp >= 80 && it.heightDp >= 80 }
         .distinct()
-    return sizes.ifEmpty { listOf(fallback) }
+    return sizes.ifEmpty { fallback }
+}
+
+internal fun widgetResponsiveViews(views: List<Pair<WidgetRenderSize, android.widget.RemoteViews>>): android.widget.RemoteViews = when {
+    views.size == 1 -> views.first().second
+    Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> android.widget.RemoteViews(views.associate { (size, remote) ->
+        SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to remote
+    })
+    else -> android.widget.RemoteViews(views[1].second, views[0].second)
 }
 
 internal object WidgetBackgroundRenderer {

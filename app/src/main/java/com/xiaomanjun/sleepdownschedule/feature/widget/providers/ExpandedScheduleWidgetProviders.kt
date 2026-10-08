@@ -450,13 +450,7 @@ internal object TodayTomorrowWidgetRenderer {
             val appearance = app.widgetAppearanceRepository.get(type, WidgetDefaultAppearanceId)
             val sizes = widgetRenderSizes(manager, id, type)
             val views = sizes.map { size -> size to buildViews(context, state, appearance, size) }
-            val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && views.size > 1) {
-                RemoteViews(views.associate { (size, remote) ->
-                    SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to remote
-                })
-            } else {
-                views.first().second
-            }
+            val result = widgetResponsiveViews(views)
             runCatching { manager.updateAppWidget(id, result) }
                 .onFailure { Log.e("ScheduleWidget", "Failed to update today/tomorrow widget $id", it) }
         }

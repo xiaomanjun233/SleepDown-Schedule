@@ -15,6 +15,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -63,7 +64,8 @@ fun LiquidToggle(
     onSelect: (Boolean) -> Unit,
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
-    compact: Boolean = false
+    compact: Boolean = false,
+    enabled: Boolean = true
 ) {
     val isLightTheme = !isSystemInDarkTheme()
     val accentColor =
@@ -81,6 +83,8 @@ fun LiquidToggle(
     val thumbHeight = if (compact) 20.dp else 24.dp
     val dragWidth = with(density) { (trackWidth - thumbWidth - 4.dp).toPx() }
     val animationScope = rememberCoroutineScope()
+    // The drag object survives recomposition, but permissions and the selected widget can change.
+    val currentOnSelect by rememberUpdatedState(onSelect)
     var didDrag by remember { mutableStateOf(false) }
     var fraction by remember { mutableFloatStateOf(if (selected()) 1f else 0f) }
     var targetSelected by remember { mutableStateOf(selected()) }
@@ -97,12 +101,12 @@ fun LiquidToggle(
                 if (didDrag) {
                     fraction = if (targetValue >= 0.5f) 1f else 0f
                     targetSelected = fraction == 1f
-                    onSelect(targetSelected)
+                    currentOnSelect(targetSelected)
                     didDrag = false
                 } else {
                     targetSelected = !targetSelected
                     fraction = if (targetSelected) 1f else 0f
-                    onSelect(targetSelected)
+                    currentOnSelect(targetSelected)
                 }
             },
             onDrag = { _, dragAmount ->
@@ -122,7 +126,7 @@ fun LiquidToggle(
                 dampedDragAnimation.updateValue(fraction)
             }
     }
-    LaunchedEffect(selected) {
+    LaunchedEffect(selected, enabled) {
         snapshotFlow { selected() }
             .collectLatest { isSelected ->
                 targetSelected = isSelected
@@ -189,7 +193,7 @@ fun LiquidToggle(
                 .semantics {
                     role = Role.Switch
                 }
-                .then(dampedDragAnimation.modifier)
+                .then(if (enabled) dampedDragAnimation.modifier else Modifier)
                 .sleepDownGlassSurface(
                     backdrop = rememberGlassCombinedBackdrop(
                         backdrop,

@@ -106,7 +106,8 @@ class WidgetCustomizationLogicTest {
         )
 
         assertTrue(tall.groupHeightDp > regular.groupHeightDp)
-        assertTrue(tall.groupHeightDp - regular.groupHeightDp <= 12)
+        // The compact layout reserves one dp for independently rounded host dimensions.
+        assertTrue(tall.groupHeightDp - regular.groupHeightDp <= 13)
         assertEquals(4, regular.maxCourses)
         assertEquals(8, tall.maxCourses)
         assertTrue(tall.groupCornerRadiusDp > regular.groupCornerRadiusDp)

@@ -80,13 +80,14 @@ internal fun coursesWidgetLayoutMetrics(
     val courseTopMarginDp = 4
     val groupGapDp = 4
     val preferredGroupHeightDp = if (isSquare) 50 else (54f + 12f * expansionProgress).roundToInt()
+    val minimumGroupHeightDp = if (isSquare) 50 else (48f + 12f * expansionProgress).roundToInt()
     val availableHeightDp = (
         size.heightDp - verticalPaddingDp * 2 - headerHeightDp - courseTopMarginDp
     ).coerceAtLeast(34)
     val maximumRows = if (isSquare) 2 else 4
     val rowCapacity = floor(
         (availableHeightDp + groupGapDp).toFloat() /
-            (preferredGroupHeightDp + groupGapDp).toFloat()
+            (minimumGroupHeightDp + groupGapDp).toFloat()
     ).toInt().coerceIn(1, maximumRows)
     // Fold into two columns only when the host's real height cannot fit the visible courses.
     val useGrid = !isSquare && courseCount > rowCapacity
@@ -97,8 +98,10 @@ internal fun coursesWidgetLayoutMetrics(
     }
     val visibleCourses = courseCount.coerceAtMost(maxCourses).coerceAtLeast(1)
     val usedRows = if (useGrid) ceil(visibleCourses / 2f).toInt() else visibleCourses
+    // XML margins and RemoteViews heights round independently at fractional densities.
+    // Leave one dp inside the row budget so the final row cannot be clipped by that rounding.
     val groupHeightDp = floor(
-        (availableHeightDp - groupGapDp * (usedRows - 1)).toFloat() / usedRows.toFloat()
+        (availableHeightDp - groupGapDp * (usedRows - 1) - 1).toFloat() / usedRows.toFloat()
     ).toInt().coerceIn(34, preferredGroupHeightDp)
     val groupVerticalPaddingDp = (3f + 2f * progress(groupHeightDp, 38, preferredGroupHeightDp))
         .roundToInt()
@@ -208,8 +211,8 @@ private fun coursesWidgetTypography(
     val scale = metrics.textScale
     fun sp(base: Float, minimum: Float): Float = (base * scale).coerceAtLeast(minimum)
     return CoursesWidgetTypography(
-        titleSp = sp(if (variant == TodayWidgetVariant.SQUARE) 16f else 17f, 12f),
-        subtitleSp = sp(if (variant == TodayWidgetVariant.SQUARE) 12f else 15f, 10f),
+        titleSp = sp(if (variant == TodayWidgetVariant.SQUARE) 16f else 15f, 12f),
+        subtitleSp = sp(if (variant == TodayWidgetVariant.SQUARE) 12f else 12.5f, 10f),
         emptySp = sp(if (variant == TodayWidgetVariant.SQUARE) 13f else 15f, 10.5f),
         timeSp = sp(13.8f, 9.8f),
         courseNameSp = sp(16f, 11f),
@@ -588,11 +591,7 @@ internal object MiuixTodayWidgetRenderer {
             val views = sizes.map { size ->
                 size to buildViews(context, state, variant, appearance, size)
             }
-            val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && views.size > 1) {
-                RemoteViews(views.associate { (size, remote) ->
-                    SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to remote
-                })
-            } else views.first().second
+            val result = widgetResponsiveViews(views)
             runCatching { manager.updateAppWidget(id, result) }
                 .onFailure { Log.e("ScheduleWidget", "Failed to update courses widget $id", it) }
         }
@@ -621,7 +620,7 @@ internal object MiuixTodayWidgetRenderer {
         )
         val courses = allCourses.take(metrics.maxCourses)
         val layout = when (variant) {
-            TodayWidgetVariant.LARGE -> R.layout.widget_today_courses_miuix_adaptive_v3
+            TodayWidgetVariant.LARGE -> R.layout.widget_today_courses_miuix_adaptive_v4
             TodayWidgetVariant.SQUARE -> R.layout.widget_today_courses_square_adaptive_v2
         }
         val dark = usesDarkTheme(context, state.config)
@@ -1049,11 +1048,7 @@ internal object TodayAssistantWidgetRenderer {
             )
             val sizes = widgetRenderSizes(manager, id, variant)
             val views = sizes.map { size -> size to buildViews(context, state, weather, appearance, size) }
-            val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && views.size > 1) {
-                RemoteViews(views.associate { (size, remote) ->
-                    SizeF(size.widthDp.toFloat(), size.heightDp.toFloat()) to remote
-                })
-            } else views.first().second
+            val result = widgetResponsiveViews(views)
             runCatching { manager.updateAppWidget(id, result) }
                 .onFailure { Log.e("ScheduleWidget", "Failed to update assistant widget $id", it) }
         }
