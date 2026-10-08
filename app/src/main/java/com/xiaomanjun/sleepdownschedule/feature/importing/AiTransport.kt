@@ -125,9 +125,10 @@ internal fun formatAiNetworkError(url: String, throwable: Throwable): String {
 }
 
 internal fun formatAiRequestError(status: Int, text: String, providerId: String? = null): String {
-    if (providerId == AiProviderPresets.dailyFree.id && isManagedFreeLimitError(status, text)) {
-        return "今日免费 AI 共享额度已用完，请明天再试，或在 AI 设置中配置自己的 AI 服务。"
-    }
+    // Managed credentials still call the provider directly. An HTTP failure cannot tell us
+    // that SleepDown's daily allowance is exhausted, nor when the provider will recover.
+    // Preserve the status and response for diagnosis just as with a user's own credentials.
+    val service = if (providerId == AiProviderPresets.dailyFree.id) "免费 AI" else "AI"
     val compact = sanitizeAiOutputForDisplay(text).replace(Regex("\\s+"), " ").take(240)
     val hint = if (
         text.contains("404 page not found", ignoreCase = true) ||
@@ -138,23 +139,8 @@ internal fun formatAiRequestError(status: Int, text: String, providerId: String?
         null
     }
     return buildString {
-        append("AI 请求失败 ($status)")
+        append("$service 请求失败 ($status)")
         hint?.let { append("：").append(it) }
         if (compact.isNotBlank()) append(" 服务返回：").append(compact)
     }
-}
-
-private fun isManagedFreeLimitError(status: Int, text: String): Boolean {
-    if (status == 429) return true
-    val normalized = text.lowercase()
-    return listOf(
-        "模型超限",
-        "额度已用完",
-        "额度不足",
-        "quota",
-        "rate_limit",
-        "rate limit",
-        "limit exceeded",
-        "too many requests"
-    ).any(normalized::contains)
 }
