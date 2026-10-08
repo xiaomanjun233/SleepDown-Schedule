@@ -34,7 +34,9 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
     // Deliberately not rememberSaveable: no credentials in saved-instance-state bundles.
     var password by remember { mutableStateOf("") }
     var loaded by remember { mutableStateOf(false) }
-    var connectionSaved by remember { mutableStateOf(false) }
+    var savedConnection by remember { mutableStateOf<WebDavConnection?>(null) }
+    val connectionSaved = savedConnection != null
+    var showConnectionDialog by remember { mutableStateOf(false) }
     val automation by WebDavAutomation.state.collectAsState()
     var files by remember { mutableStateOf<List<WebDavEntry>>(emptyList()) }
     var listed by remember { mutableStateOf(false) }
@@ -49,25 +51,23 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
         try {
             withContext(Dispatchers.IO) { WebDavCredentials.read(context) }?.let {
                 address = it.address; username = it.username; password = it.password
-                connectionSaved = true
+                savedConnection = it
             }
         } catch (error: Exception) {
             if (error is CancellationException) throw error
             message = "无法解密已保存的连接，请重新填写。"
-        } finally { loaded = true }
+        } finally { loaded = true; showConnectionDialog = savedConnection == null }
         WebDavAutomation.load(context)
     }
 
     fun connection() = WebDavConnection(address.trim(), username, password)
-    fun runTask(label: String, action: suspend (WebDavClient) -> Unit) {
+    fun runTask(label: String, settings: WebDavConnection? = savedConnection, action: suspend (WebDavClient) -> Unit) {
         if (!editable) return
+        val target = settings ?: return
         busy = label; message = null
-        val settings = connection()
         job = scope.launch {
             try {
-                val client = WebDavClient(settings)
-                withContext(Dispatchers.IO) { WebDavCredentials.save(context, settings) }
-                connectionSaved = true
+                val client = WebDavClient(target)
                 action(client)
             } catch (cancelled: CancellationException) {
                 message = "已取消。远端提交结果如未收到确认，请刷新列表核对。"
@@ -76,6 +76,17 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
                 // Do not log server responses, URLs, authentication material or provider exceptions.
                 message = (error as? WebDavFailure)?.reason?.message ?: "操作未完成，请检查连接与本机存储后重试。"
             } finally { busy = null; job = null }
+        }
+    }
+    fun connect() {
+        val candidate = connection()
+        runTask("正在验证连接…", candidate) { client ->
+            val remoteFiles = client.list()
+            withContext(Dispatchers.IO) { WebDavCredentials.save(context, candidate) }
+            savedConnection = candidate
+            files = remoteFiles; listed = true
+            message = "连接成功"
+            showConnectionDialog = false
         }
     }
     fun upload(existing: WebDavEntry? = null) {
@@ -132,25 +143,21 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
         item {
             GlassPreferenceSection("WebDAV 连接") {
                 SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
-                    SettingsTextFieldRow("文件夹地址", address, { address = it; connectionSaved = false; files = emptyList(); listed = false },
-                        KeyboardType.Uri, enabled = editable, placeholder = "https://…/备份/")
-                    SettingsDivider()
-                    SettingsTextFieldRow("用户名", username, { username = it; connectionSaved = false; listed = false; files = emptyList() }, enabled = editable)
-                    SettingsDivider()
-                    SettingsTextFieldRow("密码 / 应用密码", password, { password = it; connectionSaved = false; listed = false; files = emptyList() },
-                        KeyboardType.Password, enabled = editable)
-                    SettingsDivider()
-                    SettingsNavigationRow("测试连接并保存", "读取文件夹以验证地址和认证；不会修改远端文件", enabled = editable,
-                        onClick = { runTask("正在测试连接…") { client -> files = client.list(); listed = true; message = "连接成功" } })
+                    SettingsNavigationRow(if (connectionSaved) "连接设置" else "配置连接",
+                        savedConnection?.address ?: "填写地址、用户名和密码后连接", enabled = editable,
+                        onClick = {
+                            address = savedConnection?.address.orEmpty()
+                            username = savedConnection?.username.orEmpty()
+                            password = savedConnection?.password.orEmpty()
+                            message = null; showConnectionDialog = true
+                        })
                 }
+                GlassPreferenceCategory("备份全部课表、设置、壁纸、助手记录及 AI 导入历史，与本地 .sleepdown 备份范围一致。API Key、WebDAV 凭据和登录状态不会上传。备份文件未加密。当前开启超级性能模式时，恢复不会自动退出该模式。")
+                if (savedConnection?.address?.startsWith("http://", true) == true)
+                    GlassPreferenceCategory("当前为 HTTP，传输未加密，建议使用 HTTPS。")
             }
         }
-        item {
-            Text("备份全部课表、设置、壁纸、助手记录及 AI 导入历史，与本地 .sleepdown 备份范围一致。API Key、WebDAV 凭据和登录状态不会上传。备份文件未加密。当前开启超级性能模式时，恢复不会自动退出该模式。",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (address.trim().startsWith("http://", true)) Text("当前为 HTTP，传输未加密，建议使用 HTTPS。",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        }
+        if (connectionSaved) {
         item {
             GlassPreferenceSection("自动备份与恢复") {
                 SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
@@ -171,9 +178,8 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
                             WebDavAutomation.configure(context, automation.backup, it, automation.intervalHours)
                         })
                 }
-                Text("先测试并保存连接。自动备份保留历史文件，不自动删除远端备份；请按需在服务端清理。自动检查依赖服务端文件修改时间，无有效时间的备份仍可手动恢复。",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (automation.status.isNotBlank()) Text(automation.status, style = MaterialTheme.typography.bodySmall)
+                GlassPreferenceCategory("自动备份保留历史文件，不自动删除远端备份；请按需在服务端清理。自动检查依赖服务端文件修改时间，无有效时间的备份仍可手动恢复。")
+                if (automation.status.isNotBlank()) GlassPreferenceCategory(automation.status)
                 automation.pending?.takeIf { automation.restoreCheck }?.let { entry ->
                     SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
                         SettingsNavigationRow("发现远端备份", entry.name + " · 下载后预览并确认恢复", enabled = editable && connectionSaved,
@@ -206,10 +212,40 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
                     enabled = editable, onClick = { download(entry) })
             }
         }
-        item {
-            busy?.let { Text(it, style = MaterialTheme.typography.bodyMedium); TextButton(onClick = { job?.cancel() }) { Text("取消") } }
-            message?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
         }
+        item {
+            if (!showConnectionDialog) {
+                busy?.let { GlassPreferenceCategory(it); TextButton(onClick = { job?.cancel() }) { Text("取消") } }
+                message?.let { GlassPreferenceCategory(it) }
+            }
+        }
+    }
+    if (showConnectionDialog) {
+        LiquidAlertDialog(
+            title = if (connectionSaved) "配置 WebDAV" else "连接 WebDAV",
+            message = "",
+            actions = listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) {
+                    job?.cancel(); showConnectionDialog = false
+                },
+                LiquidAlertAction(if (busy == null) "连接并保存" else "正在连接…", LiquidAlertActionStyle.Primary, dismissOnClick = false,
+                    enabled = editable && address.isNotBlank(), onClick = { connect() })
+            ),
+            backdrop = backdrop, config = state.config,
+            onDismissRequest = { job?.cancel(); showConnectionDialog = false },
+            messageMaxHeight = 420.dp, scrollableMessageContent = true,
+            messageContent = {
+                Column {
+                    GlassPreferenceCategory("输入网盘或 NAS 的 WebDAV 连接信息")
+                    SettingsTextFieldRow("文件夹地址", address, { address = it }, KeyboardType.Uri,
+                        enabled = editable, placeholder = "https://…/备份/")
+                    SettingsTextFieldRow("用户名", username, { username = it }, KeyboardType.Ascii, enabled = editable)
+                    SettingsTextFieldRow("密码 / 应用密码", password, { password = it }, KeyboardType.Password, enabled = editable)
+                    GlassPreferenceCategory("验证成功后保存，密码仅加密存储在本机。")
+                    message?.let { GlassPreferenceCategory(it) }
+                }
+            }
+        )
     }
     overwrite?.let { entry ->
         LiquidAlertDialog(title = "覆盖远端备份？", message = "将用当前数据替换「${entry.name}」。该远端文件原有内容将被覆盖，本机数据不会改变。",
