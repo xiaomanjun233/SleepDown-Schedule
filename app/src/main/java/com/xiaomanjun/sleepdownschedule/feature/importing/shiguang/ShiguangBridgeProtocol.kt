@@ -83,7 +83,7 @@ internal val ShiguangBridgeInitScript = """
             window.cefQuery({ request: msg });
             return;
         }
-        console.warn("[ShiguangBridge] Native bridge unavailable:", msg);
+        throw new Error('网页与 App 的连接不可用，请刷新页面后重试');
     }
 
     function postMessageToNative(action, payload, callbackId) {
@@ -92,13 +92,28 @@ internal val ShiguangBridgeInitScript = """
             callbackId: callbackId || null,
             payload: payload ? JSON.stringify(payload) : null
         });
-        postRawMessage(msg);
+        var cb = callbackId && callbacks[callbackId];
+        if (cb) {
+            cb.timer = setTimeout(function() {
+                delete callbacks[callbackId];
+                cb.reject(new Error('等待 App 响应超时，请重新导入'));
+            }, action.indexOf('show') === 0 ? 300000 : 30000);
+        }
+        try { postRawMessage(msg); }
+        catch (error) {
+            if (!cb) throw error;
+            clearTimeout(cb.timer);
+            delete callbacks[callbackId];
+            cb.reject(error);
+        }
     }
 
     window._shiguangNativeCallback = function(callbackId, isSuccess, result) {
         var cb = callbacks[callbackId];
         if (cb) {
-            if (isSuccess) cb.resolve(result); else cb.reject(result);
+            clearTimeout(cb.timer);
+            if (isSuccess) cb.resolve(result);
+            else cb.reject(new Error(result && result.message ? result.message : String(result)));
             delete callbacks[callbackId];
         }
     };
@@ -163,11 +178,17 @@ internal val ShiguangBridgeInitScript = """
     };
 
     var shiguangBridge = {
+        isAvailable: function() {
+            return !!(window._shiguangNativeBridge && typeof window._shiguangNativeBridge.postMessage === 'function');
+        },
         showToast: function(message) {
             postMessageToNative('showToast', { message: message });
         },
         notifyTaskCompletion: function() {
             postMessageToNative('notifyTaskCompletion');
+        },
+        notifyExecutionFinished: function() {
+            postMessageToNative('notifyExecutionFinished');
         }
     };
 

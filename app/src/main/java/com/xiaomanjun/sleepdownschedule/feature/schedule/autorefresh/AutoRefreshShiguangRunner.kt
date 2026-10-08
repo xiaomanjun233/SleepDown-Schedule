@@ -165,7 +165,7 @@ internal object AutoRefreshShiguangRunner {
                 scriptStarted = true
                 webView.injectShiguangRuntime(profile.desktopMode)
                 // Isolate top-level declarations so a failed connection can be retried in the same page.
-                webView.evaluateJavascript("(async function() {\n" + source + "\n})().catch(function() { window.shiguangBridge.showToast('刷新失败，请重新登录后重试'); });", null)
+                webView.evaluateJavascript(com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.isolatedShiguangScript(source), null)
             }, 2_500L)
         }
 

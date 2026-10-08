@@ -112,7 +112,7 @@ internal object ShiguangWarehouseUpdater {
                         ?: snapshot.indexSha
                 }
                 val target = safeResourceFile(context, selectedGeneration, relativePath)
-                target.takeIf { it.isFile }?.readText()?.takeIf { it.isNotBlank() }?.let { return@withLock it }
+                // JS hotfixes do not necessarily change the protocol index. Revalidate each run.
 
                 val encodedPath = relativePath.split('/').joinToString("/") { segment ->
                     URLEncoder.encode(segment, Charsets.UTF_8.name()).replace("+", "%20")

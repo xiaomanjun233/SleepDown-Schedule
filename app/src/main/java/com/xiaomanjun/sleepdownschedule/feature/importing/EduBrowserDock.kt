@@ -119,6 +119,7 @@ internal fun EduBrowserDock(
     onForward: () -> Unit,
     originalImportAvailable: Boolean,
     aiImportRunning: Boolean,
+    originalImportRunning: Boolean,
     onOriginalImport: () -> Unit,
     onAiImport: () -> Unit,
     desktopMode: Boolean,
@@ -614,7 +615,8 @@ internal fun EduBrowserDock(
                 if (originalImportAvailable) {
                     add(SleepDownLiquidMenuItem(
                         key = "edu-original-import",
-                        text = "常规教务导入",
+                        text = if (originalImportRunning) "正在导入…" else "常规教务导入",
+                        enabled = !originalImportRunning,
                         iconRes = R.drawable.ic_school_import,
                         onClick = {
                             importMenuVisible = false

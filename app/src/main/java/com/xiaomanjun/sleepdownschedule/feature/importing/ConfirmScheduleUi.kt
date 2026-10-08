@@ -114,6 +114,9 @@ fun ConfirmScheduleScreen(
         warning?.let { text ->
             item { Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
         }
+        importConflictNotice(previewDraft)?.let { text ->
+            item { Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium) }
+        }
         item { Text(importDraftConfigurationSummary(previewDraft)) }
         if (previewDraft.courses.isEmpty()) {
             item { Text("没有解析到课程", color = MaterialTheme.colorScheme.error) }

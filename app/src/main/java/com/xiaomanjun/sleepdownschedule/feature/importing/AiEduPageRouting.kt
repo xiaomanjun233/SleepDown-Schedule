@@ -46,9 +46,8 @@ internal suspend fun executeAiEduAdapter(
         bridge.bindWebView(webView)
         bridge.beginTask(config, periods, allowImportedBellTimes = true)
         webView.injectShiguangRuntime(desktopMode)
-        val wrapped = "(async function() {\n$source\n})().catch(function() { window.shiguangBridge.showToast('通用教务导入失败，可再次点击 AI 导入改用页面文本。'); });"
-        val invocation = if (candidate.framePath.isEmpty()) wrapped else
-            "target.eval(${JSONObject.quote(wrapped)});"
+        val wrapped = com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.isolatedShiguangScript(source)
+        val invocation = "target.eval(${JSONObject.quote(wrapped)})"
         val script = """
             (function() {
               try {
@@ -59,11 +58,15 @@ internal suspend fun executeAiEduAdapter(
                 // All promises and native callbacks remain in the already-installed top bridge.
                 target.shiguangBridge = window.shiguangBridge;
                 target.shiguangBridgePromise = window.shiguangBridgePromise;
-                $invocation
-                return true;
+                return $invocation === 'started';
               } catch (e) { return false; }
             })()
         """.trimIndent()
-        evaluateAiEduScript(webView, script) == "true"
+        try {
+            (evaluateAiEduScript(webView, script) == "true").also { if (!it) bridge.finishExecution() }
+        } catch (error: Exception) {
+            bridge.finishExecution()
+            throw error
+        }
     }
 }

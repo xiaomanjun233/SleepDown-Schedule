@@ -7,6 +7,28 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class ShiguangImportSessionCustomTimeTest {
+    @Test fun overlappingSchoolSlotsKeepBothOriginalClocksAndCourses() {
+        val session = ShiguangImportSession()
+        session.begin(defaultConfig(), basePeriods, allowImportedBellTimes = true)
+        session.stageTimeSlots("""[{"number":1,"startTime":"08:00","endTime":"09:00"},{"number":2,"startTime":"08:30","endTime":"09:30"}]""")
+        session.stageCourses("""[{"name":"早课","teacher":"","position":"","day":1,"startSection":1,"endSection":1,"weeks":[1,2]},
+            {"name":"晚课","teacher":"","position":"","day":1,"startSection":2,"endSection":2,"weeks":[1,2]}]""")
+        val draft = session.complete()
+        assertEquals(2, draft.courses.size)
+        assertEquals(listOf(2), draft.courses.last().periods)
+        assertEquals("08:00", draft.courses.first().customStartTime)
+        assertEquals("09:00", draft.courses.first().customEndTime)
+        assertEquals("08:30", draft.courses.last().customStartTime)
+        assertEquals("09:30", draft.courses.last().customEndTime)
+        assertEquals("2,08:30-09:30", draft.courses.last().originalPeriodTimes)
+        org.junit.Assert.assertNotNull(com.xiaomanjun.sleepdownschedule.feature.importing.importConflictNotice(draft))
+        val stored = com.xiaomanjun.sleepdownschedule.feature.importing.draftToPayload(draft).toString()
+        val restored = com.xiaomanjun.sleepdownschedule.feature.importing.ScheduleImportParser
+            .parseStoredDraft(stored, draft.config).getOrThrow()
+        assertEquals(draft.courses.map { it.customPeriodTimes }, restored.courses.map { it.customPeriodTimes })
+        assertEquals(draft.courses.map { it.originalPeriodTimes }, restored.courses.map { it.originalPeriodTimes })
+        assertEquals(draft.courses.map { it.periods }, restored.courses.map { it.periods })
+    }
     private val basePeriods = listOf(
         PeriodEntity(1, "08:20", "09:00"),
         PeriodEntity(2, "09:15", "09:55"),

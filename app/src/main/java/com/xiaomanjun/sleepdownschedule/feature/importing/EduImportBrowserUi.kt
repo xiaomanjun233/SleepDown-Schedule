@@ -77,6 +77,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -795,6 +796,9 @@ private fun EduImportBrowserScreen(
     var canGoForward by remember { mutableStateOf(false) }
     var desktopMode by remember(adapter) { mutableStateOf(initialDesktopMode) }
     var aiParsing by remember { mutableStateOf(false) }
+    var originalScriptLoading by remember { mutableStateOf(false) }
+    var originalDocumentVersion by remember { mutableIntStateOf(0) }
+    val originalScriptRunning by bridge.running.collectAsState()
     var attemptedGenericDocumentKey by remember(adapter) { mutableStateOf<String?>(null) }
     var aiProgress by remember { mutableStateOf<AiEduImportProgress?>(null) }
     var isScreenCapturing by remember { mutableStateOf(false) }
@@ -1201,19 +1205,27 @@ private fun EduImportBrowserScreen(
     }
 
     fun runOriginalImportScript() {
+        if (originalScriptLoading || originalScriptRunning) return
         val target = popupWebView ?: webView
         if (target == null) {
             onMessage("网页还没有加载完成")
             return
         }
+        originalScriptLoading = true
+        val documentVersion = originalDocumentVersion
+        onMessage("正在加载教务导入脚本…")
         target.evaluateJavascript(AiEduPageExtractScript) { encoded ->
             runCatching { inspectEduPageCapture(decodeAiEduPageSnapshot(encoded)) }
                 .getOrNull()
                 ?.let { onMessage("${it.message}；仍将尝试执行原有拾光导入脚本。") }
         }
         scope.launch {
-            runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
+            try { runCatching { ShiguangWarehouse.resolveScript(context, adapter) }
                 .onSuccess { script ->
+                    if (documentVersion != originalDocumentVersion || target !== (popupWebView ?: webView)) {
+                        onMessage("页面已变化，请加载完成后重新点击导入")
+                        return@onSuccess
+                    }
                     bridge.bindWebView(target)
                     bridge.beginTask(
                         state.config,
@@ -1224,9 +1236,18 @@ private fun EduImportBrowserScreen(
                     )
                     target.injectShiguangRuntime(desktopMode)
                     onMessage("正在执行拾光官方适配器")
-                    target.evaluateJavascript(script, null)
+                    target.evaluateJavascript(isolatedShiguangScript(script)) { started ->
+                        if (started != "\"started\"") {
+                            bridge.finishExecution()
+                            onMessage("网页与 App 的连接不可用，请刷新页面后重新导入")
+                        }
+                    }
                 }
-                .onFailure { onMessage("拾光仓库脚本加载失败：${it.message ?: "找不到该学校的导入脚本"}") }
+                .onFailure {
+                    bridge.finishExecution()
+                    onMessage("教务导入失败：${it.message ?: "无法加载或执行该学校的导入脚本"}")
+                }
+            } finally { originalScriptLoading = false }
         }
     }
 
@@ -1335,6 +1356,13 @@ private fun EduImportBrowserScreen(
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
                     view?.injectShiguangRuntime(desktopMode)
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
+                    if (visiblePage) {
+                        originalDocumentVersion += 1
+                        if (bridge.running.value) {
+                            bridge.finishExecution()
+                            onMessage("页面已跳转，请加载完成后重新导入")
+                        }
+                    }
                     if (visiblePage) updateNavigationState(view)
                     if (visiblePage && view != null) currentPrimaryAction?.onPageStarted?.invoke(view, url)
                     super.onPageStarted(view, url, favicon)
@@ -1438,6 +1466,8 @@ private fun EduImportBrowserScreen(
                     view: WebView?,
                     detail: RenderProcessGoneDetail?
                 ): Boolean {
+                    originalDocumentVersion += 1
+                    bridge.finishExecution()
                     val restoreUrl = view?.url?.takeIf { it.isNotBlank() }
                         ?: addressText.takeIf { it.isNotBlank() }
                         ?: currentUrl
@@ -1728,6 +1758,7 @@ private fun EduImportBrowserScreen(
                     }
                 },
                 aiImportRunning = aiParsing,
+                originalImportRunning = originalScriptLoading || originalScriptRunning,
                 onOriginalImport = { runOriginalImportScript() },
                 onAiImport = {
                     backgroundPermissionGate.continueWithPermissionTip {

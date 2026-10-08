@@ -7,7 +7,16 @@
 // 公网直连时基址为 https://iedu.jlu.edu.cn；若经 Sangfor webvpn 代理，则为
 // https://vpn.jlu.edu.cn/https/<会话hex>（该 hex 是【会话相关】的，不能硬编码）。
 // 两种情况都在课表页运行时从当前页 URL 提取基址，保证会话无关。
-const PAGE_URL = window.location.href;
+const PAGE_URL = (() => {
+    if (window.location.href.includes("/jwapp/sys/")) return window.location.href;
+    for (const frame of document.querySelectorAll("iframe")) {
+        try {
+            const url = new URL(frame.contentWindow.location.href, window.location.href);
+            if (url.origin === window.location.origin && url.pathname.includes("/jwapp/sys/")) return url.href;
+        } catch (_) { /* Cross-origin portal frames must be opened before importing. */ }
+    }
+    return window.location.href;
+})();
 const _idx = PAGE_URL.indexOf("/jwapp/sys/");
 if (_idx < 0) {
     window.shiguangBridge.showToast("请先进入(新)教务的「我的课表」页面再导入");
@@ -42,6 +51,7 @@ async function api(path, body) {
         body: hasBody ? body : "",
         credentials: "include"
     });
+    if (!res.ok) throw new Error("教务请求失败：HTTP " + res.status);
     return res.json();
 }
 
@@ -392,7 +402,7 @@ async function runImportFlow() {
         window.shiguangBridge.notifyTaskCompletion();
     } catch (error) {
         console.error("主流程异常:", error);
-        window.shiguangBridge.showToast("意外错误: " + error.message);
+        window.shiguangBridge.showToast("意外错误: " + (error && error.message ? error.message : String(error)));
     }
 }
 

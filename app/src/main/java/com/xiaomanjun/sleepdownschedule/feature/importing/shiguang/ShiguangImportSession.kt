@@ -58,6 +58,7 @@ internal class ShiguangImportSession {
     private var mergeOverlappingTimeSlots = false
     private var allowImportedBellTimes = false
     private var sectionMapping: Map<Int, Int>? = null
+    private var originalConflictingSlots: List<ShiguangTimeSlotPayload>? = null
 
     fun begin(
         config: ScheduleConfigEntity,
@@ -75,6 +76,7 @@ internal class ShiguangImportSession {
             this.mergeOverlappingTimeSlots = mergeOverlappingTimeSlots
             this.allowImportedBellTimes = allowImportedBellTimes
             sectionMapping = null
+            originalConflictingSlots = null
         }
     }
 
@@ -128,6 +130,13 @@ internal class ShiguangImportSession {
                 val normalized = mergeWakeUpTimeSlots(sorted)
                 timeSlots = normalized.slots
                 sectionMapping = normalized.sectionMapping
+            } else if (allowImportedBellTimes && sorted.zipWithNext().any { (previous, next) ->
+                parseTime(next.startTime, "startTime") < parseTime(previous.endTime, "endTime")
+            }) {
+                // The shared grid is only a display reference. Each course keeps its source
+                // period numbers and exact clocks, including periods absent from this grid.
+                originalConflictingSlots = sorted
+                timeSlots = mergeWakeUpTimeSlots(sorted).slots
             } else {
                 sorted.zipWithNext().forEach { (previous, next) ->
                     require(parseTime(next.startTime, "startTime") >= parseTime(previous.endTime, "endTime")) {
@@ -149,7 +158,8 @@ internal class ShiguangImportSession {
                 courses = courses ?: error("适配器未提交课程数据"),
                 courseConfig = courseConfig,
                 timeSlots = timeSlots,
-                sectionMapping = sectionMapping
+                sectionMapping = sectionMapping,
+                originalConflictingSlots = originalConflictingSlots
             )
         }
         return snapshot.toDraft()
@@ -195,7 +205,8 @@ internal class ShiguangImportSession {
         val courses: List<ShiguangCoursePayload>,
         val courseConfig: ShiguangCourseConfigPayload?,
         val timeSlots: List<ShiguangTimeSlotPayload>?,
-        val sectionMapping: Map<Int, Int>?
+        val sectionMapping: Map<Int, Int>?,
+        val originalConflictingSlots: List<ShiguangTimeSlotPayload>?
     ) {
         fun toDraft(): ImportDraft {
             val mappedPeriods = timeSlots?.map { slot ->
@@ -216,12 +227,19 @@ internal class ShiguangImportSession {
                 if (!course.hasExactTime()) {
                     require(periods.isNotEmpty()) { "第 ${index + 1} 门课程缺少节次范围" }
                 }
-                require(periods.all { it in periodIndexSet }) {
+                val sourceSlots = originalConflictingSlots?.associateBy { it.number }
+                require(periods.all { it in (sourceSlots?.keys ?: periodIndexSet) }) {
                     "第 ${index + 1} 门课程引用了不存在的节次"
                 }
-                val clock = normalizeCourseClock(
-                    course.customStartTime, course.customEndTime, course.customPeriodTimes, periods
-                )
+                val sourceTimes = sourceSlots?.let { slots -> periods.map { slots.getValue(it) } }
+                val originalClock = sourceTimes?.joinToString(";") { "${it.number},${it.startTime}-${it.endTime}" }
+                val exactPeriodClock = originalClock?.takeIf {
+                    sourceTimes.zipWithNext().all { (a, b) -> LocalTime.parse(b.startTime) >= LocalTime.parse(a.endTime) }
+                }
+                val clock = if (sourceTimes != null && !course.hasExactTime()) normalizeCourseClock(
+                    sourceTimes.minOf { LocalTime.parse(it.startTime) }.toString(),
+                    sourceTimes.maxOf { LocalTime.parse(it.endTime) }.toString(), exactPeriodClock, periods
+                ) else normalizeCourseClock(course.customStartTime, course.customEndTime, course.customPeriodTimes, periods)
                 CourseEntity(
                     name = course.name,
                     teacher = course.teacher.ifBlank { null },
@@ -234,6 +252,7 @@ internal class ShiguangImportSession {
                     customStartTime = clock.start,
                     customEndTime = clock.end,
                     customPeriodTimes = clock.periodTimes,
+                    originalPeriodTimes = originalClock,
                     // Shiguang color is a palette index, not ARGB. SleepDown keeps automatic color assignment.
                     customColorArgb = null,
                     scheduleId = baseConfig.id
