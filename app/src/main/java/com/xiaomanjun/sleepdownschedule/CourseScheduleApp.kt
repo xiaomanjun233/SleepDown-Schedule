@@ -63,6 +63,7 @@ class CourseScheduleApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        AppMaterialPreferences.load(this)
         AppIconManager.onIconChanged = { TodayCoursesWidgetProvider.refreshAll(this) }
         AppIconManager.applyStoredMode(this)
         AutoRefreshScheduleWorker.ensureSchedule(this, AutoRefreshScheduleStore.load(this))

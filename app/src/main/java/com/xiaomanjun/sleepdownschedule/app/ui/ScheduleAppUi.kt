@@ -7075,7 +7075,8 @@ fun PersonalizePanel(
                         }
                     )
                 }
-                if (state.config.courseCardGlassEnabled && !glassLocked) {
+                if (state.config.courseCardGlassEnabled && !glassLocked &&
+                    !com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isPerformance) {
                     PersonalizeValueSlider(
                         sliderKey = PersonalizeCardRefractionSlider,
                         modifier = Modifier.rowEntrance(13 + weekContentRows),

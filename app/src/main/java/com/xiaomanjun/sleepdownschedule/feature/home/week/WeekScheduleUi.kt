@@ -386,7 +386,9 @@ internal fun SinglePillWeekScheduleScreen(
     val currentPeriod = currentTimelinePeriod(state.periods, now)
     // Keep one computed bucket per visited week, shared by the rail, supplements and Pager.
     // Data replacement invalidates the cache; swiping back reuses the same immutable lists.
-    val weekBucketCache = remember(state.courses, state.config, today) { mutableMapOf<Int, WeekCourseBuckets>() }
+    val weekBucketCache = remember(state.courses, state.config.id, state.config.totalWeeks,
+        state.config.currentWeek, state.config.autoCurrentWeek, state.config.termStartDate,
+        state.config.scheduleAdjustmentsJson, today) { mutableMapOf<Int, WeekCourseBuckets>() }
     fun bucketsForWeek(week: Int) = weekBucketCache.getOrPut(week) {
         weekCourseBuckets(state.courses, week, state.config, today)
     }
@@ -409,7 +411,7 @@ internal fun SinglePillWeekScheduleScreen(
     val hasAdjustmentBadges = remember(state.config.scheduleAdjustmentsJson) {
         com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(state.config.scheduleAdjustmentsJson).isNotEmpty()
     }
-    val supplementaryRowCount = remember(state.courses, state.periods, state.config, displayWeek, weekJump) {
+    val supplementaryRowCount = remember(weekBucketCache, state.periods, displayWeek, weekJump) {
         val renderedWeeks = (displayWeek - 1..displayWeek + 1).toList() +
             listOfNotNull(weekJump?.sourcePage?.plus(1), weekJump?.targetPage?.plus(1))
         renderedWeeks.maxOf { week ->

@@ -1343,25 +1343,26 @@ internal fun weekCourseBuckets(
 ): WeekCourseBuckets {
     if (config.scheduleAdjustmentsJson.isBlank()) return weekCourseBuckets(courses, week)
     val start = scheduleWeekStartDate(config, week, today)
-    val adjustments = com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(config.scheduleAdjustmentsJson).associateBy { it.date }
-    val regular = coursesVisibleInWeek(courses, week)
+    val regular = coursesVisibleInWeek(courses, week).groupBy { it.weekday }
+    val sourceWeeks = mutableMapOf(week to regular)
     val cancelled = mutableSetOf<Int>()
     val makeup = mutableSetOf<Int>()
     val visible = (1..7).flatMap { weekday ->
-        val adjustment = adjustments[start.plusDays((weekday - 1).toLong()).toString()]
+        val adjustment = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config, start.plusDays((weekday - 1).toLong()))
         if (adjustment == null) {
-            regular.filter { it.weekday == weekday }
+            regular[weekday].orEmpty()
         } else if (adjustment.sourceDate == null) {
             // The day is off. Keep the regular cards so the timetable still shows what was planned,
             // and let the views grey them out while editing still resolves the original course.
             cancelled += weekday
-            regular.filter { it.weekday == weekday }
+            regular[weekday].orEmpty()
         } else {
             makeup += weekday
             val origin = LocalDate.parse(adjustment.sourceDate)
             val originWeek = com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate(config, origin, today)
-            if (originWeek == null) emptyList() else coursesVisibleInWeek(courses, originWeek)
-                .filter { it.weekday == origin.dayOfWeek.value }.map { it.copy(weekday = weekday) }
+            if (originWeek == null) emptyList() else sourceWeeks.getOrPut(originWeek) {
+                coursesVisibleInWeek(courses, originWeek).groupBy { it.weekday }
+            }[origin.dayOfWeek.value].orEmpty().map { it.copy(weekday = weekday) }
         }
     }
     return WeekCourseBuckets(

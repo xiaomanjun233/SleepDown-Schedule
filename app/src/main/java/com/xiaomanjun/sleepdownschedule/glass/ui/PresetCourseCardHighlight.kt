@@ -9,6 +9,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -22,7 +23,8 @@ internal fun Modifier.presetCourseCardHighlight(
     shape: Shape,
     alpha: Float,
     enabled: () -> Boolean,
-    bounds: () -> Rect? = { null }
+    bounds: () -> Rect? = { null },
+    uniform: Boolean = false
 ): Modifier = drawWithCache {
     val rect = bounds() ?: Rect(Offset.Zero, size)
     val path = Path().apply {
@@ -30,7 +32,7 @@ internal fun Modifier.presetCourseCardHighlight(
         translate(rect.topLeft)
     }
     // Fixed opposing glints follow card-local geometry, never wallpaper luminance or position.
-    val brush = Brush.linearGradient(
+    val brush = if (uniform) SolidColor(Color.White.copy(alpha = alpha)) else Brush.linearGradient(
         0f to Color.White.copy(alpha = alpha),
         0.38f to Color.White.copy(alpha = alpha * 0.24f),
         0.62f to Color.White.copy(alpha = alpha * 0.24f),
@@ -38,7 +40,7 @@ internal fun Modifier.presetCourseCardHighlight(
         start = rect.topLeft,
         end = rect.bottomRight
     )
-    val stroke = Stroke(ceil(0.5.dp.toPx().coerceAtMost(rect.size.minDimension / 2f)) * 2f)
+    val stroke = Stroke(ceil((if (uniform) 0.8.dp else 0.5.dp).toPx().coerceAtMost(rect.size.minDimension / 2f)) * 2f)
     onDrawWithContent {
         drawContent()
         if (enabled() && rect.width > 0f && rect.height > 0f) {

@@ -9,6 +9,30 @@ import org.junit.Test
 import java.time.LocalDate
 
 class ScheduleAdjustmentsTest {
+    @Test fun changingAndRestoringAnAdjustmentRefreshesDateLookups() {
+        val date = LocalDate.of(2026, 10, 8)
+        val stopped = defaultConfig().copy(scheduleAdjustmentsJson = encodeScheduleAdjustments(listOf(ScheduleAdjustment(date.toString()))))
+        val makeup = stopped.copy(scheduleAdjustmentsJson = encodeScheduleAdjustments(listOf(ScheduleAdjustment(date.toString(), "2026-10-09"))))
+        assertNull(scheduleAdjustmentForDate(stopped, date)!!.sourceDate)
+        assertEquals("2026-10-09", scheduleAdjustmentForDate(makeup, date)!!.sourceDate)
+        assertNull(scheduleAdjustmentForDate(stopped, date)!!.sourceDate)
+        assertNull(scheduleAdjustmentForDate(stopped.copy(scheduleAdjustmentsJson = ""), date))
+    }
+
+    @Test fun makeupFromOneSourceWeekKeepsOtherWeekParityOut() {
+        val source = LocalDate.of(2026, 9, 7)
+        val target = source.plusWeeks(1)
+        val config = defaultConfig().copy(autoCurrentWeek = true, termStartDate = "2026-09-07",
+            scheduleAdjustmentsJson = encodeScheduleAdjustments(listOf(
+                ScheduleAdjustment(target.toString(), source.toString()),
+                ScheduleAdjustment(target.plusDays(1).toString(), source.toString())
+            )))
+        val odd = regular.copy(id = 1, name = "单周课", weekday = 1, periods = listOf(1), weeks = listOf(1, 2), weekParity = WeekParity.ODD)
+        val even = odd.copy(id = 2, name = "双周课", weekParity = WeekParity.EVEN)
+        val buckets = weekCourseBuckets(listOf(odd, even), 2, config, target)
+        assertEquals(listOf(1L, 1L), buckets.visibleCourses.map { it.id })
+        assertEquals(listOf(1, 2), buckets.visibleCourses.map { it.weekday })
+    }
     @Test fun pickerDisplayDateNormalizesBeforeHolidayPreviewAndPersistence() {
         val entry = scheduleAdjustmentFromInput("2026.10.10", "2026.10.08", "手动校正")
         assertEquals("2026-10-08", entry.sourceDate)

@@ -157,6 +157,20 @@ fun GeneralSettingsScreen(
                         }
                     )
                     SettingsDivider()
+                    SleepDownLiquidDropdownPreference(
+                        title = "材质分级",
+                        summary = "质感保留完整玻璃效果；性能简化光效并关闭课程卡片折射。",
+                        items = listOf("质感", "性能"),
+                        selectedIndex = if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isPerformance) 1 else 0,
+                        backdrop = backdrop, config = visualConfig,
+                        onSelectedIndexChange = {
+                            com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.setLevel(
+                                context, if (it == 1) com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialLevel.PERFORMANCE
+                                else com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialLevel.QUALITY
+                            )
+                        }
+                    )
+                    SettingsDivider()
                     SettingsNavigationRow(
                         title = "液态玻璃",
                         subtitle = "调整首页顶栏、表头和底栏的玻璃效果。",

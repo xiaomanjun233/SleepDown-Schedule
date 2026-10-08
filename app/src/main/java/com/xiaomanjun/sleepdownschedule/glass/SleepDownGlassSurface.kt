@@ -170,10 +170,12 @@ fun Modifier.sleepDownGlassSurface(
         }
     }
 
+    val performanceMaterial = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isPerformance
+    val resolvedFrame = if (performanceMaterial) effectFrame.copy(lensHeight = null, lensAmount = null) else effectFrame
     val currentShape = rememberUpdatedState(shape)
     val resolvedShape = remember { derivedGlassShape(currentShape) }
-    val currentFrame = rememberUpdatedState(effectFrame)
-    val currentMaterialFrame = rememberUpdatedState(effectFrame.materialEffectsOnly())
+    val currentFrame = rememberUpdatedState(resolvedFrame)
+    val currentMaterialFrame = rememberUpdatedState(resolvedFrame.materialEffectsOnly())
     val currentEffectsOverride = rememberUpdatedState(effectsOverride)
     val currentHighlightOverride = rememberUpdatedState(highlightOverride)
     val currentShadowOverride = rememberUpdatedState(shadowOverride)
@@ -187,7 +189,7 @@ fun Modifier.sleepDownGlassSurface(
     val currentRenderEnabled = rememberUpdatedState(renderEnabled)
     val currentRenderBounds = rememberUpdatedState(renderBounds)
     // Only an explicit complete key may bypass evaluation; custom shapes/effects can read state.
-    val currentEffectInputKey = rememberUpdatedState(effectInputKey)
+    val currentEffectInputKey = rememberUpdatedState(effectInputKey?.let { it to performanceMaterial })
     // Read the flag in the draw node, not composition. Freeze/resume must retain existing
     // materials, effects and node identities rather than rebuild every course surface.
     val currentCoordinatesFrozen = rememberUpdatedState(LocalGlassCoordinatesFrozen.current)

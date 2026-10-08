@@ -1081,6 +1081,7 @@ fun CourseGlassCard(
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
     val liveLiquidBlur = blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur
+    val performanceMaterial = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isPerformance
     val liveRefractionStrength = previewState?.cardRefractionStrength
         ?: config.courseCardRefractionStrength
     val outlineLightEnabled = muted || (config.courseCardGlassEnabled &&
@@ -1091,8 +1092,10 @@ fun CourseGlassCard(
         liveBlur = liveLiquidBlur,
         quality = quality,
         hasWallpaper = hasWallpaper,
-        refractionStrength = liveRefractionStrength
-    )
+        refractionStrength = if (performanceMaterial) 0f else liveRefractionStrength
+    ).let { frame ->
+        if (performanceMaterial) frame.copy(highlight = null, shadowAlpha = null, innerShadow = null) else frame
+    }
     val liquidDescriptor = rememberGlassSurfaceDescriptor(
         debugLabel = "CourseGlassCard",
         domain = GlassBackdropDomain.Content,
@@ -1165,10 +1168,11 @@ fun CourseGlassCard(
     } else liquidEffectFrame.copy(highlight = null)
     val presetHighlight = Modifier.presetCourseCardHighlight(
         shape = shape,
-        alpha = (liquidEffectFrame.highlight?.alpha ?: 0f) *
+        alpha = if (performanceMaterial) 0.20f else (liquidEffectFrame.highlight?.alpha ?: 0f) *
             if (outlineLightEnabled && lightGlass) 0.55f else 1f,
         enabled = { viewportMaterialVisible },
-        bounds = { morphAllocation?.localBounds() }
+        bounds = { morphAllocation?.localBounds() },
+        uniform = performanceMaterial
     )
     val configuredAlpha = config.cardAlpha
     val configuredBrightness = config.wallpaperBrightness
@@ -1363,7 +1367,7 @@ fun CourseGlassCard(
             }
             // Full-resolution additive inner light, independent of the sampled blur/lens. The base
             // tint fades toward the top while the brighter bottom light spreads with smooth falloff.
-            if (outlineLightEnabled) {
+            if (outlineLightEnabled && !performanceMaterial) {
                 VerticalGlassAccentOverlay(
                     accentColor = baseColor,
                     shape = shape,

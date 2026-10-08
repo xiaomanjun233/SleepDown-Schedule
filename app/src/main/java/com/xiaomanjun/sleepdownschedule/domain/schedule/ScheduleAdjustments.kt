@@ -13,10 +13,27 @@ data class ScheduleAdjustment(val date: String, val sourceDate: String? = null, 
 
 private val adjustmentJson = Json { ignoreUnknownKeys = true }
 
-fun decodeScheduleAdjustments(value: String): List<ScheduleAdjustment> {
-    if (value.isBlank()) return emptyList()
-    return adjustmentJson.decodeFromString<List<ScheduleAdjustment>>(value).also(::validateScheduleAdjustments)
+private data class ScheduleAdjustmentIndex(
+    val entries: List<ScheduleAdjustment>,
+    val byDate: Map<String, ScheduleAdjustment>
+)
+
+// Home, widgets and notifications query the same dates repeatedly. Key by the actual
+// persisted value so edits/restores invalidate immediately, and bound retained schedules.
+private val adjustmentIndexes = LinkedHashMap<String, ScheduleAdjustmentIndex>(4, 0.75f, true)
+
+private fun scheduleAdjustmentIndex(value: String): ScheduleAdjustmentIndex = synchronized(adjustmentIndexes) {
+    adjustmentIndexes[value] ?: run {
+        val entries = if (value.isBlank()) emptyList() else
+            adjustmentJson.decodeFromString<List<ScheduleAdjustment>>(value).also(::validateScheduleAdjustments)
+        val index = ScheduleAdjustmentIndex(java.util.Collections.unmodifiableList(entries), entries.associateBy { it.date })
+        adjustmentIndexes[value] = index
+        if (adjustmentIndexes.size > 4) adjustmentIndexes.remove(adjustmentIndexes.keys.first())
+        index
+    }
 }
+
+fun decodeScheduleAdjustments(value: String): List<ScheduleAdjustment> = scheduleAdjustmentIndex(value).entries
 
 fun encodeScheduleAdjustments(values: List<ScheduleAdjustment>): String {
     validateScheduleAdjustments(values)
@@ -51,7 +68,7 @@ fun replaceScheduleAdjustment(
 }
 
 fun scheduleAdjustmentForDate(config: ScheduleConfigEntity, date: LocalDate): ScheduleAdjustment? =
-    decodeScheduleAdjustments(config.scheduleAdjustmentsJson).firstOrNull { it.date == date.toString() }
+    scheduleAdjustmentIndex(config.scheduleAdjustmentsJson).byDate[date.toString()]
 
 fun teachingDateForSchedule(config: ScheduleConfigEntity, date: LocalDate): LocalDate? {
     val adjustment = scheduleAdjustmentForDate(config, date) ?: return date
