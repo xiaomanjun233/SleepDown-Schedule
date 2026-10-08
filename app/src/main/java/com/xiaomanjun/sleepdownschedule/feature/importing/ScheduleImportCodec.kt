@@ -125,6 +125,11 @@ C=大学英语|-|B203|3|3-4|2-18|O|-|10:10|11:45|-
 }
 
 object ScheduleImportParser {
+    /** Locally serialized artifacts can retain bells already accepted from an official adapter. */
+    internal fun parseStoredDraft(input: String, baseConfig: ScheduleConfigEntity): Result<ImportDraft> = runCatching {
+        validatePayload(json.decodeFromString<ScheduleImportPayload>(input), baseConfig, allowImportedBellTimes = true)
+    }
+
     /** Local AI revisions reuse validation while retaining trusted source snapshots and custom bells. */
     internal fun validateEditedDraft(draft: ImportDraft): ImportDraft = validatePayload(ScheduleImportPayload(
         1, ScheduleConfigPayload(draft.config.totalWeeks, draft.periods.map {

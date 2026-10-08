@@ -17,10 +17,12 @@ data class AiEduImportProgress(
     val hasReadablePageText: Boolean? = null,
     val screenshotPreviews: List<RenderedPageImage> = emptyList(),
     val userPrompt: String = "帮我按规则导入这份课表",
+    val requestInstructions: String = "",
     val attachmentTitle: String = "",
     val requestSent: Boolean = false,
     val reasoningOutput: String = "",
     val aiOutput: String = "",
+    val assistantMessage: String = "",
     /** Human-readable state while the model is still processing the active request. */
     val liveSummary: String = "",
     val awaitingConfirmation: Boolean = false,
@@ -41,8 +43,21 @@ data class AiEduImportProgress(
 data class AiEduImportConversationTurn(
     val userPrompt: String,
     val reasoningOutput: String = "",
-    val aiOutput: String = ""
+    val aiOutput: String = "",
+    val artifactPayload: String = "",
+    val status: String = "已完成",
+    val assistantMessage: String = ""
 )
+
+internal fun archiveImportTurn(progress: AiEduImportProgress, draft: ImportDraft? = null): List<AiEduImportConversationTurn> {
+    val turn = AiEduImportConversationTurn(progress.userPrompt, progress.reasoningOutput, progress.aiOutput,
+        draft?.let { draftToPayload(it).toString() }.orEmpty(),
+        when { progress.error != null -> progress.error; progress.awaitingUserInput -> "已停止，等待补充"; else -> "已完成" },
+        progress.assistantMessage)
+    val previous = progress.conversationTurns
+    return if (previous.lastOrNull()?.let { it.userPrompt == turn.userPrompt && it.aiOutput == turn.aiOutput } == true)
+        previous.dropLast(1) + turn else previous + turn
+}
 
 enum class AiEduImportStepStatus {
     Done,
@@ -128,9 +143,15 @@ object AiEduImportProgressSession {
             synchronized(lock) {
                 val current = _progress.value
                 if (generation == reasoningGeneration && current?.taskId == taskId && !current.finished) {
-                    _liveReasoning.value = AiImportLiveReasoning(taskId, text)
+                    _liveReasoning.value = _liveReasoning.value.copy(taskId = taskId, text = text)
                 }
             }
+        }
+    }
+    internal fun updateStream(taskId: String, nativeReasoning: Boolean, output: String) = synchronized(lock) {
+        if (_progress.value?.let { it.taskId == taskId && !it.finished } == true) {
+            _liveReasoning.value = _liveReasoning.value.copy(taskId = taskId, nativeReasoning = nativeReasoning,
+                courses = completeStreamingCourses(output))
         }
     }
     private val _historySelection = MutableStateFlow<ImportDraft?>(null)
@@ -202,7 +223,18 @@ object AiEduImportProgressSession {
 
     fun useScreenMode() = consumeAction { onScreenMode }
 
-    fun cancel() = consumeAction { onCancel }
+    fun cancel() {
+        val action = synchronized(lock) {
+            val callback = onCancel
+            clearActionsLocked()
+            _progress.value?.takeIf { it.awaitingConfirmation }?.let { current ->
+                _previewDraft.value = null
+                update(current.copy(awaitingConfirmation = false, finished = true, returnToBrowser = true))
+            }
+            callback
+        }
+        action?.invoke()
+    }
 
     fun selectHistoryDraft(draft: ImportDraft) {
         _historySelection.value = draft
@@ -240,7 +272,8 @@ object AiEduImportProgressSession {
     }
 }
 
-internal data class AiImportLiveReasoning(val taskId: String = "", val text: String = "")
+internal data class AiImportLiveReasoning(val taskId: String = "", val text: String = "",
+    val nativeReasoning: Boolean = false, val courses: List<CourseEntity> = emptyList())
 
 data class AiEduFinalImportRequest(
     val draft: ImportDraft,

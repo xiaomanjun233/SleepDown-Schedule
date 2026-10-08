@@ -38,7 +38,10 @@ internal data class AgentResponsesTurn(
  * opaque reasoning items, so schedule context stays stateless without breaking reasoning/tool
  * continuity.
  */
-internal class OpenAiResponsesAgentRunner {
+internal class OpenAiResponsesAgentRunner(
+    private val interaction: AiImportInteraction? = null,
+    private val onReasoning: ((String) -> Unit)? = null
+) {
     fun chat(
         settings: AiImportSettings,
         chatMessages: List<JsonObject>,
@@ -66,6 +69,7 @@ internal class OpenAiResponsesAgentRunner {
         var outputRetryRequested = false
 
         toolRounds@ for (round in 0 until MaxAgentToolRounds) {
+            interaction?.checkActive()
             onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在思考"))
             telemetry.requestStarted()
             val decision = parseAgentResponsesTurn(
@@ -254,6 +258,14 @@ internal class OpenAiResponsesAgentRunner {
     }
 
     private fun post(settings: AiImportSettings, body: JsonObject): String {
+        if (interaction != null) {
+            val path = settings.profile.responsesPath.trim('/')
+            val base = if (path.isEmpty()) settings.profile.baseUrl.trim().trimEnd('/')
+                else normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl).trimEnd('/')
+            return postJson(if (path.isEmpty()) base else "$base/$path", settings.apiKey, body.toString(),
+                settings.profile.authType, settings.profile.id,
+                AiImportNetworkContext("AGENT", interaction = interaction, onReasoningUpdate = onReasoning, onPhase = interaction.onHttpPhase))
+        }
         val connection = open(settings, body)
         val code = connection.responseCode
         val source = if (code in 200..299) connection.inputStream else connection.errorStream
@@ -320,6 +332,7 @@ internal class OpenAiResponsesAgentRunner {
             contentType = "application/json; charset=utf-8",
             accept = null
         ).apply {
+            interaction?.attach(this)
             outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
         }
     }

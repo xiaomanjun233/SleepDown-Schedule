@@ -192,7 +192,7 @@ object AiImportHistoryStore {
     }
 
     fun restore(entry: AiImportHistoryEntry, baseConfig: ScheduleConfigEntity): Result<ImportDraft> =
-        ScheduleImportParser.parse(entry.payload, baseConfig).map { it.copy(source = ImportDraftSource.AI_EDU) }
+        ScheduleImportParser.parseStoredDraft(entry.payload, baseConfig).map { it.copy(source = ImportDraftSource.AI_EDU) }
 
     private fun save(context: Context, entries: List<AiImportHistoryEntry>) {
         val array = JSONArray().apply {
@@ -249,8 +249,8 @@ object AiImportHistoryStore {
     )
 }
 
-private fun progressToJson(progress: AiEduImportProgress): JSONObject = JSONObject()
-    .put("schemaVersion", 1)
+internal fun progressToJson(progress: AiEduImportProgress): JSONObject = JSONObject()
+    .put("schemaVersion", 2)
     .put("steps", JSONArray(progress.steps))
     .put("routeLabel", progress.routeLabel)
     .put("requestPreview", progress.requestPreview)
@@ -267,10 +267,15 @@ private fun progressToJson(progress: AiEduImportProgress): JSONObject = JSONObje
         }
     })
     .put("userPrompt", progress.userPrompt)
+    .put("requestInstructions", progress.requestInstructions)
+    .put("awaitingUserInput", progress.awaitingUserInput)
+    .put("clarificationQuestions", JSONArray(progress.clarificationQuestions))
+    .put("liveSummary", progress.liveSummary)
     .put("attachmentTitle", progress.attachmentTitle)
     .put("requestSent", progress.requestSent)
     .put("reasoningOutput", progress.reasoningOutput)
     .put("aiOutput", progress.aiOutput)
+    .put("assistantMessage", progress.assistantMessage)
     .put("awaitingConfirmation", progress.awaitingConfirmation)
     .put("confirmActionLabel", progress.confirmActionLabel)
     .put("secondaryConfirmActionLabel", progress.secondaryConfirmActionLabel)
@@ -278,27 +283,21 @@ private fun progressToJson(progress: AiEduImportProgress): JSONObject = JSONObje
     .put("cancelActionLabel", progress.cancelActionLabel)
     .put("finished", progress.finished)
     .put("conversationTurns", JSONArray().apply {
-        val turns = progress.conversationTurns.ifEmpty {
-            listOf(
-                AiEduImportConversationTurn(
-                    userPrompt = progress.userPrompt,
-                    reasoningOutput = progress.reasoningOutput,
-                    aiOutput = progress.aiOutput
-                )
-            )
-        }
-        turns.forEach { turn ->
+        progress.conversationTurns.forEach { turn ->
             put(
                 JSONObject()
                     .put("userPrompt", turn.userPrompt)
                     .put("reasoningOutput", turn.reasoningOutput)
                     .put("aiOutput", turn.aiOutput)
+                    .put("artifactPayload", turn.artifactPayload)
+                    .put("status", turn.status)
+                    .put("assistantMessage", turn.assistantMessage)
             )
         }
     })
     .apply { progress.error?.let { put("error", it) } }
 
-private fun progressFromJson(root: JSONObject): AiEduImportProgress {
+internal fun progressFromJson(root: JSONObject): AiEduImportProgress {
     val stepsJson = root.optJSONArray("steps") ?: JSONArray()
     val imagesJson = root.optJSONArray("screenshotPreviews") ?: JSONArray()
     val turnsJson = root.optJSONArray("conversationTurns") ?: JSONArray()
@@ -326,10 +325,17 @@ private fun progressFromJson(root: JSONObject): AiEduImportProgress {
             }
         },
         userPrompt = root.optString("userPrompt", "帮我按规则导入这份课表"),
+        requestInstructions = root.optString("requestInstructions"),
+        awaitingUserInput = root.optBoolean("awaitingUserInput"),
+        clarificationQuestions = root.optJSONArray("clarificationQuestions")?.let { questions ->
+            List(questions.length()) { questions.optString(it) }
+        }.orEmpty(),
+        liveSummary = root.optString("liveSummary"),
         attachmentTitle = root.optString("attachmentTitle"),
         requestSent = root.optBoolean("requestSent"),
         reasoningOutput = root.optString("reasoningOutput"),
         aiOutput = root.optString("aiOutput"),
+        assistantMessage = root.optString("assistantMessage"),
         awaitingConfirmation = root.optBoolean("awaitingConfirmation"),
         confirmActionLabel = root.optString("confirmActionLabel"),
         secondaryConfirmActionLabel = root.optString("secondaryConfirmActionLabel"),
@@ -344,10 +350,18 @@ private fun progressFromJson(root: JSONObject): AiEduImportProgress {
                     AiEduImportConversationTurn(
                         userPrompt = turn.optString("userPrompt"),
                         reasoningOutput = turn.optString("reasoningOutput"),
-                        aiOutput = turn.optString("aiOutput")
+                        aiOutput = turn.optString("aiOutput"),
+                        artifactPayload = turn.optString("artifactPayload"),
+                        status = turn.optString("status", "已完成"),
+                        assistantMessage = turn.optString("assistantMessage")
                     )
                 )
             }
+        }.let { turns ->
+            // Version 1 included the current reply in its history. Version 2 stores only prior turns.
+            if (root.optInt("schemaVersion", 1) < 2 && turns.lastOrNull()?.let {
+                it.userPrompt == root.optString("userPrompt") && it.aiOutput == root.optString("aiOutput")
+            } == true) turns.dropLast(1) else turns
         }
     )
 }
@@ -358,6 +372,7 @@ internal fun draftToPayload(draft: ImportDraft): JSONObject = JSONObject()
         "scheduleConfig",
         JSONObject()
             .put("totalWeeks", draft.config.totalWeeks)
+            .put("periodAlignmentMode", draft.config.periodAlignmentMode.name)
             .put("periods", JSONArray().apply {
                 draft.periods.sortedBy { it.periodIndex }.forEach { period ->
                     put(JSONObject().put("index", period.periodIndex).put("startTime", period.startTime).put("endTime", period.endTime))
@@ -378,6 +393,8 @@ internal fun draftToPayload(draft: ImportDraft): JSONObject = JSONObject()
                     .put("note", course.note ?: JSONObject.NULL)
                     .put("customStartTime", course.customStartTime ?: JSONObject.NULL)
                     .put("customEndTime", course.customEndTime ?: JSONObject.NULL)
+                    .put("customPeriodTimes", course.customPeriodTimes ?: JSONObject.NULL)
+                    .put("originalPeriodTimes", course.originalPeriodTimes ?: JSONObject.NULL)
                     .put("customColorArgb", course.customColorArgb ?: JSONObject.NULL)
             )
         }

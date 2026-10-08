@@ -150,20 +150,23 @@ import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 
 open class AiEduImportProgressActivityHost : ComponentActivity() {
+    private var displayedTaskId by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         val app = application as CourseScheduleApp
-        val taskId = intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID)
-        AiImportForegroundService.clearCompletion(this, taskId)
+        displayedTaskId = intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID)
+        AiImportForegroundService.clearCompletion(this, displayedTaskId)
         setContent {
             val state by app.repository.state.collectAsStateWithLifecycle(AppState())
             CourseScheduleTheme(config = state.config) {
+                androidx.compose.runtime.key(displayedTaskId) {
                 AiEduImportProgressPage(
                     config = state.config,
-                    taskId = taskId,
+                    taskId = displayedTaskId,
                     onImportSubmitted = { returnToScheduleHome() },
                     onScreenModeRequested = {
                         finish()
@@ -176,6 +179,7 @@ open class AiEduImportProgressActivityHost : ComponentActivity() {
                         finish()
                     }
                 )
+                }
             }
         }
     }
@@ -183,6 +187,7 @@ open class AiEduImportProgressActivityHost : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        displayedTaskId = intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID)
         AiImportForegroundService.clearCompletion(
             this,
             intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID)
@@ -495,6 +500,11 @@ internal fun AiEduImportProgressPage(
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                current.conversationTurns.forEachIndexed { index, turn ->
+                    item(key = "conversation-turn-$index") {
+                        AiEduConversationTurnSummary(turn, index + 1, textColor, config)
+                    }
+                }
                 item {
                     AiEduUserMessage(
                         progress = current,
@@ -504,15 +514,6 @@ internal fun AiEduImportProgressPage(
                         showAttachment = !previewSourceHidden,
                         onPreview = { previewAttachment = it }
                     )
-                }
-                current.conversationTurns.forEachIndexed { index, turn ->
-                    item(key = "conversation-turn-${index}-${turn.userPrompt.hashCode()}") {
-                        AiEduConversationTurnSummary(
-                            turn = turn,
-                            index = index + 1,
-                            textColor = textColor
-                        )
-                    }
                 }
                 val summary = current.reasoningOutput.ifBlank {
                     current.liveSummary.takeIf { current.finished || current.awaitingConfirmation }.orEmpty()
@@ -561,7 +562,7 @@ internal fun AiEduImportProgressPage(
                 if (current.requestSent && !current.finished && current.error == null && !current.awaitingConfirmation) {
                     item(key = "live-model-reasoning") {
                         AiImportReasoningPanel(taskId = current.taskId, textColor = textColor,
-                            listState = listState)
+                            listState = listState, summary = current.liveSummary)
                     }
                 }
                 if (current.awaitingUserInput) item(key = "model-questions") {
@@ -575,6 +576,10 @@ internal fun AiEduImportProgressPage(
                 }
                 previewDraft?.takeIf { current.finished && !current.awaitingUserInput && current.error == null }?.let { draft ->
                     item {
+                        if (current.assistantMessage.isNotBlank()) {
+                            AgentMarkdownText(current.assistantMessage, textColor, MaterialTheme.typography.bodyMedium)
+                            Spacer(Modifier.height(12.dp))
+                        }
                         AiEduInlineImportPreview(
                             draft = draft,
                             textColor = textColor,
@@ -674,20 +679,27 @@ private fun Bitmap.cropToWindowBounds(
 private fun AiEduConversationTurnSummary(
     turn: AiEduImportConversationTurn,
     index: Int,
-    textColor: Color
+    textColor: Color,
+    config: ScheduleConfigEntity
 ) {
-    val summary = turn.reasoningOutput.ifBlank { "模型已完成这一轮修改。" }
+    val artifact = remember(turn.artifactPayload, config) {
+        turn.artifactPayload.takeIf(String::isNotBlank)?.let { ScheduleImportParser.parseStoredDraft(it, config).getOrNull() }
+    }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedRectangle(16.dp))
-            .background(textColor.copy(alpha = 0.055f))
             .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text("第 $index 轮修改", color = textColor.copy(alpha = 0.64f), style = MaterialTheme.typography.labelMedium)
-        Text(turn.userPrompt, color = textColor, style = MaterialTheme.typography.bodyMedium, maxLines = 3)
-        AiEduModelSummary(summary, textColor)
+        Text("第 $index 轮 · ${turn.status}", color = textColor.copy(alpha = 0.64f), style = MaterialTheme.typography.labelMedium)
+        AgentMarkdownText(turn.userPrompt, textColor, MaterialTheme.typography.bodyMedium)
+        if (turn.reasoningOutput.isNotBlank()) AiEduModelSummary(turn.reasoningOutput, textColor)
+        if (turn.assistantMessage.isNotBlank()) AgentMarkdownText(turn.assistantMessage, textColor, MaterialTheme.typography.bodyMedium)
+        artifact?.let { draft ->
+            AiEduModelSummary("", textColor, "交付物 $index · ${draft.courses.size} 门课程") {
+                draft.courses.forEach { ImportPreviewCourseCard(it, draft.periods, draft.config) }
+            }
+        }
     }
 }
 
@@ -713,7 +725,7 @@ private fun AiEduModelSummary(
         }
         androidx.compose.animation.AnimatedVisibility(expanded) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (summary.isNotBlank()) Text(summary, color = textColor.copy(alpha = 0.86f), style = MaterialTheme.typography.bodyMedium)
+                if (summary.isNotBlank()) AgentMarkdownText(summary, textColor.copy(alpha = 0.86f), MaterialTheme.typography.bodyMedium)
                 details?.invoke()
             }
         }
@@ -1422,6 +1434,9 @@ private fun AiEduInlineImportPreview(
         )
         draft.courses.forEach { course ->
             ImportPreviewCourseCard(course, draft.periods, draft.config)
+        }
+        remember(draft) { importConflictNotice(draft) }?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
         Text(
             "如果内容不对，直接在下方告诉 AI 怎么修改。确认导入后会打开该课表，并引导你设置开学周。",

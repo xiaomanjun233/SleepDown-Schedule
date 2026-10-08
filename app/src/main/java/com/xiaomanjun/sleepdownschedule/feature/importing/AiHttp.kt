@@ -263,9 +263,11 @@ private fun postChatCompletionStreaming(
                 }
                 accumulator.consume(payload)
                 reasoningPublisher.publish(accumulator.displayReasoning)
+                requestContext.interaction?.publishStream(accumulator.reasoning.isNotEmpty(), accumulator.courseOutput)
             }
             trace.mark(AiImportHttpPhase.STREAM_END)
             reasoningPublisher.publish(accumulator.displayReasoning, force = true)
+            requestContext.interaction?.publishStream(accumulator.reasoning.isNotEmpty(), accumulator.courseOutput, force = true)
             accumulator.toCompletionJson()
         }
     } catch (throwable: Throwable) {
@@ -333,9 +335,11 @@ private fun postResponsesStreaming(
                 }
                 accumulator.consume(payload)
                 reasoningPublisher.publish(accumulator.displayReasoning)
+                requestContext.interaction?.publishStream(accumulator.reasoning.isNotEmpty(), accumulator.courseOutput)
             }
             trace.mark(AiImportHttpPhase.STREAM_END)
             reasoningPublisher.publish(accumulator.displayReasoning, force = true)
+            requestContext.interaction?.publishStream(accumulator.reasoning.isNotEmpty(), accumulator.courseOutput, force = true)
             accumulator.toResponseJson()
         }
     } catch (throwable: Throwable) {
@@ -369,6 +373,7 @@ internal class AiReasoningStreamPublisher(
 }
 
 internal class ChatCompletionSseAccumulator {
+    val courseOutput: String get() = toolCalls.values.firstNotNullOfOrNull { it.importArguments() } ?: content.toString()
     val content = StringBuilder()
     val reasoning = StringBuilder()
     val displayReasoning: CharSequence get() = reasoning.takeIf { it.isNotEmpty() }
@@ -442,6 +447,7 @@ internal fun JsonObject.optionalArray(field: String): List<JsonElement> = when (
 }
 
 private class ChatToolCallAccumulator {
+    fun importArguments(): String? = arguments.toString().takeIf { name.toString() == ScheduleImportToolName }
     private var id = ""
     private var type = "function"
     private val name = StringBuilder()
@@ -469,6 +475,7 @@ private class ChatToolCallAccumulator {
 }
 
 internal class ResponsesSseAccumulator {
+    val courseOutput: String get() = functionCalls.values.firstNotNullOfOrNull { it.importArguments() } ?: outputText.toString()
     private var completedResponse: JsonObject? = null
     private val outputItems = linkedMapOf<String, JsonObject>()
     private val functionCalls = linkedMapOf<String, ResponsesFunctionCallAccumulator>()
@@ -529,7 +536,7 @@ internal class ResponsesSseAccumulator {
         val functionKeys = functionCalls.keys
         val items = outputItems.filterKeys { it !in functionKeys }.values.toMutableList()
         items += functionCalls.values.map(ResponsesFunctionCallAccumulator::toJson)
-        if (reasoning.isNotEmpty()) {
+        if (reasoning.isNotEmpty() && items.none { it["type"]?.jsonPrimitive?.contentOrNull == "reasoning" }) {
             items += buildJsonObject {
                 put("type", JsonPrimitive("reasoning"))
                 put("summary", buildJsonArray {
@@ -540,7 +547,7 @@ internal class ResponsesSseAccumulator {
                 })
             }
         }
-        if (outputText.isNotEmpty()) {
+        if (outputText.isNotEmpty() && items.none { it["type"]?.jsonPrimitive?.contentOrNull == "message" }) {
             items += buildJsonObject {
                 put("type", JsonPrimitive("message"))
                 put("role", JsonPrimitive("assistant"))
@@ -561,6 +568,7 @@ internal class ResponsesSseAccumulator {
 }
 
 private class ResponsesFunctionCallAccumulator {
+    fun importArguments(): String? = arguments.toString().takeIf { name == ScheduleImportToolName }
     private var id = ""
     private var callId = ""
     private var name = ""

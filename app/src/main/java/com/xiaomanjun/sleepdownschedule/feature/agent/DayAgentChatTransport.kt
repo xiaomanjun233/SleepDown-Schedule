@@ -33,8 +33,19 @@ internal fun AiImportSettings.usesDeepSeekChatEndpoint(): Boolean =
  * Agent orchestration and local tool execution stay in [DayAgentService]; this class owns request
  * serialization, authentication, HTTP, and streaming response normalization.
  */
-internal class DayAgentChatTransport {
+internal class DayAgentChatTransport(
+    private val interaction: AiImportInteraction? = null,
+    private val onReasoning: ((String) -> Unit)? = null
+) {
     fun post(settings: AiImportSettings, body: String): String {
+        if (interaction != null) {
+            val path = settings.profile.chatCompletionsPath.trim('/')
+            val base = if (path.isEmpty()) settings.profile.baseUrl.trim().trimEnd('/')
+                else normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl).trimEnd('/')
+            return postJson(if (path.isEmpty()) base else "$base/$path", settings.apiKey, body,
+                settings.profile.authType, settings.profile.id,
+                AiImportNetworkContext("AGENT", interaction = interaction, onReasoningUpdate = onReasoning, onPhase = interaction.onHttpPhase))
+        }
         val connection = openConnection(settings, body)
         return try {
             connection.readResponse(settings.profile.id)
@@ -177,6 +188,7 @@ internal class DayAgentChatTransport {
             contentType = "application/json; charset=utf-8",
             accept = null
         )
+        interaction?.attach(connection)
         connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
         return connection
     }

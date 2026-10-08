@@ -44,11 +44,14 @@ object AiImportTaskManager {
         if (current.finished) return current.awaitingUserInput
         task.interaction.markCancelled()
         pendingTasks.remove(taskId)
-        update(taskId) { it.copy(
+        val paused = update(taskId) { it.copy(
             finished = true, awaitingUserInput = true, error = null,
             reasoningOutput = AiEduImportProgressSession.liveReasoning.value.text,
             liveSummary = "已停止当前解析。补充要求后可继续，已选材料会保留。"
         ) } ?: return false
+        AiEduImportProgressSession.previewDraft.value?.let { draft ->
+            AiImportHistoryStore.updateMatching(context, draft, draft, paused)
+        }
         activeJob?.cancel()
         (context.applicationContext as CourseScheduleApp).applicationScope.launch(Dispatchers.IO) {
             task.interaction.disconnect()
@@ -71,19 +74,23 @@ object AiImportTaskManager {
 
     fun continueImport(context: Context, taskId: String, instruction: String): String? {
         val task = restartableImport?.takeIf { it.taskId == taskId } ?: return null
-        val current = AiEduImportProgressSession.progress.value?.takeIf { it.taskId == taskId }
+        var current = AiEduImportProgressSession.progress.value?.takeIf { it.taskId == taskId }
             ?: return null
         if (instruction.isBlank()) return null
-        if (!current.finished) pauseImport(context, taskId)
+        if (!current.finished) {
+            if (!pauseImport(context, taskId)) return null
+            current = AiEduImportProgressSession.progress.value?.takeIf { it.taskId == taskId } ?: return null
+        }
         val prompt = buildString {
-            appendLine(current.userPrompt)
+            appendLine(current.requestInstructions.ifBlank { current.userPrompt })
             if (current.clarificationQuestions.isNotEmpty()) {
                 appendLine("待确认：${current.clarificationQuestions.joinToString("；")}")
             }
             append("用户补充：${instruction.trim()}")
         }
-        task.resumeRevision?.let { return it(context, current, prompt) }
-        return startTask(context, current.copy(userPrompt = prompt), task.config, task.settings,
+        task.resumeRevision?.let { return it(context, current, instruction.trim()) }
+        return startTask(context, current.copy(userPrompt = instruction.trim(), requestInstructions = prompt,
+            conversationTurns = archiveImportTurn(current)), task.config, task.settings,
             task.request ?: return null)
     }
 
@@ -201,6 +208,7 @@ object AiImportTaskManager {
         cancelPreviousAttempt(appContext)
         val taskId = UUID.randomUUID().toString()
         val interaction = AiImportInteraction(instruction)
+        interaction.onStream = { native, output -> AiEduImportProgressSession.updateStream(taskId, native, output) }
         restartableImport = RestartableImport(taskId, baseDraft.config, settings, interaction,
             resumeRevision = { nextContext, progress, prompt ->
                 startRevision(nextContext, baseDraft, prompt, progress, settings, historicalEntryId)
@@ -211,12 +219,14 @@ object AiImportTaskManager {
                 taskId = taskId,
                 steps = baseProgress.steps + "正在整理输入",
                 userPrompt = instruction,
+                conversationTurns = archiveImportTurn(baseProgress, baseDraft),
                 awaitingUserInput = false,
                 clarificationQuestions = emptyList(),
                 liveSummary = "正在整理修改要求、现有课程和原始材料。",
                 requestSent = false,
                 reasoningOutput = "",
                 aiOutput = "",
+                assistantMessage = "",
                 finished = false,
                 error = null
             )
@@ -254,7 +264,8 @@ object AiImportTaskManager {
         val appContext = context.applicationContext
         cancelPreviousAttempt(appContext)
         val taskId = UUID.randomUUID().toString()
-        val interaction = AiImportInteraction(initialProgress.userPrompt)
+        val interaction = AiImportInteraction(initialProgress.requestInstructions.ifBlank { initialProgress.userPrompt })
+        interaction.onStream = { native, output -> AiEduImportProgressSession.updateStream(taskId, native, output) }
         restartableImport = RestartableImport(taskId, scheduleConfig, settings, interaction, request)
         AiEduImportProgressSession.setPreviewDraft(null)
         AiEduImportProgressSession.update(
@@ -270,6 +281,7 @@ object AiImportTaskManager {
                 requestSent = false,
                 reasoningOutput = "",
                 aiOutput = "",
+                assistantMessage = "",
                 finished = false,
                 error = null
             )
@@ -406,6 +418,7 @@ object AiImportTaskManager {
             it.copy(
                 steps = it.steps + "完成",
                 liveSummary = "已整理出 ${preview.courses.size} 门课程，可以检查导入预览。",
+                assistantMessage = aiResult.routeMessage,
                 requestSent = true,
                 finished = true,
                 error = null
@@ -452,7 +465,7 @@ object AiImportTaskManager {
             it.copy(reasoningOutput = result.reasoningOutput, aiOutput = result.rawOutput)
         }
         appendMainStep(taskId, context, "正在校验课程数据", "正在检查修改后的星期、节次和周次。")
-        val revised = ScheduleImportParser.parse(
+        val revised = ScheduleImportParser.parseStoredDraft(
             result.output.ifBlank { result.rawOutput },
             baseDraft.config
         ).getOrElse { error ->
@@ -460,15 +473,6 @@ object AiImportTaskManager {
             return@coroutineScope
         }.copy(source = ImportDraftSource.AI_EDU)
         appendMainStep(taskId, context, "正在生成导入预览", "修改结果已通过校验，正在更新导入预览。")
-        val previousTurns = baseProgress.conversationTurns.ifEmpty {
-            listOf(
-                AiEduImportConversationTurn(
-                    userPrompt = baseProgress.userPrompt,
-                    reasoningOutput = baseProgress.reasoningOutput,
-                    aiOutput = baseProgress.aiOutput
-                )
-            )
-        }
         val completed = AiEduImportProgressSession.updateActiveTask(taskId, revised) {
             it.copy(
                 steps = it.steps + "完成",
@@ -476,16 +480,13 @@ object AiImportTaskManager {
                 requestSent = true,
                 reasoningOutput = result.reasoningOutput,
                 aiOutput = result.rawOutput,
+                assistantMessage = result.routeMessage,
                 liveSummary = result.reasoningOutput.ifBlank {
                     "本轮已按你的要求更新课表，并通过本地校验。"
                 },
                 finished = true,
                 error = null,
-                conversationTurns = previousTurns + AiEduImportConversationTurn(
-                    userPrompt = instruction,
-                    reasoningOutput = result.reasoningOutput,
-                    aiOutput = result.rawOutput
-                )
+                conversationTurns = it.conversationTurns
             )
         } ?: return@coroutineScope
         if (historicalEntryId != null) {
@@ -523,6 +524,20 @@ object AiImportTaskManager {
         error: Throwable,
         step: String
     ) {
+        if (error is AiImportClarificationRequired) {
+            val waiting = update(taskId) { it.copy(
+                finished = true, awaitingUserInput = true, clarificationQuestions = error.questions,
+                reasoningOutput = AiEduImportProgressSession.liveReasoning.value.text,
+                liveSummary = "请补充下面的信息后继续。", error = null
+            ) }
+            if (waiting != null) {
+                AiEduImportProgressSession.previewDraft.value?.let { draft ->
+                    AiImportHistoryStore.updateMatching(context, draft, draft, waiting)
+                }
+                AiImportForegroundService.finishRouting(context, taskId)
+            }
+            return
+        }
         val rawBody = error.aiRawResponseBody().orEmpty()
         val updated = update(taskId) { progress ->
             progress.copy(

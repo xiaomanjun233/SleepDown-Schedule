@@ -6,6 +6,17 @@ import java.net.HttpURLConnection
 
 /** One attempt's cancellation and user instructions. Original attachments stay in the task owner. */
 class AiImportInteraction(val instruction: String) {
+    internal var onHttpPhase: (AiImportHttpPhase) -> Unit = {}
+    internal var onStream: ((Boolean, String) -> Unit)? = null
+    private var lastStreamAt = 0L
+    internal fun publishStream(nativeReasoning: Boolean, output: String, force: Boolean = false) {
+        checkActive()
+        val now = System.nanoTime()
+        if (force || now - lastStreamAt >= 100_000_000L) {
+            lastStreamAt = now
+            onStream?.invoke(nativeReasoning, output)
+        }
+    }
     @Volatile private var cancelled = false
     @Volatile private var connection: HttpURLConnection? = null
 

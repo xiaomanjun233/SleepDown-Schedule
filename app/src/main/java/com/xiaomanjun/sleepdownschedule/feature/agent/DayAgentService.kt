@@ -380,8 +380,12 @@ internal fun parseApiZeroWeatherPayload(
     )
 }
 
-class DayAgentService(private val context: Context) {
-    private val chatTransport = DayAgentChatTransport()
+class DayAgentService(
+    private val context: Context,
+    private val interaction: AiImportInteraction? = null,
+    private val onReasoning: ((String) -> Unit)? = null
+) {
+    private val chatTransport = DayAgentChatTransport(interaction, onReasoning)
 
     suspend fun chat(
         facts: DayAgentFacts,
@@ -390,7 +394,10 @@ class DayAgentService(private val context: Context) {
         imageAttachment: AgentImageAttachment? = null,
         onStatus: (AgentRunStatus) -> Unit,
         onDelta: (String) -> Unit,
-        onStreamReset: () -> Unit = {}
+        onStreamReset: () -> Unit = {},
+        settingsOverride: AiImportSettings? = null,
+        taskBoundary: String? = null,
+        answerConstraint: (String) -> String? = { null }
     ): String = withContext(Dispatchers.IO) {
         require(facts.scheduleId > 0) { "当前课表尚未就绪" }
         require(facts.semesterCourses.all { it.scheduleId == facts.scheduleId }) {
@@ -398,7 +405,7 @@ class DayAgentService(private val context: Context) {
         }
         // Resolve the same usable profile as the entry-point card. A selected but incomplete
         // draft must not mask the signed backend-issued daily-free credential at request time.
-        val settings = AiImportSettingsStore.loadForRuntime(context)
+        val settings = settingsOverride ?: AiImportSettingsStore.loadForRuntime(context)
             ?: AiImportSettingsStore.load(context)
         require(settings.profile.id != AiProviderPresets.none.id) { "请先在 AI 设置中选择服务商" }
         require(settings.apiKey.isNotBlank()) { "请先在 AI 设置中配置 API Key" }
@@ -410,15 +417,20 @@ class DayAgentService(private val context: Context) {
             ),
             model = settings.profile.defaultModel
         )
-        val memoryEnabled = DayAgentPreferences.isMemoryEnabled(context)
+        val memoryEnabled = taskBoundary == null && DayAgentPreferences.isMemoryEnabled(context)
         val savedMemory = DayAgentPreferences.memory(context)
-        val memoryToolAvailable = DayAgentPreferences.shouldOfferMemoryUpdate(context, facts.date)
+        val memoryToolAvailable = memoryEnabled && DayAgentPreferences.shouldOfferMemoryUpdate(context, facts.date)
         val availableCachedFacts = SharedAgentToolFacts.read(facts, System.currentTimeMillis())
         val cachedFacts = agentPreloadedFacts(availableCachedFacts)
         fun executeTurnTool(call: AgentToolCall): AgentToolResult =
-            (availableCachedFacts[call.cacheKey()]?.copy(callId = call.id)
+            (if (call.name == AgentToolName.UPDATE_MEMORY && !memoryToolAvailable) {
+                AgentToolResult(call.id, call.name, false, "当前工作区不允许修改助手记忆，请继续课表任务。")
+            } else availableCachedFacts[call.cacheKey()]?.copy(callId = call.id)
                 ?: executeAgentToolCall(call, facts)).also {
                 SharedAgentToolFacts.put(facts, call, it, System.currentTimeMillis())
+            }.let { result ->
+                val feedback = result.proposedAnswer?.let(answerConstraint)
+                if (feedback == null) result else result.copy(success = false, content = feedback, proposedAnswer = null)
             }
         val turnTools = AgentTurnToolSession(cachedFacts, ::executeTurnTool)
         if (imageAttachment != null) {
@@ -428,6 +440,7 @@ class DayAgentService(private val context: Context) {
         }
         val messages = mutableListOf<JsonObject>().apply {
             add(agentTextMessage("system", DayAgentPrompts.ChatSystem))
+            taskBoundary?.let { add(agentTextMessage("system", it)) }
             add(agentTextMessage("system", DayAgentPrompts.runtimeClock(facts)))
             if (cachedFacts.isNotEmpty()) add(agentTextMessage("system", agentCachedFactsMessage(facts, cachedFacts)))
             add(
@@ -481,7 +494,7 @@ class DayAgentService(private val context: Context) {
         val telemetry = DayAgentTurnTelemetry(settings.profile.id)
         try {
             if (AiProviderPresets.shouldUseResponses(settings.profile)) {
-                return@withContext OpenAiResponsesAgentRunner().chat(
+                return@withContext OpenAiResponsesAgentRunner(interaction, onReasoning).chat(
                     settings = settings,
                     chatMessages = messages,
                     includeMemoryTool = memoryToolAvailable,
@@ -491,7 +504,7 @@ class DayAgentService(private val context: Context) {
                     executeTool = ::executeTurnTool,
                     cachedTools = cachedFacts.values.map { it.name }.filter { it.isOneShotPerTurn }.toSet(),
                     cachedResults = cachedFacts,
-                    validateAnswer = { agentAnswerValidationFeedback(it, facts) },
+                    validateAnswer = { agentAnswerValidationFeedback(it, facts) ?: answerConstraint(it) },
                     telemetry = telemetry
                 )
             }
@@ -527,6 +540,7 @@ class DayAgentService(private val context: Context) {
 
             var outputRetryRequested = false
             for (round in 0 until MaxAgentToolRounds) {
+                interaction?.checkActive()
                 onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在思考"))
                 fun requestDecision(forceMiMoWebSearch: Boolean): AgentToolDecision {
                     val decisionBody = chatTransport.agentBody(
@@ -580,7 +594,7 @@ class DayAgentService(private val context: Context) {
                 if (decision.calls.isEmpty()) {
                     val answer = usableAgentAnswer(decision.content)
                     if (answer != null) {
-                        val feedback = agentAnswerValidationFeedback(answer, facts)
+                        val feedback = agentAnswerValidationFeedback(answer, facts) ?: answerConstraint(answer)
                         if (feedback != null) {
                             onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "根据自检结果修正计划"))
                             messages += decision.assistantMessage
@@ -631,7 +645,7 @@ class DayAgentService(private val context: Context) {
                 onStatus = onStatus,
                 onDelta = onDelta,
                 onStreamReset = onStreamReset,
-                validateAnswer = { agentAnswerValidationFeedback(it, facts) },
+                validateAnswer = { agentAnswerValidationFeedback(it, facts) ?: answerConstraint(it) },
                 telemetry = telemetry
             )
         } finally {

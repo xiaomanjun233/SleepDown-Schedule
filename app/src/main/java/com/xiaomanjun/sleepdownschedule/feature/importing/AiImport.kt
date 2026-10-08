@@ -193,29 +193,9 @@ class AiScheduleImportService(
             require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
             require(settings.profile.baseUrl.isNotBlank()) { "请先配置接口地址" }
             require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
-            val config = settings.toProviderConfig().normalizedForRequest()
-            val request = buildAiRevisionInput(draft, instruction, history)
-            val networkContext = AiImportNetworkContext(
-                inputType = "REVISION",
-                interaction = interaction,
-                imageCount = history.screenshotPreviews.size,
-                screenshotCount = history.screenshotPreviews.size,
-                onPhase = onHttpPhase,
-                onReasoningUpdate = onReasoningUpdate,
-                processImportanceProvider = { currentAiProcessImportance(context) }
-            )
-            val result = when {
-                config.endpointStyle == AiEndpointStyle.RESPONSES ->
-                    OpenAiResponsesProvider().reviseSchedule(config, request, history, networkContext)
-                else -> OpenAiCompatibleChatProvider().reviseSchedule(config, request, history, networkContext)
-            }
-            val revisedDraft = applyAiSchedulePatch(draft, result.content)
-            AiScheduleImportResult(
-                output = draftToPayload(revisedDraft).toString(),
-                routeMessage = "已按要求修改课表。",
-                rawOutput = result.content,
-                reasoningOutput = result.reasoning
-            )
+            interaction?.onHttpPhase = onHttpPhase
+            com.xiaomanjun.sleepdownschedule.feature.agent.AgentImportRuntime.revise(
+                context, draft, instruction, history, settings, interaction, onReasoningUpdate)
         }
     }
 }
