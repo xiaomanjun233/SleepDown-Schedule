@@ -40,7 +40,7 @@ import kotlin.math.sin
 internal fun WeekHeaderWeather(color: Color) {
     val context = LocalContext.current.applicationContext
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    val frozen = LocalHomeBackgroundFrozen.current
+    val frozen = LocalHomeBackgroundFrozen.current.value
     val repository = remember(context) { DayAgentWeatherRepository(context) }
     var weather by remember(context) {
         mutableStateOf(

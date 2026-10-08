@@ -287,7 +287,7 @@ internal fun WeekPageSamplingScope(
     CompositionLocalProvider(
         LocalWeekPageSlot provides page,
         LocalGlassSampleRecordKey provides sampleKey,
-        LocalHomeTextContrastFrozen provides (LocalHomeTextContrastFrozen.current || motion.moving)
+        LocalHomeTextContrastFrozen provides rememberUpdatedState(LocalHomeTextContrastFrozen.current.value || motion.moving)
     ) {
         content()
     }

@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.text
 
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.State
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -17,7 +18,8 @@ internal class CourseTextBackground(
 internal val LocalCourseTextBackground = compositionLocalOf<CourseTextBackground?> { null }
 
 /** The page keeps its current text contrast while cards move under the wallpaper. */
-internal val LocalCourseTextMotionFrozen = compositionLocalOf { false }
+private val CourseTextAtRest = object : State<Boolean> { override val value = false }
+internal val LocalCourseTextMotionFrozen = compositionLocalOf<State<Boolean>> { CourseTextAtRest }
 
 /** Keep the supplied text color fixed; add a soft opposite-color shadow only where needed. */
 internal fun softTextShadowStrength(

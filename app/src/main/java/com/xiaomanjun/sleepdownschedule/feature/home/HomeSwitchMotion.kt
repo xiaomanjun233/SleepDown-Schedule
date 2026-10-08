@@ -314,15 +314,20 @@ internal fun HomeSwitchPane(
         val parentFrozen = LocalGlassCoordinatesFrozen.current
         val parentKey = LocalGlassSampleRecordKey.current
         val hiddenKey = remember { Any() }
-        val frozen = remember(visible, parentFrozen) { { !visible || parentFrozen() } }
-        val sampleKey = remember(visible, parentKey) { { if (visible) parentKey() else hiddenKey } }
+        val currentVisible = rememberUpdatedState(visible)
+        val currentParentFrozen = rememberUpdatedState(parentFrozen)
+        val currentParentKey = rememberUpdatedState(parentKey)
+        // The callbacks read changing visibility in drawing. Replacing the callbacks would
+        // instead invalidate every retained glass consumer when this pane appears/disappears.
+        val frozen = remember { { !currentVisible.value || currentParentFrozen.value() } }
+        val sampleKey = remember { { if (currentVisible.value) currentParentKey.value() else hiddenKey } }
         CompositionLocalProvider(
             LocalSwitchPages provides pages,
             LocalHomePaneVisible provides (LocalHomePaneVisible.current && visible),
             LocalGlassCoordinatesFrozen provides frozen,
             LocalGlassSampleRecordKey provides sampleKey,
-            LocalHomeBackgroundFrozen provides (LocalHomeBackgroundFrozen.current || !visible),
-            LocalHomeTextContrastFrozen provides (LocalHomeTextContrastFrozen.current || !visible)
+            LocalHomeBackgroundFrozen provides rememberUpdatedState(LocalHomeBackgroundFrozen.current.value || !visible),
+            LocalHomeTextContrastFrozen provides rememberUpdatedState(LocalHomeTextContrastFrozen.current.value || !visible)
         ) { content() }
     }
 }
@@ -330,7 +335,7 @@ internal fun HomeSwitchPane(
 /** A retained day page must not leak neighbouring cards through the outer page's rebound. */
 @Composable
 internal fun HomeDayPageDrawingScope(pager: PagerState, page: Int, content: @Composable () -> Unit) {
-    val homeSwitching = LocalHomeTextContrastFrozen.current
+    val homeSwitching = LocalHomeTextContrastFrozen.current.value
     val visible by remember(pager, page, homeSwitching) {
         derivedStateOf {
             if (homeSwitching) page == pager.settledPage else {
@@ -342,10 +347,13 @@ internal fun HomeDayPageDrawingScope(pager: PagerState, page: Int, content: @Com
     val parentFrozen = LocalGlassCoordinatesFrozen.current
     val parentKey = LocalGlassSampleRecordKey.current
     val hiddenKey = remember(page) { Any() }
-    val frozen = remember(visible, parentFrozen) { { !visible || parentFrozen() } }
-    val key = remember(visible, parentKey, pager) {
+    val currentVisible = rememberUpdatedState(visible)
+    val currentParentFrozen = rememberUpdatedState(parentFrozen)
+    val currentParentKey = rememberUpdatedState(parentKey)
+    val frozen = remember { { !currentVisible.value || currentParentFrozen.value() } }
+    val key = remember(pager, hiddenKey) {
         derivedStateOf {
-            if (visible) Pair(parentKey(), pager.currentPage + pager.currentPageOffsetFraction) else hiddenKey
+            if (currentVisible.value) Pair(currentParentKey.value(), pager.currentPage + pager.currentPageOffsetFraction) else hiddenKey
         }
     }
     val sampleKey = remember(key) { { key.value } }
@@ -353,8 +361,8 @@ internal fun HomeDayPageDrawingScope(pager: PagerState, page: Int, content: @Com
         LocalGlassCoordinatesFrozen provides frozen,
         LocalGlassSampleRecordKey provides sampleKey,
         LocalHomePaneVisible provides (LocalHomePaneVisible.current && visible),
-        LocalHomeBackgroundFrozen provides (LocalHomeBackgroundFrozen.current || !visible),
-        LocalHomeTextContrastFrozen provides (homeSwitching || !visible || pager.isScrollInProgress)
+        LocalHomeBackgroundFrozen provides rememberUpdatedState(LocalHomeBackgroundFrozen.current.value || !visible),
+        LocalHomeTextContrastFrozen provides rememberUpdatedState(homeSwitching || !visible || pager.isScrollInProgress)
     ) {
         Box(Modifier.drawWithContent { if (visible) drawContent() }) { content() }
     }

@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.home.week
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseAlignmentFragments
 
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
+import kotlinx.coroutines.flow.collectLatest
 
 import com.xiaomanjun.sleepdownschedule.feature.agent.excludeHomeAssistantPull
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
@@ -469,7 +470,7 @@ internal fun SinglePillWeekScheduleScreen(
     val latestWeekHeaderPreview by rememberUpdatedState(onWeekHeaderPreview)
     val latestWeekJumpSettled by rememberUpdatedState(onWeekJumpSettled)
     val weekTail = rememberWeekPageTailMotion(pagerState)
-    val homeSwitching = LocalHomeTextContrastFrozen.current
+    val homeSwitching = LocalHomeTextContrastFrozen.current.value
     LaunchedEffect(pagerState, boundless) {
         try {
             snapshotFlow {
@@ -624,9 +625,9 @@ internal fun SinglePillWeekScheduleScreen(
     CompositionLocalProvider(
         LocalWeekEditMotionState provides weekEditOverlay,
         LocalWeekPageTail provides weekTail,
-        LocalHomeTextContrastFrozen provides (LocalHomeTextContrastFrozen.current || weekTail.moving),
+        LocalHomeTextContrastFrozen provides rememberUpdatedState(LocalHomeTextContrastFrozen.current.value || weekTail.moving),
         LocalCourseTextMotionFrozen provides
-            (LocalHomeTextContrastFrozen.current || scrollState.isScrollInProgress || weekTail.moving)
+            rememberUpdatedState(LocalHomeTextContrastFrozen.current.value || scrollState.isScrollInProgress || weekTail.moving)
     ) {
     Box(
         modifier = Modifier
@@ -3321,7 +3322,10 @@ fun WeekCourseBlock(
      * lifted card is rendered by WeekEditOverlayHost outside that recorder.
      */
     val activeCardBackdrop = backdrop
-    val backgroundFrozen = com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen.current
+    // Only the edit jiggle needs this composition-time flag. Observing hidden-page state
+    // while not editing restarted every WeekCourseBlock when Day/Settings revealed Week.
+    val backgroundFrozen = editMode &&
+        com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen.current.value
     val editJitterMotion = remember { Animatable(0f) }
     LaunchedEffect(editMode, backgroundFrozen) {
         if (backgroundFrozen) return@LaunchedEffect
@@ -3381,9 +3385,13 @@ fun WeekCourseBlock(
     }
     val refreshSettledBounds by rememberUpdatedState(::refreshOwnBounds)
     LaunchedEffect(cardMotionFrozen) {
-        if (!cardMotionFrozen) {
-            withFrameNanos { }
-            refreshSettledBounds()
+        // Coordinate bookkeeping is not layout state. Keep the large card/gesture subtree
+        // out of the freeze/resume invalidation set; refresh only after motion settles.
+        snapshotFlow { cardMotionFrozen.value }.collectLatest { frozen ->
+            if (!frozen) {
+                withFrameNanos { }
+                refreshSettledBounds()
+            }
         }
     }
     fun buildWeekEditOverlayRequest(
@@ -3607,7 +3615,7 @@ fun WeekCourseBlock(
             // Ordinary scrolling only needs coordinates for a later tap/long-press. Keep
             // the initial anchor and edit/copy/landing animations live; glass sampling has
             // its own position node and continues to follow the wallpaper every frame.
-            if (!cardMotionFrozen || ownBoundsRef[0] == null || editMode ||
+            if (!cardMotionFrozen.value || ownBoundsRef[0] == null || editMode ||
                 tailTransformActive || isOverlayTarget || activeOverlayCourseId != null ||
                 shortcuts?.request != null) {
                 refreshOwnBounds()

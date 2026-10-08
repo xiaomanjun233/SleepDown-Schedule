@@ -631,7 +631,7 @@ fun TodayAgentCard(
         }
     }
 
-    val backgroundFrozen = com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen.current
+    val backgroundFrozen = com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen.current.value
     val staticFacts = remember(state.courses, state.periods, state.config, scheduleName, date, weather) {
         DayAgentRenderCache.facts(state, date, weather, scheduleName, context)
     }

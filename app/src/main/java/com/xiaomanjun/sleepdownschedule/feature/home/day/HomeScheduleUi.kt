@@ -303,6 +303,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.SharingStarted
@@ -432,7 +433,8 @@ fun HomeReadableText(
     overflow: TextOverflow = TextOverflow.Clip
 ) {
     val readability = LocalHomeReadability.current
-    val backgroundFrozen = LocalHomeBackgroundFrozen.current || LocalHomeTextContrastFrozen.current
+    val backgroundFrozen = LocalHomeBackgroundFrozen.current
+    val textContrastFrozen = LocalHomeTextContrastFrozen.current
     val hasWallpaper = readability.config?.hasAnyWallpaper() == true
     var targetShadowStrength by remember(color) { mutableFloatStateOf(0f) }
     val shadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "home-text-soft-shadow")
@@ -445,7 +447,7 @@ fun HomeReadableText(
             targetShadowStrength = 0f
             return
         }
-        if (backgroundFrozen) return
+        if (backgroundFrozen.value || textContrastFrozen.value) return
         val position = coordinates[0]?.takeIf { it.isAttached } ?: return
         val layout = textLayout.value ?: return
         if (layout.lineCount == 0) return
@@ -475,7 +477,12 @@ fun HomeReadableText(
         }
         targetShadowStrength = requiredStrength
     }
-    LaunchedEffect(readability, color, backgroundFrozen, hasWallpaper) { updateContrast() }
+    val currentUpdateContrast by rememberUpdatedState(::updateContrast)
+    LaunchedEffect(readability, color, backgroundFrozen, textContrastFrozen, hasWallpaper) {
+        snapshotFlow { backgroundFrozen.value || textContrastFrozen.value }.collect { frozen ->
+            if (!frozen) currentUpdateContrast()
+        }
+    }
     val density = LocalDensity.current
     val lightText = color.luminance() >= 0.5f
     val effectiveFontSize = when {
@@ -1735,14 +1742,17 @@ internal fun DayScheduleScreen(
             }
             val backgroundFrozen = LocalHomeBackgroundFrozen.current
             val dayLifecycleOwner = LocalLifecycleOwner.current
-            val minuteClock by produceState(initialValue = LocalDateTime.now(), page, backgroundFrozen, dayLifecycleOwner) {
-                if (backgroundFrozen) return@produceState
-                dayLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-                    value = LocalDateTime.now()
-                    while (true) {
-                        val nowMillis = System.currentTimeMillis()
-                        delay((60_000L - nowMillis % 60_000L + 100L).coerceAtLeast(1_000L))
-                        value = LocalDateTime.now()
+            val minuteClock by produceState(initialValue = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES), page, backgroundFrozen, dayLifecycleOwner) {
+                // Observe freeze in the clock coroutine, not the entire lazy page. Resuming
+                // within the same minute must not rebuild all day cards with new nanoseconds.
+                snapshotFlow { backgroundFrozen.value }.collectLatest { frozen ->
+                    if (!frozen) dayLifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+                        value = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES)
+                        while (true) {
+                            val nowMillis = System.currentTimeMillis()
+                            delay((60_000L - nowMillis % 60_000L + 100L).coerceAtLeast(1_000L))
+                            value = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES)
+                        }
                     }
                 }
             }
@@ -1883,7 +1893,7 @@ internal fun DayScheduleScreen(
                         }
                         CompositionLocalProvider(
                             LocalCourseTextMotionFrozen provides
-                                (listState.isScrollInProgress || pagerState.isScrollInProgress)
+                                rememberUpdatedState(listState.isScrollInProgress || pagerState.isScrollInProgress)
                         ) { DayTimelineCourse(
                             course,
                             targetWeek,
@@ -1934,7 +1944,7 @@ internal fun DayScheduleScreen(
                             }
                             CompositionLocalProvider(
                                 LocalCourseTextMotionFrozen provides
-                                    (listState.isScrollInProgress || pagerState.isScrollInProgress)
+                                    rememberUpdatedState(listState.isScrollInProgress || pagerState.isScrollInProgress)
                             ) { DayTimelineCourse(
                                 course = course,
                                 currentWeek = secondaryWeek,

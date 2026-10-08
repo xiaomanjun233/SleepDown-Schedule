@@ -2677,8 +2677,8 @@ fun CourseScheduleAppUi(
             LocalHomeAdaptiveMetrics provides sidebarContentMetrics,
             LocalHomePagerStartOverflow provides homeSidebarState.targetContentInset,
             LocalSettingsSharedGradient provides tabletAboutGradient,
-            LocalHomeBackgroundFrozen provides homeBackgroundFreezeActive,
-            LocalHomeTextContrastFrozen provides (rootPageMotion.moving || homeModeMotion.moving || homeSidebarState.moving),
+            LocalHomeBackgroundFrozen provides rememberUpdatedState(homeBackgroundFreezeActive),
+            LocalHomeTextContrastFrozen provides rememberUpdatedState(rootPageMotion.moving || homeModeMotion.moving || homeSidebarState.moving),
             com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen provides
                 freezeHomeGlassCoordinates,
             com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey provides homeGlassSampleRecordKey
