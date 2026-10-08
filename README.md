@@ -146,6 +146,7 @@ git -C ../miuix-reference apply "$miuixPatchRoot/miuix-cascading-popup-surface.p
 git -C ../miuix-reference apply "$miuixPatchRoot/miuix-scaffold-underlay.patch"
 git -C ../miuix-reference apply "$miuixPatchRoot/miuix-compact-dropdown.patch"
 git -C ../miuix-reference apply "$miuixPatchRoot/miuix-popup-slide-feedback.patch"
+git -C ../miuix-reference apply "$miuixPatchRoot/miuix-popup-hover-layout.patch"
 $miuixSourceRoot = (Resolve-Path ../miuix-reference).Path
 .\gradlew.bat assembleGithubDebug "-Psleepdown.miuixSourcePath=$miuixSourceRoot"
 ```
@@ -178,6 +179,7 @@ CourseSchedule/
 ├── patches/miuix-scaffold-underlay.patch     # 页面采样层与弹窗宿主分离
 ├── patches/miuix-compact-dropdown.patch      # 下拉菜单局部紧凑排版接口
 ├── patches/miuix-popup-slide-feedback.patch  # Popup 滑动选择与交互材质接口
+├── patches/miuix-popup-hover-layout.patch    # Popup 悬停级联、长列表与紧凑排版
 ├── THIRD_PARTY_NOTICES.md                    # 第三方代码与许可声明
 └── gradlew / gradlew.bat                     # Gradle Wrapper
 ```

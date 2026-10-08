@@ -125,7 +125,6 @@ internal fun AiRuntimePicker(
         SleepDownLiquidMenuItem(
             key = "provider",
             text = "供应商",
-            summary = state.settings.profile.displayName,
             enabled = profiles.isNotEmpty(),
             children = profiles.map { profile ->
                 SleepDownLiquidMenuItem(
@@ -141,7 +140,6 @@ internal fun AiRuntimePicker(
         SleepDownLiquidMenuItem(
             key = "model",
             text = "模型",
-            summary = state.settings.profile.defaultModel,
             enabled = modelOptions.isNotEmpty(),
             children = modelOptions.mapIndexed { index, option ->
                 SleepDownLiquidMenuItem(
@@ -168,11 +166,7 @@ internal fun AiRuntimePicker(
             key = "reasoning",
             text = "思考强度",
             enabled = responsesEnabled && efforts.isNotEmpty(),
-            summary = if (responsesEnabled) {
-                state.settings.profile.reasoningEffort.label
-            } else {
-                "需启用 Responses"
-            },
+            summary = if (responsesEnabled) null else "需启用 Responses",
             children = if (responsesEnabled) {
                 efforts.map { effort ->
                     SleepDownLiquidMenuItem(

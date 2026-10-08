@@ -1,0 +1,501 @@
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/PopupSlideSelection.kt
+@@ -2,7 +2,6 @@
+ // SPDX-License-Identifier: Apache-2.0
+ package top.yukonga.miuix.kmp.basic
+ 
+-import androidx.compose.foundation.ScrollState
+ import androidx.compose.foundation.gestures.awaitEachGesture
+ import androidx.compose.foundation.gestures.awaitFirstDown
+ import androidx.compose.runtime.*
+@@ -17,78 +16,79 @@
+ import androidx.compose.ui.layout.boundsInWindow
+ import androidx.compose.ui.layout.onGloballyPositioned
+ import kotlinx.coroutines.coroutineScope
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.flow.collectLatest
+ import kotlinx.coroutines.launch
+-import kotlinx.coroutines.flow.first
+ 
+ internal val LocalPopupSlideSelection = staticCompositionLocalOf<PopupSlideSelection?> { null }
++internal val LocalPopupSlideViewport = staticCompositionLocalOf<PopupSlideViewport?> { null }
++internal val LocalPopupSlideActive = staticCompositionLocalOf<() -> Boolean> { { true } }
++
++internal class PopupSlideViewport(val canScroll: () -> Boolean) {
++    var coordinates: LayoutCoordinates? = null
++    var active: () -> Boolean = { true }
++    fun accepts(window: Offset): Boolean = active() && !canScroll() &&
++        coordinates?.takeIf { it.isAttached }?.boundsInWindow()?.contains(window) == true
++}
+ 
+ internal class PopupSlideSelection {
+     class Item(var enabled: Boolean, var activate: () -> Unit) {
+         var coordinates: LayoutCoordinates? = null
++        var viewport: PopupSlideViewport? = null
++        var onHover: (() -> Unit)? = null
+     }
+     val items = linkedMapOf<Any, Item>()
+     var highlighted by mutableStateOf<Any?>(null)
+     var coordinates: LayoutCoordinates? = null
+     var pointer by mutableStateOf<Offset?>(null)
++    var hoverOrigin: Offset? = null
+     fun hit(position: Offset): Any? {
+         val host = coordinates?.takeIf { it.isAttached } ?: return null
+-        if (position.x !in 0f..host.size.width.toFloat() || position.y !in 0f..host.size.height.toFloat()) return null
+         val window = host.localToWindow(position)
+-        return items.entries.firstOrNull { (_, item) ->
+-            item.enabled && item.coordinates?.takeIf { it.isAttached }?.boundsInWindow()?.contains(window) == true
++        return items.entries.lastOrNull { (_, item) ->
++            item.enabled && item.viewport?.accepts(window) == true &&
++                item.coordinates?.takeIf { it.isAttached }?.boundsInWindow()?.contains(window) == true
+         }?.key
+     }
+ }
+ 
+ internal fun Modifier.popupSlideSelection(
+-    state: PopupSlideSelection?, scroll: ScrollState, haptic: HapticFeedback
++    state: PopupSlideSelection?, haptic: HapticFeedback
+ ): Modifier = if (state == null) this else onGloballyPositioned { state.coordinates = it }
+-    .pointerInput(state, scroll, haptic) {
++    .pointerInput(state, haptic) {
+         coroutineScope {
+-            // Retain access to overflow rows while holding near a viewport edge.
+-            val edgeScroll = launch {
+-                var lastFrame = 0L
+-                while (true) {
+-                    snapshotFlow { state.pointer }.first { it != null }
+-                    lastFrame = 0L
+-                    while (state.pointer != null) {
+-                    withFrameNanos { now ->
+-                        val dt = if (lastFrame == 0L) 0f else ((now - lastFrame) / 1_000_000_000f).coerceAtMost(0.04f)
+-                        lastFrame = now
+-                        val point = state.pointer
+-                        if (point != null && scroll.maxValue > 0) {
+-                            val edge = 28f * density
+-                            val direction = when {
+-                                point.y < edge -> -1f
+-                                point.y > size.height - edge -> 1f
+-                                else -> 0f
+-                            }
+-                            scroll.dispatchRawDelta(direction * 240f * density * dt)
+-                            val next = state.hit(point)
+-                            if (next != state.highlighted) {
+-                                state.highlighted = next
+-                                if (next != null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+-                            }
+-                        }
+-                    }
++            val hover = launch {
++                snapshotFlow { state.highlighted }.collectLatest { key ->
++                    val item = key?.let { state.items[it] } ?: return@collectLatest
++                    if (item.onHover == null) return@collectLatest
++                    delay(350)
++                    val point = state.pointer ?: return@collectLatest
++                    if (state.hit(point) == key && state.hoverOrigin == null) {
++                        // Keep ownership of this DOWN while the secondary is being composed.
++                        state.hoverOrigin = point
++                        state.highlighted = null
++                        item.onHover?.invoke()
+                     }
+                 }
+             }
+             try {
+                 awaitEachGesture {
+                     val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+-                    // Header/back controls are not selection rows. Leave their complete
+-                    // gesture to the existing Miuix clickable instead of swallowing its UP.
++                    // Overflow lists keep normal click/scroll input, including long presses.
+                     val initialItem = state.hit(down.position) ?: return@awaitEachGesture
+                     state.pointer = down.position
+                     state.highlighted = initialItem
++                    state.hoverOrigin = null
+                     down.consume()
+                     try {
+                         while (true) {
+                             val event = awaitPointerEvent(PointerEventPass.Initial)
+                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                             state.pointer = change.position
+-                            val next = state.hit(change.position)
++                            if (state.hoverOrigin?.let { (change.position - it).getDistance() > viewConfiguration.touchSlop } == true) {
++                                state.hoverOrigin = null
++                            }
++                            val next = if (state.hoverOrigin == null) state.hit(change.position) else null
+                             if (next != state.highlighted) {
+                                 state.highlighted = next
+                                 if (next != null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+@@ -103,8 +103,12 @@
+                                 break
+                             }
+                         }
+-                    } finally { state.highlighted = null; state.pointer = null }
++                    } finally {
++                        state.highlighted = null
++                        state.pointer = null
++                        state.hoverOrigin = null
++                    }
+                 }
+-            } finally { edgeScroll.cancel() }
++            } finally { hover.cancel() }
+         }
+     }
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/ListPopup.kt
+@@ -87,7 +87,6 @@
+ }
+ 
+ private const val MAX_ITEMS_FOR_WIDTH = 8
+-private const val MAX_ITEMS_FOR_HEIGHT = 8
+ 
+ @Immutable
+ data class ListPopupVisualStyle(
+@@ -122,7 +121,13 @@
+ ) {
+     val scrollState = rememberScrollState()
+     val slideEnabled = LocalListPopupVisualStyle.current.slideSelection
+-    val selection = remember(slideEnabled) { if (slideEnabled) PopupSlideSelection() else null }
++    val inheritedSelection = LocalPopupSlideSelection.current
++    val selection = remember(slideEnabled, inheritedSelection) {
++        if (slideEnabled) inheritedSelection ?: PopupSlideSelection() else null
++    }
++    val viewport = remember(scrollState) { PopupSlideViewport { scrollState.maxValue > 0 } }
++    val active = LocalPopupSlideActive.current
++    androidx.compose.runtime.SideEffect { viewport.active = active }
+     val haptic = LocalHapticFeedback.current
+ 
+     val measurePolicy = remember {
+@@ -177,9 +182,10 @@
+                     val w = measurables[i].maxIntrinsicWidth(Int.MAX_VALUE)
+                     if (w > maxIntrinsic) maxIntrinsic = w
+                 }
+-                val listWidth = maxIntrinsic.coerceIn(minPx, maxPx)
+-
+-                val heightCount = min(MAX_ITEMS_FOR_HEIGHT, measurables.size)
++                val listWidth = if (width == Constraints.Infinity) maxIntrinsic.coerceIn(minPx, maxPx)
++                    else width.coerceIn(0, maxPx)
++
++                val heightCount = measurables.size
+                 var height = 0
+                 for (i in 0 until heightCount) {
+                     height += measurables[i].minIntrinsicHeight(listWidth)
+@@ -190,11 +196,16 @@
+     }
+ 
+     Layout(
+-        content = { CompositionLocalProvider(LocalPopupSlideSelection provides selection, content = content) },
++        content = { CompositionLocalProvider(
++            LocalPopupSlideSelection provides selection,
++            LocalPopupSlideViewport provides viewport,
++            content = content
++        ) },
+         modifier = Modifier
+             .focusGroup()
+             .height(IntrinsicSize.Min)
+-            .popupSlideSelection(selection, scrollState, haptic)
++            .onGloballyPositioned { viewport.coordinates = it }
++            .then(if (inheritedSelection == null) Modifier.popupSlideSelection(selection, haptic) else Modifier)
+             .verticalScroll(state = scrollState),
+         measurePolicy = measurePolicy,
+     )
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/basic/Dropdown.kt
+@@ -42,7 +42,6 @@
+ import androidx.compose.ui.unit.sp
+ import top.yukonga.miuix.kmp.squircle.squircleClip
+ import top.yukonga.miuix.kmp.icon.MiuixIcons
+-import top.yukonga.miuix.kmp.icon.basic.ArrowRight
+ import top.yukonga.miuix.kmp.icon.basic.ArrowUpDown
+ import top.yukonga.miuix.kmp.icon.basic.Check
+ import top.yukonga.miuix.kmp.theme.MiuixTheme
+@@ -140,11 +139,14 @@
+ 
+     val currentOnSelectedIndexChange by rememberUpdatedState(onSelectedIndexChange)
+     val slide = if (dialogMode) null else LocalPopupSlideSelection.current
++    val slideViewport = LocalPopupSlideViewport.current
+     val slideKey = remember { Any() }
+     val slideItem = remember { PopupSlideSelection.Item(enabled) { currentOnSelectedIndexChange(index) } }
+     SideEffect {
+         slideItem.enabled = enabled
+         slideItem.activate = { currentOnSelectedIndexChange(index) }
++        slideItem.viewport = slideViewport
++        slideItem.onHover = if (hasSubmenu) { { currentOnSelectedIndexChange(index) } } else null
+         slide?.items?.set(slideKey, slideItem)
+     }
+     DisposableEffect(slide, slideKey) { onDispose { slide?.items?.remove(slideKey) } }
+@@ -180,7 +182,7 @@
+             .padding(horizontal = 14.dp, vertical = visualStyle.itemVerticalPadding),
+     ) {
+         Row(
+-            modifier = innerRowModifier,
++            modifier = innerRowModifier.weight(1f, fill = false),
+             verticalAlignment = Alignment.CenterVertically,
+             horizontalArrangement = Arrangement.Start,
+         ) {
+@@ -204,9 +206,7 @@
+         }
+ 
+         if (hasSubmenu) {
+-            // Chevron uses the softer summaryColor so the trigger row doesn't visually
+-            // compete with selected/leaf items. The chevron is intentionally static —
+-            // only the cloned header in the secondary popup rotates during expansion.
++            // Paired chevrons identify an expandable row in the same column.
+             val chevronColor = when {
+                 !enabled -> MiuixTheme.colorScheme.disabledOnSecondaryVariant
+                 isSelected -> dropdownColors.selectedContentColor
+@@ -217,7 +217,7 @@
+             }
+             Image(
+                 modifier = ChevronIconBaseModifier,
+-                imageVector = MiuixIcons.Basic.ArrowRight,
++                imageVector = MiuixIcons.Basic.ArrowUpDown,
+                 colorFilter = chevronColorFilter,
+                 contentDescription = null,
+             )
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingListPopupLayout.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingListPopupLayout.kt
+@@ -31,6 +31,10 @@
+ import androidx.compose.ui.layout.onGloballyPositioned
+ import androidx.compose.ui.layout.positionInWindow
+ import androidx.compose.ui.platform.LocalLayoutDirection
++import androidx.compose.ui.platform.LocalHapticFeedback
++import top.yukonga.miuix.kmp.basic.LocalPopupSlideSelection
++import top.yukonga.miuix.kmp.basic.PopupSlideSelection
++import top.yukonga.miuix.kmp.basic.popupSlideSelection
+ import androidx.compose.ui.unit.Constraints
+ import androidx.compose.ui.unit.Density
+ import androidx.compose.ui.unit.Dp
+@@ -117,6 +121,10 @@
+     var primarySize by remember { mutableStateOf(IntSize.Zero) }
+     var hostPositionInWindow by remember { mutableStateOf(IntOffset.Zero) }
+     var hostMeasured by remember { mutableStateOf(false) }
++    val slideSelection = remember(visualStyle.slideSelection) {
++        if (visualStyle.slideSelection) PopupSlideSelection() else null
++    }
++    val slideHaptic = LocalHapticFeedback.current
+ 
+     LaunchedEffect(show) {
+         if (show) {
+@@ -294,6 +302,7 @@
+                 Box(
+                     modifier = popupModifier
+                         .fillMaxSize()
++                        .popupSlideSelection(slideSelection, slideHaptic)
+                         .onGloballyPositioned { coords ->
+                             val pos = coords.positionInWindow()
+                             hostPositionInWindow = IntOffset(pos.x.toInt(), pos.y.toInt())
+@@ -308,6 +317,7 @@
+                             })
+                         },
+                 ) {
++                    CompositionLocalProvider(LocalPopupSlideSelection provides slideSelection) {
+                     CascadingMorphSubLayout(
+                         entries = entries,
+                         expandedItem = expandedItem,
+@@ -350,6 +360,7 @@
+                         surfaceColor = surfaceColor,
+                         maskColor = maskColor,
+                     )
++                    }
+                 }
+             }
+         }
+@@ -472,6 +483,7 @@
+         // known before the real secondary is measured at union size for its anchor-to-final slide.
+         val probeConstraints = primaryConstraints.copy(
+             minWidth = primaryWidth.coerceAtMost(primaryConstraints.maxWidth),
++            maxWidth = primaryWidth.coerceAtMost(primaryConstraints.maxWidth),
+             maxHeight = resolvedMaxHeightPx.coerceAtMost(constraints.maxHeight),
+         )
+ 
+@@ -483,6 +495,10 @@
+         val secondaryLayout: SecondaryLayout? =
+             if (activeExpanded != null && anchorRect != null) {
+                 val measured = subcompose(SLOT_SECONDARY_PROBE) {
++                    CompositionLocalProvider(
++                        LocalPopupSlideSelection provides null,
++                        LocalListPopupVisualStyle provides secondaryVisualStyle.copy(slideSelection = false)
++                    ) {
+                     Box(propagateMinConstraints = true) {
+                         CascadingSecondaryColumn(
+                             triggerItem = activeExpanded,
+@@ -494,6 +510,7 @@
+                             onHeaderClick = ProbeOnHeaderClick,
+                             onLeafSelected = ProbeOnLeafSelected,
+                         )
++                    }
+                     }
+                 }.firstOrNull()?.measure(probeConstraints)
+                 val secondarySize = if (measured != null) {
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/CascadingMorphContent.kt
+@@ -44,6 +44,7 @@
+ import top.yukonga.miuix.kmp.basic.ListPopupColumn
+ import top.yukonga.miuix.kmp.basic.ListPopupVisualStyle
+ import top.yukonga.miuix.kmp.basic.LocalListPopupVisualStyle
++import top.yukonga.miuix.kmp.basic.LocalPopupSlideActive
+ import top.yukonga.miuix.kmp.basic.PopupLayoutPosition
+ import top.yukonga.miuix.kmp.basic.popupClipReveal
+ import top.yukonga.miuix.kmp.squircle.isSquircleEnabled
+@@ -81,7 +82,10 @@
+     val isExpanded = expandedItem != null
+     val popupCornerRadius = visualStyle.cornerRadius
+     val shape = remember(popupCornerRadius) { RoundedCornerShape(popupCornerRadius) }
+-    CompositionLocalProvider(LocalListPopupVisualStyle provides visualStyle) {
++    CompositionLocalProvider(
++        LocalListPopupVisualStyle provides visualStyle,
++        LocalPopupSlideActive provides { !isExpanded }
++    ) {
+     Box(
+         modifier = Modifier
+             .then(visualStyle.interactionModifier)
+@@ -243,7 +247,10 @@
+     val secondaryTopLeft = secondaryLocalInUnion.topLeft
+     val secondaryWidth = secondaryLocalInUnion.width
+ 
+-    CompositionLocalProvider(LocalListPopupVisualStyle provides visualStyle) {
++    CompositionLocalProvider(
++        LocalListPopupVisualStyle provides visualStyle,
++        LocalPopupSlideActive provides { expandFraction() >= 0.9f }
++    ) {
+     Box(
+         modifier = Modifier
+             .then(visualStyle.interactionModifier)
+@@ -387,11 +394,6 @@
+             dropdownColors = dropdownColors,
+             onClick = onHeaderClick,
+         )
+-        HorizontalDivider(
+-            modifier = Modifier
+-                .padding(horizontal = 20.dp, vertical = 4.dp),
+-            thickness = 1.5.dp,
+-        )
+         val lastChildIdx = children.lastIndex
+         children.forEachIndexed { index, child ->
+             key(child) {
+--- a/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/MorphHeaderRow.kt
++++ b/miuix-ui/src/commonMain/kotlin/top/yukonga/miuix/kmp/layout/MorphHeaderRow.kt
+@@ -14,6 +14,8 @@
+ import androidx.compose.foundation.layout.widthIn
+ import androidx.compose.foundation.selection.selectable
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.DisposableEffect
++import androidx.compose.runtime.SideEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.rememberUpdatedState
+@@ -24,15 +26,26 @@
+ import androidx.compose.ui.graphics.BlendModeColorFilter
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.layout.Layout
++import androidx.compose.ui.layout.onGloballyPositioned
++import androidx.compose.ui.geometry.CornerRadius
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.geometry.Size
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.luminance
++import androidx.compose.ui.unit.dp
+ import androidx.compose.ui.semantics.Role
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.util.lerp
+ import top.yukonga.miuix.kmp.basic.DropdownColors
+ import top.yukonga.miuix.kmp.basic.DropdownDefaults
+ import top.yukonga.miuix.kmp.basic.DropdownItem
++import top.yukonga.miuix.kmp.basic.LocalPopupSlideSelection
++import top.yukonga.miuix.kmp.basic.LocalPopupSlideViewport
++import top.yukonga.miuix.kmp.basic.LocalListPopupVisualStyle
++import top.yukonga.miuix.kmp.basic.PopupSlideSelection
+ import top.yukonga.miuix.kmp.basic.Text
+ import top.yukonga.miuix.kmp.icon.MiuixIcons
+-import top.yukonga.miuix.kmp.icon.basic.ArrowRight
++import top.yukonga.miuix.kmp.icon.basic.ArrowUpDown
+ import top.yukonga.miuix.kmp.theme.MiuixTheme
+ 
+ /**
+@@ -61,6 +74,20 @@
+         BlendModeColorFilter(chevronColor, BlendMode.SrcIn)
+     }
+     val currentOnClick by rememberUpdatedState(onClick)
++    val visualStyle = LocalListPopupVisualStyle.current
++    val slide = LocalPopupSlideSelection.current
++    val viewport = LocalPopupSlideViewport.current
++    val slideKey = remember { Any() }
++    val slideItem = remember { PopupSlideSelection.Item(true) { currentOnClick() } }
++    SideEffect {
++        slideItem.viewport = viewport
++        slideItem.activate = { currentOnClick() }
++        slideItem.onHover = { currentOnClick() }
++        slide?.items?.set(slideKey, slideItem)
++    }
++    DisposableEffect(slide, slideKey) { onDispose { slide?.items?.remove(slideKey) } }
++    val highlightColor = if (MiuixTheme.colorScheme.background.luminance() > 0.5f)
++        Color.Black.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.16f)
+ 
+     Layout(
+         content = {
+@@ -69,10 +96,10 @@
+                 horizontalArrangement = Arrangement.SpaceBetween,
+                 modifier = Modifier
+                     .fillMaxWidth()
+-                    .padding(horizontal = DropdownDefaults.InsideHorizontalPadding),
++                    .padding(horizontal = 22.dp, vertical = visualStyle.itemVerticalPadding),
+             ) {
+                 Row(
+-                    modifier = Modifier.widthIn(max = DropdownDefaults.MaxItemTextWidth),
++                    modifier = Modifier.weight(1f, fill = false).widthIn(max = DropdownDefaults.MaxItemTextWidth),
+                     verticalAlignment = Alignment.CenterVertically,
+                     horizontalArrangement = Arrangement.Start,
+                 ) {
+@@ -89,7 +116,7 @@
+                     Column {
+                         Text(
+                             text = triggerItem.text,
+-                            fontSize = MiuixTheme.textStyles.body1.fontSize,
++                            style = visualStyle.itemTextStyle ?: MiuixTheme.textStyles.main,
+                             fontWeight = FontWeight.Medium,
+                             color = titleColor,
+                         )
+@@ -109,8 +136,8 @@
+                             width = DropdownDefaults.ChevronSize.width,
+                             height = DropdownDefaults.ChevronSize.height,
+                         )
+-                        .graphicsLayer { rotationZ = arrowRotation() },
+-                    imageVector = MiuixIcons.Basic.ArrowRight,
++                        .graphicsLayer { rotationZ = arrowRotation() * 2f },
++                    imageVector = MiuixIcons.Basic.ArrowUpDown,
+                     colorFilter = chevronColorFilter,
+                     contentDescription = null,
+                 )
+@@ -120,7 +147,16 @@
+         // interpolated row height (paddings included), not just the inner Row's content.
+         modifier = Modifier
+             .fillMaxWidth()
+-            .drawBehind { drawRect(backgroundColorState.value) }
++            .onGloballyPositioned { slideItem.coordinates = it }
++            .drawBehind {
++                drawRect(backgroundColorState.value)
++                if (slide?.highlighted == slideKey) {
++                    val inset = 8.dp.toPx()
++                    drawRoundRect(highlightColor, topLeft = Offset(inset, inset),
++                        size = Size((size.width - inset * 2).coerceAtLeast(0f), (size.height - inset).coerceAtLeast(0f)),
++                        cornerRadius = CornerRadius(17.dp.toPx()))
++                }
++            }
+             .selectable(
+                 selected = true,
+                 enabled = true,
+@@ -128,13 +164,13 @@
+                 onClick = { currentOnClick() },
+             ),
+     ) { measurables, constraints ->
+-        val intrinsicTop = DropdownDefaults.FirstLastVerticalPadding.roundToPx()
+-        val intrinsicBottom = DropdownDefaults.MiddleVerticalPadding.roundToPx()
++        val intrinsicTop = 8.dp.roundToPx()
++        val intrinsicBottom = 0
+         val frac = expandFraction()
+         val padTop = lerp(anchorPaddingTopPx.toFloat(), intrinsicTop.toFloat(), frac).toInt()
+ 
+         val placeable = measurables.first().measure(constraints.copy(minHeight = 0))
+-        val intrinsicTotal = placeable.height + intrinsicTop + intrinsicBottom
++        val intrinsicTotal = placeable.height.coerceAtLeast(visualStyle.itemMinHeight.roundToPx()) + intrinsicTop + intrinsicBottom
+         val target = if (anchorHeightPx <= 0) {
+             intrinsicTotal
+         } else {

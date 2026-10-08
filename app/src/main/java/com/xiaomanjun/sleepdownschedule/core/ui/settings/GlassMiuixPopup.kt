@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.zIndex
@@ -231,6 +232,9 @@ private fun rememberMiuixListPopupStyle(
     ).then(highlight.modifier),
     backgroundColor = Color.Transparent,
     cornerRadius = cornerRadius,
+    itemTextStyle = MiuixTheme.textStyles.main.copy(fontSize = 14.sp, fontWeight = FontWeight.Medium),
+    itemVerticalPadding = 7.dp,
+    itemMinHeight = 40.dp,
     border = rim,
     morphAnimation = true,
     slideSelection = true,
@@ -369,7 +373,7 @@ internal fun SleepDownLiquidCascadingPopup(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     panelMinWidth: Dp = 168.dp,
-    menuMaxHeight: Dp = 360.dp,
+    menuMaxHeight: Dp? = null,
     horizontalSafeInset: Dp = 0.dp,
     contentColor: Color? = null,
     collapseOnSelection: Boolean = true
