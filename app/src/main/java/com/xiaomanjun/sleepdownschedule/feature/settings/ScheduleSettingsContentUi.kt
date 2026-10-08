@@ -93,7 +93,9 @@ fun ScheduleSettingsContent(
     autoCurrentWeek: Boolean,
     onAutoCurrentWeekChange: (Boolean) -> Unit,
     hideEmptyWeekends: Boolean,
+    showNonCurrentWeekCourses: Boolean,
     onHideEmptyWeekendsChange: (Boolean) -> Unit,
+    onShowNonCurrentWeekCoursesChange: (Boolean) -> Unit,
     termStartDate: String,
     onTermStartDateChange: (String) -> Unit,
     classDurationMinutes: String,
@@ -142,7 +144,9 @@ fun ScheduleSettingsContent(
             autoCurrentWeek = autoCurrentWeek,
             onAutoCurrentWeekChange = onAutoCurrentWeekChange,
             hideEmptyWeekends = hideEmptyWeekends,
+            showNonCurrentWeekCourses = showNonCurrentWeekCourses,
             onHideEmptyWeekendsChange = onHideEmptyWeekendsChange,
+            onShowNonCurrentWeekCoursesChange = onShowNonCurrentWeekCoursesChange,
             termStartDate = termStartDate,
             onTermStartDateChange = onTermStartDateChange,
             classDurationMinutes = classDurationMinutes,
@@ -460,7 +464,9 @@ fun ScheduleSettingsContentFixed(
     autoCurrentWeek: Boolean,
     onAutoCurrentWeekChange: (Boolean) -> Unit,
     hideEmptyWeekends: Boolean,
+    showNonCurrentWeekCourses: Boolean,
     onHideEmptyWeekendsChange: (Boolean) -> Unit,
+    onShowNonCurrentWeekCoursesChange: (Boolean) -> Unit,
     termStartDate: String,
     onTermStartDateChange: (String) -> Unit,
     classDurationMinutes: String,
@@ -509,6 +515,9 @@ fun ScheduleSettingsContentFixed(
                 SettingsToggleRow("自动计算当前周", "", autoCurrentWeek, backdrop, onCheckedChange = onAutoCurrentWeekChange)
                 SettingsDivider()
                 SettingsToggleRow("隐藏空周末", "", hideEmptyWeekends, backdrop, onCheckedChange = onHideEmptyWeekendsChange)
+                SettingsDivider()
+                SettingsToggleRow("显示非本周课程", "以浏览周为准，灰色展示且优先显示当周课程",
+                    showNonCurrentWeekCourses, backdrop, onCheckedChange = onShowNonCurrentWeekCoursesChange)
                 SettingsDivider()
                 SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
             }

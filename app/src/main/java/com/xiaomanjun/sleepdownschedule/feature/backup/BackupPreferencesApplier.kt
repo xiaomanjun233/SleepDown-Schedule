@@ -18,6 +18,12 @@ object BackupPreferencesApplier {
         scheduleRoomIdsByStableId: Map<String, Int>,
         finalAssetFilesById: Map<String, File>
     ) {
+        preferences.materialLevel?.let {
+            com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.setLevel(context,
+                com.xiaomanjun.sleepdownschedule.core.performance.restoredMaterialLevel(
+                    com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.level,
+                    com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialLevel.valueOf(it)))
+        }
         preferences.appIcon?.let { AppIconManager.applyBackupPreferences(context, it) }
         preferences.dayAgent?.let {
             DayAgentPreferences.applyBackupPreferences(context, it, scheduleRoomIdsByStableId)

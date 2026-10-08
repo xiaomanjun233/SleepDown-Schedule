@@ -72,3 +72,12 @@ upstream commit `fa7cbc2ea116e5ffd082a9fe8cb7bdf4407a8713`. The selection criter
 source paths and verification scope are recorded in
 [`docs/reports/2026-09-22-auto-refresh-beta9.md`](docs/reports/2026-09-22-auto-refresh-beta9.md).
 Original script headers and the upstream license are retained.
+
+## Square OkHttp / Okio
+
+The WebDAV transport uses [OkHttp](https://github.com/square/okhttp) 4.12.0
+and its [Okio](https://github.com/square/okio) dependency.
+
+License: Apache License, Version 2.0. Upstream license texts are available in
+[OkHttp LICENSE.txt](https://github.com/square/okhttp/blob/parent-4.12.0/LICENSE.txt)
+and [Okio LICENSE.txt](https://github.com/square/okio/blob/master/LICENSE.txt).

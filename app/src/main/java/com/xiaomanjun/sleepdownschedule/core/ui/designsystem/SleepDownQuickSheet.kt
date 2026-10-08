@@ -333,6 +333,7 @@ internal fun Modifier.centeredDialogBackgroundBlur(
                 shape = { RectangleShape },
                 // A full-window blur was still running at native resolution on this route.
                 // Use the same sampled material path as editors; dim remains full resolution.
+                usage = com.xiaomanjun.sleepdownschedule.core.performance.MaterialUsage.SCENE_BLUR,
                 effectFrame = GlassEffectFrame(blur = blurRadius),
                 backdropSampleScale = 0.5f
             )

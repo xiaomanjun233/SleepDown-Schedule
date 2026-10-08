@@ -6,6 +6,7 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.animation.core.LinearEasing
 
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.model.effectiveWeekCardTextAlignment
 import com.xiaomanjun.sleepdownschedule.app.state.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
@@ -452,7 +453,7 @@ internal fun HomeStartMode.toHomeMode(): HomeMode = when (this) {
     HomeStartMode.WEEK -> HomeMode.Week
 }
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, PeriodSchemes, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
+enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, PeriodSchemes, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, WebDav, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
 
 /** Matches the navigation motion used by the bundled Miuix system-style navigator. */
 private class MiuixSettingsNavigationEasing(
@@ -525,6 +526,7 @@ private fun SettingsPage.title(): String = when (this) {
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
     SettingsPage.BackupRestore -> "备份与恢复"
+    SettingsPage.WebDav -> "WebDAV 备份"
     SettingsPage.BackupPreview -> "恢复预览"
     SettingsPage.About -> "关于应用"
     SettingsPage.Changelog -> "关于应用"
@@ -2267,12 +2269,16 @@ fun CourseScheduleAppUi(
         hasWallpaper = visualState.config.hasAnyWallpaper()
     )
     val sharedCourseRadiusPx = with(LocalDensity.current) { (sharedCourseFrame.blur ?: 0.dp).toPx() }
-    val sharedCourseBackdrop = remember(courseWallpaperBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy) {
+    val courseMaterialsEnabled = AppMaterialPreferences.policy.courseSamples(
+        visualState.config.courseCardGlassEnabled, visualState.config.courseCardGaussianBlurEnabled,
+        visualState.config.hasAnyWallpaper())
+    val sharedCourseBackdrop = if (courseMaterialsEnabled && visualState.config.courseCardGlassEnabled)
+        remember(courseWallpaperBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy) {
         com.kyant.backdrop.backdrops.SharedBlurBackdrop(courseWallpaperBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
-    }
+    } else null
     // Retained timetable cards must retain their material source as well. Removing this on
     // Settings used to replace every card's sampler and allocate it again on the return frame.
-    val sharedCourseBackdropExpected = visualState.config.courseCardGlassEnabled && visualState.config.hasAnyWallpaper() &&
+    val sharedCourseBackdropExpected = sharedCourseBackdrop != null && visualState.config.courseCardGlassEnabled && visualState.config.hasAnyWallpaper() &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val useSharedCourseBackdrop = sharedCourseBackdropExpected && wallpaperImages.source != null
     lateinit var handleHomeAgentAction: AgentActionHandler
@@ -2383,7 +2389,15 @@ fun CourseScheduleAppUi(
     val homeCourseClick = remember {
         { course: CourseEntity, week: Int, bounds: Rect? -> currentHomeCourseClick.value(course, week, bounds) }
     }
+    val densePageMaterialOverride = remember(rootPageMotion, homeModeMotion, homeSidebarState) {
+        derivedStateOf {
+            com.xiaomanjun.sleepdownschedule.core.performance.densePageNeedsPerformance(
+                maxOf(dayRenderedCardCount, weekRenderedCardCount),
+                rootPageMotion.moving || homeModeMotion.moving || homeSidebarState.moving)
+        }
+    }
     CompositionLocalProvider(
+        LocalMaterialPerformanceOverride provides densePageMaterialOverride,
         LocalHomeAssistant provides homeAssistant,
         LocalDayAgentCountdownCinematic provides dayAgentCountdownCinematic,
         LocalAdjustedCourseEditor provides adjustedCourseEditor,
@@ -2846,7 +2860,7 @@ fun CourseScheduleAppUi(
                         Box(Modifier.fillMaxSize()
                             .drawWithContent { if (rootPageMotion.retains(false)) drawContent() }
                             .homeSwitchLayer(rootPageMotion, secondary = false, pageClip = HomeSwitchClip.Page)
-                            .glassBackdropProducer(courseWallpaperBackdrop, recordKey = {
+                            .glassBackdropProducer(courseWallpaperBackdrop, enabled = courseMaterialsEnabled, recordKey = {
                                 homeWallpaperRecordKey.value?.let { imageKey ->
                                     imageKey to (personalizationPreviewState.wallpaperBrightness
                                         ?: visualState.config.wallpaperBrightness)
@@ -2904,7 +2918,7 @@ fun CourseScheduleAppUi(
                 if (useSharedCourseBackdrop) {
                     Box(Modifier.fillMaxSize()
                         .drawWithContent { if (rootPageMotion.retains(false)) drawContent() }
-                        .then(sharedCourseBackdrop.preRenderModifier {
+                        .then(requireNotNull(sharedCourseBackdrop).preRenderModifier {
                         // This source is inside the page transform: neither translation nor
                         // page corners change its pixels. Each card still samples its live offset.
                         homeWallpaperRecordKey.value?.let { imageKey ->
@@ -4134,6 +4148,14 @@ fun CourseScheduleAppUi(
 
     }
 
+    com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavRestorePrompt(
+        state.config, chromeBackdrop,
+        canShow = !showManagedFreeAiOffer && homeDialog == null && courseEditorRequest == null && homeAnchoredOverlayRequest == null
+    ) {
+        context.startActivity(Intent(context, SettingsDetailActivity::class.java)
+            .putExtra(SettingsDetailPageExtra, SettingsPage.WebDav.name))
+    }
+
     if (showManagedFreeAiOffer) {
         LiquidAlertDialog(
             title = "启用每日免费 AI？",
@@ -5169,6 +5191,7 @@ internal fun AppTopBar(
                         SettingsPage.Notifications -> "通知设置"
                         SettingsPage.ScheduleManager -> "课表设置"
                         SettingsPage.BackupRestore -> "备份与恢复"
+                        SettingsPage.WebDav -> "WebDAV 备份"
                         SettingsPage.BackupPreview -> "恢复预览"
                         SettingsPage.About -> "关于应用"
                         SettingsPage.Changelog -> "关于应用"
@@ -5796,6 +5819,7 @@ private const val PersonalizeWeekHeightSlider = "week-height"
 private const val PersonalizeWeekLocationChange = "week-location"
 private const val PersonalizeWeekTeacherChange = "week-teacher"
 private const val PersonalizeWeekLayoutChange = "week-layout"
+private const val PersonalizeWeekAlignmentChange = "week-alignment"
 internal const val PersonalizeWeekCornerSlider = "week-corner"
 private const val PersonalizeCardColorChange = "card-color"
 internal const val PersonalizeCardAlphaSlider = "card-alpha"
@@ -5847,7 +5871,8 @@ internal fun mergePersonalizationCandidate(
     )
     PersonalizeWeekLocationChange -> current.copy(weekCardShowLocation = candidate.weekCardShowLocation)
     PersonalizeWeekTeacherChange -> current.copy(weekCardShowTeacher = candidate.weekCardShowTeacher)
-    PersonalizeWeekLayoutChange -> current.copy(weekCardContentLayout = candidate.weekCardContentLayout)
+    PersonalizeWeekLayoutChange, PersonalizeWeekAlignmentChange -> current.copy(
+        weekCardContentLayout = candidate.weekCardContentLayout, weekCardTextAlignment = candidate.weekCardTextAlignment)
     PersonalizeCardColorChange -> current.copy(
         cardColorArgb = candidate.cardColorArgb,
         courseCardColorMode = candidate.courseCardColorMode,
@@ -6561,7 +6586,7 @@ fun PersonalizePanel(
     val rowReveal = remember { Animatable(0f) }
     val rowDensity = LocalDensity.current
     val rowEasing = remember { CubicBezierEasing(0.22f, 0f, 0.30f, 1f) }
-    val weekContentRows = if (mode == HomeMode.Week) 4 else 0
+    val weekContentRows = if (mode == HomeMode.Week) 5 else 0
     val rowEntranceDurationMillis = 580 + weekContentRows * 15
     LaunchedEffect(rowEntranceActive, rowEntranceDurationMillis) {
         if (rowEntranceActive) {
@@ -6871,8 +6896,24 @@ fun PersonalizePanel(
                     }
                     val textLayouts = listOf(
                         WeekCardContentLayout.CURRENT to "默认",
-                        WeekCardContentLayout.CENTERED to "全部居中",
-                        WeekCardContentLayout.TOP_DOWN to "从上到下铺满"
+                        WeekCardContentLayout.MIDDLE to "中部",
+                        WeekCardContentLayout.TOP to "顶部"
+                    )
+                    val alignments = listOf(WeekCardTextAlignment.START, WeekCardTextAlignment.CENTER, WeekCardTextAlignment.END)
+                    SleepDownLiquidDropdownPreference(
+                        items = listOf("居左", "居中", "居右"), title = "水平对齐",
+                        selectedIndex = alignments.indexOf(state.config.effectiveWeekCardTextAlignment()),
+                        backdrop = backdrop, config = state.config, showAnchorPressFeedback = false,
+                        insideMargin = PaddingValues(horizontal = 0.dp, vertical = 6.dp),
+                        onSelectedIndexChange = { index -> alignments.getOrNull(index)?.let { alignment ->
+                            onUpdateConfig(PersonalizeWeekAlignmentChange, state.config.copy(
+                                weekCardTextAlignment = alignment,
+                                weekCardContentLayout = when (state.config.weekCardContentLayout) {
+                                    WeekCardContentLayout.CENTERED -> WeekCardContentLayout.MIDDLE
+                                    WeekCardContentLayout.TOP_DOWN -> WeekCardContentLayout.TOP
+                                    else -> state.config.weekCardContentLayout
+                                }))
+                        } }
                     )
                     val rowTextColor = LocalContentColor.current
                     val rowTextStyle = MaterialTheme.typography.labelLarge
@@ -6883,8 +6924,12 @@ fun PersonalizePanel(
                     )) {
                         SleepDownLiquidDropdownPreference(
                             items = textLayouts.map { it.second },
-                            selectedIndex = textLayouts.indexOfFirst { it.first == state.config.weekCardContentLayout },
-                            title = "文字排布",
+                            selectedIndex = textLayouts.indexOfFirst { it.first == when (state.config.weekCardContentLayout) {
+                                WeekCardContentLayout.CENTERED -> WeekCardContentLayout.MIDDLE
+                                WeekCardContentLayout.TOP_DOWN -> WeekCardContentLayout.TOP
+                                else -> state.config.weekCardContentLayout
+                            } },
+                            title = "垂直位置",
                             modifier = Modifier.rowEntrance(8).fillMaxWidth()
                                 .heightIn(max = rowMaxHeight)
                                 .personalizePreviewVisibility(previewSliderKey, previewProgress),
@@ -6897,7 +6942,8 @@ fun PersonalizePanel(
                             onSelectedIndexChange = { index ->
                                 textLayouts.getOrNull(index)?.let { (layout, _) ->
                                     onUpdateConfig(PersonalizeWeekLayoutChange,
-                                        state.config.copy(weekCardContentLayout = layout))
+                                        state.config.copy(weekCardContentLayout = layout,
+                                            weekCardTextAlignment = state.config.effectiveWeekCardTextAlignment()))
                                 }
                             }
                         )
@@ -6979,7 +7025,8 @@ fun PersonalizePanel(
                     },
                     onOpenPalette = { openCourseColorDialog(CourseCardColorMode.COLORFUL) }
                 )
-                val glassLocked = !state.config.hasAnyWallpaper()
+                val superPerformance = AppMaterialPreferences.isSuperPerformance
+                val glassLocked = !state.config.hasAnyWallpaper() || superPerformance
                 val minimumCardAlpha = if (glassLocked) FlatCourseCardMinimumAlpha else 0f
                 val alphaLabel = when {
                     !glassLocked &&
@@ -6988,7 +7035,7 @@ fun PersonalizePanel(
                     !glassLocked && state.config.courseCardGlassEnabled -> "课程卡片着色强度"
                     else -> "课程卡片不透明度"
                 }
-                PersonalizeValueSlider(
+                if (!superPerformance) PersonalizeValueSlider(
                     sliderKey = PersonalizeCardAlphaSlider,
                     modifier = Modifier.rowEntrance(9 + weekContentRows),
                     value = state.config.cardAlpha.coerceIn(minimumCardAlpha, 1f),
@@ -7016,8 +7063,8 @@ fun PersonalizePanel(
                     }
                 )
                 if (
-                    (state.config.courseCardGlassEnabled || state.config.courseCardGaussianBlurEnabled) &&
-                    !glassLocked
+                    superPerformance || ((state.config.courseCardGlassEnabled || state.config.courseCardGaussianBlurEnabled) &&
+                    !glassLocked)
                 ) {
                     val maxCourseCardBlur = courseCardBlurMaximum(state.config.courseCardGlassEnabled)
                     PersonalizeValueSlider(
@@ -7027,7 +7074,7 @@ fun PersonalizePanel(
                             maxCourseCardBlur * 100f,
                         valueRange = 0f..100f,
                         backdrop = backdrop,
-                        label = { "课程卡片模糊 ${it.toInt()}%" },
+                        label = { if (superPerformance) "课程卡片不透明度 ${(55 + it * 0.45f).toInt()}%" else "课程卡片模糊 ${it.toInt()}%" },
                         onCommit = {
                             onUpdateConfig(
                                 PersonalizeCardBlurSlider,
@@ -7164,7 +7211,8 @@ fun PersonalizePanel(
                 }
                 if (glassLocked) {
                     Text(
-                        "设置壁纸以启用课程卡片液态玻璃效果",
+                        if (superPerformance) "超级性能模式下不可用：液态玻璃、折射、轮廓光与高斯模糊。退出后恢复原参数。"
+                        else "设置壁纸以启用课程卡片液态玻璃效果",
                         style = MaterialTheme.typography.bodySmall,
                         color = personalizePanelForegroundColor(state.config).copy(alpha = 0.60f),
                         modifier = Modifier
@@ -7570,6 +7618,12 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                         SettingsPage.BackupRestore -> BackupRestoreSettingsScreen(
                             state = state,
                             backdrop = backdrop,
+                            onOpenWebDav = {
+                                ActivityTransitionCoordinator.openImmediate(this@SettingsDetailActivityHost,
+                                    TransitionRouteId.SettingsToSettingsDetail,
+                                    Intent(this@SettingsDetailActivityHost, SettingsDetailActivity::class.java)
+                                        .putExtra(SettingsDetailPageExtra, SettingsPage.WebDav.name))
+                            },
                             onOpenPreview = { source ->
                                 ActivityTransitionCoordinator.openImmediate(
                                     this@SettingsDetailActivityHost,
@@ -7582,6 +7636,14 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 )
                             }
                         )
+                        SettingsPage.WebDav -> com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavSettingsScreen(state, backdrop) { source ->
+                            ActivityTransitionCoordinator.openImmediate(this@SettingsDetailActivityHost,
+                                TransitionRouteId.SettingsToSettingsDetail,
+                                Intent(this@SettingsDetailActivityHost, SettingsDetailActivity::class.java)
+                                    .setData(source).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    .putExtra(SettingsDetailPageExtra, SettingsPage.BackupPreview.name)
+                                    .putExtra(BackupPreviewUriExtra, source.toString()))
+                        }
                         SettingsPage.BackupPreview -> if (backupPreviewSource != null) {
                             BackupRestorePreviewScreen(state, backdrop, backupPreviewSource)
                         } else {
@@ -8547,8 +8609,11 @@ private fun SettingsPageContent(
         SettingsPage.BackupRestore -> BackupRestoreSettingsScreen(
             state = pageState,
             backdrop = backdrop,
-            onOpenPreview = onOpenBackupPreview
+            onOpenPreview = onOpenBackupPreview,
+            onOpenWebDav = { onPageChange(SettingsPage.WebDav) }
         )
+        SettingsPage.WebDav -> com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavSettingsScreen(
+            pageState, backdrop, onOpenBackupPreview)
         SettingsPage.BackupPreview -> if (backupPreviewUri != null) {
             BackupRestorePreviewScreen(pageState, backdrop, backupPreviewUri)
         } else {

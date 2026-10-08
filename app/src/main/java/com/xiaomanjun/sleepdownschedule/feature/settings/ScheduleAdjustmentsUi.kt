@@ -93,7 +93,8 @@ private data class AdjustmentDraft(
     val source: String,
     val isNew: Boolean,
     val originalDate: String? = null,
-    val label: String = ""
+    val label: String = "",
+    val allDayPlaceholder: Boolean = false
 )
 
 private enum class AdjustmentPickerPage { DETAILS, TARGET_DATE, SOURCE_DATE }
@@ -145,7 +146,8 @@ internal fun ScheduleAdjustmentsScreen(
     fun beginEdit(entry: ScheduleAdjustment) {
         draftVisible = true
         draft = AdjustmentDraft(entry.date, entry.sourceDate == null, entry.sourceDate.orEmpty(),
-            isNew = false, originalDate = entry.date, label = entry.label)
+            isNew = false, originalDate = entry.date, label = entry.label,
+            allDayPlaceholder = entry.allDayPlaceholder)
         draftError = null
     }
     fun beginNewAdjustment() {
@@ -157,6 +159,7 @@ internal fun ScheduleAdjustmentsScreen(
         val current = draft ?: return
         runCatching {
             val next = validEntry(current.date, if (current.rest) null else current.source, current.label)
+                .copy(allDayPlaceholder = current.rest && current.allDayPlaceholder)
             replaceScheduleAdjustment(entries, current.originalDate, next)
         }
             .onSuccess { next ->
@@ -506,6 +509,12 @@ private fun AdjustmentEditorDialog(
                             title = "调休日期",
                             subtitle = "${formatScheduleDate(targetDate)}  ${weekdayText(targetDate)}",
                             onClick = { openDatePage(AdjustmentPickerPage.TARGET_DATE) })
+                        if (view.rest) {
+                            SettingsDivider()
+                            SettingsToggleRow("全天占位", "以全天假期卡替代停课灰卡，无课时也显示",
+                                draft.allDayPlaceholder, backdrop,
+                                onCheckedChange = { onDraftChange(draft.copy(allDayPlaceholder = it)) })
+                        }
                         if (!view.rest) {
                             SettingsDivider()
                             val sourceDate = parseScheduleDate(draft.source)

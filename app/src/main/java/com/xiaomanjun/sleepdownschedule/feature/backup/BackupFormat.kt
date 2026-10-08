@@ -252,6 +252,7 @@ data class BackupScheduleConfig(
     val homeChromeBlurScale: Float = DefaultHomeChromeBlurScale,
     val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale,
     val scheduleAdjustmentsJson: String = "",
+    val showNonCurrentWeekCourses: Boolean = false,
     val periodAlignmentMode: String = "INDEX"
 )
 
@@ -355,6 +356,7 @@ data class BackupWidgetAppearance(
 @Serializable
 data class BackupPreferences(
     val preferencesVersion: Int,
+    val materialLevel: String? = null,
     val appIcon: BackupAppIconPreferences? = null,
     val dayAgent: BackupDayAgentPreferences? = null,
     val aiImport: BackupAiImportPreferences? = null,

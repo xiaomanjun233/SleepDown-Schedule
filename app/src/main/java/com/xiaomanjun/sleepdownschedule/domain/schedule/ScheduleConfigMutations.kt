@@ -228,6 +228,7 @@ internal fun ScheduleConfigEntity.withChangesFrom(
         ),
         dockAlignment = changed(original.dockAlignment, updated.dockAlignment, dockAlignment),
         scheduleAdjustmentsJson = changed(original.scheduleAdjustmentsJson, updated.scheduleAdjustmentsJson, scheduleAdjustmentsJson),
+        showNonCurrentWeekCourses = changed(original.showNonCurrentWeekCourses, updated.showNonCurrentWeekCourses, showNonCurrentWeekCourses),
         defaultHomeMode = changed(original.defaultHomeMode, updated.defaultHomeMode, defaultHomeMode),
         liveUpdateActionsEnabled = changed(
             original.liveUpdateActionsEnabled,

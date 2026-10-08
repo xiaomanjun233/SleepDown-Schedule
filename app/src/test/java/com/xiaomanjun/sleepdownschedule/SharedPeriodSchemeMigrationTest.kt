@@ -111,6 +111,22 @@ class SharedPeriodSchemeMigrationTest {
 
     private fun createVersion44(seed: (SQLiteDatabase) -> Unit) = createLegacyDatabase(44, seed)
 
+    @Test fun version46DefaultsReferenceCardsOffAndPreservesDataAcrossReopen() = runBlocking {
+        createLegacyDatabase(46) { db ->
+            insertConfig(db, 7)
+            db.execSQL("INSERT INTO schedule_profiles(id,name,isActive) VALUES(7,'原课表',1)")
+            db.execSQL("INSERT INTO courses(id,name,weekday,periods,weeks,weekParity,scheduleId) VALUES(42,'原课程',1,'[1]','[1,3]','ODD',7)")
+        }
+        val db = createAppDatabase(context, databaseName).also { opened = it }
+        val config = db.configDao().getConfig(7)!!
+        assertFalse(config.showNonCurrentWeekCourses)
+        assertEquals("原课程", db.courseDao().getCourses(7).single().name)
+        db.openHelper.writableDatabase.execSQL("UPDATE schedule_config SET showNonCurrentWeekCourses = 1 WHERE id = 7")
+        db.close()
+        opened = createAppDatabase(context, databaseName)
+        assertTrue(opened!!.configDao().getConfig(7)!!.showNonCurrentWeekCourses)
+    }
+
     private fun createLegacyDatabase(version: Int, seed: (SQLiteDatabase) -> Unit) {
         context.deleteDatabase(databaseName)
         val path = context.getDatabasePath(databaseName)

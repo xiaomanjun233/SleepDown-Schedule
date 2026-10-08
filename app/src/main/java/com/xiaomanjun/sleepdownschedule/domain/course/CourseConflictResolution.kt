@@ -141,7 +141,7 @@ fun CourseEntity.conflictsWith(
     return periods.any(otherPeriods::contains)
 }
 
-private fun CourseEntity.occupiedTimeIntervals(
+internal fun CourseEntity.occupiedTimeIntervals(
     periodDefinitions: List<PeriodEntity>
 ): List<Pair<LocalTime, LocalTime>> {
     return courseTimeSegments(this, periodDefinitions).map { it.start to it.end }

@@ -109,7 +109,8 @@ internal class WeekTailTimeline(initialPosition: Float) {
 }
 
 @Stable
-internal class WeekPageTailMotion(val pager: PagerState) {
+internal class WeekPageTailMotion(val pager: PagerState, samplingEnabled: Boolean = true) {
+    var materialSamplingEnabled by mutableStateOf(samplingEnabled)
     private val initial = pager.currentPage + pager.currentPageOffsetFraction
     private val timeline = WeekTailTimeline(initial)
     private var positions by mutableStateOf(List(WeekTailGroups) { initial })
@@ -182,8 +183,14 @@ internal class WeekPageTailMotion(val pager: PagerState) {
             if (needsSettledSample && !pager.isScrollInProgress) {
                 // A fast swipe can finish placement after the last follower's recording.
                 // Refresh once on the following frame at the final layout coordinates.
-                withFrameNanos { }
-                settledSampleRevision++
+                if (materialSamplingEnabled) {
+                    withFrameNanos { }
+                    if (materialSamplingEnabled) {
+                        settledSampleRevision++
+                        if (com.xiaomanjun.sleepdownschedule.glass.MaterialSamplingDiagnostics.enabled)
+                            com.xiaomanjun.sleepdownschedule.glass.MaterialSamplingDiagnostics.dedicatedRefreshes++
+                    }
+                }
                 needsSettledSample = false
             }
         }
@@ -191,8 +198,9 @@ internal class WeekPageTailMotion(val pager: PagerState) {
 }
 
 @Composable
-internal fun rememberWeekPageTailMotion(pager: PagerState): WeekPageTailMotion {
-    val motion = remember(pager) { WeekPageTailMotion(pager) }
+internal fun rememberWeekPageTailMotion(pager: PagerState, samplingEnabled: Boolean = true): WeekPageTailMotion {
+    val motion = remember(pager) { WeekPageTailMotion(pager, samplingEnabled) }
+    SideEffect { motion.materialSamplingEnabled = samplingEnabled }
     LaunchedEffect(motion) {
         val scale = coroutineContext[MotionDurationScale]
         motion.follow { scale?.scaleFactor ?: 1f }
@@ -256,9 +264,17 @@ internal fun WeekPageSamplingScope(
     page: Int,
     homeSwitching: State<Boolean>,
     jump: AdjacentWeekJump? = null,
+    cardCount: State<Int>,
     content: @Composable () -> Unit
 ) {
     val parentKey = LocalGlassSampleRecordKey.current
+    val parentMaterialOverride = com.xiaomanjun.sleepdownschedule.core.performance.LocalMaterialPerformanceOverride.current
+    val materialOverride = remember(parentMaterialOverride, motion, cardCount) {
+        derivedStateOf {
+            parentMaterialOverride.value || com.xiaomanjun.sleepdownschedule.core.performance.densePageNeedsPerformance(
+                cardCount.value, motion.moving)
+        }
+    }
     val paneVisible = LocalHomePaneVisible.current
     // An idle retained pane keeps only its settled page measured and composed. The outer pane
     // suppresses its drawing/sampling, so switching modes can reuse these glass nodes.
@@ -273,12 +289,16 @@ internal fun WeekPageSamplingScope(
     }
     if (!mounted) return
     val mountedSampleRevision = remember(page) { mutableIntStateOf(0) }
-    LaunchedEffect(page) {
+    val materialEnabled = motion.materialSamplingEnabled
+    LaunchedEffect(page, materialEnabled) {
+        if (!materialEnabled) return@LaunchedEffect
         // The first visible frame can precede the shared wallpaper recorder. Refresh once
         // after its layer and this page have both reached a stable placement.
         withFrameNanos { }
         withFrameNanos { }
         mountedSampleRevision.intValue++
+        if (com.xiaomanjun.sleepdownschedule.glass.MaterialSamplingDiagnostics.enabled)
+            com.xiaomanjun.sleepdownschedule.glass.MaterialSamplingDiagnostics.dedicatedRefreshes++
     }
     val key = remember(motion, parentKey) {
         derivedStateOf { Triple(parentKey(), motion.sampleKey, mountedSampleRevision.intValue) }
@@ -289,6 +309,7 @@ internal fun WeekPageSamplingScope(
         derivedStateOf { parentTextFrozen.value || motion.moving }
     }
     CompositionLocalProvider(
+        com.xiaomanjun.sleepdownschedule.core.performance.LocalMaterialPerformanceOverride provides materialOverride,
         LocalWeekPageSlot provides page,
         LocalGlassSampleRecordKey provides sampleKey,
         LocalHomeTextContrastFrozen provides textFrozen

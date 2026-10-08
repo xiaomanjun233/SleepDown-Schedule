@@ -1,6 +1,17 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.core.performance.*
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.composed
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
@@ -46,6 +57,23 @@ private val DefaultLayerBackdropDraw: ContentDrawScope.() -> Unit = { drawConten
 private val DefaultGlassBackdropDraw: DrawScope.(DrawScope.() -> Unit) -> Unit = { drawBackdrop ->
     drawBackdrop()
 }
+
+/** Observe animated outlines in drawing, without a retained offscreen/material layer. */
+private fun Modifier.flatMaterial(shape: () -> Shape, color: Color, enabled: () -> Boolean = { true }) =
+    drawWithCache {
+        val outline = shape().createOutline(size, layoutDirection, this)
+        val path = when (outline) {
+            is Outline.Generic -> outline.path
+            is Outline.Rounded -> Path().apply { addRoundRect(outline.roundRect) }
+            is Outline.Rectangle -> Path().apply { addRect(outline.rect) }
+        }
+        onDrawWithContent {
+            clipPath(path) {
+                if (enabled()) drawRect(color)
+                this@onDrawWithContent.drawContent()
+            }
+        }
+    }
 
 /** Equal output suppresses invalidation, while the derived state tracks the latest callback's reads. */
 internal fun derivedGlassShape(shape: State<() -> Shape>): State<Shape> =
@@ -125,10 +153,26 @@ fun rememberGlassLayerBackdrop(
 fun rememberGlassCombinedBackdrop(
     first: Backdrop,
     second: Backdrop
-): Backdrop = rememberCombinedBackdrop(first, second)
+): Backdrop = rememberCombinedBackdrop(first, second).also { GlassSourceDemand.link(it, first, second) }
 
-fun Modifier.glassBackdropProducer(backdrop: LayerBackdrop, recordKey: (() -> Any?)? = null): Modifier =
-    layerBackdrop(backdrop, recordKey)
+fun Modifier.glassBackdropProducer(backdrop: LayerBackdrop, recordKey: (() -> Any?)? = null,
+    enabled: Boolean = true): Modifier = composed {
+    val record = enabled && (AppMaterialPreferences.policy.denseMaterials || GlassSourceDemand.required(backdrop))
+    val density = LocalDensity.current
+    val direction = LocalLayoutDirection.current
+    androidx.compose.runtime.DisposableEffect(backdrop, record) {
+        if (!record) {
+            // Drop the old display list and effect buffer while retaining the cheap provider handle.
+            backdrop.graphicsLayer.renderEffect = null
+            backdrop.graphicsLayer.record(density, direction, IntSize(1, 1)) { }
+        }
+        onDispose { }
+    }
+    if (record) Modifier.drawWithContent {
+        if (MaterialSamplingDiagnostics.enabled) MaterialSamplingDiagnostics.producerDraws++
+        drawContent()
+    }.layerBackdrop(backdrop, recordKey) else Modifier
+}
 
 /**
  * The single KyantReference consumption path. It preserves the official effect order while
@@ -162,15 +206,23 @@ fun Modifier.sleepDownGlassSurface(
     clipGenericOutlineInDraw: Boolean = true,
     placementLayer: Boolean = true,
     backdropSampleScale: Float = 1f,
-    cacheSharedSamples: Boolean = false
+    cacheSharedSamples: Boolean = false,
+    usage: MaterialUsage = MaterialUsage.CONTROL,
+    fallbackColor: Color? = null
 ): Modifier {
+    if (!AppMaterialPreferences.policy.samples(usage)) {
+        val color = fallbackColor ?: MaterialTheme.colorScheme.surface
+        val opacity = AppMaterialPreferences.policy.opacity(material.blur.value, 24f)
+        return flatMaterial(shape, color.copy(alpha = opacity), renderEnabled)
+    }
+    if (sampleBackdrop) retainGlassSources(backdrop)
     if (sceneState?.diagnosticsEnabled == true) {
         check(descriptor.materialRole == material.role) {
             "Glass descriptor ${descriptor.id} uses ${descriptor.materialRole}, but material is ${material.role}."
         }
     }
 
-    val performanceMaterial = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isPerformance
+    val performanceMaterial = effectiveAppMaterialPolicy().level == AppMaterialLevel.PERFORMANCE
     val resolvedFrame = if (performanceMaterial) effectFrame.copy(lensHeight = null, lensAmount = null) else effectFrame
     val currentShape = rememberUpdatedState(shape)
     val resolvedShape = remember { derivedGlassShape(currentShape) }
@@ -370,7 +422,13 @@ fun Modifier.sleepDownGlassSurface(
     // Experimental renderers are guarded by empty-by-default allowlists. Until a scene-specific
     // implementation is selected, every path deliberately resolves to the reference backend.
     sceneState?.rendererFor(descriptor)
-    return drawBackdrop(
+    return drawWithContent {
+        if (MaterialSamplingDiagnostics.enabled && sampleBackdrop) {
+            if (usage == MaterialUsage.SCENE_BLUR) MaterialSamplingDiagnostics.sceneDraws++
+            else MaterialSamplingDiagnostics.denseDraws++
+        }
+        drawContent()
+    }.drawBackdrop(
         backdrop = backdrop,
         shape = stableShape,
         effects = stableEffects,
@@ -399,8 +457,14 @@ fun Modifier.sleepDownPlainGlassSurface(
     material: GlassMaterialSpec,
     shape: () -> Shape,
     sceneState: GlassSceneState? = LocalGlassSceneState.current,
+    usage: MaterialUsage = MaterialUsage.CONTROL,
     effects: BackdropEffectScope.() -> Unit
 ): Modifier {
+    if (!AppMaterialPreferences.policy.samples(usage)) {
+        val color = MaterialTheme.colorScheme.surface.copy(alpha = AppMaterialPreferences.policy.opacity(material.blur.value, 24f))
+        return flatMaterial(shape, color)
+    }
+    retainGlassSources(backdrop)
     if (sceneState?.diagnosticsEnabled == true) {
         check(descriptor.materialRole == material.role) {
             "Glass descriptor ${descriptor.id} uses ${descriptor.materialRole}, but material is ${material.role}."
@@ -435,7 +499,13 @@ fun Modifier.sleepDownPlainGlassSurface(
         }
     }
     sceneState?.rendererFor(descriptor)
-    return drawPlainBackdrop(
+    return drawWithContent {
+        if (MaterialSamplingDiagnostics.enabled) {
+            if (usage == MaterialUsage.SCENE_BLUR) MaterialSamplingDiagnostics.sceneDraws++
+            else MaterialSamplingDiagnostics.denseDraws++
+        }
+        drawContent()
+    }.drawPlainBackdrop(
         backdrop = backdrop,
         shape = stableShape,
         effects = stableEffects,

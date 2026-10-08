@@ -178,7 +178,8 @@ internal fun Modifier.sleepDownDropletGlass(
     shadowAlpha: Float = 0f
 ): Modifier {
     val currentGeometry = rememberUpdatedState(geometry)
-    val shaderSupported = isRuntimeShaderSupported()
+    val shaderSupported = isRuntimeShaderSupported() &&
+        com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.policy.denseMaterials
     val currentDropColor = rememberUpdatedState(dropColor)
     val currentMotionBlur = rememberUpdatedState(motionBlurPx)
     val currentBaseBlur = rememberUpdatedState(baseBlurRadiusPx)
@@ -204,7 +205,7 @@ internal fun Modifier.sleepDownDropletGlass(
         surfaceAlpha = surfaceColor.alpha
     )
     return sleepDownGlassSurface(
-        backdrop = backdrop, descriptor = descriptor, material = material,
+        backdrop = backdrop, descriptor = descriptor, material = material, fallbackColor = surfaceColor,
         shape = { if (shaderSupported) RectangleShape else fallbackShape() },
         effectFrame = GlassEffectFrame(blur = blurRadius),
         effectsOverride = {

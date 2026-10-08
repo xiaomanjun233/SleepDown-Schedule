@@ -25,6 +25,22 @@ import java.util.zip.ZipOutputStream
 import java.util.zip.CRC32
 
 class BackupCodecTest {
+    @Test fun presentationAndMaterialSettingsRoundTripWithoutCredentials() {
+        val original = fixtureArchive()
+        val source = original.copy(preferences = original.preferences.copy(materialLevel = "SUPER_PERFORMANCE"),
+            data = original.data.copy(schedules = original.data.schedules.map { it.copy(config = it.config.copy(
+                showNonCurrentWeekCourses = true, weekCardContentLayout = "MIDDLE", weekCardTextAlignment = "START",
+                scheduleAdjustmentsJson = """[{"date":"2026-10-08","allDayPlaceholder":true}]""")) }))
+        val restored = BackupCodec.decode(BackupCodec.encode(source))
+        assertEquals(source.data, restored.data)
+        assertEquals("SUPER_PERFORMANCE", restored.preferences.materialLevel)
+        val settings = BackupJson.encodeToString(restored.preferences)
+        assertFalse(settings.contains("webdav", ignoreCase = true))
+        assertEquals(null, BackupJson.decodeFromString<BackupPreferences>("{\"preferencesVersion\":1}").materialLevel)
+        val oldConfig = BackupJson.encodeToString(fixtureConfig("asset_550e8400-e29b-41d4-a716-446655440000"))
+            .replace(Regex(",?\\\"showNonCurrentWeekCourses\\\":false"), "")
+        assertFalse(BackupJson.decodeFromString<BackupScheduleConfig>(oldConfig).showNonCurrentWeekCourses)
+    }
     @Test fun roundTripIncludesIndependentPeriodLibraryAndQuietSettings() {
         val config = defaultConfig().copy(morningPeriodCount = 1, noonPeriodCount = 0, afternoonPeriodCount = 0, eveningPeriodCount = 0)
         val saved = com.xiaomanjun.sleepdownschedule.domain.schedule.savePeriodSchemeSnapshot("library-1", "夏令时", config,

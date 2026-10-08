@@ -157,8 +157,10 @@ object BackupRoomRestoreMapper {
                 weekCardShowLocation = config.weekCardShowLocation,
                 weekCardShowTeacher = config.weekCardShowTeacher,
                 weekCardTextAlignment = strictBackupEnum<com.xiaomanjun.sleepdownschedule.model.WeekCardTextAlignment>(
+                    // Legacy layout enum values preserve their own horizontal alignment.
                     config.weekCardTextAlignment, "weekCardTextAlignment"
                 ),
+                showNonCurrentWeekCourses = config.showNonCurrentWeekCourses,
                 weekCardContentLayout = strictBackupEnum<com.xiaomanjun.sleepdownschedule.model.WeekCardContentLayout>(
                     config.weekCardContentLayout, "weekCardContentLayout"
                 ),

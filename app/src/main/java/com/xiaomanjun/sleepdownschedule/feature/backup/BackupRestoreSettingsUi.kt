@@ -72,7 +72,8 @@ private data class BackupGuidePage(
 fun BackupRestoreSettingsScreen(
     state: AppState,
     backdrop: Backdrop?,
-    onOpenPreview: (Uri) -> Unit = {}
+    onOpenPreview: (Uri) -> Unit = {},
+    onOpenWebDav: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val app = remember(context) { context.applicationContext as CourseScheduleApp }
@@ -190,6 +191,11 @@ fun BackupRestoreSettingsScreen(
                         }
                     )
                 }
+            }
+        }
+        item(key = "webdav") {
+            SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
+                SettingsNavigationRow("WebDAV 备份", "连接个人网盘或 NAS，手动上传与恢复", onClick = onOpenWebDav)
             }
         }
         if (busyLabel != null || statusMessage != null) {

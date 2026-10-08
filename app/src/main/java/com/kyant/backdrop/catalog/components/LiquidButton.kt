@@ -205,6 +205,7 @@ fun LiquidButton(
                     null
                 },
                 onDrawSurface = buttonOnDrawSurface,
+                fallbackColor = surfaceColor.takeIf { it.isSpecified } ?: tint.takeIf { it.isSpecified },
                 clipToBounds = clipToBounds,
                 renderEnabled = { surfaceEnabled }
             )

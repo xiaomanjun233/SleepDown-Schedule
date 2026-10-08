@@ -18,7 +18,14 @@ enum class PeriodAlignmentMode { INDEX, TIME }
 enum class ScheduleTermState { MANUAL, UPCOMING, ACTIVE, ENDED, INVALID }
 enum class CourseCardColorMode { SOLID, GRADIENT, COLORFUL }
 enum class WeekCardTextAlignment { START, CENTER, END }
-enum class WeekCardContentLayout { CURRENT, CENTERED, TOP_DOWN }
+// CENTERED/TOP_DOWN retain the old horizontal alignment when reading existing data.
+enum class WeekCardContentLayout { CURRENT, CENTERED, TOP_DOWN, TOP, MIDDLE }
+
+fun ScheduleConfigEntity.effectiveWeekCardTextAlignment(): WeekCardTextAlignment = when (weekCardContentLayout) {
+    WeekCardContentLayout.CENTERED -> WeekCardTextAlignment.CENTER
+    WeekCardContentLayout.TOP_DOWN -> WeekCardTextAlignment.START
+    else -> weekCardTextAlignment
+}
 
 internal const val DefaultHomeChromeBlurScale = 1f
 internal const val MinHomeChromeBlurScale = 0f
@@ -128,6 +135,7 @@ data class ScheduleConfigEntity(
     val darkMode: Boolean = false,
     val defaultWallpaperStyle: DefaultWallpaperStyle = DefaultWallpaperStyle.NONE,
     val hideEmptyWeekends: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val showNonCurrentWeekCourses: Boolean = false,
     @ColumnInfo(defaultValue = "''") val scheduleAdjustmentsJson: String = "",
     val dockAlignment: DockAlignment = DockAlignment.CENTER,
     val defaultHomeMode: HomeStartMode = HomeStartMode.WEEK,

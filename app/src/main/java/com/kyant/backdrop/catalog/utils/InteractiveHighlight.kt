@@ -54,7 +54,7 @@ class InteractiveHighlight(
     val pressProgress: Float get() = pressProgressAnimation.value
     val offset: Offset get() = positionAnimation.value - startPosition
 
-    private val shader =
+    private val shader by lazy {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             RuntimeShader(
                 """
@@ -72,8 +72,11 @@ half4 main(float2 coord) {
         } else {
             null
         }
+    }
 
     private fun DrawScope.drawHighlightLayer() {
+        if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance) return
+        val shader = this@InteractiveHighlight.shader
         val progress = pressProgressAnimation.value
         val highlightPosition = exactExternalPosition ?: releasePosition ?: positionAnimation.value
         if (progress <= 0f) return
@@ -142,19 +145,26 @@ half4 main(float2 coord) {
         }
     }
 
-    val modifier: Modifier = Modifier.drawWithContent {
+    val modifier: Modifier get() = if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance) Modifier else highlightModifier
+    private val highlightModifier: Modifier = Modifier.drawWithContent {
         drawHighlightLayer()
         drawContent()
     }
 
     /** Draws the pointer-following light after child content for lifted foreground surfaces. */
-    val foregroundModifier: Modifier = Modifier.drawWithContent {
+    val foregroundModifier: Modifier get() = if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance) Modifier else foregroundHighlightModifier
+    private val foregroundHighlightModifier: Modifier = Modifier.drawWithContent {
         drawContent()
         drawHighlightLayer()
     }
 
     private fun settle(generation: Long = inputGeneration) {
         animationScope.launch {
+            if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance) {
+                pressProgressAnimation.snapTo(0f)
+                positionAnimation.snapTo(startPosition)
+                return@launch
+            }
             // Release work is intentionally asynchronous so the spring can finish after UP. A
             // newer DOWN must invalidate this queued release before it can cancel the new press.
             if (generation != inputGeneration) return@launch
@@ -173,6 +183,10 @@ half4 main(float2 coord) {
      * pointerInput modifier.
      */
     fun updateExternal(position: Offset, pressed: Boolean, followPointerExactly: Boolean = false) {
+        if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance) {
+            if (externalPressActive) { externalPressActive = false; ++inputGeneration; settle() }
+            return
+        }
         if (pressed) {
             releasePosition = null
             exactExternalPosition = position.takeIf { followPointerExactly }
@@ -202,7 +216,8 @@ half4 main(float2 coord) {
         }
     }
 
-    val gestureModifier: Modifier =
+    val gestureModifier: Modifier get() = if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance) Modifier else highlightGestureModifier
+    private val highlightGestureModifier: Modifier =
         Modifier.pointerInput(animationScope) {
             var gestureAccepted = false
             var gestureGeneration = inputGeneration

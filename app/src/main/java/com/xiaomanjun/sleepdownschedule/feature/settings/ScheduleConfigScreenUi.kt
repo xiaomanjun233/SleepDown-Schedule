@@ -104,6 +104,7 @@ fun ScheduleConfigScreen(
     var liveUpdateActionsEnabled by remember { mutableStateOf(state.config.liveUpdateActionsEnabled) }
     var autoCurrentWeek by remember { mutableStateOf(state.config.autoCurrentWeek) }
     var hideEmptyWeekends by remember { mutableStateOf(state.config.hideEmptyWeekends) }
+    var showNonCurrentWeekCourses by remember { mutableStateOf(state.config.showNonCurrentWeekCourses) }
     var scheduleAdjustmentsJson by remember { mutableStateOf(state.config.scheduleAdjustmentsJson) }
     var termStartDate by remember { mutableStateOf(state.config.termStartDate.orEmpty()) }
     var classDurationMinutes by remember { mutableStateOf(state.config.classDurationMinutes.toString()) }
@@ -152,6 +153,7 @@ fun ScheduleConfigScreen(
         liveUpdateActionsEnabled = source.config.liveUpdateActionsEnabled
         autoCurrentWeek = source.config.autoCurrentWeek
         hideEmptyWeekends = source.config.hideEmptyWeekends
+        showNonCurrentWeekCourses = source.config.showNonCurrentWeekCourses
         scheduleAdjustmentsJson = source.config.scheduleAdjustmentsJson
         termStartDate = source.config.termStartDate.orEmpty()
         classDurationMinutes = source.config.classDurationMinutes.toString()
@@ -176,6 +178,7 @@ fun ScheduleConfigScreen(
                     currentWeek != lastSavedConfig.currentWeek.toString() ||
                     autoCurrentWeek != lastSavedConfig.autoCurrentWeek ||
                     hideEmptyWeekends != lastSavedConfig.hideEmptyWeekends ||
+                    showNonCurrentWeekCourses != lastSavedConfig.showNonCurrentWeekCourses ||
                     scheduleAdjustmentsJson != lastSavedConfig.scheduleAdjustmentsJson ||
                     termStartDate != lastSavedConfig.termStartDate.orEmpty() ||
                     classDurationMinutes != lastSavedConfig.classDurationMinutes.toString() ||
@@ -335,6 +338,7 @@ fun ScheduleConfigScreen(
                 termStartDate = termStartDate.ifBlank { null },
                 autoCurrentWeek = autoCurrentWeek,
                 hideEmptyWeekends = hideEmptyWeekends,
+                showNonCurrentWeekCourses = showNonCurrentWeekCourses,
                 scheduleAdjustmentsJson = scheduleAdjustmentsJson,
                 notificationsEnabled = notificationsEnabled,
                 notificationMode = notificationMode,
@@ -583,7 +587,9 @@ fun ScheduleConfigScreen(
         autoCurrentWeek = autoCurrentWeek,
         onAutoCurrentWeekChange = { autoCurrentWeek = it },
         hideEmptyWeekends = hideEmptyWeekends,
+        showNonCurrentWeekCourses = showNonCurrentWeekCourses,
         onHideEmptyWeekendsChange = { hideEmptyWeekends = it },
+        onShowNonCurrentWeekCoursesChange = { showNonCurrentWeekCourses = it },
         termStartDate = termStartDate,
         onTermStartDateChange = { termStartDate = it },
         classDurationMinutes = classDurationMinutes,

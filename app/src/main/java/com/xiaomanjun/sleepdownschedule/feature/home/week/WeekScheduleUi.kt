@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import com.xiaomanjun.sleepdownschedule.model.effectiveWeekCardTextAlignment
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseAlignmentFragments
 
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
@@ -414,19 +415,22 @@ internal fun SinglePillWeekScheduleScreen(
     val hasAdjustmentBadges = remember(state.config.scheduleAdjustmentsJson) {
         com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(state.config.scheduleAdjustmentsJson).isNotEmpty()
     }
-    val supplementaryRowCount = remember(weekBucketCache, state.periods, displayWeek, weekJump) {
+    val supplementaryRowCount = remember(weekBucketCache, state.periods, displayWeek, weekJump, state.config.showNonCurrentWeekCourses) {
         val renderedWeeks = (displayWeek - 1..displayWeek + 1).toList() +
             listOfNotNull(weekJump?.sourcePage?.plus(1), weekJump?.targetPage?.plus(1))
         renderedWeeks.maxOf { week ->
-            bucketsForWeek(week).visibleCourses
-                .flatMap { courseAlignmentFragments(it, state.periods) }
+            val actual = bucketsForWeek(week).visibleCourses
+            val counts = actual.flatMap { courseAlignmentFragments(it, state.periods) }
                 .filter { courseNeedsSupplementaryWeekRow(it, state.periods) }
-                .groupingBy { it.weekday }.eachCount().values.maxOrNull() ?: 0
+                .groupingBy { it.weekday }.eachCount()
+            (1..7).maxOf { day -> counts.getOrDefault(day, 0) +
+                if (state.config.showNonCurrentWeekCourses)
+                    nonCurrentSupplementaryCourses(state.courses, actual, week, day, state.periods).size else 0 }
         }
     }
     val supplementaryHeight = if (supplementaryRowCount > 0) 24.dp + 88.dp * supplementaryRowCount else 0.dp
-    val weekdays = remember(weekBuckets, state.config.hideEmptyWeekends) {
-        visibleWeekdaysForBuckets(weekBuckets, state.config.hideEmptyWeekends)
+    val weekdays = remember(weekBuckets, state.courses, state.config, displayWeek) {
+        weekPresentationWeekdays(weekBuckets, state.courses, state.config, displayWeek)
     }
     val periodIndexes = remember(state.periods) {
         state.periods.map { it.periodIndex }
@@ -470,7 +474,9 @@ internal fun SinglePillWeekScheduleScreen(
     val latestSwipeWeek by rememberUpdatedState(onSwipeWeek)
     val latestWeekHeaderPreview by rememberUpdatedState(onWeekHeaderPreview)
     val latestWeekJumpSettled by rememberUpdatedState(onWeekJumpSettled)
-    val weekTail = rememberWeekPageTailMotion(pagerState)
+    val weekTail = rememberWeekPageTailMotion(pagerState,
+        com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.policy.courseSamples(
+            state.config.courseCardGlassEnabled, state.config.courseCardGaussianBlurEnabled, state.config.hasAnyWallpaper()))
     val homeSwitching = LocalHomeTextContrastFrozen.current
     LaunchedEffect(pagerState, boundless) {
         try {
@@ -835,8 +841,8 @@ internal fun SinglePillWeekScheduleScreen(
                             val pageWeek = (weekJump?.logicalPage(page) ?: page) + 1
                             val pageBuckets = bucketsForWeek(pageWeek)
                             val pageCourses = pageBuckets.visibleCourses
-                            val pageWeekdays = remember(pageBuckets, state.config.hideEmptyWeekends) {
-                                visibleWeekdaysForBuckets(pageBuckets, state.config.hideEmptyWeekends)
+                            val pageWeekdays = remember(pageBuckets, state.courses, state.config, pageWeek) {
+                                weekPresentationWeekdays(pageBuckets, state.courses, state.config, pageWeek)
                             }
                             val isActivePage = programmaticPage < 0 && pageWeek == displayWeek && pagerState.settledPage == page
                             val openPageOccurrence = remember(pageWeek) {
@@ -844,7 +850,8 @@ internal fun SinglePillWeekScheduleScreen(
                                     currentOpenOccurrence.value(course, pageWeek, bounds)
                                 }
                             }
-                            WeekPageSamplingScope(weekTail, page, homeSwitching, weekJump) {
+                            val pageCardCount = remember(pageWeek) { mutableIntStateOf(0) }
+                            WeekPageSamplingScope(weekTail, page, homeSwitching, weekJump, pageCardCount) {
                             WeekCourseColumnsLayer(
                                 modifier = Modifier.padding(
                                     start = rowHeaderWidth,
@@ -853,8 +860,11 @@ internal fun SinglePillWeekScheduleScreen(
                                     end = weekGridEndPadding
                                 ),
                                 courses = pageCourses,
-                                onRenderedCardCountChanged = if (pageWeek == displayWeek)
-                                    onRenderedCardCountChanged else null,
+                                referenceCourses = state.courses,
+                                onRenderedCardCountChanged = { count ->
+                                    pageCardCount.intValue = count
+                                    if (pageWeek == displayWeek) onRenderedCardCountChanged(count)
+                                },
                                 showSupplementaryRows = supplementaryRowCount > 0,
                                 weekdays = pageWeekdays,
                                 periods = state.periods,
@@ -1213,7 +1223,7 @@ private fun WeekCourseCardTextContent(
     val usablePx = (availableTextPx - teacherPx).coerceAtLeast(0f)
     val averageLinePx = minOf(with(density) { nameLineHeight.toPx() }, with(density) { locationLineHeight.toPx() }).coerceAtLeast(1f)
     val totalSlots = (usablePx / averageLinePx).toInt().coerceAtLeast(1)
-    val maxNameLines = if (config.weekCardContentLayout == WeekCardContentLayout.TOP_DOWN) totalSlots else when {
+    val maxNameLines = if (config.weekCardContentLayout in listOf(WeekCardContentLayout.TOP_DOWN, WeekCardContentLayout.TOP)) totalSlots else when {
         heightDp >= 150f -> 12
         heightDp >= 112f -> 9
         heightDp >= 78f -> 6
@@ -1283,7 +1293,7 @@ private fun WeekCourseCardTextContent(
     )
 }
 
-private fun ScheduleConfigEntity.weekCardTextAlign(): TextAlign = when (weekCardTextAlignment) {
+private fun ScheduleConfigEntity.weekCardTextAlign(): TextAlign = when (effectiveWeekCardTextAlignment()) {
     WeekCardTextAlignment.START -> TextAlign.Start
     WeekCardTextAlignment.CENTER -> TextAlign.Center
     WeekCardTextAlignment.END -> TextAlign.End
@@ -1341,10 +1351,10 @@ private fun WeekCardTextBody(
             }
             }
         } else {
-            val textAlign = if (layout == WeekCardContentLayout.CENTERED) TextAlign.Center else TextAlign.Start
+            val textAlign = currentTextAlign
             Column(
                 modifier = Modifier.fillMaxSize(),
-                verticalArrangement = if (layout == WeekCardContentLayout.CENTERED) Arrangement.Center else Arrangement.Top
+                verticalArrangement = if (layout == WeekCardContentLayout.CENTERED || layout == WeekCardContentLayout.MIDDLE) Arrangement.Center else Arrangement.Top
             ) {
                 if (locationLines > 0) {
                     CourseCardText(locationText, coloredText = coloredText,
@@ -1536,7 +1546,7 @@ internal fun BoundlessWeekdayHeaderRow(
         val displayedPage = (displayWeek - 1).coerceIn(0, config.totalWeeks.coerceAtLeast(1) - 1)
         val displayedWeekdays = remember(courses, displayedPage, config, today) {
             val buckets = weekCourseBuckets(courses, displayedPage + 1, config, today)
-            visibleWeekdaysForBuckets(buckets, config.hideEmptyWeekends)
+            weekPresentationWeekdays(buckets, courses, config, displayedPage + 1)
         }
         WeekdayHeaderLabels(
             weekdays = displayedWeekdays,
@@ -1583,7 +1593,7 @@ private fun WeekPagerHeaderLabels(
 
     fun weekdaysForPage(page: Int): List<Int> {
         val buckets = weekCourseBuckets(courses, page + 1, config, today)
-        return visibleWeekdaysForBuckets(buckets, config.hideEmptyWeekends)
+        return weekPresentationWeekdays(buckets, courses, config, page + 1)
     }
 
     val currentWeekdays = remember(courses, currentPage, config, today) {
@@ -1806,7 +1816,7 @@ internal fun weekCustomTimeLabels(
     }
 }
 
-private fun weekCardVerticalBounds(
+internal fun weekCardVerticalBounds(
     segment: WeekCourseSegment,
     periods: List<PeriodEntity>,
     cardHeight: Dp
@@ -1861,6 +1871,8 @@ private fun renderedWeekSegments(
 @Composable
 private fun WeekDayColumn(
     courses: List<CourseEntity>,
+    referenceCards: List<NonCurrentWeekCard> = emptyList(),
+    holidayLabel: String? = null,
     renderedSegments: List<WeekRenderedSegment>,
     tailCardOrder: Map<String, Float>,
     tailColumnFraction: Float?,
@@ -1927,6 +1939,28 @@ private fun WeekDayColumn(
         if (emptyBackground.alpha > 0f) {
             Column(Modifier.fillMaxSize()) {
                 periods.forEach { EmptyWeekCell(cardHeight, emptyBackground) }
+            }
+        }
+        if (holidayLabel != null) {
+            Box(Modifier.fillMaxSize().padding(2.dp)
+                .clip(RoundedRectangle(14.dp)).background(MutedCourseLightColor.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.TopCenter) {
+                Text(holidayLabel, Modifier.padding(horizontal = 4.dp, vertical = 18.dp),
+                    color = homeForegroundColor(config).copy(alpha = 0.6f),
+                    textAlign = TextAlign.Center, style = MaterialTheme.typography.labelMedium)
+            }
+        }
+        referenceCards.forEach { card ->
+            key(card.course.id, card.top, card.bottom) {
+                val height = (card.bottom - card.top).dp
+                val corner = adaptiveWeekCardCornerRadius(measuredCardLayoutWidth, height,
+                    currentWindowSizeDp().width, currentWindowSizeDp().height, config.weekCardCornerProgress)
+                CourseGlassCard(backdrop = backdrop, config = config, course = card.course,
+                    muted = true, shape = RoundedRectangle(corner), onClick = null,
+                    modifier = Modifier.offset(y = card.top.dp).fillMaxWidth()
+                        .padding(horizontal = 2.dp).height(height)) {
+                    WeekCourseOverlayCardContent(card.course, config, muted = true)
+                }
             }
         }
         renderedSegments.forEach { rendered ->
@@ -2076,6 +2110,7 @@ private fun WeekDayColumn(
 fun WeekCourseColumnsLayer(
     modifier: Modifier = Modifier,
     courses: List<CourseEntity>,
+    referenceCourses: List<CourseEntity> = emptyList(),
     onRenderedCardCountChanged: ((Int) -> Unit)? = null,
     showSupplementaryRows: Boolean = false,
     weekdays: List<Int>,
@@ -2165,11 +2200,37 @@ fun WeekCourseColumnsLayer(
             )
         }
     }
-    // Reuse the actual render plan, including cancelled/makeup occurrences and split cards.
+    val adjustmentsByDay = remember(config, editWeek, weekdays) {
+        val start = scheduleWeekStartDate(config, editWeek)
+        weekdays.associateWith { day -> com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config, start.plusDays((day - 1).toLong())) }
+    }
+    val referencesByDay = remember(referenceCourses, courses, config.showNonCurrentWeekCourses,
+        editWeek, weekdays, adjustmentsByDay, periods, cardHeight, renderedSegmentsByDay) {
+        weekdays.associateWith { day ->
+            if (config.showNonCurrentWeekCourses && adjustmentsByDay[day]?.let { it.sourceDate == null } != true)
+                nonCurrentWeekCards(referenceCourses, courses, editWeek, day, periods, cardHeight.value,
+                    renderedSegmentsByDay[day].orEmpty().map { weekCardVerticalBounds(it.segment, periods, cardHeight) })
+            else emptyList()
+        }
+    }
+    val supplementaryReferencesByDay = remember(referenceCourses, courses, config.showNonCurrentWeekCourses,
+        editWeek, weekdays, adjustmentsByDay, periods) {
+        weekdays.associateWith { day ->
+            if (config.showNonCurrentWeekCourses && adjustmentsByDay[day]?.let { it.sourceDate == null } != true)
+                nonCurrentSupplementaryCourses(referenceCourses, courses, editWeek, day, periods)
+            else emptyList()
+        }
+    }
+    // Count presentation cards only for animation, never for reminders or course statistics.
     // Adjacent retained weeks must not overwrite the current page's animation policy.
     if (onRenderedCardCountChanged != null) SideEffect {
-        onRenderedCardCountChanged(renderedSegmentsByDay.values.sumOf { it.size } +
-            if (showSupplementaryRows) weekdays.sumOf { supplementaryCoursesByDay[it].orEmpty().size } else 0)
+        onRenderedCardCountChanged(weekdays.sumOf { day ->
+            val adjustment = adjustmentsByDay[day]
+            if (adjustment?.allDayPlaceholder == true && adjustment.sourceDate == null) 1 else
+                renderedSegmentsByDay[day].orEmpty().size + referencesByDay[day].orEmpty().size +
+                    if (showSupplementaryRows) supplementaryCoursesByDay[day].orEmpty().size +
+                        supplementaryReferencesByDay[day].orEmpty().size else 0
+        })
     }
     val tailCardOrder = remember(renderedSegmentsByDay, supplementaryCoursesByDay, weekdays, periods) {
         val cards = weekdays.flatMapIndexed { column, day ->
@@ -2260,8 +2321,7 @@ fun WeekCourseColumnsLayer(
         Row(modifier = Modifier.fillMaxWidth()) {
             weekdays.forEachIndexed { columnIndex, day ->
                 val shortcutPivotX = courseShortcutPivot(columnIndex, weekdays.size, layoutDirection)
-                val dayAdjustment = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config,
-                    scheduleWeekStartDate(config, editWeek).plusDays((day - 1).toLong()))
+                val dayAdjustment = adjustmentsByDay[day]
                 val adjustedDay = dayAdjustment != null
                 // Days off keep their regular cards on screen, greyed and read-only.
                 val cancelledDay = adjustedDay && dayAdjustment.sourceDate == null
@@ -2275,9 +2335,12 @@ fun WeekCourseColumnsLayer(
                                 }) 2f else if (draggingDayIndex == day) 1f else 0f
                         )
                 ) {
+                    val fullDayPlaceholder = cancelledDay && dayAdjustment?.allDayPlaceholder == true
                     WeekDayColumn(
                         courses = coursesByWeekday[day].orEmpty(),
-                        renderedSegments = renderedSegmentsByDay[day].orEmpty(),
+                        renderedSegments = if (fullDayPlaceholder) emptyList() else renderedSegmentsByDay[day].orEmpty(),
+                        referenceCards = referencesByDay[day].orEmpty(),
+                        holidayLabel = if (fullDayPlaceholder) dayAdjustment?.label.orEmpty().ifBlank { "假期" } else null,
                         tailCardOrder = tailCardOrder,
                         tailColumnFraction = tailColumnOrder[day],
                         periods = periods,
@@ -2333,7 +2396,7 @@ fun WeekCourseColumnsLayer(
                             fontSize = 9.sp,
                             maxLines = 1
                         )
-                        supplementaryCoursesByDay[day].orEmpty().forEachIndexed { index, course ->
+                        (if (fullDayPlaceholder) emptyList() else supplementaryCoursesByDay[day].orEmpty()).forEachIndexed { index, course ->
                             Column(
                                 modifier = Modifier.fillMaxWidth().height(88.dp).padding(horizontal = 2.dp)
                                     .weekPageTail(
@@ -2361,6 +2424,20 @@ fun WeekCourseColumnsLayer(
                                     onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
                                     onCourseClick = onCourseClick
                                 )
+                                Text(course.customEndTime.orEmpty(), fontSize = 8.sp, lineHeight = 10.sp,
+                                    color = glassForegroundColor(config), modifier = Modifier.height(12.dp))
+                            }
+                        }
+                        val supplementaryReferences = supplementaryReferencesByDay[day].orEmpty()
+                        supplementaryReferences.forEach { course ->
+                            Column(Modifier.fillMaxWidth().height(88.dp).padding(horizontal = 2.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(course.customStartTime.orEmpty(), fontSize = 8.sp, lineHeight = 10.sp,
+                                    color = glassForegroundColor(config), modifier = Modifier.height(12.dp))
+                                CourseGlassCard(backdrop, config, Modifier.fillMaxWidth().height(64.dp),
+                                    course = course, muted = true) {
+                                    WeekCourseOverlayCardContent(course, config, muted = true)
+                                }
                                 Text(course.customEndTime.orEmpty(), fontSize = 8.sp, lineHeight = 10.sp,
                                     color = glassForegroundColor(config), modifier = Modifier.height(12.dp))
                             }

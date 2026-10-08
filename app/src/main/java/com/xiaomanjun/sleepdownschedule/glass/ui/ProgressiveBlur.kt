@@ -94,7 +94,7 @@ fun Modifier.progressiveBackdropBlur(
     // Nexio's performance path uses a single Gaussian blur plus a gradient mask instead
     // of the variable-radius sampling and denoise shaders. Keep the same tint/fade inputs.
     val useLegacyBlur = LocalLegacyProgressiveBlur.current ||
-        com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isPerformance
+        com.xiaomanjun.sleepdownschedule.core.performance.effectiveAppMaterialPolicy().simplifiedProgressiveBlur
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backdrop != null) {
         val material = remember(blurRadius, tintIntensity) {
             // Pure progressive blur: strip the default highlight/shadow/inner-shadow decorations
@@ -142,6 +142,7 @@ fun Modifier.progressiveBackdropBlur(
             }
         }
         sleepDownPlainGlassSurface(
+            usage = com.xiaomanjun.sleepdownschedule.core.performance.MaterialUsage.SCENE_BLUR,
             backdrop = backdrop,
             descriptor = descriptor,
             material = material,

@@ -631,6 +631,10 @@ object BackupCodec {
     }
 
     private fun validatePreferences(preferences: BackupPreferences, assetIds: Set<String>) {
+        preferences.materialLevel?.let { value ->
+            if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialLevel.entries.none { it.name == value })
+                fail("未知材质档位")
+        }
         try {
             preferences.savedPeriodSchemes?.let { schemes ->
                 require(schemes.map { it.id }.distinct().size == schemes.size) { "作息库编号重复" }

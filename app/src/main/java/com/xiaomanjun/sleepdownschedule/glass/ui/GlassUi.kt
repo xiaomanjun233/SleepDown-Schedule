@@ -843,6 +843,7 @@ internal fun Modifier.verticalGlassAccent(
     surroundingEdgeGlow: Boolean = false
 ): Modifier {
     val bounds = morphAllocation?.localBounds()
+    if (com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance) return this
     val clipShape = morphAllocation?.let { it.envelope.insetShapeFor(it.geometry()) } ?: shape
     val lightWallpaper = surroundingEdgeGlow && lightGlass
     val edgeColor = accentColor
@@ -1050,6 +1051,20 @@ fun CourseGlassCard(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
+    val materialPolicy = com.xiaomanjun.sleepdownschedule.core.performance.effectiveAppMaterialPolicy()
+    if (!materialPolicy.denseMaterials) {
+        val preview = LocalPersonalizationPreview.current
+        val base = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
+        val opacity = materialPolicy.opacity(blurOverride ?: preview?.cardBlur ?: config.courseCardBlur,
+            com.xiaomanjun.sleepdownschedule.model.courseCardBlurMaximum(config.courseCardGlassEnabled))
+        val background = rememberCourseTextBackground(base, opacity, false, 0f, false, false,
+            flatBackground = homeFlatBackgroundColor(appUsesDarkTheme(config)), ready = true, cardBounds = { null })
+        Box(modifier.clip(shape).then(if (renderSurface) Modifier.background(base.copy(alpha = opacity)) else Modifier)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
+            CompositionLocalProvider(LocalCourseTextBackground provides background) { content() }
+        }
+        return
+    }
     val occlusionPhase = LocalCourseGlassOcclusionPhase.current
     val materialRevealProgress = LocalCourseGlassMaterialRevealProgress.current
     val occlusionAllowsMaterial =
@@ -1081,7 +1096,7 @@ fun CourseGlassCard(
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
     val liveLiquidBlur = blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur
-    val performanceMaterial = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isPerformance
+    val performanceMaterial = materialPolicy.level == com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialLevel.PERFORMANCE
     val liveRefractionStrength = previewState?.cardRefractionStrength
         ?: config.courseCardRefractionStrength
     val outlineLightEnabled = muted || (config.courseCardGlassEnabled &&

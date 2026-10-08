@@ -49,6 +49,6 @@ internal fun rememberCrossfadeBackdrop(
                     canvas.restoreToCount(checkpoint)
                 }
             }
-        }
+        }.also { com.xiaomanjun.sleepdownschedule.glass.GlassSourceDemand.link(it, source, destination) }
     }
 }

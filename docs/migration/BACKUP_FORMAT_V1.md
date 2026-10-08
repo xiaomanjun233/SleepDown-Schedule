@@ -5,6 +5,10 @@
 格式版本：`1`
 与 Room `databaseVersion` 完全独立。
 
+2026-10-08 扩展：`showNonCurrentWeekCourses` 默认关闭；调休 JSON 的 `allDayPlaceholder` 默认关闭；卡片布局增加独立的 `TOP` / `MIDDLE`，旧 `CENTERED` / `TOP_DOWN` 保持原有对齐；可选 `preferences.materialLevel` 保存三档材质偏好，旧包缺失时保留当前值。当前设备处于超级性能档时，恢复其他档位的备份不会解除该保护，须从通用设置主动切换。
+
+WebDAV 复用此格式与既有校验、预览、Replace 恢复流程，仅增加传输和可选调度。自动备份与恢复检查均需在本机开启，频率通过设置 Popup 选择；恢复检查只产生提示，绝不自动写入课表。WebDAV 凭据使用 Android Keystore 加密，存入 `noBackupFilesDir`，不进入 `.sleepdown`、系统备份、日志或错误报告。自动任务选项不进入普通备份，避免恢复到新设备后自动联网。详见 [#67 验收记录](../reports/ISSUE_67_2026-10-08.md)。
+
 ## 1. 目标和不变量
 
 `.sleepdown` 是面向用户的完整应用数据迁移包，不是 Room 数据库快照，也不是 Android Auto Backup 的替代 XML。它必须满足：
