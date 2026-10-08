@@ -7,10 +7,12 @@ import androidx.compose.ui.graphics.luminance
 import kotlin.math.roundToInt
 
 internal class CourseTextBackground(
-    val frozen: Boolean,
+    private val isFrozen: () -> Boolean,
     val flatLuminance: Float? = null,
     val sample: (Rect) -> FloatArray?
-)
+) {
+    val frozen: Boolean get() = isFrozen()
+}
 
 internal val LocalCourseTextBackground = compositionLocalOf<CourseTextBackground?> { null }
 

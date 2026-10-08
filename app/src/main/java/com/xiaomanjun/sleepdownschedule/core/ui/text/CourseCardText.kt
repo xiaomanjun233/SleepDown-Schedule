@@ -5,6 +5,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -100,7 +101,7 @@ internal fun CourseCardText(
         return true
     }
     fun updateAfterMotion() {
-        // The page resumes sampling through LaunchedEffect(background) after settling.
+        // The page resumes sampling through its freeze observer after settling.
         // Keep the coordinate reference current without mapping every label to the window
         // or starting settle jobs on each frame of a pager swipe or vertical scroll.
         if (background == null || background.frozen) return
@@ -124,8 +125,12 @@ internal fun CourseCardText(
         }
     }
     LaunchedEffect(background, displayedColor) {
-        settleJob[0]?.cancel()
-        resolved[0] = updateShadow()
+        // Observe motion outside composition. The same background retains its samples
+        // while frozen; actual color/wallpaper changes still replace it and reset caches.
+        snapshotFlow { background?.frozen == true }.collect { frozen ->
+            settleJob[0]?.cancel()
+            if (!frozen) resolved[0] = updateShadow()
+        }
     }
     val density = LocalDensity.current
     val lightText = courseTextNeedsDarkShadow(displayedColor)

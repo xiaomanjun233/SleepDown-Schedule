@@ -439,7 +439,7 @@ fun HomeReadableText(
     val textLayout = remember { mutableStateOf<TextLayoutResult?>(null) }
     val coordinates = remember { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(1) }
     // Reuse each decision until the actual text bounds or wallpaper inputs change.
-    val lastSample = remember(readability, color, backgroundFrozen) { arrayOfNulls<Rect>(1) }
+    val lastSample = remember(readability, color) { arrayOfNulls<Rect>(1) }
     fun updateContrast() {
         if (!hasWallpaper) {
             targetShadowStrength = 0f

@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.glass.ui
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -29,11 +30,15 @@ internal fun rememberCourseTextBackground(
     val wallpaper = LocalHomeReadability.current
     val frozen = LocalHomeBackgroundFrozen.current ||
         LocalCourseTextMotionFrozen.current || LocalHomeTextContrastFrozen.current
-    return remember(wallpaper, frozen, base, tintAlpha, blurred, blurPx, outline, expanded, ready, flatBackground) {
+    val currentFrozen = rememberUpdatedState(frozen)
+    // Motion pauses sampling; it does not change the wallpaper or tint. Keep the same
+    // background identity and label caches across freeze/resume instead of recomposing
+    // all course text twice per switch and resampling unchanged resting bounds.
+    return remember(wallpaper, base, tintAlpha, blurred, blurPx, outline, expanded, ready, flatBackground) {
         val flatLuminance = flatBackground?.let {
             base.copy(alpha = tintAlpha.coerceIn(0f, 1f)).compositeOver(it).luminance()
         }
-        CourseTextBackground(frozen, flatLuminance) { windowBounds ->
+        CourseTextBackground({ currentFrozen.value }, flatLuminance) { windowBounds ->
             // Flat cards have an exact composite; no wallpaper/position read is needed, even
             // when transparency is low or the card has not received its first layout callback.
             if (flatLuminance != null) return@CourseTextBackground floatArrayOf(flatLuminance)
