@@ -1844,6 +1844,12 @@ private fun weekGlassCandidateId(
 private fun weekSupplementaryTailKey(dayIndex: Int, courseId: Long, index: Int): String =
     "$dayIndex:supplementary:$courseId:$index"
 
+private fun weekReferenceTailKey(dayIndex: Int, card: NonCurrentWeekCard): String =
+    "$dayIndex:reference:${card.course.id}:${card.top.toBits()}:${card.bottom.toBits()}"
+
+private fun weekReferenceSupplementaryTailKey(dayIndex: Int, courseId: Long, index: Int): String =
+    "$dayIndex:reference-supplementary:$courseId:$index"
+
 private fun renderedWeekSegments(
     conflictGroups: List<WeekConflictGroup>,
     conflictFocusCourseId: Long?,
@@ -1952,13 +1958,16 @@ private fun WeekDayColumn(
         }
         referenceCards.forEach { card ->
             key(card.course.id, card.top, card.bottom) {
+                val tailKey = weekReferenceTailKey(dayIndex, card)
                 val height = (card.bottom - card.top).dp
                 val corner = adaptiveWeekCardCornerRadius(measuredCardLayoutWidth, height,
                     currentWindowSizeDp().width, currentWindowSizeDp().height, config.weekCardCornerProgress)
                 CourseGlassCard(backdrop = backdrop, config = config, course = card.course,
                     muted = true, shape = RoundedRectangle(corner), onClick = null,
                     modifier = Modifier.offset(y = card.top.dp).fillMaxWidth()
-                        .padding(horizontal = 2.dp).height(height)) {
+                        .padding(horizontal = 2.dp).height(height)
+                        .weekPageTail(tailKey, tailCardOrder[tailKey], tailColumnFraction)
+                        .homeSwitchGroup(tailCardOrder[tailKey])) {
                     WeekCourseOverlayCardContent(card.course, config, muted = true)
                 }
             }
@@ -2232,7 +2241,8 @@ fun WeekCourseColumnsLayer(
                         supplementaryReferencesByDay[day].orEmpty().size else 0
         })
     }
-    val tailCardOrder = remember(renderedSegmentsByDay, supplementaryCoursesByDay, weekdays, periods) {
+    val tailCardOrder = remember(renderedSegmentsByDay, supplementaryCoursesByDay,
+        referencesByDay, supplementaryReferencesByDay, showSupplementaryRows, weekdays, periods, cardHeight) {
         val cards = weekdays.flatMapIndexed { column, day ->
             val scheduled = renderedSegmentsByDay[day].orEmpty().map { rendered ->
                 val segment = rendered.segment
@@ -2250,17 +2260,28 @@ fun WeekCourseColumnsLayer(
                     column
                 )
             }
-            scheduled + supplementary
+            val references = referencesByDay[day].orEmpty().map { card ->
+                Triple(weekReferenceTailKey(day, card), card.top / cardHeight.value, column)
+            }
+            val supplementaryReferences = if (showSupplementaryRows)
+                supplementaryReferencesByDay[day].orEmpty().mapIndexed { index, course ->
+                    Triple(weekReferenceSupplementaryTailKey(day, course.id, index),
+                        periods.size.toFloat() + supplementary.size + index + 1f, column)
+                } else emptyList()
+            scheduled + supplementary + references + supplementaryReferences
         }.sortedWith(compareBy<Triple<String, Float, Int>> { it.second }
             .thenBy { it.third }.thenBy { it.first })
         cards.mapIndexed { index, card ->
             card.first to if (cards.size > 1) index.toFloat() / (cards.size - 1) else 0.5f
         }.toMap()
     }
-    val tailColumnOrder = remember(renderedSegmentsByDay, supplementaryCoursesByDay, weekdays) {
+    val tailColumnOrder = remember(renderedSegmentsByDay, supplementaryCoursesByDay,
+        referencesByDay, supplementaryReferencesByDay, showSupplementaryRows, weekdays) {
         val occupied = weekdays.filter { day ->
             renderedSegmentsByDay[day].orEmpty().isNotEmpty() ||
-                supplementaryCoursesByDay[day].orEmpty().isNotEmpty()
+                supplementaryCoursesByDay[day].orEmpty().isNotEmpty() ||
+                referencesByDay[day].orEmpty().isNotEmpty() ||
+                (showSupplementaryRows && supplementaryReferencesByDay[day].orEmpty().isNotEmpty())
         }
         occupied.mapIndexed { index, day ->
             day to if (occupied.size > 1) index.toFloat() / (occupied.size - 1) else 0.5f
@@ -2429,17 +2450,22 @@ fun WeekCourseColumnsLayer(
                             }
                         }
                         val supplementaryReferences = supplementaryReferencesByDay[day].orEmpty()
-                        supplementaryReferences.forEach { course ->
-                            Column(Modifier.fillMaxWidth().height(88.dp).padding(horizontal = 2.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text(course.customStartTime.orEmpty(), fontSize = 8.sp, lineHeight = 10.sp,
-                                    color = glassForegroundColor(config), modifier = Modifier.height(12.dp))
-                                CourseGlassCard(backdrop, config, Modifier.fillMaxWidth().height(64.dp),
-                                    course = course, muted = true) {
-                                    WeekCourseOverlayCardContent(course, config, muted = true)
+                        supplementaryReferences.forEachIndexed { index, course ->
+                            val tailKey = weekReferenceSupplementaryTailKey(day, course.id, index)
+                            key(tailKey) {
+                                Column(Modifier.fillMaxWidth().height(88.dp).padding(horizontal = 2.dp)
+                                    .weekPageTail(tailKey, tailCardOrder[tailKey], tailColumnOrder[day])
+                                    .homeSwitchGroup(tailCardOrder[tailKey]),
+                                    horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Text(course.customStartTime.orEmpty(), fontSize = 8.sp, lineHeight = 10.sp,
+                                        color = glassForegroundColor(config), modifier = Modifier.height(12.dp))
+                                    CourseGlassCard(backdrop, config, Modifier.fillMaxWidth().height(64.dp),
+                                        course = course, muted = true) {
+                                        WeekCourseOverlayCardContent(course, config, muted = true)
+                                    }
+                                    Text(course.customEndTime.orEmpty(), fontSize = 8.sp, lineHeight = 10.sp,
+                                        color = glassForegroundColor(config), modifier = Modifier.height(12.dp))
                                 }
-                                Text(course.customEndTime.orEmpty(), fontSize = 8.sp, lineHeight = 10.sp,
-                                    color = glassForegroundColor(config), modifier = Modifier.height(12.dp))
                             }
                         }
                     }
