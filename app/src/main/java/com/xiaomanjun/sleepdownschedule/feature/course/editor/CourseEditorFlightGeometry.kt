@@ -8,6 +8,7 @@ import androidx.compose.foundation.ScrollState
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.PeriodEntity
+import com.kyant.backdrop.Backdrop
 import kotlin.math.abs
 import kotlin.math.sign
 import kotlin.math.roundToInt
@@ -23,7 +24,9 @@ data class CourseEditorDayAppearance(
     val tabletFontScale: Float,
     val muted: Boolean,
     val adjustmentLabel: String?,
-    val cornerRadius: Dp = 24.dp
+    val cornerRadius: Dp = 24.dp,
+    /** Use the actual material input at the source endpoint, including shared wallpaper blur. */
+    val backdrop: Backdrop? = null
 )
 
 /** A short day card grows into a tall editor; glyphs must not stretch with its height. */

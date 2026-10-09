@@ -561,7 +561,7 @@ internal fun SinglePillWeekScheduleScreen(
     val contentUnderTopBar by remember {
         derivedStateOf { scrollState.value > 0 }
     }
-    LaunchedEffect(contentUnderTopBar) {
+    LaunchedEffect(contentUnderTopBar, onContentUnderTopBarChange) {
         onContentUnderTopBarChange(contentUnderTopBar)
     }
     val overlayHostBounds = remember { mutableStateOf<Rect?>(null) }

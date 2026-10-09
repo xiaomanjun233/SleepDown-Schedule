@@ -1052,6 +1052,7 @@ fun CourseGlassCard(
     sampledShape: Shape? = null,
     expandedOutlineLight: Boolean = false,
     muted: Boolean = false,
+    flatOpacityOverride: Float? = null,
     morphAllocation: com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation? = null,
     surfaceBackdrop: LayerBackdrop? = null,
     onClick: (() -> Unit)? = null,
@@ -1061,7 +1062,7 @@ fun CourseGlassCard(
     if (!materialPolicy.denseMaterials) {
         val preview = LocalPersonalizationPreview.current
         val base = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
-        val opacity = materialPolicy.opacity(blurOverride ?: preview?.cardBlur ?: config.courseCardBlur,
+        val opacity = flatOpacityOverride?.coerceIn(0f, 1f) ?: materialPolicy.opacity(blurOverride ?: preview?.cardBlur ?: config.courseCardBlur,
             com.xiaomanjun.sleepdownschedule.model.courseCardBlurMaximum(config.courseCardGlassEnabled))
         val background = rememberCourseTextBackground(base, opacity, false, 0f, false, false,
             flatBackground = homeFlatBackgroundColor(appUsesDarkTheme(config)), ready = true, cardBounds = { null })

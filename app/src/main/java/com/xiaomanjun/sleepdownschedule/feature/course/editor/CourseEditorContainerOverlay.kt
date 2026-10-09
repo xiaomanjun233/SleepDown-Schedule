@@ -658,7 +658,8 @@ internal fun CourseEditorContainerOverlayHost(
             )
         }
     }
-    val fixedMaterialEligible = config.courseCardGlassEnabled && config.hasAnyWallpaper() &&
+    val fixedMaterialEligible = com.xiaomanjun.sleepdownschedule.core.performance.effectiveAppMaterialPolicy().denseMaterials &&
+        config.courseCardGlassEnabled && config.hasAnyWallpaper() &&
         backdrop != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
     val materialAllocation = remember(materialEnvelope, materialGeometry, overlayPhase, config.courseCardBlur, density.density, fixedMaterialEligible) {
         if (materialEnvelope == null || overlayPhase == CourseEditorOverlayPhase.Open ||
@@ -719,11 +720,16 @@ internal fun CourseEditorContainerOverlayHost(
     }
     // Day cards sample only wallpaper. Start from those same pixels before introducing the
     // complete page underlay, rather than replacing a stopped card's material at the first frame.
-    val morphBackdrop = com.xiaomanjun.sleepdownschedule.glass.ui.rememberCrossfadeBackdrop(
+    val blendedMorphBackdrop = com.xiaomanjun.sleepdownschedule.glass.ui.rememberCrossfadeBackdrop(
         source = if (shownRequest.sourceIsDayCard && hasSourceTransform) sourceCardBackdrop else backdrop,
         destination = backdrop,
         progress = { smoothStep(0.12f, 0.62f, morphFrame.shapeProgress) }
     )
+    // A wrapper around the wallpaper breaks CourseGlassCard's shared-blur identity check.
+    // Start with the clicked day card's actual input and sampling path, then hand off to
+    // the screen-space scene. This also keeps stopped cards' complete material at frame 0.
+    val morphBackdrop = if (shownRequest.sourceIsDayCard && morphFrame.shapeProgress <= 0.12f &&
+        dayAppearance != null) dayAppearance.backdrop else blendedMorphBackdrop
     val morphSurfaceAlpha = 1f
     val sourceCoverAlpha = remember(frameState, hasSourceTransform, overlayPhase) {
         derivedStateOf {
@@ -864,11 +870,24 @@ internal fun CourseEditorContainerOverlayHost(
                 // Modulate the vector label directly so alpha does not crop its small outset.
                 compositingStrategy = CompositingStrategy.ModulateAlpha
             }.courseEditorContentTaper { taper.value }) {
-                com.xiaomanjun.sleepdownschedule.feature.home.CourseAdjustmentBadge(
-                    sourceBadge, backdrop, config,
-                    Modifier.align(Alignment.BottomEnd)
-                        .courseBadgeCornerAnchor(corner.value)
-                )
+                // The day source's text keeps its original height and scales uniformly. Keep
+                // its badge on that same source card, instead of pinning it to the growing
+                // editor bottom and sending it along a different path from the source glyphs.
+                val badgeSourceModifier = if (sourceIsWeekCard) Modifier.fillMaxSize() else Modifier
+                    .wrapContentSize(Alignment.TopStart, unbounded = true)
+                    .requiredSize(with(density) { sourceRect.width.toDp() }, with(density) { sourceRect.height.toDp() })
+                    .graphicsLayer {
+                        transformOrigin = TransformOrigin(0f, 0f)
+                        scaleX = courseEditorDaySourceScale(sourceRect, morphFrame.rect)
+                        scaleY = scaleX
+                    }
+                Box(badgeSourceModifier) {
+                    com.xiaomanjun.sleepdownschedule.feature.home.CourseAdjustmentBadge(
+                        sourceBadge, backdrop, config,
+                        Modifier.align(Alignment.BottomEnd)
+                            .courseBadgeCornerAnchor(if (sourceIsWeekCard) corner.value else with(density) { sourceCornerPx.toDp() })
+                    )
+                }
             }
         }
     }
@@ -1004,11 +1023,22 @@ private fun CourseEditorAnimatedContainer(
                 ))
         }
     }
+    val flatEditorOpacity by remember(config.courseCardBlur, config.courseCardGlassEnabled) {
+        derivedStateOf {
+            interpolateFloat(
+                com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.policy.opacity(
+                    config.courseCardBlur, com.xiaomanjun.sleepdownschedule.model.courseCardBlurMaximum(config.courseCardGlassEnabled)),
+                com.xiaomanjun.sleepdownschedule.glass.FlatControlOpacity,
+                smoothStep(0.12f, 0.62f, currentProgress.value.invoke())
+            )
+        }
+    }
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
         course = course,
         muted = muted,
+        flatOpacityOverride = flatEditorOpacity,
         expandedOutlineLight = expandedOutlineLight,
         modifier = modifier.graphicsLayer { this.alpha = alpha }.drawWithCache {
             // Keep the shell's outline in the parent recording across the fixed-allocation
@@ -1023,7 +1053,8 @@ private fun CourseEditorAnimatedContainer(
         },
         shape = shape,
         blurOverride = editorBlur,
-        backdropSampleScale = 0.5f,
+        cacheSharedSamples = !expandedOutlineLight,
+        backdropSampleScale = if (expandedOutlineLight && currentProgress.value.invoke() <= 0.12f) 1f else 0.5f,
         sampledShape = shape,
         surfaceBackdrop = surfaceBackdrop,
         morphAllocation = morphAllocation

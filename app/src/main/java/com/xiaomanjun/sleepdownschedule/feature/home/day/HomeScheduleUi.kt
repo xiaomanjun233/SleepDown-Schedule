@@ -759,8 +759,7 @@ internal fun HomeScreen(
     // Recomputing it here on tablets discarded live slider updates and made personalization look
     // broken even though the config was saved correctly.
     val effectiveWeekCardHeight = weekCardHeight
-    val currentMode = rememberUpdatedState(mode)
-    val currentContentUnderTopBarChange = rememberUpdatedState(onContentUnderTopBarChange)
+    val reportModeContentUnderTopBar = rememberHomeTopBarScrollReporter(mode, state.config.id, onContentUnderTopBarChange)
 
     LaunchedEffect(state.config.id, weekEditInteractionEnabled) {
         if (!weekEditInteractionEnabled) {
@@ -805,9 +804,9 @@ internal fun HomeScreen(
         }
         HomeMode.entries.forEach { targetMode ->
             key(targetMode) {
-            val reportContentUnderTopBar = remember(targetMode) {
+            val reportContentUnderTopBar = remember(targetMode, reportModeContentUnderTopBar) {
                 { under: Boolean ->
-                    if (currentMode.value == targetMode) currentContentUnderTopBarChange.value(under)
+                    reportModeContentUnderTopBar(targetMode, under)
                 }
             }
             HomeSwitchPane(
@@ -1769,7 +1768,7 @@ internal fun DayScheduleScreen(
                 derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 }
             }
             val agentCollapsed by remember { mutableStateOf(false) }
-            LaunchedEffect(contentUnderTopBar) {
+            LaunchedEffect(contentUnderTopBar, pagerState.settledPage, onContentUnderTopBarChange) {
                 if (page == pagerState.settledPage) {
                     onContentUnderTopBarChange(contentUnderTopBar)
                 }
@@ -2340,7 +2339,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
                 if (bounds != null && visible != null) flightRegistry?.captureSource(
                     bounds, visible,
                     CourseEditorDayAppearance(course, periods, showTime, showWeeks, tabletFontScale, muted,
-                        adjustmentLabel, cornerRadius = DayCourseCardCornerRadius)
+                        adjustmentLabel, cornerRadius = DayCourseCardCornerRadius, backdrop = backdrop)
                 )
                 onClick(bounds)
             }) else null
