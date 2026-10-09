@@ -61,10 +61,14 @@ jobs:
         run: sdkmanager 'platforms;android-37.0'
       - name: Compile without release signing
         run: bash ./gradlew compileGithubReleaseKotlin -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix" -Psleepdown.useMavenMirrors=false --console=plain --no-daemon --no-parallel --max-workers=2 --stacktrace
-      - name: Verify shared schemes and backup compatibility
+      - name: Verify shared schemes, backups and reminder scheduling
         run: >-
           bash ./gradlew testGithubDebugUnitTest
           --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemesTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustmentsTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationAdjustmentSchedulingTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationSchedulingTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.reminder.CourseSessionReminderTest'
           --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemeLibraryTest'
           --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTopologyMappingTest'
           --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTimelineEditingTest'

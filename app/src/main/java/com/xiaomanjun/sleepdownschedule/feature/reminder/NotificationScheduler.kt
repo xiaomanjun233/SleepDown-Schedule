@@ -5,6 +5,8 @@ import com.xiaomanjun.sleepdownschedule.core.identity.refreshAppNotificationIcon
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseReminderSessions
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments
 import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseExperiment
 import com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiSuperIsland
 
@@ -311,6 +313,7 @@ object NotificationScheduler {
             config.currentWeek,
             config.termStartDate.orEmpty(),
             config.autoCurrentWeek,
+            encodeScheduleAdjustments(decodeScheduleAdjustments(config.scheduleAdjustmentsJson)),
             config.notificationsEnabled,
             config.notificationLeadMinutes,
             config.notificationMode.name,
