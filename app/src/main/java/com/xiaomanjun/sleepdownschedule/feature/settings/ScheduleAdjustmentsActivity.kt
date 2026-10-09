@@ -72,6 +72,7 @@ class ScheduleAdjustmentsActivity : ComponentActivity() {
                                 val value = encodeScheduleAdjustments(arrangements)
                                 viewModel.saveScheduleAdjustments(scheduleId, originalStored, value,
                                     onSuccess = {
+                                        viewModel.refreshNotificationsAfterSave()
                                         setResult(Activity.RESULT_OK, Intent()
                                             .putExtra(ScheduleIdExtra, scheduleId)
                                             .putExtra(OriginalArrangementsExtra, encodeScheduleAdjustments(initial))
