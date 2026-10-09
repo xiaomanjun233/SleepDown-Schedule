@@ -109,6 +109,12 @@ fun LiquidGlassSettingsScreen(
     onUpdateBlurScale: (Float) -> Unit
 ) {
     val superPerformance = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
+    if (superPerformance) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text("超级性能模式下不可用", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
     var previewBlurScale by remember(state.config.id) {
         mutableFloatStateOf(normalizedHomeChromeBlurScale(state.config.homeChromeBlurScale))
     }
@@ -179,12 +185,11 @@ fun LiquidGlassSettingsScreen(
                     )
                     GlassBlurEndpointIcon(
                         filled = true,
-                        modifier = Modifier.semantics { contentDescription = if (superPerformance) "更不透明" else "更模糊" }
+                        modifier = Modifier.semantics { contentDescription = "更模糊" }
                     )
                 }
                 Text(
-                    text = if (superPerformance) "超级性能模式下材质不可用，此处调整控件不透明度；退出该模式后恢复对应的玻璃模糊参数。"
-                        else "清透会更加透明；着色会提高不透明度，为内容和控件增加对比度。",
+                    text = "清透会更加透明；着色会提高不透明度，为内容和控件增加对比度",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(horizontal = 4.dp)

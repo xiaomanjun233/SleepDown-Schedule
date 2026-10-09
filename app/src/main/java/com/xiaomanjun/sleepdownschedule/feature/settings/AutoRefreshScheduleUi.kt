@@ -341,7 +341,7 @@ private fun AutoRefreshDashboardContent(
                             )
                         }
                         SettingsDivider()
-                        SettingsInfoRow("校园网络", "部分学校需要校园网或校园 VPN，自动刷新时也需要保持连接。会话失效后请重新登录。")
+                        SettingsInfoRow("校园网络", "部分学校需要校园网或校园 VPN，自动刷新时也需要保持连接；会话失效后请重新登录")
                     }
                 }
             }

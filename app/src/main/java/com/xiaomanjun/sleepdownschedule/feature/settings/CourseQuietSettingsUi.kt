@@ -85,7 +85,7 @@ internal fun CourseQuietSettingsGroup(backdrop: Backdrop?, config: ScheduleConfi
                 backdrop, config, enabled = settings.enabled && !busy, range = 0..30, pickerTitle = "选择恢复延迟")
             if (!hasAccess) {
                 SettingsDivider()
-                SettingsInfoRow("需要勿扰访问权限", "静音／震动也可能涉及系统勿扰切换。授权后自动生效；请同时允许应用在后台运行。")
+                SettingsInfoRow("需要勿扰访问权限", "静音／震动也可能涉及系统勿扰切换；授权后自动生效；请同时允许应用在后台运行")
                 Row(Modifier.fillMaxWidth().padding(14.dp)) {
                     SettingsActionButton("授予勿扰访问权限", backdrop, onClick = {
                         context.startActivity(Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS))
@@ -94,7 +94,7 @@ internal fun CourseQuietSettingsGroup(backdrop: Backdrop?, config: ScheduleConfi
             }
             if (!exactAlarms) {
                 SettingsDivider()
-                SettingsInfoRow("精确触发", "允许精确闹钟可按上课和下课时间切换；未授权时可能延迟。")
+                SettingsInfoRow("精确触发", "允许精确闹钟可按上课和下课时间切换；未授权时可能延迟")
                 Row(Modifier.fillMaxWidth().padding(14.dp)) {
                     SettingsActionButton("允许精确闹钟", backdrop, onClick = {
                         NotificationScheduler.exactAlarmSettingsIntent(context)?.let(context::startActivity)

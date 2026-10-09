@@ -58,7 +58,7 @@ internal fun PeriodSchemeSwitchDialog(
                         )
                     }
                 }
-                Text("自定义时间保持不变。", style = MaterialTheme.typography.bodySmall,
+                Text("自定义时间保持不变", style = MaterialTheme.typography.bodySmall,
                     color = foreground.copy(alpha = 0.62f))
                 Text(impact?.summary() ?: (preview.exceptionOrNull()?.message ?: "无法预览切换"),
                     style = MaterialTheme.typography.bodyMedium, color = foreground.copy(alpha = 0.68f))

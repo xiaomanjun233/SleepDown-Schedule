@@ -300,7 +300,7 @@ fun ScheduleSettingsContent(
                             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                                 SettingsToggleRow(
                                     title = if (experimentalNotifications.superIslandEnabled) "提醒按钮" else "实时活动按钮",
-                                    subtitle = "显示取消提醒和课程勿扰按钮。",
+                                    subtitle = "显示取消提醒和课程勿扰按钮",
                                     checked = liveUpdateActionsEnabled,
                                     backdrop = backdrop,
                                     enabled = notificationsEnabled,
@@ -377,7 +377,7 @@ fun ScheduleSettingsContent(
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                         SettingsInfoRow(
                             title = "系统权限",
-                            body = "允许通知与后台运行，及时接收课程提醒。"
+                            body = "允许通知与后台运行，及时接收课程提醒"
                         )
                         SettingsDivider()
                         Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),

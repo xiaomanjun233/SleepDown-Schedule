@@ -107,9 +107,9 @@ internal fun ColorOSCourseSettingsSection(
                             is CourseComponentDownloadCheck.NoUpdate -> {
                                 downloadedComponent = null
                                 componentStatus = if (result.downloadedIsOlder) {
-                                    "已安装 ${result.installedVersionName}，高于可下载的 ${result.downloadedVersionName}。"
+                                    "已安装 ${result.installedVersionName}，高于可下载的 ${result.downloadedVersionName}"
                                 } else {
-                                    "已是最新组件版本 ${result.installedVersionName}。"
+                                    "已是最新组件版本 ${result.installedVersionName}"
                                 }
                             }
                         }
@@ -133,8 +133,8 @@ internal fun ColorOSCourseSettingsSection(
             componentDownloadState.progressPercent?.let { "正在下载：$it%" } ?: "正在下载…"
         checkingComponent -> "正在检查课程组件版本…"
         componentStatus != null -> componentStatus.orEmpty()
-        componentDownloadState is UpdateDownloadState.Failed -> "下载失败，点击重试。"
-        else -> "查找最新组件，下载后校验包名、签名和版本。"
+        componentDownloadState is UpdateDownloadState.Failed -> "下载失败，点击重试"
+        else -> "查找最新组件，下载后校验包名、签名和版本"
     }
     val componentActionButton = when (val state = componentDownloadState) {
         is UpdateDownloadState.Downloading -> state.progressPercent?.let { "$it%" } ?: "下载中"
@@ -150,42 +150,42 @@ internal fun ColorOSCourseSettingsSection(
             SettingsInfoRow(
                 title = "使用前准备",
                 body = if (isHonor) {
-                    "YOYO 建议适用于荣耀 MagicOS。第一次使用请先安装课程组件。"
+                    "YOYO 建议适用于荣耀 MagicOS；第一次使用请先安装课程组件"
                 } else {
-                    "课程流体云适用于 OPPO、一加和 realme 的 ColorOS 系统。第一次使用请先安装课程组件。"
+                    "课程流体云适用于 OPPO、一加和 realme 的 ColorOS 系统；第一次使用请先安装课程组件"
                 }
             )
             SettingsDivider()
             SettingsInfoRow(
                 title = if (isHonor) "YOYO 建议配置" else "流体云配置",
                 body = if (isHonor) {
-                    "1. 安装课程组件，在系统的 YOYO 建议和通知设置中允许课程提醒。\n" +
-                        "2. 在应用启动管理中为“WakeUp课程表”打开自启动、关联启动和后台运行。\n" +
-                        "3. 回到本页重新同步，再用底部的测试按钮检查效果。测试课程约 21～22 分钟后开始，持续 5 分钟。\n" +
-                        "4. 若仍未显示，检查系统是否限制组件运行；部分荣耀机型还会校验组件签名或应用特征。"
+                    "1. 安装课程组件，在系统的 YOYO 建议和通知设置中允许课程提醒\n" +
+                        "2. 在应用启动管理中为“WakeUp课程表”打开自启动、关联启动和后台运行\n" +
+                        "3. 回到本页重新同步，再用底部的测试按钮检查效果；测试课程约 21～22 分钟后开始，持续 5 分钟\n" +
+                        "4. 若仍未显示，检查系统是否限制组件运行；部分荣耀机型还会校验组件签名或应用特征"
                 } else {
-                    "1. 安装课程组件，打开系统的流体云总开关。\n" +
-                        "2. 在应用启动管理中为“WakeUp课程表”打开自启动、关联启动和后台运行。\n" +
-                        "3. 回到本页重新同步，再用底部的测试按钮检查效果。测试课程约 21～22 分钟后开始，持续 5 分钟。\n" +
-                        "4. 若仍未显示，检查系统通知权限和组件后台限制。"
+                    "1. 安装课程组件，打开系统的流体云总开关\n" +
+                        "2. 在应用启动管理中为“WakeUp课程表”打开自启动、关联启动和后台运行\n" +
+                        "3. 回到本页重新同步，再用底部的测试按钮检查效果；测试课程约 21～22 分钟后开始，持续 5 分钟\n" +
+                        "4. 若仍未显示，检查系统通知权限和组件后台限制"
                 }
             )
             SettingsDivider()
             SettingsInfoRow(
                 title = "后台说明",
                 body = (if (ColorOSCourseExperiment.allowsParallelLiveUpdate(context)) {
-                    if (isHonor) "当前模式会同时使用课程组件与 SleepDown 实时活动。"
-                    else "课前提醒由流体云显示，实时活动不再重复发送课前提醒；课中、课间及次日课程等其余提醒继续由实时活动显示。"
+                    if (isHonor) "当前模式会同时使用课程组件与 SleepDown 实时活动；"
+                    else "课前提醒由流体云显示，实时活动不再重复发送课前提醒；课中、课间及次日课程等其余提醒继续由实时活动显示；"
                 } else "") +
-                    "课程组件会保存已同步的课程快照，重启解锁或组件更新后通知系统重新读取。" +
-                    "请在系统设置中允许“WakeUp课程表”自启动、关联启动和后台运行；自启动不代表系统不会冻结后台应用。" +
-                    "若强行停止 SleepDown 或课程组件，请重新打开应用并同步。"
+                    "课程组件会保存已同步的课程快照，重启解锁或组件更新后通知系统重新读取；" +
+                    "请在系统设置中允许“WakeUp课程表”自启动、关联启动和后台运行；自启动不代表系统不会冻结后台应用；" +
+                    "若强行停止 SleepDown 或课程组件，请重新打开应用并同步"
             )
             if (current?.proxyIsSleepDown == true) {
                 SettingsDivider()
                 SettingsActionRow(
                     title = "组件启动权限",
-                    subtitle = "为“WakeUp课程表”打开自启动和关联启动。",
+                    subtitle = "为“WakeUp课程表”打开自启动和关联启动",
                     buttonText = "设置",
                     iconRes = R.drawable.ic_settings,
                     backdrop = backdrop,
@@ -194,7 +194,7 @@ internal fun ColorOSCourseSettingsSection(
                 SettingsDivider()
                 SettingsActionRow(
                     title = "组件后台运行",
-                    subtitle = "打开“WakeUp课程表”的应用信息，检查电池与后台限制。",
+                    subtitle = "打开“WakeUp课程表”的应用信息，检查电池与后台限制",
                     buttonText = "设置",
                     iconRes = R.drawable.ic_settings,
                     backdrop = backdrop,
@@ -238,7 +238,7 @@ internal fun ColorOSCourseSettingsSection(
             SettingsDivider()
             SettingsActionRow(
                 title = "重新同步",
-                subtitle = "让系统重新读取当前课程。",
+                subtitle = "让系统重新读取当前课程",
                 buttonText = "同步",
                 iconRes = R.drawable.ic_refresh,
                 backdrop = backdrop,
@@ -250,7 +250,7 @@ internal fun ColorOSCourseSettingsSection(
             SettingsDivider()
             SettingsActionRow(
                 title = "问题诊断",
-                subtitle = "查看设备、组件和课程读取状态。",
+                subtitle = "查看设备、组件和课程读取状态",
                 buttonText = "查看",
                 iconRes = R.drawable.ic_settings,
                 backdrop = backdrop,

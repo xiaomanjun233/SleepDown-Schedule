@@ -66,8 +66,11 @@ internal fun flatControlColor(dark: Boolean): Color = if (dark) Color(0xFF2C2C2E
 internal fun flatControlBorder(dark: Boolean): Color =
     if (dark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.14f)
 
+internal const val FlatControlOpacity = 0.90f
+
 internal fun flatMaterialOpacity(role: GlassMaterialRole, blur: Float, override: Float? = null): Float =
-    if (role == GlassMaterialRole.Popup) 0.90f
+    if (role != GlassMaterialRole.CourseCard && role != GlassMaterialRole.Dialog &&
+        role != GlassMaterialRole.MorphShell) FlatControlOpacity
     else override?.coerceIn(0f, 1f) ?: AppMaterialPreferences.policy.opacity(blur, 64f)
 
 private fun Modifier.flatMaterial(shape: () -> Shape, color: Color, enabled: () -> Boolean = { true }) =

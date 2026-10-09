@@ -855,9 +855,9 @@ private fun TimelinePartStartPicker(
                     timelinePartAnchorMinute(preview.config, preview.active, section)
             }
             val movementHint = when (movedParts.size) {
-                0 -> "当前起点未改变。"
-                1 -> "仅平移${part.timelineLabel()}；课程与课间时长不变。"
-                else -> "将同时平移${movedParts.joinToString("、") { it.timelineLabel() }}；课程与课间时长不变。"
+                0 -> "当前起点未改变"
+                1 -> "仅平移${part.timelineLabel()}；课程与课间时长不变"
+                else -> "将同时平移${movedParts.joinToString("、") { it.timelineLabel() }}；课程与课间时长不变"
             }
             Text(movementHint, fontSize = 12.sp,
                 color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.66f))
@@ -935,7 +935,7 @@ private fun TimelineBlockPicker(
                         val bounds = timelineFirstLessonStartBounds(candidate.config, candidate.active, block.part)
                             ?: current.start..current.start
                         SettingsTimePickerContent(selected, bounds) { selected = it }
-                        Text("不能早于分段起点 ${timelineMinuteText(bounds.first)}，后续课程一起顺延。",
+                        Text("不能早于分段起点 ${timelineMinuteText(bounds.first)}，后续课程一起顺延",
                             fontSize = 12.sp, color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.66f))
                     }
                     TimelinePickerPage.DURATION -> {

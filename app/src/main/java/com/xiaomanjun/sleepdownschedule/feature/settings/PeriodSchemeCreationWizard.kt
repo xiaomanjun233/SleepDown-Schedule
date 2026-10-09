@@ -145,8 +145,8 @@ internal fun PeriodSchemeCreationWizard(
                             })
                             if (!targetConfig.hasSamePeriodTopology(config)) Text(
                                 if (total == config.totalPeriodCount())
-                                    "分段分配会同步应用到其他作息，原有节次编号和时间保留。"
-                                else "节数和分段由所有作息共用；总节数增减会从末尾添加或移除节次，保存时确认课程对应关系。",
+                                    "分段分配会同步应用到其他作息，原有节次编号和时间保留"
+                                else "节数和分段由所有作息共用；总节数增减会从末尾添加或移除节次，保存时确认课程对应关系",
                                 fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp)
                             )
                         }

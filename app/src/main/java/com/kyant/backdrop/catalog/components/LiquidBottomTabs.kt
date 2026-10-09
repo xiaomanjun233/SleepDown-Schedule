@@ -339,9 +339,16 @@ fun LiquidBottomTabs(
                     val inset = (horizontalPadding + leadingWidth).toPx()
                     val logicalX = inset + dampedDragAnimation.value * tabWidth
                     val pillHeight = indicatorHeight.toPx()
-                    drawRoundRect(Color(0xFFE2E2E2),
-                        topLeft = Offset(if (isLtr) logicalX else size.width - logicalX - tabWidth, (size.height - pillHeight) / 2f),
-                        size = Size(tabWidth, pillHeight), cornerRadius = CornerRadius(pillHeight / 2f))
+                    val origin = Offset(if (isLtr) logicalX else size.width - logicalX - tabWidth, (size.height - pillHeight) / 2f)
+                    val pillSize = Size(tabWidth, pillHeight)
+                    val radius = CornerRadius(pillHeight / 2f)
+                    drawRoundRect(Color(0xFF9E9E9E).copy(alpha = 0.24f), origin, pillSize, radius)
+                    val stroke = 1.dp.toPx()
+                    drawRoundRect(Color(0xFF9E9E9E).copy(alpha = 0.50f),
+                        topLeft = origin + Offset(stroke / 2, stroke / 2),
+                        size = Size(pillSize.width - stroke, pillSize.height - stroke),
+                        cornerRadius = CornerRadius((pillHeight - stroke) / 2),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
                 } else interactiveHighlight.modifier)
                 .height(containerHeight)
                 .fillMaxWidth()

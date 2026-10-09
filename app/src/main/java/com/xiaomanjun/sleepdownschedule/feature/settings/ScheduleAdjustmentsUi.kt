@@ -322,7 +322,7 @@ internal fun ScheduleAdjustmentsScreen(
                             }
                         }
                     }
-                    GlassPreferenceCategory("自动匹配仅供参考，请按学校安排核对。采用后会替换所选日期的已有安排，其他日期保留。",
+                    GlassPreferenceCategory("自动匹配仅供参考，请按学校安排核对；采用后会替换所选日期的已有安排，其他日期保留",
                         modifier = Modifier.padding(start = 4.dp, top = 8.dp))
                     DialogLiquidButton(backdrop, "采用所选日期", ::applySelected,
                         role = DialogButtonRole.Confirm, modifier = Modifier.fillMaxWidth().padding(top = 10.dp))
@@ -346,7 +346,7 @@ internal fun ScheduleAdjustmentsScreen(
                         }
                     }
                 }
-                GlassPreferenceCategory("点按修改，左滑删除。修改原课程，也会同步更新对应的补课。", modifier = Modifier.padding(start = 4.dp, top = 8.dp))
+                GlassPreferenceCategory("点按修改，左滑删除；修改原课程，也会同步更新对应的补课", modifier = Modifier.padding(start = 4.dp, top = 8.dp))
             }
         }
         val density = LocalDensity.current
@@ -499,8 +499,8 @@ private fun AdjustmentEditorDialog(
                             height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
                             onClick = { onDraftChange(draft.copy(rest = false)) })
                     }
-                    Text(if (view.rest) "当天暂停上课，保留原课程且不发送提醒。"
-                        else "选择要补哪一天的课，时间和课程内容随原课程同步。",
+                    Text(if (view.rest) "当天暂停上课，保留原课程且不发送提醒"
+                        else "选择要补哪一天的课，时间和课程内容随原课程同步",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(horizontal = 4.dp))

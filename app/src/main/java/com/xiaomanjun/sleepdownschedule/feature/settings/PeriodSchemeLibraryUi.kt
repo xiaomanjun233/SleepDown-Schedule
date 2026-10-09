@@ -190,7 +190,7 @@ fun PeriodSchemeManagementScreen(
                             onSelect = { switchPeriodScheme(saved) })
                     }
                     if (loaded && library.isEmpty()) item {
-                        MiuixText("还没有作息，点击右下角加号新建。", modifier = Modifier.padding(vertical = 24.dp),
+                        MiuixText("还没有作息，点击右下角加号新建", modifier = Modifier.padding(vertical = 24.dp),
                             style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
                     }
                 }
