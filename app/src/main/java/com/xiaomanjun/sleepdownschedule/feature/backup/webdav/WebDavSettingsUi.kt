@@ -5,21 +5,30 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Visibility
+import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
+import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdownPreference
@@ -39,6 +48,7 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
     var username by remember { mutableStateOf("") }
     // Deliberately not rememberSaveable: no credentials in saved-instance-state bundles.
     var password by remember { mutableStateOf("") }
+    var passwordVisible by remember { mutableStateOf(false) }
     var loaded by remember { mutableStateOf(false) }
     var savedConnection by remember { mutableStateOf<WebDavConnection?>(null) }
     val connectionSaved = savedConnection != null
@@ -93,6 +103,7 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
             savedConnection = candidate
             files = remoteFiles; listed = true
             message = "连接成功"
+            passwordVisible = false
             focusManager.clearFocus()
             editingConnection = false
         }
@@ -151,6 +162,7 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
         address = savedConnection?.address.orEmpty()
         username = savedConnection?.username.orEmpty()
         password = savedConnection?.password.orEmpty()
+        passwordVisible = false
         message = null
         editingConnection = false
         focusManager.clearFocus()
@@ -174,18 +186,28 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
                         GlassPreferenceCategory("输入网盘或 NAS 的 WebDAV 连接信息")
                         SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
                             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                                OutlinedTextField(address, { address = it }, label = { Text("文件夹地址") },
-                                    placeholder = { Text("https://…/备份/") }, enabled = editable,
-                                    singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                                    modifier = Modifier.fillMaxWidth())
-                                OutlinedTextField(username, { username = it }, label = { Text("用户名") },
-                                    enabled = editable, singleLine = true,
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-                                    modifier = Modifier.fillMaxWidth())
-                                OutlinedTextField(password, { password = it }, label = { Text("密码 / 应用密码") },
-                                    enabled = editable, singleLine = true, visualTransformation = PasswordVisualTransformation(),
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                                    modifier = Modifier.fillMaxWidth())
+                                WebDavConnectionField("文件夹地址", address, { address = it }, state.config,
+                                    enabled = editable, placeholder = "https://…/备份/", keyboardType = KeyboardType.Uri,
+                                    imeAction = ImeAction.Next,
+                                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Next) }))
+                                WebDavConnectionField("用户名", username, { username = it }, state.config,
+                                    enabled = editable, placeholder = "用户名", keyboardType = KeyboardType.Ascii,
+                                    imeAction = ImeAction.Next,
+                                    keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Next) }))
+                                WebDavConnectionField("密码 / 应用密码", password, { password = it }, state.config,
+                                    enabled = editable, placeholder = "密码 / 应用密码", keyboardType = KeyboardType.Password,
+                                    imeAction = ImeAction.Done,
+                                    keyboardActions = KeyboardActions(onDone = {
+                                        if (editable && address.isNotBlank()) { focusManager.clearFocus(); connect() }
+                                    }),
+                                    visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                    trailingContent = {
+                                        IconButton(onClick = { passwordVisible = !passwordVisible }, enabled = editable,
+                                            modifier = Modifier.size(48.dp)) {
+                                            Icon(if (passwordVisible) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,
+                                                contentDescription = if (passwordVisible) "隐藏密码" else "显示密码")
+                                        }
+                                    })
                                 Button(onClick = { focusManager.clearFocus(); connect() },
                                     enabled = editable && address.isNotBlank(), modifier = Modifier.fillMaxWidth()) {
                                     Text(busy ?: "连接并保存")
@@ -211,6 +233,7 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
                                     address = savedConnection?.address.orEmpty()
                                     username = savedConnection?.username.orEmpty()
                                     password = savedConnection?.password.orEmpty()
+                                    passwordVisible = false
                                     message = null; editingConnection = true
                                 })
                         }
@@ -287,5 +310,32 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
             actions = listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) { overwrite = null },
                 LiquidAlertAction("覆盖", LiquidAlertActionStyle.Destructive) { overwrite = null; upload(entry) }),
             backdrop = backdrop, config = state.config, onDismissRequest = { overwrite = null })
+    }
+}
+
+@Composable
+private fun WebDavConnectionField(
+    label: String,
+    value: String,
+    onValueChange: (String) -> Unit,
+    config: ScheduleConfigEntity,
+    enabled: Boolean,
+    placeholder: String,
+    keyboardType: KeyboardType,
+    imeAction: ImeAction,
+    keyboardActions: KeyboardActions,
+    visualTransformation: VisualTransformation = if (keyboardType == KeyboardType.Password)
+        PasswordVisualTransformation() else VisualTransformation.None,
+    trailingContent: (@Composable () -> Unit)? = null
+) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, modifier = Modifier.padding(start = 16.dp),
+            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        DialogCapsuleField(value, onValueChange, placeholder, config,
+            modifier = Modifier.fillMaxWidth().semantics { contentDescription = label },
+            keyboardType = keyboardType, enabled = enabled,
+            imeAction = imeAction, keyboardActions = keyboardActions,
+            visualTransformation = visualTransformation, trailingContent = trailingContent,
+            fieldTextColor = MaterialTheme.colorScheme.onSurface)
     }
 }
