@@ -8,6 +8,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
@@ -49,6 +50,9 @@ internal class DayAgentChatTransport(
         val connection = openConnection(settings, body)
         return try {
             connection.readResponse(settings.profile.id)
+        } catch (error: Throwable) {
+            interaction?.checkActive()
+            throw error
         } finally {
             connection.disconnect()
         }
@@ -60,27 +64,49 @@ internal class DayAgentChatTransport(
         onDelta: (String) -> Unit,
         onUsage: (AgentTokenUsage) -> Unit
     ): String {
+        fun phase(value: AiImportHttpPhase) {
+            interaction?.checkActive()
+            interaction?.onTransportPhase?.invoke(value)
+        }
+        phase(AiImportHttpPhase.REQUEST_CREATED)
+        phase(AiImportHttpPhase.BODY_WRITE_START)
         val connection = openConnection(settings, body)
         return try {
+            phase(AiImportHttpPhase.BODY_WRITE_END)
             val code = connection.responseCode
+            phase(AiImportHttpPhase.HEADERS_RECEIVED)
             if (code !in 200..299) {
                 val error = connection.errorStream
                     ?.bufferedReader()
-                    ?.use { it.readText() }
+                    ?.use { it.readAiBoundedText() }
                     .orEmpty()
                     .take(300)
                 throw AiServiceResponseException(formatAiRequestError(code, error, settings.profile.id), error, httpStatus = code)
             }
             if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
-                val response = connection.inputStream.bufferedReader().use { it.readText() }
+                phase(AiImportHttpPhase.BODY_READ_START)
+                val response = connection.inputStream.bufferedReader().use { it.readAiBoundedText() }
+                interaction?.checkActive()
                 onUsage(parseAgentTokenUsage(response))
                 val content = parseFullChatContent(response)
                 onDelta(content)
-                content
+                finishAiImportStream(content, publishFinal = {
+                    interaction?.publishStream(false, content, force = true)
+                }, onEnd = { phase(AiImportHttpPhase.STREAM_END) })
             } else {
                 val result = StringBuilder()
+                val importStream = interaction?.let { ChatCompletionSseAccumulator() }
                 var hasFinalContent = false
-                connection.forEachSseDataLine { data ->
+                var finishReason = ""
+                var firstEvent = true
+                connection.forEachSseDataLine(checkActive = { interaction?.checkActive() }) { data ->
+                    if (firstEvent) {
+                        firstEvent = false
+                        phase(AiImportHttpPhase.FIRST_EVENT)
+                    }
+                    importStream?.consume(data)
+                    importStream?.activities?.forEach { interaction?.publishActivity(it) }
+                    importStream?.let { interaction?.publishStream(it.reasoning.isNotEmpty(), it.courseOutput) }
                     val event = parseSseJsonObject(data) ?: return@forEachSseDataLine
                     val usage = agentTokenUsage(event)
                     if (!usage.isEmpty) onUsage(usage)
@@ -90,6 +116,8 @@ internal class DayAgentChatTransport(
                             ?.firstOrNull()
                             ?.jsonObject
                             ?: return@runCatching ""
+                        (choice["finish_reason"] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+                            ?.takeIf(String::isNotBlank)?.let { finishReason = it }
                         val streamed = choice["delta"]?.jsonObject
                         agentTextFromJson(streamed?.get("content"))
                             .ifBlank { agentTextFromJson(choice["text"]) }
@@ -100,9 +128,15 @@ internal class DayAgentChatTransport(
                         onDelta(content)
                     }
                 }
+                check(finishReason == "stop") { "AI 最终回复未正常结束，请重试。" }
                 if (!hasFinalContent) throw MissingAgentBodyException()
-                result.toString()
+                finishAiImportStream(result.toString(), publishFinal = {
+                    interaction?.publishStream(importStream?.reasoning?.isNotEmpty() == true, result.toString(), force = true)
+                }, onEnd = { phase(AiImportHttpPhase.STREAM_END) })
             }
+        } catch (error: Throwable) {
+            interaction?.checkActive()
+            throw error
         } finally {
             connection.disconnect()
         }
@@ -136,7 +170,8 @@ internal class DayAgentChatTransport(
         includeTools: Boolean,
         includeMemoryTool: Boolean = false,
         forceMiMoWebSearch: Boolean = false,
-        excludedTools: Set<AgentToolName> = emptySet()
+        excludedTools: Set<AgentToolName> = emptySet(),
+        importWorkspace: Boolean = false
     ): String = buildJsonObject {
         put("model", settings.profile.defaultModel)
         put("stream", stream)
@@ -147,7 +182,7 @@ internal class DayAgentChatTransport(
             put(
                 "tools",
                 agentToolDefinitions(
-                    includeMiMoWebSearch = supportsMiMoOfficialWebSearch(
+                    includeMiMoWebSearch = !importWorkspace && supportsMiMoOfficialWebSearch(
                         providerId = settings.profile.id,
                         baseUrl = normalizeAiBaseUrlForProvider(
                             settings.profile.id,
@@ -155,11 +190,12 @@ internal class DayAgentChatTransport(
                         ),
                         model = settings.profile.defaultModel
                     ),
-                    forceMiMoWebSearch = forceMiMoWebSearch,
+                    forceMiMoWebSearch = !importWorkspace && forceMiMoWebSearch,
                     includeMemoryTool = includeMemoryTool,
                     // Several compatible providers reject this Chat Completions extension.
                     strictFunctions = settings.usesOfficialOpenAiEndpoint(),
-                    excludedTools = excludedTools
+                    excludedTools = excludedTools,
+                    importWorkspace = importWorkspace
                 )
             )
             put("tool_choice", "auto")
@@ -188,9 +224,15 @@ internal class DayAgentChatTransport(
             contentType = "application/json; charset=utf-8",
             accept = null
         )
-        interaction?.attach(connection)
-        connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-        return connection
+        try {
+            interaction?.attach(connection)
+            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            return connection
+        } catch (error: Throwable) {
+            connection.disconnect()
+            interaction?.checkActive()
+            throw error
+        }
     }
 }
 
@@ -210,7 +252,7 @@ internal class MissingAgentBodyException : IllegalStateException("AI 没有返�
 private fun HttpURLConnection.readResponse(providerId: String): String {
     val code = responseCode
     val stream = if (code in 200..299) inputStream else errorStream
-    val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+    val text = stream?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
     if (code !in 200..299) {
         throw AiServiceResponseException(formatAiRequestError(code, text, providerId), text, httpStatus = code)
     }

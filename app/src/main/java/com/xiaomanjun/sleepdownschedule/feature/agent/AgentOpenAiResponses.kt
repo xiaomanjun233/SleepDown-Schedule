@@ -53,7 +53,8 @@ internal class OpenAiResponsesAgentRunner(
         cachedTools: Set<AgentToolName> = emptySet(),
         cachedResults: Map<String, AgentToolResult> = emptyMap(),
         validateAnswer: (String) -> String? = { null },
-        telemetry: DayAgentTurnTelemetry
+        telemetry: DayAgentTurnTelemetry,
+        importWorkspace: Boolean = false
     ): String {
         val instructions = chatMessages
             .filter { it["role"]?.jsonPrimitive?.contentOrNull == "system" }
@@ -78,24 +79,26 @@ internal class OpenAiResponsesAgentRunner(
                     responsesBody(
                         settings = settings,
                         instructions = instructions + "\n\n" +
-                            DayAgentPrompts.TaskStage + if (outputRetryRequested) {
-                                "\n\n" + DayAgentPrompts.TaskOutputRetry
+                            (if (importWorkspace) AgentImportWorkspace.TaskStage else DayAgentPrompts.TaskStage) + if (outputRetryRequested) {
+                                "\n\n" + if (importWorkspace) {
+                                    "上一轮未返回完整正文。继续使用导入工具核对材料并修改，或根据已有校验结果给出简短总结；不要输出应用操作计划。"
+                                } else DayAgentPrompts.TaskOutputRetry
                             } else "",
                         input = input,
                         stream = false,
                         includeTools = true,
                         includeMemoryTool = includeMemoryTool,
                         excludedTools = completedOneShotTools,
-                        reasoningEffort = settings.profile.reasoningEffort
+                        reasoningEffort = settings.profile.reasoningEffort,
+                        importWorkspace = importWorkspace
                     )
                 )
             )
             telemetry.recordUsage(decision.usage)
             telemetry.recordDecisionRound(decision.calls.size)
             if (decision.calls.isNotEmpty()) {
-                val note = decision.content.trim().take(120).ifBlank {
-                    "我先调用所需工具确认当前信息，再继续处理。"
-                }
+                val note = if (importWorkspace) decision.content.takeIf(String::isNotBlank)
+                else decision.content.trim().take(120).ifBlank { "我先调用所需工具确认当前信息，再继续处理。" }
                 onStatus(
                     AgentRunStatus(
                         icon = AgentRunStatusIcon.THINKING,
@@ -146,7 +149,7 @@ internal class OpenAiResponsesAgentRunner(
             val addedEvidence = decision.calls
                 .map { call -> evidenceKeys.add(call.cacheKey()) }
                 .any { it }
-            if (!addedEvidence) break@toolRounds
+            if (!addedEvidence && !importWorkspace) break@toolRounds
         }
 
         return streamFinal(
@@ -157,7 +160,8 @@ internal class OpenAiResponsesAgentRunner(
             onDelta = onDelta,
             onStreamReset = onStreamReset,
             validateAnswer = validateAnswer,
-            telemetry = telemetry
+            telemetry = telemetry,
+            importWorkspace = importWorkspace
         )
     }
 
@@ -169,11 +173,14 @@ internal class OpenAiResponsesAgentRunner(
         onDelta: (String) -> Unit,
         onStreamReset: () -> Unit,
         validateAnswer: (String) -> String?,
-        telemetry: DayAgentTurnTelemetry
+        telemetry: DayAgentTurnTelemetry,
+        importWorkspace: Boolean = false
     ): String {
         onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "整理结果"))
         telemetry.finalAnswerStarted()
-        val finalInstructions = instructions + "\n\n" + DayAgentPrompts.FinalAnswerStage
+        val finalInstructions = instructions + "\n\n" + if (importWorkspace) {
+            "根据已通过本地校验的导入阶段总结结果；尚未保存到课表。不要输出工具协议或未执行的新计划。"
+        } else DayAgentPrompts.FinalAnswerStage
         val body = responsesBody(
             settings = settings,
             instructions = finalInstructions,
@@ -201,7 +208,9 @@ internal class OpenAiResponsesAgentRunner(
             onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, if (error is AgentPlanValidationException) "根据自检结果修正计划" else "修正输出格式"))
             val retry = responsesBody(
                 settings = settings,
-                instructions = finalInstructions + "\n\n" + DayAgentPrompts.FinalAnswerProtocolRetry,
+                instructions = finalInstructions + "\n\n" + if (importWorkspace) {
+                    "上一轮没有有效正文。请只总结已经完成的导入核对与修改，不输出 DSML、函数调用、agent_actions 或数据库保存声明。"
+                } else DayAgentPrompts.FinalAnswerProtocolRetry,
                 input = if (error is AgentPlanValidationException) input + listOf(
                     buildJsonObject { put("role", "assistant"); put("content", error.answer) },
                     buildJsonObject { put("role", "user"); put("content", error.feedback) }
@@ -235,7 +244,8 @@ internal class OpenAiResponsesAgentRunner(
         includeTools: Boolean,
         includeMemoryTool: Boolean,
         excludedTools: Set<AgentToolName>,
-        reasoningEffort: AiReasoningEffort
+        reasoningEffort: AiReasoningEffort,
+        importWorkspace: Boolean = false
     ): JsonObject = buildJsonObject {
         put("model", settings.profile.defaultModel)
         put("store", false)
@@ -252,7 +262,7 @@ internal class OpenAiResponsesAgentRunner(
             }
         })
         if (includeTools) {
-            put("tools", agentResponsesToolDefinitions(includeMemoryTool, excludedTools))
+            put("tools", agentResponsesToolDefinitions(includeMemoryTool, excludedTools, importWorkspace = importWorkspace))
             put("tool_choice", "auto")
         }
     }
@@ -269,7 +279,7 @@ internal class OpenAiResponsesAgentRunner(
         val connection = open(settings, body)
         val code = connection.responseCode
         val source = if (code in 200..299) connection.inputStream else connection.errorStream
-        val response = source?.bufferedReader()?.use { it.readText() }.orEmpty()
+        val response = source?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
         connection.disconnect()
         if (code !in 200..299) {
             throw AiServiceResponseException(formatAiRequestError(code, response, settings.profile.id), response, httpStatus = code)
@@ -283,34 +293,59 @@ internal class OpenAiResponsesAgentRunner(
         onDelta: (String) -> Unit,
         onUsage: (AgentTokenUsage) -> Unit
     ): String {
+        fun phase(value: AiImportHttpPhase) {
+            interaction?.checkActive()
+            interaction?.onTransportPhase?.invoke(value)
+        }
+        phase(AiImportHttpPhase.REQUEST_CREATED)
+        phase(AiImportHttpPhase.BODY_WRITE_START)
         val connection = open(settings, body)
+        try {
+        phase(AiImportHttpPhase.BODY_WRITE_END)
         val code = connection.responseCode
+        phase(AiImportHttpPhase.HEADERS_RECEIVED)
         if (code !in 200..299) {
-            val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            connection.disconnect()
+            val error = connection.errorStream?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
             throw AiServiceResponseException(formatAiRequestError(code, error, settings.profile.id), error, httpStatus = code)
         }
         if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
-            val response = connection.inputStream.bufferedReader().use { it.readText() }
-            connection.disconnect()
+            phase(AiImportHttpPhase.BODY_READ_START)
+            val response = connection.inputStream.bufferedReader().use { it.readAiBoundedText() }
+            interaction?.checkActive()
             val turn = parseAgentResponsesTurn(response)
             onUsage(turn.usage)
             val content = turn.content
                 .takeIf(String::isNotBlank)
                 ?: throw MissingResponsesBodyException()
             onDelta(content)
-            return content
+            return finishAiImportStream(content, publishFinal = {
+                interaction?.publishStream(false, content, force = true)
+            }, onEnd = { phase(AiImportHttpPhase.STREAM_END) })
         }
 
         val result = AgentResponsesTextAccumulator()
-        try {
-        connection.forEachSseDataLine { data ->
+        val importStream = interaction?.let { ResponsesSseAccumulator() }
+        var firstEvent = true
+        connection.forEachSseDataLine(checkActive = { interaction?.checkActive() }) { data ->
+            if (firstEvent) {
+                firstEvent = false
+                phase(AiImportHttpPhase.FIRST_EVENT)
+            }
+            importStream?.consume(data)
+            importStream?.activities?.forEach { interaction?.publishActivity(it) }
+            importStream?.let { interaction?.publishStream(it.reasoning.isNotEmpty(), it.courseOutput) }
             val event = parseSseJsonObject(data) ?: return@forEachSseDataLine
             val usage = agentTokenUsage(event)
             if (!usage.isEmpty) onUsage(usage)
             result.consume(event).takeIf(String::isNotEmpty)?.let(onDelta)
         }
-        return result.finish()
+        val answer = result.finish()
+        return finishAiImportStream(answer, publishFinal = {
+            interaction?.publishStream(importStream?.reasoning?.isNotEmpty() == true, answer, force = true)
+        }, onEnd = { phase(AiImportHttpPhase.STREAM_END) })
+        } catch (error: Throwable) {
+            interaction?.checkActive()
+            throw error
         } finally {
             connection.disconnect()
         }
@@ -332,8 +367,14 @@ internal class OpenAiResponsesAgentRunner(
             contentType = "application/json; charset=utf-8",
             accept = null
         ).apply {
-            interaction?.attach(this)
-            outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            try {
+                interaction?.attach(this)
+                outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            } catch (error: Throwable) {
+                disconnect()
+                interaction?.checkActive()
+                throw error
+            }
         }
     }
 }
@@ -420,6 +461,7 @@ internal fun parseAgentResponsesTurn(response: String): AgentResponsesTurn {
 /** Some compatible endpoints deliver final text only in the completed event. */
 internal class AgentResponsesTextAccumulator {
     private val text = StringBuilder()
+    private var completed = false
 
     fun consume(event: JsonObject): String = when (event["type"]?.jsonPrimitive?.contentOrNull) {
         "response.output_text.delta" -> event["delta"]?.jsonPrimitive?.contentOrNull.orEmpty()
@@ -427,6 +469,8 @@ internal class AgentResponsesTextAccumulator {
         "response.completed" -> {
             val response = event["response"] as? JsonObject
                 ?: error("AI 完成事件缺少响应正文")
+            requireCompletedResponsesStatus(response, response.toString())
+            completed = true
             val complete = parseAgentResponsesTurn(response.toString()).content
             if (complete.isBlank()) "" else {
                 check(complete.startsWith(text.toString())) { "AI 最终正文与流式内容不一致，请重试。" }
@@ -442,7 +486,10 @@ internal class AgentResponsesTextAccumulator {
         else -> ""
     }
 
-    fun finish(): String = text.toString().takeIf(String::isNotBlank) ?: throw MissingResponsesBodyException()
+    fun finish(): String {
+        check(completed) { "AI 最终回复未收到完成事件，请重试。" }
+        return text.toString().takeIf(String::isNotBlank) ?: throw MissingResponsesBodyException()
+    }
 }
 
 private class MissingResponsesBodyException : IllegalStateException("AI 没有返回最终正文")

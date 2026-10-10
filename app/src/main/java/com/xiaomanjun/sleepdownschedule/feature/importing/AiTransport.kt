@@ -23,6 +23,17 @@ import java.net.URL
  */
 internal const val AiDefaultConnectTimeoutMs = 30_000
 internal const val AiDefaultReadTimeoutMs = 600_000
+internal const val AiStreamResponseLimitChars = 2 * 1024 * 1024
+
+/** A hard failure keeps oversized/truncated JSON from being mistaken for a usable artifact. */
+internal class AiStreamResponseBudget {
+    private var receivedChars = 0L
+    fun record(payload: CharSequence) {
+        receivedChars += payload.length
+        if (receivedChars > AiStreamResponseLimitChars) throw AiServiceResponseException(
+            "AI 响应超过安全大小限制，未采用未完成的数据。请缩小导入范围后重试。", "")
+    }
+}
 
 internal fun HttpURLConnection.setAiAuthHeader(apiKey: String, authType: AiAuthType) {
     when (authType) {
@@ -61,25 +72,96 @@ internal fun openAiPostConnection(
 internal fun HttpURLConnection.readAiBodyOrThrow(providerId: String? = null): String {
     val status = responseCode
     if (status !in 200..299) {
-        val text = errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        val text = errorStream?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
         throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text, httpStatus = status)
     }
-    return inputStream.bufferedReader().use { it.readText() }
+    return inputStream.bufferedReader().use { it.readAiBoundedText() }
 }
 
 /**
- * Consumes an SSE body, handing each decoded `data:` payload to [onPayload]. Blank payloads and
- * `[DONE]` are skipped; JSON decoding is left to the caller because the two pipelines disagree on
- * how to treat malformed events.
+ * Consumes framed SSE events, joining multiple data lines and stopping at `[DONE]` even if the
+ * server leaves its socket open. Comments and event metadata never become model output.
  */
-internal fun HttpURLConnection.forEachSseDataLine(onPayload: (String) -> Unit) {
-    BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8)).useLines { lines ->
-        lines.forEach { line ->
-            if (!line.startsWith("data:")) return@forEach
-            val payload = line.removePrefix("data:").trim()
-            if (payload.isBlank() || payload == "[DONE]") return@forEach
+internal fun HttpURLConnection.forEachSseDataLine(
+    checkActive: () -> Unit = {},
+    onPayload: (String) -> Unit
+) {
+    BufferedReader(InputStreamReader(inputStream, Charsets.UTF_8)).use {
+        it.forEachAiSsePayload(checkActive, onPayload)
+    }
+}
+
+internal fun BufferedReader.forEachAiSsePayload(
+    checkActive: () -> Unit = {},
+    onPayload: (String) -> Unit
+) {
+    val data = StringBuilder()
+    val budget = AiStreamResponseBudget()
+    fun dispatch(): Boolean {
+        val payload = data.toString().trim()
+        data.clear()
+        if (payload == "[DONE]") return false
+        if (payload.isNotEmpty()) {
+            checkActive()
+            budget.record(payload)
             onPayload(payload)
         }
+        return true
+    }
+    var firstLine = true
+    while (true) {
+        checkActive()
+        val raw = readBoundedAiSseLine() ?: break
+        val line = if (firstLine) raw.removePrefix("\uFEFF") else raw
+        firstLine = false
+        if (line.isEmpty()) {
+            if (!dispatch()) return
+        } else if (line == "data" || line.startsWith("data:")) {
+            val value = line.removePrefix("data").removePrefix(":").removePrefix(" ")
+            // Several compatible APIs omit blank separators between complete JSON events.
+            if (data.isNotEmpty() && (data.toString().trim() == "[DONE]" || parseSseJsonObject(data.toString()) != null)) {
+                if (!dispatch()) return
+            }
+            if (data.isNotEmpty()) data.append('\n')
+            if (data.length.toLong() + value.length > AiStreamResponseLimitChars) {
+                throw AiServiceResponseException("AI 流式事件超过安全大小限制，请缩小导入范围后重试。", "")
+            }
+            data.append(value)
+            if (data.toString().trim() == "[DONE]") return
+        }
+    }
+    dispatch()
+}
+
+/** BufferedReader.readLine itself has no bound; cap before a hostile single line can grow freely. */
+private fun BufferedReader.readBoundedAiSseLine(): String? {
+    val line = StringBuilder()
+    while (true) {
+        val next = read()
+        if (next == -1) return line.toString().takeIf { line.isNotEmpty() }
+        if (next == '\n'.code) return line.toString()
+        if (next == '\r'.code) {
+            mark(1)
+            if (read() != '\n'.code) reset()
+            return line.toString()
+        }
+        if (line.length >= AiStreamResponseLimitChars) {
+            throw AiServiceResponseException("AI 流式事件超过安全大小限制，请缩小导入范围后重试。", "")
+        }
+        line.append(next.toChar())
+    }
+}
+
+internal fun BufferedReader.readAiBoundedText(): String {
+    val result = StringBuilder()
+    val buffer = CharArray(8_192)
+    while (true) {
+        val count = read(buffer)
+        if (count < 0) return result.toString()
+        if (result.length.toLong() + count > AiStreamResponseLimitChars) {
+            throw AiServiceResponseException("AI 响应超过安全大小限制，请缩小导入范围后重试。", "")
+        }
+        result.append(buffer, 0, count)
     }
 }
 

@@ -41,6 +41,7 @@ internal fun decodeAgentToolCall(id: String, rawName: String, input: JsonElement
         AgentToolName.UPDATE_MEMORY -> setOf("memory")
         AgentToolName.GET_ACTION_GUIDE -> setOf("area")
         AgentToolName.PROPOSE_ACTIONS -> setOf("actionsJson", "summary")
+        AgentToolName.PATCH_IMPORT_JSON -> setOf("revision", "operationsJson", "summary")
         else -> emptySet()
     }
     val error = when {
@@ -50,6 +51,8 @@ internal fun decodeAgentToolCall(id: String, rawName: String, input: JsonElement
         name == AgentToolName.UPDATE_MEMORY && "memory" !in arguments -> "缺少 memory，未修改记忆。清空记忆必须显式传空字符串。"
         name == AgentToolName.GET_ACTION_GUIDE && arguments["area"].isNullOrBlank() -> "缺少 area，请选择一个功能分区。"
         name == AgentToolName.PROPOSE_ACTIONS && arguments["actionsJson"].isNullOrBlank() -> "缺少 actionsJson，请提供完整的操作 JSON 数组。"
+        name == AgentToolName.PATCH_IMPORT_JSON && (arguments["revision"]?.toIntOrNull() == null || arguments["operationsJson"].isNullOrBlank()) ->
+            "缺少有效 revision 或 operationsJson；请先读取导入 JSON 草稿，再提交完整补丁。"
         parsed.values.any { it != JsonNull && it !is JsonPrimitive } -> "参数字段必须遵循 schema；actionsJson 是 JSON 数组的字符串，其余参数使用标量。"
         else -> null
     }
@@ -64,6 +67,11 @@ internal class AgentTurnToolSession(
     private val results = cached.toMutableMap()
     private var memoryAttempted = false
     fun run(call: AgentToolCall): AgentToolResult {
+        // Import reads are mutable workspace reads; patches carry an optimistic revision. Never
+        // replay an earlier success or stale read across a validated editing checkpoint.
+        if (call.name == AgentToolName.READ_IMPORT_JSON || call.name == AgentToolName.PATCH_IMPORT_JSON) {
+            return call.validationError?.let { AgentToolResult(call.id, call.name, false, it) } ?: execute(call)
+        }
         val key = call.cacheKey()
         results[key]?.let { previous ->
             return previous.copy(callId = call.id, content = if (previous.success) {
