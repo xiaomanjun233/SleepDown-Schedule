@@ -7,6 +7,7 @@ import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.UUID
 
 data class AiEduImportProgress(
     val taskId: String = "",
@@ -37,7 +38,14 @@ data class AiEduImportProgress(
     val returnToBrowser: Boolean = false,
     val finished: Boolean = false,
     val error: String? = null,
-    val conversationTurns: List<AiEduImportConversationTurn> = emptyList()
+    val conversationTurns: List<AiEduImportConversationTurn> = emptyList(),
+    val checkpoints: List<AiImportCheckpoint> = emptyList(),
+    val selectedCheckpointId: String? = null,
+    val checkpointSelectionLocked: Boolean = false,
+    val checkpointNotice: String? = null,
+    val checkpointRevision: Long = 0,
+    val checkpointLineageId: String = "",
+    val checkpointGeneration: Long = 0
 )
 
 data class AiEduImportConversationTurn(
@@ -55,8 +63,9 @@ internal fun archiveImportTurn(progress: AiEduImportProgress, draft: ImportDraft
         when { progress.error != null -> progress.error; progress.awaitingUserInput -> "已停止，等待补充"; else -> "已完成" },
         progress.assistantMessage)
     val previous = progress.conversationTurns
-    return if (previous.lastOrNull()?.let { it.userPrompt == turn.userPrompt && it.aiOutput == turn.aiOutput } == true)
+    val archived = if (previous.lastOrNull()?.let { it.userPrompt == turn.userPrompt && it.aiOutput == turn.aiOutput } == true)
         previous.dropLast(1) + turn else previous + turn
+    return boundedImportConversationTurns(archived)
 }
 
 enum class AiEduImportStepStatus {
@@ -130,6 +139,7 @@ object AiEduImportProgressSession {
 
     val progress: StateFlow<AiEduImportProgress?> = _progress.asStateFlow()
     private var reasoningGeneration = 0L
+    private var checkpointGenerationClock = 0L
     private val _liveReasoning = MutableStateFlow(AiImportLiveReasoning())
     internal val liveReasoning: StateFlow<AiImportLiveReasoning> = _liveReasoning.asStateFlow()
 
@@ -154,6 +164,11 @@ object AiEduImportProgressSession {
                 courses = completeStreamingCourses(output))
         }
     }
+    internal fun updateActivity(taskId: String, activity: AiImportActivity) = synchronized(lock) {
+        if (_progress.value?.let { it.taskId == taskId && !it.finished && !it.awaitingUserInput } == true) {
+            _liveReasoning.value = _liveReasoning.value.copy(taskId = taskId, activity = activity)
+        }
+    }
     private val _historySelection = MutableStateFlow<ImportDraft?>(null)
     val historySelection: StateFlow<ImportDraft?> = _historySelection.asStateFlow()
     private val _previewDraft = MutableStateFlow<ImportDraft?>(null)
@@ -168,18 +183,120 @@ object AiEduImportProgressSession {
 
     fun update(progress: AiEduImportProgress?) {
         synchronized(lock) {
-            if (progress?.taskId != _progress.value?.taskId || progress == null) {
-                reasoningGeneration++
-                _liveReasoning.value = AiImportLiveReasoning()
-            }
-            _progress.value = progress
-            if (progress?.awaitingConfirmation == true && !progress.requestSent) {
-                _previewDraft.value = null
-            }
-            if (progress == null || (progress.finished && !progress.awaitingConfirmation)) {
-                clearActionsLocked()
-            }
+            val current = _progress.value
+            val next = if (progress != null && current != null && current.taskId == progress.taskId)
+                progress.withCheckpointsFrom(current) else progress?.copy(checkpoints = emptyList(),
+                    selectedCheckpointId = null, checkpointSelectionLocked = false, checkpointNotice = null,
+                    checkpointRevision = 0, checkpointLineageId = progress.taskId, checkpointGeneration = 0)
+            publishProgressLocked(next)
         }
+    }
+
+    /** A new attempt only inherits stages when its caller explicitly names their previous task. */
+    fun beginTask(
+        progress: AiEduImportProgress,
+        baseDraft: ImportDraft? = null,
+        preserveCheckpointsFromTaskId: String? = null
+    ) = synchronized(lock) {
+        require(progress.taskId.isNotBlank()) { "导入任务标识不能为空" }
+        val source = preserveCheckpointsFromTaskId?.let { taskId ->
+            // Explicitly supplied history is independent of the live task being replaced.
+            progress.takeIf { it.checkpoints.any { checkpoint -> checkpoint.taskId == taskId } }
+                ?: _progress.value?.takeIf { it.taskId == taskId }
+        }
+        checkpointGenerationClock = maxOf(checkpointGenerationClock, source?.checkpointGeneration ?: 0L) + 1
+        var next = progress.copy(
+            checkpoints = immutableCheckpoints(source?.checkpoints.orEmpty()
+                .filter { it.taskId == preserveCheckpointsFromTaskId }.map { it.forTask(progress.taskId, baseDraft?.config) }),
+            selectedCheckpointId = source?.selectedCheckpointId,
+            checkpointSelectionLocked = source?.checkpointSelectionLocked ?: false,
+            checkpointNotice = source?.checkpointNotice,
+            checkpointRevision = source?.checkpointRevision ?: 0,
+            checkpointLineageId = source?.checkpointLineageId?.ifBlank { preserveCheckpointsFromTaskId.orEmpty() }
+                ?: progress.taskId,
+            checkpointGeneration = checkpointGenerationClock
+        )
+        if (baseDraft != null) {
+            next = appendImportCheckpoint(next, baseDraft, "修改前课表", AiImportCheckpointKind.BASELINE)
+                .fold(onSuccess = { it.first }, onFailure = { next.copy(checkpointNotice = it.message) })
+        }
+        clearActionsLocked()
+        _previewDraft.value = null
+        _finalImportRequest.value = null
+        publishProgressLocked(boundedCheckpointProgress(next))
+        restoreSelectedPreviewLocked()
+    }
+
+    fun publishCheckpoint(
+        taskId: String,
+        draft: ImportDraft,
+        label: String = "已校验结果",
+        kind: AiImportCheckpointKind = AiImportCheckpointKind.AI
+    ): Result<AiImportCheckpoint> = synchronized(lock) {
+        val current = _progress.value?.takeIf { it.taskId == taskId && !it.finished && !it.awaitingUserInput }
+            ?: return@synchronized Result.failure(IllegalStateException("导入任务已停止或已切换"))
+        appendImportCheckpoint(current, draft, label, kind).map { (next, checkpoint) ->
+            publishProgressLocked(next)
+            restoreSelectedPreviewLocked()
+            checkpoint
+        }.onFailure { publishProgressLocked(current.copy(checkpointNotice = it.message)) }
+    }
+
+    /** Atomically gate small task-owned side effects against a replacement attempt. */
+    internal fun withCurrentTask(taskId: String, action: () -> Unit): Boolean = synchronized(lock) {
+        if (_progress.value?.taskId != taskId) return@synchronized false
+        action()
+        true
+    }
+
+    /** User history actions branch explicitly without changing a currently running workspace. */
+    internal fun forkHistoryCheckpointProgress(progress: AiEduImportProgress): AiEduImportProgress = synchronized(lock) {
+        val live = _progress.value?.takeIf { sameCheckpointLineage(it, progress) }
+        val taskId = "history-${UUID.randomUUID()}"
+        val checkpoints = (live?.checkpoints.orEmpty() + progress.checkpoints).distinctBy { it.id }
+            .map { it.forTask(taskId) }
+        require(checkpoints.size <= AiImportCheckpoint.MaxRetainedCount &&
+            checkpoints.sumOf { it.retainedBytes }.toLong() <= AiImportCheckpoint.MaxRetainedBytes) {
+            AiImportCheckpoint.LimitMessage
+        }
+        if (live != null && checkpoints.map { it.id }.toSet() != live.checkpoints.map { it.id }.toSet()) {
+            // Keep the shared immutable stages discoverable, without changing the live choice or run.
+            publishProgressLocked(live.copy(checkpoints = immutableCheckpoints(checkpoints.map { it.forTask(live.taskId) }),
+                checkpointRevision = live.checkpointRevision + 1))
+        }
+        checkpointGenerationClock = maxOf(checkpointGenerationClock, progress.checkpointGeneration,
+            live?.checkpointGeneration ?: 0L) + 1
+        progress.copy(taskId = taskId, checkpoints = immutableCheckpoints(checkpoints),
+            checkpointLineageId = progress.checkpointLineageId.ifBlank { progress.taskId.ifBlank { taskId } },
+            checkpointGeneration = checkpointGenerationClock)
+    }
+
+    fun selectCheckpoint(taskId: String, checkpointId: String): Result<ImportDraft> = synchronized(lock) {
+        val current = _progress.value?.takeIf { it.taskId == taskId }
+            ?: return@synchronized Result.failure(IllegalStateException("导入任务已切换"))
+        val checkpoint = current.checkpoints.firstOrNull { it.id == checkpointId }
+            ?: return@synchronized Result.failure(IllegalArgumentException("未找到这个阶段"))
+        val base = checkpoint.restore().getOrElse { return@synchronized Result.failure(it) }.config
+        selectImportCheckpoint(current, checkpointId, base).map { (next, draft) ->
+            checkpointGenerationClock = maxOf(checkpointGenerationClock, next.checkpointGeneration) + 1
+            publishProgressLocked(next.copy(checkpointGeneration = checkpointGenerationClock))
+            _previewDraft.value = draft
+            draft
+        }
+    }
+
+    fun editCheckpointJson(taskId: String, checkpointId: String, json: String): Result<AiImportCheckpoint> = synchronized(lock) {
+        val current = _progress.value?.takeIf { it.taskId == taskId }
+            ?: return@synchronized Result.failure(IllegalStateException("导入任务已切换"))
+        val checkpoint = current.checkpoints.firstOrNull { it.id == checkpointId }
+            ?: return@synchronized Result.failure(IllegalArgumentException("未找到这个阶段"))
+        val base = checkpoint.restore().getOrElse { return@synchronized Result.failure(it) }.config
+        editImportCheckpoint(current, checkpointId, json, base).map { (next, edited) ->
+            checkpointGenerationClock = maxOf(checkpointGenerationClock, next.checkpointGeneration) + 1
+            publishProgressLocked(next.copy(checkpointGeneration = checkpointGenerationClock))
+            restoreSelectedPreviewLocked()
+            edited
+        }.onFailure { publishProgressLocked(current.copy(checkpointNotice = it.message)) }
     }
 
     fun setActions(
@@ -205,10 +322,14 @@ object AiEduImportProgressSession {
         val current = _progress.value?.takeIf {
             it.taskId == taskId && !it.finished && !it.awaitingUserInput
         } ?: return@synchronized null
-        val next = transform(current).copy(taskId = taskId)
-        if (preview != null) _previewDraft.value = preview
-        update(next)
-        next
+        var next = transform(current).copy(taskId = taskId).withCheckpointsFrom(current)
+        if (preview != null) {
+            next = appendImportCheckpoint(next, preview, "完成结果", AiImportCheckpointKind.AI)
+                .fold(onSuccess = { it.first }, onFailure = { next.copy(checkpointNotice = it.message) })
+        }
+        publishProgressLocked(next)
+        if (preview != null) restoreSelectedPreviewLocked()
+        _progress.value
     }
 
     fun clearActions() {
@@ -245,7 +366,14 @@ object AiEduImportProgressSession {
     }
 
     fun setPreviewDraft(draft: ImportDraft?) {
-        _previewDraft.value = draft
+        synchronized(lock) {
+            val current = _progress.value
+            if (current?.selectedCheckpointId != null) {
+                restoreSelectedPreviewLocked()
+            } else {
+                _previewDraft.value = draft?.let { runCatching { ScheduleImportParser.validateEditedDraft(it) }.getOrNull() }
+            }
+        }
     }
 
     fun requestFinalImport(draft: ImportDraft, createNewSchedule: Boolean) {
@@ -253,8 +381,10 @@ object AiEduImportProgressSession {
     }
 
     fun consumeFinalImportRequest() {
-        _finalImportRequest.value = null
-        _previewDraft.value = null
+        synchronized(lock) {
+            // Importing history must not erase a different live workspace or its chosen stage.
+            _finalImportRequest.value = null
+        }
     }
 
     private fun consumeAction(selector: () -> (() -> Unit)?) {
@@ -270,10 +400,37 @@ object AiEduImportProgressSession {
         onScreenMode = null
         onCancel = null
     }
+
+    private fun publishProgressLocked(next: AiEduImportProgress?) {
+        if (next?.taskId != _progress.value?.taskId || next == null) {
+            reasoningGeneration++
+            _liveReasoning.value = AiImportLiveReasoning()
+            _previewDraft.value = null
+        }
+        _progress.value = next
+        if (next?.awaitingConfirmation == true && !next.requestSent && next.checkpoints.isEmpty()) {
+            _previewDraft.value = null
+        }
+        if (next == null || (next.finished && !next.awaitingConfirmation)) clearActionsLocked()
+    }
+
+    private fun restoreSelectedPreviewLocked() {
+        val current = _progress.value
+        _previewDraft.value = current?.checkpoints?.firstOrNull {
+            it.id == current.selectedCheckpointId && it.taskId == current.taskId
+        }?.restore()?.getOrNull()
+    }
 }
 
 internal data class AiImportLiveReasoning(val taskId: String = "", val text: String = "",
-    val nativeReasoning: Boolean = false, val courses: List<CourseEntity> = emptyList())
+    val nativeReasoning: Boolean = false, val courses: List<CourseEntity> = emptyList(),
+    val activity: AiImportActivity? = null)
+
+private fun AiEduImportProgress.withCheckpointsFrom(source: AiEduImportProgress): AiEduImportProgress = copy(
+    checkpoints = source.checkpoints, selectedCheckpointId = source.selectedCheckpointId,
+    checkpointSelectionLocked = source.checkpointSelectionLocked, checkpointNotice = source.checkpointNotice,
+    checkpointRevision = source.checkpointRevision, checkpointLineageId = source.checkpointLineageId,
+    checkpointGeneration = source.checkpointGeneration)
 
 data class AiEduFinalImportRequest(
     val draft: ImportDraft,

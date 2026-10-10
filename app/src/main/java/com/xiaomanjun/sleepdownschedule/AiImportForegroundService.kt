@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule
 
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportTaskManager
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiEduImportProgressSession
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
 
@@ -13,6 +14,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.IBinder
+import android.os.Bundle
+import android.net.Uri
 import android.os.Process
 import android.os.SystemClock
 import android.util.Log
@@ -39,6 +42,12 @@ class AiImportForegroundService : Service() {
         )
         when (intent?.action) {
             ACTION_START -> {
+                // A queued start from a replaced attempt must not take over the newer task's
+                // foreground notification or stop its service when the old pending task is gone.
+                if (AiEduImportProgressSession.progress.value?.let { it.taskId == taskId && !it.finished } != true) {
+                    if (activeTaskId == null) stopSelf(startId)
+                    return START_NOT_STICKY
+                }
                 activeTaskId = taskId
                 ServiceCompat.startForeground(
                     this,
@@ -158,8 +167,11 @@ class AiImportForegroundService : Service() {
 
         fun clearCompletion(context: Context, taskId: String?) {
             if (taskId.isNullOrBlank()) return
-            context.getSystemService(NotificationManager::class.java)
-                .cancel(RESULT_NOTIFICATION_ID)
+            val manager = context.getSystemService(NotificationManager::class.java)
+            if (manager.activeNotifications.any { it.id == RESULT_NOTIFICATION_ID &&
+                    it.notification.extras.getString(EXTRA_TASK_ID) == taskId }) {
+                manager.cancel(RESULT_NOTIFICATION_ID)
+            }
         }
 
         private fun postResultNotification(context: Context, build: () -> Notification) {
@@ -225,6 +237,7 @@ class AiImportForegroundService : Service() {
                 .applyAppNotificationIcon(context)
                 .setContentTitle("课表解析完成 · 发现 ${courseCount} 门课程")
                 .setContentText("点击查看导入预览")
+                .addExtras(Bundle().apply { putString(EXTRA_TASK_ID, taskId) })
                 .setContentIntent(progressPendingIntent(context, taskId, 8402))
                 .setOngoing(true)
                 .setAutoCancel(false)
@@ -244,6 +257,7 @@ class AiImportForegroundService : Service() {
                 .applyAppNotificationIcon(context)
                 .setContentTitle("AI 导入未完成")
                 .setContentText(message.ifBlank { "点击查看任务详情" })
+                .addExtras(Bundle().apply { putString(EXTRA_TASK_ID, taskId) })
                 .setContentIntent(progressPendingIntent(context, taskId, 8403))
                 .setAutoCancel(true)
                 .setCategory(Notification.CATEGORY_ERROR)
@@ -258,6 +272,7 @@ class AiImportForegroundService : Service() {
                 context,
                 requestCode,
                 Intent(context, AiEduImportProgressActivity::class.java)
+                    .setData(Uri.Builder().scheme("sleepdown").authority("ai-import").appendPath(taskId).build())
                     .putExtra(AiImportTaskManager.EXTRA_TASK_ID, taskId)
                     .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE

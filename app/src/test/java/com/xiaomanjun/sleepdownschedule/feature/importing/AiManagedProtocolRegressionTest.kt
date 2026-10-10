@@ -129,9 +129,11 @@ class AiManagedProtocolRegressionTest {
         assertNull(parseScheduleToolResult(stream.toResponseJson()))
     }
 
-    @Test fun responsesIncompleteKeepsItsStatus() {
+    @Test fun responsesIncompleteCannotBeUsedAsAnImportResult() {
         val stream = ResponsesSseAccumulator()
-        stream.consume("""{"type":"response.incomplete","response":{"status":"incomplete","output":[{"type":"message","content":[{"type":"output_text","text":"partial"}]}]}}""")
-        assertEquals("incomplete", parseResponsesTextResult(stream.toResponseJson()).finishReason)
+        val failure = runCatching {
+            stream.consume("""{"type":"response.incomplete","response":{"status":"incomplete","output":[{"type":"message","content":[{"type":"output_text","text":"partial"}]}]}}""")
+        }.exceptionOrNull()
+        assertTrue(failure is AiServiceResponseException)
     }
 }

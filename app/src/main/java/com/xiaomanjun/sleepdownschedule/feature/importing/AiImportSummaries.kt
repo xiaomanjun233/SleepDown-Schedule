@@ -17,6 +17,17 @@ private val ImportProgressBlock = Regex(
 internal fun importProgressSummary(text: CharSequence): String = ImportProgressBlock.findAll(text)
     .map { it.groupValues[1].trim() }.filter(String::isNotBlank).joinToString("\n\n")
 
+/** The ticker shows one completed public update, never a growing transcript or partial tag. */
+internal fun latestImportProgressSummary(text: CharSequence): String = ImportProgressBlock.findAll(text)
+    .filter { match ->
+        // A summary marker inside an inline private/thinking block is not a public update.
+        val prefix = text.subSequence(0, match.range.first).toString()
+        val open = Regex("<think(?:ing)?(?:\\s[^>]*)?>", RegexOption.IGNORE_CASE).findAll(prefix).lastOrNull()
+        val close = Regex("</think(?:ing)?>", RegexOption.IGNORE_CASE).findAll(prefix).lastOrNull()
+        open == null || (close != null && close.range.first > open.range.first)
+    }
+    .map { it.groupValues[1].trim() }.lastOrNull(String::isNotBlank)?.let(::importActivityText).orEmpty()
+
 internal fun String.stripImportProgress(): String = ImportProgressBlock.replace(this, "").trim()
 
 internal fun responsesOutputText(root: JsonObject): String =
@@ -26,6 +37,37 @@ internal fun responsesOutputText(root: JsonObject): String =
             .flatMap { it.optionalArray("content") }
             .mapNotNull { (it as? JsonObject)?.get("text")?.jsonPrimitive?.contentOrNull }
             .joinToString("\n")
+
+/** Exhausting the continuation budget is a failure even when the partial JSON happens to close. */
+internal fun continueTruncatedImportText(
+    first: AiProviderTextResult,
+    continueRequest: (String) -> AiProviderTextResult
+): AiProviderTextResult {
+    var result = first
+    val budget = AiStreamResponseBudget().apply {
+        record(first.content)
+        record(first.reasoning)
+    }
+    repeat(2) { attempt ->
+        if (result.finishReason != "length") return result
+        val next = continueRequest(result.content)
+        budget.record(next.content)
+        budget.record(next.reasoning)
+        result = AiProviderTextResult(
+            content = result.content + next.content,
+            reasoning = listOf(result.reasoning, next.reasoning.takeIf(String::isNotBlank)
+                ?.let { "续写 ${attempt + 1}：\n$it" }.orEmpty()).filter(String::isNotBlank).joinToString("\n\n"),
+            finishReason = next.finishReason
+        )
+        if (result.finishReason != "length" && result.finishReason != "stop") {
+            throw AiServiceResponseException("AI 续写未正常完成，未采用未完成的课程数据，请重试。", "")
+        }
+    }
+    if (result.finishReason == "length") {
+        throw AiServiceResponseException("AI 续写仍被截断，未采用未完成的课程数据。请缩小导入范围后重试。", "")
+    }
+    return result
+}
 
 /** A progress-only turn may continue once; it must never enter JSON repair as a fake result. */
 internal fun requestScheduleImport(
@@ -38,6 +80,9 @@ internal fun requestScheduleImport(
     }
 ): AiProviderTextResult {
     fun parse(response: String): AiProviderTextResult {
+        if (config.endpointStyle == AiEndpointStyle.RESPONSES) {
+            requireCompletedResponsesStatus(Json.parseToJsonElement(response).jsonObject, response)
+        } else requireUsableChatCompletionStatus(Json.parseToJsonElement(response).jsonObject, response)
         // Questions take precedence even if a model also supplied speculative course data.
         importClarificationQuestions(response).takeIf { it.isNotEmpty() }?.let {
             throw AiImportClarificationRequired(it)

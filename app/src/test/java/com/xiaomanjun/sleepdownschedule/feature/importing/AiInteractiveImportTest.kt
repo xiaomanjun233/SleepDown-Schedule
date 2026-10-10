@@ -101,6 +101,7 @@ class AiInteractiveImportTest {
         assertEquals("已识别三门课程", stream.displayReasoning.toString())
         stream.consume("""{"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"IMPORT_SCHEDULE","arguments":"{\"courses\":[]}"}}]}}]}""")
         assertEquals("已识别三门课程", stream.displayReasoning.toString())
+        stream.consume("""{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}""")
         assertEquals("{\"courses\":[]}", parseScheduleToolResult(stream.toCompletionJson())!!.content)
         stream.consume("""{"choices":[{"delta":{"reasoning_content":"正在核对课时"}}]}""")
         assertEquals("正在核对课时", stream.displayReasoning.toString())

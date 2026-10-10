@@ -49,8 +49,10 @@ object AiImportTaskManager {
             reasoningOutput = AiEduImportProgressSession.liveReasoning.value.text,
             liveSummary = "已停止当前解析。补充要求后可继续，已选材料会保留。"
         ) } ?: return false
-        AiEduImportProgressSession.previewDraft.value?.let { draft ->
-            AiImportHistoryStore.updateMatching(context, draft, draft, paused)
+        paused.selectedDraft()?.let { draft ->
+            (context.applicationContext as CourseScheduleApp).applicationScope.launch(Dispatchers.IO) {
+                AiImportHistoryStore.updateMatching(context, draft, draft, paused)
+            }
         }
         activeJob?.cancel()
         (context.applicationContext as CourseScheduleApp).applicationScope.launch(Dispatchers.IO) {
@@ -82,16 +84,21 @@ object AiImportTaskManager {
             current = AiEduImportProgressSession.progress.value?.takeIf { it.taskId == taskId } ?: return null
         }
         val prompt = buildString {
-            appendLine(current.requestInstructions.ifBlank { current.userPrompt })
+            appendLine(current.requestInstructions.ifBlank { current.userPrompt }.takeLast(15_000))
             if (current.clarificationQuestions.isNotEmpty()) {
                 appendLine("待确认：${current.clarificationQuestions.joinToString("；")}")
             }
             append("用户补充：${instruction.trim()}")
         }
+        // Once a validated artifact exists, continue from the user's current selection/manual
+        // edit through Agent tools. Do not re-upload the original attachment or a captured old draft.
+        current.selectedDraft()?.let { selected ->
+            return startRevision(context, selected, instruction.trim(), current, task.settings, null)
+        }
         task.resumeRevision?.let { return it(context, current, instruction.trim()) }
         return startTask(context, current.copy(userPrompt = instruction.trim(), requestInstructions = prompt,
             conversationTurns = archiveImportTurn(current)), task.config, task.settings,
-            task.request ?: return null)
+            preserveCheckpointsFromTaskId = taskId, request = task.request ?: return null)
     }
 
     /** Classification uses the existing transport/service, but never enters course JSON repair. */
@@ -209,12 +216,12 @@ object AiImportTaskManager {
         val taskId = UUID.randomUUID().toString()
         val interaction = AiImportInteraction(instruction)
         interaction.onStream = { native, output -> AiEduImportProgressSession.updateStream(taskId, native, output) }
+        interaction.onActivity = { activity -> publishActivity(taskId, activity) }
         restartableImport = RestartableImport(taskId, baseDraft.config, settings, interaction,
             resumeRevision = { nextContext, progress, prompt ->
                 startRevision(nextContext, baseDraft, prompt, progress, settings, historicalEntryId)
             })
-        AiEduImportProgressSession.setPreviewDraft(baseDraft)
-        AiEduImportProgressSession.update(
+        AiEduImportProgressSession.beginTask(
             baseProgress.copy(
                 taskId = taskId,
                 steps = baseProgress.steps + "正在整理输入",
@@ -229,7 +236,9 @@ object AiImportTaskManager {
                 assistantMessage = "",
                 finished = false,
                 error = null
-            )
+            ),
+            baseDraft = baseDraft,
+            preserveCheckpointsFromTaskId = baseProgress.taskId
         )
         pendingTasks.clear()
         pendingTasks[taskId] = {
@@ -259,6 +268,7 @@ object AiImportTaskManager {
         initialProgress: AiEduImportProgress,
         scheduleConfig: ScheduleConfigEntity,
         settings: AiImportSettings,
+        preserveCheckpointsFromTaskId: String? = null,
         request: RestartableAiImportRequest
     ): String {
         val appContext = context.applicationContext
@@ -266,9 +276,9 @@ object AiImportTaskManager {
         val taskId = UUID.randomUUID().toString()
         val interaction = AiImportInteraction(initialProgress.requestInstructions.ifBlank { initialProgress.userPrompt })
         interaction.onStream = { native, output -> AiEduImportProgressSession.updateStream(taskId, native, output) }
+        interaction.onActivity = { activity -> publishActivity(taskId, activity) }
         restartableImport = RestartableImport(taskId, scheduleConfig, settings, interaction, request)
-        AiEduImportProgressSession.setPreviewDraft(null)
-        AiEduImportProgressSession.update(
+        AiEduImportProgressSession.beginTask(
             initialProgress.copy(
                 taskId = taskId,
                 awaitingConfirmation = false,
@@ -284,7 +294,8 @@ object AiImportTaskManager {
                 assistantMessage = "",
                 finished = false,
                 error = null
-            )
+            ),
+            preserveCheckpointsFromTaskId = preserveCheckpointsFromTaskId
         )
         pendingTasks.clear()
         pendingTasks[taskId] = {
@@ -423,6 +434,10 @@ object AiImportTaskManager {
         currentCoroutineContext().ensureActive()
         appendMainStep(taskId, context, "正在生成导入预览", "课程数据已通过校验，正在整理导入预览。")
         val preview = parsed.copy(source = ImportDraftSource.AI_EDU)
+        AiEduImportProgressSession.publishCheckpoint(taskId, preview, "识别结果").getOrElse { error ->
+            finishFailure(context, taskId, error, "无法保存导入阶段")
+            return@coroutineScope
+        }
         val completed = AiEduImportProgressSession.updateActiveTask(taskId, preview) {
             it.copy(
                 steps = it.steps + "完成",
@@ -433,9 +448,12 @@ object AiImportTaskManager {
                 error = null
             )
         } ?: return@coroutineScope
-        AiImportHistoryStore.record(context, preview, completed)
+        val selected = completed.selectedDraft() ?: return@coroutineScope
+        AiImportHistoryStore.record(context, selected, completed)
         if (restartableImport?.taskId == taskId) restartableImport = null
-        AiImportForegroundService.complete(context, taskId, preview.courses.size)
+        AiEduImportProgressSession.withCurrentTask(taskId) {
+            AiImportForegroundService.complete(context, taskId, selected.courses.size)
+        }
     }
 
     private suspend fun runRevision(
@@ -464,7 +482,16 @@ object AiImportTaskManager {
         }
         val result = AiScheduleImportService(context, interaction)
             .reviseSchedule(baseDraft, instruction, baseProgress, settings, onHttpPhase,
-                AiEduImportProgressSession.beginReasoning(taskId))
+                AiEduImportProgressSession.beginReasoning(taskId),
+                onCheckpoint = { draft, label ->
+                    interaction.checkActive()
+                    AiEduImportProgressSession.publishCheckpoint(taskId, draft, label).getOrThrow()
+                    val progress = AiEduImportProgressSession.progress.value?.takeIf { it.taskId == taskId }
+                        ?: throw CancellationException("导入任务已切换")
+                    val selected = progress.selectedDraft() ?: throw CancellationException("导入阶段已失效")
+                    if (historicalEntryId != null) AiImportHistoryStore.update(context, historicalEntryId, selected, progress)
+                    else AiImportHistoryStore.updateMatching(context, baseDraft, selected, progress)
+                })
             .getOrElse { error ->
                 finishFailure(context, taskId, error, "AI 修改请求失败")
                 return@coroutineScope
@@ -482,6 +509,10 @@ object AiImportTaskManager {
             return@coroutineScope
         }.copy(source = ImportDraftSource.AI_EDU)
         appendMainStep(taskId, context, "正在生成导入预览", "修改结果已通过校验，正在更新导入预览。")
+        AiEduImportProgressSession.publishCheckpoint(taskId, revised, "完成结果").getOrElse { error ->
+            finishFailure(context, taskId, error, "无法保存导入阶段")
+            return@coroutineScope
+        }
         val completed = AiEduImportProgressSession.updateActiveTask(taskId, revised) {
             it.copy(
                 steps = it.steps + "完成",
@@ -498,13 +529,16 @@ object AiImportTaskManager {
                 conversationTurns = it.conversationTurns
             )
         } ?: return@coroutineScope
+        val selected = completed.selectedDraft() ?: return@coroutineScope
         if (historicalEntryId != null) {
-            AiImportHistoryStore.update(context, historicalEntryId, revised, completed)
+            AiImportHistoryStore.update(context, historicalEntryId, selected, completed)
         } else {
-            AiImportHistoryStore.updateMatching(context, baseDraft, revised, completed)
+            AiImportHistoryStore.updateMatching(context, baseDraft, selected, completed)
         }
         if (restartableImport?.taskId == taskId) restartableImport = null
-        AiImportForegroundService.complete(context, taskId, revised.courses.size)
+        AiEduImportProgressSession.withCurrentTask(taskId) {
+            AiImportForegroundService.complete(context, taskId, selected.courses.size)
+        }
     }
 
     private fun appendMainStep(
@@ -515,16 +549,26 @@ object AiImportTaskManager {
     ) {
         val updated = update(taskId) { progress ->
             progress.copy(
-                steps = if (step in progress.steps) progress.steps else progress.steps + step,
+                steps = (if (step in progress.steps) progress.steps else progress.steps + step).takeLast(100),
                 liveSummary = summary,
                 requestSent = progress.requestSent || step == "已发送给 AI" || step == "AI 正在解析课程"
             )
         }
-        if (updated != null) AiImportForegroundService.update(context, taskId, step)
+        if (updated != null) AiEduImportProgressSession.withCurrentTask(taskId) {
+            AiImportForegroundService.update(context, taskId, step)
+        }
     }
 
     private fun updateMicroStatus(taskId: String, summary: String) {
         update(taskId) { progress -> progress.copy(liveSummary = summary) }
+    }
+
+    private fun publishActivity(taskId: String, activity: AiImportActivity) {
+        AiEduImportProgressSession.updateActivity(taskId, activity)
+        if (activity.source == AiImportActivitySource.STATUS) update(taskId) { progress ->
+            progress.copy(steps = if (progress.steps.lastOrNull() == activity.text) progress.steps
+                else (progress.steps + activity.text).takeLast(100), liveSummary = activity.text)
+        }
     }
 
     private fun finishFailure(
@@ -540,7 +584,7 @@ object AiImportTaskManager {
                 liveSummary = "请补充下面的信息后继续。", error = null
             ) }
             if (waiting != null) {
-                AiEduImportProgressSession.previewDraft.value?.let { draft ->
+                waiting.selectedDraft()?.let { draft ->
                     AiImportHistoryStore.updateMatching(context, draft, draft, waiting)
                 }
                 AiImportForegroundService.finishRouting(context, taskId)
@@ -559,13 +603,24 @@ object AiImportTaskManager {
                 finished = true
             )
         }
-        if (updated != null) AiImportForegroundService.fail(context, taskId, error.message ?: step)
+        if (updated != null) {
+            updated.selectedDraft()?.let { draft ->
+                AiImportHistoryStore.updateMatching(context, draft, draft, updated)
+            }
+            AiEduImportProgressSession.withCurrentTask(taskId) {
+                AiImportForegroundService.fail(context, taskId, error.message ?: step)
+            }
+        }
     }
 
     private fun update(
         taskId: String,
         transform: (AiEduImportProgress) -> AiEduImportProgress
     ): AiEduImportProgress? = AiEduImportProgressSession.updateActiveTask(taskId, transform = transform)
+
+    private fun AiEduImportProgress.selectedDraft(): ImportDraft? = checkpoints.firstOrNull {
+        it.id == selectedCheckpointId && it.taskId == taskId
+    }?.restore()?.getOrNull()
 
     private const val AI_IMPORT_WAKE_LOCK_TIMEOUT_MILLIS = 30L * 60L * 1_000L
 }

@@ -248,7 +248,8 @@ class AiScheduleImportService(
         history: AiEduImportProgress,
         settings: AiImportSettings,
         onHttpPhase: (AiImportHttpPhase) -> Unit = {},
-        onReasoningUpdate: (String) -> Unit = {}
+        onReasoningUpdate: (String) -> Unit = {},
+        onCheckpoint: (ImportDraft, String) -> Unit = { _, _ -> }
     ): Result<AiScheduleImportResult> = withContext(Dispatchers.IO) {
         runCatching {
             require(settings.apiKey.isNotBlank()) { "请先在设置中配置 AI API Key" }
@@ -256,7 +257,7 @@ class AiScheduleImportService(
             require(settings.profile.defaultModel.isNotBlank()) { "请先配置模型名称" }
             interaction?.onHttpPhase = onHttpPhase
             com.xiaomanjun.sleepdownschedule.feature.agent.AgentImportRuntime.revise(
-                context, draft, instruction, history, settings, interaction, onReasoningUpdate)
+                context, draft, instruction, history, settings, interaction, onReasoningUpdate, onCheckpoint)
         }
     }
 }
