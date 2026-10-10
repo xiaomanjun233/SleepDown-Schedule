@@ -46,6 +46,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -272,19 +273,22 @@ fun BackupRestorePreviewScreen(
     }
 
     fun restorePreview(previewState: BackupRestorePreviewState) {
+        // Claim the submission before launch/recomposition, including callbacks retained by the
+        // closing confirmation dialog. A delayed callback must not reuse an already handled preview.
+        if (busyLabel != null || preview !== previewState) return
+        busyLabel = "正在恢复，请不要关闭应用…"
+        showReplaceConfirmation = false
         scope.launch {
-            busyLabel = "正在恢复，请不要关闭应用…"
             statusMessage = null
             statusIsError = false
-            runCatching {
+            try {
                 // Read the latest target again immediately before Replace, because data may have
                 // changed after this preview was created.
-                BackupRestoreService(app, app.database).restore(
+                val result = BackupRestoreService(app, app.database).restore(
                     archive = previewState.archive,
                     operationId = previewState.operationId,
                     replaceConfirmed = true
                 )
-            }.onSuccess { result ->
                 preview = null
                 val warningSuffix = if (result.warnings.isEmpty()) {
                     ""
@@ -292,14 +296,17 @@ fun BackupRestorePreviewScreen(
                     " 有 ${result.warnings.size} 项内容需要你在恢复后重新检查。"
                 }
                 statusMessage = "恢复完成。$warningSuffix"
-            }.onFailure { error ->
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
                 showFailure(
                     title = "恢复没有完成",
                     guidance = "请重新打开 SleepDown 查看结果；如果恢复已经开始，应用会自动继续处理未完成的步骤",
                     error = error
                 )
+            } finally {
+                busyLabel = null
             }
-            busyLabel = null
         }
     }
 
@@ -329,14 +336,17 @@ fun BackupRestorePreviewScreen(
                     preview = previewState,
                     backdrop = backdrop,
                     config = state.config,
-                    onConfirm = { showReplaceConfirmation = true }
+                    canRestore = busyLabel == null,
+                    onConfirm = {
+                        if (busyLabel == null && preview === previewState) showReplaceConfirmation = true
+                    }
                 )
             }
         }
     }
 
     val previewState = preview
-    if (showReplaceConfirmation && previewState != null) {
+    if (showReplaceConfirmation && previewState != null && busyLabel == null) {
         val report = previewState.report
         val replacementMessage = if (report.requiresExplicitReplaceConfirmation) {
             "确认后，当前课表、设置和相关图片会被这份备份替换，应用里不能撤销。API Key、登录状态和系统权限不会被改动。"
@@ -418,6 +428,7 @@ private fun BackupPreviewContent(
     preview: BackupRestorePreviewState,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
+    canRestore: Boolean,
     onConfirm: () -> Unit
 ) {
     val report = preview.report
@@ -532,13 +543,17 @@ private fun BackupPreviewContent(
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    SettingsActionButton(
-                        label = "继续恢复",
-                        backdrop = backdrop,
-                        onClick = onConfirm,
-                        modifier = Modifier.fillMaxWidth(),
-                        destructive = true
-                    )
+                    if (canRestore) {
+                        SettingsActionButton(
+                            label = "继续恢复",
+                            backdrop = backdrop,
+                            onClick = onConfirm,
+                            modifier = Modifier.fillMaxWidth(),
+                            destructive = true
+                        )
+                    } else {
+                        Text("正在恢复，请稍候…", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
             }
         }

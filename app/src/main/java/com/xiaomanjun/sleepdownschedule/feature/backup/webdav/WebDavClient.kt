@@ -22,6 +22,7 @@ internal class WebDavFailure(val reason: Reason) : IOException(reason.message) {
         MISSING("远端文件或文件夹不存在，请检查目录地址并刷新列表"),
         COLLISION("远端已有同名文件，请确认覆盖或换一个名称"),
         CHANGED("远端文件已变化，请刷新列表后重新确认"),
+        UNSAFE_OVERWRITE("服务器未提供可用于安全覆盖的文件版本，请更换名称上传备份"),
         TIMEOUT("连接或传输超时，请检查网络后重试"),
         NETWORK("无法连接 WebDAV，请检查网络、证书和服务地址"),
         UNSUPPORTED("服务器不支持所需 WebDAV 操作；原备份未通过直接写入覆盖"),
@@ -67,6 +68,9 @@ internal class WebDavClient(connection: WebDavConnection, client: OkHttpClient =
     suspend fun upload(file: File, name: String, overwrite: Boolean = false, etag: String? = null) {
         val target = fileUrl(name)
         if (file.length() !in 1..ArchiveLimit) throw WebDavFailure(WebDavFailure.Reason.FILE)
+        // The validator must identify the version the user confirmed, before any remote write.
+        if (overwrite && (etag == null || !validEtag(etag)))
+            throw WebDavFailure(WebDavFailure.Reason.UNSAFE_OVERWRITE)
         val temporary = base.newBuilder().addPathSegment(".sleepdown-${UUID.randomUUID()}.upload").build()
         try {
             exchange(request(temporary).header("If-None-Match", "*")
@@ -76,7 +80,7 @@ internal class WebDavClient(connection: WebDavConnection, client: OkHttpClient =
             // RFC 4918 MOVE commits the already complete upload. Never PUT over an existing archive.
             val move = request(temporary).method("MOVE", null).header("Destination", target.toString())
                 .header("Overwrite", if (overwrite) "T" else "F")
-            if (overwrite && etag != null && validEtag(etag)) move.header("If", "<$target> ([$etag])")
+            if (overwrite) move.header("If", "<$target> ([$etag])")
             exchange(move.build()) { response ->
                 if (response.code == 412) throw WebDavFailure(if (overwrite) WebDavFailure.Reason.CHANGED else WebDavFailure.Reason.COLLISION)
                 expect(response, setOf(201, 204))
@@ -160,8 +164,10 @@ internal class WebDavClient(connection: WebDavConnection, client: OkHttpClient =
         }
         fun validName(name: String) = name.endsWith(".sleepdown", ignoreCase = true) && name.length <= 180 &&
             name.isNotBlank() && name.none { it == '/' || it == '\\' || it.code < 32 } && name !in setOf(".", "..")
-        private fun validEtag(value: String) = value.length < 512 && value.startsWith('"') && value.endsWith('"') &&
-            value.none { it == '\r' || it == '\n' || it == ']' }
+        // Accept one strong, quoted opaque tag that is safe in an HTTP/WebDAV If header.
+        // Spaces, embedded quotes, controls and non-ASCII header values are not usable validators.
+        private fun validEtag(value: String) = value.length in 2..511 && value.first() == '"' && value.last() == '"' &&
+            value.substring(1, value.lastIndex).all { it == '!' || it in '#'..'~' && it != ']' }
         private fun safeFailure(error: Exception): WebDavFailure = when (error) {
             is WebDavFailure -> error
             is java.io.InterruptedIOException -> WebDavFailure(WebDavFailure.Reason.TIMEOUT)

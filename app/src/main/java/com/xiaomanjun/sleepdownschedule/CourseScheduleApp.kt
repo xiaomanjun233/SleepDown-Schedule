@@ -173,7 +173,7 @@ class CourseScheduleApp : Application() {
 
     private suspend fun cleanupPersistedAppData() {
         runCatching {
-            BackupRestoreService(this, database).resumePending()
+            BackupRestoreService(this, database).resumePending { cleanupAfterBackupRecovery() }
         }.onSuccess { results ->
             results.flatMap { it.warnings }.forEach { warning ->
                 Log.w("CourseScheduleApp", "Backup restore resume: $warning")
@@ -181,6 +181,9 @@ class CourseScheduleApp : Application() {
         }.onFailure { error ->
             Log.w("CourseScheduleApp", "Backup restore resume failed", error)
         }
+    }
+
+    private suspend fun cleanupAfterBackupRecovery() {
         cleanupTransientCacheData()
         runCatching {
             repository.ensureDefaults()
