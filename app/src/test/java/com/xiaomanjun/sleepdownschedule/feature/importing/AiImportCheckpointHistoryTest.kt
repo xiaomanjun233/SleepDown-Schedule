@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import android.app.Application
 import com.xiaomanjun.sleepdownschedule.*
 import org.junit.After
 import org.junit.Assert.*
@@ -11,7 +12,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(manifest = Config.NONE)
+@Config(manifest = Config.NONE, application = Application::class, sdk = [28])
 class AiImportCheckpointHistoryTest {
     private val context get() = RuntimeEnvironment.getApplication()
     private val session = AiEduImportProgressSession
