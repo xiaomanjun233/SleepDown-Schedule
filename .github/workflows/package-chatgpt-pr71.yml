@@ -1,0 +1,68 @@
+name: Package ChatGPT PR71 test APK
+
+on:
+  push:
+    branches: [codex/package-chatgpt-pr71]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 53ba6e7736a713656eb9a2edd9012bfac601c1fb
+          persist-credentials: false
+      - name: Verify fixed application source
+        run: test "$(git rev-parse HEAD)" = 53ba6e7736a713656eb9a2edd9012bfac601c1fb
+      - uses: actions/checkout@v7
+        with:
+          repository: compose-miuix-ui/miuix
+          ref: c36fab72391801d1e3ea5a00f966bf16bac28d4c
+          path: .ci/miuix
+          persist-credentials: false
+      - name: Apply public Miuix patches
+        run: |
+          git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-0.9.3-sleepdown.patch"
+          git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-cascading-popup-surface.patch"
+          git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-scaffold-underlay.patch"
+          git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-compact-dropdown.patch"
+          git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-popup-slide-feedback.patch"
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+          log-accepted-android-sdk-licenses: 'false'
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-37.0'
+      - name: Build isolated Debug APK without release secrets
+        run: bash ./gradlew assembleGithubDebug -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix" -Psleepdown.useMavenMirrors=false --console=plain --no-daemon --no-parallel --max-workers=2
+      - name: Verify identity and signature
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p delivery
+          apk=delivery/SleepDown-ChatGPT-PR71-53ba6e7-debug.apk
+          cp app/build/outputs/apk/github/debug/app-github-debug.apk "$apk"
+          cp app/build/outputs/apk/github/debug/output-metadata.json delivery/output-metadata.json
+          aapt=$(find "$ANDROID_HOME/build-tools" -name aapt -type f | sort -V | tail -1)
+          signer=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          test -n "$aapt" && test -n "$signer"
+          "$aapt" dump badging "$apk" > delivery/apk-identity.txt
+          grep -F "package: name='com.xiaomanjun.sleepdownschedule.debug'" delivery/apk-identity.txt
+          "$signer" verify --verbose --print-certs "$apk" > delivery/apk-signature.txt
+          git rev-parse HEAD > delivery/source-commit.txt
+          (cd delivery && sha256sum SleepDown-ChatGPT-PR71-53ba6e7-debug.apk > SHA256SUMS)
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SleepDown-ChatGPT-PR71-53ba6e7-debug
+          path: delivery/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
