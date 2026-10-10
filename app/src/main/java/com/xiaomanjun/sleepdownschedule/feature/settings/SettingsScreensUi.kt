@@ -572,6 +572,7 @@ fun AiImportSettingsSection(
         ?: AiProviderPresets.byId(selectedProviderId)
     val isCustomProvider = AiProviderPresets.isCustomId(selectedProviderId)
     val isManagedFreeProvider = AiProviderPresets.isManagedFreeId(selectedProviderId)
+    val isChatGptProvider = AiProviderPresets.isChatGptId(selectedProviderId)
     val effectiveCustomProviderName = customProviderName.trim().ifBlank { selectedPreset.displayName }
     val customProviderDisplayName = effectiveCustomProviderName.ifBlank { "未命名自定义接口" }
     val pickerPresets = if (isCustomProvider) {
@@ -595,7 +596,7 @@ fun AiImportSettingsSection(
         availableModels = configuredModelIds
     )
     val modelOptions = AiProviderPresets.modelOptions(modelProfile)
-    val modelEditable = !isManagedFreeProvider && (modelOptions.isEmpty() || modelUsesCustomInput)
+    val modelEditable = !isManagedFreeProvider && !isChatGptProvider && (modelOptions.isEmpty() || modelUsesCustomInput)
     val selectedModelOptionIndex = if (modelUsesCustomInput) {
         modelOptions.size
     } else {
@@ -649,10 +650,10 @@ fun AiImportSettingsSection(
         availableModels = configuredModelIds,
         reasoningEffort = effectiveReasoningEffort
     )
-    val profile = if (isManagedFreeProvider) {
-        selectedPreset.copy(reasoningEffort = effectiveReasoningEffort)
-    } else {
-        editableProfile
+    val profile = when {
+        isManagedFreeProvider -> selectedPreset.copy(reasoningEffort = effectiveReasoningEffort)
+        isChatGptProvider -> AiProviderPresets.normalizeChatGptProfile(editableProfile)
+        else -> editableProfile
     }
     fun hasCustomProviderDraft(apiKey: String): Boolean = customProviderDraftHasContent(
         name = customProviderName,
@@ -767,7 +768,7 @@ fun AiImportSettingsSection(
     }
     fun save(showMessage: Boolean = true): Boolean {
         val nextKey = apiKeyInput.ifBlank { saved.apiKey }
-        if (!aiDisabled && (profile.baseUrl.isBlank() || profile.defaultModel.isBlank())) {
+        if (!aiDisabled && !isChatGptProvider && (profile.baseUrl.isBlank() || profile.defaultModel.isBlank())) {
             message = "请先填写接口地址和模型名称"
             return false
         }
@@ -790,7 +791,7 @@ fun AiImportSettingsSection(
             profile,
             nextKey.takeUnless { aiDisabled }.orEmpty()
         )
-        if (aiDisabled || (profile.baseUrl.isNotBlank() && profile.defaultModel.isNotBlank())) {
+        if (aiDisabled || isChatGptProvider || (profile.baseUrl.isNotBlank() && profile.defaultModel.isNotBlank())) {
             AiImportSettingsStore.save(context, nextSettings)
         } else {
             // Preserve incomplete input as a provider-scoped draft without making
@@ -821,7 +822,7 @@ fun AiImportSettingsSection(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
         SettingsInfoRow(
             "AI 设置",
-            "配置 AI 助理、AI 对话、教务课表解析等智能功能共用的模型服务。API Key 按服务商分别加密保存在本机，不会写入课表数据库或诊断日志。选择“无”可停用所有联网 AI 能力，本地课表功能不受影响。"
+            "配置 AI 助理、AI 对话、教务课表解析等智能功能共用的模型服务。ChatGPT 使用账号登录，其他接口的 API Key 分别加密保存在本机。登录凭据不会写入课表备份或诊断日志。选择“无”可停用联网 AI 能力。"
         )
         AiProviderPickerRow(
             value = if (isCustomProvider) customProviderDisplayName else selectedPreset.displayName,
@@ -845,7 +846,24 @@ fun AiImportSettingsSection(
             }
         }
         if (!aiDisabled) {
-        if (isManagedFreeProvider) {
+        if (isChatGptProvider) {
+            item(key = "chatgpt-account") {
+                ChatGptSettingsPanel(
+                    config = state.config,
+                    backdrop = backdrop,
+                    selectedModel = model,
+                    onBeforeLogin = {
+                        AiImportSettingsStore.save(context, AiImportSettings(profile, ""))
+                    },
+                    onModelsChanged = { models, selected ->
+                        availableModelsText = models.joinToString("\n") { it.slug }
+                        model = selected.slug
+                        supportsVision = selected.supportsImages
+                        modelUsesCustomInput = false
+                    }
+                )
+            }
+        } else if (isManagedFreeProvider) {
             item(key = "ai-model-reasoning") {
                 GlassPreferenceSection("模型与推理") {
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
@@ -1017,6 +1035,7 @@ fun AiImportSettingsSection(
             }
         }
         }
+        if (!isChatGptProvider) {
         item(key = "ai-testing") {
             GlassPreferenceSection("测试与管理") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
@@ -1090,6 +1109,7 @@ fun AiImportSettingsSection(
         }
                 }
             }
+        }
         }
         }
         val currentMessage = message

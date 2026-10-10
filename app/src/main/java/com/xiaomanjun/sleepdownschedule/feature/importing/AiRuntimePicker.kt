@@ -104,7 +104,9 @@ internal fun AiRuntimePicker(
         AiImportSettingsStore.selectableProfiles(context)
             .filter { it.id != AiProviderPresets.none.id }
             .filter { profile ->
-                AiImportSettingsStore.loadProvider(context, profile.id).apiKey.isNotBlank()
+                if (profile.id == AiProviderPresets.chatGpt.id) {
+                    com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.ChatGptAuthManager.hasSession(context)
+                } else AiImportSettingsStore.loadProvider(context, profile.id).apiKey.isNotBlank()
             }
     }
     val modelOptions = remember(state.settings.profile, state.revision) {

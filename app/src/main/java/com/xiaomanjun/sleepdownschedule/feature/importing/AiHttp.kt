@@ -163,7 +163,8 @@ private fun safeRequest(
         trace.mark(AiImportHttpPhase.HEADERS_RECEIVED)
         if (status !in 200..299) {
             val text = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text)
+            throw AiServiceResponseException(formatAiRequestError(status, text, providerId, connection.getHeaderField("x-request-id")),
+                if (authType == AiAuthType.ChatGptOAuth) "" else text)
         }
         trace.mark(AiImportHttpPhase.BODY_READ_START)
         val text = connection.inputStream.bufferedReader().use { it.readText() }
@@ -175,6 +176,7 @@ private fun safeRequest(
         if (throwable is AiServiceResponseException) throw throwable
         throw IllegalStateException(formatAiNetworkError(url, throwable), throwable)
     } finally {
+        ChatGptInferenceSessions.release(connection)
         connection.disconnect()
     }
 }
@@ -245,7 +247,8 @@ private fun postChatCompletionStreaming(
         trace.mark(AiImportHttpPhase.HEADERS_RECEIVED)
         if (status !in 200..299) {
             val text = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text)
+            throw AiServiceResponseException(formatAiRequestError(status, text, providerId, connection.getHeaderField("x-request-id")),
+                if (authType == AiAuthType.ChatGptOAuth) "" else text)
         }
         if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
             trace.mark(AiImportHttpPhase.BODY_READ_START)
@@ -286,7 +289,9 @@ private fun postResponsesStreaming(
     providerId: String?,
     requestContext: AiImportNetworkContext
 ): String {
-    val streamedBody = runCatching {
+    val streamedBody = if (authType == AiAuthType.ChatGptOAuth) {
+        chatGptResponsesBody(Json.parseToJsonElement(body).jsonObject).toString()
+    } else runCatching {
         val values = Json.parseToJsonElement(body).jsonObject.toMutableMap()
         values["stream"] = JsonPrimitive(true)
         JsonObject(values).toString()
@@ -304,7 +309,10 @@ private fun postResponsesStreaming(
         apiKey = apiKey,
         authType = authType,
         contentType = "application/json; charset=utf-8",
-        accept = "text/event-stream"
+        accept = "text/event-stream",
+        model = if (authType == AiAuthType.ChatGptOAuth) {
+            Json.parseToJsonElement(streamedBody).jsonObject["model"]?.jsonPrimitive?.contentOrNull
+        } else null
     )
     requestContext.interaction?.attach(connection)
     return try {
@@ -315,14 +323,16 @@ private fun postResponsesStreaming(
         trace.mark(AiImportHttpPhase.HEADERS_RECEIVED)
         if (status !in 200..299) {
             val text = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            throw AiServiceResponseException(formatAiRequestError(status, text, providerId), text)
+            throw AiServiceResponseException(formatAiRequestError(status, text, providerId, connection.getHeaderField("x-request-id")),
+                if (authType == AiAuthType.ChatGptOAuth) "" else text)
         }
         if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
+            check(authType != AiAuthType.ChatGptOAuth) { "ChatGPT 未返回要求的事件流，请重试。" }
             trace.mark(AiImportHttpPhase.BODY_READ_START)
             connection.inputStream.bufferedReader().use { it.readText() }
                 .also { trace.mark(AiImportHttpPhase.STREAM_END) }
         } else {
-            val accumulator = ResponsesSseAccumulator()
+            val accumulator = ResponsesSseAccumulator(requireCompleted = authType == AiAuthType.ChatGptOAuth)
             val reasoningPublisher = AiReasoningStreamPublisher(requestContext.onReasoningUpdate)
             var firstEvent = true
             connection.forEachSseDataLine { payload ->
@@ -336,6 +346,7 @@ private fun postResponsesStreaming(
             }
             trace.mark(AiImportHttpPhase.STREAM_END)
             reasoningPublisher.publish(accumulator.displayReasoning, force = true)
+            if (authType == AiAuthType.ChatGptOAuth) ChatGptInferenceSessions.checkActive(connection)
             accumulator.toResponseJson()
         }
     } catch (throwable: Throwable) {
@@ -344,6 +355,7 @@ private fun postResponsesStreaming(
         if (throwable is AiServiceResponseException) throw throwable
         throw IllegalStateException(formatAiNetworkError(url, throwable), throwable)
     } finally {
+        ChatGptInferenceSessions.release(connection)
         connection.disconnect()
     }
 }
@@ -468,7 +480,7 @@ private class ChatToolCallAccumulator {
     }
 }
 
-internal class ResponsesSseAccumulator {
+internal class ResponsesSseAccumulator(private val requireCompleted: Boolean = false) {
     private var completedResponse: JsonObject? = null
     private val outputItems = linkedMapOf<String, JsonObject>()
     private val functionCalls = linkedMapOf<String, ResponsesFunctionCallAccumulator>()
@@ -479,12 +491,23 @@ internal class ResponsesSseAccumulator {
             ?.takeIf(String::isNotBlank)
         ?: importProgressSummary(completedResponse?.let(::responsesOutputText) ?: outputText)
     private var sawEvent = false
+    private var sawCompleted = false
 
     fun consume(payload: String) {
         val event = runCatching { Json.parseToJsonElement(payload).jsonObject }.getOrNull() ?: return
         sawEvent = true
         when (event["type"]?.jsonPrimitive?.contentOrNull.orEmpty()) {
-            "response.completed", "response.incomplete" -> completedResponse = event["response"]?.jsonObject
+            "response.completed" -> {
+                completedResponse = event["response"] as? JsonObject
+                sawCompleted = completedResponse?.get("status")?.jsonPrimitive?.contentOrNull == "completed"
+            }
+            "response.incomplete" -> {
+                if (requireCompleted) {
+                    ChatGptUsageStatus.failed()
+                    throw AiServiceResponseException("ChatGPT 回复未完成，请重试。", "")
+                }
+                completedResponse = event["response"]?.jsonObject
+            }
             "response.output_item.added", "response.output_item.done" -> {
                 val item = event["item"]?.jsonObject ?: return
                 val key = item["id"]?.jsonPrimitive?.contentOrNull
@@ -516,6 +539,7 @@ internal class ResponsesSseAccumulator {
             "response.reasoning_summary_text.delta", "response.reasoning_text.delta" ->
                 event["delta"]?.jsonPrimitive?.contentOrNull?.let(reasoning::append)
             "response.failed", "error" -> {
+                if (requireCompleted) throw AiServiceResponseException(chatGptInferenceError(0, payload), "")
                 val detail = event["error"]?.jsonObject?.get("message")
                     ?.jsonPrimitive?.contentOrNull.orEmpty()
                 throw AiServiceResponseException(detail.ifBlank { "AI Responses 流式请求失败。" }, payload)
@@ -524,6 +548,11 @@ internal class ResponsesSseAccumulator {
     }
 
     fun toResponseJson(): String {
+        if (requireCompleted && !sawCompleted) {
+            ChatGptUsageStatus.failed()
+            throw AiServiceResponseException("ChatGPT 连接已中断，未收到完成事件；本次结果不会执行或保存。", "")
+        }
+        if (requireCompleted) ChatGptUsageStatus.completed()
         completedResponse?.let { return it.toString() }
         if (!sawEvent) throw AiServiceResponseException("AI Responses 流式响应里没有收到任何事件。", "")
         val functionKeys = functionCalls.keys

@@ -3,10 +3,24 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 import com.xiaomanjun.sleepdownschedule.*
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AiProviderPresetsTest {
+    @Test
+    fun chatGptOnlyOffersAccountDiscoveredModelsAndNoUnverifiedReasoningLevels() {
+        val preset = AiProviderPresets.chatGpt
+        assertTrue(AiProviderPresets.modelOptions(preset).isEmpty())
+        assertTrue(AiProviderPresets.modelOptions(preset.id).isEmpty())
+        assertTrue(AiProviderPresets.reasoningEfforts(preset).isEmpty())
+        assertEquals(AiAuthType.ChatGptOAuth, preset.authType)
+        assertFalse(preset.supportsFileUpload)
+        assertFalse(preset.supportsPdfDirect)
+        val discovered = preset.copy(availableModels = listOf("account-model"))
+        assertEquals(listOf("account-model"), AiProviderPresets.modelOptions(discovered).map { it.model })
+    }
+
     @Test
     fun openAiDefaultsToCurrentStableAliasAndKeepsPreviousModels() {
         val models = AiProviderPresets.modelOptions(AiProviderPresets.openAI.id).map { it.model }

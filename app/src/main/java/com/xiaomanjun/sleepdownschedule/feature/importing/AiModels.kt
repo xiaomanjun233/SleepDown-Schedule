@@ -72,7 +72,8 @@ enum class AiReasoningEffort(val apiValue: String, val label: String) {
 enum class AiAuthType {
     ApiKeyBearer,
     OpenAIProjectKey,
-    CustomHeader
+    CustomHeader,
+    ChatGptOAuth
 }
 
 @Serializable
@@ -120,6 +121,10 @@ data class AiImportSettings(
     val profile: AiProviderProfile = AiProviderPresets.none,
     val apiKey: String = ""
 )
+
+/** OAuth credentials are resolved only at the HTTP boundary, never kept in provider settings. */
+internal fun AiImportSettings.hasCredentialConfiguration(): Boolean =
+    profile.id == AiProviderPresets.chatGpt.id || apiKey.isNotBlank()
 
 data class AiProviderConfig(
     val providerId: String,

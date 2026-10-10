@@ -4,6 +4,7 @@ import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.backup.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.ChatGptAuthManager
 import android.content.Context
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
@@ -92,11 +93,18 @@ object AiImportSettingsStore {
      * managed daily-free provider is a valid fallback whenever its signed configuration is ready.
      */
     fun resolveAvailableSettings(context: Context): AiImportSettings? {
-        load(context).takeIf { it.isReadyForUse() }?.let { return it }
+        val selected = load(context)
+        // Account sign-in, expiry and quota errors belong to the selected ChatGPT provider.
+        // Never conceal them by using a separately billed API key or the daily-free service.
+        if (AiProviderPresets.isChatGptId(selected.profile.id)) return selected
+        selected.takeIf { it.isReadyForUse() }?.let { return it }
 
         val userSettings = selectableProfiles(context)
             .asSequence()
-            .filterNot { it.id == AiProviderPresets.none.id || AiProviderPresets.isManagedFreeId(it.id) }
+            .filterNot {
+                it.id == AiProviderPresets.none.id || AiProviderPresets.isManagedFreeId(it.id) ||
+                    AiProviderPresets.isChatGptId(it.id)
+            }
             .map { loadProvider(context, it.id) }
             .firstOrNull { it.isReadyForUse() }
         if (userSettings != null) return userSettings
@@ -112,6 +120,7 @@ object AiImportSettingsStore {
     /** Makes the resolved fallback active so the service and runtime picker read the same model. */
     fun activateAvailableSettings(context: Context): AiImportSettings? {
         val current = load(context)
+        if (AiProviderPresets.isChatGptId(current.profile.id)) return current
         if (current.isReadyForUse()) return current
         return resolveAvailableSettings(context)?.also { resolved ->
             if (resolved.profile.id != current.profile.id) save(context, resolved)
@@ -128,7 +137,8 @@ object AiImportSettingsStore {
     fun shouldOfferManagedFreeAi(context: Context): Boolean {
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         if (prefs.contains(KeyManagedFreeOfferDecision)) return false
-        if (load(context).profile.id == AiProviderPresets.dailyFree.id) return false
+        val selectedId = load(context).profile.id
+        if (selectedId == AiProviderPresets.dailyFree.id || AiProviderPresets.isChatGptId(selectedId)) return false
         return !hasUserConfiguredApiKey(context) && SleepDownRemoteConfig.isManagedFreeAvailable(context)
     }
 
@@ -158,7 +168,13 @@ object AiImportSettingsStore {
         val additionalCustomProfiles = entries
             .filter { entry -> entry.id != AiProviderPresets.custom.id }
             .map { entry -> AiProviderPresets.customProfile(entry.id, entry.displayName) }
-        return builtIns + additionalCustomProfiles
+        // Retain existing API configurations and ciphertext under their original ID. Fresh
+        // installations see account login instead of the former official OpenAI key form.
+        val legacyOpenAi = AiProviderPresets.openAI.takeIf {
+            prefs.getString(KeyProviderId, null) == it.id ||
+                prefs.contains(providerKey(KeyBaseUrl, it.id)) || prefs.contains(apiKeyKey(it.id))
+        }
+        return builtIns + listOfNotNull(legacyOpenAi) + additionalCustomProfiles
     }
 
     /**
@@ -300,7 +316,7 @@ object AiImportSettingsStore {
             supportsResponses = prefs.getBoolean(key(KeyResponses), preset.capabilities.supportsResponses)
         )
         val defaultModel = prefs.getString(key(KeyModel), preset.defaultModel).orEmpty()
-        return preset.copy(
+        val profile = preset.copy(
             providerType = providerType,
             baseUrl = normalizeAiBaseUrlForProvider(
                 preset.id,
@@ -334,6 +350,9 @@ object AiImportSettingsStore {
                 )
             }.getOrDefault(preset.reasoningEffort)
         )
+        return if (AiProviderPresets.isChatGptId(profile.id)) {
+            AiProviderPresets.normalizeChatGptProfile(profile)
+        } else profile
     }
 
     private fun AiProviderProfile.toBackupProvider(): BackupAiProvider = BackupAiProvider(
@@ -360,12 +379,15 @@ object AiImportSettingsStore {
 
     private fun BackupAiProvider.fromBackupProvider(context: Context): AiProviderProfile {
         require(id.matches(Regex("[A-Za-z0-9:_-]{1,128}"))) { "AI provider ID 非法" }
-        val preset = selectableProfiles(context).firstOrNull { it.id == id }
+        val preset = (selectableProfiles(context) + AiProviderPresets.all).firstOrNull { it.id == id }
             ?: AiProviderPresets.customProfile(id, displayName)
         val providerType = runCatching { AiProviderType.valueOf(this.providerType) }
             .getOrElse { throw IllegalArgumentException("未知 AI providerType: ${this.providerType}") }
         val authType = runCatching { AiAuthType.valueOf(this.authType) }
             .getOrElse { throw IllegalArgumentException("未知 AI authType: ${this.authType}") }
+        require(authType != AiAuthType.ChatGptOAuth || AiProviderPresets.isChatGptId(id)) {
+            "ChatGPT 登录不能用于自定义接口"
+        }
         val endpointStyle = runCatching { AiEndpointStyle.valueOf(this.endpointStyle) }
             .getOrElse { throw IllegalArgumentException("未知 AI endpointStyle: ${this.endpointStyle}") }
         val structuredOutputMode = runCatching { StructuredOutputMode.valueOf(this.structuredOutputMode) }
@@ -382,7 +404,7 @@ object AiImportSettingsStore {
             supportsFileUpload = supportsFileUpload,
             supportsResponses = supportsResponses
         )
-        return preset.copy(
+        val profile = preset.copy(
             id = id,
             displayName = displayName,
             providerType = providerType,
@@ -399,6 +421,11 @@ object AiImportSettingsStore {
             availableModels = (availableModels + model).filter(String::isNotBlank).distinct(),
             reasoningEffort = reasoningEffort
         )
+        return if (AiProviderPresets.isChatGptId(id)) {
+            AiProviderPresets.normalizeChatGptProfile(profile).copy(availableModels = emptyList())
+        } else if (id == AiProviderPresets.openAI.id) {
+            profile.copy(displayName = AiProviderPresets.openAI.displayName)
+        } else profile
     }
 
     private fun readCustomProviders(prefs: android.content.SharedPreferences): List<AiCustomProviderEntry> {
@@ -440,6 +467,9 @@ object AiImportSettingsStore {
         val preset = selectableProfiles(context).firstOrNull { it.id == savedProviderId }
             ?: AiProviderPresets.none
         if (AiProviderPresets.isManagedFreeId(preset.id)) return managedFreeSettings(context, prefs)
+        if (AiProviderPresets.isChatGptId(preset.id)) {
+            return chatGptSettings(context, readProfileWithoutSecret(prefs, preset, useGlobalKeys = true))
+        }
         val providerType = runCatching {
             AiProviderType.valueOf(prefs.getString(KeyProviderType, preset.providerType.name).orEmpty())
         }.getOrDefault(preset.providerType)
@@ -501,6 +531,12 @@ object AiImportSettingsStore {
         val current = load(context)
         val preset = presetFor(context, providerId)
         if (AiProviderPresets.isManagedFreeId(preset.id)) return managedFreeSettings(context, prefs)
+        if (AiProviderPresets.isChatGptId(preset.id)) {
+            return chatGptSettings(
+                context,
+                readProfileWithoutSecret(prefs, preset, useGlobalKeys = current.profile.id == preset.id)
+            )
+        }
         val profile = when {
             current.profile.id == preset.id -> current.profile
             !prefs.contains(providerKey(KeyBaseUrl, preset.id)) -> preset
@@ -610,7 +646,28 @@ object AiImportSettingsStore {
         return AiImportSettings(profile, apiKey)
     }
 
-    fun save(context: Context, settings: AiImportSettings) {
+    private fun chatGptSettings(context: Context, profile: AiProviderProfile): AiImportSettings {
+        val models = ChatGptAuthManager.cachedModels(context)
+        val selectedModel = models.firstOrNull { it.slug == profile.defaultModel }
+        return AiImportSettings(
+            AiProviderPresets.normalizeChatGptProfile(profile).copy(
+                availableModels = models.map { it.slug },
+                supportsVision = selectedModel?.supportsImages == true,
+                capabilities = AiProviderPresets.chatGpt.capabilities.copy(
+                    supportsImageInput = selectedModel?.supportsImages == true
+                )
+            ),
+            apiKey = ""
+        )
+    }
+
+    private fun sanitizeSettings(settings: AiImportSettings): AiImportSettings =
+        if (AiProviderPresets.isChatGptId(settings.profile.id)) {
+            AiImportSettings(AiProviderPresets.normalizeChatGptProfile(settings.profile), apiKey = "")
+        } else settings
+
+    fun save(context: Context, value: AiImportSettings) {
+        val settings = sanitizeSettings(value)
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         if (AiProviderPresets.isManagedFreeId(settings.profile.id)) {
             prefs.edit {
@@ -654,7 +711,8 @@ object AiImportSettingsStore {
         notifyChanged()
     }
 
-    fun saveProvider(context: Context, settings: AiImportSettings) {
+    fun saveProvider(context: Context, value: AiImportSettings) {
+        val settings = sanitizeSettings(value)
         val prefs = context.getSharedPreferences(PrefName, Context.MODE_PRIVATE)
         if (AiProviderPresets.isManagedFreeId(settings.profile.id)) {
             prefs.edit {
@@ -679,7 +737,7 @@ object AiImportSettingsStore {
         editor: android.content.SharedPreferences.Editor,
         settings: AiImportSettings
     ) {
-        val profile = settings.profile
+        val profile = sanitizeSettings(settings).profile
         val id = profile.id
         editor
             .putString(providerKey(KeyBaseUrl, id), normalizeAiBaseUrlForProvider(id, profile.baseUrl))
@@ -702,8 +760,11 @@ object AiImportSettingsStore {
 
     private fun writeGlobalSettings(
         editor: android.content.SharedPreferences.Editor,
-        profile: AiProviderProfile
+        value: AiProviderProfile
     ) {
+        val profile = if (AiProviderPresets.isChatGptId(value.id)) {
+            AiProviderPresets.normalizeChatGptProfile(value)
+        } else value
         editor
             .putString(KeyBaseUrl, normalizeAiBaseUrlForProvider(profile.id, profile.baseUrl))
             .putString(KeyModel, profile.defaultModel)
@@ -779,6 +840,7 @@ internal fun customProviderDraftHasContent(
 ): Boolean = listOf(name, baseUrl, model, apiKey).any { it.isNotBlank() }
 
 fun normalizeAiBaseUrlForProvider(providerId: String, value: String): String {
+    if (AiProviderPresets.isChatGptId(providerId)) return AiProviderPresets.chatGpt.baseUrl
     if (value.isBlank()) return ""
     var url = value.trim().trimEnd('/')
     listOf("/chat/completions", "/responses", "/files").forEach { suffix ->

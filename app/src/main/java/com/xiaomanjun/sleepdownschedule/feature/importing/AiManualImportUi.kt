@@ -492,7 +492,7 @@ fun NormalizedAiManualImportScreen(
             }
             val latestSettings = AiImportSettingsStore.load(context)
             aiSettings = latestSettings
-            if (latestSettings.apiKey.isNotBlank() && jsonText.isNotBlank()) {
+            if (latestSettings.hasCredentialConfiguration() && jsonText.isNotBlank()) {
                 error = null
                 showAiTokenRepairPrompt = true
             } else {

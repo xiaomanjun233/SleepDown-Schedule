@@ -296,6 +296,10 @@
             android:name=".AiImportForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service
+            android:name=".feature.importing.chatgpt.ChatGptLoginService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
         <receiver
             android:name=".TodayCoursesWidgetProvider"
             android:label="@string/widget_today_courses_name"
