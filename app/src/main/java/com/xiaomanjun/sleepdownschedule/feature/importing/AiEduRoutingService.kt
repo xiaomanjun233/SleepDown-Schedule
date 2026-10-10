@@ -9,7 +9,7 @@ internal suspend fun requestAiEduRouting(
     settings: AiImportSettings,
     onHttpPhase: (AiImportHttpPhase) -> Unit
 ): String = withContext(Dispatchers.IO) {
-    require(settings.apiKey.isNotBlank()) { "请先配置 AI，或直接使用文本导入" }
+    require(settings.hasCredentialConfiguration()) { "请先配置 AI，或直接使用文本导入" }
     val config = settings.toProviderConfig().normalizedForRequest()
     val prompt = AiEduRoutingPrompt + "\n" + fingerprint.modelInput()
     val responses = config.endpointStyle == AiEndpointStyle.RESPONSES

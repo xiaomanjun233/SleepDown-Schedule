@@ -32,6 +32,17 @@ internal object AiEndpointDiagnostics {
 }
 
 internal fun AiProviderConfig.normalizedForRequest(): AiProviderConfig {
+    if (providerId == AiProviderPresets.chatGpt.id) return copy(
+        apiKey = "",
+        baseUrl = "https://api.openai.com/v1",
+        authType = AiAuthType.ChatGptOAuth,
+        endpointStyle = AiEndpointStyle.RESPONSES,
+        responsesPath = "/responses",
+        supportsResponses = true,
+        supportsFileUpload = false,
+        supportsPdfDirect = false,
+        inputMode = AiInputMode.AUTO
+    )
     val useResponses = (AiEndpointDiagnostics.forcedEndpointStyle ?: endpointStyle) ==
         AiEndpointStyle.RESPONSES && supportsResponses
     val configuredPath = if (useResponses) responsesPath else chatCompletionsPath

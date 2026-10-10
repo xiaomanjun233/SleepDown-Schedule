@@ -401,7 +401,7 @@ class DayAgentService(private val context: Context) {
         val settings = AiImportSettingsStore.loadForRuntime(context)
             ?: AiImportSettingsStore.load(context)
         require(settings.profile.id != AiProviderPresets.none.id) { "请先在 AI 设置中选择服务商" }
-        require(settings.apiKey.isNotBlank()) { "请先在 AI 设置中配置 API Key" }
+        require(settings.hasCredentialConfiguration()) { "请先在 AI 设置中配置 API Key" }
         val miMoWebSearchAvailable = supportsMiMoOfficialWebSearch(
             providerId = settings.profile.id,
             baseUrl = normalizeAiBaseUrlForProvider(

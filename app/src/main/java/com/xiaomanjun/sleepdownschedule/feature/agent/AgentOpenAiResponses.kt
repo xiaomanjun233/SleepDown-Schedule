@@ -254,6 +254,19 @@ internal class OpenAiResponsesAgentRunner {
     }
 
     private fun post(settings: AiImportSettings, body: JsonObject): String {
+        if (settings.profile.id == AiProviderPresets.chatGpt.id) {
+            val connection = open(settings, body)
+            return try {
+                checkChatGptResponse(connection)
+                val accumulator = ResponsesSseAccumulator(requireCompleted = true)
+                connection.forEachSseDataLine(accumulator::consume)
+                ChatGptInferenceSessions.checkActive(connection)
+                accumulator.toResponseJson()
+            } finally {
+                ChatGptInferenceSessions.release(connection)
+                connection.disconnect()
+            }
+        }
         val connection = open(settings, body)
         val code = connection.responseCode
         val source = if (code in 200..299) connection.inputStream else connection.errorStream
@@ -272,6 +285,27 @@ internal class OpenAiResponsesAgentRunner {
         onUsage: (AgentTokenUsage) -> Unit
     ): String {
         val connection = open(settings, body)
+        if (settings.profile.id == AiProviderPresets.chatGpt.id) {
+            return try {
+                checkChatGptResponse(connection)
+                val completed = ResponsesSseAccumulator(requireCompleted = true)
+                val text = AgentResponsesTextAccumulator()
+                connection.forEachSseDataLine { payload ->
+                    completed.consume(payload)
+                    parseSseJsonObject(payload)?.let { event ->
+                        val usage = agentTokenUsage(event)
+                        if (!usage.isEmpty) onUsage(usage)
+                        text.consume(event).takeIf(String::isNotEmpty)?.let(onDelta)
+                    }
+                }
+                ChatGptInferenceSessions.checkActive(connection)
+                completed.toResponseJson()
+                text.finish()
+            } finally {
+                ChatGptInferenceSessions.release(connection)
+                connection.disconnect()
+            }
+        }
         val code = connection.responseCode
         if (code !in 200..299) {
             val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
@@ -305,6 +339,23 @@ internal class OpenAiResponsesAgentRunner {
     }
 
     private fun open(settings: AiImportSettings, body: JsonObject): HttpURLConnection {
+        if (settings.profile.id == AiProviderPresets.chatGpt.id) {
+            val connection = openAiPostConnection(
+                url = "https://api.openai.com/v1/responses",
+                apiKey = "",
+                authType = AiAuthType.ChatGptOAuth,
+                accept = "text/event-stream",
+                model = settings.profile.defaultModel
+            )
+            return try {
+                connection.outputStream.use { it.write(chatGptResponsesBody(body).toString().toByteArray(Charsets.UTF_8)) }
+                connection
+            } catch (error: Throwable) {
+                ChatGptInferenceSessions.release(connection)
+                connection.disconnect()
+                throw error
+            }
+        }
         val path = settings.profile.responsesPath.trim('/')
         val base = if (path.isEmpty()) {
             // 未显式配置路径：直接使用下发的完整地址，不再 normalize 剥掉 /responses 等后缀
@@ -321,6 +372,17 @@ internal class OpenAiResponsesAgentRunner {
             accept = null
         ).apply {
             outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+        }
+    }
+
+    private fun checkChatGptResponse(connection: HttpURLConnection) {
+        val status = connection.responseCode
+        if (status !in 200..299) {
+            val body = connection.errorStream?.bufferedReader()?.use { it.readText().take(16_384) }.orEmpty()
+            error(chatGptInferenceError(status, body, connection.getHeaderField("x-request-id")))
+        }
+        check(connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
+            "ChatGPT 未返回要求的事件流，请重试。"
         }
     }
 }

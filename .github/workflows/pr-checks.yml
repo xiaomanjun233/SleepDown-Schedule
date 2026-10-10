@@ -80,6 +80,11 @@ jobs:
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangImportSessionCustomTimeTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.IcsScheduleCodecTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportDocumentTextTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.ChatGpt*Test'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiProviderPresetsTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.*Test'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.agent.AgentToolsTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.agent.AgentToolProtocolTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.ImportedWeekNormalizationTest'
           --tests 'com.xiaomanjun.sleepdownschedule.data.repository.AutoRefreshTimingPreservationTest'
           --tests 'com.xiaomanjun.sleepdownschedule.SharedPeriodSchemeRepositoryTest'
@@ -92,6 +97,8 @@ jobs:
           -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix"
           -Psleepdown.useMavenMirrors=false
           --console=plain --no-daemon --no-parallel --max-workers=2 --stacktrace
+      - name: Package unsigned debug build
+        run: bash ./gradlew assembleGithubDebug -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix" -Psleepdown.useMavenMirrors=false --console=plain --no-daemon --no-parallel --max-workers=2
 
   result:
     name: PR checks
