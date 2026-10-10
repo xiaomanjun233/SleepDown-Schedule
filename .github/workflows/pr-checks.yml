@@ -89,6 +89,9 @@ jobs:
           --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupCodecTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupExportImportPlanTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupRoomRestoreTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestoreCoordinatorTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestoreServiceConcurrencyTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavClientTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupSettingsCompletenessTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.SharedPeriodSchemeBackupTest'
           -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix"

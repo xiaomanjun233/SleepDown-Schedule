@@ -14,6 +14,7 @@ import com.xiaomanjun.sleepdownschedule.core.identity.AppIdentity
 
 import android.content.Context
 import androidx.room.withTransaction
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -84,7 +85,34 @@ class BackupRestoreService(
         replaceConfirmed: Boolean,
         existingTarget: BackupImportTargetSnapshot? = null,
         failureInjector: BackupRestoreFailureInjector = NoBackupRestoreFailureInjector
-    ): BackupRestoreResult = withContext(Dispatchers.IO) {
+    ): BackupRestoreResult = BackupRestoreCoordinator.restore {
+        withContext(Dispatchers.IO) {
+            requireNoOtherPendingRestore(operationId)
+            restoreExclusive(archive, operationId, replaceConfirmed, existingTarget, failureInjector)
+        }
+    }
+
+    private fun requireNoOtherPendingRestore(operationId: String) {
+        // A failed operation can retain committed/uncertain state or files awaiting rollback.
+        // Do not let a later restore reuse those files before recovery has retired that journal.
+        File(appContext.filesDir, ".sleepdown_restore").listFiles().orEmpty()
+            .filter { it.isDirectory && it.name != operationId }
+            .forEach { directory ->
+                val marker = BackupRestoreJournal(appContext.filesDir, directory.name).readMarker()
+                check(marker == null || marker.state == BackupRestoreState.FINALIZED) {
+                    "上次恢复尚未完成，请重新打开 SleepDown 完成恢复后再试"
+                }
+            }
+    }
+
+    /** Only called while the coordinator owns both the journal and the live restore files. */
+    private suspend fun restoreExclusive(
+        archive: DecodedBackupArchive,
+        operationId: String,
+        replaceConfirmed: Boolean,
+        existingTarget: BackupImportTargetSnapshot? = null,
+        failureInjector: BackupRestoreFailureInjector
+    ): BackupRestoreResult {
         AppIdentity.requireTrustedBackupSource(
             archive.manifest.sourcePackageName,
             appContext.packageName
@@ -118,7 +146,7 @@ class BackupRestoreService(
         }
 
         if (marker.state == BackupRestoreState.FINALIZED) {
-            return@withContext BackupRestoreResult(
+            return BackupRestoreResult(
                 operationId = operationId,
                 state = BackupRestoreState.FINALIZED,
                 warnings = planWarnings(marker.plan),
@@ -129,7 +157,7 @@ class BackupRestoreService(
         failureInjector.check(BackupRestoreFaultPoint.AFTER_VALIDATED)
         var dbMayBeCommitted = marker.state.ordinal >= BackupRestoreState.DB_COMMITTED.ordinal
         var createdPathsInMemory = emptySet<String>()
-        try {
+        return try {
             if (marker.state.ordinal < BackupRestoreState.DB_COMMITTED.ordinal) {
                 val stage = BackupAssetStager.stage(appContext.filesDir, archive, operationId)
                 val restoredAssets = BackupPrivateAssetRestorer.prepare(
@@ -184,11 +212,23 @@ class BackupRestoreService(
         }
     }
 
-    /** Called from Application startup; only journaled, already-confirmed operations are resumed. */
-    suspend fun resumePending(): List<BackupRestoreResult> = withContext(Dispatchers.IO) {
+    /**
+     * Called from Application startup; only journaled, already-confirmed operations are resumed.
+     * Startup's unreferenced-file cleanup must share ownership so it cannot delete live staging.
+     */
+    suspend fun resumePending(afterRecovery: suspend () -> Unit = {}): List<BackupRestoreResult> =
+        BackupRestoreCoordinator.recover {
+            withContext(Dispatchers.IO) {
+                val results = resumePendingExclusive()
+                afterRecovery()
+                results
+            }
+        }
+
+    private suspend fun resumePendingExclusive(): List<BackupRestoreResult> {
         val root = File(appContext.filesDir, ".sleepdown_restore")
-        if (!root.isDirectory) return@withContext emptyList()
-        root.listFiles().orEmpty()
+        if (!root.isDirectory) return emptyList()
+        return root.listFiles().orEmpty()
             .filter(File::isDirectory)
             .mapNotNull { operationDirectory ->
                 val operationId = operationDirectory.name
@@ -217,7 +257,7 @@ class BackupRestoreService(
                         }
                         marker.state.ordinal < BackupRestoreState.DB_COMMITTED.ordinal -> {
                             val archive = restoreArchiveFromPayload(journal)
-                            restore(
+                            restoreExclusive(
                                 archive = archive,
                                 operationId = operationId,
                                 replaceConfirmed = true,
@@ -232,6 +272,7 @@ class BackupRestoreService(
                         )
                     }
                 }.getOrElse { error ->
+                    if (error is CancellationException) throw error
                     BackupRestoreResult(
                         operationId = operationId,
                         state = marker.state,
