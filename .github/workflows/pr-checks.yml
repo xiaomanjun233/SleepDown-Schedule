@@ -84,6 +84,7 @@ jobs:
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportDocumentTextTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportCheckpoint*'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportStreamActivityTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportActivityReportsTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportNotificationIsolationTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiLiveReasoningTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportConversationTest'

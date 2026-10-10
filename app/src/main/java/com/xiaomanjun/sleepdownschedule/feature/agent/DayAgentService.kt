@@ -629,9 +629,8 @@ class DayAgentService(
                 telemetry.recordDecisionRound(decision.calls.size)
                 if (decision.calls.isNotEmpty()) {
                     val action = decision.calls.first().name.runStatus().text.removePrefix("读取")
-                    val note = decision.content.trim().take(120).ifBlank {
-                        "我先确认$action，再继续处理。"
-                    }
+                    val note = if (importWorkspace != null) decision.content.takeIf(String::isNotBlank)
+                    else decision.content.trim().take(120).ifBlank { "我先确认$action，再继续处理。" }
                     onStatus(
                         AgentRunStatus(
                             icon = AgentRunStatusIcon.THINKING,

@@ -45,7 +45,8 @@ data class AiEduImportProgress(
     val checkpointNotice: String? = null,
     val checkpointRevision: Long = 0,
     val checkpointLineageId: String = "",
-    val checkpointGeneration: Long = 0
+    val checkpointGeneration: Long = 0,
+    val activityReports: List<AiImportReport> = emptyList()
 )
 
 data class AiEduImportConversationTurn(
@@ -153,20 +154,31 @@ object AiEduImportProgressSession {
             synchronized(lock) {
                 val current = _progress.value
                 if (generation == reasoningGeneration && current?.taskId == taskId && !current.finished) {
-                    _liveReasoning.value = _liveReasoning.value.copy(taskId = taskId, text = text)
+                    _liveReasoning.value = _liveReasoning.value.copy(taskId = taskId, text = text,
+                        waitPhase = AiImportWaitPhase.MODEL_OUTPUT, activityAtNanos = System.nanoTime())
                 }
             }
         }
     }
-    internal fun updateStream(taskId: String, nativeReasoning: Boolean, output: String) = synchronized(lock) {
+    internal fun updateStream(taskId: String, nativeReasoning: Boolean, output: String,
+                              nowNanos: Long = System.nanoTime()) = synchronized(lock) {
         if (_progress.value?.let { it.taskId == taskId && !it.finished } == true) {
             _liveReasoning.value = _liveReasoning.value.copy(taskId = taskId, nativeReasoning = nativeReasoning,
-                courses = completeStreamingCourses(output))
+                courses = completeStreamingCourses(output), waitPhase = AiImportWaitPhase.MODEL_OUTPUT,
+                activityAtNanos = nowNanos)
         }
     }
     internal fun updateActivity(taskId: String, activity: AiImportActivity) = synchronized(lock) {
         if (_progress.value?.let { it.taskId == taskId && !it.finished && !it.awaitingUserInput } == true) {
+            // Presentation can be coalesced/delayed. It must not rewind the actual transport/tool clock.
             _liveReasoning.value = _liveReasoning.value.copy(taskId = taskId, activity = activity)
+        }
+    }
+    internal fun updateWaitPhase(taskId: String, phase: AiImportWaitPhase,
+                                 nowNanos: Long = System.nanoTime()) = synchronized(lock) {
+        if (_progress.value?.let { it.taskId == taskId && !it.finished && !it.awaitingUserInput } == true) {
+            _liveReasoning.value = _liveReasoning.value.copy(taskId = taskId, waitPhase = phase,
+                activityAtNanos = nowNanos)
         }
     }
     private val _historySelection = MutableStateFlow<ImportDraft?>(null)
@@ -424,7 +436,8 @@ object AiEduImportProgressSession {
 
 internal data class AiImportLiveReasoning(val taskId: String = "", val text: String = "",
     val nativeReasoning: Boolean = false, val courses: List<CourseEntity> = emptyList(),
-    val activity: AiImportActivity? = null)
+    val activity: AiImportActivity? = null, val activityAtNanos: Long = System.nanoTime(),
+    val waitPhase: AiImportWaitPhase = AiImportWaitPhase.LOCAL_OPERATION)
 
 private fun AiEduImportProgress.withCheckpointsFrom(source: AiEduImportProgress): AiEduImportProgress = copy(
     checkpoints = source.checkpoints, selectedCheckpointId = source.selectedCheckpointId,

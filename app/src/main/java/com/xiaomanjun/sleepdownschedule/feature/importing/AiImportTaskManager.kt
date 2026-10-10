@@ -215,8 +215,11 @@ object AiImportTaskManager {
         cancelPreviousAttempt(appContext)
         val taskId = UUID.randomUUID().toString()
         val interaction = AiImportInteraction(instruction)
+        interaction.onTransportPhase = { phase -> recordTransportPhase(taskId, phase) }
         interaction.onStream = { native, output -> AiEduImportProgressSession.updateStream(taskId, native, output) }
         interaction.onActivity = { activity -> publishActivity(taskId, activity) }
+        interaction.onExecutionStep = { step -> recordExecutionStep(taskId, step) }
+        interaction.onProgressReport = { report -> recordProgressReport(taskId, report) }
         restartableImport = RestartableImport(taskId, baseDraft.config, settings, interaction,
             resumeRevision = { nextContext, progress, prompt ->
                 startRevision(nextContext, baseDraft, prompt, progress, settings, historicalEntryId)
@@ -234,6 +237,7 @@ object AiImportTaskManager {
                 reasoningOutput = "",
                 aiOutput = "",
                 assistantMessage = "",
+                activityReports = emptyList(),
                 finished = false,
                 error = null
             ),
@@ -275,8 +279,11 @@ object AiImportTaskManager {
         cancelPreviousAttempt(appContext)
         val taskId = UUID.randomUUID().toString()
         val interaction = AiImportInteraction(initialProgress.requestInstructions.ifBlank { initialProgress.userPrompt })
+        interaction.onTransportPhase = { phase -> recordTransportPhase(taskId, phase) }
         interaction.onStream = { native, output -> AiEduImportProgressSession.updateStream(taskId, native, output) }
         interaction.onActivity = { activity -> publishActivity(taskId, activity) }
+        interaction.onExecutionStep = { step -> recordExecutionStep(taskId, step) }
+        interaction.onProgressReport = { report -> recordProgressReport(taskId, report) }
         restartableImport = RestartableImport(taskId, scheduleConfig, settings, interaction, request)
         AiEduImportProgressSession.beginTask(
             initialProgress.copy(
@@ -292,6 +299,7 @@ object AiImportTaskManager {
                 reasoningOutput = "",
                 aiOutput = "",
                 assistantMessage = "",
+                activityReports = emptyList(),
                 finished = false,
                 error = null
             ),
@@ -547,10 +555,12 @@ object AiImportTaskManager {
         step: String,
         summary: String
     ) {
+        AiEduImportProgressSession.updateWaitPhase(taskId, AiImportWaitPhase.LOCAL_OPERATION)
         val updated = update(taskId) { progress ->
             progress.copy(
                 steps = (if (step in progress.steps) progress.steps else progress.steps + step).takeLast(100),
                 liveSummary = summary,
+                activityReports = appendAiImportReport(progress.activityReports, AiImportReport(summary, AiImportReportKind.EXECUTION)),
                 requestSent = progress.requestSent || step == "已发送给 AI" || step == "AI 正在解析课程"
             )
         }
@@ -565,10 +575,28 @@ object AiImportTaskManager {
 
     private fun publishActivity(taskId: String, activity: AiImportActivity) {
         AiEduImportProgressSession.updateActivity(taskId, activity)
-        if (activity.source == AiImportActivitySource.STATUS) update(taskId) { progress ->
-            progress.copy(steps = if (progress.steps.lastOrNull() == activity.text) progress.steps
-                else (progress.steps + activity.text).takeLast(100), liveSummary = activity.text)
-        }
+    }
+
+    private fun recordExecutionStep(taskId: String, step: String) {
+        AiEduImportProgressSession.updateWaitPhase(taskId, AiImportWaitPhase.LOCAL_OPERATION)
+        update(taskId) { progress -> progress.copy(
+            steps = if (progress.steps.lastOrNull() == step) progress.steps else (progress.steps + step).takeLast(100),
+            liveSummary = step,
+            activityReports = appendAiImportReport(progress.activityReports, AiImportReport(step, AiImportReportKind.EXECUTION))
+        ) }
+    }
+
+    private fun recordTransportPhase(taskId: String, phase: AiImportHttpPhase) {
+        AiEduImportProgressSession.updateWaitPhase(taskId, when (phase) {
+            AiImportHttpPhase.STREAM_END -> AiImportWaitPhase.LOCAL_OPERATION
+            AiImportHttpPhase.FIRST_EVENT, AiImportHttpPhase.BODY_READ_START -> AiImportWaitPhase.MODEL_OUTPUT
+            else -> AiImportWaitPhase.SERVICE_RESPONSE
+        })
+    }
+
+    private fun recordProgressReport(taskId: String, report: String) {
+        update(taskId) { progress -> progress.copy(activityReports = appendAiImportReport(
+            progress.activityReports, AiImportReport(report, AiImportReportKind.MODEL))) }
     }
 
     private fun finishFailure(

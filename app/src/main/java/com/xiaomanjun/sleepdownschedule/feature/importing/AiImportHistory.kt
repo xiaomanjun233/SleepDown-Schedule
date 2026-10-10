@@ -296,6 +296,7 @@ internal fun progressToJson(progress: AiEduImportProgress): JSONObject {
         taskId = progress.taskId.take(128),
         checkpointLineageId = progress.checkpointLineageId.take(128),
         steps = progress.steps.takeLast(100).map { historyText(it, 500) },
+        activityReports = progress.activityReports.takeLast(12).map { it.copy(text = historyText(it.text, 180)) },
         screenshotPreviews = emptyList(),
         routeLabel = historyText(progress.routeLabel, 300),
         requestPreview = historyText(progress.requestPreview, 16_384),
@@ -346,6 +347,9 @@ private fun progressJson(progress: AiEduImportProgress): JSONObject = JSONObject
     .put("schemaVersion", 3)
     .put("taskId", progress.taskId)
     .put("steps", JSONArray(progress.steps))
+    .put("activityReports", JSONArray().apply { progress.activityReports.forEach { report ->
+        put(JSONObject().put("text", report.text).put("kind", report.kind.name))
+    } })
     .put("routeLabel", progress.routeLabel)
     .put("requestPreview", progress.requestPreview)
     .put("pageText", progress.pageText)
@@ -409,6 +413,15 @@ internal fun progressFromJson(root: JSONObject): AiEduImportProgress {
         steps = buildList {
             for (index in 0 until stepsJson.length()) add(stepsJson.optString(index))
         },
+        activityReports = root.optJSONArray("activityReports")?.let { reports ->
+            buildList {
+                for (index in maxOf(0, reports.length() - 12) until reports.length()) {
+                    val report = reports.optJSONObject(index) ?: continue
+                    val kind = runCatching { AiImportReportKind.valueOf(report.optString("kind")) }.getOrNull() ?: continue
+                    add(AiImportReport(report.optString("text").take(180), kind))
+                }
+            }
+        }.orEmpty(),
         routeLabel = root.optString("routeLabel"),
         requestPreview = root.optString("requestPreview"),
         pageText = root.optString("pageText"),

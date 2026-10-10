@@ -12,21 +12,57 @@ private val ImportProgressBlock = Regex(
     "(?m)^[ \\t]*<import_progress>(.*?)</import_progress>[ \\t]*",
     RegexOption.DOT_MATCHES_ALL
 )
+private val ImportPrivateBlockTag = Regex(
+    "</?(?:think(?:ing)?|analysis|reasoning)(?:\\s[^>]*)?>", RegexOption.IGNORE_CASE
+)
 
 /** Only explicitly marked public summaries are displayed; course JSON is never a progress feed. */
-internal fun importProgressSummary(text: CharSequence): String = ImportProgressBlock.findAll(text)
-    .map { it.groupValues[1].trim() }.filter(String::isNotBlank).joinToString("\n\n")
+internal fun importProgressSummary(text: CharSequence): String =
+    completedImportProgressSummaries(text).joinToString("\n\n")
+
+/** Every complete public report is retained; a network chunk can contain several reports. */
+internal fun completedImportProgressSummaries(text: CharSequence): List<String> = buildList {
+    val privateTags = ImportPrivateBlockTag.findAll(text).iterator()
+    var nextTag = if (privateTags.hasNext()) privateTags.next() else null
+    var privateDepth = 0
+    ImportProgressBlock.findAll(text).forEach { match ->
+        // Walk the enclosing tags once rather than copying/scanning every preceding prefix.
+        while (nextTag != null && nextTag.range.first < match.range.first) {
+            privateDepth = if (nextTag.value.startsWith("</")) (privateDepth - 1).coerceAtLeast(0) else privateDepth + 1
+            nextTag = if (privateTags.hasNext()) privateTags.next() else null
+        }
+        if (privateDepth == 0) importPublicProgressText(match.groupValues[1])?.let(::add)
+    }
+}
 
 /** The ticker shows one completed public update, never a growing transcript or partial tag. */
-internal fun latestImportProgressSummary(text: CharSequence): String = ImportProgressBlock.findAll(text)
-    .filter { match ->
-        // A summary marker inside an inline private/thinking block is not a public update.
-        val prefix = text.subSequence(0, match.range.first).toString()
-        val open = Regex("<think(?:ing)?(?:\\s[^>]*)?>", RegexOption.IGNORE_CASE).findAll(prefix).lastOrNull()
-        val close = Regex("</think(?:ing)?>", RegexOption.IGNORE_CASE).findAll(prefix).lastOrNull()
-        open == null || (close != null && close.range.first > open.range.first)
+internal fun latestImportProgressSummary(text: CharSequence): String =
+    completedImportProgressSummaries(text).lastOrNull().orEmpty()
+
+/** Full/completed provider events replay earlier text; emit only newly completed occurrences. */
+internal class AiImportProgressTracker {
+    private val emittedOccurrences = mutableMapOf<String, Int>()
+
+    fun newlyCompleted(text: CharSequence): List<String> {
+        val occurrences = mutableMapOf<String, Int>()
+        return completedImportProgressSummaries(text).filter { report ->
+            val occurrence = (occurrences[report] ?: 0) + 1
+            occurrences[report] = occurrence
+            val emitted = emittedOccurrences[report] ?: 0
+            if (occurrence > emitted) {
+                emittedOccurrences[report] = occurrence
+                true
+            } else false
+        }
     }
-    .map { it.groupValues[1].trim() }.lastOrNull(String::isNotBlank)?.let(::importActivityText).orEmpty()
+}
+
+/** Semantic reports are lossless. Only the separate ticker is coalesced by the interaction. */
+internal fun orderedImportActivities(reports: List<String>, current: AiImportActivity?): List<AiImportActivity> = buildList {
+    reports.forEach { add(AiImportActivity(it, AiImportActivitySource.MODEL_PROGRESS)) }
+    if (current != null && current.source != AiImportActivitySource.MODEL_PROGRESS &&
+        (reports.isEmpty() || current.source == AiImportActivitySource.PROVIDER_SUMMARY)) add(current)
+}
 
 internal fun String.stripImportProgress(): String = ImportProgressBlock.replace(this, "").trim()
 

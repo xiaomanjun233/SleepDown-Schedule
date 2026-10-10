@@ -64,9 +64,17 @@ internal class DayAgentChatTransport(
         onDelta: (String) -> Unit,
         onUsage: (AgentTokenUsage) -> Unit
     ): String {
+        fun phase(value: AiImportHttpPhase) {
+            interaction?.checkActive()
+            interaction?.onTransportPhase?.invoke(value)
+        }
+        phase(AiImportHttpPhase.REQUEST_CREATED)
+        phase(AiImportHttpPhase.BODY_WRITE_START)
         val connection = openConnection(settings, body)
         return try {
+            phase(AiImportHttpPhase.BODY_WRITE_END)
             val code = connection.responseCode
+            phase(AiImportHttpPhase.HEADERS_RECEIVED)
             if (code !in 200..299) {
                 val error = connection.errorStream
                     ?.bufferedReader()
@@ -76,20 +84,29 @@ internal class DayAgentChatTransport(
                 throw AiServiceResponseException(formatAiRequestError(code, error, settings.profile.id), error, httpStatus = code)
             }
             if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
+                phase(AiImportHttpPhase.BODY_READ_START)
                 val response = connection.inputStream.bufferedReader().use { it.readAiBoundedText() }
                 interaction?.checkActive()
                 onUsage(parseAgentTokenUsage(response))
                 val content = parseFullChatContent(response)
                 onDelta(content)
-                content
+                finishAiImportStream(content, publishFinal = {
+                    interaction?.publishStream(false, content, force = true)
+                }, onEnd = { phase(AiImportHttpPhase.STREAM_END) })
             } else {
                 val result = StringBuilder()
                 val importStream = interaction?.let { ChatCompletionSseAccumulator() }
                 var hasFinalContent = false
                 var finishReason = ""
+                var firstEvent = true
                 connection.forEachSseDataLine(checkActive = { interaction?.checkActive() }) { data ->
+                    if (firstEvent) {
+                        firstEvent = false
+                        phase(AiImportHttpPhase.FIRST_EVENT)
+                    }
                     importStream?.consume(data)
-                    interaction?.publishActivity(importStream?.activity)
+                    importStream?.activities?.forEach { interaction?.publishActivity(it) }
+                    importStream?.let { interaction?.publishStream(it.reasoning.isNotEmpty(), it.courseOutput) }
                     val event = parseSseJsonObject(data) ?: return@forEachSseDataLine
                     val usage = agentTokenUsage(event)
                     if (!usage.isEmpty) onUsage(usage)
@@ -113,7 +130,9 @@ internal class DayAgentChatTransport(
                 }
                 check(finishReason == "stop") { "AI 最终回复未正常结束，请重试。" }
                 if (!hasFinalContent) throw MissingAgentBodyException()
-                result.toString()
+                finishAiImportStream(result.toString(), publishFinal = {
+                    interaction?.publishStream(importStream?.reasoning?.isNotEmpty() == true, result.toString(), force = true)
+                }, onEnd = { phase(AiImportHttpPhase.STREAM_END) })
             }
         } catch (error: Throwable) {
             interaction?.checkActive()

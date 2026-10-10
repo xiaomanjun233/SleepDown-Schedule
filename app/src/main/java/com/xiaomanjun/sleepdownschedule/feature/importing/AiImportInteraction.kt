@@ -13,8 +13,12 @@ import java.net.HttpURLConnection
 /** One attempt's cancellation and user instructions. Original attachments stay in the task owner. */
 class AiImportInteraction(val instruction: String) {
     internal var onHttpPhase: (AiImportHttpPhase) -> Unit = {}
+    internal var onTransportPhase: ((AiImportHttpPhase) -> Unit)? = null
     internal var onStream: ((Boolean, String) -> Unit)? = null
     internal var onActivity: ((AiImportActivity) -> Unit)? = null
+    internal var onExecutionStep: ((String) -> Unit)? = null
+    internal var onProgressReport: ((String) -> Unit)? = null
+    private val emittedProgressReports = linkedSetOf<String>()
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val activityPublisher = AiImportActivityPublisher(schedule = { delayMs, flush ->
         activityScope.launch {
@@ -29,13 +33,33 @@ class AiImportInteraction(val instruction: String) {
 
     /** Public provider summaries and real execution events only; never tool arguments or prompts. */
     internal fun publishActivity(text: CharSequence, source: AiImportActivitySource = AiImportActivitySource.STATUS) {
-        checkActive()
-        activityPublisher.publish(AiImportActivity(text.toString(), source))
+        publishActivity(AiImportActivity(text.toString(), source))
     }
 
+    @Synchronized
     internal fun publishActivity(activity: AiImportActivity?) {
         checkActive()
-        activity?.let(activityPublisher::publish)
+        activity ?: return
+        val visible = if (activity.source != AiImportActivitySource.STATUS) {
+            activity.copy(text = importPublicProgressText(activity.text) ?: return)
+        } else activity
+        val bounded = if (visible.source == AiImportActivitySource.MODEL_PROGRESS) {
+            val text = visible.text
+            // Final provider messages can replay every report already delivered by the stream.
+            if (text in emittedProgressReports) return
+            onProgressReport?.invoke(text)
+            emittedProgressReports += text
+            if (emittedProgressReports.size > 128) emittedProgressReports.remove(emittedProgressReports.first())
+            visible
+        } else visible
+        checkActive()
+        activityPublisher.publish(bounded)
+    }
+
+    /** Semantic execution events must survive bursts; only the independent live ticker coalesces. */
+    internal fun reportExecutionStep(text: CharSequence) {
+        checkActive()
+        importActivityText(text).takeIf(String::isNotBlank)?.let { onExecutionStep?.invoke(it) }
     }
     private var lastStreamAt = 0L
     internal fun publishStream(nativeReasoning: Boolean, output: String, force: Boolean = false) {
@@ -72,6 +96,16 @@ internal enum class AiImportActivitySource { STATUS, PROVIDER_SUMMARY, MODEL_PRO
 internal data class AiImportActivity(val text: String, val source: AiImportActivitySource)
 
 internal const val AiImportActivityMaxChars = 180
+
+/** Completed public prose only. JSON, code and opaque protocol fields are never progress reports. */
+internal fun importPublicProgressText(text: CharSequence): String? {
+    val prose = text.toString().trim()
+    if (prose.isBlank() || prose.any { it in "{}[]`<>" } ||
+        Regex("(?i)encrypted_content|chain_of_thought|DSML|tool_calls|function_call").containsMatchIn(prose) ||
+        Regex("[A-Za-z0-9+/_=-]{80,}").containsMatchIn(prose) ||
+        Regex("(?im)^\\s*(?:fun|val|var|class|def|import|package|function|const|let)\\s+").containsMatchIn(prose)) return null
+    return importActivityText(prose)
+}
 
 /** Bounded, single-line live text. It is deliberately separate from the complete result buffers. */
 internal fun importActivityText(text: CharSequence): String {

@@ -97,9 +97,8 @@ internal class OpenAiResponsesAgentRunner(
             telemetry.recordUsage(decision.usage)
             telemetry.recordDecisionRound(decision.calls.size)
             if (decision.calls.isNotEmpty()) {
-                val note = decision.content.trim().take(120).ifBlank {
-                    "我先调用所需工具确认当前信息，再继续处理。"
-                }
+                val note = if (importWorkspace) decision.content.takeIf(String::isNotBlank)
+                else decision.content.trim().take(120).ifBlank { "我先调用所需工具确认当前信息，再继续处理。" }
                 onStatus(
                     AgentRunStatus(
                         icon = AgentRunStatusIcon.THINKING,
@@ -294,14 +293,23 @@ internal class OpenAiResponsesAgentRunner(
         onDelta: (String) -> Unit,
         onUsage: (AgentTokenUsage) -> Unit
     ): String {
+        fun phase(value: AiImportHttpPhase) {
+            interaction?.checkActive()
+            interaction?.onTransportPhase?.invoke(value)
+        }
+        phase(AiImportHttpPhase.REQUEST_CREATED)
+        phase(AiImportHttpPhase.BODY_WRITE_START)
         val connection = open(settings, body)
         try {
+        phase(AiImportHttpPhase.BODY_WRITE_END)
         val code = connection.responseCode
+        phase(AiImportHttpPhase.HEADERS_RECEIVED)
         if (code !in 200..299) {
             val error = connection.errorStream?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
             throw AiServiceResponseException(formatAiRequestError(code, error, settings.profile.id), error, httpStatus = code)
         }
         if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
+            phase(AiImportHttpPhase.BODY_READ_START)
             val response = connection.inputStream.bufferedReader().use { it.readAiBoundedText() }
             interaction?.checkActive()
             val turn = parseAgentResponsesTurn(response)
@@ -310,20 +318,31 @@ internal class OpenAiResponsesAgentRunner(
                 .takeIf(String::isNotBlank)
                 ?: throw MissingResponsesBodyException()
             onDelta(content)
-            return content
+            return finishAiImportStream(content, publishFinal = {
+                interaction?.publishStream(false, content, force = true)
+            }, onEnd = { phase(AiImportHttpPhase.STREAM_END) })
         }
 
         val result = AgentResponsesTextAccumulator()
         val importStream = interaction?.let { ResponsesSseAccumulator() }
+        var firstEvent = true
         connection.forEachSseDataLine(checkActive = { interaction?.checkActive() }) { data ->
+            if (firstEvent) {
+                firstEvent = false
+                phase(AiImportHttpPhase.FIRST_EVENT)
+            }
             importStream?.consume(data)
-            interaction?.publishActivity(importStream?.activity)
+            importStream?.activities?.forEach { interaction?.publishActivity(it) }
+            importStream?.let { interaction?.publishStream(it.reasoning.isNotEmpty(), it.courseOutput) }
             val event = parseSseJsonObject(data) ?: return@forEachSseDataLine
             val usage = agentTokenUsage(event)
             if (!usage.isEmpty) onUsage(usage)
             result.consume(event).takeIf(String::isNotEmpty)?.let(onDelta)
         }
-        return result.finish()
+        val answer = result.finish()
+        return finishAiImportStream(answer, publishFinal = {
+            interaction?.publishStream(importStream?.reasoning?.isNotEmpty() == true, answer, force = true)
+        }, onEnd = { phase(AiImportHttpPhase.STREAM_END) })
         } catch (error: Throwable) {
             interaction?.checkActive()
             throw error

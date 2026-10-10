@@ -641,6 +641,20 @@ internal fun AiEduImportProgressPage(
                         )
                     }
                 }
+                if (!current.awaitingConfirmation && current.activityReports.isNotEmpty()) {
+                    item(key = "live-activity-reports") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            current.activityReports.takeLast(if (executionExpanded) 12 else 3).forEach { report ->
+                                Text(
+                                    "${if (report.kind == AiImportReportKind.MODEL) "AI" else "操作"} · ${report.text}",
+                                    color = textColor.copy(alpha = if (report.kind == AiImportReportKind.MODEL) 0.9f else 0.62f),
+                                    style = if (report.kind == AiImportReportKind.MODEL) MaterialTheme.typography.bodyMedium
+                                        else MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+                }
                 if (!current.finished && current.error == null && !current.awaitingConfirmation && current.taskId.isNotBlank()) {
                     item(key = "live-model-reasoning") {
                         AiImportReasoningPanel(taskId = current.taskId, textColor = textColor,

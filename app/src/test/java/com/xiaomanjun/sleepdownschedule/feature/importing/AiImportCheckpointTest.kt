@@ -352,4 +352,25 @@ class AiImportCheckpointTest {
         assertTrue(latest.checkpoints.any { it.id == manual.id })
         assertEquals("保留的手动阶段", latest.checkpoints.first { it.id == manual.id }.restore().getOrThrow().courses.single().name)
     }
+
+    @Test fun historyReportsRoundTripTypedKindsWithCountTextAndForwardCompatibilityBounds() {
+        val reports = listOf(AiImportReport("正在核对周次", AiImportReportKind.MODEL),
+            AiImportReport("已读取导入 JSON", AiImportReportKind.EXECUTION))
+        val progress = AiEduImportProgress(taskId = "reports", activityReports = reports)
+        assertEquals(progress, progressFromJson(progressToJson(progress)))
+        val oversized = progress.copy(activityReports = List(14) { index ->
+            AiImportReport("报告 $index：" + "长".repeat(300),
+                if (index % 2 == 0) AiImportReportKind.MODEL else AiImportReportKind.EXECUTION)
+        })
+        val restored = progressFromJson(progressToJson(oversized)).activityReports
+        assertEquals(12, restored.size)
+        assertTrue(restored.first().text.startsWith("报告 2："))
+        assertTrue(restored.last().text.startsWith("报告 13："))
+        assertTrue(restored.all { it.text.length <= 180 })
+        assertEquals(oversized.activityReports.takeLast(12).map { it.kind }, restored.map { it.kind })
+        val future = progressToJson(progress)
+        future.getJSONArray("activityReports").put(JSONObject().put("kind", "FUTURE_KIND").put("text", "未知报告"))
+        assertEquals(reports, progressFromJson(future).activityReports)
+        assertTrue(progressFromJson(JSONObject().put("schemaVersion", 2)).activityReports.isEmpty())
+    }
 }

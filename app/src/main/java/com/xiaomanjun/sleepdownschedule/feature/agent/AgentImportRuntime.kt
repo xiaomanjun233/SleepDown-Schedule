@@ -52,9 +52,7 @@ internal object AgentImportRuntime {
         }
         val answer = service.chat(facts, messages, instruction,
             onStatus = { status ->
-                interaction?.checkActive()
-                interaction?.publishActivity(status.text)
-                if (reasoning.isBlank()) onReasoning(status.detail ?: status.text)
+                reportAgentImportStatus(interaction, status)
             }, onDelta = {}, settingsOverride = settings,
             taskBoundary = "当前工作区是尚待用户确认的完整导入课表。IMPORT_SCHEDULE 已完成材料提取，不重复 OCR 或上传原文件。" +
                 "你继续使用同一 Agent 的任务循环读取、编辑、校验结构化 JSON；该工作区专用工具及以下规则优先于普通课表操作协议。" +

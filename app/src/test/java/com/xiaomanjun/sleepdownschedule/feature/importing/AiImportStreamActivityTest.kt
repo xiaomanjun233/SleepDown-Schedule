@@ -9,6 +9,119 @@ import org.junit.Test
 
 /** Synthetic provider fixtures only: no credentials, uploaded files or paid model calls. */
 class AiImportStreamActivityTest {
+    @Test fun finalForcedReceiptsPrecedeTerminalLocalPhaseForBothProtocols() {
+        val chat = ChatCompletionSseAccumulator().apply {
+            consume("""{"choices":[{"delta":{"content":"final"},"finish_reason":"stop"}]}""")
+        }
+        val responses = ResponsesSseAccumulator().apply {
+            consume("""{"type":"response.completed","response":{"status":"completed","output_text":"final"}}""")
+        }
+        for (response in listOf(chat.toCompletionJson(), responses.toResponseJson())) {
+            val interaction = AiImportInteraction("")
+            val events = mutableListOf<String>()
+            interaction.onStream = { _, _ -> events += "receipt" }
+            interaction.onTransportPhase = { events += it.name }
+            val returned = finishAiImportStream(response, publishFinal = {
+                events += "reasoning"
+                interaction.publishStream(false, "final", force = true)
+            }, onEnd = { interaction.onTransportPhase?.invoke(AiImportHttpPhase.STREAM_END) })
+            assertEquals(response, returned)
+            assertEquals(listOf("reasoning", "receipt", "STREAM_END"), events)
+            interaction.markCancelled()
+        }
+    }
+
+    @Test fun cancelledFinalReceiptCannotPublishTerminalSuccess() {
+        val interaction = AiImportInteraction("")
+        val events = mutableListOf<String>()
+        interaction.onStream = { _, _ -> events += "receipt" }
+        interaction.markCancelled()
+        assertTrue(runCatching {
+            finishAiImportStream("final", publishFinal = {
+                interaction.publishStream(false, "final", force = true)
+            }, onEnd = { events += "STREAM_END" })
+        }.exceptionOrNull() is CancellationException)
+        assertTrue(events.isEmpty())
+    }
+
+    @Test fun everyPrivateWrapperCaseAndAttributeFormExcludesProgressBlocks() {
+        for ((open, close) in listOf(
+            "analysis" to "analysis", "reasoning" to "reasoning", "thinking" to "thinking",
+            "AnAlYsIs mode=\"private\"" to "aNaLySiS",
+            "REASONING class=\"internal\"" to "reasoning",
+            "ThInKiNg data-mode=\"internal\"" to "THINKING"
+        )) {
+            val hidden = "<$open>\n<import_progress>不公开</import_progress>\n"
+            assertEquals(open, emptyList<String>(), completedImportProgressSummaries(hidden))
+            assertEquals(open, "", importProgressSummary(hidden))
+            assertEquals(open, listOf("公开摘要"), completedImportProgressSummaries(
+                hidden + "</$close>\n<import_progress>公开摘要</import_progress>"))
+            assertEquals(open, "公开摘要", importProgressSummary(
+                hidden + "</$close>\n<import_progress>公开摘要</import_progress>"))
+        }
+    }
+
+    @Test fun chatBurstPreservesEveryReportAndRepeatedFullMessageDoesNotReplayThem() {
+        val stream = ChatCompletionSseAccumulator()
+        val interaction = AiImportInteraction("")
+        val reports = mutableListOf<String>()
+        interaction.onProgressReport = reports::add
+        val content = "<import_progress>已识别课程</import_progress>\n<import_progress>正在核对周次</import_progress>"
+        fun consume(chunk: String) {
+            stream.consume(chunk)
+            stream.activities.forEach(interaction::publishActivity)
+        }
+        consume(buildJsonObject { put("choices", buildJsonArray { add(buildJsonObject {
+            put("delta", buildJsonObject { put("content", content) })
+        }) }) }.toString())
+        assertEquals(listOf("已识别课程", "正在核对周次"), reports)
+        assertEquals("正在核对周次", stream.activity!!.text)
+        val full = buildJsonObject { put("choices", buildJsonArray { add(buildJsonObject {
+            put("message", buildJsonObject { put("content", content) })
+            put("finish_reason", "stop")
+        }) }) }.toString()
+        consume(full)
+        consume(full)
+        assertEquals(listOf("已识别课程", "正在核对周次"), reports)
+        interaction.markCancelled()
+    }
+
+    @Test fun responsesBurstAndCompletedOnlyNewBlocksAreReportedInOrderExactlyOnce() {
+        val stream = ResponsesSseAccumulator()
+        val interaction = AiImportInteraction("")
+        val reports = mutableListOf<String>()
+        interaction.onProgressReport = reports::add
+        val first = "<import_progress>已读取第一页</import_progress>\n<import_progress>已读取第二页</import_progress>"
+        fun consume(event: String) {
+            stream.consume(event)
+            stream.activities.forEach(interaction::publishActivity)
+        }
+        consume(buildJsonObject { put("type", "response.output_text.delta"); put("delta", first) }.toString())
+        assertEquals(listOf("已读取第一页", "已读取第二页"), reports)
+        val completed = buildJsonObject {
+            put("type", "response.completed")
+            put("response", buildJsonObject {
+                put("status", "completed")
+                put("output_text", first + "\n<import_progress>已核对周次</import_progress>")
+            })
+        }.toString()
+        consume(completed)
+        consume(completed)
+        assertEquals(listOf("已读取第一页", "已读取第二页", "已核对周次"), reports)
+        interaction.markCancelled()
+    }
+
+    @Test fun progressTrackerRetainsSeparateOccurrencesAndIgnoresPartialOrPrivateBlocks() {
+        val tracker = AiImportProgressTracker()
+        val first = "<import_progress>正在核对</import_progress>\n<import_progress>已确认</import_progress>\n<import_progress>正在核对</import_progress>"
+        assertEquals(listOf("正在核对", "已确认", "正在核对"), tracker.newlyCompleted(first))
+        assertEquals(emptyList<String>(), tracker.newlyCompleted(first))
+        assertEquals(emptyList<String>(), tracker.newlyCompleted(first + "\n<import_progress>尚未完成"))
+        assertEquals(emptyList<String>(), completedImportProgressSummaries("<think>\n<import_progress>不公开</import_progress>\n</think>"))
+        assertEquals(listOf("公开摘要"), completedImportProgressSummaries(
+            "<analysis>\n<import_progress>不公开</import_progress>\n</analysis>\n<import_progress>公开摘要</import_progress>"))
+    }
+
     @Test fun continuationBudgetRejectsStillTruncatedEvenWhenJsonCloses() {
         var requests = 0
         val error = runCatching {
