@@ -132,6 +132,7 @@ com/xiaomanjun/sleepdownschedule/
 - 课程管理、课表管理、首页日/周视图、Home overlay、设置通用组件、AI 历史/进度、Widget provider 和 Agent 后台服务均进入对应功能包。
 - 二级页内容节奏、Dialog、Alert、Picker、输入胶囊、操作按钮和 QuickSheet 的稳定壳已收口到 `core/ui/designsystem/`；规范按设置型、内容型和沉浸型保留可组合差异，详见 `SLEEPDOWN_DESIGN_SYSTEM.md`。
 - Day Agent 的稳定提示、工具决策和最终写入协议已分段，已读快照工具会在同一回合动态收窄；运行规则见 `DAY_AGENT_RUNTIME.md`。
+- 已确认 AI 设置计划由 `feature/agent/AgentSettingPlanExecutor.kt` 负责校验、事务调用、偏好写入、回读、回滚和撤销。`app/state/ScheduleViewModel` 只装配原作用域与刷新回调，并公开只读提示状态；Repository 继续拥有数据库事务。整体债务、检查基线与后续顺序见 [2026-10-20 架构审查](../reports/2026-10-20-architecture-review.md)。
 - Manifest 中已有 Activity、Service、Receiver 和 Widget Provider 的 FQCN 由根包薄入口保持不变；数据库、备份和 Intent 协议不需要迁移。
 
 ## 稳定入口与实现映射

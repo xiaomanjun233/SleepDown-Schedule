@@ -31,6 +31,7 @@
 | 1.2.7.1 兼容补发与 r1 下架 | [更新识别修复、发布与核验记录](reports/2026-10-20-update-revision-compatibility.md) |
 | 按用户任务查功能与实现入口 | [FEATURE_MAP.md](FEATURE_MAP.md) |
 | 目录、依赖与结构调整 | [PROJECT_STRUCTURE.md](architecture/PROJECT_STRUCTURE.md)、[CODE_ORGANIZATION.md](architecture/CODE_ORGANIZATION.md) |
+| 全项目架构审查、首批重构与后续顺序 | [2026-10-20 架构审查](reports/2026-10-20-architecture-review.md) |
 | 页面、弹窗、选择器与公共控件 | [SLEEPDOWN_DESIGN_SYSTEM.md](architecture/SLEEPDOWN_DESIGN_SYSTEM.md) |
 | 玻璃采样、渲染和生命周期 | [LIQUID_GLASS_FRAMEWORK.md](performance/LIQUID_GLASS_FRAMEWORK.md) |
 | 可选凝光材质、公共控件协议与运行时门控 | [SLEEPDOWN_COLOROS_FRAMEWORK.md](architecture/SLEEPDOWN_COLOROS_FRAMEWORK.md) |
