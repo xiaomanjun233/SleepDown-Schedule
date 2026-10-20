@@ -119,6 +119,26 @@ class AgentSettingPlanExecutorTest {
         assertFalse(DayAgentPreferences.isMemoryEnabled(app))
     }
 
+    @Test
+    fun weekAssistantPreferenceIsRestoredOnUndo() = runBlocking {
+        assertTrue(DayAgentPreferences.isWeekAssistantEnabled(app))
+        val result = execute(setting("DAY_AGENT_WEEK_ENABLED", "false"))
+
+        assertTrue(result.success)
+        assertFalse(DayAgentPreferences.isWeekAssistantEnabled(app))
+        assertTrue(undo(result).success)
+        assertTrue(DayAgentPreferences.isWeekAssistantEnabled(app))
+    }
+
+    @Test
+    fun laterPreferenceFailureRestoresTheWeekAssistantPreference() = runBlocking {
+        val result = execute(setting("DAY_AGENT_WEEK_ENABLED", "false"),
+            setting("DAY_AGENT_MEMORY_ENABLED", "invalid"))
+
+        assertFalse(result.success)
+        assertTrue(DayAgentPreferences.isWeekAssistantEnabled(app))
+    }
+
     private suspend fun CoroutineScope.execute(vararg actions: AgentValidatedAction): AgentPlanExecutionResult {
         var result: AgentPlanExecutionResult? = null
         var callbacks = 0

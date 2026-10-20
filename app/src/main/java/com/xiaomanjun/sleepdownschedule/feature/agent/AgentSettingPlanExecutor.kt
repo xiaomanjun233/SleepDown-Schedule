@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 private data class DayAgentPreferenceSnapshot(
     val hasDecision: Boolean,
     val enabled: Boolean,
+    val weekAssistantEnabled: Boolean,
     val dailyAiEnabled: Boolean,
     val weatherEnabled: Boolean,
     val memoryEnabled: Boolean
@@ -431,6 +432,7 @@ internal class AgentSettingPlanExecutor(
         DayAgentPreferenceSnapshot(
             hasDecision = DayAgentPreferences.hasDecision(app),
             enabled = DayAgentPreferences.isEnabled(app),
+            weekAssistantEnabled = DayAgentPreferences.isWeekAssistantEnabled(app),
             dailyAiEnabled = DayAgentPreferences.isDailyAiEnabled(app),
             weatherEnabled = DayAgentPreferences.isWeatherEnabled(app),
             memoryEnabled = DayAgentPreferences.isMemoryEnabled(app)
@@ -442,6 +444,7 @@ internal class AgentSettingPlanExecutor(
             enabled = snapshot.enabled,
             markDecided = snapshot.hasDecision
         )
+        DayAgentPreferences.setWeekAssistantEnabled(app, snapshot.weekAssistantEnabled)
         DayAgentPreferences.saveOptions(
             app,
             dailyAiEnabled = snapshot.dailyAiEnabled,
