@@ -22,6 +22,7 @@ class CourseQuietControllerTest {
         var media = 7
         var failMediaRestore = false
         var ignoreMediaChanges = false
+        var coercedMediaVolume: Int? = null
         val operations = mutableListOf<String>()
         override val ringerMode get() = if (zenMasksRingerMode && ruleEnabled) 0 else sound
         override val interruptionFilter get() = if (manualFilter != 1) manualFilter else if (ruleEnabled) 2 else 1
@@ -29,7 +30,7 @@ class CourseQuietControllerTest {
         override fun setMediaVolume(volume: Int) {
             if (!hasPolicyAccess || (failMediaRestore && volume > 0)) throw SecurityException("revoked")
             operations += "media:$volume"
-            if (!ignoreMediaChanges) media = volume
+            if (!ignoreMediaChanges) media = coercedMediaVolume ?: volume
         }
         override fun setRingerMode(mode: Int) {
             if (!hasPolicyAccess || (failRestore && mode == 2)) throw SecurityException("revoked")
@@ -120,6 +121,33 @@ class CourseQuietControllerTest {
         )
         assertNull(old.originalMediaVolume)
         assertNull(old.appliedMediaVolume)
+    }
+
+    @Test fun silentlyRejectedMediaRestoreKeepsItsBaselineUntilTheVolumeIsVerified() {
+        val device = Device()
+        refresh(device)
+        device.ignoreMediaChanges = true
+        refresh(device, active = false)
+        assertEquals(7, state.originalMediaVolume)
+        assertEquals(0, state.appliedMediaVolume)
+        assertEquals("系统未能恢复媒体音量", errors.single().message)
+        device.ignoreMediaChanges = false
+        refresh(device, active = false)
+        assertEquals(7, device.media)
+        assertEquals(CourseQuietRuntime(), state)
+    }
+
+    @Test fun partialMediaAdjustmentRetainsTheObservedVolumeForSafeRestoration() {
+        val device = Device().apply { coercedMediaVolume = 3 }
+        refresh(device)
+        assertEquals(3, device.media)
+        assertEquals(7, state.originalMediaVolume)
+        assertEquals(3, state.appliedMediaVolume)
+        assertEquals("系统未允许降低媒体音量", errors.single().message)
+        device.coercedMediaVolume = null
+        refresh(device, active = false)
+        assertEquals(7, device.media)
+        assertEquals(CourseQuietRuntime(), state)
     }
 
     @Test fun originalMediaVolumeIsCapturedBeforeAnAppDndRuleCanMaskIt() {
