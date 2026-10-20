@@ -64,7 +64,7 @@ import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.WeekDockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 import com.xiaomanjun.sleepdownschedule.currentTimelinePeriod
-import com.xiaomanjun.sleepdownschedule.domain.schedule.courseAlignmentFragments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseWeekDisplayFragments
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseNeedsSupplementaryWeekRow
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePagerStartOverflow
@@ -171,7 +171,7 @@ internal fun SinglePillWeekScheduleScreen(
             listOfNotNull(weekJump?.sourcePage?.plus(1), weekJump?.targetPage?.plus(1))
         renderedWeeks.maxOf { week ->
             val actual = bucketsForWeek(week).visibleCourses
-            val counts = actual.flatMap { courseAlignmentFragments(it, state.periods) }
+            val counts = actual.flatMap { courseWeekDisplayFragments(it, state.periods) }
                 .filter { courseNeedsSupplementaryWeekRow(it, state.periods) }
                 .groupingBy { it.weekday }.eachCount()
             (1..7).maxOf { day -> counts.getOrDefault(day, 0) +

@@ -197,8 +197,17 @@ fun CourseEntity.effectiveArrangementOrNull(): EffectiveCourseArrangement? =
 
 fun CourseEntity.isHiddenByPeriodAlignment(): Boolean = effectiveArrangementOrNull()?.times?.isEmpty() == true
 
-/** Reuse CourseEntity fragments for the grid/reminder code, carrying the complete source with each. */
-fun courseAlignmentFragments(course: CourseEntity, periods: List<PeriodEntity>): List<CourseEntity> {
+/** Reminder fragments keep every exact lesson boundary and carry the complete saved source. */
+fun courseAlignmentFragments(course: CourseEntity, periods: List<PeriodEntity>): List<CourseEntity> =
+    courseArrangementFragments(course, periods, forWeekDisplay = false)
+
+/** A consecutive block remains one card even when individual lessons use different clocks. */
+fun courseWeekDisplayFragments(course: CourseEntity, periods: List<PeriodEntity>): List<CourseEntity> =
+    courseArrangementFragments(course, periods, forWeekDisplay = true)
+
+private fun courseArrangementFragments(
+    course: CourseEntity, periods: List<PeriodEntity>, forWeekDisplay: Boolean
+): List<CourseEntity> {
     val projection = course.effectiveArrangementOrNull() ?: return listOf(course)
     if (projection.times.isEmpty()) return emptyList()
     val order = periods.sortedBy { it.periodIndex }.map { it.periodIndex }
@@ -215,14 +224,32 @@ fun courseAlignmentFragments(course: CourseEntity, periods: List<PeriodEntity>):
     val exact = projection.times.filter { it.exact }
     // A wholly custom course keeps its original complete clock interval and lesson boundaries.
     if (normal.isEmpty() && exact.size == 1 && projection.source.customPeriodTimes.isNullOrBlank()) return listOf(course)
-    return (groups.map { it.toList() } + exact.map { listOf(it) }).map { times ->
-        val exactOnly = times.all { it.exact }
-        val fragmentIndices = if (exactOnly) times.flatMap {
+    val fragments = if (forWeekDisplay && order.isNotEmpty()) {
+        val displayGroups = mutableListOf<MutableList<AlignedCourseTime>>()
+        var lastPosition = -2
+        projection.times.sortedBy { it.time.start }.forEach { time ->
+            val anchors = if (time.exact) courseAnchorPeriodsForTimeRange(time.time.start, time.time.end, periods)
+                else listOf(time.time.index)
+            val positions = anchors.mapNotNull { order.indexOf(it).takeIf { position -> position >= 0 } }
+            val first = positions.minOrNull()
+            if (displayGroups.isEmpty() || first == null || first > lastPosition + 1) {
+                displayGroups += mutableListOf<AlignedCourseTime>()
+                lastPosition = -2
+            }
+            displayGroups.last() += time
+            lastPosition = maxOf(lastPosition, positions.maxOrNull() ?: -2)
+        }
+        displayGroups.map { it.toList() }
+    } else groups.map { it.toList() } + exact.map { listOf(it) }
+    return fragments.map { times ->
+        val useExactClock = if (forWeekDisplay) times.any { it.exact } else times.all { it.exact }
+        val fragmentIndices = if (useExactClock) times.flatMap {
             courseAnchorPeriodsForTimeRange(it.time.start, it.time.end, periods)
         }.distinct().sorted() else times.map { it.time.index }.distinct().sorted()
-        val start = if (exactOnly) times.minOf { it.time.start }.toString() else null
-        val end = if (exactOnly) times.maxOf { it.time.end }.toString() else null
-        val bells = if (exactOnly) encodeCoursePeriodTimes(times.map { it.time }) else null
+        val start = if (useExactClock) times.minOf { it.time.start }.toString() else null
+        val end = if (useExactClock) times.maxOf { it.time.end }.toString() else null
+        // The projection retains every lesson boundary; the card only needs the outer clock.
+        val bells = if (useExactClock && !forWeekDisplay) encodeCoursePeriodTimes(times.map { it.time }) else null
         course.copy(periods = fragmentIndices, customStartTime = start, customEndTime = end,
             customPeriodTimes = bells, arrangementProjection = projection.copy(periods = fragmentIndices,
                 times = times, displayStart = start, displayEnd = end, displayPeriodTimes = bells))
