@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.app.ui
 
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsDetailPageExtra
 import android.app.Activity
 import android.content.Intent
 import android.graphics.BitmapFactory

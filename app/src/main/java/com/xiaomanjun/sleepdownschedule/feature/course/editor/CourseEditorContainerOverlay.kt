@@ -101,6 +101,8 @@ import kotlin.math.sin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalPersonalizationPreview
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 private val CourseEditorOpenPositionEasing = CubicBezierEasing(0.18f, 0.72f, 0.18f, 1.0f)
 private val CourseEditorOpenSizeEasing = CubicBezierEasing(0.22f, 0.62f, 0.22f, 1.0f)
 private val CourseEditorClosePositionEasing = CubicBezierEasing(0.30f, 0.10f, 0.22f, 1.0f)

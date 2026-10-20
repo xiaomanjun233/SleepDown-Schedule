@@ -1,9 +1,12 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWallpaperBlurSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardColorChange
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardAlphaSlider
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.withChangesFrom
 import com.xiaomanjun.sleepdownschedule.domain.schedule.withPersonalizationFrom
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardColoredTextChange
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardColoredTextChange
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.mergePersonalizationCandidate
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.*
 import org.junit.Assert.*

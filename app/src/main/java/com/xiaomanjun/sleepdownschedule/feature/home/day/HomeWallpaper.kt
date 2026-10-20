@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.homeFlatBackgroundColor
 import android.graphics.Bitmap
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -39,7 +40,7 @@ import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.performance.HomeWallpaperImages
 import com.xiaomanjun.sleepdownschedule.core.performance.StartupPhase
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.FocusCroppedWallpaper
-import com.xiaomanjun.sleepdownschedule.feature.home.PersonalizationPreviewState
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizationPreviewState
 import kotlinx.coroutines.delay
 
 @Composable
@@ -223,10 +224,6 @@ private fun HomeWallpaperLayer(
     )
 }
 
-internal fun ScheduleConfigEntity.hasAnyWallpaper(): Boolean {
-    return !wallpaperUri.isNullOrBlank() || defaultWallpaperStyle == DefaultWallpaperStyle.KANBAN
-}
-
 @Composable
 internal fun WallpaperToneOverlay(
     config: ScheduleConfigEntity,
@@ -275,9 +272,6 @@ internal fun WallpaperGlassSamplingToneOverlay(
             }
     )
 }
-
-internal fun homeFlatBackgroundColor(dark: Boolean): ComposeColor =
-    if (dark) ComposeColor(0xFF18181C) else ComposeColor(0xFFF1F1F3)
 
 @Composable
 fun HomeBackdropFallback(noWallpaper: Boolean = true) {

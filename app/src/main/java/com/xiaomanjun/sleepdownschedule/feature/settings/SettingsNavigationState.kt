@@ -13,6 +13,8 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlinx.coroutines.flow.map
 
+internal const val SettingsDetailPageExtra = "settings_page"
+
 enum class SettingsSection { Schedule, Notifications }
 enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, PeriodSchemes, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, WebDav, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
 

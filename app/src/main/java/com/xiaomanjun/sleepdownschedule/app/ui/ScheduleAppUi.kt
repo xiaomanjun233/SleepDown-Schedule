@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.app.ui
 
+import com.xiaomanjun.sleepdownschedule.feature.settings.ScheduleConfigScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsSection
+
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsDetailPageExtra
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -241,11 +245,11 @@ import com.xiaomanjun.sleepdownschedule.feature.home.HomeTopGradientBlur
 import com.xiaomanjun.sleepdownschedule.feature.home.LandscapePageTransition
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalAdjustedCourseEditor
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeAdaptiveMetrics
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePagerStartOverflow
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeTextContrastFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.NativeHomeDockChrome
-import com.xiaomanjun.sleepdownschedule.feature.home.PersonalizationPreviewState
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizationPreviewState
 import com.xiaomanjun.sleepdownschedule.feature.home.RetainedHomeValue
 import com.xiaomanjun.sleepdownschedule.feature.home.ScheduleManagerEntryPill
 import com.xiaomanjun.sleepdownschedule.feature.home.WallpaperEditorOverlay
@@ -256,19 +260,19 @@ import com.xiaomanjun.sleepdownschedule.feature.home.day.ApplyCourseEditDialog
 import com.xiaomanjun.sleepdownschedule.feature.home.day.CourseConflictRetentionDialog
 import com.xiaomanjun.sleepdownschedule.feature.home.day.DayViewPreferences
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeBackdropFallback
-import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeReadabilityContext
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.HomeReadabilityContext
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeScreen
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeWallpaper
-import com.xiaomanjun.sleepdownschedule.feature.home.day.LocalHomeReadability
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.LocalHomeReadability
 import com.xiaomanjun.sleepdownschedule.feature.home.day.WallpaperGlassSamplingToneOverlay
 import com.xiaomanjun.sleepdownschedule.feature.home.day.WallpaperToneOverlay
 import com.xiaomanjun.sleepdownschedule.feature.home.day.courseWeeksChanged
-import com.xiaomanjun.sleepdownschedule.feature.home.day.hasAnyWallpaper
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeStatusBarWallpaperLuminance
 import com.xiaomanjun.sleepdownschedule.feature.home.day.luminance
 import com.xiaomanjun.sleepdownschedule.feature.home.day.occurrenceOverrideKey
-import com.xiaomanjun.sleepdownschedule.feature.home.day.sampleVisibleWallpaperColors
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.sampleVisibleWallpaperColors
 import com.xiaomanjun.sleepdownschedule.feature.home.day.visibleWeekdaysForBuckets
 import com.xiaomanjun.sleepdownschedule.feature.home.day.weekCourseBuckets
 import com.xiaomanjun.sleepdownschedule.feature.home.homeOverlayDepthProgress
@@ -297,14 +301,14 @@ import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseShortcut
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.homeAddMenuTargetRect
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.rememberHomeAnchoredMorphState
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.rememberHomeMenuDestinationMotionState
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardAlphaSlider
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardBlurSlider
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardFontSlider
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardRefractionSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardAlphaSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardBlurSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardFontSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardRefractionSlider
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizePanel
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWallpaperBlurSlider
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWallpaperBrightnessSlider
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWeekHeightSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWallpaperBlurSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWallpaperBrightnessSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWeekHeightSlider
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizationSession
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeImportHandoffState
@@ -2503,10 +2507,7 @@ fun CourseScheduleAppUi(
                     val detailState = allSchedulesState.forSchedule(request.scheduleId)
                     DetailScheduleMorphOverlay(
                         request = request,
-                        detailState = detailState,
                         onMorphStateChange = { detailMorphState = it },
-                        onSave = { _, _ -> viewModel.refreshNotificationsAfterSave() },
-                        onPreviewLiveUpdate = viewModel::previewLiveUpdate,
                         onFinished = {
                             detailMorphRequest = null
                             detailCaptureCoverBitmap = null
@@ -2515,7 +2516,23 @@ fun CourseScheduleAppUi(
                             detailMorphState = DetailMorphState.Idle
                         },
                         modifier = Modifier.zIndex(260f)
-                    )
+                    ) { exitCommitRequest, requestToolbarBack, onExitCommitFinished ->
+                        DetailActivityScaffold(
+                            title = "课表详细设置",
+                            config = detailState.config,
+                            onBack = requestToolbarBack
+                        ) { backdrop ->
+                            ScheduleConfigScreen(
+                                state = detailState,
+                                backdrop = backdrop,
+                                section = SettingsSection.Schedule,
+                                onSave = { _, _ -> viewModel.refreshNotificationsAfterSave() },
+                                onPreviewLiveUpdate = viewModel::previewLiveUpdate,
+                                exitCommitRequest = exitCommitRequest,
+                                onExitCommitFinished = onExitCommitFinished
+                            )
+                        }
+                    }
                 }
                 HomeCountdownCinematicOverlay(
                     effect = dayAgentCountdownCinematic,

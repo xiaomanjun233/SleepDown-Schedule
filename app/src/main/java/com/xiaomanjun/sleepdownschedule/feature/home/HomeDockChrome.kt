@@ -7,7 +7,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.app.ui.Screen
 import com.xiaomanjun.sleepdownschedule.core.performance.DockEntranceContainer
 import com.xiaomanjun.sleepdownschedule.core.performance.StartupPhase
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
@@ -34,7 +33,7 @@ internal fun HomeDockChrome(
         } else {
             val onConfig = remember(onSelect) { { onSelect(2) } }
             FloatingDock(
-                selected = if (selectedIndex == 2) Screen.Config else Screen.Home,
+                homeSelected = selectedIndex != 2,
                 backdrop = backdrop,
                 config = config,
                 onHome = onOrdinaryHome,

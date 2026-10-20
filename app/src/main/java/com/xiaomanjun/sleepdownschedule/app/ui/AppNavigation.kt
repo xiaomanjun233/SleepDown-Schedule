@@ -32,6 +32,5 @@ internal fun agentSettingsPage(value: String?): SettingsPage? = when (value) {
     else -> null
 }
 
-internal const val SettingsDetailPageExtra = "settings_page"
 internal const val BackupPreviewUriExtra = "backup_preview_uri"
 internal const val EduAdapterExtra = "edu_adapter"

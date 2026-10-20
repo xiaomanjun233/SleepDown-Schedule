@@ -65,7 +65,7 @@ import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.progress.deviceScreenCornerRadiusPx
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.deviceScreenCornerRadiusPx
 import com.xiaomanjun.sleepdownschedule.glass.DeferredGlassRoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen

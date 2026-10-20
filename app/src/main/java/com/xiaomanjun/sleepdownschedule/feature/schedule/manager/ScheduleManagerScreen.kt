@@ -33,7 +33,7 @@ import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.SettingsDetailActivity
-import com.xiaomanjun.sleepdownschedule.app.ui.SettingsDetailPageExtra
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsDetailPageExtra
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CenterLiquidDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogCapsuleField

@@ -1,10 +1,11 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.personalization
 
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWallpaperBlurSlider
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.xiaomanjun.sleepdownschedule.feature.home.PersonalizationPreviewState
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizationPreviewState
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 
 /** Composition-owned edits. A committed appearance stays visible until storage catches up. */

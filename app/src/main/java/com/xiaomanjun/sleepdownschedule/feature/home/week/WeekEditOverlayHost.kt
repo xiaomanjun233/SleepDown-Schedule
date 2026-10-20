@@ -38,7 +38,7 @@ import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalPersonalizationPreview
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalPersonalizationPreview
 import com.xiaomanjun.sleepdownschedule.feature.home.adaptiveWeekCardCornerRadius
 import com.xiaomanjun.sleepdownschedule.feature.home.currentWindowSizeDp
 import com.xiaomanjun.sleepdownschedule.glass.ui.CourseGlassCard

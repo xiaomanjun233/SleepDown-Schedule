@@ -8,10 +8,10 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseTextBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeTextContrastFrozen
-import com.xiaomanjun.sleepdownschedule.feature.home.day.LocalHomeReadability
-import com.xiaomanjun.sleepdownschedule.feature.home.day.sampleVisibleWallpaperColors
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.LocalHomeReadability
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.sampleVisibleWallpaperColors
 
 /** Estimate the tinted, blurred surface from the cached wallpaper; never read back the GPU. */
 @Composable

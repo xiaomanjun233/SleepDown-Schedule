@@ -108,7 +108,6 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*

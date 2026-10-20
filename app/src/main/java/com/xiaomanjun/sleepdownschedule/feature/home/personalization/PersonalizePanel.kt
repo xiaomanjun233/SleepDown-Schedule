@@ -1,5 +1,24 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.personalization
 
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWallpaperBlurSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWallpaperBrightnessSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWallpaperContentChange
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWeekHeightSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWeekLocationChange
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWeekTeacherChange
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWeekLayoutChange
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWeekCornerSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardColorChange
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardAlphaSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardBlurSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardRefractionSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeNativeCardTintSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeNativeCardBlurSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardFontSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardGlassChange
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardOutlineLightChange
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardGaussianBlurChange
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardColoredTextChange
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
@@ -62,7 +81,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.controlAccentColor
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdownPreference
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.wallpaperBlurDp
 import com.xiaomanjun.sleepdownschedule.courseCardBlurMaximum
-import com.xiaomanjun.sleepdownschedule.feature.home.day.hasAnyWallpaper
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.feature.home.weekCardHeightScaleFromSlider
 import com.xiaomanjun.sleepdownschedule.feature.home.weekCardHeightSliderFromScale

@@ -42,8 +42,8 @@ import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeSwitchMotion
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeSwitchPane
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePaneVisible
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalPersonalizationPreview
-import com.xiaomanjun.sleepdownschedule.feature.home.PersonalizationPreviewState
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalPersonalizationPreview
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizationPreviewState
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseCopy
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeSwitchMotion
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeTopBarScrollReporter
