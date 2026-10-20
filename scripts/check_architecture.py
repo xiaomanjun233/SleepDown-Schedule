@@ -22,6 +22,8 @@ FORBIDDEN = {
 }
 LAYERS = set(FORBIDDEN) | {"app"}
 REFERENCE = re.compile(r"\b" + re.escape(PACKAGE) + r"\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)")
+ROOT_ALIAS = re.compile(r"\btypealias\s+(\w+)\s*=\s*" + re.escape(PACKAGE) + r"\.([\w.]+)")
+ROOT_WILDCARD = re.compile(r"^import\s+" + re.escape(PACKAGE) + r"\.\*\s*;?\s*$", re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -89,7 +91,8 @@ def node(parts: list[str]) -> str | None:
 
 def scan(root: Path) -> tuple[list[Dependency], int]:
     dependencies = []
-    checked = 0
+    units = []
+    aliases = defaultdict(set)
     for source_set in sorted((root / "app/src").iterdir()):
         if source_set.name.lower().startswith(("test", "androidtest")):
             continue
@@ -98,17 +101,35 @@ def scan(root: Path) -> tuple[list[Dependency], int]:
             for path in sorted(package_root.rglob("*")):
                 if path.suffix not in {".kt", ".java"}:
                     continue
-                checked += 1
                 parts = path.relative_to(package_root).parts
                 # Stable root Android entrypoints participate as application assembly.
                 owner = node(list(parts[:-1])) or "app"
                 source = code_only(path.read_text(encoding="utf-8"))
-                for match in REFERENCE.finditer(source):
-                    target = node(match[1].split("."))
-                    if target and target != owner:
-                        dependencies.append(Dependency(path.relative_to(root).as_posix(),
-                            source.count("\n", 0, match.start()) + 1, owner, target))
-    return dependencies, checked
+                units.append((path.relative_to(root).as_posix(), owner, source))
+                if len(parts) == 1:
+                    for match in ROOT_ALIAS.finditer(source):
+                        aliases[match[1]].add(match[2])
+
+    def targets(reference: str, visited: frozenset[str] = frozenset()) -> set[str]:
+        direct = node(reference.split("."))
+        if direct:
+            return {direct}
+        alias = reference.split(".")[0]
+        if alias in visited:
+            return set()
+        return {target for value in aliases.get(alias, ())
+            for target in targets(value, visited | {alias})}
+
+    for path, owner, source in units:
+        references = [(match[1], match.start()) for match in REFERENCE.finditer(source)]
+        if ROOT_WILDCARD.search(source):
+            references.extend((match[0], match.start()) for match in re.finditer(r"\b\w+\b", source)
+                if match[0] in aliases)
+        for reference, offset in references:
+            for target in targets(reference):
+                if target != owner:
+                    dependencies.append(Dependency(path, source.count("\n", 0, offset) + 1, owner, target))
+    return dependencies, len(units)
 
 
 def forbidden_dependencies(dependencies: list[Dependency]) -> set[tuple[str, str]]:

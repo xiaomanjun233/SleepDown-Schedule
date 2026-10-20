@@ -9,6 +9,41 @@ import check_architecture as architecture
 
 
 class ArchitectureTest(unittest.TestCase):
+    def scan_alias_fixture(self, references):
+        with TemporaryDirectory(dir=architecture.ROOT) as temporary:
+            root = Path(temporary)
+            base = root / "app/src/main/java" / architecture.PACKAGE.replace('.', '/')
+            base.mkdir(parents=True)
+            (base / "Compat.kt").write_text(
+                'typealias Screen = com.xiaomanjun.sleepdownschedule.feature.home.Screen\n'
+                'typealias Chained = com.xiaomanjun.sleepdownschedule.Screen\n'
+                'typealias Model = com.xiaomanjun.sleepdownschedule.model.Value\n'
+                'typealias Loop = com.xiaomanjun.sleepdownschedule.Loop\n', encoding="utf-8")
+            (base / "core").mkdir()
+            (base / "core/Sample.kt").write_text(references, encoding="utf-8")
+            return architecture.scan(root)[0]
+
+    def test_root_alias_import_and_qualified_usage_cannot_hide_a_feature_dependency(self):
+        for reference in ['import com.xiaomanjun.sleepdownschedule.Screen as Renamed',
+                          'val screen: com.xiaomanjun.sleepdownschedule.Chained? = null']:
+            with self.subTest(reference=reference):
+                errors = architecture.assess(self.scan_alias_fixture(reference), {})
+                self.assertTrue(any('core -> feature.home' in error for error in errors))
+
+    def test_root_wildcard_resolves_used_aliases_and_alias_chains(self):
+        deps = self.scan_alias_fixture('import com.xiaomanjun.sleepdownschedule.*\nval screen: Chained? = null')
+        self.assertEqual({"feature.home"}, {item.target for item in deps if item.source == "core"})
+
+    def test_unused_aliases_and_masked_names_do_not_add_dependencies(self):
+        deps = self.scan_alias_fixture('import com.xiaomanjun.sleepdownschedule.*\n'
+            '// Screen Chained\nval name = "Screen"\nval data: Model? = null')
+        self.assertEqual({"model"}, {item.target for item in deps if item.source == "core"})
+        self.assertEqual([], architecture.assess(deps, {}))
+
+    def test_cyclic_aliases_terminate_without_inventing_a_target(self):
+        deps = self.scan_alias_fixture('import com.xiaomanjun.sleepdownschedule.Loop\nval value: Loop? = null')
+        self.assertEqual([], [item for item in deps if item.source == "core"])
+
     def dependency(self, source, target, path="sample.kt"):
         return architecture.Dependency(path, 3, source, target)
 
