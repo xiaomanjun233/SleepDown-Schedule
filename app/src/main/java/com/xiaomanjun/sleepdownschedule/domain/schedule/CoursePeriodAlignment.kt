@@ -8,23 +8,9 @@ import com.xiaomanjun.sleepdownschedule.model.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import java.time.LocalTime
 
-/** Only this immutable, non-Room projection contains clipped/rebound period numbers. */
-data class AlignedCourseTime(val time: CoursePeriodTime, val exact: Boolean)
-
-data class EffectiveCourseArrangement(
-    val source: CourseEntity,
-    val periods: List<Int>,
-    val times: List<AlignedCourseTime>,
-    val hiddenPeriods: List<Int>,
-    val mode: PeriodAlignmentMode,
-    val displayStart: String? = source.customStartTime,
-    val displayEnd: String? = source.customEndTime,
-    val displayPeriodTimes: String? = source.customPeriodTimes
-) {
-    fun matches(course: CourseEntity): Boolean = course.periods == periods &&
-        course.customStartTime == displayStart && course.customEndTime == displayEnd &&
-        course.customPeriodTimes == displayPeriodTimes
-}
+// Source-compatible names; the immutable values belong to model, independently of these rules.
+typealias AlignedCourseTime = com.xiaomanjun.sleepdownschedule.model.AlignedCourseTime
+typealias EffectiveCourseArrangement = com.xiaomanjun.sleepdownschedule.model.EffectiveCourseArrangement
 
 /** Metadata edits retain the full source even when the caller came from a grid fragment. */
 fun CourseEntity.originalArrangement(): CourseEntity {

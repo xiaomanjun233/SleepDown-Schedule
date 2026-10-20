@@ -110,12 +110,6 @@
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/glass/ui/GlassSurfaces.kt": [
       "feature.home"
     ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/model/ScheduleModels.kt": [
-      "domain"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/model/agent/AgentActions.kt": [
-      "domain"
-    ],
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/transition/TransitionFeatureGate.kt": [
       "app"
     ],
@@ -149,7 +143,6 @@
     "app -> platform",
     "app -> transition",
     "core -> glass",
-    "domain -> model",
     "feature.agent -> app",
     "feature.agent -> core",
     "feature.agent -> feature.backup",
@@ -232,7 +225,6 @@
     "feature.widget -> glass",
     "glass -> core",
     "glass -> feature.home",
-    "model -> domain",
     "platform -> core",
     "platform -> glass",
     "transition -> app",

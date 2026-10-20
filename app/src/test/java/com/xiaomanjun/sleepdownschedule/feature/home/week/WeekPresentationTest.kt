@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import com.xiaomanjun.sleepdownschedule.model.ScheduleAdjustment
+
 import com.xiaomanjun.sleepdownschedule.model.*
 import com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
