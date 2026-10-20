@@ -305,8 +305,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.personalization.Personalize
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWallpaperBlurSlider
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWallpaperBrightnessSlider
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWeekHeightSlider
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.mergePersonalizationCandidate
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.resolveActivePersonalizationSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizationSession
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeImportHandoffState
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeSidebarState
@@ -458,30 +457,20 @@ fun CourseScheduleAppUi(
     val detailCaptureMaskActive = remember { AtomicBoolean(false) }
     // Saving may activate a new schedule before the import window has finished retracting.
     val baseVisualState = importHandoff.sourceState ?: (previewScheduleId?.let(allSchedulesState::forSchedule) ?: state)
-    var personalizationDraftConfig by remember { mutableStateOf<ScheduleConfigEntity?>(null) }
-    var personalizationPendingCommitConfig by remember { mutableStateOf<ScheduleConfigEntity?>(null) }
-    var personalizationSliderPreviewKey by remember { mutableStateOf<String?>(null) }
-    val personalizationPreviewState = remember { PersonalizationPreviewState() }
+    val personalizationSession = remember { PersonalizationSession() }
+    val personalizationPreviewState = personalizationSession.preview
     val personalizationPreviewProgress by animateFloatAsState(
-        targetValue = if (personalizationSliderPreviewKey != null) 1f else 0f,
+        targetValue = if (personalizationSession.sliderKey != null) 1f else 0f,
         animationSpec = tween(durationMillis = 180, easing = CubicBezierEasing(0.22f, 0f, 0.2f, 1f)),
         label = "personalization-preview-transition"
     )
-    LaunchedEffect(baseVisualState.config, personalizationPendingCommitConfig) {
-        val pending = personalizationPendingCommitConfig
-        if (pending != null && baseVisualState.config == pending) {
-            personalizationPendingCommitConfig = null
-        }
+    LaunchedEffect(baseVisualState.config, personalizationSession.pendingCommit) {
+        personalizationSession.acknowledge(baseVisualState.config)
     }
     LaunchedEffect(baseVisualState.config.id) {
-        if (personalizationDraftConfig?.id != baseVisualState.config.id) {
-            personalizationDraftConfig = null
-        }
-        if (personalizationPendingCommitConfig?.id != baseVisualState.config.id) {
-            personalizationPendingCommitConfig = null
-        }
+        personalizationSession.selectSchedule(baseVisualState.config.id)
     }
-    val personalizationConfig = personalizationDraftConfig ?: personalizationPendingCommitConfig
+    val personalizationConfig = personalizationSession.displayConfig
     val pendingVisualState = baseVisualState.withPersonalizationConfig(personalizationConfig)
     val glassBackendPolicy = remember { GlassBackendPolicy.LargeGlass }
     val glassSceneState = rememberGlassSceneState(
@@ -691,7 +680,7 @@ fun CourseScheduleAppUi(
 
     val personalizationPreviewActive by remember {
         derivedStateOf {
-            personalizationSliderPreviewKey != null || personalizationPreviewProgress > 0.001f
+            personalizationSession.sliderKey != null || personalizationPreviewProgress > 0.001f
         }
     }
     val homeBackgroundOverlayActive =
@@ -812,9 +801,7 @@ fun CourseScheduleAppUi(
         if (screen !is Screen.Home) {
             pendingHomeAnchoredOverlay = null
             homeAnchoredOverlayRequest = null
-            personalizationSliderPreviewKey = null
-            personalizationDraftConfig = null
-            personalizationPreviewState.clearAll()
+            personalizationSession.close()
         }
         if (screen !is Screen.Config) {
             settingsExitInterceptionRequired = false
@@ -823,9 +810,7 @@ fun CourseScheduleAppUi(
     }
     LaunchedEffect(homeAnchoredOverlayRequest) {
         if (homeAnchoredOverlayRequest?.kind != HomeAnchoredOverlayKind.Personalize) {
-            personalizationSliderPreviewKey = null
-            personalizationDraftConfig = null
-            personalizationPreviewState.clearAll()
+            personalizationSession.close()
         }
     }
     var homeContentUnderTopBar by remember { mutableStateOf(false) }
@@ -1237,7 +1222,7 @@ fun CourseScheduleAppUi(
         null -> "Unknown"
     }
     val startupAnimation = when {
-        personalizationSliderPreviewKey != null -> "PersonalizeSliderDrag"
+        personalizationSession.sliderKey != null -> "PersonalizeSliderDrag"
         homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle -> when (homeMenuDestinationMotionState.phase) {
             HomeAnchoredOverlayPhase.Preparing -> "HomeMenuDestinationPrepare:$homeMenuDestinationKindLabel"
             HomeAnchoredOverlayPhase.Opening -> "HomeMenuDestinationOpen:$homeMenuDestinationKindLabel"
@@ -1290,7 +1275,7 @@ fun CourseScheduleAppUi(
         } else {
             "Idle"
         },
-        personalizeSlider = when (personalizationSliderPreviewKey) {
+        personalizeSlider = when (personalizationSession.sliderKey) {
             PersonalizeWallpaperBlurSlider -> "WallpaperBlur"
             PersonalizeWallpaperBrightnessSlider -> "WallpaperBrightness"
             PersonalizeWeekHeightSlider -> "WeekHeight"
@@ -1553,7 +1538,7 @@ fun CourseScheduleAppUi(
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
     val legacyHomeOverlayBackgroundBlurProgress: () -> Float = {
         val legacyDepth = homeOverlayDepthProgress(homeOverlayBackgroundZoom())
-        val previewActive = personalizationSliderPreviewKey != null ||
+        val previewActive = personalizationSession.sliderKey != null ||
             personalizationPreviewProgress > 0.001f
         val substantialOverlayActive = substantialCourseEditorCoverage ||
             substantialMenuDestinationCoverage || substantialHomeAnchoredCoverage
@@ -3718,17 +3703,16 @@ fun CourseScheduleAppUi(
                 weekCardHeightScaleFloor = weekCardHeightScaleFloor,
                 onWeekCardHeightScale = {
                     val safeScale = normalizedWeekCardHeightScale(it, weekCardHeightScaleFloor)
-                    val committedConfig = mergePersonalizationCandidate(
-                        current = personalizationDraftConfig ?: visualState.config,
+                    val committedConfig = personalizationSession.commit(
+                        current = visualState.config,
                         candidate = visualState.config.copy(
                             weekCardHeightDp = null,
                             weekCardHeightScale = safeScale
                         ),
-                        changeKey = PersonalizeWeekHeightSlider
+                        changeKey = PersonalizeWeekHeightSlider,
+                        clearPreview = false
                     )
                     weekCardHeightScale = safeScale
-                    personalizationDraftConfig = committedConfig
-                    personalizationPendingCommitConfig = committedConfig
                     viewModel.savePersonalization(committedConfig)
                 },
                 onWeekCardHeightScalePreview = {
@@ -3738,29 +3722,20 @@ fun CourseScheduleAppUi(
                     wallpaperLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 },
                 onUpdateConfig = { changeKey, candidate ->
-                    val merged = mergePersonalizationCandidate(
-                        current = personalizationDraftConfig ?: visualState.config,
+                    val merged = personalizationSession.commit(
+                        current = visualState.config,
                         candidate = candidate,
                         changeKey = changeKey
                     )
-                    personalizationDraftConfig = merged
-                    personalizationPendingCommitConfig = merged
-                    if (changeKey != PersonalizeWallpaperBlurSlider) {
-                        personalizationPreviewState.clear(changeKey)
-                    }
                     viewModel.savePersonalization(merged)
                 },
                 onPreviewConfig = { sliderKey, candidate ->
                     personalizationPreviewState.update(sliderKey, candidate)
                 },
-                previewSliderKey = personalizationSliderPreviewKey,
+                previewSliderKey = personalizationSession.sliderKey,
                 previewProgress = personalizationPreviewProgress,
                 onSliderPreviewActiveChange = { key, active ->
-                    personalizationSliderPreviewKey = resolveActivePersonalizationSlider(
-                        currentKey = personalizationSliderPreviewKey,
-                        eventKey = key,
-                        active = active
-                    )
+                    personalizationSession.setSliderActive(key, active)
                 }
             )
         }
