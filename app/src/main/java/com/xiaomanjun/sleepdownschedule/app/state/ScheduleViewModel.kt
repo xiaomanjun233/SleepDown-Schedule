@@ -54,11 +54,16 @@ class ScheduleViewModel(
     private val pendingPersonalizationSnapshots = linkedMapOf<Int, ScheduleConfigEntity>()
     private val refreshCoordinator = ScheduleRefreshCoordinator(
         scope = viewModelScope,
-        refresh = ::refreshScheduleSurfaces,
+        refresh = { refreshScheduleSurfaces(app, repository) },
         onFailure = { error ->
             Log.w("ScheduleViewModel", "Schedule surface refresh failed", error)
             mutableSnackbar.value = error.message ?: "系统课表界面刷新失败，请稍后重试"
         }
+    )
+
+    private val scheduleActions = ScheduleActions(
+        app, repository, viewModelScope, refreshCoordinator::request,
+        onMessage = { mutableSnackbar.value = it }
     )
 
     private val agentSettingPlans = AgentSettingPlanExecutor(
@@ -302,36 +307,17 @@ class ScheduleViewModel(
         }
 
     fun createSchedule(
-        name: String = "\u65B0\u8BFE\u8868",
+        name: String = "新课表",
         activate: Boolean = true,
         onCreated: ((Int) -> Unit)? = null
-    ) = viewModelScope.launch {
-        Log.d("ScheduleManager", "viewModel.createSchedule name=$name")
-        val scheduleId = repository.createSchedule(name)
-        Log.d("ScheduleManager", "repository.createSchedule created id=$scheduleId")
-        if (activate) repository.activateSchedule(scheduleId)
-        refreshCoordinator.request()
-        onCreated?.invoke(scheduleId)
-    }
+    ) = scheduleActions.createSchedule(name, activate, onCreated)
 
-    fun activateSchedule(scheduleId: Int, finish: (() -> Unit)? = null) = viewModelScope.launch {
-        Log.d("ScheduleManager", "viewModel.activateSchedule id=$scheduleId")
-        repository.activateSchedule(scheduleId)
-        refreshCoordinator.request()
-        finish?.invoke()
-    }
+    fun activateSchedule(scheduleId: Int, finish: (() -> Unit)? = null) =
+        scheduleActions.activateSchedule(scheduleId, finish)
 
-    fun renameSchedule(scheduleId: Int, name: String) = viewModelScope.launch {
-        Log.d("ScheduleManager", "viewModel.renameSchedule id=$scheduleId name=$name")
-        repository.renameSchedule(scheduleId, name)
-    }
+    fun renameSchedule(scheduleId: Int, name: String) = scheduleActions.renameSchedule(scheduleId, name)
 
-    fun deleteSchedule(scheduleId: Int) = viewModelScope.launch {
-        Log.d("ScheduleManager", "viewModel.deleteSchedule id=$scheduleId")
-        repository.deleteSchedule(scheduleId)
-        cleanupScheduleWallpaperFiles()
-        refreshCoordinator.request()
-    }
+    fun deleteSchedule(scheduleId: Int) = scheduleActions.deleteSchedule(scheduleId)
 
     /**
      * Agent-facing schedule actions. These run outside the course transaction because they change
@@ -416,9 +402,7 @@ class ScheduleViewModel(
 
     fun saveScheduleAdjustments(scheduleId: Int, original: String, updated: String,
         onSuccess: (() -> Unit)? = null, onFailure: (() -> Unit)? = null) =
-        launchCourseMutation("调休安排已保存", onSuccess = onSuccess, onFailure = onFailure) {
-            repository.saveScheduleAdjustments(scheduleId, original, updated)
-        }
+        scheduleActions.saveScheduleAdjustments(scheduleId, original, updated, onSuccess, onFailure)
 
     fun clearSnackbar() {
         mutableSnackbar.value = null
@@ -456,12 +440,6 @@ class ScheduleViewModel(
         (app as CourseScheduleApp).applicationScope.launch {
             refreshCoordinator.refreshNow()
         }
-    }
-
-    private suspend fun refreshScheduleSurfaces() = withContext(Dispatchers.IO) {
-        val snapshot = repository.activeSnapshot()
-        NotificationScheduler.refreshToday(app, snapshot.courses, snapshot.config, snapshot.periods)
-        TodayCoursesWidgetProvider.refreshAll(app)
     }
 
     private suspend fun cleanupScheduleWallpaperFiles() = withContext(Dispatchers.IO) {
