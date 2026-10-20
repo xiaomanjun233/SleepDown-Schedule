@@ -1,5 +1,7 @@
 # 架构收口与 AI 账号、模型列表修复
 
+此页保留 2026-10-20 的实现与验证。此前剩余五项反向依赖已继续处理，见[2026-10-21 状态与转场续作](2026-10-21-schedule-state-and-transition-boundaries.md)；当前状态与 CI 以 #79 最新 head 为准。
+
 本轮接续[首批审查](2026-10-20-architecture-review.md)和[课程显示、自动静音续作](2026-10-20-architecture-followup-and-course-fixes.md)。用户要求“一口气全改完”，并追加 ChatGPT 工具/数据/图片与官方模型列表问题。继续使用从 main `9b6acbb2` 派生的 `codex/architecture-boundaries` 和 [PR #79](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/79)，不合并、不改版本、不发布。
 
 ## 已实施的职责调整

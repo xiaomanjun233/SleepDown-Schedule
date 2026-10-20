@@ -138,6 +138,7 @@ com/xiaomanjun/sleepdownschedule/
 - Manifest 中已有 Activity、Service、Receiver 和 Widget Provider 的 FQCN 由根包薄入口保持不变；数据库、备份和 Intent 协议不需要迁移。
 - 首页导入交接状态由 `feature/home/HomeImportHandoffState.kt` 持有，根 Composable 继续装配入口关闭和动画。通知 Intent/重启存储的编解码由 `feature/reminder/LiveUpdatePayloadCodec.kt` 持有，NotificationScheduler 保留兼容门面，Service 保留启动/停止与恢复状态清理。详情见[续作报告](../reports/2026-10-20-architecture-followup-and-course-fixes.md)。
 - 个性化草稿/提交回读由 `feature/home/personalization/PersonalizationSession` 持有；共享预览、可读性采样和冻结上下文分别由 `core/ui/material`、`core/wallpaper`、`core/ui/text` 提供，glass 不再引用 home 功能包。详情 Morph 的设置内容由 app 装配，transition 只持有原运动和保存退出握手。
+- 课表管理、调休及教务登录的 Activity 状态由 `feature/schedule/ScheduleScreenViewModel` 持有，与首页复用 `ScheduleActions`，保留各 Activity 的 ViewModelStore 和提交后刷新。共享 Legacy 几何由 `transition/legacy` 提供，首页专属 adapter 留在 home；转场不再引用首页布局。详见[2026-10-21 续作](../reports/2026-10-21-schedule-state-and-transition-boundaries.md)。
 - `domain/agent/AgentPlanPreparation` 准备课程修改片段，Repository 在同一 Room 事务内读取、准备、写入和验证。`core/remoteconfig/SleepDownRemoteConfig` 负责公共 bootstrap，`feature/importing/ManagedAiRemoteConfig` 负责托管 AI；通知呈现位于 `LiveUpdateNotificationRenderer`，调度与 Service 保留原所有权。最新验证与剩余依赖见[架构收口报告](../reports/2026-10-20-architecture-completion-and-ai-fixes.md)。
 
 ## 稳定入口与实现映射

@@ -20,6 +20,7 @@
 - Legacy 后端：`transition/LegacyTransitionBackend.kt`
 - Oplus 后端：`transition/OplusSeamlessBackend.kt`
 - 厂商回调隔离层：`transition/OplusVendorCallbackFactory.kt`
+- 首页与跨 Activity 共用的 Legacy 几何：`transition/legacy/LegacySharedObjectGeometry.kt`、`LegacyMenuDestinationGeometry.kt`；首页专属 LiquidMorphSpec 适配在 `feature/home/overlay/HomeLiquidMorphSpecs.kt`。窗口弧高由 `core/ui/interaction/DeviceScreenGeometry.kt` 提供，转场层不读取首页状态。迁移证据见[2026-10-21 续作](reports/2026-10-21-schedule-state-and-transition-boundaries.md)。
 
 ## 业务接入
 
