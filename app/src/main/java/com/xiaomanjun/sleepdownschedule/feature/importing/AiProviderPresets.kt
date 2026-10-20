@@ -255,7 +255,7 @@ object AiProviderPresets {
         displayName = "小米 MiMo",
         providerType = AiProviderType.OpenAIChatCompatible,
         baseUrl = "https://api.xiaomimimo.com/v1",
-        defaultModel = "mimo-v2.5-pro",
+        defaultModel = "mimo-v2.6-pro",
         authType = AiAuthType.CustomHeader,
         capabilities = AiProviderCapabilities(
             supportsImageInput = true,
@@ -378,6 +378,8 @@ object AiProviderPresets {
             AiModelOption("MiniMax Text", "abab6.5s-chat")
         )
         mimo.id, mimoTokenPlan.id -> listOf(
+            AiModelOption("MiMo V2.6 Pro", "mimo-v2.6-pro", supportsImageInput = true, supportsResponses = true),
+            AiModelOption("MiMo V2.6 Flash", "mimo-v2.6-flash", supportsImageInput = true, supportsResponses = true),
             AiModelOption("MiMo V2.5 Pro", "mimo-v2.5-pro", supportsImageInput = true, supportsResponses = true),
             AiModelOption("MiMo V2.5", "mimo-v2.5", supportsImageInput = true, supportsResponses = true)
         )
@@ -402,6 +404,12 @@ object AiProviderPresets {
     }
 
     fun modelOptions(profile: AiProviderProfile): List<AiModelOption> {
+        if (profile.modelCatalog.isNotEmpty()) {
+            val selected = profile.defaultModel.trim()
+            val current = profile.modelCatalog
+            return if (selected.isBlank() || current.any { it.model.equals(selected, ignoreCase = true) }) current
+            else current + AiModelOption(selected, selected, profile.supportsVision, profile.capabilities.supportsResponses)
+        }
         if (isChatGptId(profile.id)) {
             return profile.availableModels.filter(String::isNotBlank).distinct().map { model ->
                 AiModelOption(

@@ -82,6 +82,7 @@ object AiImportSettingsStore {
     }
 
     fun notifyRemoteConfigChanged() = notifyChanged()
+    internal fun notifyModelCatalogChanged() = notifyChanged()
 
     private fun managedFreeSettings(context: Context, prefs: android.content.SharedPreferences): AiImportSettings {
         val effort = runCatching {
@@ -542,7 +543,7 @@ object AiImportSettingsStore {
                 remove(KeyEncryptedApiKey)
             }
         }
-        return AiImportSettings(AiProviderPresets.normalizeDeepSeekProfile(profile), apiKey)
+        return AiImportSettings(AiProviderModelCatalog.applyCached(context, AiProviderPresets.normalizeDeepSeekProfile(profile)), apiKey)
     }
 
     fun loadProvider(context: Context, providerId: String): AiImportSettings {
@@ -662,7 +663,7 @@ object AiImportSettingsStore {
             }
         }
         val apiKey = prefs.getString(apiKeyKey(profile.id), null)?.let { decrypt(context, it) }.orEmpty()
-        return AiImportSettings(AiProviderPresets.normalizeDeepSeekProfile(profile), apiKey)
+        return AiImportSettings(AiProviderModelCatalog.applyCached(context, AiProviderPresets.normalizeDeepSeekProfile(profile)), apiKey)
     }
 
     private fun chatGptSettings(context: Context, profile: AiProviderProfile): AiImportSettings {

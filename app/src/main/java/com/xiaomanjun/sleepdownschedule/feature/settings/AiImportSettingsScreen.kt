@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiProviderModelCatalog
+import com.xiaomanjun.sleepdownschedule.feature.importing.aiModelSelectionIndex
+
 import com.xiaomanjun.sleepdownschedule.feature.importing.ManagedAiRemoteConfig
 import android.net.Uri
 import androidx.compose.foundation.background
@@ -174,20 +177,23 @@ fun AiImportSettingsSection(
         presets
     }
     val aiDisabled = selectedProviderId == AiProviderPresets.none.id
+    var modelCatalogRevision by remember(selectedProviderId) { mutableIntStateOf(0) }
+    var refreshingModels by remember(selectedProviderId) { mutableStateOf(false) }
+    var modelCatalogMessage by remember(selectedProviderId) { mutableStateOf<String?>(null) }
+    val officialModelCatalog = remember(selectedProviderId, baseUrl, modelCatalogRevision) {
+        AiProviderModelCatalog.cached(context, selectedPreset.copy(baseUrl = baseUrl))
+    }
     val configuredModelIds = parseAiModelIdList(availableModelsText, model)
     val modelProfile = (if (isManagedFreeProvider) AiProviderPresets.dailyFree else selectedPreset).copy(
         defaultModel = model.trim(),
         capabilities = selectedPreset.capabilities.copy(supportsImageInput = supportsVision),
         supportsVision = supportsVision,
-        availableModels = configuredModelIds
+        availableModels = configuredModelIds,
+        modelCatalog = officialModelCatalog
     )
     val modelOptions = AiProviderPresets.modelOptions(modelProfile)
     val modelEditable = !isManagedFreeProvider && !isChatGptProvider && (modelOptions.isEmpty() || modelUsesCustomInput)
-    val selectedModelOptionIndex = if (modelUsesCustomInput) {
-        modelOptions.size
-    } else {
-        modelOptions.indexOfFirst { it.model == model }.coerceAtLeast(0)
-    }
+    val selectedModelOptionIndex = aiModelSelectionIndex(modelOptions, model)
     val onModelOptionSelected: (Int) -> Unit = { index ->
         if (index >= modelOptions.size) {
             modelUsesCustomInput = true
@@ -201,6 +207,35 @@ fun AiImportSettingsSection(
         }
     }
     val normalizedBaseUrl = normalizeAiBaseUrlForProvider(selectedProviderId, baseUrl)
+    fun refreshOfficialModels() {
+        if (refreshingModels) return
+        val requestProfile = modelProfile.copy(baseUrl = normalizedBaseUrl)
+        if (AiProviderModelCatalog.endpoint(requestProfile) == null) return
+        val requestSettings = AiImportSettings(requestProfile, apiKeyInput.ifBlank { saved.apiKey })
+        if (requestSettings.apiKey.isBlank()) {
+            modelCatalogMessage = "填写 API Key 后可从官方刷新模型"
+            return
+        }
+        refreshingModels = true
+        scope.launch {
+            try {
+                val catalog = AiProviderModelCatalog.refresh(context, requestSettings)
+                if (selectedProviderId == requestProfile.id &&
+                    normalizeAiBaseUrlForProvider(selectedProviderId, baseUrl) == requestProfile.baseUrl) {
+                    availableModelsText = catalog.joinToString("\n") { it.model }
+                    modelCatalogRevision++
+                    catalog.firstOrNull { it.model == model.trim() }?.let { supportsVision = it.supportsImageInput }
+                    modelCatalogMessage = "已从官方获取 ${catalog.size} 个模型"
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (selectedProviderId == requestProfile.id) modelCatalogMessage = error.message ?: "模型列表刷新失败，已保留原列表"
+            } finally {
+                if (selectedProviderId == requestProfile.id) refreshingModels = false
+            }
+        }
+    }
     val usesOpenAICompatibleSite = selectedProviderId == AiProviderPresets.openAI.id &&
         !normalizedBaseUrl.equals("https://api.openai.com/v1", ignoreCase = true)
     val modelSupportsResponses = AiProviderPresets.supportsResponses(modelProfile)
@@ -216,6 +251,7 @@ fun AiImportSettingsSection(
         it.model.equals(model.trim(), ignoreCase = true)
     }?.supportsImageInput ?: supportsVision
     val editableProfile = selectedPreset.copy(
+        modelCatalog = officialModelCatalog,
         displayName = if (isCustomProvider) effectiveCustomProviderName else selectedPreset.displayName,
         baseUrl = normalizedBaseUrl,
         defaultModel = model.trim(),
@@ -559,9 +595,19 @@ fun AiImportSettingsSection(
                 modifier = Modifier.fillMaxWidth(),
                 insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                 maxHeight = 318.dp,
-                onExpandedChange = {},
+                onExpandedChange = { if (it) refreshOfficialModels() },
                 onSelectedIndexChange = onModelOptionSelected
             )
+            SettingsDivider()
+        }
+        if (AiProviderModelCatalog.endpoint(modelProfile.copy(baseUrl = normalizedBaseUrl)) != null) {
+            SettingsActionButton(
+                if (refreshingModels) "正在获取官方模型…" else "刷新官方模型列表",
+                backdrop,
+                onClick = ::refreshOfficialModels
+            )
+            modelCatalogMessage?.let { Text(it, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
+                style = MaterialTheme.typography.bodySmall) }
             SettingsDivider()
         }
         SettingsTextFieldRow(

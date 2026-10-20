@@ -114,7 +114,8 @@ data class AiProviderProfile(
     val supportsFileUpload: Boolean = capabilities.supportsFileUpload,
     val supportsPdfDirect: Boolean = capabilities.supportsPdfFileInput,
     val availableModels: List<String> = emptyList(),
-    val reasoningEffort: AiReasoningEffort = AiReasoningEffort.MEDIUM
+    val reasoningEffort: AiReasoningEffort = AiReasoningEffort.MEDIUM,
+    @kotlinx.serialization.Transient val modelCatalog: List<AiModelOption> = emptyList()
 )
 
 data class AiImportSettings(
@@ -255,6 +256,7 @@ fun extractAiReasoningForDisplay(output: String): String {
         .trim()
 }
 
+@Serializable
 data class AiModelOption(
     val label: String,
     val model: String,
