@@ -139,6 +139,29 @@ class AgentSettingPlanExecutorTest {
         assertTrue(DayAgentPreferences.isWeekAssistantEnabled(app))
     }
 
+    @Test
+    fun newerWeekPreferenceRejectsUndoBeforeTheDatabaseCanBeRestored() = runBlocking {
+        val result = execute(setting("TOTAL_WEEKS", "24"))
+        DayAgentPreferences.setWeekAssistantEnabled(app, false)
+
+        val undone = undo(result)
+
+        assertFalse(undone.success)
+        assertTrue(undone.message.contains("已有后续修改"))
+        assertEquals(24, repository.snapshot().config.totalWeeks)
+        assertFalse(DayAgentPreferences.isWeekAssistantEnabled(app))
+    }
+
+    @Test
+    fun newerConsentDecisionIsNotOverwrittenByUndo() = runBlocking {
+        val result = execute(setting("DAY_AGENT_ENABLED", "true"))
+        DayAgentPreferences.setEnabled(app, false)
+
+        assertFalse(undo(result).success)
+        assertFalse(DayAgentPreferences.isEnabled(app))
+        assertTrue(DayAgentPreferences.hasDecision(app))
+    }
+
     private suspend fun CoroutineScope.execute(vararg actions: AgentValidatedAction): AgentPlanExecutionResult {
         var result: AgentPlanExecutionResult? = null
         var callbacks = 0

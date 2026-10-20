@@ -279,6 +279,7 @@ internal class AgentSettingPlanExecutor(
             return@launch
         }
 
+        val appliedPreferences = captureDayAgentPreferences()
         requestRefresh()
         onResult(
             AgentPlanExecutionResult(
@@ -288,15 +289,19 @@ internal class AgentSettingPlanExecutor(
                 message = "已应用并回读验证 ${actions.size} 项修改",
                 undo = { undoResult ->
                     scope.launch {
-                        val restored = runCatching {
+                        val restoreError = runCatching {
+                            check(captureDayAgentPreferences() == appliedPreferences) {
+                                "助理偏好已有后续修改，无法覆盖撤销"
+                            }
                             repository.restoreAgentSettingPlan(requireNotNull(committed), before, beforeSchemes, beforeName)
                             restorePreferences()
                             requestRefresh()
-                        }.isSuccess
+                        }.exceptionOrNull()
+                        val restored = restoreError == null
                         undoResult(
                             AgentPlanExecutionResult(
                                 restored, null, restored,
-                                if (restored) "已撤销本次设置修改" else "撤销失败"
+                                if (restored) "已撤销本次设置修改" else restoreError?.message ?: "撤销失败"
                             )
                         )
                     }
