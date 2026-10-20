@@ -134,6 +134,7 @@ com/xiaomanjun/sleepdownschedule/
 - Day Agent 的稳定提示、工具决策和最终写入协议已分段，已读快照工具会在同一回合动态收窄；运行规则见 `DAY_AGENT_RUNTIME.md`。
 - 已确认 AI 设置计划由 `feature/agent/AgentSettingPlanExecutor.kt` 负责校验、事务调用、偏好写入、回读、回滚和撤销。`app/state/ScheduleViewModel` 只装配原作用域与刷新回调，并公开只读提示状态；Repository 继续拥有数据库事务。整体债务、检查基线与后续顺序见 [2026-10-20 架构审查](../reports/2026-10-20-architecture-review.md)。
 - Manifest 中已有 Activity、Service、Receiver 和 Widget Provider 的 FQCN 由根包薄入口保持不变；数据库、备份和 Intent 协议不需要迁移。
+- 首页导入交接状态由 `feature/home/HomeImportHandoffState.kt` 持有，根 Composable 继续装配入口关闭和动画。通知 Intent/重启存储的编解码由 `feature/reminder/LiveUpdatePayloadCodec.kt` 持有，NotificationScheduler 保留兼容门面，Service 保留启动/停止与恢复状态清理。详情见[续作报告](../reports/2026-10-20-architecture-followup-and-course-fixes.md)。
 
 ## 稳定入口与实现映射
 

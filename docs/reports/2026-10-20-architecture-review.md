@@ -1,5 +1,7 @@
 # 全项目架构审查与首批渐进重构
 
+此页记录首批审查和实现。首页导入状态、通知编解码及用户追加的课程显示/自动静音修复见[同日续作报告](2026-10-20-architecture-followup-and-course-fixes.md)，当前状态以交接和 PR head 为准。
+
 ## 基线与范围
 
 用户要求全面审查后直接实施收益明确的一批重构，并补充“先合并”。因此先处理 #78，再从合并后的 main `9b6acbb23512e48d0af24afec0813ecadf27573e` 开始本任务，分支为 `codex/architecture-boundaries`，PR 为 [#79](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/79)，工作树为仓库忽略目录 `tmp/architecture-refactor/`。主工作目录切回并快进到 main，其他工作树、stash 和私有后端保留。

@@ -39,6 +39,8 @@
 
 功能内的完整执行流程通过普通构造参数接收数据入口、所属作用域与必要回调；应用层负责装配。不要在执行器中创建独立 CoroutineScope 来延长任务寿命。页面退出后仍须保存或继续传输的工作，沿用已有 Application/Service 作用域；ViewModel 对 UI 公开只读状态，写入通过它的操作入口完成。
 
+本轮具体所有权：`feature/home/HomeImportHandoffState` 保存 Composition 内的导入快照、提交标记与数据就绪条件，根 Composable 装配入口卸载和原有揭示动画。`feature/reminder/LiveUpdatePayloadCodec` 集中 Intent payload 与 Service 重启存储的编解码，调度门面及 Service 各自保留系统调度和生命周期。周视图显示分组与提醒分段使用不同入口，二者共用原始课程投影，不能用合并显示后的外包络覆盖逐课时数据。详见[续作报告](../reports/2026-10-20-architecture-followup-and-course-fixes.md)。
+
 ## 官方参考
 
 - [Android 架构建议](https://developer.android.com/topic/architecture/recommendations)
