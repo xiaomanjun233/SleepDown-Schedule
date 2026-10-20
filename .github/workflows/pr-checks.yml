@@ -84,6 +84,7 @@ jobs:
           --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustmentsTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationAdjustmentSchedulingTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationSchedulingTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdatePayloadCodecTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.reminder.CourseSessionReminderTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.reminder.CourseQuietControllerTest'
           --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.CourseQuietHoursTest'

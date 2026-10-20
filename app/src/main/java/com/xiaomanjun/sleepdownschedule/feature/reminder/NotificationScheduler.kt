@@ -82,19 +82,19 @@ object NotificationScheduler {
     val ACTION_COURSE_REMINDER = "${BuildConfig.APPLICATION_ID}.action.COURSE_REMINDER"
     val ACTION_REFRESH_COURSE_ALARMS = "${BuildConfig.APPLICATION_ID}.action.REFRESH_COURSE_ALARMS"
     private const val EXTRA_LIVE_UPDATE_NOTIFICATION = "live_update_notification"
-    const val EXTRA_LIVE_UPDATE_NAME = "live_update_name"
-    const val EXTRA_LIVE_UPDATE_TIME = "live_update_time"
-    const val EXTRA_LIVE_UPDATE_LOCATION = "live_update_location"
-    const val EXTRA_LIVE_UPDATE_ACTIONS = "live_update_actions"
-    const val EXTRA_LIVE_UPDATE_MUTE_KEY = "live_update_mute_key"
-    const val EXTRA_LIVE_UPDATE_MUTE_UNTIL = "live_update_mute_until"
-    const val EXTRA_LIVE_UPDATE_CHIP_MODE = "live_update_chip_mode"
-    const val EXTRA_LIVE_UPDATE_KIND = "live_update_kind"
-    const val EXTRA_LIVE_UPDATE_SEGMENTS = "live_update_segments"
-    const val EXTRA_LIVE_UPDATE_DURING_CLASS = "live_update_during_class"
-    const val EXTRA_LIVE_UPDATE_BREAK_STATUS = "live_update_break_status"
-    const val EXTRA_LIVE_UPDATE_EXPIRES_AT = "live_update_expires_at"
-    const val EXTRA_LIVE_UPDATE_TOMORROW_COUNT = "live_update_tomorrow_count"
+    const val EXTRA_LIVE_UPDATE_NAME = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_NAME
+    const val EXTRA_LIVE_UPDATE_TIME = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_TIME
+    const val EXTRA_LIVE_UPDATE_LOCATION = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_LOCATION
+    const val EXTRA_LIVE_UPDATE_ACTIONS = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_ACTIONS
+    const val EXTRA_LIVE_UPDATE_MUTE_KEY = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_MUTE_KEY
+    const val EXTRA_LIVE_UPDATE_MUTE_UNTIL = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_MUTE_UNTIL
+    const val EXTRA_LIVE_UPDATE_CHIP_MODE = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_CHIP_MODE
+    const val EXTRA_LIVE_UPDATE_KIND = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_KIND
+    const val EXTRA_LIVE_UPDATE_SEGMENTS = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_SEGMENTS
+    const val EXTRA_LIVE_UPDATE_DURING_CLASS = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_DURING_CLASS
+    const val EXTRA_LIVE_UPDATE_BREAK_STATUS = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_BREAK_STATUS
+    const val EXTRA_LIVE_UPDATE_EXPIRES_AT = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_EXPIRES_AT
+    const val EXTRA_LIVE_UPDATE_TOMORROW_COUNT = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_TOMORROW_COUNT
     const val EXTRA_REMINDER_EVENT = "reminder_event"
 
     inline fun withShortWakeLock(context: Context, tagSuffix: String, block: () -> Unit) {
@@ -483,7 +483,7 @@ object NotificationScheduler {
             .setAction(ACTION_COURSE_REMINDER)
             .putExtra(EXTRA_REMINDER_EVENT, event)
             .putExtra("notificationMode", config.notificationMode.name)
-            .putLiveUpdatePayload(payload)
+            .let { putPayload(it, payload) }
         val pendingIntent = PendingIntent.getBroadcast(
             context,
             requestCode,
@@ -508,65 +508,9 @@ object NotificationScheduler {
     private fun eventRequestCode(date: LocalDate, courseId: Long, eventIndex: Int, event: String): Int =
         listOf(date.toEpochDay(), courseId, eventIndex, event).hashCode() and Int.MAX_VALUE
 
-    internal fun putPayload(intent: Intent, payload: LiveUpdatePayload): Intent = intent.putLiveUpdatePayload(payload)
+    internal fun putPayload(intent: Intent, payload: LiveUpdatePayload): Intent = LiveUpdatePayloadCodec.putPayload(intent, payload)
 
-    internal fun payloadFromIntent(intent: Intent): LiveUpdatePayload? = intent.liveUpdatePayloadOrNull()
-
-    private fun Intent.putLiveUpdatePayload(payload: LiveUpdatePayload): Intent =
-        putExtra(EXTRA_LIVE_UPDATE_KIND, payload.kind.name)
-            .putExtra(EXTRA_LIVE_UPDATE_NAME, payload.name)
-            .putExtra(EXTRA_LIVE_UPDATE_TIME, payload.timeText)
-            .putExtra(EXTRA_LIVE_UPDATE_LOCATION, payload.location)
-            .putExtra(EXTRA_LIVE_UPDATE_ACTIONS, payload.showActions)
-            .putExtra(EXTRA_LIVE_UPDATE_MUTE_KEY, payload.muteKey)
-            .putExtra(EXTRA_LIVE_UPDATE_MUTE_UNTIL, payload.muteUntil)
-            .putExtra(EXTRA_LIVE_UPDATE_CHIP_MODE, payload.chipTextMode.name)
-            .putExtra(EXTRA_LIVE_UPDATE_SEGMENTS, encodeSegments(payload.segments))
-            .putExtra(EXTRA_LIVE_UPDATE_DURING_CLASS, payload.duringClassEnabled)
-            .putExtra(EXTRA_LIVE_UPDATE_BREAK_STATUS, payload.breakStatusEnabled)
-            .putExtra(EXTRA_LIVE_UPDATE_EXPIRES_AT, payload.expiresAtMillis)
-            .putExtra(EXTRA_LIVE_UPDATE_TOMORROW_COUNT, payload.tomorrowCourseCount)
-
-    private fun Intent.liveUpdatePayloadOrNull(): LiveUpdatePayload? {
-        val name = getStringExtra(EXTRA_LIVE_UPDATE_NAME)
-            ?: getStringExtra("courseName")
-            ?: return null
-        val timeText = getStringExtra(EXTRA_LIVE_UPDATE_TIME)
-            ?: getStringExtra("timeText")
-            ?: return null
-        return LiveUpdatePayload(
-            kind = runCatching {
-                LiveUpdateKind.valueOf(getStringExtra(EXTRA_LIVE_UPDATE_KIND) ?: LiveUpdateKind.COURSE.name)
-            }.getOrDefault(LiveUpdateKind.COURSE),
-            name = name,
-            timeText = timeText,
-            location = getStringExtra(EXTRA_LIVE_UPDATE_LOCATION)
-                ?: getStringExtra("location")
-                ?: "",
-            showActions = getBooleanExtra(
-                EXTRA_LIVE_UPDATE_ACTIONS,
-                getBooleanExtra("liveUpdateActionsEnabled", true)
-            ),
-            muteKey = getStringExtra(EXTRA_LIVE_UPDATE_MUTE_KEY)
-                ?: getStringExtra("muteKey")
-                ?: "",
-            muteUntil = getStringExtra(EXTRA_LIVE_UPDATE_MUTE_UNTIL)
-                ?: getStringExtra("muteUntil")
-                ?: "",
-            chipTextMode = runCatching {
-                LiveUpdateChipTextMode.valueOf(
-                    getStringExtra(EXTRA_LIVE_UPDATE_CHIP_MODE)
-                        ?: getStringExtra("liveUpdateChipTextMode")
-                        ?: LiveUpdateChipTextMode.LOCATION.name
-                )
-            }.getOrDefault(LiveUpdateChipTextMode.LOCATION),
-            segments = decodeSegments(getStringExtra(EXTRA_LIVE_UPDATE_SEGMENTS).orEmpty()),
-            duringClassEnabled = getBooleanExtra(EXTRA_LIVE_UPDATE_DURING_CLASS, false),
-            breakStatusEnabled = getBooleanExtra(EXTRA_LIVE_UPDATE_BREAK_STATUS, true),
-            expiresAtMillis = getLongExtra(EXTRA_LIVE_UPDATE_EXPIRES_AT, 0L),
-            tomorrowCourseCount = getIntExtra(EXTRA_LIVE_UPDATE_TOMORROW_COUNT, 0)
-        )
-    }
+    internal fun payloadFromIntent(intent: Intent): LiveUpdatePayload? = LiveUpdatePayloadCodec.payloadFromIntent(intent)
 
     internal fun coursePayload(
         date: LocalDate,
@@ -678,16 +622,6 @@ object NotificationScheduler {
         )
         val payload = tomorrowPayload(tomorrow, tomorrowCourses, periods, trigger, zone)
         return payload.takeIf { nowMillis >= trigger && !it.shouldStop(nowMillis) }
-    }
-
-    private fun encodeSegments(segments: List<LiveUpdateSegment>): String = segments.joinToString(";") {
-        "${it.startAtMillis}:${it.endAtMillis}"
-    }
-
-    private fun decodeSegments(value: String): List<LiveUpdateSegment> = value.split(';').mapNotNull { encoded ->
-        val start = encoded.substringBefore(':').toLongOrNull() ?: return@mapNotNull null
-        val end = encoded.substringAfter(':', "").toLongOrNull() ?: return@mapNotNull null
-        LiveUpdateSegment(start, end).takeIf { end > start }
     }
 
     fun createChannel(context: Context) {
