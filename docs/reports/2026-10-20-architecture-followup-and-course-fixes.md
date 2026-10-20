@@ -34,7 +34,9 @@ Release Kotlin 编译与 `CourseQuietControllerTest`（21）、`CourseQuietHours
 
 ## 最终验证与边界
 
-最终运行时代码 `d6779eeb` 的 `compileGithubReleaseKotlin testGithubDebugUnitTest` 通过（5m16s）：16 类共 140 项，0 失败/错误/跳过，包括首页交接、课程静音、显示分组与标注、真实课程时间、冲突、通知和 Widget。编译与执行使用单 worker、临时 4 GiB JVM 堆；构建配置不变。
+联合验证代码 `d6779eeb` 的 `compileGithubReleaseKotlin testGithubDebugUnitTest` 通过（5m16s）：16 类共 140 项，0 失败/错误/跳过，包括首页交接、课程静音、显示分组与标注、真实课程时间、冲突、通知和 Widget。编译与执行使用单 worker、临时 4 GiB JVM 堆；构建配置不变。
+
+收尾检查新增两项失败回归：系统不抛异常却拒绝恢复时，旧代码会丢失恢复快照；系统只完成部分媒体音量调整时，旧代码没有记录实际值。`3302c9d2` 在释放自身勿扰规则后回读恢复音量，验证成功前保留所有权，并记录部分失败后的实际值。两项新测试在修复前均失败；修复后 Release Kotlin 编译及静音相关 3 类 37 项通过，0 失败/错误/跳过（5m07s）。这是最终运行时代码；其余显示、交接和协议代码相对上述联合验证未再修改。
 
 架构检查覆盖 546 个生产 Kotlin/Java 文件，9 项检查器回归通过；仍登记 44 项文件依赖、109 条循环边，没有增加豁免。Service 启停、刷新循环和清除恢复状态的代码与迁移前比对一致，只有 payload 映射改为委托。只传节次、不传完整时钟的 Widget 分组路径有专门回归，保持既有布局。
 
