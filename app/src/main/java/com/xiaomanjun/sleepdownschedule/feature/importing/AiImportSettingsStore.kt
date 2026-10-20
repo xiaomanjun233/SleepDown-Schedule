@@ -8,7 +8,8 @@ import androidx.core.content.edit
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
-import com.xiaomanjun.sleepdownschedule.feature.backup.*
+import com.xiaomanjun.sleepdownschedule.model.backup.BackupAiImportPreferences
+import com.xiaomanjun.sleepdownschedule.model.backup.BackupAiProvider
 import com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.ChatGptAuthManager
 import java.security.KeyStore
 import java.util.UUID

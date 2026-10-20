@@ -74,4 +74,3 @@ internal fun ScheduleConfigEntity.hasAnyWallpaper(): Boolean {
 
 internal fun homeFlatBackgroundColor(dark: Boolean): ComposeColor =
     if (dark) ComposeColor(0xFF18181C) else ComposeColor(0xFFF1F1F3)
-
