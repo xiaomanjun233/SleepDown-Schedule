@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.transition.legacy
 
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.windowMorphArc
+
 import android.content.Intent
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
@@ -63,8 +65,6 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.deviceScreenCornerRadiusPx
 import com.xiaomanjun.sleepdownschedule.glass.DeferredGlassRoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
@@ -451,7 +451,7 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
     content: @Composable (requestClose: () -> Unit) -> Unit
 ) {
     val density = LocalDensity.current
-    val adaptiveMetrics = rememberHomeAdaptiveMetrics()
+    val animationArc = windowMorphArc()
     val full = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
     val source = sourceBounds ?: full
     val collapse = collapseBounds ?: source
@@ -459,7 +459,7 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
     val p by remember { derivedStateOf { latestProgress.value().coerceIn(0f, 1f) } }
     val activityDarkSurface =
         androidx.compose.material3.MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val geometry by remember(source, collapse, full, closing, density, adaptiveMetrics, sourceCornerRadius, collapseCornerRadius) {
+    val geometry by remember(source, collapse, full, closing, density, animationArc, sourceCornerRadius, collapseCornerRadius) {
         derivedStateOf {
             if (!closing) {
                 val expansion = HomeMenuPageOpenEasing.transform(p)
@@ -491,8 +491,8 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                     buttonCornerRadiusPx = with(density) { collapseCornerRadius.toPx() },
                     pinchDiameterPx = with(density) { 18.dp.toPx() },
                     minimumDropPx = with(density) { 12.dp.toPx() },
-                    maximumDropPx = with(density) { adaptiveMetrics.animationArc.toPx() },
-                    maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() + 16.dp.toPx() },
+                    maximumDropPx = with(density) { animationArc.toPx() },
+                    maximumArcPx = with(density) { animationArc.toPx() + 16.dp.toPx() },
                     targetCornerRadiusPx = 0f
                 )
             }
@@ -501,7 +501,7 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
     val fullOpenEndpoint by remember(closing) {
         derivedStateOf { !detailMorphUsesTransientClip(p, closing) }
     }
-    val renderedCornerRadiusPx by remember(source, collapse, full, closing, density, sourceCornerRadius, collapseCornerRadius, adaptiveMetrics) {
+    val renderedCornerRadiusPx by remember(source, collapse, full, closing, density, sourceCornerRadius, collapseCornerRadius, animationArc) {
         derivedStateOf {
             if (!closing) {
                 geometry.cornerRadiusPx
@@ -877,7 +877,7 @@ private fun BoxScope.AnchoredCourseEditorStyleMorph(
     content: @Composable (requestClose: () -> Unit) -> Unit
 ) {
     val density = LocalDensity.current
-    val adaptiveMetrics = rememberHomeAdaptiveMetrics()
+    val animationArc = windowMorphArc()
     val target = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
     val source = sourceBounds ?: target
     val p = progress.coerceIn(0f, 1f)
@@ -886,7 +886,7 @@ private fun BoxScope.AnchoredCourseEditorStyleMorph(
         target = target,
         rawProgress = p,
         closing = closing,
-        maxArcPx = with(density) { adaptiveMetrics.animationArc.toPx() }
+        maxArcPx = with(density) { animationArc.toPx() }
     )
     val cornerProgress = anchoredDestinationSmoothStep(0.04f, 0.90f, geometry.sizeProgress)
     val sourceCornerPx = with(density) { sourceCornerRadius.toPx() }

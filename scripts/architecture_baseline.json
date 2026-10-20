@@ -1,19 +1,11 @@
 {
   "baseline_commit": "9b6acbb23512e48d0af24afec0813ecadf27573e",
-  "scope": "Declared imports and fully qualified references only; legacy debt must shrink, never grow.",
-  "legacy_dependencies": {
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/transition/legacy/AnchoredDetailActivityMorph.kt": [
-      "feature.home"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/transition/legacy/LegacyLiquidMorphSpecs.kt": [
-      "feature.home"
-    ]
-  },
+  "scope": "Declared imports, fully qualified references and root type aliases (including wildcard uses); legacy debt must shrink, never grow.",
+  "legacy_dependencies": {},
   "legacy_cycle_edges": [
     "core -> glass",
     "feature.agent -> feature.home",
     "feature.agent -> feature.importing",
-    "feature.agent -> transition",
     "feature.backup -> feature.agent",
     "feature.backup -> feature.course",
     "feature.backup -> feature.importing",
@@ -24,7 +16,6 @@
     "feature.coloros -> feature.widget",
     "feature.course -> feature.home",
     "feature.course -> feature.settings",
-    "feature.course -> transition",
     "feature.experimental -> feature.coloros",
     "feature.experimental -> feature.reminder",
     "feature.experimental -> feature.settings",
@@ -32,18 +23,15 @@
     "feature.home -> feature.course",
     "feature.home -> feature.importing",
     "feature.home -> feature.settings",
-    "feature.home -> transition",
     "feature.importing -> feature.agent",
     "feature.importing -> feature.home",
     "feature.importing -> feature.settings",
-    "feature.importing -> transition",
     "feature.reminder -> feature.coloros",
     "feature.reminder -> feature.experimental",
     "feature.schedule -> feature.home",
     "feature.schedule -> feature.importing",
     "feature.schedule -> feature.reminder",
     "feature.schedule -> feature.settings",
-    "feature.schedule -> transition",
     "feature.settings -> feature.agent",
     "feature.settings -> feature.backup",
     "feature.settings -> feature.coloros",
@@ -54,12 +42,10 @@
     "feature.settings -> feature.reminder",
     "feature.settings -> feature.schedule",
     "feature.settings -> feature.widget",
-    "feature.settings -> transition",
     "feature.widget -> feature.agent",
     "feature.widget -> feature.course",
     "feature.widget -> feature.home",
     "feature.widget -> feature.settings",
-    "glass -> core",
-    "transition -> feature.home"
+    "glass -> core"
   ]
 }

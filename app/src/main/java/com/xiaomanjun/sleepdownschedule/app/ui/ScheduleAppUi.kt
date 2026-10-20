@@ -291,7 +291,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredMorphOv
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredOverlayKind
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredOverlayPhase
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredOverlayRequest
-import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeMenuDestinationCloseDurationMillis
+import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeMenuDestinationCloseDurationMillis
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeMenuDestinationKind
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeMenuDestinationOverlayHost
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeMenuDestinationRequest

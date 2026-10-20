@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
+import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeMenuDestinationEduBackgroundScale
+
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.BackgroundZoomOpenScale
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*

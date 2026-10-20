@@ -5,7 +5,10 @@ import android.view.RoundedCorner
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 
 /** Read current window insets, including after rotation; never cache a missing startup inset. */
 @Composable
@@ -20,4 +23,20 @@ internal fun deviceScreenCornerRadiusPx(): Float {
             .maxOrNull()?.toFloat()?.takeIf { it > 0f }
             ?: with(density) { 32.dp.toPx() }
     } else with(density) { 32.dp.toPx() }
+}
+
+/** The shared popup/Activity arc follows window size; safe insets and font scale do not affect it. */
+internal fun adaptiveMorphArcDp(widthDp: Int, heightDp: Int): Dp = when {
+    widthDp < 600 -> 48.dp
+    widthDp <= heightDp -> 44.dp
+    else -> 40.dp
+}
+
+@Composable
+internal fun windowMorphArc(): Dp {
+    val size = LocalWindowInfo.current.containerSize
+    return with(LocalDensity.current) {
+        adaptiveMorphArcDp(size.width.toDp().value.roundToInt().coerceAtLeast(1),
+            size.height.toDp().value.roundToInt().coerceAtLeast(1))
+    }
 }

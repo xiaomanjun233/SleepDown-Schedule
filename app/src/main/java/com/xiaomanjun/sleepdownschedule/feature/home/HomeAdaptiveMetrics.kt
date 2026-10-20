@@ -18,6 +18,7 @@ import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeInitialTopInset
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeTopOverlayHeight
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.adaptiveMorphArcDp
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -306,7 +307,7 @@ internal fun calculateHomeAdaptiveMetrics(
             dayPaneGap = 0.dp,
             tabletContentMargin = 0.dp,
             tabletContentTop = 0.dp,
-            animationArc = 48.dp
+            animationArc = adaptiveMorphArcDp(widthDp, heightDp)
         )
     }
 
@@ -328,7 +329,7 @@ internal fun calculateHomeAdaptiveMetrics(
             dayPaneGap = 0.dp,
             tabletContentMargin = if (widthDp >= 840) 28.dp else 20.dp,
             tabletContentTop = (safeTop + 64.dp).coerceIn(72.dp, 112.dp),
-            animationArc = 44.dp
+            animationArc = adaptiveMorphArcDp(widthDp, heightDp)
         )
     }
 
@@ -357,7 +358,7 @@ internal fun calculateHomeAdaptiveMetrics(
         dayPaneGap = if (compactLandscape) 12.dp else 20.dp,
         tabletContentMargin = if (compactLandscape) 16.dp else if (isThreeTwoLike) 38.dp else 40.dp,
         tabletContentTop = contentTop,
-        animationArc = 40.dp
+        animationArc = adaptiveMorphArcDp(widthDp, heightDp)
     )
 }
 
