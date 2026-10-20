@@ -72,6 +72,7 @@ jobs:
           --tests 'com.xiaomanjun.sleepdownschedule.domain.agent.AgentExecutionTest'
           --tests 'com.xiaomanjun.sleepdownschedule.platform.coloros.VisualEffectModeTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetricsTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.home.HomeImportHandoffStateTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredMorphGeometryTest'
           --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemesTest'
           --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustmentsTest'

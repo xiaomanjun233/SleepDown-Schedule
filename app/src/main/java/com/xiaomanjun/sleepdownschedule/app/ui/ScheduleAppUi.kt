@@ -308,6 +308,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.personalization.Personalize
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.mergePersonalizationCandidate
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.resolveActivePersonalizationSlider
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
+import com.xiaomanjun.sleepdownschedule.feature.home.HomeImportHandoffState
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeSidebarState
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeSwitchMotion
 import com.xiaomanjun.sleepdownschedule.feature.home.shouldReuseHomeSurface
@@ -445,12 +446,8 @@ fun CourseScheduleAppUi(
     var pendingPickerEditorScheduleId by remember { mutableStateOf<Int?>(null) }
     var quickScheduleDraft by remember { mutableStateOf<QuickScheduleDraft?>(null) }
     var quickScheduleReturnToManager by remember { mutableStateOf(false) }
-    var importSubmitting by remember { mutableStateOf(false) }
-    var importSourceState by remember { mutableStateOf<AppState?>(null) }
+    val importHandoff = remember { HomeImportHandoffState() }
     val importHomeReveal = remember { Animatable(1f) }
-    var importPreviewMounted by remember { mutableStateOf(false) }
-    var importPreviousCourseIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    var importExpectedCourseCount by remember { mutableStateOf<Int?>(null) }
     val dayAgentBackgroundMotionState = rememberDayAgentBackgroundMotionState()
     val dayAgentCountdownCinematic = remember { DayAgentCountdownCinematicState() }
     var dayAgentPagerSettled by remember { mutableStateOf(false) }
@@ -460,7 +457,7 @@ fun CourseScheduleAppUi(
     var detailCaptureRecordCleanFrame by remember { mutableStateOf(false) }
     val detailCaptureMaskActive = remember { AtomicBoolean(false) }
     // Saving may activate a new schedule before the import window has finished retracting.
-    val baseVisualState = importSourceState ?: (previewScheduleId?.let(allSchedulesState::forSchedule) ?: state)
+    val baseVisualState = importHandoff.sourceState ?: (previewScheduleId?.let(allSchedulesState::forSchedule) ?: state)
     var personalizationDraftConfig by remember { mutableStateOf<ScheduleConfigEntity?>(null) }
     var personalizationPendingCommitConfig by remember { mutableStateOf<ScheduleConfigEntity?>(null) }
     var personalizationSliderPreviewKey by remember { mutableStateOf<String?>(null) }
@@ -927,13 +924,9 @@ fun CourseScheduleAppUi(
     }
     LaunchedEffect(aiFinalImportRequest) {
         aiFinalImportRequest?.let { request ->
-            importSourceState = visualState
-            importPreviousCourseIds = state.courses.map { it.id }.toSet()
-            importExpectedCourseCount = request.draft.courses.size
+            importHandoff.retainSource(visualState, state.courses, request.draft.courses.size)
             viewModel.importDraft(request.draft, request.createNewSchedule, onFailure = {
-                importSourceState = null
-                importExpectedCourseCount = null
-                importPreviousCourseIds = emptySet()
+                importHandoff.submissionFailed()
                 homeDialog = HomeDialog.ConfirmImport(request.draft, returnDialog = null,
                     errorMessage = it.message ?: "课表保存失败，请重试")
             }) { scheduleId ->
@@ -1847,7 +1840,7 @@ fun CourseScheduleAppUi(
         closeHomeMenuDestination()
         // Keep the source timetable unchanged until both the entry and preview really unmount.
         snapshotFlow {
-            !importPreviewMounted && renderedHomeDialog == null &&
+            !importHandoff.previewMounted && renderedHomeDialog == null &&
                 homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Idle
         }.first { it }
         homeAssistant.reset()
@@ -1856,23 +1849,16 @@ fun CourseScheduleAppUi(
         screen = Screen.Home
         homeMode = HomeMode.Week
         importHomeReveal.snapTo(0f)
-        importSourceState = null
+        importHandoff.releaseSource()
         snapshotFlow {
-            val latest = latestAllSchedulesState.value
-            val rendered = latestVisualState.value
-            !importPreviewMounted && renderedHomeDialog == null && rendered.loaded &&
-                latest.schedules.any { it.id == scheduleId } &&
-                latest.allConfigs.any { it.id == scheduleId } &&
-                rendered.config.id == scheduleId &&
-                (importExpectedCourseCount == null || (rendered.courses.size == importExpectedCourseCount &&
-                    rendered.courses.none { it.id in importPreviousCourseIds }))
+            renderedHomeDialog == null && importHandoff.isTargetReady(
+                scheduleId, latestAllSchedulesState.value, latestVisualState.value
+            )
         }.first { it }
         withFrameNanos { }
         importHomeReveal.animateTo(1f, tween(300, easing = CubicBezierEasing(0.22f, 0.72f, 0.20f, 1f)))
         // Open setup only after the root preview has really gone and live data is ready.
-        importSubmitting = false
-        importExpectedCourseCount = null
-        importPreviousCourseIds = emptySet()
+        importHandoff.complete()
         quickScheduleReturnToManager = false
         quickScheduleDraft = quickDraftFor(scheduleId)
         pendingImportedSetupId = null
@@ -4140,26 +4126,18 @@ fun CourseScheduleAppUi(
         if (dialog !is HomeDialog.EditWallpaper && (dialog !is HomeDialog.EditCourse || dialog.course == null)) {
         if (dialog is HomeDialog.ConfirmImport) {
             ImportPreviewPage(draft = dialog.draft, config = state.config, visible = homeDialogVisible,
-                submitting = importSubmitting, errorMessage = dialog.errorMessage,
-                onContentMountedChanged = { importPreviewMounted = it },
+                submitting = importHandoff.submitting, errorMessage = dialog.errorMessage,
+                onContentMountedChanged = importHandoff::onPreviewMountedChanged,
                 onBack = {
-                    importExpectedCourseCount = null
-                    importPreviousCourseIds = emptySet()
+                    importHandoff.clearExpectedCourses()
                     homeDialog = dialog.returnDialog
                 },
                 onDraftChanged = { homeDialog = dialog.copy(draft = it, errorMessage = null) },
                 onConfirm = { createNew ->
-                    if (!importSubmitting) {
-                        importSubmitting = true
-                        importSourceState = visualState
-                        importPreviousCourseIds = state.courses.map { it.id }.toSet()
-                        importExpectedCourseCount = dialog.draft.courses.size
+                    if (importHandoff.beginSubmission(visualState, state.courses, dialog.draft.courses.size)) {
                         homeDialog = dialog.copy(errorMessage = null)
                         viewModel.importDraft(dialog.draft, createNew, onFailure = {
-                            importSubmitting = false
-                            importSourceState = null
-                            importExpectedCourseCount = null
-                            importPreviousCourseIds = emptySet()
+                            importHandoff.submissionFailed()
                             homeDialog = dialog.copy(errorMessage = it.message ?: "保存失败，请重试")
                         }) { scheduleId -> pendingImportedSetupId = scheduleId }
                     }
