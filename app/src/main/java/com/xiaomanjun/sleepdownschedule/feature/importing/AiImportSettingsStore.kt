@@ -6,7 +6,7 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.core.content.edit
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.feature.backup.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.ChatGptAuthManager
@@ -92,7 +92,7 @@ object AiImportSettingsStore {
                 ).orEmpty()
             )
         }.getOrDefault(AiProviderPresets.dailyFree.reasoningEffort)
-        return SleepDownRemoteConfig.managedFreeSettings(context, effort)
+        return ManagedAiRemoteConfig.managedFreeSettings(context, effort)
     }
 
     fun hasUserConfiguredApiKey(context: Context): Boolean {
@@ -163,7 +163,7 @@ object AiImportSettingsStore {
         if (prefs.contains(KeyManagedFreeOfferDecision)) return false
         val selectedId = load(context).profile.id
         if (selectedId == AiProviderPresets.dailyFree.id || AiProviderPresets.isChatGptId(selectedId)) return false
-        return !hasUserConfiguredApiKey(context) && SleepDownRemoteConfig.isManagedFreeAvailable(context)
+        return !hasUserConfiguredApiKey(context) && ManagedAiRemoteConfig.isManagedFreeAvailable(context)
     }
 
     fun enableManagedFreeAi(context: Context) {

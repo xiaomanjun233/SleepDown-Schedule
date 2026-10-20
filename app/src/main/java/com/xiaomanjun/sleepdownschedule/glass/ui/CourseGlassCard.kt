@@ -45,7 +45,6 @@ import com.xiaomanjun.sleepdownschedule.core.performance.LocalGlassQuality
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextBackground
 import com.xiaomanjun.sleepdownschedule.courseCardBlurMaximum
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalPersonalizationPreview
-import com.xiaomanjun.sleepdownschedule.feature.home.day.CourseCard
 import com.xiaomanjun.sleepdownschedule.feature.home.day.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeFlatBackgroundColor
 import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase

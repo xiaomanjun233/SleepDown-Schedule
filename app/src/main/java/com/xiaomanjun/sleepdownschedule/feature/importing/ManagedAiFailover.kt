@@ -1,7 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import android.content.Context
-import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import java.io.IOException
 import java.io.InterruptedIOException
 import java.net.SocketTimeoutException
@@ -59,7 +59,7 @@ internal suspend fun <T> withManagedAiFailover(
     block: suspend (AiImportSettings, ManagedAiAttempt) -> T
 ): T {
     if (!AiProviderPresets.isManagedFreeId(settings.profile.id)) return block(settings, ManagedAiAttempt())
-    val candidates = SleepDownRemoteConfig.managedFreeCandidates(context, settings.profile.reasoningEffort)
+    val candidates = ManagedAiRemoteConfig.managedFreeCandidates(context, settings.profile.reasoningEffort)
         .filter { !requiresVision || AiProviderPresets.supportsImageInput(it.profile) }
     require(candidates.isNotEmpty() || !requiresVision) { "每日免费 AI 暂无可用的图片模型，请切换视觉模型。" }
     return runManagedAiCandidates(candidates, onSwitch, block)

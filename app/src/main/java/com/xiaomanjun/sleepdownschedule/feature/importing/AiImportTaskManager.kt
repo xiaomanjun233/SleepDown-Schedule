@@ -407,7 +407,7 @@ object AiImportTaskManager {
             requestRepair = { output, failure, _ ->
                 currentCoroutineContext().ensureActive()
                 val repairSettings = aiResult.managedRouteId?.let { route ->
-                    com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
+                    ManagedAiRemoteConfig
                         .managedFreeCandidates(context, settings.profile.reasoningEffort)
                         .firstOrNull { it.managedRouteId == route }
                 } ?: settings.takeIf { aiResult.managedRouteId == null }

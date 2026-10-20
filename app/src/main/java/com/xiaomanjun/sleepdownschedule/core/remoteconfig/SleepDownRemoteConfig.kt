@@ -1,11 +1,6 @@
-package com.xiaomanjun.sleepdownschedule.app.config
+package com.xiaomanjun.sleepdownschedule.core.remoteconfig
 
-import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.analytics.InstallationAnalytics
-import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
-
-import com.xiaomanjun.sleepdownschedule.feature.importing.*
-
 import android.content.Context
 import androidx.core.content.edit
 import java.util.concurrent.ConcurrentHashMap
@@ -34,9 +29,19 @@ object SleepDownRemoteConfig {
     @Volatile private var store: RemoteConfigStore? = null
     @Volatile private var appContext: Context? = null
 
-    fun initialize(context: Context, scope: CoroutineScope) {
+    private var onBootstrapLoaded: (Context) -> Unit = {}
+    private var onBootstrapUpdated: () -> Unit = {}
+
+    fun initialize(
+        context: Context,
+        scope: CoroutineScope,
+        onBootstrapLoaded: (Context) -> Unit,
+        onBootstrapUpdated: () -> Unit
+    ) {
         val applicationContext = context.applicationContext
         if (!initialized.compareAndSet(false, true)) return
+        this.onBootstrapLoaded = onBootstrapLoaded
+        this.onBootstrapUpdated = onBootstrapUpdated
         appContext = applicationContext
         val configStore = RemoteConfigStore(applicationContext)
         store = configStore
@@ -46,7 +51,7 @@ object SleepDownRemoteConfig {
         // The bootstrap is a persisted, encrypted transport configuration. Once it is available,
         // make the resolved provider active immediately so a process restart does not turn a valid
         // backend-issued key back into an unconfigured "none" provider.
-        activateResolvedProvider(applicationContext)
+        onBootstrapLoaded(applicationContext)
         scope.launch(Dispatchers.IO) {
             refreshIfNeeded(applicationContext, force = false)
             InstallationAnalytics(applicationContext).sync()
@@ -70,8 +75,8 @@ object SleepDownRemoteConfig {
                     configStore.save(result.bootstrap, result.etag)
                     mutableState.value = RemoteConfigState(result.bootstrap, System.currentTimeMillis())
                     recomputeExperience(context)
-                    activateResolvedProvider(context)
-                    AiImportSettingsStore.notifyRemoteConfigChanged()
+                    onBootstrapLoaded(context)
+                    onBootstrapUpdated()
                 }
                 BootstrapFetchResult.NotModified -> {
                     configStore.markNotModified()
@@ -84,52 +89,6 @@ object SleepDownRemoteConfig {
 			mutableState.value = mutableState.value.copy(isRefreshing = false)
             refreshInProgress.set(false)
         }
-    }
-
-    fun managedFreeSettings(context: Context, effort: AiReasoningEffort): AiImportSettings {
-        val candidates = managedFreeCandidates(context, effort)
-        val selected = candidates.firstOrNull()
-            ?: return AiImportSettings(managedProfile(mutableState.value.bootstrap?.managedAiConfigs()?.firstOrNull(), effort))
-        // The entry point exposes pool capabilities. Each network attempt still uses its own flags.
-        val vision = candidates.any { it.profile.supportsVision }
-        return selected.copy(profile = selected.profile.copy(supportsVision = vision,
-            capabilities = selected.profile.capabilities.copy(supportsImageInput = vision)))
-    }
-
-    internal fun managedFreeCandidates(context: Context, effort: AiReasoningEffort): List<AiImportSettings> {
-        if (!BuildConfig.SLEEPDOWN_REMOTE_AI_ENABLED || BuildConfig.SLEEPDOWN_REMOTE_CONFIG_SECRET.isBlank()) return emptyList()
-        val certificate = SigningCertificateDigest.current(context)
-        val now = estimatedServerTimeSeconds()
-        return mutableState.value.bootstrap?.managedAiConfigs().orEmpty()
-            .filter { it.availability(now) == RemoteAiAvailability.AVAILABLE }
-            .mapNotNull { ai ->
-                val key = runCatching {
-                    RemoteSecretCrypto.decrypt(BuildConfig.SLEEPDOWN_REMOTE_CONFIG_SECRET, certificate, ai, context.packageName)
-                }.getOrNull()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-                AiImportSettings(managedProfile(ai, effort), key, "${ai.keyId}:${ai.configVersion}")
-            }
-    }
-
-    fun isManagedFreeAvailable(context: Context): Boolean = managedFreeSettings(
-        context,
-        AiProviderPresets.dailyFree.reasoningEffort
-    ).let { it.apiKey.isNotBlank() && it.profile.baseUrl.isNotBlank() && it.profile.defaultModel.isNotBlank() }
-
-    fun managedFreeStatusMessage(context: Context): String {
-        val candidates = managedFreeCandidates(context, AiProviderPresets.dailyFree.reasoningEffort)
-        val configs = mutableState.value.bootstrap?.managedAiConfigs().orEmpty()
-        val ai = configs.firstOrNull { "${it.keyId}:${it.configVersion}" == candidates.firstOrNull()?.managedRouteId }
-            ?: configs.firstOrNull() ?: return "暂无每日免费 AI 配置，请刷新后重试。"
-        when (ai.availability(estimatedServerTimeSeconds())) {
-            RemoteAiAvailability.DISABLED -> return ai.message.ifBlank { "每日免费 AI 当前正在维护，请稍后重试，或使用自己的 API Key。" }
-            RemoteAiAvailability.EXPIRED -> return ai.message.ifBlank { "每日免费 AI 配置已过期，请稍后重试。" }
-            RemoteAiAvailability.UNSUPPORTED -> return "每日免费 AI 配置版本暂不受支持，请更新应用。"
-            RemoteAiAvailability.AVAILABLE -> Unit
-        }
-        if (!BuildConfig.SLEEPDOWN_REMOTE_AI_ENABLED) return "当前构建未启用每日免费 AI，请使用自己的 API Key。"
-        if (!isManagedFreeAvailable(context)) return "每日免费 AI 安全配置校验失败，请刷新配置或使用自己的 API Key。"
-        return ai.message.ifBlank { "服务正常 · ${ai.model}" } +
-            if (candidates.size > 1) " · ${candidates.size} 组配置自动切换" else ""
     }
 
     fun markNoticeShown(context: Context, notice: RemoteNotice) {
@@ -173,33 +132,6 @@ object SleepDownRemoteConfig {
                 else item.id.toString() !in shown
         }
         mutableExperience.value = RemoteExperienceState(agreement, notice)
-    }
-
-    private fun activateResolvedProvider(context: Context) {
-        runCatching { AiImportSettingsStore.activateAvailableSettings(context) }
-            .onFailure { error ->
-                // A malformed/expired remote credential must remain a normal unavailable state;
-                // it must never prevent the rest of the app from starting.
-                android.util.Log.w("SleepDownRemoteConfig", "Unable to activate cached AI config", error)
-            }
-    }
-
-    private fun managedProfile(ai: RemoteAiConfig?, effort: AiReasoningEffort): AiProviderProfile {
-        val endpoint = if (ai?.endpointStyle == "chat_completions") AiEndpointStyle.CHAT_COMPLETIONS else AiEndpointStyle.RESPONSES
-        val supportsResponses = endpoint == AiEndpointStyle.RESPONSES
-        return AiProviderPresets.dailyFree.copy(
-            baseUrl = ai?.baseUrl.orEmpty(),
-            defaultModel = ai?.model.orEmpty(),
-            authType = managedAiAuthType(ai?.baseUrl.orEmpty()),
-            capabilities = AiProviderPresets.dailyFree.capabilities.copy(
-                supportsImageInput = ai?.supportsVision == true,
-                supportsResponses = supportsResponses
-            ),
-            endpointStyle = endpoint,
-            supportsVision = ai?.supportsVision == true,
-            availableModels = listOfNotNull(ai?.model?.takeIf(String::isNotBlank)),
-            reasoningEffort = effort
-        )
     }
 
     internal fun estimatedServerTimeSeconds(): Long = store?.estimatedServerTimeSeconds() ?: System.currentTimeMillis() / 1_000L

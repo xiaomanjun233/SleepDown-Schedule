@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import com.xiaomanjun.sleepdownschedule.feature.importing.ManagedAiRemoteConfig
 import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -46,7 +47,7 @@ import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogLiquidButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
@@ -478,7 +479,7 @@ fun AiImportSettingsSection(
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
             SettingsInfoRow(
                 "每日免费 AI",
-                SleepDownRemoteConfig.managedFreeStatusMessage(context)
+                ManagedAiRemoteConfig.managedFreeStatusMessage(context)
             )
 			SettingsActionRow(
 				title = "远程配置",

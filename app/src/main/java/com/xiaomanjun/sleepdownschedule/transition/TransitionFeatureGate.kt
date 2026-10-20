@@ -1,6 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.transition
 
-import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 
 internal object TransitionFeatureGate {

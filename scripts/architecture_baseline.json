@@ -2,67 +2,13 @@
   "baseline_commit": "9b6acbb23512e48d0af24afec0813ecadf27573e",
   "scope": "Declared imports and fully qualified references only; legacy debt must shrink, never grow.",
   "legacy_dependencies": {
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/agent/TodayAgentHost.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/backup/BackupRestoreSettingsUi.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/backup/webdav/WebDavSettingsUi.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/course/management/CourseManagementUi.kt": [
-      "app"
-    ],
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/HomeDockChrome.kt": [
       "app"
     ],
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/HomeNavigationControls.kt": [
       "app"
     ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/ParallelHomeDock.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/HomeAnchoredMorphOverlay.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/HomeMenuDestinationOverlay.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekScheduleScreen.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/AiImportSettingsStore.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/AiImportTaskManager.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/AiManualImportUi.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/ConfirmScheduleUi.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/DonateUi.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduImportBrowserUi.kt": [
-      "app"
-    ],
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduSchoolSelectionUi.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/ManagedAiFailover.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/history/AiImportHistoryDetailUi.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/history/AiImportHistoryUi.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/progress/AiEduImportProgressUi.kt": [
       "app"
     ],
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/schedule/autorefresh/SwuUnifiedAuthActivity.kt": [
@@ -74,28 +20,10 @@
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/schedule/manager/ScheduleManagerUi.kt": [
       "app"
     ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/schedule/picker/SchedulePickerOverlay.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/AiImportSettingsScreen.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/LegalAndDonationUi.kt": [
-      "app"
-    ],
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/ScheduleAdjustmentsActivity.kt": [
       "app"
     ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/ScheduleConfigScreenUi.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/ScheduleSettingsContentUi.kt": [
-      "app"
-    ],
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/VisualEffectsSettingsScreen.kt": [
-      "app"
-    ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/widget/WidgetCustomizationUi.kt": [
       "app"
     ],
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/glass/ui/CourseCardPalette.kt": [
@@ -110,15 +38,11 @@
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/glass/ui/GlassSurfaces.kt": [
       "feature.home"
     ],
-    "app/src/main/java/com/xiaomanjun/sleepdownschedule/transition/TransitionFeatureGate.kt": [
-      "app"
-    ],
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/transition/legacy/AnchoredDetailActivityMorph.kt": [
       "feature.home",
       "feature.importing"
     ],
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/transition/legacy/DetailMorphOverlay.kt": [
-      "app",
       "feature.settings"
     ],
     "app/src/main/java/com/xiaomanjun/sleepdownschedule/transition/legacy/LegacyLiquidMorphSpecs.kt": [
@@ -143,14 +67,12 @@
     "app -> platform",
     "app -> transition",
     "core -> glass",
-    "feature.agent -> app",
     "feature.agent -> core",
     "feature.agent -> feature.backup",
     "feature.agent -> feature.home",
     "feature.agent -> feature.importing",
     "feature.agent -> glass",
     "feature.agent -> transition",
-    "feature.backup -> app",
     "feature.backup -> core",
     "feature.backup -> feature.agent",
     "feature.backup -> feature.course",
@@ -162,7 +84,6 @@
     "feature.backup -> glass",
     "feature.coloros -> feature.update",
     "feature.coloros -> feature.widget",
-    "feature.course -> app",
     "feature.course -> core",
     "feature.course -> feature.home",
     "feature.course -> feature.settings",
@@ -177,7 +98,6 @@
     "feature.home -> feature.agent",
     "feature.home -> feature.course",
     "feature.home -> feature.importing",
-    "feature.home -> feature.schedule",
     "feature.home -> feature.settings",
     "feature.home -> glass",
     "feature.home -> transition",
@@ -216,7 +136,6 @@
     "feature.settings -> glass",
     "feature.settings -> transition",
     "feature.update -> core",
-    "feature.widget -> app",
     "feature.widget -> core",
     "feature.widget -> feature.agent",
     "feature.widget -> feature.course",
@@ -227,7 +146,6 @@
     "glass -> feature.home",
     "platform -> core",
     "platform -> glass",
-    "transition -> app",
     "transition -> core",
     "transition -> feature.home",
     "transition -> feature.importing",
