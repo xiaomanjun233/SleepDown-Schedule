@@ -159,7 +159,6 @@ internal fun EduImportActivityScreen(
     val currentOnParsed by rememberUpdatedState(onParsed)
     val bridge = remember(adapter) {
         ShiguangBridgeHost(
-            context = context,
             onDraft = { draft ->
                 webView?.commitSystemCredentialAutofill()
                 currentOnParsed(draft)
@@ -167,6 +166,9 @@ internal fun EduImportActivityScreen(
             onMessage = { message = it },
             onInteractionRequest = { bridgeInteraction = it }
         )
+    }
+    DisposableEffect(bridge) {
+        onDispose { bridge.close() }
     }
     EduBridgeInteractionDialog(
         request = bridgeInteraction,

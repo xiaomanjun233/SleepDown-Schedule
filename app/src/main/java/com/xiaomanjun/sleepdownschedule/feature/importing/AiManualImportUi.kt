@@ -205,7 +205,7 @@ fun NormalizedAiManualImportScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     fun releaseManualToolWebView() {
-        manualToolBridge?.bindWebView(null)
+        manualToolBridge?.close()
         manualToolWebView?.let { released ->
             released.uninstallShiguangRuntime()
             released.releaseSleepDownWebView(clearResourceCache = false)
@@ -216,7 +216,7 @@ fun NormalizedAiManualImportScreen(
     }
     DisposableEffect(Unit) {
         onDispose {
-            manualToolBridge?.bindWebView(null)
+            manualToolBridge?.close()
             manualToolWebView?.let { released ->
                 released.uninstallShiguangRuntime()
                 released.releaseSleepDownWebView(clearResourceCache = false)
@@ -244,7 +244,6 @@ fun NormalizedAiManualImportScreen(
             }
         lateinit var target: WebView
         val bridge = ShiguangBridgeHost(
-            context = context,
             onDraft = { draft ->
                 if (manualToolWebView === target) releaseManualToolWebView()
                 manualToolRequest = null

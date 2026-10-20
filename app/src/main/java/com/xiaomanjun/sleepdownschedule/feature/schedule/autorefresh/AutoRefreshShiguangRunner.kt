@@ -70,6 +70,7 @@ internal object AutoRefreshShiguangRunner {
         onInteraction: ((AutoRefreshLoginInteraction?) -> Unit)?
     ): AutoRefreshFetch = suspendCancellableCoroutine { continuation ->
         val handler = Handler(Looper.getMainLooper())
+        var sessionBridge: ShiguangBridgeHost? = null
         var target: WebView? = null
         var sessionRestore: AutoCloseable? = null
         var scriptStarted = false
@@ -82,6 +83,8 @@ internal object AutoRefreshShiguangRunner {
         val answers = profile.interactionAnswers.toMutableMap()
 
         fun release() {
+            sessionBridge?.close()
+            sessionBridge = null
             sessionRestore?.close()
             sessionRestore = null
             handler.removeCallbacksAndMessages(null)
@@ -127,7 +130,6 @@ internal object AutoRefreshShiguangRunner {
 
         lateinit var bridge: ShiguangBridgeHost
         bridge = ShiguangBridgeHost(
-            context = context,
             onDraft = ::complete,
             onMessage = { message -> if (isFailureMessage(message)) fail(message) },
             onInteractionRequest = { request ->
@@ -157,6 +159,7 @@ internal object AutoRefreshShiguangRunner {
                 }
             }
         )
+        sessionBridge = bridge
         bridge.beginTask(
             targetState.config, targetState.periods,
             allowImportedBellTimes = adapter.school.id != "GLOBAL_TOOLS"

@@ -98,6 +98,7 @@ jobs:
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.ScheduleImportCustomCourseTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.WakeUpImportSessionTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangImportSessionCustomTimeTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangBridgeLifecycleTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.IcsScheduleCodecTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportDocumentTextTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportCheckpoint*'
