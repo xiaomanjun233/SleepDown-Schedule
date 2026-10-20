@@ -1,0 +1,245 @@
+{
+  "baseline_commit": "9b6acbb23512e48d0af24afec0813ecadf27573e",
+  "scope": "Declared imports and fully qualified references only; legacy debt must shrink, never grow.",
+  "legacy_dependencies": {
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/agent/TodayAgentHost.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/backup/BackupRestoreSettingsUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/backup/webdav/WebDavSettingsUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/course/management/CourseManagementUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/HomeDockChrome.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/HomeNavigationControls.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/ParallelHomeDock.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/HomeAnchoredMorphOverlay.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/overlay/HomeMenuDestinationOverlay.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/home/week/WeekScheduleScreen.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/AiImportSettingsStore.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/AiImportTaskManager.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/AiManualImportUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/ConfirmScheduleUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/DonateUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduImportBrowserUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/EduSchoolSelectionUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/ManagedAiFailover.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/history/AiImportHistoryDetailUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/history/AiImportHistoryUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/importing/progress/AiEduImportProgressUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/schedule/autorefresh/SwuUnifiedAuthActivity.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/schedule/manager/ScheduleManagerScreen.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/schedule/manager/ScheduleManagerUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/schedule/picker/SchedulePickerOverlay.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/AiImportSettingsScreen.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/LegalAndDonationUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/ScheduleAdjustmentsActivity.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/ScheduleConfigScreenUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/ScheduleSettingsContentUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/settings/VisualEffectsSettingsScreen.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/feature/widget/WidgetCustomizationUi.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/glass/ui/CourseCardPalette.kt": [
+      "feature.home"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/glass/ui/CourseGlassCard.kt": [
+      "feature.home"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/glass/ui/CourseTextReadability.kt": [
+      "feature.home"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/glass/ui/GlassSurfaces.kt": [
+      "feature.home"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/model/ScheduleModels.kt": [
+      "domain"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/model/agent/AgentActions.kt": [
+      "domain"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/transition/TransitionFeatureGate.kt": [
+      "app"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/transition/legacy/AnchoredDetailActivityMorph.kt": [
+      "feature.home",
+      "feature.importing"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/transition/legacy/DetailMorphOverlay.kt": [
+      "app",
+      "feature.settings"
+    ],
+    "app/src/main/java/com/xiaomanjun/sleepdownschedule/transition/legacy/LegacyLiquidMorphSpecs.kt": [
+      "feature.home"
+    ]
+  },
+  "legacy_cycle_edges": [
+    "app -> core",
+    "app -> feature.agent",
+    "app -> feature.backup",
+    "app -> feature.coloros",
+    "app -> feature.course",
+    "app -> feature.experimental",
+    "app -> feature.home",
+    "app -> feature.importing",
+    "app -> feature.reminder",
+    "app -> feature.schedule",
+    "app -> feature.settings",
+    "app -> feature.update",
+    "app -> feature.widget",
+    "app -> glass",
+    "app -> platform",
+    "app -> transition",
+    "core -> glass",
+    "domain -> model",
+    "feature.agent -> app",
+    "feature.agent -> core",
+    "feature.agent -> feature.backup",
+    "feature.agent -> feature.home",
+    "feature.agent -> feature.importing",
+    "feature.agent -> glass",
+    "feature.agent -> transition",
+    "feature.backup -> app",
+    "feature.backup -> core",
+    "feature.backup -> feature.agent",
+    "feature.backup -> feature.course",
+    "feature.backup -> feature.importing",
+    "feature.backup -> feature.reminder",
+    "feature.backup -> feature.schedule",
+    "feature.backup -> feature.settings",
+    "feature.backup -> feature.widget",
+    "feature.backup -> glass",
+    "feature.coloros -> feature.update",
+    "feature.coloros -> feature.widget",
+    "feature.course -> app",
+    "feature.course -> core",
+    "feature.course -> feature.home",
+    "feature.course -> feature.settings",
+    "feature.course -> glass",
+    "feature.course -> transition",
+    "feature.experimental -> core",
+    "feature.experimental -> feature.coloros",
+    "feature.experimental -> feature.reminder",
+    "feature.experimental -> feature.settings",
+    "feature.home -> app",
+    "feature.home -> core",
+    "feature.home -> feature.agent",
+    "feature.home -> feature.course",
+    "feature.home -> feature.importing",
+    "feature.home -> feature.schedule",
+    "feature.home -> feature.settings",
+    "feature.home -> glass",
+    "feature.home -> transition",
+    "feature.importing -> app",
+    "feature.importing -> core",
+    "feature.importing -> feature.agent",
+    "feature.importing -> feature.backup",
+    "feature.importing -> feature.home",
+    "feature.importing -> feature.settings",
+    "feature.importing -> glass",
+    "feature.importing -> transition",
+    "feature.reminder -> core",
+    "feature.reminder -> feature.coloros",
+    "feature.reminder -> feature.experimental",
+    "feature.schedule -> app",
+    "feature.schedule -> core",
+    "feature.schedule -> feature.home",
+    "feature.schedule -> feature.importing",
+    "feature.schedule -> feature.reminder",
+    "feature.schedule -> feature.settings",
+    "feature.schedule -> glass",
+    "feature.schedule -> transition",
+    "feature.settings -> app",
+    "feature.settings -> core",
+    "feature.settings -> feature.agent",
+    "feature.settings -> feature.backup",
+    "feature.settings -> feature.coloros",
+    "feature.settings -> feature.course",
+    "feature.settings -> feature.experimental",
+    "feature.settings -> feature.home",
+    "feature.settings -> feature.importing",
+    "feature.settings -> feature.reminder",
+    "feature.settings -> feature.schedule",
+    "feature.settings -> feature.update",
+    "feature.settings -> feature.widget",
+    "feature.settings -> glass",
+    "feature.settings -> transition",
+    "feature.update -> core",
+    "feature.widget -> app",
+    "feature.widget -> core",
+    "feature.widget -> feature.agent",
+    "feature.widget -> feature.course",
+    "feature.widget -> feature.home",
+    "feature.widget -> feature.settings",
+    "feature.widget -> glass",
+    "glass -> core",
+    "glass -> feature.home",
+    "model -> domain",
+    "platform -> core",
+    "platform -> glass",
+    "transition -> app",
+    "transition -> core",
+    "transition -> feature.home",
+    "transition -> feature.importing",
+    "transition -> feature.settings",
+    "transition -> glass"
+  ]
+}

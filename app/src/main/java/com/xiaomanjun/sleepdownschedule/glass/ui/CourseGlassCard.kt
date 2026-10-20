@@ -41,7 +41,6 @@ import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.LiquidCourseCardBlurMax
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.SimpleCourseCardBlurMax
-import com.xiaomanjun.sleepdownschedule.app.ui.Screen
 import com.xiaomanjun.sleepdownschedule.core.performance.LocalGlassQuality
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextBackground
 import com.xiaomanjun.sleepdownschedule.courseCardBlurMaximum

@@ -1,7 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
 
 import androidx.compose.runtime.Immutable
 import androidx.compose.ui.unit.Dp

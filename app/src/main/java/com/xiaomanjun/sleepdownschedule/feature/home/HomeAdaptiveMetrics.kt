@@ -16,7 +16,6 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeInitialTopInset
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeTopOverlayHeight
 import kotlin.math.min

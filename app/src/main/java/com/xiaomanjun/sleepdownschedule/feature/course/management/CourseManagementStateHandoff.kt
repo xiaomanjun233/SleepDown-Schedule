@@ -1,6 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.management
 
-import com.xiaomanjun.sleepdownschedule.app.state.*
 import com.xiaomanjun.sleepdownschedule.*
 
 import android.content.Intent
@@ -13,7 +12,7 @@ private const val CourseManagementInitialStateTokenExtra = "course_management_in
 /**
  * An Activity-local handoff for the already loaded schedule state.
  *
- * A fresh [ScheduleViewModel] deliberately starts with [AppState]'s safe empty value before the
+ * A fresh schedule ViewModel deliberately starts with [AppState]'s safe empty value before the
  * Room flow emits. That is fine for an ordinary cold launch, but it made an anchored Activity
  * transition precompose the empty page for two frames and then visibly replace it with the real
  * course page. The bitmap snapshots only own the moving/background layers; this handoff keeps the

@@ -28,6 +28,8 @@ jobs:
         run: python3 .github/scripts/pr_scope.py
       - name: Check source dependency boundaries
         run: python3 scripts/check_architecture.py
+      - name: Verify architecture checker
+        run: python3 -m unittest discover -s scripts/tests -p 'test_architecture.py'
 
   android:
     name: Android compile
@@ -103,6 +105,7 @@ jobs:
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiProviderPresetsTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.*Test'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.agent.AgentToolsTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.agent.AgentSettingPlanExecutorTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.ImportedWeekNormalizationTest'
           --tests 'com.xiaomanjun.sleepdownschedule.data.repository.AutoRefreshTimingPreservationTest'
           --tests 'com.xiaomanjun.sleepdownschedule.SharedPeriodSchemeRepositoryTest'

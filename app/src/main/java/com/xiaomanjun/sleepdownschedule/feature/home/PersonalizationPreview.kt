@@ -6,7 +6,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardAlphaSlider
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardBlurSlider
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardFontSlider
