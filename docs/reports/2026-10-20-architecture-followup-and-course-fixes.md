@@ -1,5 +1,7 @@
 # 架构续作与课程显示、自动静音修复
 
+此页保留课程修复阶段的证据。此后架构收口、ChatGPT 和模型列表修复见[最新报告](2026-10-20-architecture-completion-and-ai-fixes.md)，最终代码与 CI 以 #79 head 为准。
+
 本轮接续 [首批架构审查](2026-10-20-architecture-review.md)。开始前通过 GitHub plugin 核对 #79 仍开放、无评审线程，fetch 后 main 仍为 `9b6acbb2`；复用独立工作树 `tmp/architecture-refactor/` 与 `codex/architecture-boundaries`，不从旧分支重做。用户随后补充两项问题，并确认自动静音应覆盖铃声、通知和媒体，下课恢复。
 
 ## 首页导入交接的状态所有权

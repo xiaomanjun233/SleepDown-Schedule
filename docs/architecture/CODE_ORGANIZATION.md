@@ -41,6 +41,8 @@
 
 本轮具体所有权：`feature/home/HomeImportHandoffState` 保存 Composition 内的导入快照、提交标记与数据就绪条件，根 Composable 装配入口卸载和原有揭示动画。`feature/reminder/LiveUpdatePayloadCodec` 集中 Intent payload 与 Service 重启存储的编解码，调度门面及 Service 各自保留系统调度和生命周期。周视图显示分组与提醒分段使用不同入口，二者共用原始课程投影，不能用合并显示后的外包络覆盖逐课时数据。详见[续作报告](../reports/2026-10-20-architecture-followup-and-course-fixes.md)。
 
+个性化会话持有草稿与提交回读状态，公共材质只消费 core 内的预览/可读性协议；转场壳通过内容槽让 app 装配设置页。共享业务值与备份快照位于 model，移动可序列化类型显式保留旧名称。Agent 计划准备属于 domain，Repository 保留整段事务；公共 bootstrap 与具体 AI 激活在应用装配点接线。最新落地、兼容证据与剩余依赖见[收口报告](../reports/2026-10-20-architecture-completion-and-ai-fixes.md)。
+
 ## 官方参考
 
 - [Android 架构建议](https://developer.android.com/topic/architecture/recommendations)

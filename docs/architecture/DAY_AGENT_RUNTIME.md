@@ -107,6 +107,8 @@ MiMo 联网搜索属于供应商服务端插件，不属于 SleepDown 本地函�
 
 ## 轻量遥测
 
+ChatGPT 账号调用沿用同一工具会话、预演与确认流程，通过官方 Responses 的 `sleepdown` 命名空间声明实际函数，并保留完整 output/reasoning 与 call_id 回传。若首轮没有工具调用且模型声称无法使用本地工具，最多在当前受限循环中纠正一次；不会强制执行无关查询，也不会绕过用户确认。图片能力缺失元数据不等于明确不支持。实现、验证及真实账号验收边界见[2026-10-20 收口报告](../reports/2026-10-20-architecture-completion-and-ai-fixes.md)。
+
 每个用户回合结束时通过 `DayAgentMetrics` 记录决策轮数、每轮工具调用数、总请求数、工具结果字符数、输入/输出 token、缓存输入 token、reasoning token 和最终回答延迟。token 字段仅在供应商响应提供 usage 时累加，不落库，也不记录课程正文或用户问题。
 
 相关回归测试位于 `feature/agent/AgentToolsTest.kt`、`AgentTaskLoopTest.kt`、`AgentToolProtocolTest.kt`、`AgentFineAdjustmentTest.kt` 等，覆盖组合条件定位、缓存失效、部分/完整修改、精细节次选择和传输续接。任务循环测试使用本地模拟 HTTP 服务，验证错误回传后修正、重复查询只执行一次、旧正文计划自检和修正上限，以及 reasoning 重放；不代表真实模型或实机界面验收。

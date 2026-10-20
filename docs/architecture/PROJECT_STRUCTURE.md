@@ -61,7 +61,7 @@ app ──装配──> feature ──> domain/model
 - Home、周视图、Morph 与玻璃代码拆分时保持函数体、Modifier 顺序、几何和时间参数不变。
 - 每批变更使用独立回退点，并执行与风险相称的最小充分验证。
 
-## 当前落地结构（2026-10-14 核对）
+## 当前落地结构（2026-10-20 核对）
 
 ```text
 com/xiaomanjun/sleepdownschedule/
@@ -72,6 +72,8 @@ com/xiaomanjun/sleepdownschedule/
 ├── model/                            # 跨功能模型与持久化字段
 │   ├── VisualEffectMode.kt          # 保存的视效选项与有效模式规则
 │   ├── AppIconPreferencesSnapshot.kt
+│   ├── {CourseArrangement,ScheduleAdjustment}.kt # 时间与调休共享值，规则留在 domain
+│   ├── backup/                      # Agent/AI 备份快照与稳定 ID，保留 V1 序列化名称
 │   └── agent/AgentActions.kt        # 助手操作模型
 ├── data/                             # 数据入口
 │   ├── local/                       # Room、DAO、连续迁移
@@ -135,6 +137,8 @@ com/xiaomanjun/sleepdownschedule/
 - 已确认 AI 设置计划由 `feature/agent/AgentSettingPlanExecutor.kt` 负责校验、事务调用、偏好写入、回读、回滚和撤销。`app/state/ScheduleViewModel` 只装配原作用域与刷新回调，并公开只读提示状态；Repository 继续拥有数据库事务。整体债务、检查基线与后续顺序见 [2026-10-20 架构审查](../reports/2026-10-20-architecture-review.md)。
 - Manifest 中已有 Activity、Service、Receiver 和 Widget Provider 的 FQCN 由根包薄入口保持不变；数据库、备份和 Intent 协议不需要迁移。
 - 首页导入交接状态由 `feature/home/HomeImportHandoffState.kt` 持有，根 Composable 继续装配入口关闭和动画。通知 Intent/重启存储的编解码由 `feature/reminder/LiveUpdatePayloadCodec.kt` 持有，NotificationScheduler 保留兼容门面，Service 保留启动/停止与恢复状态清理。详情见[续作报告](../reports/2026-10-20-architecture-followup-and-course-fixes.md)。
+- 个性化草稿/提交回读由 `feature/home/personalization/PersonalizationSession` 持有；共享预览、可读性采样和冻结上下文分别由 `core/ui/material`、`core/wallpaper`、`core/ui/text` 提供，glass 不再引用 home 功能包。详情 Morph 的设置内容由 app 装配，transition 只持有原运动和保存退出握手。
+- `domain/agent/AgentPlanPreparation` 准备课程修改片段，Repository 在同一 Room 事务内读取、准备、写入和验证。`core/remoteconfig/SleepDownRemoteConfig` 负责公共 bootstrap，`feature/importing/ManagedAiRemoteConfig` 负责托管 AI；通知呈现位于 `LiveUpdateNotificationRenderer`，调度与 Service 保留原所有权。最新验证与剩余依赖见[架构收口报告](../reports/2026-10-20-architecture-completion-and-ai-fixes.md)。
 
 ## 稳定入口与实现映射
 
