@@ -85,7 +85,7 @@ internal class ChatGptCredentialStore(context: Context) {
                     put(JSONObject().put("client_id", registration.clientId).put("subject", registration.subject)
                         .put("email", registration.email ?: JSONObject.NULL).put("name", registration.name ?: JSONObject.NULL)
                         .put("models", JSONArray().apply { registration.models.forEach {
-                            put(JSONObject().put("slug", it.slug).put("name", it.displayName).put("images", it.supportsImages))
+                            put(JSONObject().put("slug", it.slug).put("name", it.displayName).put("images", it.supportsImages ?: JSONObject.NULL))
                         } })
                         .put("tokens", encodeTokens(registration.tokens))
                         .put("pending_tokens", encodeTokens(registration.pendingTokens))
@@ -108,7 +108,7 @@ internal class ChatGptCredentialStore(context: Context) {
                 val models = item.optJSONArray("models") ?: JSONArray()
                 vault.registrations += ChatGptRegistration(clientId, item.getString("subject"), item.nullableString("email"), item.nullableString("name"), tokens,
                     (0 until models.length()).map { models.getJSONObject(it) }.map {
-                        ChatGptModel(it.getString("slug"), it.getString("name"), it.optBoolean("images"))
+                        ChatGptModel(it.getString("slug"), it.getString("name"), it.opt("images") as? Boolean)
                     }, decodeTokens(item.optJSONObject("pending_tokens")), item.optBoolean("pending_identity_validation"))
             }
             return vault

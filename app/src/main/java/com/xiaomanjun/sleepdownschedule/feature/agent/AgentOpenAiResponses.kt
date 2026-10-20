@@ -68,6 +68,7 @@ internal class OpenAiResponsesAgentRunner(
         val evidenceKeys = mutableSetOf<String>()
         val turnTools = AgentTurnToolSession(cachedResults, executeTool)
         var outputRetryRequested = false
+        var toolAvailabilityRetryRequested = false
 
         toolRounds@ for (round in 0 until MaxAgentToolRounds) {
             interaction?.checkActive()
@@ -110,6 +111,19 @@ internal class OpenAiResponsesAgentRunner(
             // Preserve opaque reasoning even when retrying an empty response without tool calls.
             input += decision.outputItems
             if (decision.calls.isEmpty()) {
+                val toolFeedback = if (settings.profile.id == AiProviderPresets.chatGpt.id && round <= 1)
+                    agentLocalToolAvailabilityFeedback(decision.content) else null
+                if (toolFeedback != null && round == 0) {
+                    toolAvailabilityRetryRequested = true
+                    input += buildJsonObject { put("role", "user"); put("content", toolFeedback) }
+                    onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "重新核对应用工具"))
+                    continue@toolRounds
+                }
+                if (toolFeedback != null && toolAvailabilityRetryRequested) {
+                    val diagnostic = "模型未使用本轮已提供的课表工具，请重试或切换模型。本次没有修改课程。"
+                    onDelta(diagnostic)
+                    return diagnostic
+                }
                 val answer = usableAgentAnswer(decision.content)
                 if (answer != null) {
                     val feedback = validateAnswer(answer)

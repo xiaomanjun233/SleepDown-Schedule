@@ -459,7 +459,7 @@ fun AiImportSettingsSection(
                     onModelsChanged = { models, selected ->
                         availableModelsText = models.joinToString("\n") { it.slug }
                         model = selected.slug
-                        supportsVision = selected.supportsImages
+                        supportsVision = selected.supportsImages != false
                         reasoningEffort = chatGptReasoningEffort(selected.slug, reasoningEffort)
                         modelUsesCustomInput = false
                         // Other AI entry points must see the selected model immediately.
@@ -467,7 +467,7 @@ fun AiImportSettingsSection(
                             AiProviderPresets.normalizeChatGptProfile(profile.copy(
                                 defaultModel = selected.slug,
                                 availableModels = models.map { it.slug },
-                                supportsVision = selected.supportsImages
+                                supportsVision = selected.supportsImages != false
                             )), ""
                         ))
                     }

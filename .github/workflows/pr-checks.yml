@@ -114,6 +114,7 @@ jobs:
           --tests 'com.xiaomanjun.sleepdownschedule.feature.agent.AgentToolProtocolTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskLoopTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.ChatGpt*Test'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.agent.ChatGptLocalToolsTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiProviderPresetsTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.*Test'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.agent.AgentToolsTest'

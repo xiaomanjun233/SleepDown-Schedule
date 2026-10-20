@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatGptCredentialStoreTest {
+    @Test fun capabilityUnknownAndExplicitRefusalSurviveCredentialStorageSeparately() {
+        val account = registration("issued", "subject")
+        account.models = listOf(ChatGptModel("unknown", "Unknown"),
+            ChatGptModel("text", "Text", false), ChatGptModel("vision", "Vision", true))
+        val restored = roundTrip(ChatGptVault(activeClientId = "issued", registrations = mutableListOf(account)))
+        assertEquals(listOf(null, false, true), restored.active()!!.models.map { it.supportsImages })
+    }
+
     @Test fun sameEmailRegistrationsKeepDistinctClientAndIdentityMappings() {
         val first = registration("client-one", "subject-one")
         val second = registration("client-two", "subject-two")
