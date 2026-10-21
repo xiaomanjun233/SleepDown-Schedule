@@ -8,9 +8,11 @@
 
 ## 本次首页凝光修复
 
-独立工作树 `tmp/home-accent-icon-study/`，分支 `codex/home-material-corrections`，基于 #79 的 `bfb5eecd`。用户要求修复首页凝光主题色偶发变白，以及让课程卡片复用 Dock 的晶莹光效；后续明确取消自绘图标，样稿已撤出，现有图标保留。实现、验证边界与依赖 PR 顺序见[本次记录](reports/2026-10-21-coloros-home-material-fixes.md)。本次没有安装、合并、版本变更或发布授权。
+独立工作树 `tmp/home-accent-icon-study/`，分支 `codex/home-material-corrections`，基于 #79 的 `bfb5eecd`。用户要求修复首页凝光主题色偶发变白，以及让课程卡片复用 Dock 的晶莹光效；后续明确取消自绘图标，样稿已撤出，现有图标保留。实现、验证边界与依赖 PR 顺序见[本次记录](reports/2026-10-21-coloros-home-material-fixes.md)。用户随后明确要求“打包安装”，并要求“换个通道”，授权本次覆盖安装及 5037 通道例外；没有合并、版本变更或发布授权。
 
 本批 `25a839aa` 为主题色修复，`5805745b` 为课程光效，可单独回退；关联 [PR 检索](https://github.com/xiaomanjun233/SleepDown-Schedule/pulls?q=is%3Apr+head%3Acodex%2Fhome-material-corrections)。最终代码 `compileGithubReleaseKotlin` 及 Dock 取色/Compose 边界/圆角三类 12 项回归成功（5m11s），0 失败/错误/跳过；567 文件依赖检查与 14 项检查器回归通过，无新增豁免。尚未实机验收主题色、外轮廓焦散阴影和系统效果开关。
+
+2026-10-21 已从 [#81](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/81) 的 `ef98129a` 完整构建签名 Release（4m28s，含 R8/资源压缩/lintVital），版本仍为 `1.2.7.1` / 35，签名与正式版一致。经用户明确要求换通道后，使用 SDK 客户端和已核对的 5037 OPPO USB 服务端在 PLJ110（Android 17）执行 `install -r`，返回 Success；系统更新时间为 17:22:58。没有清数据或自动启动。5038 已先核对/重启但无法发现手机；本次例外没有修改项目默认 ADB 脚本或终止 5037 服务。本机 APK 副本 `tmp/review-apks/SleepDown-architecture-home-material-ef98129a-20261021.apk`，SHA-256 `15e42509b7ed9180eb5ee932d99bb80ac81d5d1bc0b6a0dd7f6e7d3084ae2b79`。设备视觉仍待用户验收，安装成功不替代视觉/性能验收。
 
 #79 最新运行时代码 `bfb5eecd` 的[完整 CI](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39567706241)已成功；#80 最终 `1c6a2c5e` 的[完整 CI](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39557219802)已成功。两项 PR 均保持开放，没有实际同步/合并 main 或 develop。
 

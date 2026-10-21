@@ -30,6 +30,14 @@
 
 依赖检查通过：567 个生产文件、0 违规文件依赖、41 条已登记历史循环；14 项检查器回归通过。没有新增循环或豁免，`git diff --check` 通过。
 
-原生焦散、AndroidView 外轮廓阴影以及实际壁纸下的颜色仍需要 ColorOS 设备验收；本次未安装或启动应用，不将 JVM/Compose 测试当作视觉、性能或 OEM 验收。没有 APK 发布或版本改动。
+原生焦散、AndroidView 外轮廓阴影以及实际壁纸下的颜色仍需要 ColorOS 设备验收；不将 JVM/Compose 测试或安装成功当作视觉、性能或 OEM 验收。没有 APK 发布或版本改动。
+
+### 随后按用户要求打包安装
+
+用户明确要求“打包安装”，随后要求“换个通道”。源码 `ef98129a` 的完整 `assembleGithubRelease` 成功，4m28s，159 个任务（62 执行、97 复用），保留 R8、资源压缩、lintVital 和正式 v2 签名。包名 `com.xiaomanjun.sleepdownschedule`，`1.2.7.1` / 35，targetSdk 36；签名证书 SHA-256 `0f2b50dfb7e10c6f5981ab966f1f4ebd76af81a7ad9ba31663284eaa88c0181a`，与已发布正式版 APK 一致。
+
+5038 的 SDK 来源、当前用户密钥路径、设备列表和 mDNS 均已核对；Windows USB 调试接口正常，但重启 5038 后仍无设备。用户明确要求换通道后，5037 核对为 OPPO Connect 的现有 USB 服务端，并识别到唯一 PLJ110（Android 17）。使用 SDK ADB 客户端在该通道执行 `install -r`，返回 `Success`；安装后系统核对仍为 `1.2.7.1` / 35，`lastUpdateTime=2026-10-21 17:22:58`。未清除数据、未启动应用、未终止其他 ADB 服务，也未修改项目的默认 5038 脚本。
+
+本机保留 `tmp/review-apks/SleepDown-architecture-home-material-ef98129a-20261021.apk`，7,591,375 字节，SHA-256 `15e42509b7ed9180eb5ee932d99bb80ac81d5d1bc0b6a0dd7f6e7d3084ae2b79`。该 APK 对应 `ef98129a`，后续仅补记文档，不把文档提交称为重新构建。
 
 此任务基于 #79 的 `bfb5eecd`，分支 `codex/home-material-corrections`；`25a839aa` 修复主题色，`5805745b` 接入课程光效，可分别回退。[本分支 PR](https://github.com/xiaomanjun233/SleepDown-Schedule/pulls?q=is%3Apr+head%3Acodex%2Fhome-material-corrections)先以 `codex/architecture-boundaries` 为依赖目标，避免把 #79 全部代码重复列为本次视觉改动。#80 的流程同步与 #79 的集成仍按各自 PR 说明处理，不自动合并或修改 main/develop。
