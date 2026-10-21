@@ -49,7 +49,7 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.CourseGlassCard
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardAllowsCustomOverrides
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardBaseColor
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor

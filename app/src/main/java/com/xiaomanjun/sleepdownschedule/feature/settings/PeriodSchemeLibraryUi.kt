@@ -44,7 +44,7 @@ import com.xiaomanjun.sleepdownschedule.data.repository.loadPeriodSchemeLibrary
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
 import com.xiaomanjun.sleepdownschedule.feature.home.homeImportButtonGlassColor
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.model.*
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers

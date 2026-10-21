@@ -32,7 +32,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdown
 import com.xiaomanjun.sleepdownschedule.feature.home.day.DayViewPreferences
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekViewPreferences
 import com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdater
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
 import com.xiaomanjun.sleepdownschedule.withGeneralSettingsFrom
 import com.xiaomanjun.sleepdownschedule.switchCourseCardGlassMode

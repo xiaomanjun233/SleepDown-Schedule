@@ -23,7 +23,7 @@ import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeSegmentRenderer
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSegmentRequest
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
 

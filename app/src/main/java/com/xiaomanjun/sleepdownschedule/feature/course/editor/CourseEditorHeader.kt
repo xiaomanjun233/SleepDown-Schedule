@@ -24,7 +24,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRound
 import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBackdropBlur
 import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBlurDirection
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
 @Composable
 fun DialogHeader(

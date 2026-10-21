@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing.progress
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory

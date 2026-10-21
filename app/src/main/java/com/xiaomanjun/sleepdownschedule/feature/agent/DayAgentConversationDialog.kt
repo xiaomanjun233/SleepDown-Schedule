@@ -152,7 +152,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBackdropBlur
 import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBlurDirection
 import com.xiaomanjun.sleepdownschedule.glass.ui.TopAssistantOpenEasing
 import com.xiaomanjun.sleepdownschedule.glass.ui.TopAssistantSurface
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.assistantMorphBounds
 import com.xiaomanjun.sleepdownschedule.glass.ui.fixedAssistantContentSize
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberTopAssistantMotion

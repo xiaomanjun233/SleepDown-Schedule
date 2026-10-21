@@ -56,6 +56,16 @@ class ArchitectureTest(unittest.TestCase):
     def test_feature_to_app_is_rejected(self):
         self.assertIn("Forbidden dependency", architecture.assess([self.dependency("feature.home", "app")], {})[0])
 
+    def test_wallpaper_and_performance_cannot_depend_on_glass_rendering(self):
+        for area in ("performance", "wallpaper"):
+            with self.subTest(area=area):
+                path = f"app/src/github/java/{architecture.PACKAGE.replace('.', '/')}/core/{area}/Sample.kt"
+                self.assertIn("Forbidden dependency", architecture.assess(
+                    [self.dependency("core", "glass", path)], {})[0])
+        # Shared glass controls still participate in the explicitly tracked core/glass debt.
+        path = f"app/src/main/java/{architecture.PACKAGE.replace('.', '/')}/core/ui/Sample.kt"
+        self.assertEqual([], architecture.assess([self.dependency("core", "glass", path)], {}))
+
     def test_three_feature_cycle_is_rejected(self):
         dependencies = [self.dependency("feature.one", "feature.two"),
                         self.dependency("feature.two", "feature.three"),

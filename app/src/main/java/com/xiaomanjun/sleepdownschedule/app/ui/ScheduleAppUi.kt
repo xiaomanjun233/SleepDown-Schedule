@@ -142,7 +142,7 @@ import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.app.state.ScheduleViewModel
 import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
 import com.xiaomanjun.sleepdownschedule.core.performance.ContentEntranceContainer
-import com.xiaomanjun.sleepdownschedule.core.performance.GlassPerformanceDiagnostics
+import com.xiaomanjun.sleepdownschedule.glass.GlassPerformanceDiagnostics
 import com.xiaomanjun.sleepdownschedule.core.performance.LocalGlassQuality
 import com.xiaomanjun.sleepdownschedule.core.performance.LocalStartupPhase
 import com.xiaomanjun.sleepdownschedule.core.performance.PerformanceAnimationState
@@ -368,7 +368,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalCourseCardColorAssignments
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalCourseCardPalette
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.buildCourseCardColorAssignments
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardColorKey
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardGlassEffectFrame

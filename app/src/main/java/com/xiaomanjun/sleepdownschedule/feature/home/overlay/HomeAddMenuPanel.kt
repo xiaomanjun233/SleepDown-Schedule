@@ -69,7 +69,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMenuRowReques
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMenuSurfaceRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.homeMaterialNeutralTint
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
 import com.xiaomanjun.sleepdownschedule.model.HomeMode

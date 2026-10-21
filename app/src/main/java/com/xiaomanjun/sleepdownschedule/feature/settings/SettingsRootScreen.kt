@@ -57,7 +57,7 @@ import com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdater
 import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateDialog
 import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateDialogHost
 import com.xiaomanjun.sleepdownschedule.feature.update.rememberAppUpdateSession
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import java.io.File
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 

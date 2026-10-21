@@ -244,7 +244,7 @@ private fun WeekEditCardGlow(config: ScheduleConfigEntity, pressed: Boolean,
     val position = Offset(radiusPx, radiusPx)
     val native = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeFollowLightRenderer.current
     if (native?.invoke(com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeFollowLightRequest(
-            modifier, com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme(config),
+            modifier, com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme(config),
             position, pressed, radiusPx)) == true) return
     val scope = rememberCoroutineScope()
     val highlight = remember(scope, radiusPx, spotAlpha, fallbackAlpha) {

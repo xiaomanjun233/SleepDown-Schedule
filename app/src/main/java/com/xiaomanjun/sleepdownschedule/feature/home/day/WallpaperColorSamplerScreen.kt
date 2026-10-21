@@ -46,7 +46,7 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.calculateFocusCropRect
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.loadWallpaperBitmap
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.wallpaperCropState
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.NormalizedDialogHeader
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers

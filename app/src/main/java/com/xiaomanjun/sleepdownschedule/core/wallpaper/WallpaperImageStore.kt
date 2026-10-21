@@ -1,6 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.core.wallpaper
 
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.model.courseCardPerceptualDistance
+
+import com.xiaomanjun.sleepdownschedule.model.DefaultCourseCardPalette
+
 
 import com.xiaomanjun.sleepdownschedule.*
 

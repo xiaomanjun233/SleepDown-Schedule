@@ -35,6 +35,10 @@
 
 ## 已完成与关键结论
 
+- 续批将纯色板/ARGB 编解码/Oklab 色差归 model、通用主题归 core、玻璃诊断归 glass，57 个调用文件只迁移 import/FQN，原计算与参数保留。core→glass 文件 16→11；性能/壁纸两区域不再反向依赖且有检查器严格规则。Release Kotlin 编译和 10 类 60 项回归通过（6m02s），566 文件/0 违规/41 声明循环、14 项检查器回归通过。报告见[根节点与边界续作](reports/2026-10-21-root-and-workflow-followup.md)。
+- 当前可复用的云端证据：#79 `79279664` [39557393396](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39557393396) 成功；#80 最终 `1c6a2c5e` [39557219802](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39557219802) 成功。本批基础边界在 79279664 后，不能用旧 head 代替新 head。merge-tree 仅预演确认将来集成有交接页与版本基线两份文档冲突；#80 合并后保留新流程及本任务/历史记录再解决，未实际合并。
+- 用户最新追加：首页凝光主题色偶发变白、希望课程卡片复用 Dock 底部晶莹光效，并先做自绘 SVG（Dock 线框/填充态）样稿。本架构批次先收口；视觉修复/设计将另建独立任务分支，不把尚未实现写成完成，不全量替换图标。图标样稿数量已异步询问，可在其间继续根因调查。
+
 - 根节点的更新 UI 状态/安装授权收口到 `feature/update/AppUpdateSession`，首页与设置页各持有自己的 Composition 会话、复用原后台下载；原弹窗内容对照一致。`HomeResumeEffect` 订阅/释放独立并使用当前回调，保留首次启动语义和原 picker generation。根节点 4493→4406、设置根页 330→266；没有调样式/参数。移除失效 settings 引用后基线 44→41，0 新增豁免。Release Kotlin 编译和实际 4 类 28 项回归通过（4m32s），检查器 13 项通过；签名 APK 仍仅对应前批 `143eddb3`，未安装或实机验收。
 - 新流程的 [#80](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/80) 已开放，目标 develop；实现 `a5df31a3` 的完整云端 CI [39555564064](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39555564064) 成功。两分支远端仍未同步，不把 PR 候选当作合并完成。#79 的 base 保持 main，待 #80 合并后再处理；本轮没有合并授权。
 

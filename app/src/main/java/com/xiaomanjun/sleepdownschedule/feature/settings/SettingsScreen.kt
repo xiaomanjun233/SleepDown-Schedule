@@ -61,7 +61,7 @@ import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.ScheduleManager
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.aboutPageGradientColors
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCustomizationScreen
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
 @Composable
 fun SettingsScreen(

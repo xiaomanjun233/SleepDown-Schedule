@@ -64,7 +64,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CenteredDialogConte
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import java.time.LocalTime
 import com.xiaomanjun.sleepdownschedule.domain.schedule.CoursePeriodTime
 import com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes

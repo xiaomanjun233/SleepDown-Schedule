@@ -2,6 +2,8 @@
 
 金标跨 Activity 动画的能力、路线门控、SDK 边界与资源释放见 [TRANSITION_FRAMEWORK.md](../TRANSITION_FRAMEWORK.md)。参数由 SDK 管理；应用内 Morph 仍使用下述维护入口。
 
+通用主题判断位于 `core/ui/theme/AppTheme.kt`，纯色板/编解码/色差位于 `model/CourseCardPalette.kt`；玻璃计数与逐帧诊断位于 `glass/GlassPerformanceDiagnostics.kt`，通用帧统计、动画 Trace 和壁纸缓存仍位于 `core/performance/Performance.kt`。这些入口的归位不改变颜色、日志标签、帧计算或视觉参数。
+
 动效按实际路线维护：公共交互放 `core/ui`，首页与课程编辑保留功能自己的曲线和帧计算，跨 Activity 放 `transition`，材质渲染与临时资源协议放 `glass`。下面的入口用于定位修改范围，不提供一套覆盖所有路线的全局曲线。
 
 ## 从界面找到入口

@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.management
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
+import com.xiaomanjun.sleepdownschedule.model.DefaultCourseCardPalette
+
 import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeCoursePeriodTimes
 
 import android.graphics.Bitmap

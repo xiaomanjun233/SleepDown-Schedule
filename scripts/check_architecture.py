@@ -21,6 +21,10 @@ FORBIDDEN = {
     "transition": {"app", "feature"},
 }
 LAYERS = set(FORBIDDEN) | {"app"}
+AREA_FORBIDDEN = {
+    "core/performance": {"glass"},
+    "core/wallpaper": {"glass"},
+}
 REFERENCE = re.compile(r"\b" + re.escape(PACKAGE) + r"\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)")
 ROOT_ALIAS = re.compile(r"\btypealias\s+(\w+)\s*=\s*" + re.escape(PACKAGE) + r"\.([\w.]+)")
 ROOT_WILDCARD = re.compile(r"^import\s+" + re.escape(PACKAGE) + r"\.\*\s*;?\s*$", re.MULTILINE)
@@ -134,7 +138,9 @@ def scan(root: Path) -> tuple[list[Dependency], int]:
 
 def forbidden_dependencies(dependencies: list[Dependency]) -> set[tuple[str, str]]:
     return {(item.path, item.target) for item in dependencies
-        if item.target.split(".")[0] in FORBIDDEN.get(item.source.split(".")[0], set())}
+        if item.target.split(".")[0] in FORBIDDEN.get(item.source.split(".")[0], set())
+        or any(f"/{area}/" in item.path and item.target.split(".")[0] in targets
+            for area, targets in AREA_FORBIDDEN.items())}
 
 
 def cyclic_edges(dependencies: list[Dependency]) -> set[tuple[str, str]]:

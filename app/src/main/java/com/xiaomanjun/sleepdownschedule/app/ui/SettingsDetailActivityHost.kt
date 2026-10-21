@@ -80,7 +80,7 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettings
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
 import com.xiaomanjun.sleepdownschedule.feature.settings.usesPersistentCenteredSettingsTitle
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCustomizationScreen
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
 import com.xiaomanjun.sleepdownschedule.transition.LegacyTransitionProfile

@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.glass.ui
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable

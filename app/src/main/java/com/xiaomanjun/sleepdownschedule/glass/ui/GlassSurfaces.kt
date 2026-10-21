@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.glass.ui
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.os.Build
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -7,7 +9,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -45,12 +46,6 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 
 typealias GlassTokens = GlassMaterialSpec
-
-@Composable
-fun appUsesDarkTheme(config: ScheduleConfigEntity): Boolean {
-    val systemDark = isSystemInDarkTheme()
-    return if (config.followSystemDarkMode) systemDark else config.darkMode
-}
 
 @Composable
 fun glassUsesLightStyle(config: ScheduleConfigEntity): Boolean {

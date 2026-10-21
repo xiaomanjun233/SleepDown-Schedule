@@ -141,6 +141,7 @@ com/xiaomanjun/sleepdownschedule/
 - 课表管理、调休及教务登录的 Activity 状态由 `feature/schedule/ScheduleScreenViewModel` 持有，与首页复用 `ScheduleActions`，保留各 Activity 的 ViewModelStore 和提交后刷新。共享 Legacy 几何由 `transition/legacy` 提供，首页专属 adapter 留在 home；转场不再引用首页布局。详见[2026-10-21 续作](../reports/2026-10-21-schedule-state-and-transition-boundaries.md)。
 - `domain/agent/AgentPlanPreparation` 准备课程修改片段，Repository 在同一 Room 事务内读取、准备、写入和验证。`core/remoteconfig/SleepDownRemoteConfig` 负责公共 bootstrap，`feature/importing/ManagedAiRemoteConfig` 负责托管 AI；通知呈现位于 `LiveUpdateNotificationRenderer`，调度与 Service 保留原所有权。最新验证与剩余依赖见[架构收口报告](../reports/2026-10-20-architecture-completion-and-ai-fixes.md)。
 - 首页自动更新与设置手动更新的页面会话由 `feature/update/AppUpdateSession` 持有，共用检查、下载与安装授权流程，后台 transport/Service 不变；`app/ui/HomeResumeEffect` 负责 observer 订阅/释放，导航和导入仍由根节点装配。剩余复杂区域与 41 条声明循环见[根节点续作审查](../reports/2026-10-21-root-and-workflow-followup.md)。
+- 默认课程色板、ARGB 编解码和纯色差计算归 `model/CourseCardPalette.kt`，通用主题归 `core/ui/theme/AppTheme.kt`，玻璃诊断归 `glass/GlassPerformanceDiagnostics.kt`。壁纸读取与通用性能不依赖玻璃，检查器对这两个区域设立严格规则；余下 core/glass UI 循环逐步收敛，不用兼容别名掩盖。
 
 ## 稳定入口与实现映射
 

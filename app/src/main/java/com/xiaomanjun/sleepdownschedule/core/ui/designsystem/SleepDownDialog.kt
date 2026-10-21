@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.designsystem
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border

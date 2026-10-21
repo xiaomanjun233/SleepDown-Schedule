@@ -30,7 +30,7 @@ import com.xiaomanjun.sleepdownschedule.app.state.*
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow

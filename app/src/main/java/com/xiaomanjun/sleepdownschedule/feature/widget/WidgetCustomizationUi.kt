@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.widget
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.graphics.Bitmap

@@ -85,13 +85,13 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.feature.home.weekCardHeightScaleFromSlider
 import com.xiaomanjun.sleepdownschedule.feature.home.weekCardHeightSliderFromScale
-import com.xiaomanjun.sleepdownschedule.glass.ui.DefaultCourseCardPalette
+import com.xiaomanjun.sleepdownschedule.model.DefaultCourseCardPalette
 import com.xiaomanjun.sleepdownschedule.glass.ui.FlatCourseCardMinimumAlpha
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassDialogSurface
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalCourseCardPalette
-import com.xiaomanjun.sleepdownschedule.glass.ui.MulticolorCourseCardArgb
-import com.xiaomanjun.sleepdownschedule.glass.ui.decodeCourseCardPalette
-import com.xiaomanjun.sleepdownschedule.glass.ui.encodeCourseCardPalette
+import com.xiaomanjun.sleepdownschedule.model.MulticolorCourseCardArgb
+import com.xiaomanjun.sleepdownschedule.model.decodeCourseCardPalette
+import com.xiaomanjun.sleepdownschedule.model.encodeCourseCardPalette
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
 import com.xiaomanjun.sleepdownschedule.model.HomeMode
 import com.xiaomanjun.sleepdownschedule.model.effectiveWeekCardTextAlignment

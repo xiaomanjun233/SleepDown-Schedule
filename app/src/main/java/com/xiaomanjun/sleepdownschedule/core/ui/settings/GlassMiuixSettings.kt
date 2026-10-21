@@ -52,7 +52,7 @@ import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalLegacyProgressiveBlur
 import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBlurDirection
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
 import com.xiaomanjun.sleepdownschedule.glass.ui.platformMotionBlurRenderEffect
 import com.xiaomanjun.sleepdownschedule.glass.ui.progressiveBackdropBlur

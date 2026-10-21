@@ -66,7 +66,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialContro
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassLens
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassPill
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
 import kotlinx.coroutines.delay

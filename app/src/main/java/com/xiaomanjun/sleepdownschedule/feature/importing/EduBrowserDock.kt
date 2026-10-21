@@ -83,7 +83,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.sleepDownPanelForeg
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidCascadingPopup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidMenuItem
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.platformMotionBlurRenderEffect
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMotionBlurRadiusDp

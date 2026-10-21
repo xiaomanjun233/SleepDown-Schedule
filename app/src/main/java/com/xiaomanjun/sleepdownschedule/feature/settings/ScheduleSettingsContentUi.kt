@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings

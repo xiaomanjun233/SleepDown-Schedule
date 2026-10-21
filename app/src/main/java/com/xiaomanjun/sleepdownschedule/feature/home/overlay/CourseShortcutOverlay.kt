@@ -36,7 +36,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseOverlayCardContent
 import com.xiaomanjun.sleepdownschedule.glass.ui.CourseGlassCard
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.model.HomeMode
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CompletableDeferred

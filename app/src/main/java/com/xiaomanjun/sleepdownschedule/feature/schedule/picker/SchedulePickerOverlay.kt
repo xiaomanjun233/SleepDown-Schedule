@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.picker
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.graphics.Bitmap
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
