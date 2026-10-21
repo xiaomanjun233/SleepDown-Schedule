@@ -8,7 +8,7 @@ import kotlin.math.abs
 import kotlin.math.ceil
 
 /** One card's native caustic. Its padded host owns the projection, never the scrolling page. */
-internal class ColorOsCourseCardGlow(context: Context, source: ColorOsNativeUi.Source) {
+internal class ColorOsCourseCardGlow(private val context: Context, private val source: ColorOsNativeUi.Source) {
     private val effect = source.load("com.coui.appcompat.COUIMaterialEffect")
     private val setElevation = source.load("com.coui.appcompat.uiutil.ShadowUtils")
         .getMethod("setElevationToView", View::class.java, Int::class.javaPrimitiveType)
