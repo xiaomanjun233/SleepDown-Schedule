@@ -272,7 +272,7 @@ object ActivityTransitionCoordinator {
         event: String,
         reason: String
     ) {
-        if (!BuildConfig.DEBUG) return
+        if (!BuildConfig.DEBUG && !BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST) return
         Log.d(
             LogTag,
             "route=${session.routeId.wireName} session=${session.id.value} " +

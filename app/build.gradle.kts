@@ -108,14 +108,15 @@ android {
             .getOrElse("legacy")
         require(glassOcclusionMode in setOf("legacy", "retained", "live"))
         all {
-            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST", "false")
+            // Explicit local pilot also supports signed Release builds used on real devices.
+            // Ordinary builds remain off; store is still excluded by EXPERIMENTAL_FEATURES.
+            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST",
+                providers.gradleProperty("sleepdown.sharedViewKitTest").map(String::toBoolean).getOrElse(false).toString())
             buildConfigField("boolean", "SLEEPDOWN_LOCAL_EDU_TEST", "false")
             buildConfigField("String", "GLASS_OCCLUSION_MODE", "\"legacy\"")
             buildConfigField("boolean", "GLASS_FIXED_MORPH", "false")
         }
         getByName("debug") {
-            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST",
-                providers.gradleProperty("sleepdown.sharedViewKitTest").map(String::toBoolean).getOrElse(false).toString())
             buildConfigField("boolean", "SLEEPDOWN_LOCAL_EDU_TEST", (eduAdapterTestAssets != null).toString())
             if (eduAdapterTestAssets != null) versionNameSuffix = "-edu-test"
             buildConfigField("boolean", "GLASS_FIXED_MORPH", providers.gradleProperty("sleepdown.glassFixedMorph").getOrElse("false").toBoolean().toString())

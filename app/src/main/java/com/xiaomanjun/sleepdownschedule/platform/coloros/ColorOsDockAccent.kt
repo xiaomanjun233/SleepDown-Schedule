@@ -62,15 +62,21 @@ internal fun dockAccent(source: ColorOsNativeUi.Source, context: Context, wallpa
     wallpaperAccent ?: source.color(context, "couiColorContainerTheme").defaultColor
 
 @Composable
-internal fun rememberColorOsHomeAccents(config: ScheduleConfigEntity, dark: Boolean, background: Int): ColorOsHomeAccents? {
-    val host = LocalContext.current
+internal fun rememberColorOsHomeAccents(
+    config: ScheduleConfigEntity,
+    wallpaperDark: Boolean,
+    dockDark: Boolean
+): ColorOsHomeAccents? {
     if (rememberColorOsSource() == null) return null
-    val wallpaperAccent = rememberColorOsThemeAccent(config, dark)
-    return remember(wallpaperAccent, background) {
-        val button = wallpaperAccent
-        ColorOsHomeAccents(button, colorOsContrastingAccent(button, background))
+    val wallpaperAccent = rememberColorOsThemeAccent(config, wallpaperDark)
+    return remember(wallpaperAccent, dockDark) {
+        colorOsHomeAccents(wallpaperAccent, dockDark)
     }
 }
+
+/** The Dock has its own tinted material. Raw wallpaper luminance is not its surface tone. */
+internal fun colorOsHomeAccents(seed: Int, dockDark: Boolean): ColorOsHomeAccents =
+    ColorOsHomeAccents(seed, colorOsContrastingAccent(seed, if (dockDark) Color.BLACK else Color.WHITE))
 
 /** Course palettes discard dark swatches; chrome must extract its own hue before brightening it. */
 internal fun colorOsWallpaperAccent(bitmap: Bitmap?): Int? {
@@ -87,7 +93,7 @@ internal fun colorOsWallpaperAccent(bitmap: Bitmap?): Int? {
     return Color.HSVToColor(hsv)
 }
 
-/** Preserve wallpaper hue; adjust lightness against the visible, brightness-adjusted backdrop. */
+/** Preserve hue while adjusting lightness against a resolved surface tone. */
 internal fun colorOsContrastingAccent(seed: Int, background: Int): Int {
     val hsl = FloatArray(3)
     ColorUtils.colorToHSL(seed, hsl)

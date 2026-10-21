@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +48,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.unit.Constraints
@@ -106,9 +109,13 @@ internal fun HomeAnchoredMorphOverlayHost(
     sourceContent: @Composable BoxScope.(HomeAnchoredOverlayKind, Modifier) -> Unit,
     personalizeContent: @Composable (Modifier) -> Unit
 ) {
+    val preloadContent = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     var renderedRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
     var reverseAddOpening by remember { mutableStateOf(false) }
     var panelContentPrepared by remember { mutableStateOf(false) }
+    var panelContentLaidOut by remember { mutableStateOf(false) }
     val addMenuSurfacePrepared = remember { AtomicBoolean(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val latestOnDismissRequest by rememberUpdatedState(onDismissRequest)
@@ -122,7 +129,8 @@ internal fun HomeAnchoredMorphOverlayHost(
             reverseAddOpening = false
             renderedRequest = request
             addMenuSurfacePrepared.set(false)
-            panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize
+            panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize || preloadContent
+            panelContentLaidOut = false
             motionState.renderedKind = request.kind
             motionState.phase = HomeAnchoredOverlayPhase.Preparing
             motionState.progress.snapTo(0f)
@@ -132,8 +140,11 @@ internal fun HomeAnchoredMorphOverlayHost(
                 withFrameNanos { }
                 waitedFrames++
             }
-            // Personalization opens only its shell; form layout cannot gate this animation.
             latestAwaitOpeningGate()
+            if (request.kind == HomeAnchoredOverlayKind.Personalize && preloadContent) {
+                snapshotFlow { panelContentLaidOut }.first { it }
+                withFrameNanos { }
+            }
             if (request.kind == HomeAnchoredOverlayKind.Add) {
                 // Prepare the actual retained panel in the existing gate. Do not mount its
                 // text/blur/lens tree at the first non-zero alpha in the moving animation.
@@ -174,10 +185,13 @@ internal fun HomeAnchoredMorphOverlayHost(
                 }
             }
             motionState.phase = HomeAnchoredOverlayPhase.Open
-            // Present the settled shell before building the personalization controls.
-            if (request.kind == HomeAnchoredOverlayKind.Personalize) withFrameNanos { }
+            if (request.kind == HomeAnchoredOverlayKind.Personalize && !preloadContent) withFrameNanos { }
             panelContentPrepared = true
         } else if (renderedRequest != null) {
+            if (preloadContent && renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize) {
+                focusManager.clearFocus(force = true)
+                keyboard?.hide()
+            }
             if (suppressClose) {
                 // Silent cleanup: the destination owns the button return. Dispose this hidden
                 // first-level menu without playing a second visible Close or follow-through.
@@ -190,7 +204,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                 motionState.phase = HomeAnchoredOverlayPhase.Idle
                 latestOnSilentDisposed()
             } else {
-                if (renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize) {
+                if (renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize && !preloadContent) {
                     panelContentPrepared = false
                 }
                 reverseAddOpening = renderedRequest?.kind == HomeAnchoredOverlayKind.Add &&
@@ -299,24 +313,27 @@ internal fun HomeAnchoredMorphOverlayHost(
             }
         }
         if (shown.kind == HomeAnchoredOverlayKind.Personalize) {
-            HomePersonalizationAnimatedOverlay(
-                sourceBounds = shown.sourceBoundsInRoot,
-                sourcePressedScale = shown.sourcePressedScale,
-                targetRect = targetRect,
-                rootSize = rootSize,
-                motionState = motionState,
-                backdrop = backdrop,
-                config = config,
-                adaptiveMetrics = adaptiveMetrics,
-                previewProgress = personalizePreviewProgress,
-                contentMounted = panelContentPrepared,
-                onContentLaidOut = {},
-                onDismissRequest = { latestOnDismissRequest() },
-                sourceContent = { sourceModifier ->
-                    sourceContent(HomeAnchoredOverlayKind.Personalize, sourceModifier)
-                },
-                content = personalizeContent
-            )
+            key(shown, adaptiveMetrics.profile) {
+                HomePersonalizationAnimatedOverlay(
+                    sourceBounds = shown.sourceBoundsInRoot,
+                    sourcePressedScale = shown.sourcePressedScale,
+                    targetRect = targetRect,
+                    rootSize = rootSize,
+                    motionState = motionState,
+                    backdrop = backdrop,
+                    config = config,
+                    adaptiveMetrics = adaptiveMetrics,
+                    previewProgress = personalizePreviewProgress,
+                    contentMounted = panelContentPrepared,
+                    contentDuringMotion = preloadContent,
+                    onContentLaidOut = { panelContentLaidOut = true },
+                    onDismissRequest = { latestOnDismissRequest() },
+                    sourceContent = { sourceModifier ->
+                        sourceContent(HomeAnchoredOverlayKind.Personalize, sourceModifier)
+                    },
+                    content = personalizeContent
+                )
+            }
             return@Box
         }
         // Personalize is handled above, so this branch is the Add menu. Keep all animation-tick

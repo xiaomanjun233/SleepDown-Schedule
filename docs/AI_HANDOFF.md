@@ -1,12 +1,26 @@
 # 当前工作交接
 
-更新：2026-10-21，Asia/Shanghai。此页保存本架构任务工作树的当前交接，历史过程引用报告；不代表主目录或其他 worktree 的任务已结束。接手前完整阅读 [AGENTS.md](../AGENTS.md)，再核对实际 Git、PR、用户新指令与本页是否一致。流程和交接字段见 [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md)。
+更新：2026-10-22，Asia/Shanghai。此页保存首页凝光修复任务的当前交接，保留依赖的架构任务历史；不代表主目录或其他 worktree 的任务已结束。接手前完整阅读 [AGENTS.md](../AGENTS.md)，再核对实际 Git、PR、用户新指令与本页是否一致。流程和交接字段见 [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md)。
 
 给下一位助手的简短入口：
 
 > 先读 AGENTS.md 和 docs/AI_HANDOFF.md，核对当前分支、工作树及 PR 状态，接着完成未完事项。沿用可核实的用户授权和已有成果，按本次变化选择验证；遇到差异先查事实并更新交接。
 
-## 当前分支与目标
+## 本次首页凝光修复
+
+2026-10-22 用户纠正：卡片的光应保留，只修复布局裁切黑边，表单在动画中途叠化。`94b552d2` 恢复卡片/移动副本的焦散，`2a470290` 修正资源作用域，`2a52e402` 将裁切放在完整外扩容器上；去掉普通暗色投影，大编辑器继续不带课程焦散。`acbeb9d1` 保留预载，在原始时钟 35%～70% 互补叠化两类表单，参数集中在既有 `glass/LiquidMorph.kt`，路径和总时长未改。最终源码 `2a52e402` 完整签名 Release 与 4 类 80 项定向回归成功（8m42s，0 失败/错误/跳过），567 文件架构扫描/14 项检查器回归/文档链接及 diff 检查通过。新包 `tmp/review-apks/SleepDown-course-glow-crossfade-2a52e402-20261022.apk`，SHA-256 `55b00126418162d49159938cb8b72b1f99a09fffd67243f00c3051efd0529715`；版本仍为 `1.2.7.1` / 35，v2 签名及证书匹配通过。金标未生效确认为课程管理→详情，但用户随后明确“手机不在，先不修这里”；本轮不再动金标，也没有设备安装或视觉验收。旧安装包不是本次候选，不把之前安装或构建当作本轮实机证据。详见[本轮记录](reports/2026-10-22-course-glow-and-midway-content.md)。
+
+最新续修：用户在已安装包上反馈编辑展开亮框、拖动全屏闪光、滚动底部黑边，并要求凝光表单在动画中直接显示，同时核对金标未激活。`94307b41` 删除课程外部焦散/elevation、恢复裁切并限制独立 halo；`e9bec46c` 将凝光课程编辑/个性化改为 Preparing 完整布局、随 Morph 显示并保留至关闭完成，材质能力判断集中在既有公共 provider；`732c656f` 允许显式本地金标属性进入签名 Release，普通构建仍默认关闭，仅课程管理→详情为候选。首轮 102 项回归通过；最终源码 `732c656f` 完整签名 Release 构建及预载/课程数据/拖动状态 27 项回归成功（9m54s，0 失败/错误/跳过，两轮含重复项）。用户重新连接手机后，经项目默认 5038 通道在 PLJ110（Android 17）覆盖安装成功，系统更新时间 18:13:44，未清数据或自动启动。本轮包为 `tmp/review-apks/SleepDown-native-preload-pilot-732c656f-20261021.apk`，SHA-256 `125790245e56371e3a571f464741e449bffdc25931f06ae4b8caf4f155eb775c`；版本仍为 `1.2.7.1` / 35，签名核验通过。不要把旧 `ef98129a` APK 当作本轮产物。实际闪烁/黑边、预载流畅度及 ROM 金标接管仍待场景验收，不能以安装或开关替代。详见[后续反馈与验证](reports/2026-10-21-native-morph-live-content-feedback.md)。不合并或发布。
+
+独立工作树 `tmp/home-accent-icon-study/`，分支 `codex/home-material-corrections`，基于 #79 的 `bfb5eecd`。用户要求修复首页凝光主题色偶发变白，以及让课程卡片复用 Dock 的晶莹光效；后续明确取消自绘图标，样稿已撤出，现有图标保留。实现、验证边界与依赖 PR 顺序见[本次记录](reports/2026-10-21-coloros-home-material-fixes.md)。用户随后明确要求“打包安装”，并要求“换个通道”，授权本次覆盖安装及 5037 通道例外；没有合并、版本变更或发布授权。
+
+本批 `25a839aa` 为主题色修复，`5805745b` 为课程光效，可单独回退；关联 [PR 检索](https://github.com/xiaomanjun233/SleepDown-Schedule/pulls?q=is%3Apr+head%3Acodex%2Fhome-material-corrections)。最终代码 `compileGithubReleaseKotlin` 及 Dock 取色/Compose 边界/圆角三类 12 项回归成功（5m11s），0 失败/错误/跳过；567 文件依赖检查与 14 项检查器回归通过，无新增豁免。尚未实机验收主题色、外轮廓焦散阴影和系统效果开关。
+
+2026-10-21 已从 [#81](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/81) 的 `ef98129a` 完整构建签名 Release（4m28s，含 R8/资源压缩/lintVital），版本仍为 `1.2.7.1` / 35，签名与正式版一致。经用户明确要求换通道后，使用 SDK 客户端和已核对的 5037 OPPO USB 服务端在 PLJ110（Android 17）执行 `install -r`，返回 Success；系统更新时间为 17:22:58。没有清数据或自动启动。5038 已先核对/重启但无法发现手机；本次例外没有修改项目默认 ADB 脚本或终止 5037 服务。本机 APK 副本 `tmp/review-apks/SleepDown-architecture-home-material-ef98129a-20261021.apk`，SHA-256 `15e42509b7ed9180eb5ee932d99bb80ac81d5d1bc0b6a0dd7f6e7d3084ae2b79`。设备视觉仍待用户验收，安装成功不替代视觉/性能验收。
+
+#79 最新运行时代码 `bfb5eecd` 的[完整 CI](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39567706241)已成功；#80 最终 `1c6a2c5e` 的[完整 CI](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39557219802)已成功。两项 PR 均保持开放，没有实际同步/合并 main 或 develop。
+
+## 依赖的架构任务与历史基线
 
 | 对象 | 核对结果 |
 | --- | --- |
@@ -37,7 +51,7 @@
 
 - 续批将纯色板/ARGB 编解码/Oklab 色差归 model、通用主题归 core、玻璃诊断归 glass，57 个调用文件只迁移 import/FQN，原计算与参数保留。core→glass 文件 16→11；性能/壁纸两区域不再反向依赖且有检查器严格规则。Release Kotlin 编译和 10 类 60 项回归通过（6m02s），566 文件/0 违规/41 声明循环、14 项检查器回归通过。报告见[根节点与边界续作](reports/2026-10-21-root-and-workflow-followup.md)。
 - 当前可复用的云端证据：#79 `79279664` [39557393396](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39557393396) 成功；#80 最终 `1c6a2c5e` [39557219802](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39557219802) 成功。本批基础边界在 79279664 后，不能用旧 head 代替新 head。merge-tree 仅预演确认将来集成有交接页与版本基线两份文档冲突；#80 合并后保留新流程及本任务/历史记录再解决，未实际合并。
-- 用户最新追加：首页凝光主题色偶发变白、希望课程卡片复用 Dock 底部晶莹光效，并先做自绘 SVG（Dock 线框/填充态）样稿。本架构批次先收口；视觉修复/设计将另建独立任务分支，不把尚未实现写成完成，不全量替换图标。图标样稿数量已异步询问，可在其间继续根因调查。
+- 用户追加的首页凝光主题色与课程光效已由本独立工作树承接，见本页开头及专项报告；用户随后取消 SVG 图标方案，现有图标保留。#79 的架构提交与本次视觉改动保持分开。
 
 - 根节点的更新 UI 状态/安装授权收口到 `feature/update/AppUpdateSession`，首页与设置页各持有自己的 Composition 会话、复用原后台下载；原弹窗内容对照一致。`HomeResumeEffect` 订阅/释放独立并使用当前回调，保留首次启动语义和原 picker generation。根节点 4493→4406、设置根页 330→266；没有调样式/参数。移除失效 settings 引用后基线 44→41，0 新增豁免。Release Kotlin 编译和实际 4 类 28 项回归通过（4m32s），检查器 13 项通过；签名 APK 仍仅对应前批 `143eddb3`，未安装或实机验收。
 - 新流程的 [#80](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/80) 已开放，目标 develop；实现 `a5df31a3` 的完整云端 CI [39555564064](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39555564064) 成功。两分支远端仍未同步，不把 PR 候选当作合并完成。#79 的 base 保持 main，待 #80 合并后再处理；本轮没有合并授权。

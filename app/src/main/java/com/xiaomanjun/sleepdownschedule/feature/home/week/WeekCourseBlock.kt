@@ -652,6 +652,7 @@ fun WeekCourseBlock(
                             backdrop = activeCardBackdrop,
                             config = config,
                             course = underlyingCourse,
+                            followTouch = false,
                             muted = subdued,
                             modifier = Modifier.fillMaxSize(),
                             shape = cardShape,
@@ -704,6 +705,7 @@ fun WeekCourseBlock(
                         backdrop = activeCardBackdrop,
                         config = config,
                         course = target,
+                        followTouch = false,
                         modifier = Modifier.fillMaxSize(),
                         shape = cardShape,
                         onClick = null
