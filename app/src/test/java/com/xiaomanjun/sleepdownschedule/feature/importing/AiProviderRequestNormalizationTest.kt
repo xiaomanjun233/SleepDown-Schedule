@@ -9,17 +9,21 @@ import org.junit.Test
 
 class AiProviderRequestNormalizationTest {
     @Test
-    fun managedFreeQuotaErrorsUseSharedPoolMessage() {
-        val message = formatAiRequestError(
-            429,
-            "{\"error\":{\"code\":\"model_limit_exceeded\"}}",
-            AiProviderPresets.dailyFree.id
-        )
-
-        assertEquals(
-            "今日免费 AI 共享额度已用完，请明天再试，或在 AI 设置中配置自己的 AI 服务。",
-            message
-        )
+    fun managedFreeErrorsPreserveActualFailureWithoutInventingDailyQuota() {
+        for ((status, response) in listOf(
+            429 to "{\"error\":{\"code\":\"rate_limit_exceeded\"}}",
+            429 to "{\"error\":{\"code\":\"insufficient_quota\"}}",
+            403 to "{\"error\":{\"code\":\"model_limit_exceeded\"}}",
+            400 to "Unknown parameter: quota",
+            503 to "too many requests"
+        )) {
+            val message = formatAiRequestError(status, response, AiProviderPresets.dailyFree.id)
+            assertTrue(message.startsWith("免费 AI 请求失败 ($status)"))
+            assertTrue(message.contains(response))
+            assertFalse(message.contains("今日"))
+            assertFalse(message.contains("明天"))
+            assertFalse(message.contains("共享额度已用完"))
+        }
     }
 
     @Test

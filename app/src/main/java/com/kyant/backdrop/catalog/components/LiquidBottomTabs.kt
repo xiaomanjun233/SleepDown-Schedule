@@ -25,14 +25,17 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -65,8 +68,6 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
-import kotlinx.coroutines.flow.collectLatest
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sign
@@ -102,8 +103,12 @@ fun LiquidBottomTabs(
     lightContainerColor: Color = Color(0xFFFAFAFA),
     lightAccentColor: Color = Color(0xFF0088FF),
     useOfficialGlassParameters: Boolean = false,
+    containerSurfaceEnabled: Boolean = true,
+    leadingWidth: Dp = 0.dp,
+    leadingContent: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable RowScope.() -> Unit
 ) {
+    val superPerformance = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
     val isLightTheme = isLightThemeOverride ?: !isSystemInDarkTheme()
     // Theme ownership can change when a dock moves between wallpaper-adaptive Home and the app
     // themed settings page. Keep one Kyant surface alive and crossfade its material after the tab
@@ -220,10 +225,10 @@ fun LiquidBottomTabs(
     ) {
         val density = LocalDensity.current
         val tabWidth = with(density) {
-            (constraints.maxWidth.toFloat() - horizontalPadding.toPx() * 2f) / tabsCount
+            (constraints.maxWidth.toFloat() - horizontalPadding.toPx() * 2f - leadingWidth.toPx()) / tabsCount
         }
         val offsetAnimation = remember { Animatable(0f) }
-        val panelOffset by remember(density) {
+        val panelOffset by remember(density, constraints.maxWidth) {
             derivedStateOf {
                 val fraction = (offsetAnimation.value / constraints.maxWidth).fastCoerceIn(-1f, 1f)
                 with(density) {
@@ -234,10 +239,13 @@ fun LiquidBottomTabs(
 
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
-        var currentIndex by remember {
-            mutableIntStateOf(selectedTabIndex().fastCoerceIn(0, tabsCount - 1))
-        }
-        val dampedDragAnimation = remember(animationScope) {
+        val selectedIndex = selectedTabIndex().fastCoerceIn(0, tabsCount - 1)
+        val currentOnTabSelected by rememberUpdatedState(onTabSelected)
+        val currentTabWidth by rememberUpdatedState(tabWidth)
+        val currentIsLtr by rememberUpdatedState(isLtr)
+        val currentLeadingInset by rememberUpdatedState(with(density) { (horizontalPadding + leadingWidth).toPx() })
+        var dragging by remember(tabsCount) { mutableStateOf(false) }
+        val dampedDragAnimation = remember(animationScope, tabsCount) {
             DampedDragAnimation(
                 animationScope = animationScope,
                 initialValue = selectedTabIndex().toFloat(),
@@ -245,11 +253,14 @@ fun LiquidBottomTabs(
                 visibilityThreshold = 0.001f,
                 initialScale = 1f,
                 pressedScale = 78f / 56f,
-                onDragStarted = {},
+                onDragStarted = { dragging = true },
                 onDragStopped = {
                     val targetIndex = targetValue.fastRoundToInt().fastCoerceIn(0, tabsCount - 1)
-                    currentIndex = targetIndex
+                    dragging = false
                     animateToValue(targetIndex.toFloat())
+                    // The Topbar is first composed during the sidebar morph, when navigation is
+                    // disabled. Dispatch through the current callback, never that initial closure.
+                    currentOnTabSelected(targetIndex)
                     animationScope.launch {
                         offsetAnimation.animateTo(
                             0f,
@@ -259,7 +270,7 @@ fun LiquidBottomTabs(
                 },
                 onDrag = { _, dragAmount ->
                     updateValue(
-                        (targetValue + dragAmount.x / tabWidth * if (isLtr) 1f else -1f)
+                        (targetValue + dragAmount.x / currentTabWidth * if (currentIsLtr) 1f else -1f)
                             .fastCoerceIn(0f, (tabsCount - 1).toFloat())
                     )
                     animationScope.launch {
@@ -268,29 +279,21 @@ fun LiquidBottomTabs(
                 }
             )
         }
-        LaunchedEffect(selectedTabIndex()) {
-            val index = selectedTabIndex().fastCoerceIn(0, tabsCount - 1)
-            if (currentIndex != index || abs(dampedDragAnimation.targetValue - index.toFloat()) > 0.01f) {
-                currentIndex = index
-                dampedDragAnimation.animateToValue(index.toFloat())
+        LaunchedEffect(selectedIndex, dragging) {
+            if (!dragging && abs(dampedDragAnimation.targetValue - selectedIndex.toFloat()) > 0.01f) {
+                dampedDragAnimation.animateToValue(selectedIndex.toFloat())
             }
         }
-        LaunchedEffect(dampedDragAnimation) {
-            snapshotFlow { currentIndex }
-                .drop(1)
-                .collectLatest { index ->
-                    dampedDragAnimation.animateToValue(index.toFloat())
-                    onTabSelected(index)
-                }
-        }
 
-        val interactiveHighlight = remember(animationScope) {
+        val interactiveHighlight = remember(animationScope, dampedDragAnimation) {
             InteractiveHighlight(
                 animationScope = animationScope,
-                position = { size, offset ->
+                position = { size, _ ->
+                    // This light is drawn in the already-translated container. Include the
+                    // leading control/padding and do not apply panelOffset a second time.
+                    val center = currentLeadingInset + (dampedDragAnimation.value + 0.5f) * currentTabWidth
                     Offset(
-                        if (isLtr) (dampedDragAnimation.value + 0.5f) * tabWidth + panelOffset
-                        else size.width - (dampedDragAnimation.value + 0.5f) * tabWidth + panelOffset,
+                        if (currentIsLtr) center else size.width - center,
                         size.height / 2f
                     )
                 }
@@ -306,6 +309,8 @@ fun LiquidBottomTabs(
                     backdrop = backdrop,
                     descriptor = containerDescriptor,
                     material = containerMaterial,
+                    fallbackColor = com.xiaomanjun.sleepdownschedule.glass.flatControlColor(!isLightTheme),
+                    renderEnabled = { containerSurfaceEnabled },
                     shape = { Capsule() },
                     effectFrame = GlassEffectFrame(blur = null),
                     effectsOverride = {
@@ -330,16 +335,33 @@ fun LiquidBottomTabs(
                         drawRect(lightContainerSurface, alpha = themeBlend)
                     }
                 )
-                .then(interactiveHighlight.modifier)
+                .then(if (superPerformance) Modifier.drawBehind {
+                    val inset = (horizontalPadding + leadingWidth).toPx()
+                    val logicalX = inset + dampedDragAnimation.value * tabWidth
+                    val pillHeight = indicatorHeight.toPx()
+                    val origin = Offset(if (isLtr) logicalX else size.width - logicalX - tabWidth, (size.height - pillHeight) / 2f)
+                    val pillSize = Size(tabWidth, pillHeight)
+                    val radius = CornerRadius(pillHeight / 2f)
+                    drawRoundRect(Color(0xFF9E9E9E).copy(alpha = 0.24f), origin, pillSize, radius)
+                    val stroke = 1.dp.toPx()
+                    drawRoundRect(Color(0xFF9E9E9E).copy(alpha = 0.50f),
+                        topLeft = origin + Offset(stroke / 2, stroke / 2),
+                        size = Size(pillSize.width - stroke, pillSize.height - stroke),
+                        cornerRadius = CornerRadius((pillHeight - stroke) / 2),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                } else interactiveHighlight.modifier)
                 .height(containerHeight)
                 .fillMaxWidth()
                 .padding(horizontalPadding),
             verticalAlignment = Alignment.CenterVertically,
-            content = content
-        )
+        ) {
+            leadingContent?.invoke(this)
+            content()
+        }
 
-        if (movingAccentContent) {
+        if (movingAccentContent && !superPerformance) {
             CompositionLocalProvider(
+                LocalLiquidBottomTabInputEnabled provides false,
                 LocalLiquidBottomTabScale provides {
                     lerp(1f, pressedContentScale, dampedDragAnimation.pressProgress)
                 }
@@ -352,7 +374,7 @@ fun LiquidBottomTabs(
                         .graphicsLayer {
                             translationX = panelOffset
                         }
-                        .sleepDownGlassSurface(
+                        .then(if (containerSurfaceEnabled) Modifier.sleepDownGlassSurface(
                             backdrop = backdrop,
                             descriptor = movingAccentDescriptor,
                             material = movingAccentMaterial,
@@ -377,21 +399,23 @@ fun LiquidBottomTabs(
                                 drawRect(darkContainerSurface, alpha = 1f - themeBlend)
                                 drawRect(lightContainerSurface, alpha = themeBlend)
                             }
-                        )
+                        ) else Modifier)
                         .then(interactiveHighlight.modifier)
                         .height(indicatorHeight)
                         .fillMaxWidth()
                         .padding(horizontal = horizontalPadding)
                         .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
                     verticalAlignment = Alignment.CenterVertically,
-                    content = content
-                )
+                ) {
+                    if (leadingWidth > 0.dp) androidx.compose.foundation.layout.Spacer(Modifier.width(leadingWidth))
+                    content()
+                }
             }
         }
 
         Box(
             Modifier
-                .padding(horizontal = horizontalPadding)
+                .padding(start = horizontalPadding + leadingWidth, end = horizontalPadding)
                 .graphicsLayer {
                     val progress = dampedDragAnimation.pressProgress
                     val widthOverflowPx = indicatorWidthOverflow.toPx() * progress
@@ -405,6 +429,7 @@ fun LiquidBottomTabs(
                     backdrop = rememberGlassCombinedBackdrop(backdrop, tabsBackdrop),
                     descriptor = indicatorDescriptor,
                     material = indicatorMaterial,
+                    renderEnabled = { !superPerformance },
                     shape = { Capsule() },
                     effectFrame = GlassEffectFrame(blur = null),
                     effectsOverride = {

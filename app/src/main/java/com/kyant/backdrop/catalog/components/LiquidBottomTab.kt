@@ -20,6 +20,7 @@ import com.kyant.shapes.Capsule
 
 internal val LocalLiquidBottomTabScale =
     staticCompositionLocalOf { { 1f } }
+internal val LocalLiquidBottomTabInputEnabled = staticCompositionLocalOf { true }
 
 @Composable
 fun RowScope.LiquidBottomTab(
@@ -28,15 +29,16 @@ fun RowScope.LiquidBottomTab(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val scale = LocalLiquidBottomTabScale.current
+    val inputEnabled = LocalLiquidBottomTabInputEnabled.current
     Column(
         modifier
             .clip(Capsule())
-            .clickable(
+            .then(if (inputEnabled) Modifier.clickable(
                 interactionSource = null,
                 indication = null,
                 role = Role.Tab,
                 onClick = onClick
-            )
+            ) else Modifier)
             .fillMaxHeight()
             .weight(1f)
             .graphicsLayer {

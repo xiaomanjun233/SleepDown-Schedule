@@ -19,6 +19,26 @@ class ScheduleTermBoundaryTest {
     )
 
     @Test
+    fun shorteningWarnsOnlyForActiveOutOfTermCoursesInThisSchedule() {
+        val late = CourseEntity(
+            id = 1, name = "晚周课程", teacher = null, location = null, weekday = 1,
+            periods = listOf(1), weeks = listOf(18), weekParity = WeekParity.ALL, note = null, scheduleId = 1
+        )
+        val courses = listOf(
+            late,
+            late.copy(id = 2, weeks = listOf(16)),
+            late.copy(id = 3, weekParity = WeekParity.ODD),
+            late.copy(id = 4, scheduleId = 2),
+            late.copy(id = 5, weeks = listOf(2, 17))
+        )
+
+        assertEquals(listOf(1L, 5L), coursesOutsideShortenedTerm(courses, 1, 20, 16).map(CourseEntity::id))
+        assertTrue(coursesOutsideShortenedTerm(courses, 1, 16, 20).isEmpty())
+        assertTrue(coursesOutsideShortenedTerm(courses, 1, 20, 20).isEmpty())
+        assertEquals(listOf(18), late.weeks)
+    }
+
+    @Test
     fun datesBeforeActualOpeningDayDoNotBecomeWeekOne() {
         assertNull(scheduleWeekForDateOrNull(config, LocalDate.of(2026, 9, 1)))
         assertEquals(1, scheduleWeekForDateOrNull(config, LocalDate.of(2026, 9, 2)))
@@ -59,6 +79,16 @@ class ScheduleTermBoundaryTest {
         assertEquals(2, storedWeek)
         assertEquals("暂未开学", scheduleTermStatusLabel(config, LocalDate.of(2026, 9, 1)))
         assertEquals("学期已结束", scheduleTermStatusLabel(config, LocalDate.of(2026, 9, 14)))
+    }
+
+    @Test
+    fun automaticModePromptsForMissingStartDateWithoutGuessingTheWeek() {
+        val newSchedule = defaultConfig().copy(autoCurrentWeek = true)
+        val today = LocalDate.of(2026, 9, 25)
+
+        assertEquals(1, effectiveCurrentWeek(newSchedule, today))
+        assertEquals("待设置开学日期", scheduleTermStatusLabel(newSchedule, today))
+        assertEquals("待设置开学日期", scheduleTermStatusDescription(newSchedule, today))
     }
 
     @Test

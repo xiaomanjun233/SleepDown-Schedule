@@ -2,8 +2,6 @@
 // Modified for SleepDown-Schedule.
 package com.kyant.backdrop.catalog.components
 
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -14,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -21,20 +20,23 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.isSpecified
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.isSpecified
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.fastCoerceAtMost
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.BackdropEffectScope
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
@@ -42,12 +44,15 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCapsuleButtonRenderer
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCapsuleButtonRequest
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -75,6 +80,7 @@ fun LiquidButton(
     lensAmount: Dp = 24f.dp,
     chromaticAberration: Boolean = false,
     shadowEnabled: Boolean = true,
+    shadowStyle: Shadow = Shadow.Default,
     highlightEnabled: Boolean = true,
     clickTargetEnabled: Boolean = true,
     pressExpansion: Dp = 4f.dp,
@@ -82,17 +88,44 @@ fun LiquidButton(
     staticPressDimAlpha: Float = 0f,
     shape: Shape = Capsule(),
     clipToBounds: Boolean = false,
+    surfaceEnabled: Boolean = true,
     pressSnapshot: LiquidButtonPressSnapshot? = null,
+    sharedInteractiveHighlight: InteractiveHighlight? = null,
     interactionEnabledAt: (size: Size, offset: Offset) -> Boolean = { _, _ -> true },
+    flatOpacity: Float? = null,
+    enabled: Boolean = true,
+    nativeDarkOverride: Boolean? = null,
+    preserveMaterialWhenDisabled: Boolean = false,
     content: @Composable RowScope.() -> Unit
 ) {
+    // Compatibility entry for existing feature buttons. Surface-only hosts (menus, fields,
+    // shared gesture shells) retain their own geometry and do not become native click targets.
+    val nativeRenderer = LocalNativeCapsuleButtonRenderer.current
+    if (surfaceEnabled && (clickTargetEnabled || !enabled) && nativeRenderer != null) {
+        val accent = listOf(surfaceColor, tint).firstOrNull { color ->
+            color.isSpecified && color.alpha > 0f &&
+                maxOf(color.red, color.green, color.blue) - minOf(color.red, color.green, color.blue) > 0.12f
+        } ?: Color.Unspecified
+        val dark = nativeDarkOverride ?: if (!accent.isSpecified && surfaceColor.isSpecified && surfaceColor.alpha > 0f)
+            surfaceColor.luminance() < 0.5f else MaterialTheme.colorScheme.background.luminance() < 0.5f
+        if (nativeRenderer(NativeCapsuleButtonRequest(onClick, modifier, height, contentPadding, dark,
+                enabled = enabled, primaryColor = accent, acceptsGesture = interactionEnabledAt,
+                preserveMaterialWhenDisabled = preserveMaterialWhenDisabled), content)) {
+            pressSnapshot?.progress = 0f
+            return
+        }
+    }
     val animationScope = rememberCoroutineScope()
     val clickInteractionSource = remember { MutableInteractionSource() }
     val pressed by clickInteractionSource.collectIsPressedAsState()
     val latestInteractionEnabledAt = rememberUpdatedState(interactionEnabledAt)
 
-    val interactiveHighlight = remember(animationScope, highlightRadiusMultiplier) {
-        InteractiveHighlight(
+    val interactiveHighlight = remember(
+        animationScope,
+        highlightRadiusMultiplier,
+        sharedInteractiveHighlight
+    ) {
+        sharedInteractiveHighlight ?: InteractiveHighlight(
             animationScope = animationScope,
             radius = { size -> size.minDimension * highlightRadiusMultiplier },
             acceptsGesture = { size, offset ->
@@ -135,21 +168,36 @@ fun LiquidButton(
         sceneKey = "liquid-button"
     )
 
+    val buttonShapeBlock: () -> Shape = remember(shape) { { shape } }
+    val buttonEffects: BackdropEffectScope.() -> Unit = remember(
+        blurRadius, lensHeight, lensAmount, chromaticAberration
+    ) {
+        {
+            vibrancy()
+            blur(blurRadius.toPx())
+            lens(lensHeight.toPx(), lensAmount.toPx(), chromaticAberration = chromaticAberration)
+        }
+    }
+    val buttonOnDrawSurface: DrawScope.() -> Unit = remember(tint, surfaceColor) {
+        {
+            if (tint.isSpecified) {
+                drawRect(tint.copy(alpha = 0.18f), blendMode = BlendMode.Hue)
+                drawRect(tint.copy(alpha = 0.22f))
+            }
+            if (surfaceColor.isSpecified) drawRect(surfaceColor)
+        }
+    }
     Row(
         modifier
             .sleepDownGlassSurface(
                 backdrop = backdrop,
                 descriptor = descriptor,
                 material = material,
-                shape = { shape },
+                shape = buttonShapeBlock,
                 effectFrame = GlassEffectFrame(blur = null),
-                effectsOverride = {
-                    vibrancy()
-                    blur(blurRadius.toPx())
-                    lens(lensHeight.toPx(), lensAmount.toPx(), chromaticAberration = chromaticAberration)
-                },
+                effectsOverride = buttonEffects,
                 highlightOverride = if (highlightEnabled) ({ Highlight.Default }) else null,
-                shadowOverride = if (shadowEnabled) ({ Shadow.Default }) else null,
+                shadowOverride = if (shadowEnabled) ({ shadowStyle }) else null,
                 additionalLayerBlock = if (isInteractive) {
                     {
                         val width = size.width
@@ -180,16 +228,11 @@ fun LiquidButton(
                 } else {
                     null
                 },
-                onDrawSurface = {
-                    if (tint.isSpecified) {
-                        drawRect(tint.copy(alpha = 0.18f), blendMode = BlendMode.Hue)
-                        drawRect(tint.copy(alpha = 0.22f))
-                    }
-                    if (surfaceColor.isSpecified) {
-                        drawRect(surfaceColor)
-                    }
-                },
-                clipToBounds = clipToBounds
+                onDrawSurface = buttonOnDrawSurface,
+                fallbackColor = surfaceColor.takeIf { it.isSpecified } ?: tint.takeIf { it.isSpecified },
+                fallbackOpacity = flatOpacity,
+                clipToBounds = clipToBounds,
+                renderEnabled = { surfaceEnabled }
             )
             .then(
                 if (!isInteractive && staticPressDimAlpha > 0f) {
@@ -213,6 +256,7 @@ fun LiquidButton(
                             else -> LocalIndication.current
                         },
                         role = Role.Button,
+                        enabled = enabled,
                         onClick = onClick
                     )
                 } else {
@@ -223,7 +267,13 @@ fun LiquidButton(
                 if (isInteractive) {
                     Modifier
                         .then(interactiveHighlight.modifier)
-                        .then(interactiveHighlight.gestureModifier)
+                        .then(
+                            if (sharedInteractiveHighlight == null) {
+                                interactiveHighlight.gestureModifier
+                            } else {
+                                Modifier
+                            }
+                        )
                 } else {
                     Modifier
                 }
@@ -234,6 +284,33 @@ fun LiquidButton(
         verticalAlignment = Alignment.CenterVertically,
         content = content
     )
+}
+
+/**
+ * Applies the exact same press expansion and pointer-following stretch as [LiquidButton] to a
+ * sibling foreground layer. Editable fields can use this while remaining outside the backdrop
+ * consumer, so their blinking caret does not invalidate the glass surface beneath them.
+ */
+fun Modifier.liquidButtonVisualTransform(
+    interactiveHighlight: InteractiveHighlight,
+    pressExpansion: Dp = 4f.dp,
+    dragExpansion: Dp = pressExpansion
+): Modifier = graphicsLayer {
+    val progress = interactiveHighlight.pressProgress
+    val safeHeight = size.height.coerceAtLeast(1f)
+    val safeWidth = size.width.coerceAtLeast(1f)
+    val expansionPx = pressExpansion.toPx()
+    val scale = lerp(1f, 1f + expansionPx / safeHeight, progress)
+    val maxOffset = size.minDimension.coerceAtLeast(1f)
+    val offset = interactiveHighlight.offset
+    translationX = maxOffset * tanh(0.05f * offset.x / maxOffset)
+    translationY = maxOffset * tanh(0.05f * offset.y / maxOffset)
+    val maxDragScale = dragExpansion.toPx() / safeHeight
+    val offsetAngle = atan2(offset.y, offset.x)
+    scaleX = scale + maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension.coerceAtLeast(1f)) *
+        (safeWidth / safeHeight).fastCoerceAtMost(1f)
+    scaleY = scale + maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension.coerceAtLeast(1f)) *
+        (safeHeight / safeWidth).fastCoerceAtMost(1f)
 }
 
 @Composable

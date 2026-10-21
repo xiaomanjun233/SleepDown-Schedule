@@ -22,6 +22,12 @@ class ScheduleConverters {
     fun parityToString(value: WeekParity): String = value.name
 
     @TypeConverter
+    fun periodAlignmentModeToString(value: PeriodAlignmentMode): String = value.name
+
+    @TypeConverter
+    fun stringToPeriodAlignmentMode(value: String): PeriodAlignmentMode = PeriodAlignmentMode.valueOf(value)
+
+    @TypeConverter
     fun stringToParity(value: String): WeekParity =
         runCatching { WeekParity.valueOf(value) }.getOrDefault(WeekParity.ALL)
 
@@ -79,4 +85,18 @@ class ScheduleConverters {
     @TypeConverter
     fun stringToCourseCardColorMode(value: String): CourseCardColorMode =
         runCatching { CourseCardColorMode.valueOf(value) }.getOrDefault(CourseCardColorMode.SOLID)
+
+    @TypeConverter
+    fun weekCardTextAlignmentToString(value: WeekCardTextAlignment): String = value.name
+
+    @TypeConverter
+    fun stringToWeekCardTextAlignment(value: String): WeekCardTextAlignment =
+        runCatching { WeekCardTextAlignment.valueOf(value) }.getOrDefault(WeekCardTextAlignment.CENTER)
+
+    @TypeConverter
+    fun weekCardContentLayoutToString(value: WeekCardContentLayout): String = value.name
+
+    @TypeConverter
+    fun stringToWeekCardContentLayout(value: String): WeekCardContentLayout =
+        runCatching { WeekCardContentLayout.valueOf(value) }.getOrDefault(WeekCardContentLayout.CURRENT)
 }

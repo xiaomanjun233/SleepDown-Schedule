@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.ColorDrawable
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import com.xiaomanjun.sleepdownschedule.BuildConfig
@@ -104,7 +105,11 @@ object ActivityTransitionCoordinator {
             return@withContext TransitionLaunchResult.Failed(failed.id, reason)
         }
         val parentId = payload?.parentSessionId ?: activity.activeTransitionSessionIdOrNull()
-        val normalizedPayload = payload?.copy(parentSessionId = parentId)
+        val landscape = activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val normalizedPayload = if (landscape) payload?.copy(
+            openingAnchor = null, returnAnchorProvider = null, nativeSourceViewProvider = null,
+            backgroundBitmap = null, parentSessionId = parentId, nativeSourceLeashAlphaOutOnOpen = false
+        ) else payload?.copy(parentSessionId = parentId)
         val session = TransitionPayloadStore.create(routeId, normalizedPayload, parentId)
         intent.putTransitionIdentity(session)
         val legacyRequest = TransitionOpenRequest(activity, intent, route, session, normalizedPayload)
@@ -115,7 +120,7 @@ object ActivityTransitionCoordinator {
                 .getOrDefault(false)
         }
         val nativeDestination = route.nativeDestinationClassName
-        val nativeEligible = (forceNativeForDebug || TransitionFeatureGate.allowsOplus(route)) &&
+        val nativeEligible = !landscape && (forceNativeForDebug || TransitionFeatureGate.allowsOplus(route)) &&
             (!route.requiresOpeningAnchor || normalizedPayload?.openingAnchor?.isValid == true) &&
             returnAnchorReady &&
             (allowDebugDestinationOverride || nativeDestination != null)
@@ -142,11 +147,12 @@ object ActivityTransitionCoordinator {
         launchLegacy(legacyRequest)
     }
 
-    /** Synchronous entry for routes whose catalog policy can never select a native backend. */
+    /** Non-native routes can use an Activity Result launcher while keeping the catalog policy. */
     fun openImmediate(
         activity: Activity,
         routeId: TransitionRouteId,
-        intent: android.content.Intent
+        intent: android.content.Intent,
+        launchActivity: ((android.content.Intent) -> Unit)? = null
     ): TransitionLaunchResult {
         val route = TransitionRouteCatalog.get(routeId)
         require(route.nativePolicy == TransitionNativePolicy.Never) {
@@ -160,7 +166,7 @@ object ActivityTransitionCoordinator {
         intent.putTransitionIdentity(session)
         val request = TransitionOpenRequest(activity, intent, route, session, null)
         session.moveTo(TransitionSessionState.LegacyRunning)
-        return when (val result = legacyBackend.openImmediate(request)) {
+        return when (val result = legacyBackend.openImmediate(request, launchActivity ?: { activity.startActivity(it) })) {
             TransitionBackendOpenResult.Started -> {
                 session.moveTo(TransitionSessionState.Open)
                 TransitionPayloadStore.remove(session.id)
@@ -188,9 +194,20 @@ object ActivityTransitionCoordinator {
     }
 
     fun finishAfterLegacy(activity: Activity, sessionId: TransitionSessionId?) {
+        val routeId = TransitionPayloadStore.session(sessionId)?.routeId
+            ?: activity.intent.transitionRouteIdOrNull()
+        val profile = routeId?.let(TransitionRouteCatalog::get)?.legacyProfile
         TransitionPayloadStore.session(sessionId)?.moveTo(TransitionSessionState.Finished)
         TransitionPayloadStore.remove(sessionId)
         activity.finish()
+        if (profile == LegacyTransitionProfile.PlatformDefault || profile == LegacyTransitionProfile.TaskReturn) return
+        if (profile is LegacyTransitionProfile.Depth) {
+            if (Build.VERSION.SDK_INT < 34) {
+                @Suppress("DEPRECATION")
+                activity.overridePendingTransition(profile.closeEnterAnimation, profile.closeExitAnimation)
+            }
+            return
+        }
         @Suppress("DEPRECATION")
         activity.overridePendingTransition(0, 0)
     }
@@ -198,8 +215,16 @@ object ActivityTransitionCoordinator {
     /** Called before super.onCreate so the destination can recognize its matching native session. */
     fun prepareDestinationBeforeOnCreate(activity: Activity): Boolean {
         val session = TransitionPayloadStore.session(activity.intent.transitionSessionIdOrNull())
-            ?: return false
-        val route = TransitionRouteCatalog.get(session.routeId)
+        val routeId = session?.routeId ?: activity.intent.transitionRouteIdOrNull() ?: return false
+        val route = TransitionRouteCatalog.get(routeId)
+        val profile = route.legacyProfile
+        if (profile is LegacyTransitionProfile.Depth && Build.VERSION.SDK_INT >= 34) {
+            activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_OPEN,
+                profile.openEnterAnimation, profile.openExitAnimation)
+            activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE,
+                profile.closeEnterAnimation, profile.closeExitAnimation)
+        }
+        if (session == null) return false
         val payload = TransitionPayloadStore.payload(session.id)
         // Snapshot-free anchored Morphs intentionally keep the source Activity as the live
         // underlay. Select the translucent window before super.onCreate so Android never inserts
@@ -301,14 +326,15 @@ object ActivityTransitionCoordinator {
 /** Context-safe convenience for catalog routes that are guaranteed to use a non-native backend. */
 fun Context.openRegisteredActivity(
     routeId: TransitionRouteId,
-    intent: android.content.Intent
+    intent: android.content.Intent,
+    launchActivity: ((android.content.Intent) -> Unit)? = null
 ): TransitionLaunchResult? {
     val activity = findTransitionActivity()
     if (activity == null) {
-        startActivity(intent)
+        if (launchActivity != null) launchActivity(intent) else startActivity(intent)
         return null
     }
-    return ActivityTransitionCoordinator.openImmediate(activity, routeId, intent)
+    return ActivityTransitionCoordinator.openImmediate(activity, routeId, intent, launchActivity)
 }
 
 private tailrec fun Context.findTransitionActivity(): Activity? = when (this) {

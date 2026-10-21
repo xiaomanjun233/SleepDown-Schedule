@@ -19,9 +19,13 @@ val releaseStorePassword = releaseSecret("sleepdown.releaseStorePassword", "SLEE
 val releaseKeyAlias = releaseSecret("sleepdown.releaseKeyAlias", "SLEEPDOWN_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseSecret("sleepdown.releaseKeyPassword", "SLEEPDOWN_RELEASE_KEY_PASSWORD")
 val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOWN_REMOTE_CONFIG_SECRET").orEmpty()
+// 用旧客户端可识别的第四段数字补发 r1 修复；versionCode 仍为 35。
+val sleepDownVersionName = "1.2.7.1"
 val skipReleaseResourceShrink = providers.gradleProperty("sleepdown.skipReleaseResourceShrink")
     .map(String::toBoolean)
     .getOrElse(false)
+// Optional local adapter bundle for device testing. Release never includes this directory.
+val eduAdapterTestAssets = providers.gradleProperty("sleepdown.eduAdapterTestAssets").orNull
 val hasReleaseSigning = listOf(
     releaseStoreFilePath,
     releaseStorePassword,
@@ -39,6 +43,10 @@ android {
     }
     buildFeatures {
         buildConfig = true
+        aidl = true
+    }
+    testOptions {
+        unitTests.isIncludeAndroidResources = true
     }
     lint {
         disable += setOf(
@@ -65,8 +73,8 @@ android {
         applicationId = "com.xiaomanjun.sleepdownschedule"
         minSdk = 26
         targetSdk = 36
-        versionCode = 28
-        versionName = "1.2.2"
+        versionCode = 35
+        versionName = sleepDownVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SLEEPDOWN_API_BASE_URL", "\"https://api.sleepdownschedule.cn\"")
         buildConfigField(
@@ -78,6 +86,9 @@ android {
 
     sourceSets {
         getByName("androidTest").assets.directories.add("$projectDir/schemas")
+        if (eduAdapterTestAssets != null) {
+            getByName("debug").assets.srcDir(eduAdapterTestAssets)
+        }
     }
 
     signingConfigs {
@@ -93,7 +104,19 @@ android {
     }
 
     buildTypes {
+        val glassOcclusionMode = providers.gradleProperty("sleepdown.glassOcclusionMode")
+            .getOrElse("legacy")
+        require(glassOcclusionMode in setOf("legacy", "retained", "live"))
+        all {
+            buildConfigField("boolean", "SLEEPDOWN_LOCAL_EDU_TEST", "false")
+            buildConfigField("String", "GLASS_OCCLUSION_MODE", "\"legacy\"")
+            buildConfigField("boolean", "GLASS_FIXED_MORPH", "false")
+        }
         getByName("debug") {
+            buildConfigField("boolean", "SLEEPDOWN_LOCAL_EDU_TEST", (eduAdapterTestAssets != null).toString())
+            if (eduAdapterTestAssets != null) versionNameSuffix = "-edu-test"
+            buildConfigField("boolean", "GLASS_FIXED_MORPH", providers.gradleProperty("sleepdown.glassFixedMorph").getOrElse("false").toBoolean().toString())
+            buildConfigField("String", "GLASS_OCCLUSION_MODE", "\"$glassOcclusionMode\"")
             applicationIdSuffix = ".debug"
             buildConfigField("String", "SLEEPDOWN_REMOTE_CONFIG_SECRET", "\"\"")
             buildConfigField("boolean", "SLEEPDOWN_REMOTE_AI_ENABLED", "false")
@@ -111,6 +134,8 @@ android {
         }
         create("benchmark") {
             initWith(getByName("release"))
+            buildConfigField("boolean", "GLASS_FIXED_MORPH", providers.gradleProperty("sleepdown.glassFixedMorph").getOrElse("false").toBoolean().toString())
+            buildConfigField("String", "GLASS_OCCLUSION_MODE", "\"$glassOcclusionMode\"")
             matchingFallbacks += listOf("release")
             applicationIdSuffix = ".benchmark"
             signingConfig = signingConfigs.findByName("release") ?: signingConfigs.getByName("debug")
@@ -125,10 +150,12 @@ android {
         create("github") {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"github\"")
+            buildConfigField("boolean", "SLEEPDOWN_EXPERIMENTAL_FEATURES", "true")
         }
         create("store") {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"store\"")
+            buildConfigField("boolean", "SLEEPDOWN_EXPERIMENTAL_FEATURES", "false")
         }
     }
 
@@ -146,7 +173,7 @@ androidComponents {
 }
 
 tasks.configureEach {
-    val createsReleaseArtifact = name.matches(Regex("(assemble|bundle|package).*(Release)$"))
+    val createsReleaseArtifact = name.matches(Regex("(assemble|bundle|package).*Release$"))
     if (createsReleaseArtifact) {
         doFirst {
             check(hasReleaseSigning) {
@@ -185,24 +212,37 @@ dependencies {
     implementation("androidx.core:core-ktx:1.15.0")
     implementation("androidx.core:core:1.15.0")
     implementation("androidx.browser:browser:1.8.0")
+    implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
+    implementation("androidx.work:work-runtime-ktx:2.10.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
     implementation("androidx.metrics:metrics-performance:1.0.0")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.palette:palette-ktx:1.0.0")
+    implementation("androidx.exifinterface:exifinterface:1.4.2")
     compileOnly("com.oplus.animation:viewseamless:1.0.0@aar")
-    implementation("io.github.kyant0:backdrop:2.0.0")
+    implementation(project(":kyant-backdrop"))
     implementation("io.github.kyant0:shapes:1.2.0")
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.3")
+    implementation("top.yukonga.miuix.kmp:miuix-icons-android:0.9.3")
     implementation("top.yukonga.miuix.kmp:miuix-preference-android:0.9.3")
+    add("githubImplementation", "dev.rikka.shizuku:api:13.1.5")
+    add("githubImplementation", "dev.rikka.shizuku:provider:13.1.5")
     implementation("androidx.room:room-runtime:2.8.3")
     implementation("androidx.room:room-ktx:2.8.3")
     ksp("androidx.room:room-compiler:2.8.3")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation(composeBom)
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    testImplementation("org.json:json:20240303")
+    testImplementation("org.robolectric:robolectric:4.16.1")
     androidTestImplementation("androidx.test:core:1.6.1")
     androidTestImplementation("androidx.test:runner:1.6.2")
     androidTestImplementation("androidx.test.ext:junit:1.2.1")

@@ -1,17 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.manager
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.app.state.*
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.transition.legacy.*
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.home.week.*
-
-import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.*
-
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
@@ -19,6 +7,7 @@ import android.graphics.Bitmap
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -45,7 +34,6 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -59,12 +47,12 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -95,22 +83,38 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
-import androidx.core.view.WindowCompat
 import androidx.core.content.FileProvider
-import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.app.state.*
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
+import com.xiaomanjun.sleepdownschedule.feature.home.day.*
+import com.xiaomanjun.sleepdownschedule.feature.home.week.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.legacy.*
+import java.time.LocalDate
+import kotlin.math.abs
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.time.LocalDate
-import kotlin.math.abs
-import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
-import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 
 private val SnapshotSchoolWeekdays = (1..5).toList()
 private val SnapshotFullWeekdays = (1..7).toList()
@@ -317,7 +321,7 @@ fun ScheduleManagerScreen(
                 centeredProfile.name,
                 modifier = Modifier
                     .padding(horizontal = 112.dp)
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedRectangle(18.dp))
                     .clickable { renameCandidate = centeredProfile },
                 color = Color.White,
                 style = MaterialTheme.typography.titleMedium,
@@ -339,8 +343,8 @@ fun ScheduleManagerScreen(
                 blurRadius = 10.dp,
                 lensHeight = 26.dp,
                 lensAmount = 34.dp,
-                surfaceColor = Color(0xFF007AFF).copy(alpha = 0.24f),
-                tint = Color(0xFF007AFF),
+                surfaceColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
+                tint = MaterialTheme.colorScheme.primary,
                 contentPadding = PaddingValues(horizontal = 16.dp)
             ) {
                 Text("设为", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
@@ -440,7 +444,7 @@ fun ScheduleManagerScreen(
                 Box(
                     modifier = Modifier
                         .size(dotSize)
-                        .clip(RoundedCornerShape(50))
+                        .clip(Capsule())
                         .background(Color.White.copy(alpha = dotAlpha))
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
@@ -502,7 +506,7 @@ fun ScheduleManagerScreen(
                 surfaceColor = Color.Black.copy(alpha = 0.30f),
                 contentPadding = PaddingValues(horizontal = 24.dp)
             ) {
-                Text("自定义", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text("课表设置", color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             }
             LiquidButton(
                 onClick = onCreate,
@@ -512,8 +516,8 @@ fun ScheduleManagerScreen(
                     .offset(x = plusOffset)
                     .size(buttonSize),
                 height = buttonSize,
-                tint = Color(0xFF007AFF),
-                surfaceColor = Color(0xFF007AFF).copy(alpha = 0.22f),
+                tint = MaterialTheme.colorScheme.primary,
+                surfaceColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
                 blurRadius = 10.dp,
                 lensHeight = 30.dp,
                 lensAmount = 44.dp,
@@ -534,7 +538,7 @@ fun ScheduleManagerScreen(
             title = "删除课表",
             message = "确定要删除「${profile.name}」吗？该课表内的课程会一起删除。",
             actions = listOf(
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) { deleteCandidate = null },
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { deleteCandidate = null },
                 LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive) {
                     onDelete(profile.id)
                     deleteCandidate = null
@@ -590,7 +594,7 @@ fun ScheduleManagerScreen(
                         }
                     }
                 },
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Secondary) { showShareOptions = false }
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showShareOptions = false }
             ),
             backdrop = sceneBackdrop,
             config = settingsVisualConfig(state.config),
@@ -656,7 +660,7 @@ fun ScheduleCarouselCard(
         animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f),
         label = "schedule-delete-overlay"
     )
-    val shape = RoundedCornerShape(34.dp)
+    val shape = RoundedRectangle(34.dp)
     Box(
         modifier = modifier
             .graphicsLayer {
@@ -710,7 +714,7 @@ fun ScheduleCarouselCard(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(if (dark) Color(0xFF09090B) else Color(0xFFEDEEF3))
+                    .background(if (dark) Color(0xFF09090B) else SleepDownDesignTokens.LightPageBackground)
             )
         }
         if (overlayAlpha > 0.01f) {
@@ -749,7 +753,7 @@ fun ScheduleCarouselCard(
                 Box(
                     modifier = Modifier
                         .size(66.dp)
-                        .clip(RoundedCornerShape(50))
+                        .clip(Capsule())
                         .background(Color(0xFFFF453A).copy(alpha = 0.88f))
                         .clickable(onClick = onDeleteClick),
                     contentAlignment = Alignment.Center
@@ -792,6 +796,29 @@ fun ScheduleHomeSnapshotPreview(
     }
     val cardColor = previewBaseColor.copy(alpha = if (config.courseCardGlassEnabled) 0.66f else config.cardAlpha)
     val textColor = homeForegroundColor(config)
+    val previewPalette = remember(
+        config.courseCardColorMode,
+        config.cardColorArgb,
+        config.courseCardPalette,
+        config.defaultWallpaperStyle,
+        wallpaperBitmap
+    ) {
+        resolvedCourseCardPalette(
+            config,
+            if (config.defaultWallpaperStyle == DefaultWallpaperStyle.NONE && wallpaperBitmap == null) {
+                DefaultCourseCardPalette
+            } else {
+                emptyList()
+            }
+        )
+    }
+    val previewAssignments = remember(courses, previewPalette, config.courseCardColorMode) {
+        buildCourseCardColorAssignments(
+            courses,
+            previewPalette,
+            tonalFamily = config.courseCardColorMode == CourseCardColorMode.GRADIENT
+        )
+    }
     Box(modifier = modifier.background(if (appUsesDarkTheme(config)) Color(0xFF050505) else Color.White)) {
         if (wallpaperBitmap != null) {
             Image(
@@ -801,6 +828,12 @@ fun ScheduleHomeSnapshotPreview(
                 contentScale = ContentScale.Crop
             )
             Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = if (appUsesDarkTheme(config)) 0.20f else 0.04f)))
+        } else if (config.defaultWallpaperStyle == DefaultWallpaperStyle.NONE) {
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(if (appUsesDarkTheme(config)) Color(0xFF111111) else Color.White)
+            )
         } else {
             Box(
                 Modifier
@@ -825,19 +858,24 @@ fun ScheduleHomeSnapshotPreview(
                 }
                 .padding(horizontal = 6.dp, vertical = 10.dp)
         ) {
-            StaticWeekSnapshotGrid(
-                state = previewState,
-                displayWeek = week,
-                cardColor = cardColor,
-                textColor = textColor,
-                modifier = Modifier.weight(1f)
-            )
+            CompositionLocalProvider(
+                LocalCourseCardPalette provides previewPalette,
+                LocalCourseCardColorAssignments provides previewAssignments
+            ) {
+                StaticWeekSnapshotGrid(
+                    state = previewState,
+                    displayWeek = week,
+                    cardColor = cardColor,
+                    textColor = textColor,
+                    modifier = Modifier.weight(1f)
+                )
+            }
             if (selected) {
                 Spacer(Modifier.height(8.dp))
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterHorizontally)
-                        .clip(RoundedCornerShape(50))
+                        .clip(Capsule())
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.82f))
                         .padding(horizontal = 12.dp, vertical = 5.dp)
                 ) {
@@ -905,7 +943,7 @@ fun StaticWeekSnapshotGrid(
             Row(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(50))
+                    .clip(Capsule())
                     .background(Color.White.copy(alpha = if (appUsesDarkTheme(state.config)) 0.12f else 0.42f)),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -980,7 +1018,7 @@ private fun SnapshotRoundButton(label: String, textColor: Color) {
     Box(
         modifier = Modifier
             .size(24.dp)
-            .clip(RoundedCornerShape(50))
+            .clip(Capsule())
             .background(Color.White.copy(alpha = 0.22f)),
         contentAlignment = Alignment.Center
     ) {
@@ -1054,7 +1092,7 @@ fun SnapshotCourseBlock(
         config = config,
         course = course,
         modifier = modifier,
-        shape = RoundedCornerShape(7.dp)
+        shape = RoundedRectangle(7.dp)
     ) {
         val textColor = readableOn(courseCardBaseColor(config, course))
         BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 3.dp, vertical = 2.dp)) {
@@ -1093,6 +1131,9 @@ fun ScheduleRenameDialog(
     onCancel: () -> Unit,
     onSave: (String) -> Unit
 ) {
+    if (LocalHomeMaterialControls.current.NameDialog(
+            "重命名课表", profile.name, appUsesDarkTheme(config), 24, onCancel,
+            { onSave(it.ifBlank { "未命名课表" }) })) return
     var name by remember(profile.id) { mutableStateOf(profile.name) }
     Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CenterLiquidDialog(backdrop = backdrop, config = config) {
@@ -1107,7 +1148,7 @@ fun ScheduleRenameDialog(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedRectangle(18.dp))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.70f))
                     .padding(horizontal = 14.dp, vertical = 12.dp)
             ) {

@@ -748,16 +748,4 @@ schools:
     initial: "L"
     resource_folder: "USTL"
 
-  # SleepDown 私有适配：上游官方索引不含这两所学校，恢复为本地 YAML 条目，
-  # 由 EduImport 在解析 v2 protobuf 后按缺失学校合并回列表。
-  - id: "SWU"
-    name: "西南大学"
-    initial: "X"
-    resource_folder: "SWU"
-
-  - id: "WUST"
-    name: "武汉科技大学"
-    initial: "W"
-    resource_folder: "WUST"
-
   

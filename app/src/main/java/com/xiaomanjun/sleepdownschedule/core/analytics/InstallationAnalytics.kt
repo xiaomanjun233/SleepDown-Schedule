@@ -22,7 +22,8 @@ internal class InstallationAnalytics(context: Context) {
             versionCode = BuildConfig.VERSION_CODE.toLong(),
             versionName = BuildConfig.VERSION_NAME,
             androidApi = Build.VERSION.SDK_INT,
-            deviceModel = Build.MODEL.orEmpty().trim().take(128)
+            deviceModel = Build.MODEL.orEmpty().trim().take(128),
+            deviceBrand = Build.MANUFACTURER.orEmpty().trim().take(64)
         )
         if (!prefs.getBoolean(KeyRegistered, false)) {
             val registered = runCatching {

@@ -9,12 +9,31 @@ import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
 fun todayCourses(state: AppState): List<CourseEntity> {
-    val today = LocalDate.now()
-    val weekday = today.dayOfWeek.toChineseWeekday()
+    return coursesForDate(state, LocalDate.now())
+}
+
+fun coursesOutsideShortenedTerm(
+    courses: List<CourseEntity>,
+    scheduleId: Int,
+    previousTotalWeeks: Int,
+    nextTotalWeeks: Int
+): List<CourseEntity> {
+    if (nextTotalWeeks >= previousTotalWeeks) return emptyList()
+    return courses.filter { course ->
+        course.scheduleId == scheduleId &&
+            course.weeks.any { it > nextTotalWeeks && parityMatches(course.weekParity, it) }
+    }
+}
+
+fun coursesForDate(state: AppState, date: LocalDate): List<CourseEntity> {
+    if (scheduleWeekForDateOrNull(state.config, date) == null) return emptyList()
+    val teachingDate = teachingDateForSchedule(state.config, date) ?: return emptyList()
+    val weekday = teachingDate.dayOfWeek.toChineseWeekday()
     // Do not fold dates before/after the term into week 1/the final week. Widgets,
     // notifications and the live activity all consume this shared query.
-    val currentWeek = scheduleWeekForDateOrNull(state.config, today) ?: return emptyList()
-    return state.courses.filter { it.weekday == weekday && it.weeks.contains(currentWeek) && parityMatches(it.weekParity, currentWeek) }
+    val currentWeek = (if (teachingDate != date) adjustedTeachingWeekForDate(state.config, teachingDate)
+        else scheduleWeekForDateOrNull(state.config, teachingDate)) ?: return emptyList()
+    return state.courses.filter { !it.isHiddenByPeriodAlignment() && it.weekday == weekday && it.weeks.contains(currentWeek) && parityMatches(it.weekParity, currentWeek) }
         .sortedBy { courseStartTime(it, state.periods) ?: LocalTime.MAX }
 }
 
@@ -112,7 +131,7 @@ fun isAfterScheduleTerm(
 fun scheduleTermStatusLabel(config: ScheduleConfigEntity, date: LocalDate): String? = when (derivedScheduleTermState(config, date)) {
     ScheduleTermState.UPCOMING -> "暂未开学"
     ScheduleTermState.ENDED -> "学期已结束"
-    ScheduleTermState.INVALID -> "学期日期无效"
+    ScheduleTermState.INVALID -> if (config.termStartDate.isNullOrBlank()) "待设置开学日期" else "学期日期无效"
     else -> null
 }
 
@@ -122,7 +141,7 @@ fun scheduleTermStatusDescription(config: ScheduleConfigEntity, date: LocalDate)
         ScheduleTermState.UPCOMING -> "暂未开学"
         ScheduleTermState.ACTIVE -> "进行中 · 第 ${effectiveCurrentWeek(config, date)} 周"
         ScheduleTermState.ENDED -> "学期已结束"
-        ScheduleTermState.INVALID -> "学期日期无效"
+        ScheduleTermState.INVALID -> if (config.termStartDate.isNullOrBlank()) "待设置开学日期" else "学期日期无效"
     }
 
 /** Returns null outside the actual teaching-term date range instead of folding into week 1/N. */
@@ -195,29 +214,16 @@ fun parityMatches(parity: WeekParity, week: Int): Boolean = when (parity) {
 }
 
 fun courseStartTime(course: CourseEntity, periods: List<PeriodEntity>): LocalTime? {
-    course.customTimeRangeOrNull()?.let { return it.first }
-    val first = course.periods.minOrNull() ?: return null
-    return periods.firstOrNull { it.periodIndex == first }?.startTime?.let {
-        runCatching { LocalTime.parse(it) }.getOrNull()
-    }
+    return courseTimeSegments(course, periods).minOfOrNull { it.start }
 }
 
 fun courseEndTime(course: CourseEntity, periods: List<PeriodEntity>): LocalTime? {
-    course.customTimeRangeOrNull()?.let { return it.second }
-    val last = course.periods.maxOrNull() ?: return null
-    return periods.firstOrNull { it.periodIndex == last }?.endTime?.let {
-        runCatching { LocalTime.parse(it) }.getOrNull()
-    }
+    return courseTimeSegments(course, periods).maxOfOrNull { it.end }
 }
 
 fun courseTimeLabel(course: CourseEntity, periods: List<PeriodEntity>): String {
-    course.customTimeRangeOrNull()?.let { (start, end) ->
-        return start.toString() + " - " + end.toString()
-    }
-    val first = course.periods.minOrNull()
-    val last = course.periods.maxOrNull()
-    val start = periods.firstOrNull { it.periodIndex == first }?.startTime ?: "--:--"
-    val end = periods.firstOrNull { it.periodIndex == last }?.endTime ?: "--:--"
+    val start = courseStartTime(course, periods)?.toString() ?: "--:--"
+    val end = courseEndTime(course, periods)?.toString() ?: "--:--"
     return start + " - " + end
 }
 
@@ -227,9 +233,34 @@ fun CourseEntity.customTimeRangeOrNull(): Pair<LocalTime, LocalTime>? {
     return (start to end).takeIf { end.isAfter(start) }
 }
 
-fun CourseEntity.hasCustomTime(): Boolean = customTimeRangeOrNull() != null
+fun CourseEntity.hasCustomTime(): Boolean = customTimeRangeOrNull() != null ||
+    effectiveArrangementOrNull()?.times?.any { it.exact } == true ||
+    !customPeriodTimes.isNullOrBlank()
 
-internal fun courseAllowsWeekPeriodDrag(course: CourseEntity): Boolean = !course.hasCustomTime()
+internal fun courseAllowsWeekPeriodDrag(course: CourseEntity): Boolean = !course.hasCustomTime() &&
+    course.effectiveArrangementOrNull()?.hiddenPeriods?.isNotEmpty() != true
+
+/** Split only missing scheduled periods; ordinary breaks within consecutive periods stay together. */
+internal fun courseReminderSessions(course: CourseEntity, periods: List<PeriodEntity>): List<CourseEntity> {
+    course.effectiveArrangementOrNull()?.let { return courseAlignmentFragments(course, periods) }
+    if (course.hasCustomTime()) return listOf(course)
+    val positions = periods.sortedBy { it.periodIndex }.map { it.periodIndex }
+    val selected = course.periods.toSet()
+    val groups = mutableListOf<MutableList<Int>>()
+    var previousPosition = -2
+    positions.forEachIndexed { position, period ->
+        if (period in selected) {
+            if (position != previousPosition + 1) groups += mutableListOf<Int>()
+            groups.last() += period
+            previousPosition = position
+        }
+    }
+    return groups.map { course.copy(periods = it.toList()) }
+}
+
+/** Exact-time events outside teaching rows (including breaks) need their own visible card. */
+internal fun courseNeedsSupplementaryWeekRow(course: CourseEntity, periods: List<PeriodEntity>): Boolean =
+    course.hasCustomTime() && (exactTimeWeekPlacement(course, periods)?.heightRows ?: 0f) <= 0f
 
 /**
  * Keeps exact-time courses compatible with the existing period-backed grid and notifications.

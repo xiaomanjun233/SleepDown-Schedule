@@ -1,11 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.transition.legacy
 
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.progress.deviceScreenCornerRadiusPx
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
-
 import android.content.Intent
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
@@ -23,10 +17,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,49 +30,60 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.lerp as lerpRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.constrainHeight
+import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
-import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
-import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.shapes.RoundedRectangle
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.feature.home.*
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.progress.deviceScreenCornerRadiusPx
+import com.xiaomanjun.sleepdownschedule.glass.DeferredGlassRoundedRectangle
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassContentLens
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sign
 import kotlin.math.sin
-import androidx.compose.ui.graphics.rememberGraphicsLayer
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 private const val AnchoredMorphSnapshotTokenExtra = "anchored_morph_snapshot_token"
 private const val CourseManagementDetailOpenDurationMillis = 380
@@ -153,7 +159,8 @@ private class AnchoredDetailClipShape(
     private val screenWidth: Float,
     private val screenCornerRadiusPx: Float,
     private val sourceCornerRadiusPx: Float,
-    private val values: State<AnchoredDetailMorphValues>
+    private val values: State<AnchoredDetailMorphValues>,
+    private val nativeRoundClip: Boolean = false
 ) : Shape {
     override fun createOutline(
         size: androidx.compose.ui.geometry.Size,
@@ -165,7 +172,9 @@ private class AnchoredDetailClipShape(
             (screenCornerRadiusPx - sourceCornerRadiusPx) * current.progress
         val compensatedRadius =
             (radiusPx / current.scale.coerceAtLeast(0.001f) / density.density).dp
-        return RoundedCornerShape(compensatedRadius).createOutline(
+        val outlineShape = if (nativeRoundClip) androidx.compose.foundation.shape.RoundedCornerShape(compensatedRadius)
+            else RoundedRectangle(compensatedRadius)
+        return outlineShape.createOutline(
             size = androidx.compose.ui.geometry.Size(
                 screenWidth,
                 current.clipBottom.coerceAtLeast(1f)
@@ -200,9 +209,11 @@ internal fun AnchoredDetailActivityMorph(
     onSourceHandoff: () -> Unit = {},
     sourceContent: @Composable BoxScope.() -> Unit,
     backgroundSnapshot: Bitmap? = null,
+    backgroundDialog: com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot? = null,
     sourceSnapshot: Bitmap? = null,
     collapseSnapshot: Bitmap? = null,
     motionStyle: AnchoredDetailMotionStyle = AnchoredDetailMotionStyle.Liquid,
+    animateWithoutAnchor: Boolean = false,
     destinationFirstOpening: Boolean = false,
     suppressOpening: Boolean = false,
     openingMode: AnchoredDetailOpeningMode = if (suppressOpening) {
@@ -213,12 +224,14 @@ internal fun AnchoredDetailActivityMorph(
     openingReady: Boolean = true,
     onOpened: () -> Unit = {},
     onCloseRequested: (() -> Boolean)? = null,
+    handleSystemBack: Boolean = true,
+    nativeRoundClip: Boolean = false,
     content: @Composable (requestClose: () -> Unit) -> Unit
 ) {
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val progress = remember(sourceBounds) {
         Animatable(
-            if (sourceBounds == null || openingMode == AnchoredDetailOpeningMode.ShowDestination) {
+            if ((!animateWithoutAnchor && sourceBounds == null) || openingMode == AnchoredDetailOpeningMode.ShowDestination) {
                 1f
             } else {
                 0f
@@ -229,7 +242,7 @@ internal fun AnchoredDetailActivityMorph(
     var closing by remember(sourceBounds) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     val usesCourseEditorMotion = motionStyle == AnchoredDetailMotionStyle.CourseManagementDetail
-    val usesPageMotion = motionStyle == AnchoredDetailMotionStyle.DetailSettings ||
+    val usesPageMotion = animateWithoutAnchor || motionStyle == AnchoredDetailMotionStyle.DetailSettings ||
         motionStyle == AnchoredDetailMotionStyle.Parabolic ||
         usesCourseEditorMotion
     val usesHomeMenuDestinationMotion = motionStyle == AnchoredDetailMotionStyle.HomeMenuDestination
@@ -239,12 +252,12 @@ internal fun AnchoredDetailActivityMorph(
         providerId = "anchored-detail-snapshot"
     )
     val bypassLegacyOpening = openingMode == AnchoredDetailOpeningMode.ShowDestination
-    val renderedProgress = if (bypassLegacyOpening) 1f else progress.value
+    val renderedProgress = { if (bypassLegacyOpening) 1f else progress.value }
 
     fun close() {
         if (closing) return
         if (onCloseRequested?.invoke() == true) return
-        if (sourceBounds == null) {
+        if (sourceBounds == null && !animateWithoutAnchor) {
             onFinished()
             return
         }
@@ -284,14 +297,14 @@ internal fun AnchoredDetailActivityMorph(
         }
     }
 
-    BackHandler(onBack = ::close)
-    LaunchedEffect(sourceBounds, rootSize, motionStyle, openingMode, openingReady) {
+    BackHandler(enabled = handleSystemBack, onBack = ::close)
+    LaunchedEffect(sourceBounds, rootSize, motionStyle, openingMode, openingReady, animateWithoutAnchor) {
         if (openingMode == AnchoredDetailOpeningMode.ShowDestination) {
             if (progress.value < 1f) progress.snapTo(1f)
         } else if (
             openingReady &&
             openingMode == AnchoredDetailOpeningMode.AnimateLegacy &&
-            sourceBounds != null && rootSize.width > 0 && rootSize.height > 0 &&
+            (sourceBounds != null || animateWithoutAnchor) && rootSize.width > 0 && rootSize.height > 0 &&
             progress.value < 1f
         ) {
             // Precompose the destination before motion starts. This matches the detailed-settings
@@ -309,7 +322,8 @@ internal fun AnchoredDetailActivityMorph(
                         },
                         if (usesHomeMenuDestinationMotion) {
                             tween(
-                                durationMillis = 420,
+                                durationMillis = HomeMenuPageOpenDurationMillis -
+                                    HomeAnchoredMorphBackgroundDelayMillis,
                                 delayMillis = HomeAnchoredMorphBackgroundDelayMillis,
                                 easing = HomeAnchoredBackgroundEasing
                             )
@@ -323,7 +337,7 @@ internal fun AnchoredDetailActivityMorph(
                         1f,
                         if (usesHomeMenuDestinationMotion) {
                             tween(
-                                HomeMenuDestinationLegacyMotion.OpenDurationMillis,
+                                HomeMenuPageOpenDurationMillis,
                                 easing = LinearEasing
                             )
                         } else if (usesPageMotion) {
@@ -350,6 +364,8 @@ internal fun AnchoredDetailActivityMorph(
                 MorphSnapshotBackground(
                     bitmap = bitmap,
                     backgroundScaleProvider = { backgroundScale.value },
+                    nativeRoundClip = nativeRoundClip,
+                    dialog = backgroundDialog,
                     modifier = Modifier.fillMaxSize()
                 )
             }
@@ -369,7 +385,7 @@ internal fun AnchoredDetailActivityMorph(
                 backdrop = snapshotBackdrop.takeIf {
                     backgroundSnapshot != null && (!bypassLegacyOpening || closing)
                 },
-                progress = renderedProgress,
+                progressProvider = renderedProgress,
                 closing = closing,
                 destinationFirstOpening = usesDestinationFirstOpening,
                 onClose = ::close,
@@ -385,11 +401,13 @@ internal fun AnchoredDetailActivityMorph(
                 } else {
                     sourceSnapshot
                 }.takeIf { !bypassLegacyOpening || closing },
-                progress = renderedProgress,
+                progressProvider = renderedProgress,
+                nativeRoundClip = nativeRoundClip,
                 closing = closing,
                 parabolic = motionStyle == AnchoredDetailMotionStyle.Parabolic || usesCourseEditorMotion,
                 openingDownward = false,
                 homeCourseParabola = usesCourseEditorMotion,
+                animateWithoutAnchor = animateWithoutAnchor,
                 onClose = ::close,
                 sourceContent = sourceContent,
                 content = content
@@ -400,7 +418,7 @@ internal fun AnchoredDetailActivityMorph(
                 rootSize = rootSize,
                 sourceCornerRadius = sourceCornerRadius,
                 sourceSnapshot = sourceSnapshot.takeIf { !bypassLegacyOpening || closing },
-                progress = renderedProgress,
+                progressProvider = renderedProgress,
                 closing = closing,
                 onClose = ::close,
                 sourceContent = sourceContent,
@@ -410,11 +428,11 @@ internal fun AnchoredDetailActivityMorph(
     }
 }
 
-/**
- * Activity counterpart of HomeMenuDestinationOverlayHost's full-screen Edu-import motion.
- * Geometry, timing, source handoff and close anchor intentionally call the same helpers instead of
- * approximating that transition with the generic settings-page scale/clip animation.
- */
+/** A single bounded expansion: page geometry never overshoots or reverses direction. */
+private const val HomeMenuPageOpenDurationMillis = 320
+private val HomeMenuPageOpenEasing = CubicBezierEasing(0.24f, 0.12f, 0.24f, 1f)
+
+/** Full-page routes retain the complete source menu until its contents hand off inside the shell. */
 @Composable
 private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
     sourceBounds: Rect?,
@@ -425,7 +443,7 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
     sourceSnapshot: Bitmap?,
     collapseSnapshot: Bitmap?,
     backdrop: Backdrop?,
-    progress: Float,
+    progressProvider: () -> Float,
     closing: Boolean,
     destinationFirstOpening: Boolean,
     onClose: () -> Unit,
@@ -437,77 +455,156 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
     val full = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
     val source = sourceBounds ?: full
     val collapse = collapseBounds ?: source
-    val p = progress.coerceIn(0f, 1f)
+    val latestProgress = rememberUpdatedState(progressProvider)
+    val p by remember { derivedStateOf { latestProgress.value().coerceIn(0f, 1f) } }
     val activityDarkSurface =
         androidx.compose.material3.MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val geometry = homeMenuDestinationTrajectoryGeometry(
-        sourceBoundsInRoot = source,
-        collapseBoundsInRoot = collapse,
-        target = full,
-        rawProgress = p,
-        closing = closing,
-        // The Activity receives the real bounds from the source window. Use the exact corner
-        // radii supplied by that source instead of the in-process menu defaults; otherwise the
-        // first handoff clips the source high-light edge before the destination takes ownership.
-        menuCornerRadiusPx = with(density) { sourceCornerRadius.toPx() },
-        buttonCornerRadiusPx = with(density) { collapseCornerRadius.toPx() },
-        pinchDiameterPx = with(density) { 18.dp.toPx() },
-        minimumDropPx = with(density) { 12.dp.toPx() },
-        maximumDropPx = with(density) { adaptiveMetrics.animationArc.toPx() },
-        maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() + 16.dp.toPx() },
-        targetCornerRadiusPx = 0f
-    )
-    val fullOpenEndpoint = !detailMorphUsesTransientClip(p, closing)
-    val renderedCornerRadiusPx = homeMenuDestinationRenderedCornerRadiusPx(
-        geometry = geometry,
-        rawProgress = p,
-        isFullScreen = true,
-        closing = closing,
-        sourceCornerRadiusPx = with(density) { sourceCornerRadius.toPx() },
-        collapseCornerRadiusPx = with(density) { collapseCornerRadius.toPx() },
-        middleCornerRadiusPx = with(density) { 46.dp.toPx() }
-    )
-    val sourceAlpha = when {
-        closing || destinationFirstOpening -> 0f
-        else -> 1f - anchoredDestinationSmoothStep(0.035f, 0.20f, p)
+    val geometry by remember(source, collapse, full, closing, density, adaptiveMetrics, sourceCornerRadius, collapseCornerRadius) {
+        derivedStateOf {
+            if (!closing) {
+                val expansion = HomeMenuPageOpenEasing.transform(p)
+                val handoff = anchoredDestinationSmoothStep(0.04f, 0.28f, p)
+                val sourceRadius = with(density) { sourceCornerRadius.toPx() }
+                // Keep the source outline through the content handoff, then retain a rounded
+                // page card throughout travel. Flatten only while settling into full screen.
+                val cardRadius = sourceRadius + (with(density) { 46.dp.toPx() } - sourceRadius) *
+                    anchoredDestinationSmoothStep(0.34f, 0.56f, p)
+                HomeAnchoredMorphGeometry(
+                    rect = lerpRect(source, full, expansion),
+                    cornerRadiusPx = cardRadius *
+                        (1f - anchoredDestinationSmoothStep(0.78f, 1f, p)),
+                    sourceScale = 1f,
+                    sourceAlpha = 1f - handoff,
+                    surfaceAlpha = 1f,
+                    contentAlpha = handoff,
+                    pathProgress = p,
+                    expansionProgress = expansion
+                )
+            } else {
+                homeMenuDestinationTrajectoryGeometry(
+                    sourceBoundsInRoot = source,
+                    collapseBoundsInRoot = collapse,
+                    target = full,
+                    rawProgress = p,
+                    closing = closing,
+                    menuCornerRadiusPx = with(density) { sourceCornerRadius.toPx() },
+                    buttonCornerRadiusPx = with(density) { collapseCornerRadius.toPx() },
+                    pinchDiameterPx = with(density) { 18.dp.toPx() },
+                    minimumDropPx = with(density) { 12.dp.toPx() },
+                    maximumDropPx = with(density) { adaptiveMetrics.animationArc.toPx() },
+                    maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() + 16.dp.toPx() },
+                    targetCornerRadiusPx = 0f
+                )
+            }
+        }
     }
-    val collapseAlpha = if (closing && collapseSnapshot != null) {
-        1f - anchoredDestinationSmoothStep(0.06f, 0.18f, p)
-    } else {
-        0f
+    val fullOpenEndpoint by remember(closing) {
+        derivedStateOf { !detailMorphUsesTransientClip(p, closing) }
     }
-    val destinationAlpha = if (destinationFirstOpening && !closing) {
-        1f
-    } else {
-        homeMenuDestinationContentAlpha(
-            rawProgress = p,
-            isFullScreen = true,
-            closing = closing
-        )
+    val renderedCornerRadiusPx by remember(source, collapse, full, closing, density, sourceCornerRadius, collapseCornerRadius, adaptiveMetrics) {
+        derivedStateOf {
+            if (!closing) {
+                geometry.cornerRadiusPx
+            } else {
+                homeMenuDestinationRenderedCornerRadiusPx(
+                    geometry = geometry,
+                    rawProgress = p,
+                    isFullScreen = true,
+                    closing = closing,
+                    sourceCornerRadiusPx = with(density) { sourceCornerRadius.toPx() },
+                    collapseCornerRadiusPx = with(density) { collapseCornerRadius.toPx() },
+                    middleCornerRadiusPx = with(density) { 46.dp.toPx() }
+                )
+            }
+        }
     }
-    // Course management uses the same destination geometry as Edu import, but its entry begins
-    // with the already-composed destination clipped inside the source shell. The original menu is
-    // hidden before the Activity starts, so replaying it here causes the visible button/menu blink.
-    val destinationSurfaceAlpha = if (destinationFirstOpening && !closing) 1f else 1f - sourceAlpha
-    val maxContentBlurPx = with(density) { 5.dp.toPx() }
-    val destinationBlurMix = if (destinationFirstOpening && !closing) {
-        0f
-    } else if (closing) {
-        val closeElapsed = 1f - p
-        anchoredDestinationSmoothStep(0.48f, 0.84f, closeElapsed)
-    } else {
-        homeMenuDestinationOpeningContentBlurMix(
-            rawProgress = p,
-            isFullScreen = true
-        )
+    val sourceAlpha by remember(closing, destinationFirstOpening) {
+        derivedStateOf {
+            when {
+                closing || destinationFirstOpening -> 0f
+                else -> geometry.sourceAlpha
+            }
+        }
     }
+    val collapseAlpha by remember(closing, collapseSnapshot) {
+        derivedStateOf {
+            if (closing && collapseSnapshot != null) {
+                geometry.sourceAlpha
+            } else {
+                0f
+            }
+        }
+    }
+    val destinationAlpha by remember(closing, destinationFirstOpening) {
+        derivedStateOf {
+            if (destinationFirstOpening && !closing) {
+                1f
+            } else if (!closing) {
+                geometry.contentAlpha
+            } else {
+                homeMenuDestinationContentAlpha(
+                    rawProgress = p,
+                    isFullScreen = true,
+                    closing = closing
+                )
+            }
+        }
+    }
+    // Keep one material behind the crossfade. The exact source bitmap covers it at progress zero;
+    // only content ownership changes as the same rounded container expands into the page.
+    val destinationSurfaceAlpha by remember(closing) {
+        derivedStateOf { if (closing) 1f - collapseAlpha else 1f }
+    }
+    val maxContentBlurPx = with(density) { 8.dp.toPx() }
+    // The menu-to-page route keeps its own geometry and timing. Reuse blur effects instead of
+    // creating a new platform effect for every moving frame of the cached page/source.
+    val contentBlurEffects = remember(maxContentBlurPx) {
+        List(25) { step ->
+            if (step == 0) null else platformBlurRenderEffect(maxContentBlurPx * step / 24f)
+        }
+    }
+    val destinationBlurPx by remember(closing, destinationFirstOpening, maxContentBlurPx) {
+        derivedStateOf {
+            val fraction = if (destinationFirstOpening && !closing) {
+                0f
+            } else if (closing) {
+                val closeElapsed = 1f - p
+                anchoredDestinationSmoothStep(0.20f, 0.62f, closeElapsed)
+            } else {
+                1f - anchoredDestinationSmoothStep(0.14f, 0.68f, p)
+            }
+            maxContentBlurPx * fraction
+        }
+    }
+    val contentScale by remember(source, collapse, full, closing) {
+        derivedStateOf {
+            if (closing) homeMenuDestinationContentScale(geometry.rect, full) else maxOf(
+                geometry.rect.width / full.width.coerceAtLeast(1f),
+                geometry.rect.height / full.height.coerceAtLeast(1f)
+            ).coerceAtLeast(0.001f)
+        }
+    }
+    val contentLens = rememberGlassContentLens()
+    val lensHeightPx = with(density) { 24.dp.toPx() }
+    val lensAmountPx = with(density) { 8.dp.toPx() }
     val destinationContentLayer = rememberGraphicsLayer()
-    val destinationContentRecorded = remember { AtomicBoolean(false) }
-    val destinationClosingRecorded = remember { AtomicBoolean(false) }
+    val destinationContentRecorded = remember(rootSize, density, sourceBounds) { AtomicBoolean(false) }
+    val destinationClosingRecorded = remember(rootSize, density, closing) { AtomicBoolean(false) }
     // Keep the Activity handoff on the same continuous rounded-rectangle family as the
     // in-process HomeMenuDestination shell. A platform RoundedCornerShape has a different
     // curvature and visibly crops the source highlight at the handoff even with the same radius.
-    val shellShape = RoundedRectangle(with(density) { renderedCornerRadiusPx.toDp() })
+    val latestCorner = rememberUpdatedState { renderedCornerRadiusPx }
+    val shellShape = remember(density.density) {
+        DeferredGlassRoundedRectangle({ latestCorner.value() }, density.density)
+    }
+    val showSource by remember(closing, destinationFirstOpening) { derivedStateOf { sourceAlpha > 0.001f } }
+    val showCollapse by remember(closing, collapseSnapshot) { derivedStateOf { collapseAlpha > 0.001f } }
+    val freezeContentCoordinates = remember(closing, destinationContentRecorded, destinationClosingRecorded) {
+        {
+            !fullOpenEndpoint && if (closing) destinationClosingRecorded.get()
+            else destinationContentRecorded.get()
+        }
+    }
 
     Box(
         Modifier
@@ -533,6 +630,12 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                 } else {
                     CompositingStrategy.Offscreen
                 }
+                // The lens sees the composited menu/page pixels, including their glyphs.
+                // It reuses this transient shell layer and is absent at both stable endpoints.
+                renderEffect = if (fullOpenEndpoint) null else contentLens(
+                    size, renderedCornerRadiusPx, lensHeightPx,
+                    lensAmountPx * sin(PI.toFloat() * p).coerceAtLeast(0f)
+                )
             }
             .layout { measurable, _ ->
                 val stableWidth = rootSize.width.coerceAtLeast(1)
@@ -545,10 +648,7 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                 }
             }
     ) {
-        // Keep the same surface/source/content ordering as the in-process Home menu destination.
-        // The Activity has a clean background snapshot instead of the original Backdrop producer.
-        // Preserve the in-process LiquidPanel tint alpha over that snapshot; using the opaque
-        // theme background here made the otherwise identical geometry flash as a black rectangle.
+        // One glass shell stays underneath the outgoing menu and incoming cached page.
         val destinationSurfaceColor = if (activityDarkSurface) {
             Color(0xFF121212).copy(alpha = 0.30f)
         } else {
@@ -572,7 +672,7 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                     .background(destinationSurfaceColor)
             )
         }
-        if (sourceAlpha > 0.001f) {
+        if (showSource) {
             Box(
                 modifier = Modifier
                     .offset {
@@ -581,17 +681,18 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                             ((rootSize.height - geometry.rect.height) / 2f).roundToInt()
                         )
                     }
-                    .size(
-                        with(density) { geometry.rect.width.toDp() },
-                        with(density) { geometry.rect.height.toDp() }
-                    )
+                    .layout { measurable, constraints ->
+                        val rect = geometry.rect
+                        val width = constraints.constrainWidth(rect.width.roundToInt().coerceAtLeast(1))
+                        val height = constraints.constrainHeight(rect.height.roundToInt().coerceAtLeast(1))
+                        val placeable = measurable.measure(Constraints.fixed(width, height))
+                        layout(width, height) { placeable.place(0, 0) }
+                    }
                     .graphicsLayer {
                         alpha = sourceAlpha
                         renderEffect = if (p < 0.999f) {
-                            platformBlurRenderEffect(
-                                anchoredDestinationSmoothStep(0f, 0.035f, p) *
-                                    maxContentBlurPx
-                            )
+                            contentBlurEffects[(anchoredDestinationSmoothStep(0.015f, 0.25f, p) * 24f)
+                                .roundToInt().coerceIn(0, 24)]
                         } else {
                             null
                         }
@@ -609,19 +710,19 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                 }
             }
         }
-        if (collapseAlpha > 0.001f && collapseSnapshot != null) {
+        if (showCollapse && collapseSnapshot != null) {
             Box(
                 modifier = Modifier
                     .offset {
                         IntOffset(
                             anchoredStableContentOffsetPx(
-                                positionInRootPx = collapse.left,
+                                positionInRootPx = geometry.rect.center.x - collapse.width / 2f,
                                 shellStartPx = geometry.rect.left,
                                 rootExtentPx = rootSize.width.toFloat(),
                                 shellExtentPx = geometry.rect.width
                             ).roundToInt(),
                             anchoredStableContentOffsetPx(
-                                positionInRootPx = collapse.top,
+                                positionInRootPx = geometry.rect.center.y - collapse.height / 2f,
                                 shellStartPx = geometry.rect.top,
                                 rootExtentPx = rootSize.height.toFloat(),
                                 shellExtentPx = geometry.rect.height
@@ -648,6 +749,14 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
             Box(
                 Modifier
                     .fillMaxSize()
+                    // Transition alpha/blur wrap the recording, so the cached page remains clear
+                    // and opaque instead of carrying a second animated effect inside its pixels.
+                    .graphicsLayer {
+                        alpha = if (!closing && p == 0f) 0.001f else destinationAlpha
+                        renderEffect = if (fullOpenEndpoint) null else contentBlurEffects[
+                            (destinationBlurPx / maxContentBlurPx * 24f).roundToInt().coerceIn(0, 24)
+                        ]
+                    }
                     .drawWithContent {
                         val moving = !fullOpenEndpoint
                         if (!moving) {
@@ -663,30 +772,17 @@ private fun BoxScope.AnchoredHomeMenuDestinationStyleMorph(
                                     this@drawWithContent.drawContent()
                                 }
                             }
-                            drawLayer(destinationContentLayer)
+                            // Fill the opening container and let its outline reveal the page.
+                            // Fitting the entire page inside it produced a second miniature card.
+                            scale(contentScale) {
+                                drawLayer(destinationContentLayer)
+                            }
                         }
-                    }
-                    .graphicsLayer {
-                        alpha = destinationAlpha * (1f - destinationBlurMix)
                     }
             ) {
-                content(onClose)
-            }
-            if (!fullOpenEndpoint && destinationBlurMix > 0.001f) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .drawWithContent { drawLayer(destinationContentLayer) }
-                        .graphicsLayer {
-                            alpha = destinationAlpha * destinationBlurMix
-                            compositingStrategy = CompositingStrategy.Offscreen
-                            renderEffect = BlurEffect(
-                                maxContentBlurPx,
-                                maxContentBlurPx,
-                                TileMode.Clamp
-                            )
-                        }
-                )
+                CompositionLocalProvider(LocalGlassCoordinatesFrozen provides freezeContentCoordinates) {
+                    content(onClose)
+                }
             }
         }
     }
@@ -925,7 +1021,7 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
     rootSize: IntSize,
     sourceCornerRadius: Dp,
     sourceSnapshot: Bitmap?,
-    progress: Float,
+    progressProvider: () -> Float,
     closing: Boolean,
     onClose: () -> Unit,
     sourceContent: @Composable BoxScope.() -> Unit,
@@ -935,10 +1031,12 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
     val full = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
     val source = sourceBounds ?: full
     val targetCornerRadiusPx = deviceScreenCornerRadiusPx()
-    val geometry = homeAnchoredMorphGeometry(
+    val latestProgress = rememberUpdatedState(progressProvider)
+    val geometry by remember(source, full, closing, sourceCornerRadius, density, targetCornerRadiusPx) {
+        derivedStateOf { homeAnchoredMorphGeometry(
         source = source,
         target = full,
-        rawProgress = progress,
+        rawProgress = latestProgress.value(),
         closing = closing,
         sourceCornerRadiusPx = with(density) { sourceCornerRadius.toPx() },
         pinchDiameterPx = with(density) { 22.dp.toPx() },
@@ -947,12 +1045,18 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
         maximumArcPx = with(density) { 48.dp.toPx() },
         targetCornerRadiusPx = targetCornerRadiusPx,
         motionStyle = HomeMorphEasingStyle.Legacy
-    )
-    val fullOpenEndpoint = !detailMorphUsesTransientClip(progress, closing)
+    ) }
+    }
+    val fullOpenEndpoint by remember(closing) {
+        derivedStateOf { !detailMorphUsesTransientClip(latestProgress.value(), closing) }
+    }
+    val showSource by remember(source, full, closing, sourceCornerRadius, density, targetCornerRadiusPx) {
+        derivedStateOf { geometry.sourceAlpha > 0.001f }
+    }
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.24f * geometry.expansionProgress))
+            .drawBehind { drawRect(Color.Black.copy(alpha = 0.24f * geometry.expansionProgress)) }
             .pointerInput(closing) {
                 awaitPointerEventScope {
                     while (true) awaitPointerEvent().changes.forEach { it.consume() }
@@ -964,13 +1068,16 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
             .offset {
                 IntOffset(geometry.rect.left.roundToInt(), geometry.rect.top.roundToInt())
             }
-            .size(
-                with(density) { geometry.rect.width.toDp() },
-                with(density) { geometry.rect.height.toDp() }
-            )
+            .layout { measurable, constraints ->
+                val rect = geometry.rect
+                val width = constraints.constrainWidth(rect.width.roundToInt().coerceAtLeast(1))
+                val height = constraints.constrainHeight(rect.height.roundToInt().coerceAtLeast(1))
+                val placeable = measurable.measure(Constraints.fixed(width, height))
+                layout(width, height) { placeable.place(0, 0) }
+            }
             .graphicsLayer {
                 clip = !fullOpenEndpoint
-                shape = RoundedCornerShape(with(density) { geometry.cornerRadiusPx.toDp() })
+                shape = RoundedRectangle(with(density) { geometry.cornerRadiusPx.toDp() })
                 compositingStrategy = if (fullOpenEndpoint) {
                     CompositingStrategy.Auto
                 } else {
@@ -985,7 +1092,7 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
                 }
             }
     ) {
-        if (geometry.sourceAlpha > 0.001f) {
+        if (showSource) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -993,7 +1100,7 @@ private fun BoxScope.AnchoredLiquidStyleMorph(
                         alpha = geometry.sourceAlpha
                         scaleX = geometry.sourceScale
                         scaleY = geometry.sourceScale
-                        shape = RoundedCornerShape(sourceCornerRadius)
+                        shape = RoundedRectangle(sourceCornerRadius)
                         clip = true
                     }
             ) {
@@ -1020,11 +1127,13 @@ private fun BoxScope.AnchoredSettingsStyleMorph(
     sourceBounds: Rect?,
     sourceCornerRadius: Dp,
     sourceSnapshot: Bitmap?,
-    progress: Float,
+    progressProvider: () -> Float,
+    nativeRoundClip: Boolean,
     closing: Boolean,
     parabolic: Boolean,
     openingDownward: Boolean,
     homeCourseParabola: Boolean = false,
+    animateWithoutAnchor: Boolean = false,
     onClose: () -> Unit,
     sourceContent: @Composable BoxScope.() -> Unit,
     content: @Composable (requestClose: () -> Unit) -> Unit
@@ -1033,10 +1142,12 @@ private fun BoxScope.AnchoredSettingsStyleMorph(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val screenWidth = with(density) { maxWidth.toPx() }
         val screenHeight = with(density) { maxHeight.toPx() }
-        val source = sourceBounds ?: Rect(0f, 0f, screenWidth, screenHeight)
+        // A closed native menu has no remaining source surface. Reuse the detail-page renderer
+        // from a centered full-page scale, without manufacturing a menu snapshot or anchor.
+        val source = sourceBounds ?: if (animateWithoutAnchor) {
+            Rect(screenWidth * 0.04f, screenHeight * 0.04f, screenWidth * 0.96f, screenHeight * 0.96f)
+        } else Rect(0f, 0f, screenWidth, screenHeight)
         val initialScale = (source.width / screenWidth).coerceAtLeast(0.001f)
-        val p = progress.coerceIn(0f, 1f)
-        val scale = initialScale + (1f - initialScale) * p
         val sourceCenterX = source.left + source.width / 2f
         val targetCornerRadiusPx = deviceScreenCornerRadiusPx()
         val arcHeight = if (parabolic) {
@@ -1045,51 +1156,60 @@ private fun BoxScope.AnchoredSettingsStyleMorph(
             0f
         }
         val initialClipBottom = source.height / initialScale
-        val clipBottom = initialClipBottom + (screenHeight - initialClipBottom) * p
-        val shellHeight = clipBottom * scale
-        val homePathCenter = if (homeCourseParabola) {
-            val sourceCenter = source.center
-            val targetCenter = androidx.compose.ui.geometry.Offset(screenWidth / 2f, screenHeight / 2f)
-            val deltaY = targetCenter.y - sourceCenter.y
-            val arcAmplitude = min(
-                with(density) { 96.dp.toPx() },
-                abs(deltaY) * 0.22f
-            )
-            val control = androidx.compose.ui.geometry.Offset(
-                x = (sourceCenter.x + targetCenter.x) / 2f,
-                y = (sourceCenter.y + targetCenter.y) / 2f + sign(deltaY) * arcAmplitude
-            )
-            val inverse = 1f - p
-            androidx.compose.ui.geometry.Offset(
-                x = inverse * inverse * sourceCenter.x +
-                    2f * inverse * p * control.x + p * p * targetCenter.x,
-                y = inverse * inverse * sourceCenter.y +
-                    2f * inverse * p * control.y + p * p * targetCenter.y
-            )
-        } else {
-            null
+        val currentProgress = rememberUpdatedState(progressProvider)
+        val valuesState = remember(source, screenWidth, screenHeight, arcHeight, closing, homeCourseParabola, openingDownward) {
+            androidx.compose.runtime.derivedStateOf {
+                val p = currentProgress.value.invoke().coerceIn(0f, 1f)
+                val scale = initialScale + (1f - initialScale) * p
+                val clipBottom = initialClipBottom + (screenHeight - initialClipBottom) * p
+                val shellHeight = clipBottom * scale
+                val homePathCenter = if (homeCourseParabola) {
+                    val sourceCenter = source.center
+                    val targetCenter = androidx.compose.ui.geometry.Offset(screenWidth / 2f, screenHeight / 2f)
+                    val deltaY = targetCenter.y - sourceCenter.y
+                    val arcAmplitude = min(
+                        with(density) { 96.dp.toPx() },
+                        abs(deltaY) * 0.22f
+                    )
+                    val control = androidx.compose.ui.geometry.Offset(
+                        x = (sourceCenter.x + targetCenter.x) / 2f,
+                        y = (sourceCenter.y + targetCenter.y) / 2f + sign(deltaY) * arcAmplitude
+                    )
+                    val inverse = 1f - p
+                    androidx.compose.ui.geometry.Offset(
+                        x = inverse * inverse * sourceCenter.x +
+                            2f * inverse * p * control.x + p * p * targetCenter.x,
+                        y = inverse * inverse * sourceCenter.y +
+                            2f * inverse * p * control.y + p * p * targetCenter.y
+                    )
+                } else {
+                    null
+                }
+                val values = AnchoredDetailMorphValues(
+                    backgroundAlpha = (p * 0.22f).coerceIn(0f, 0.22f),
+                    sourceAlpha = (1f - p * 3f).coerceIn(0f, 1f),
+                    contentAlpha = ((p - 0.1f) / 0.5f).coerceIn(0f, 1f),
+                    translationX = homePathCenter?.let { it.x - screenWidth / 2f }
+                        ?: ((sourceCenterX - screenWidth / 2f) * (1f - p)),
+                    // A quadratic arc keeps both endpoints exact while lifting the page through the
+                    // middle of the transition. This is intentionally page motion, without liquid pinch.
+                    translationY = homePathCenter?.let { it.y - shellHeight / 2f }
+                        ?: (source.top * (1f - p) +
+                            if (openingDownward) {
+                                4f * arcHeight * p * (1f - p) * if (closing) -1f else 1f
+                            } else {
+                                -4f * arcHeight * p * (1f - p)
+                            }),
+                    scale = scale,
+                    clipBottom = clipBottom,
+                    progress = p
+                )
+                values
+            }
         }
-        val values = AnchoredDetailMorphValues(
-            backgroundAlpha = (p * 0.22f).coerceIn(0f, 0.22f),
-            sourceAlpha = (1f - p * 3f).coerceIn(0f, 1f),
-            contentAlpha = ((p - 0.1f) / 0.5f).coerceIn(0f, 1f),
-            translationX = homePathCenter?.let { it.x - screenWidth / 2f }
-                ?: ((sourceCenterX - screenWidth / 2f) * (1f - p)),
-            // A quadratic arc keeps both endpoints exact while lifting the page through the
-            // middle of the transition. This is intentionally page motion, without liquid pinch.
-            translationY = homePathCenter?.let { it.y - shellHeight / 2f }
-                ?: (source.top * (1f - p) +
-                    if (openingDownward) {
-                        4f * arcHeight * p * (1f - p) * if (closing) -1f else 1f
-                    } else {
-                        -4f * arcHeight * p * (1f - p)
-                    }),
-            scale = scale,
-            clipBottom = clipBottom,
-            progress = p
-        )
-        val valuesState = rememberUpdatedState(values)
         val clipShape = remember(
+            valuesState,
+            nativeRoundClip,
             source,
             screenWidth,
             sourceCornerRadius,
@@ -1100,14 +1220,20 @@ private fun BoxScope.AnchoredSettingsStyleMorph(
                 screenWidth = screenWidth,
                 screenCornerRadiusPx = targetCornerRadiusPx,
                 sourceCornerRadiusPx = with(density) { sourceCornerRadius.toPx() },
-                values = valuesState
+                values = valuesState,
+                nativeRoundClip = nativeRoundClip
             )
         }
-        val fullOpenEndpoint = !detailMorphUsesTransientClip(p, closing)
+        val sourceVisible by remember(valuesState) {
+            androidx.compose.runtime.derivedStateOf { valuesState.value.sourceAlpha > 0.001f }
+        }
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = values.backgroundAlpha))
+                .drawWithContent {
+                    drawRect(Color.Black.copy(alpha = valuesState.value.backgroundAlpha))
+                    drawContent()
+                }
                 .pointerInput(closing) {
                     awaitPointerEventScope {
                         while (true) awaitPointerEvent().changes.forEach { it.consume() }
@@ -1118,6 +1244,8 @@ private fun BoxScope.AnchoredSettingsStyleMorph(
             Modifier
                 .fillMaxSize()
                 .graphicsLayer {
+                    val values = valuesState.value
+                    val fullOpenEndpoint = !detailMorphUsesTransientClip(values.progress, closing)
                     transformOrigin = TransformOrigin(0.5f, 0f)
                     scaleX = values.scale
                     scaleY = values.scale
@@ -1139,7 +1267,7 @@ private fun BoxScope.AnchoredSettingsStyleMorph(
                     }
                 }
         ) {
-            if (values.sourceAlpha > 0.001f) {
+            if (sourceVisible && !animateWithoutAnchor) {
                 if (sourceSnapshot != null) {
                     Image(
                         bitmap = sourceSnapshot.asImageBitmap(),
@@ -1148,10 +1276,9 @@ private fun BoxScope.AnchoredSettingsStyleMorph(
                             .fillMaxWidth()
                             .height(with(density) { initialClipBottom.toDp() })
                             .graphicsLayer {
-                                alpha = values.sourceAlpha
-                                shape = RoundedCornerShape(
-                                    sourceCornerRadius / initialScale
-                                )
+                                alpha = valuesState.value.sourceAlpha
+                                shape = if (nativeRoundClip) androidx.compose.foundation.shape.RoundedCornerShape(sourceCornerRadius / initialScale)
+                                    else RoundedRectangle(sourceCornerRadius / initialScale)
                                 clip = true
                             },
                         contentScale = ContentScale.FillBounds
@@ -1161,12 +1288,12 @@ private fun BoxScope.AnchoredSettingsStyleMorph(
                         Modifier
                             .fillMaxWidth()
                             .height(with(density) { (source.height / initialScale).toDp() })
-                            .graphicsLayer { alpha = values.sourceAlpha },
+                            .graphicsLayer { alpha = valuesState.value.sourceAlpha },
                         content = sourceContent
                     )
                 }
             }
-            Box(Modifier.fillMaxSize().graphicsLayer { alpha = values.contentAlpha }) {
+            Box(Modifier.fillMaxSize().graphicsLayer { alpha = valuesState.value.contentAlpha }) {
                 content(onClose)
             }
         }

@@ -7,9 +7,9 @@
     android:minHeight="@dimen/widget_square_min_height"
     android:previewImage="@drawable/widget_picker_preview_courses_square"
     android:previewLayout="@layout/widget_preview_today_courses_square"
-    android:resizeMode="none"
-    android:targetCellWidth="1"
-    android:targetCellHeight="1"
+    android:resizeMode="horizontal|vertical"
+    android:minResizeWidth="40dp"
+    android:minResizeHeight="40dp"
     android:updatePeriodMillis="1800000"
     android:widgetCategory="home_screen"
     tools:targetApi="s" />

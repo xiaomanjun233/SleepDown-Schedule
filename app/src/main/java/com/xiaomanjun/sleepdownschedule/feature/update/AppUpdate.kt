@@ -3,15 +3,18 @@ package com.xiaomanjun.sleepdownschedule.feature.update
 import com.xiaomanjun.sleepdownschedule.*
 
 import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
+import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
 
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.graphics.drawable.Icon
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
 import androidx.core.content.ContextCompat
@@ -49,6 +52,8 @@ private const val ApkMimeType = "application/vnd.android.package-archive"
 private const val UpdatePreferences = "app_update_state"
 private const val LastCheckDateKey = "last_check_date"
 private const val LatestTagKey = "latest_tag"
+private const val IncludeBetaKey = "include_beta"
+private const val BetaDefaultMigrationKey = "beta_default_enabled_v1"
 
 data class GiteeReleaseInfo(
     val name: String,
@@ -57,8 +62,14 @@ data class GiteeReleaseInfo(
     val apkName: String?,
     val apkUrl: String?,
     val releaseUrl: String,
-    val prerelease: Boolean
+    val prerelease: Boolean,
+    val packageKind: DownloadPackageKind = DownloadPackageKind.AppUpdate
 )
+
+enum class DownloadPackageKind {
+    AppUpdate,
+    CourseComponent
+}
 
 sealed interface GiteeUpdateCheckResult {
     data class UpdateAvailable(val release: GiteeReleaseInfo) : GiteeUpdateCheckResult
@@ -88,13 +99,40 @@ object GiteeAppUpdater {
     private val _downloadState = MutableStateFlow<UpdateDownloadState>(UpdateDownloadState.Idle)
     val downloadState: StateFlow<UpdateDownloadState> = _downloadState.asStateFlow()
 
+    @Synchronized
+    fun includesBeta(context: Context): Boolean {
+        val prefs = preferences(context)
+        if (!prefs.getBoolean(BetaDefaultMigrationKey, false)) {
+            prefs.edit {
+                putBoolean(IncludeBetaKey, true)
+                putBoolean(BetaDefaultMigrationKey, true)
+                remove(LastCheckDateKey)
+                remove(LatestTagKey)
+            }
+        }
+        return prefs.getBoolean(IncludeBetaKey, true)
+    }
+
+    fun setIncludesBeta(context: Context, enabled: Boolean) {
+        preferences(context).edit {
+            putBoolean(IncludeBetaKey, enabled)
+            putBoolean(BetaDefaultMigrationKey, true)
+            remove(LastCheckDateKey)
+            remove(LatestTagKey)
+        }
+        _updateAvailable.value = false
+    }
+
     fun restoreCachedStatus(context: Context, currentVersionName: String) {
         if (!AppDistribution.supportsSelfUpdate) {
             _updateAvailable.value = false
             return
         }
         val latestTag = preferences(context).getString(LatestTagKey, null)
-        _updateAvailable.value = latestTag?.let { isVersionNewer(it, currentVersionName) } == true
+        _updateAvailable.value = latestTag?.let {
+            val version = ParsedVersion.parse(it)
+            !version.isExperimental && (includesBeta(context) || !version.isPrerelease) && isVersionNewer(it, currentVersionName)
+        } == true
     }
 
     fun shouldRunDailyCheck(context: Context, date: LocalDate = LocalDate.now()): Boolean =
@@ -114,20 +152,63 @@ object GiteeAppUpdater {
         _updateAvailable.value = result is GiteeUpdateCheckResult.UpdateAvailable
     }
 
-    suspend fun checkForUpdate(currentVersionName: String): Result<GiteeUpdateCheckResult> =
+    suspend fun checkForUpdate(context: Context, currentVersionName: String): Result<GiteeUpdateCheckResult> =
         withContext(Dispatchers.IO) {
             runCatching {
                 check(AppDistribution.supportsSelfUpdate) {
                     "当前应用商店发行版不支持应用内 APK 更新"
                 }
-                val endpoint = "$GiteeApiBase/repos/$GiteeOwner/$GiteeRepository/releases/latest"
-                val root = json.parseToJsonElement(readText(endpoint)).jsonObjectOrThrow()
-                val release = root.toReleaseInfo()
+                val releases = readReleaseObjects().map { it.toReleaseInfo() }
+                val release = selectRelease(releases, includesBeta(context))
+                    ?: error("当前更新渠道暂无可用版本")
                 if (isVersionNewer(release.tagName, currentVersionName)) {
                     GiteeUpdateCheckResult.UpdateAvailable(release)
                 } else {
                     GiteeUpdateCheckResult.UpToDate(release)
                 }
+            }
+        }
+
+    suspend fun findReleaseAsset(
+        expectedNames: Set<String>,
+        displayName: String,
+        packageKind: DownloadPackageKind
+    ): Result<GiteeReleaseInfo> = withContext(Dispatchers.IO) {
+        runCatching {
+            val normalizedNames = expectedNames.mapTo(linkedSetOf()) { it.lowercase() }
+            val candidates = readReleaseObjects().mapNotNull { release ->
+                if ((release["draft"] as? JsonPrimitive)?.booleanOrNull == true) return@mapNotNull null
+                val asset = release.releaseAssets().firstOrNull {
+                    it.name.lowercase() in normalizedNames
+                } ?: return@mapNotNull null
+                val sourceTag = release.string("tag_name").ifBlank { release.string("name") }
+                require(sourceTag.isNotBlank()) { "Gitee 版本缺少版本标签" }
+                val releasePage = release.string("html_url").ifBlank {
+                    "$GiteeRepositoryUrl/releases/tag/${Uri.encode(sourceTag)}"
+                }
+                GiteeReleaseInfo(
+                    name = displayName,
+                    tagName = sourceTag,
+                    notes = release.string("body"),
+                    apkName = asset.name,
+                    apkUrl = asset.url,
+                    releaseUrl = releasePage,
+                    prerelease = true,
+                    packageKind = packageKind
+                )
+            }
+            val latest = selectLatestAssetRelease(candidates)
+                ?: error("暂未找到课程组件，请稍后重试")
+            latest.copy(tagName = "course-component-${latest.tagName}-${latest.apkUrl.hashCode()}")
+        }
+    }
+
+    internal fun selectLatestAssetRelease(releases: List<GiteeReleaseInfo>): GiteeReleaseInfo? =
+        releases.filter { !it.apkUrl.isNullOrBlank() }.maxWithOrNull { left, right ->
+            when {
+                isVersionNewer(left.tagName, right.tagName) -> 1
+                isVersionNewer(right.tagName, left.tagName) -> -1
+                else -> 0
             }
         }
 
@@ -170,6 +251,7 @@ object GiteeAppUpdater {
             .putExtra(UpdateDownloadForegroundService.EXTRA_TAG, release.tagName)
             .putExtra(UpdateDownloadForegroundService.EXTRA_NAME, release.name)
             .putExtra(UpdateDownloadForegroundService.EXTRA_APK_NAME, release.apkName)
+            .putExtra(UpdateDownloadForegroundService.EXTRA_PACKAGE_KIND, release.packageKind.name)
         ContextCompat.startForegroundService(context.applicationContext, intent)
     }
 
@@ -233,8 +315,23 @@ object GiteeAppUpdater {
         if (latestVersion.isPrerelease != currentVersion.isPrerelease) {
             return !latestVersion.isPrerelease
         }
-        return false
+        if (latestVersion.stage != currentVersion.stage) return latestVersion.stage > currentVersion.stage
+        if (latestVersion.sequence != currentVersion.sequence) return latestVersion.sequence > currentVersion.sequence
+        return latestVersion.revision > currentVersion.revision
     }
+
+    internal fun selectRelease(releases: List<GiteeReleaseInfo>, includeBeta: Boolean): GiteeReleaseInfo? =
+        releases.filter {
+            val version = ParsedVersion.parse(it.tagName)
+            !version.isExperimental && (includeBeta || (!it.prerelease && !version.isPrerelease))
+        }
+            .maxWithOrNull { left, right ->
+                when {
+                    isVersionNewer(left.tagName, right.tagName) -> 1
+                    isVersionNewer(right.tagName, left.tagName) -> -1
+                    else -> 0
+                }
+            }
 
     private fun preferences(context: Context) =
         context.applicationContext.getSharedPreferences(UpdatePreferences, Context.MODE_PRIVATE)
@@ -242,10 +339,7 @@ object GiteeAppUpdater {
     private fun JsonObject.toReleaseInfo(): GiteeReleaseInfo {
         val tag = string("tag_name").ifBlank { string("name") }
         require(tag.isNotBlank()) { "Gitee Release 缺少版本标签" }
-        val asset = releaseAssets().firstOrNull { asset ->
-            asset.name.endsWith(".apk", ignoreCase = true) ||
-                asset.url.substringBefore('?').endsWith(".apk", ignoreCase = true)
-        }
+        val asset = releaseAssets().firstOrNull(ReleaseAsset::isAppUpdateApk)
         val releasePage = string("html_url").ifBlank {
             "$GiteeRepositoryUrl/releases/tag/${Uri.encode(tag)}"
         }
@@ -258,6 +352,19 @@ object GiteeAppUpdater {
             releaseUrl = releasePage,
             prerelease = (this["prerelease"] as? JsonPrimitive)?.booleanOrNull ?: false
         )
+    }
+
+    private fun readReleaseObjects(): List<JsonObject> {
+        val releases = mutableListOf<JsonObject>()
+        var page = 1
+        do {
+            val endpoint = "$GiteeApiBase/repos/$GiteeOwner/$GiteeRepository/releases?page=$page&per_page=100"
+            val entries = json.parseToJsonElement(readText(endpoint)) as? JsonArray
+                ?: error("Gitee 返回了无法识别的版本列表")
+            releases += entries.map { it.jsonObjectOrThrow() }
+            page++
+        } while (entries.size == 100)
+        return releases
     }
 
     private fun JsonObject.releaseAssets(): List<ReleaseAsset> {
@@ -353,6 +460,9 @@ class UpdateDownloadForegroundService : Service() {
         val tag = intent.getStringExtra(EXTRA_TAG).orEmpty()
         val name = intent.getStringExtra(EXTRA_NAME).orEmpty().ifBlank { tag }
         val apkName = intent.getStringExtra(EXTRA_APK_NAME)
+        val packageKind = intent.getStringExtra(EXTRA_PACKAGE_KIND)
+            ?.let { runCatching { DownloadPackageKind.valueOf(it) }.getOrNull() }
+            ?: DownloadPackageKind.AppUpdate
         if (url.isBlank() || tag.isBlank()) {
             stopSelf(startId)
             return START_NOT_STICKY
@@ -366,7 +476,7 @@ class UpdateDownloadForegroundService : Service() {
             return START_NOT_STICKY
         }
 
-        startForeground(NOTIFICATION_ID, progressNotification(name, null))
+        startForeground(NOTIFICATION_ID, progressNotification(name, null, packageKind))
         activeTag = tag
         downloadJob = serviceScope.launch {
             try {
@@ -377,18 +487,18 @@ class UpdateDownloadForegroundService : Service() {
                     val percent = state.progressPercent
                     if (percent != lastPercent || percent == null) {
                         getSystemService(NotificationManager::class.java)
-                            .notify(NOTIFICATION_ID, progressNotification(name, percent))
+                            .notify(NOTIFICATION_ID, progressNotification(name, percent, packageKind))
                         lastPercent = percent
                     }
                 }.fold(
                     onSuccess = { apk ->
                         GiteeAppUpdater.publishDownloadState(UpdateDownloadState.Completed(tag, apk))
-                        finishForeground(completedNotification(name, apk))
+                        finishForeground(completedNotification(name, apk, packageKind))
                     },
                     onFailure = { error ->
                         val message = error.message ?: "更新下载失败"
                         GiteeAppUpdater.publishDownloadState(UpdateDownloadState.Failed(tag, message))
-                        finishForeground(failedNotification(name, message))
+                        finishForeground(failedNotification(name, message, packageKind))
                     }
                 )
             } finally {
@@ -407,33 +517,69 @@ class UpdateDownloadForegroundService : Service() {
         super.onDestroy()
     }
 
-    private fun progressNotification(name: String, progress: Int?): Notification {
+    private fun progressNotification(
+        name: String,
+        progress: Int?,
+        packageKind: DownloadPackageKind
+    ): Notification {
         val openApp = PendingIntent.getActivity(
             this,
             6101,
             packageManager.getLaunchIntentForPackage(packageName) ?: Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_download)
-            .setContentTitle("正在下载更新")
+        val builder = Notification.Builder(this, CHANNEL_ID)
+            .applyAppNotificationIcon(this)
+            .setContentTitle(if (packageKind == DownloadPackageKind.CourseComponent) "正在下载课程组件" else "正在下载更新")
             .setContentText(if (progress == null) name else "$name · $progress%")
             .setContentIntent(openApp)
-            .setProgress(100, progress ?: 0, progress == null)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
             .setCategory(Notification.CATEGORY_PROGRESS)
-            .setColor(0xFF0A84FF.toInt())
+            .setColor(Notification.COLOR_DEFAULT)
             .requestPromotedOngoing(if (progress == null) "下载中" else "$progress%")
-            .build()
+        if (Build.VERSION.SDK_INT >= 36) {
+            builder.setStyle(downloadProgressStyle(progress))
+        } else {
+            builder.setProgress(100, progress ?: 0, progress == null)
+        }
+        return builder.build()
     }
 
-    private fun completedNotification(name: String, apk: File): Notification {
-        val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
-        val installIntent = Intent(Intent.ACTION_VIEW)
-            .setDataAndType(uri, ApkMimeType)
-            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+    @Suppress("NewApi")
+    private fun downloadProgressStyle(progress: Int?): Notification.ProgressStyle =
+        Notification.ProgressStyle()
+            // 与课程进度实时活动一致：用单个白色小圆点作为 tracker 图标，
+            // 不再叠加 Point，避免进度条上出现两个重叠的进度图示。
+            .setProgressTrackerIcon(
+                Icon.createWithResource(this, R.drawable.ic_live_dot)
+            )
+            .setProgressSegments(
+                listOf(
+                    Notification.ProgressStyle.Segment(100)
+                )
+            )
+            .setProgress(progress ?: 0)
+            .setProgressIndeterminate(progress == null)
+
+    private fun completedNotification(
+        name: String,
+        apk: File,
+        packageKind: DownloadPackageKind
+    ): Notification {
+        val installIntent = if (packageKind == DownloadPackageKind.CourseComponent) {
+            // The settings page checks the downloaded component's identity and version before
+            // installation. A notification must not bypass that check.
+            packageManager.getLaunchIntentForPackage(packageName)
+                ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                ?: Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        } else {
+            val uri = FileProvider.getUriForFile(this, "$packageName.fileprovider", apk)
+            Intent(Intent.ACTION_VIEW)
+                .setDataAndType(uri, ApkMimeType)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
         val install = PendingIntent.getActivity(
             this,
             6102,
@@ -441,21 +587,39 @@ class UpdateDownloadForegroundService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         return Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_download)
-            .setContentTitle("更新下载完成")
-            .setContentText("点击安装 $name")
+            .applyAppNotificationIcon(this)
+            .setContentTitle(if (packageKind == DownloadPackageKind.CourseComponent) "课程组件下载完成" else "更新下载完成")
+            .setContentText(if (packageKind == DownloadPackageKind.CourseComponent)
+                "返回 SleepDown 查看组件检查结果" else "点击安装 $name")
             .setContentIntent(install)
-            .setAutoCancel(true)
+            .setOngoing(packageKind != DownloadPackageKind.CourseComponent)
+            .setAutoCancel(packageKind == DownloadPackageKind.CourseComponent)
             .setOnlyAlertOnce(true)
+            .setShowWhen(false)
             .setCategory(Notification.CATEGORY_STATUS)
-            .setColor(0xFF0A84FF.toInt())
+            .setColor(Notification.COLOR_DEFAULT)
+            .let { builder ->
+                if (packageKind == DownloadPackageKind.CourseComponent) builder
+                else builder.requestPromotedOngoing("待安装")
+            }
+            .let { builder ->
+                if (Build.VERSION.SDK_INT >= 36) {
+                    builder.setStyle(downloadProgressStyle(100))
+                } else {
+                    builder.setProgress(100, 100, false)
+                }
+            }
             .build()
     }
 
-    private fun failedNotification(name: String, message: String): Notification =
+    private fun failedNotification(
+        name: String,
+        message: String,
+        packageKind: DownloadPackageKind
+    ): Notification =
         Notification.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_download)
-            .setContentTitle("更新下载失败")
+            .applyAppNotificationIcon(this)
+            .setContentTitle(if (packageKind == DownloadPackageKind.CourseComponent) "课程组件下载失败" else "更新下载失败")
             .setContentText("$name · $message")
             .setAutoCancel(true)
             .setCategory(Notification.CATEGORY_ERROR)
@@ -469,7 +633,7 @@ class UpdateDownloadForegroundService : Service() {
     private fun createChannel() {
         val manager = getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(
-            NotificationChannel(CHANNEL_ID, "应用更新", NotificationManager.IMPORTANCE_LOW).apply {
+            NotificationChannel(CHANNEL_ID, "应用更新", NotificationManager.IMPORTANCE_DEFAULT).apply {
                 description = "显示应用更新包的下载进度"
                 setShowBadge(false)
             }
@@ -477,6 +641,7 @@ class UpdateDownloadForegroundService : Service() {
     }
 
     private fun Notification.Builder.requestPromotedOngoing(shortText: String): Notification.Builder = apply {
+        // 不设置 largeIcon，避免卡片里出现第二个应用图标（与课程实时活动一致）。
         runCatching {
             javaClass.getMethod("setRequestPromotedOngoing", java.lang.Boolean.TYPE).invoke(this, true)
             extras.putBoolean("android.requestPromotedOngoing", true)
@@ -490,22 +655,59 @@ class UpdateDownloadForegroundService : Service() {
         const val EXTRA_TAG = "update_tag"
         const val EXTRA_NAME = "update_name"
         const val EXTRA_APK_NAME = "update_apk_name"
-        private const val CHANNEL_ID = "app_update_download"
+        const val EXTRA_PACKAGE_KIND = "update_package_kind"
+        private const val CHANNEL_ID = "app_update_live_progress"
         private const val NOTIFICATION_ID = 20260720
     }
 }
 
 private data class ReleaseAsset(val name: String, val url: String)
 
-private data class ParsedVersion(val numbers: List<Int>, val isPrerelease: Boolean) {
+private data class ParsedVersion(
+    val numbers: List<Int>,
+    val stage: Int,
+    val sequence: Int,
+    val revision: Int,
+    val isExperimental: Boolean
+) {
+    val isPrerelease: Boolean get() = stage < 5
     companion object {
         fun parse(raw: String): ParsedVersion {
             val normalized = raw.trim().removePrefix("v").removePrefix("V")
-            val numbers = Regex("\\d+").findAll(normalized).map { it.value.toIntOrNull() ?: 0 }.toList()
-            val prerelease = Regex("(?i)(alpha|beta|preview|rc|dev)").containsMatchIn(normalized)
-            return ParsedVersion(numbers.ifEmpty { listOf(0) }, prerelease)
+            val main = Regex("\\d+(?:\\.\\d+)*").find(normalized)
+                ?: error("无法识别版本号：$raw")
+            val numbers = main.value.split('.').map { it.toInt() }
+            val suffix = normalized.substring(main.range.last + 1).substringBefore('+')
+            val pre = Regex("(?i)(experimental|exp|dev|alpha|beta|preview|rc)[\\s._-]*(\\d*)").find(suffix)
+            val stage = when (pre?.groupValues?.get(1)?.lowercase()) {
+                "experimental", "exp" -> 0
+                "dev" -> 0
+                "alpha" -> 1
+                "beta" -> 2
+                "preview" -> 3
+                "rc" -> 4
+                else -> 5
+            }
+            val stageName = pre?.groupValues?.get(1)?.lowercase()
+            return ParsedVersion(
+                numbers = numbers,
+                stage = stage,
+                sequence = pre?.groupValues?.get(2)?.toIntOrNull() ?: 0,
+                revision = Regex("(?i)(?:^|[\\s._-])r(\\d+)$").find(suffix.trim())
+                    ?.groupValues?.get(1)?.toIntOrNull() ?: 0,
+                isExperimental = stageName == "experimental" || stageName == "exp"
+            )
         }
     }
+}
+
+private fun ReleaseAsset.isAppUpdateApk(): Boolean {
+    val normalizedName = name.lowercase()
+    val normalizedUrl = url.substringBefore('?').lowercase()
+    val isApk = normalizedName.endsWith(".apk") || normalizedUrl.endsWith(".apk")
+    val isCourseComponent = normalizedName.contains("coloros-course-component") ||
+        normalizedName.contains("wakeup-proxy")
+    return isApk && !isCourseComponent
 }
 
 private fun JsonObject.string(key: String): String =

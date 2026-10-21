@@ -65,9 +65,12 @@ private val EduPageDeepExtractScript = """
   function tableText(table, index) {
     var rows = Array.prototype.slice.call(table.querySelectorAll("tr")).slice(0, 180);
     var body = rows.map(function (row) {
-      return Array.prototype.slice.call(row.querySelectorAll("th,td"))
-        .map(textOf)
-        .filter(Boolean)
+      return Array.prototype.slice.call(row.children).filter(function(cell) { return /^(TH|TD)$/.test(cell.tagName); })
+        .map(function(cell) {
+          var span = (cell.rowSpan > 1 ? ' rowspan=' + cell.rowSpan : '') +
+                     (cell.colSpan > 1 ? ' colspan=' + cell.colSpan : '');
+          return (span ? '[' + span.trim() + '] ' : '') + (textOf(cell) || '[空]');
+        })
         .join(" | ");
     }).filter(Boolean).join("\n");
     return body ? ("Table " + (index + 1) + "\n" + body) : "";
@@ -371,20 +374,23 @@ suspend fun captureEduPage(
         val positions = scrollSamplePositions(initialY, viewportHeight, contentHeight, maxScreenshots)
         val snapshots = mutableListOf<EduPageSnapshot>()
 
-        for (position in positions) {
-            webView.scrollTo(webView.scrollX, position)
-            delay(160)
-            evaluateWebViewJson(webView, EduPageDeepExtractScript)
-                ?.let { decodeEduPageSnapshot(it) }
-                ?.let { snapshots += it }
+        try {
+            for (position in positions) {
+                webView.scrollTo(webView.scrollX, position)
+                delay(160)
+                evaluateWebViewJson(webView, EduPageDeepExtractScript)
+                    ?.let { decodeEduPageSnapshot(it) }
+                    ?.let { snapshots += it }
+            }
+        } finally {
+            webView.scrollTo(webView.scrollX, initialY)
         }
-        webView.scrollTo(webView.scrollX, initialY)
         delay(80)
 
-        val text = snapshots.joinToString("\n\n") { it.toTextBlock() }
-            .replace(Regex("\n{3,}"), "\n\n")
-            .take(80_000)
+        val compactText = compactEduPageSnapshots(snapshots)
+        val text = compactText.take(60_000)
         val warnings = snapshots.flatMap { it.warnings }.distinct().toMutableList()
+        if (compactText.length > 60_000) warnings += "页面内容超过 60000 字符，文本已截断；请分学期或缩小页面范围后核对导入。"
         val needsScreenshot = forceScreenshots || (allowScreenshotFallback && shouldUseScreenshotFallback(text, snapshots))
         if (forceScreenshots) {
             warnings += "用户选择识屏模式，已强制生成当前 WebView 页面截图。"
@@ -440,6 +446,36 @@ suspend fun captureEduPage(
         }
         EduPageCaptureResult(text = text, screenshots = screenshots, warnings = warnings.distinct(), mode = mode)
     }
+}
+
+/** Deduplicate capture blocks, never course rows: identical cells can be real repeated lessons. */
+internal fun compactEduPageSnapshots(snapshots: List<EduPageSnapshot>): String {
+    val seen = mutableSetOf<String>()
+    return buildString {
+        fun block(label: String, value: String) {
+            val content = value.trim()
+            if (content.isNotEmpty() && seen.add(content)) {
+                appendLine(label)
+                appendLine(content)
+                appendLine()
+            }
+        }
+        snapshots.forEach { snapshot ->
+            block("页面标题：", snapshot.title)
+            block("页面来源：", redactAiUrl(snapshot.url))
+            block("学期和页面选项：", snapshot.formState)
+            block("表格（保留空格位及合并行列）：", snapshot.tables)
+            // Tables already contain spans; do not send the same rows again as full HTML.
+            if (snapshot.tables.isBlank()) {
+                block("课表结构：", snapshot.semanticHtml)
+                if (snapshot.semanticHtml.isBlank()) block("课表区域：", snapshot.containers)
+            }
+            block("内嵌页面：", snapshot.iframeText)
+            block("组件文字：", snapshot.shadowText)
+            // Retain prose outside the table (week/term notes, special arrangements).
+            block("页面正文及备注：", snapshot.text)
+        }
+    }.trim()
 }
 
 @Suppress("DEPRECATION") // WebView exposes no non-deprecated equivalent that preserves the page zoom factor.

@@ -219,12 +219,16 @@ fun rememberGlassSceneState(
     diagnosticsEnabled: Boolean = BuildConfig.DEBUG ||
         BuildConfig.BUILD_TYPE.contains("benchmark", ignoreCase = true),
     backendPolicy: GlassBackendPolicy = GlassBackendPolicy.ReferenceOnly
-): GlassSceneState = remember(sceneId, diagnosticsEnabled, backendPolicy) {
-    GlassSceneState(
+): GlassSceneState {
+    androidx.compose.runtime.DisposableEffect(diagnosticsEnabled) {
+        if (diagnosticsEnabled) GlassBackendTrace.acquire()
+        onDispose { if (diagnosticsEnabled) GlassBackendTrace.release() }
+    }
+    return remember(sceneId, diagnosticsEnabled, backendPolicy) { GlassSceneState(
         sceneId = sceneId,
         diagnosticsEnabled = diagnosticsEnabled,
         backendPolicy = backendPolicy
-    )
+    ) }
 }
 
 @Composable

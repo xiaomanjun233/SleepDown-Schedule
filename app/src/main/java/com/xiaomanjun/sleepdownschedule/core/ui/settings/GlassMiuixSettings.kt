@@ -1,17 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.settings
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.core.ui.interaction.*
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogSceneBackdrop
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogRenderInRootScaffold
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.centeredDialogSceneProducer
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.rememberCenteredDialogSceneBackdrop
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.*
-
-import androidx.compose.foundation.background
 import androidx.compose.foundation.LocalOverscrollFactory
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
@@ -28,7 +18,6 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -36,15 +25,37 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.kyant.backdrop.Backdrop
+import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.TopBackButton
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogRenderInRootScaffold
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogSceneBackdrop
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalToolbarBackdropBlurred
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.centeredDialogSceneProducer
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.rememberCenteredDialogSceneBackdrop
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.rememberHapticMiuixOverscrollFactory
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailTopBar
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.ui.LocalLegacyProgressiveBlur
+import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBlurDirection
+import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
+import com.xiaomanjun.sleepdownschedule.glass.ui.platformMotionBlurRenderEffect
+import com.xiaomanjun.sleepdownschedule.glass.ui.progressiveBackdropBlur
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.ScrollBehavior
@@ -56,9 +67,13 @@ import top.yukonga.miuix.kmp.theme.lightColorScheme
 internal val LocalGlassMiuixEnabled = compositionLocalOf { false }
 internal val LocalGlassSettingsContentTopPadding = compositionLocalOf<Dp?> { null }
 internal val LocalSettingsPopupBackdrop = compositionLocalOf<Backdrop?> { null }
+// A page can temporarily move its chrome away while an in-place editor owns navigation.
+internal val LocalSettingsEditorProgress = compositionLocalOf<androidx.compose.runtime.MutableFloatState?> { null }
 
 /** Root-level sibling host for controls that must float outside the scroll/card subtree. */
-internal class DetailActivityFloatingOverlayHost {
+internal class DetailActivityFloatingOverlayHost(
+    val controlsModifier: @Composable () -> Modifier = { Modifier }
+) {
     private val contentState = mutableStateOf<(@Composable () -> Unit)?>(null)
 
     var content: (@Composable () -> Unit)?
@@ -106,19 +121,24 @@ fun GlassMiuixSettingsTheme(
 fun GlassMiuixRootSettingsScaffold(
     title: String,
     config: ScheduleConfigEntity,
-    content: @Composable (PaddingValues) -> Unit
+    content: @Composable (PaddingValues, Backdrop) -> Unit
 ) {
     val pageConfig = settingsVisualConfig(config)
     val pageColor = settingsPageBackground(pageConfig)
+    val pageBackground = rememberSettingsPaneBackground(pageColor)
+    val contentBackground = rememberSettingsPaneBackground(pageColor)
     val backgroundBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Background,
         providerId = "settings-root-background"
-    )
+    ) {
+        pageBackground.draw(this)
+        drawContent()
+    }
     val contentBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Content,
         providerId = "settings-root-content"
     ) {
-        drawRect(pageColor)
+        contentBackground.draw(this)
         drawContent()
     }
     val scrollBehavior = rememberSettingsScrollBehavior()
@@ -132,19 +152,20 @@ fun GlassMiuixRootSettingsScaffold(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(pageColor)
+                .then(pageBackground.modifier)
         ) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(pageColor)
+                    .then(pageBackground.modifier)
                     .glassBackdropProducer(backgroundBackdrop)
             )
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             underlayModifier = Modifier
                 .fillMaxSize()
-                .centeredDialogSceneProducer(dialogSceneBackdrop),
+                .centeredDialogSceneProducer(dialogSceneBackdrop)
+                .then(pageBackground.modifier),
             containerColor = Color.Transparent,
             contentWindowInsets = WindowInsets(0, 0, 0, 0),
             topBar = {
@@ -169,9 +190,10 @@ fun GlassMiuixRootSettingsScaffold(
                     Modifier
                         .fillMaxSize()
                         .nestedScroll(scrollBehavior.nestedScrollConnection)
+                        .then(contentBackground.trackingModifier)
                         .glassBackdropProducer(contentBackdrop)
                 ) {
-                    content(innerPadding)
+                    content(innerPadding, backgroundBackdrop)
                 }
             }
         }
@@ -190,19 +212,25 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
     useMiuixCollapsedTitleStyle: Boolean = false,
     onBack: () -> Unit = {},
     horizontalContentInset: Dp = 16.dp,
+    topBarActions: @Composable (Backdrop?) -> Unit = {},
     content: @Composable (Backdrop?) -> Unit
 ) {
     val pageConfig = settingsVisualConfig(config)
     val pageColor = settingsPageBackground(pageConfig)
+    val pageBackground = rememberSettingsPaneBackground(pageColor)
+    val contentBackground = rememberSettingsPaneBackground(pageColor)
     val backgroundBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Background,
         providerId = "settings-tablet-background"
-    )
+    ) {
+        pageBackground.draw(this)
+        drawContent()
+    }
     val contentBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Content,
         providerId = "settings-tablet-content"
     ) {
-        drawRect(pageColor)
+        contentBackground.draw(this)
         drawContent()
     }
     val dialogSceneBackdrop = rememberCenteredDialogSceneBackdrop("settings-tablet-dialog-scene")
@@ -214,20 +242,20 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
         ) {
         Box(
             modifier
-                .background(pageColor)
+                .then(pageBackground.modifier)
         ) {
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(pageColor)
+                    .then(pageBackground.modifier)
                     .glassBackdropProducer(backgroundBackdrop)
             )
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 underlayModifier = Modifier
                     .fillMaxSize()
-                    .background(pageColor)
-                    .centeredDialogSceneProducer(dialogSceneBackdrop),
+                    .centeredDialogSceneProducer(dialogSceneBackdrop)
+                    .then(pageBackground.modifier),
                 containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
@@ -245,7 +273,8 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
                                 centerTitle = true,
                                 useMiuixCollapsedTitleStyle = useMiuixCollapsedTitleStyle,
                                 showBackButton = showBackButton,
-                                backButtonStartPadding = horizontalContentInset + 16.dp
+                                backButtonStartPadding = horizontalContentInset + 16.dp,
+                                actions = { topBarActions(contentBackdrop) }
                             )
                         }
                     }
@@ -258,6 +287,7 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
                         Modifier
                             .fillMaxSize()
                             .padding(horizontal = horizontalContentInset)
+                            .then(contentBackground.trackingModifier)
                             .glassBackdropProducer(contentBackdrop)
                     ) {
                         content(backgroundBackdrop)
@@ -280,6 +310,8 @@ internal fun GlassMiuixDetailActivityScaffold(
     centerCompactTitle: Boolean,
     compactTitleMatchesSettings: Boolean,
     topBarVisible: Boolean,
+    preserveStatusBarSpace: Boolean,
+    topBarBackdropOverride: Backdrop?,
     topBarActions: @Composable (Backdrop?) -> Unit,
     content: @Composable (Backdrop?) -> Unit
 ) {
@@ -296,9 +328,25 @@ internal fun GlassMiuixDetailActivityScaffold(
         drawRect(pageColor)
         drawContent()
     }
+    val topBarBackdrop = topBarBackdropOverride ?: contentBackdrop
     val scrollBehavior = rememberSettingsScrollBehavior()
-    val compactTopBarHeight = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() +
+    val density = LocalDensity.current
+    val rootView = LocalView.current
+    val visibleStatusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val stableStatusBarTop = if (preserveStatusBarSpace) {
+        val stableTopPx = ViewCompat.getRootWindowInsets(rootView)
+            ?.getInsetsIgnoringVisibility(
+                WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            ?.top
+        stableTopPx?.let { with(density) { it.toDp() } } ?: visibleStatusBarTop
+    } else {
+        visibleStatusBarTop
+    }
+    val compactTopBarHeight = stableStatusBarTop +
         SleepDownDesignTokens.SecondaryPage.CompactTopBarHeight
+    val editorProgress = remember { androidx.compose.runtime.mutableFloatStateOf(0f) }
+    val editorUnderlayBlur = remember(density) { platformMotionBlurRenderEffect(with(density) { 10.dp.toPx() }) }
     val dialogSceneBackdrop = rememberCenteredDialogSceneBackdrop("settings-detail-dialog-scene")
     // Reuse a host supplied by the activity transition/home overlay when present. This keeps a
     // destination search dock outside the transition shell and the page/card clipping chain.
@@ -311,6 +359,7 @@ internal fun GlassMiuixDetailActivityScaffold(
             LocalCenteredDialogSceneBackdrop provides dialogSceneBackdrop,
             LocalCenteredDialogRenderInRootScaffold provides false,
             LocalSettingsPopupBackdrop provides dialogSceneBackdrop,
+            LocalSettingsEditorProgress provides editorProgress,
             LocalDetailActivityFloatingOverlayHost provides floatingOverlayHost
         ) {
         Box(
@@ -321,15 +370,17 @@ internal fun GlassMiuixDetailActivityScaffold(
             Box(
                 Modifier
                     .fillMaxSize()
-                    .background(settingsPageBackground(pageConfig))
                     .glassBackdropProducer(backgroundBackdrop)
+                    .background(pageColor)
             )
             Scaffold(
                 modifier = Modifier.fillMaxSize(),
                 underlayModifier = Modifier
                     .fillMaxSize()
-                    .background(settingsPageBackground(pageConfig))
-                    .centeredDialogSceneProducer(dialogSceneBackdrop),
+                    // The base must be inside the recorder. Transparent gaps in the sample
+                    // let the original, unblurred card edges show through popup/dialog blur.
+                    .centeredDialogSceneProducer(dialogSceneBackdrop)
+                    .background(pageColor),
                 containerColor = Color.Transparent,
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
@@ -337,22 +388,39 @@ internal fun GlassMiuixDetailActivityScaffold(
                         Modifier
                             .fillMaxWidth()
                             .then(if (compactTopBar) Modifier.height(compactTopBarHeight) else Modifier)
+                            .layout { measurable, constraints ->
+                                val placeable = measurable.measure(constraints)
+                                layout(placeable.width, placeable.height) {
+                                    // Preserve scaffold insets while removing the hidden header from hit testing.
+                                    if (editorProgress.floatValue < 1f) placeable.placeRelative(0, 0)
+                                }
+                            }
+                            .graphicsLayer {
+                                clip = false
+                                translationY = 28.dp.toPx() * editorProgress.floatValue
+                                scaleX = 1f - 0.04f * editorProgress.floatValue
+                                scaleY = scaleX
+                                transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0f)
+                                alpha = 1f - editorProgress.floatValue
+                                renderEffect = if (editorProgress.floatValue > 0f && editorProgress.floatValue < 1f) editorUnderlayBlur else null
+                            }
                     ) {
                         if (topBarVisible) {
                             SettingsGradientTopBar(
                                 config = pageConfig,
-                                backdrop = contentBackdrop,
+                                backdrop = topBarBackdrop,
                                 enabled = showTopGradientBlur
                             ) {
                                 if (compactTopBar) {
                                     DetailTopBar(
                                         title = title,
                                         config = pageConfig,
-                                        backdrop = contentBackdrop,
+                                        backdrop = topBarBackdrop,
                                         onBack = onBack,
                                         centerTitle = centerCompactTitle,
                                         useMiuixCollapsedTitleStyle = compactTitleMatchesSettings,
-                                        actions = { topBarActions(contentBackdrop) }
+                                        statusTopOverride = stableStatusBarTop.takeIf { preserveStatusBarSpace },
+                                        actions = { topBarActions(topBarBackdrop) }
                                     )
                                 } else {
                                     TopAppBar(
@@ -361,9 +429,11 @@ internal fun GlassMiuixDetailActivityScaffold(
                                         color = Color.Transparent,
                                         scrollBehavior = scrollBehavior,
                                         navigationIconPadding = 16.dp,
+                                        clipContent = false,
+                                        actions = { topBarActions(topBarBackdrop) },
                                         navigationIcon = {
                                             TopBackButton(
-                                                backdrop = contentBackdrop,
+                                                backdrop = topBarBackdrop,
                                                 config = pageConfig,
                                                 onClick = onBack,
                                                 modifier = Modifier.size(
@@ -424,6 +494,7 @@ private fun SettingsGradientTopBar(
     content: @Composable () -> Unit
 ) {
     val tintColor = if (glassUsesLightStyle(config)) Color.White else Color(0xFF111111)
+    val webTransition = LocalLegacyProgressiveBlur.current
     val blurModifier = if (enabled) {
         Modifier.progressiveBackdropBlur(
             backdrop = backdrop,
@@ -431,14 +502,14 @@ private fun SettingsGradientTopBar(
             blurRadius = 12.dp,
             tintIntensity = 0.18f,
             direction = ProgressiveBlurDirection.TopToBottom,
-            topMaskFadeStart = 0.68f,
-            topMaskFadeEnd = 1.14f,
-            topTintFadeStart = 0.58f,
-            topTintFadeEnd = 1.10f,
+            topMaskFadeStart = if (webTransition) 0.35f else 0.68f,
+            topMaskFadeEnd = if (webTransition) 1f else 1.14f,
+            topTintFadeStart = if (webTransition) 0.28f else 0.58f,
+            topTintFadeEnd = if (webTransition) 1f else 1.10f,
             fallbackTintStops = listOf(
                 0f to tintColor.copy(alpha = 0.42f),
                 0.68f to tintColor.copy(alpha = 0.18f),
-                1f to tintColor.copy(alpha = 0.04f)
+                1f to tintColor.copy(alpha = if (webTransition) 0f else 0.04f)
             )
         )
     } else {
@@ -447,9 +518,27 @@ private fun SettingsGradientTopBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .then(blurModifier)
+            .then(if (webTransition) Modifier else blurModifier)
+            .graphicsLayer { clip = false }
     ) {
-        content()
+        if (webTransition && enabled) {
+            Box(
+                Modifier.matchParentSize()
+                    .layout { measurable, constraints ->
+                        // Extend only the existing blur consumer, keeping the actual toolbar and
+                        // WebView layout fixed. Its alpha reaches zero before the drawing ends.
+                        val extendedHeight = constraints.maxHeight + 48.dp.roundToPx()
+                        val placeable = measurable.measure(
+                            constraints.copy(minHeight = extendedHeight, maxHeight = extendedHeight)
+                        )
+                        layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, 0) }
+                    }
+                    .then(blurModifier)
+            )
+        }
+        CompositionLocalProvider(LocalToolbarBackdropBlurred provides (enabled && backdrop != null)) {
+            content()
+        }
     }
 }
 

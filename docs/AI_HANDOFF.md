@@ -1,0 +1,100 @@
+# 当前工作交接
+
+更新：2026-10-21，Asia/Shanghai。本页记录 main→develop 流程迁移任务；其他工作树保持独立。先读 [AGENTS.md](../AGENTS.md)，核对 Git/PR 与用户最新要求。规则见[开发工作流](DEVELOPMENT_WORKFLOW.md)。
+
+## 当前目标与分支
+
+- 用户本轮明确要求恢复 main + develop：main 稳定发布，develop 日常集成，独立任务默认从最新 develop 派生，正式发布经 release 分支验证。允许提交、推送及 PR；没有合并、改正式版本、发布 APK 的授权。
+- 本任务分支 `codex/develop-workflow` 基于 main `9b6acbb2`，独立工作树 `tmp/develop-workflow/`；已开放 [#80](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/80)，目标 develop，保留 main 全部祖先；远端 develop 在合并前仍是 `848ac5a4`。
+- 祖先检查：develop 是 main 祖先，独有 0、落后 610，无需重置或强推。两分支显示 protected；保护细则读取 403，未修改保护。完整审查见[同步报告](reports/2026-10-21-main-develop-workflow.md)。
+- #74/#78 已合并；#79 开放、目标 main，在 `tmp/architecture-refactor/` 的 `codex/architecture-boundaries` 接续架构及金标转场批次。不要复制实现或覆盖该工作树。待同步 PR 合并后再调整 #79 目标，复查 diff/CI。
+- 主目录的 `codex/zust-edu-adapter` 及未提交学校适配报告属于独立活动任务，本轮未切换、暂存或修改。其他工作树和 stash 不清理。
+- AGENTS.md 已公开跟踪；保留公共规则与历史，未删除或 untrack。后续本机环境可移入未跟踪本地配置，不能借此重写历史。最新正式版仍为 1.2.7.1 / 35，没有本轮版本变更。
+
+## 验证与下一步
+
+本轮只改变流程文档、PR 模板和触发事件；本地检查 diff、链接及 PR scope，Android 实现与 main 相同。同步 PR 相对 develop 含 610 个既有提交，云端应按完整 diff 运行 Android 检查，不能当纯文档 PR。未安装、发布、合并或修改分支保护。
+
+流程实现 `a5df31a3` 已通过完整云端 [39555564064](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39555564064)，包括 scope、2 项祖先回归、Release 编译、定向测试及 Debug 打包。本地模拟 scope 检查 1107 个新增/修改路径，`android=true`。之后仅补充交接及忽略 Python 缓存，当前 head 的云端状态需从 PR 回读。
+
+合并须由用户另行授权。同步 PR 通过评审/CI 后，以 merge commit 合入 develop，再核对 `git merge-base --is-ancestor origin/main origin/develop`；随后处理 #79 目标。保护建议与发布操作见同步报告。
+
+## 2026-10-20 及之前的历史交付记录
+
+以下保留原验收和发布证据，具体 PR 状态以上述新核对为准，不把旧发布授权扩展到本轮。
+
+## 已完成与关键结论
+
+- 本轮更新识别：`1.2.7` 与 r1 已发布客户端忽略修订后缀，已以旧版能识别的 `1.2.7.1` 正式补发。当前代码按数字版本、发布阶段、阶段序号、修订号排序；12 项定向测试及原版比较器 8 项兼容场景通过。额外对真实 Gitee 更新列表运行原版选择函数，两种 Beta 设置都选中 `1.2.7.1`，旧版满足更新条件，新版不会重复提示。四份公开 APK 回读一致；r1 已撤下，源码标签保留。
+- 课程玻璃改为共享全分辨率壁纸前缀与逐卡 Lens，处理课程详情展开时 producer 自订阅造成的持续更新；保留必要的共享 Offscreen 栅格边界。用户反馈左右切周已有明显改善，未作 FPS 测量。
+- 横屏凝光顶部胶囊保留原生 Segment。其内部 TextView 会消费触控，容器 OnTouchListener 不能观察完整序列；现用透明 FrameLayout 的 `dispatchTouchEvent` 观察 DOWN 和分发后的 UP/CANCEL，抬手再导航。已审计本地 HD 侧栏组件职责，不能拿侧栏或双栏控件直接替代顶部胶囊。
+- 本轮继续保留 Segment 实例与弹簧，设置/课表明暗变化采用原地 refresh。导航锁由宿主控制，避免 `setEnabled(false)` 触发原生取消动画；刷新后重申无外框协议。
+- 侧栏/底栏切换按钮拆出独立点击区域；个性化收紧标题间距，一级与二级标题按用户要求同为 titleMedium，以字重区分。
+- 已关闭发布内容覆盖的旧草稿 #57、#61、#65，保留分支和历史。草稿 CI 跳过规则已在 #78 实际验证，等待可评审时运行完整 CI。
+- 恢复 `AgentImportWorkspace.kt` 的原有 7 行作息校验，修复连续失败的那项云端测试。规则、模板和文档入口本轮已统一，Miuix 构建说明改为唯一完整补丁。
+- AI 加号改用模型选单同款 Popup Morph；导入保留旧视觉到弹窗卸载后再展示新课表。新导入使用彩色模式，着色 50%、模糊 35%、折射 50%，其他参数对齐已有标记点。
+- 自动教学周始终开启，详细/快速设置和 AI 的手动切换入口已移除。旧字段继续兼容，缺少开学日期时保留原周并提示补充；新建、配置保存、启动和备份恢复均接 Repository 规范化。
+- 教务搜索框采用 ModulateAlpha 保持原生模糊采样，底部渐变同步入场，避免逐帧重复设置原生功能按钮文字。
+- 附件 Popup 使用真实按钮中心返回并左边缘对齐，系统图片/文件选择器等退出完成后再打开。日视图助理接入现有文件确认、提取、校验和预览链路。无壁纸可使用单色/渐变，周视图已结束课程保留原色，个性化去掉冗余分类标题。
+- 所有来源的真实课程时钟按当前作息精确匹配：完整对应时显示节次，偏移与部分覆盖保留真实时间；旧导入无需重导或改库。编辑器未改时间的确认保留源时钟和编号，周视图完整时间按实际列宽排版。
+- 附件展开菜单使用面板主题前景，预览卡片使用公共课程文字。液态 Dock 加号与导航间距对齐原生 12dp 并恢复点击轻触反馈；快速设置统一行边距、短数值宽度及状态/日期说明布局，顶栏标题适配剩余宽度并保持单行。
+
+## 验证与产物：按代码锚点区分
+
+| 对象 | 实际证据与边界 |
+| --- | --- |
+| `1.2.7.1` 正式发布包 | 完整 `assembleGithubRelease` 通过，3m58s，159 项中 32 执行、127 复用，R8、资源压缩、lintVital 和正式 v2 签名齐全。身份为 `1.2.7.1` / 35，证书 SHA-256 `0f2b50df…`。12 项定向测试、原版比较器 8 场景及真实 Gitee 列表选择验证通过。双平台正式发布、公开附件回读通过；未安装。副本 `tmp/review-apks/SleepDown-1.2.7.1-20261020.apk`，7,591,259 字节，SHA-256 `3c920a97b319567bd367a482ccd493f55d59aa8c3dfe54b5dcd49c153b83fc8f` |
+| 上一轮界面代码包 | `c3bb034c` 完整 `assembleGithubRelease` 通过，3m30s，159 个任务中 21 个执行、138 个复用；保留 R8、资源压缩、lintVital 和正式 v2 签名，包含对应轮次的界面修订 |
+| `1.2.7-r1` 发布包 | `fa93ae65` 的完整 `assembleGithubRelease` 通过，4m24s，159 个任务中 21 个执行、138 个复用；R8、资源压缩、lintVital 与正式 v2 签名齐全，证书 SHA-256 `0f2b50df…`。Manifest 为 `1.2.7-r1` / 35。GitHub 与 Gitee 四份公开 APK 已流式回读，大小与 SHA-256 与本地一致；发布说明三处逐字节一致。详见[发布记录](2026-10-19-stable-1.2.7-r1-release.md) |
+| 本轮时间校验 | `e52d9918` 的 `CoursePeriodAlignmentTest` 19 项通过，0 失败/错误/跳过；含编译 2m50s，覆盖无原始快照的旧导入、多作息并存、连堂与写回保留；未跑完整套件 |
+| AI 暂存校验 | 恢复后仅运行 `AgentImportWorkspaceTest.overlappingAndGappedPeriodsAreRejectedBeforePublishingAStage`，1 项通过、0 失败；含编译 6m02s，没有重跑 623 项套件 |
+| 草稿 CI | [run 39191153304](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39191153304)，提交 `856d9b91`，三个 job 均 skipped；只证明草稿门控生效，不表示完整 CI 通过 |
+| 上轮日期/默认值 | 对应 `0f019f1d`：现有 `ScheduleTermBoundaryTest` 8 项与 `ImportedCourseCardDefaultsTest` 1 项通过，共 9 项；含编译 3m37s，未跑完整套件；本轮导航样式修订未重跑这些测试 |
+| 安装与实机 | 2026-10-19 23:04:03 经项目 ADB 5038 通道覆盖安装最终包到 USB 设备 PLJ110（Android 17），返回 Success，系统核对为 `1.2.7` / 35；保留数据、未自动启动。界面效果待用户验收，见[本轮报告](reports/2026-10-19-standard-clock-ui-feedback.md) |
+
+最新包本机副本为上表的 `SleepDown-1.2.7.1-20261020.apk`，已随双平台 Release 发布。旧 r1 副本 `tmp/review-apks/SleepDown-1.2.7-r1-20261019.apk`（`a9bc1b4b…`）保留，对应发布已撤下。此前 `standard-clock-ui`（`0152a70d…`）、`popup-day-file-cards`（`0cac9908…`）、`navigation-full-capsule`（`41f6768d…`）、`navigation-import-defaults`（`501c3455…`）及 `COUI-gesture-dispatch` 副本也均为旧包。临时产物不入库，其他机器可能没有文件；需要新包时重新构建，不把旧包改名充当新构建。
+
+## 下一步
+
+1. 等待用户对 `1.2.7.1`（继承 r1 全部修复）的实机验收与反馈：旧课表时间/节次、窄列完整时间、附件菜单与日视图上传、无壁纸配色、液态加号间距/振动及快速设置标题/行排版。对应测试与 Release 构建已通过；没有自动 UI 或性能验收，不据构建或发布成功替代真实效果判断。
+2. 本次更新送达修复和双平台补发已完成，无待发布候选。自动检查沿用每日一次规则；用户可在设置中手动检查 `1.2.7.1`。如反馈仍无法发现更新，再依据实际请求、渠道与设备证据定位，不重复修改已验证的版本排序。
+3. 如需继续修复，围绕真实场景定位后追加独立提交，按风险构建；不要重复已排除的容器触控监听方案，也不要上传系统反编译源码。
+4. 达到可评审状态后再转 Ready for review，检查整个 PR 的 CI 和未完成项；草稿 skipped 不替代该步骤。
+5. 获得合并授权后处理 main 回流，默认用保留提交祖先关系的 merge commit；合并后核对正式版源码可从 main 到达，再从新 main 开下一任务。合并不包含 Release 授权。本轮已发布但未回流，`main` 与发布基线差异仍未收口。
+
+## 用户要求与授权来源摘要
+
+来源是本任务会话的用户指令；下列内容方便检索原消息，不替代原始授权：
+
+- “先整理一下混乱的工作目录……和最新 release 对应上，然后执行该任务”：对应正式版基线与渲染任务。
+- “不需要进行奇奇怪怪的测试……打包 release……自己测试”及后续“先交付 APK”：保持最小充分验证，先交付 APK；用户随后明确要求“安装”，已覆盖安装本轮最新包，未自动启动。
+- 后续横屏滑选、侧栏按钮触控和标题调整：继续同一修复任务，当前仍待实机反馈。
+- “帮我整理一下仓库的情况 github 一直给我发 pr run”：对应已完成的旧 PR 关闭、CI 与失败项修复。
+- 本轮“整理……他人贡献……创建 PR 和提交合并规范……切换其他 AI……接手”：统一协作文档与交接。没有获得实际合并 #78、发布、改写标签或删除其他工作树的新增授权。
+- 最新“继续改……横屏凝光 tabbar……AI 加号……口令导入……自动计算当前周……新导入彩色模式……教务搜索框闪烁”：继续六项体验修订，按既有交付要求打包供用户测试。
+- 随后“安装”已于 13:08 完成；“查看手机最新截图……柔性反馈和发光被限定在内框”及“而且亮度太亮”：读取用户指定的最新截图，继续修正导航绘制与光效，沿用签名 Release 打包安装交付。
+- 最新“继续修改……加号 popup 收回错位……左边缘对齐……无壁纸单色……分类大标题……周视图今天上过的课不用变灰”；补充明确要求“日视图助理也支持上传文件”。继续同一 PR 和既有签名 Release 安装交付，不把上传入口误解为另造解析链路。
+- 后续截图反馈时间截断、GDCP 多校区作息，并明确“不要只适配这一个学校……按这类情况标准化处理”“升级之后原来的导入好的也要一起更新显示方式”；同时要求上传 Popup 文字反色、导入预览文字、液态加号与 Dock 间距/点击振动及快速设置文字对齐/换行修复。只更新呈现，保留原始课程时间与用户数据。
+- 最新“以当前代码状态 不要改 versioncode 将版本名字改为 1.2.7-r1 并按项目规范书写更新日志 然后重新打包 上传 github/gitee 双平台 release”：完成 `1.2.7-r1` 修复版构建与双平台正式发布。明确约束是 `versionCode` 不改（保持 35），并明确该版属正式 release 而非 pre-release；发布对象为本轮代码状态，未合并 `main`。
+- 2026-10-20 本会话用户要求“昨晚发布了1.2.7-r1 但是1.2.7收不到此项更新 你帮解决一下”，选择 `1.2.7.1` 并要求“你把r1的发布给下了吧”。随后明确回复“允许，使用现有脚本连接撤下 r1”及“允许，使用现有脚本双平台补发 1.2.7.1”，授权本次 GitHub 插件能力缺口的例外、任务提交推送、新标签与双平台正式补发。两项均已完成，源码标签保留；不包含合并 main 或其他发布授权。
+
+原会话无法访问时，先完成可逆的核对与本地工作；需要新的远端写入、合并或发布时确认可追溯授权，不能把本页视为一份无限授权。
+
+## 必须保留的本地内容
+
+- stash 按名称 `workspace-before-nexio-glass-2026-10-18` 定位，其中 AI 作息校验已单独恢复并提交，其他内容与原 stash 保留；不要整份 pop 或 drop。另有 `backup: untracked app sources before home menu morph`，未处理。
+- 最初未跟踪素材保存在本机忽略目录 `tmp/workspace-preserved-20261018/`；不是可随意删除的构建垃圾。
+- `git worktree list` 中还有其他任务，包括教务适配与历史性能/转场工作。本页不表示这些工作树干净、停用或可以删除。
+- 本轮文档整理期间出现未跟踪的 `app/src/main/assets/shiguang_warehouse-main/scripts/__pycache__/school_index_pb2.cpython-312.pyc`，属于生成缓存，未纳入文档提交，也未清理其他进程产生的文件。后续以 `git status` 核对，不应据此宣称源码有待提交修改。
+- 私有后端、签名与用户数据不进入交接附件、仓库或日志。机器专用的 JDK/ADB/构建参数见 `AGENTS.md`，新环境需核对实际路径。
+
+## 按需阅读的证据
+
+- [正式版基线整理](reports/2026-10-18-workspace-release-baseline.md)
+- [首轮玻璃渲染](reports/2026-10-18-nexio-glass-parity.md)与[展开/材质反馈](reports/2026-10-18-glass-feedback-followup.md)
+- [横屏输入首轮](reports/2026-10-19-landscape-tab-input.md)与[HD 组件及最终分发诊断](reports/2026-10-19-coui-hd-dispatch-audit.md)：前者是当时尝试，后者修正根因
+- [PR、Actions 与 main 回流盘点](reports/2026-10-19-repository-pr-actions-cleanup.md)
+- [最新导航、Popup、导入与默认值修订](reports/2026-10-19-navigation-import-feedback.md)
+- [横屏凝光整条胶囊反馈与亮度修订](reports/2026-10-19-navigation-shell-feedback.md)
+- [助理 Popup、日视图文件上传与课程外观修订](reports/2026-10-19-popup-day-file-card-feedback.md)
+- [通用多作息显示与界面反馈](reports/2026-10-19-standard-clock-ui-feedback.md)

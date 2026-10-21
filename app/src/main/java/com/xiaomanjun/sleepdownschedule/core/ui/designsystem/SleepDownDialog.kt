@@ -1,14 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.designsystem
 
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -30,17 +25,22 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.LocalContentColor
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,20 +51,31 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidPanel
+import com.kyant.backdrop.shadow.Shadow
+import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedCornerStyle
 import com.kyant.shapes.RoundedRectangle
-import com.kyant.shapes.Capsule
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.core.ui.material.controlAccentColor
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
 
 enum class LiquidDialogSize {
     Standard,
@@ -74,7 +85,16 @@ enum class LiquidDialogSize {
 enum class LiquidAlertActionStyle {
     Primary,
     Secondary,
-    Destructive
+    Destructive,
+    Cancel
+}
+
+/** Vertical actions: colored recommendation first, ordinary/destructive actions next, cancel last. */
+internal fun LiquidAlertActionStyle.verticalOrder(): Int = when (this) {
+    LiquidAlertActionStyle.Primary -> 0
+    LiquidAlertActionStyle.Secondary -> 1
+    LiquidAlertActionStyle.Destructive -> 2
+    LiquidAlertActionStyle.Cancel -> 3
 }
 
 data class LiquidAlertAction(
@@ -108,7 +128,7 @@ fun LiquidDialogSurface(
         ).coerceAtLeast(280.dp)
     val dialogWidth = (windowSize.width * 0.92f).coerceAtMost(SleepDownDesignTokens.Dialog.MaxWidth)
     val dialogMaxHeight = (safeHeight * 0.82f).coerceAtMost(SleepDownDesignTokens.Dialog.MaxHeight)
-    val shape = RoundedCornerShape(SleepDownDesignTokens.Dialog.ContainerCorner)
+    val shape = RoundedRectangle(SleepDownDesignTokens.Dialog.ContainerCorner)
     // Most full dialogs own an opaque-enough material layer and therefore follow the app theme.
     // Home destinations can opt into the sampled glass domain when the wallpaper remains the
     // visible material behind the whole form.
@@ -178,6 +198,12 @@ fun CenterLiquidDialog(
     followGlassContrast: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    if (LocalNativeDialogSurface.current) {
+        Column(modifier = modifier.fillMaxWidth(),
+            verticalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ContentSpacing),
+            content = content)
+        return
+    }
     LiquidDialogSurface(
         backdrop = backdrop,
         config = config,
@@ -288,23 +314,95 @@ fun LiquidDialogFooter(
 }
 
 @Composable
+internal fun LiquidDialogChoiceCard(
+    title: String,
+    selected: Boolean,
+    config: ScheduleConfigEntity,
+    onClick: () -> Unit,
+    description: String = "",
+    badgeText: String? = null
+) {
+    val foreground = sleepDownPanelForegroundColor(config)
+    val dark = appUsesDarkTheme(config)
+    val accent = controlAccentColor(Color(0xFF0A84FF))
+    val optionSelected = selected
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp)
+            .semantics(mergeDescendants = true) {
+                role = Role.RadioButton
+                this.selected = optionSelected
+            },
+        shape = RoundedRectangle(
+            cornerRadius = SleepDownDesignTokens.CenteredDialog.Corner -
+                SleepDownDesignTokens.CenteredDialog.ContentPadding -
+                SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset,
+            style = RoundedCornerStyle.Continuous
+        ),
+        color = if (selected) {
+            accent.copy(alpha = if (dark) 0.24f else 0.13f)
+        } else {
+            foreground.copy(alpha = if (dark) 0.09f else 0.055f)
+        },
+        border = BorderStroke(
+            width = if (selected) 1.5.dp else 1.dp,
+            color = if (selected) accent.copy(alpha = 0.88f) else foreground.copy(alpha = 0.14f)
+        ),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(title, color = foreground, style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold)
+                badgeText?.let {
+                    Text(it, color = accent, style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier.padding(top = 4.dp).clip(Capsule())
+                            .background(accent.copy(alpha = 0.12f)).padding(horizontal = 8.dp, vertical = 3.dp))
+                }
+                if (description.isNotBlank()) {
+                    Text(description, color = foreground.copy(alpha = 0.62f),
+                        style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            Box(
+                modifier = Modifier.size(20.dp).clip(Capsule())
+                    .background(if (selected) accent else foreground.copy(alpha = 0.10f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (selected) {
+                    Box(Modifier.size(8.dp).clip(Capsule()).background(Color.White))
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun LiquidAlertContent(
     title: String,
     message: String,
     actions: List<LiquidAlertAction>,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
+    messageMaxHeight: Dp,
+    scrollableMessageContent: Boolean,
     messageContent: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     // Alerts own their material tint, so their foreground must follow that stable surface rather
     // than the wallpaper behind the dim layer.
     val foreground = sleepDownPanelForegroundColor(config)
-    // One- and two-action alerts share the accepted single-row action layout. Tighten that whole
-    // family through the copy band only; action geometry and bottom/side insets stay unchanged.
+    // One- and two-action alerts share the accepted single-row action layout. Only their
+    // single-line copy path tightens; action geometry and bottom/side insets stay unchanged.
     var messageLineCount by remember(message) { mutableStateOf(0) }
     val messageSingleLine = messageLineCount == 1
     val compact = actions.size <= 2
+    val compactSingleLine = compact && messageSingleLine
     val copyLift = if (messageLineCount == 2) {
         -SleepDownDesignTokens.CenteredDialog.ThreeLineAlertTextLift
     } else {
@@ -312,8 +410,10 @@ private fun LiquidAlertContent(
     }
     Column(
         modifier = modifier.padding(
-            top = (if (compact) {
+            top = (if (compactSingleLine) {
                 SleepDownDesignTokens.CenteredDialog.CompactAlertTopInset
+            } else if (compact) {
+                SleepDownDesignTokens.CenteredDialog.CompactMultilineAlertTopInset
             } else {
                 SleepDownDesignTokens.CenteredDialog.AlertTopInset
             }) -
@@ -333,8 +433,10 @@ private fun LiquidAlertContent(
         )
         Spacer(
             Modifier.height(
-                if (compact) {
+                if (compactSingleLine) {
                     SleepDownDesignTokens.CenteredDialog.CompactTitleContentSpacing
+                } else if (compact) {
+                    SleepDownDesignTokens.CenteredDialog.CompactMultilineTitleContentSpacing
                 } else {
                     SleepDownDesignTokens.CenteredDialog.TitleContentSpacing
                 }
@@ -347,7 +449,9 @@ private fun LiquidAlertContent(
                     .padding(
                         horizontal = SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset
                     )
-                    .heightIn(max = 240.dp)
+                    .then(if (scrollableMessageContent) Modifier.weight(1f, fill = false) else Modifier)
+                    .heightIn(max = messageMaxHeight)
+                    .then(if (scrollableMessageContent) Modifier.verticalScroll(rememberScrollState()) else Modifier)
             ) {
                 messageContent()
             }
@@ -360,7 +464,7 @@ private fun LiquidAlertContent(
                     .padding(
                         horizontal = SleepDownDesignTokens.CenteredDialog.AlertTextHorizontalInset
                     )
-                    .heightIn(max = 240.dp)
+                    .heightIn(max = messageMaxHeight)
                     .verticalScroll(rememberScrollState()),
                 style = MaterialTheme.typography.bodyMedium,
                 lineHeight = MaterialTheme.typography.bodyMedium.lineHeight,
@@ -434,8 +538,15 @@ fun LiquidAlertDialog(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     onDismissRequest: () -> Unit,
+    messageMaxHeight: Dp = 240.dp,
+    scrollableMessageContent: Boolean = false,
+    isSelector: Boolean = false,
     messageContent: (@Composable () -> Unit)? = null
 ) {
+    if (!isSelector && LocalNativeAlertRenderer.current?.invoke(NativeAlertRequest(
+            title, message, actions, appUsesDarkTheme(config), onDismissRequest,
+            messageMaxHeight, scrollableMessageContent, messageContent
+        )) == true) return
     val completeUnderlayBackdrop = LocalCenteredDialogSceneBackdrop.current ?: backdrop
     var visible by remember { mutableStateOf(true) }
     var completion by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -492,6 +603,8 @@ fun LiquidAlertDialog(
             actions = animatedActions,
             backdrop = completeUnderlayBackdrop,
             config = config,
+            messageMaxHeight = messageMaxHeight,
+            scrollableMessageContent = scrollableMessageContent,
             messageContent = messageContent
         )
     }
@@ -504,28 +617,40 @@ private fun LiquidAlertActionButton(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier
 ) {
+    if (LocalNativeCapsuleButtonRenderer.current?.invoke(NativeCapsuleButtonRequest(
+            action.onClick, modifier, SleepDownDesignTokens.CenteredDialog.ActionHeight,
+            PaddingValues(horizontal = 16.dp), appUsesDarkTheme(config), action.enabled,
+            if (action.style == LiquidAlertActionStyle.Primary) MaterialTheme.colorScheme.primary else Color.Unspecified
+        )) {
+            Text(action.label, color = when (action.style) {
+                LiquidAlertActionStyle.Primary -> Color.White
+                LiquidAlertActionStyle.Destructive -> Color(0xFFFF453A)
+                LiquidAlertActionStyle.Secondary, LiquidAlertActionStyle.Cancel -> sleepDownPanelForegroundColor(config)
+            }.copy(alpha = if (action.enabled) 1f else 0.38f),
+                style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium, maxLines = 1)
+        } == true) return
     val fallbackInteractionSource = remember { MutableInteractionSource() }
     val fallbackPressed by fallbackInteractionSource.collectIsPressedAsState()
     val baseContentColor = when (action.style) {
         LiquidAlertActionStyle.Primary -> Color.White
-        LiquidAlertActionStyle.Secondary -> sleepDownPanelForegroundColor(config)
+        LiquidAlertActionStyle.Secondary, LiquidAlertActionStyle.Cancel -> sleepDownPanelForegroundColor(config)
         LiquidAlertActionStyle.Destructive -> Color(0xFFFF453A)
     }
     val contentColor = baseContentColor.copy(alpha = if (action.enabled) 1f else 0.38f)
     val dark = appUsesDarkTheme(config)
     val baseSurfaceColor = when (action.style) {
-        LiquidAlertActionStyle.Primary -> if (dark) Color(0xFF099AFF) else {
+        LiquidAlertActionStyle.Primary -> if (dark) Color(0xFF099AFF).copy(alpha = 0.82f) else {
             Color(0xFF0A84FF).copy(alpha = 0.90f)
         }
-        LiquidAlertActionStyle.Secondary -> if (dark) {
-            Color(0xFF363639)
+        LiquidAlertActionStyle.Secondary, LiquidAlertActionStyle.Cancel -> if (dark) {
+            Color(0xFF363639).copy(alpha = 0.76f)
         } else {
             Color(0xFFD6D9DF).copy(alpha = 0.80f)
         }
         // Destructive actions share the same neutral glass as secondary actions. Their red label
         // is the only destructive accent, matching the reference alert behavior.
         LiquidAlertActionStyle.Destructive -> if (dark) {
-            Color(0xFF363639)
+            Color(0xFF363639).copy(alpha = 0.76f)
         } else {
             Color(0xFFD6D9DF).copy(alpha = 0.80f)
         }
@@ -606,7 +731,13 @@ fun DialogLiquidButton(
     monochromeNeutral: Boolean = false,
     lightStyleOverride: Boolean? = null,
     highContrast: Boolean = false,
-    roundIcon: Boolean = false
+    roundIcon: Boolean = false,
+    shadowEnabled: Boolean = true,
+    shadowStyle: Shadow = Shadow.Default,
+    height: Dp = 40.dp,
+    horizontalPadding: Dp = 18.dp,
+    enabled: Boolean = true,
+    content: (@Composable () -> Unit)? = null
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val useMonochromeNeutral = role == DialogButtonRole.Neutral && monochromeNeutral
@@ -617,17 +748,48 @@ fun DialogLiquidButton(
         useRoundIcon && role == DialogButtonRole.Confirm -> R.drawable.ic_check
         else -> null
     }
-    val textColor = if (highContrast) Color.White else when (role) {
+    val nativeTextColor = when {
+        role == DialogButtonRole.Confirm || destructiveFilled -> Color.White
+        controlDark -> Color.White
+        else -> Color.Black
+    }.copy(alpha = if (enabled) 1f else 0.38f)
+    if (LocalNativeCapsuleButtonRenderer.current?.invoke(NativeCapsuleButtonRequest(
+            onClick, if (useRoundIcon) modifier.size(42.dp) else modifier,
+            if (useRoundIcon) 42.dp else height,
+            if (useRoundIcon) PaddingValues(0.dp) else PaddingValues(horizontal = horizontalPadding),
+            controlDark, enabled, when {
+                destructiveFilled -> Color(0xFFFF453A)
+                role == DialogButtonRole.Confirm -> MaterialTheme.colorScheme.primary
+                else -> Color.Unspecified
+            }
+        )) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.material3.LocalContentColor provides nativeTextColor
+            ) {
+                if (content != null) content() else {
+                    resolvedIconRes?.let {
+                        Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = nativeTextColor)
+                    }
+                    if (!useRoundIcon) Text(label, color = nativeTextColor, style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                }
+            }
+        } == true) return
+    val superPerformance = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
+    val neutralFlat = superPerformance && !highContrast && role != DialogButtonRole.Confirm && !destructiveFilled
+    val textColor = if (neutralFlat) {
+        if (controlDark) Color.White else Color.Black
+    } else if (highContrast) Color.White else when (role) {
         DialogButtonRole.Confirm -> Color.White
         DialogButtonRole.Cancel -> Color.White
         DialogButtonRole.Neutral -> if (useMonochromeNeutral) {
             if (controlDark) Color.White else Color.Black
         } else MaterialTheme.colorScheme.primary
     }
-    val surfaceColor = if (highContrast) {
+    val surfaceColor = if (neutralFlat) com.xiaomanjun.sleepdownschedule.glass.flatControlColor(controlDark) else if (highContrast) {
         Color.Black.copy(alpha = if (controlDark) 0.62f else 0.52f)
     } else when (role) {
-        DialogButtonRole.Confirm -> Color(0xFF0A84FF).copy(alpha = 0.82f)
+        DialogButtonRole.Confirm -> controlAccentColor(Color(0xFF0A84FF)).copy(alpha = 0.82f)
         DialogButtonRole.Cancel -> if (destructiveFilled) {
             Color(0xFFFF453A).copy(alpha = 0.78f)
         } else {
@@ -640,35 +802,43 @@ fun DialogLiquidButton(
     }
     if (backdrop != null) {
         LiquidButton(
-            onClick = onClick,
+            onClick = { if (enabled) onClick() },
             backdrop = backdrop,
-            modifier = if (useRoundIcon) modifier.size(42.dp) else modifier,
-            height = if (useRoundIcon) 42.dp else 40.dp,
+            modifier = (if (useRoundIcon) modifier.size(42.dp) else modifier)
+                .semantics { if (!enabled) disabled() },
+            clickTargetEnabled = enabled,
+            isInteractive = enabled,
+            height = if (useRoundIcon) 42.dp else height,
             surfaceColor = surfaceColor,
-            contentPadding = if (useRoundIcon) PaddingValues(0.dp) else PaddingValues(horizontal = 18.dp),
+            flatOpacity = 0.90f,
+            contentPadding = if (useRoundIcon) PaddingValues(0.dp) else PaddingValues(horizontal = horizontalPadding),
             blurRadius = blurRadius,
             lensHeight = 16.dp,
             lensAmount = 24.dp,
-            chromaticAberration = false
+            chromaticAberration = false,
+            shadowEnabled = shadowEnabled,
+            shadowStyle = shadowStyle
         ) {
-            resolvedIconRes?.let {
-                Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
-            }
-            if (!useRoundIcon) {
-                Text(
-                    label,
-                    color = textColor,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    softWrap = false
-                )
+            if (content != null) content() else {
+                resolvedIconRes?.let {
+                    Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
+                }
+                if (!useRoundIcon) {
+                    Text(
+                        label,
+                        color = textColor,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
         }
     } else {
         Row(
-            modifier = (if (useRoundIcon) modifier.size(42.dp) else modifier.height(40.dp))
-                .clip(RoundedCornerShape(50))
+            modifier = (if (useRoundIcon) modifier.size(42.dp) else modifier.height(height))
+                .clip(Capsule())
                 .background(
                     surfaceColor.copy(
                         alpha = surfaceColor.alpha.coerceAtLeast(
@@ -676,23 +846,25 @@ fun DialogLiquidButton(
                         )
                     )
                 )
-                .clickable(onClick = onClick)
-                .then(if (useRoundIcon) Modifier else Modifier.padding(horizontal = 18.dp)),
+                .clickable(enabled = enabled, onClick = onClick)
+                .then(if (useRoundIcon) Modifier else Modifier.padding(horizontal = horizontalPadding)),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            resolvedIconRes?.let {
-                Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
-            }
-            if (!useRoundIcon) {
-                Text(
-                    label,
-                    color = textColor,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    softWrap = false
-                )
+            if (content != null) content() else {
+                resolvedIconRes?.let {
+                    Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
+                }
+                if (!useRoundIcon) {
+                    Text(
+                        label,
+                        color = textColor,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        softWrap = false
+                    )
+                }
             }
         }
     }
@@ -709,53 +881,68 @@ fun DialogCapsuleField(
     minLines: Int = 1,
     cornerRadius: Dp? = null,
     fieldTextColor: Color? = null,
-    fieldLightStyleOverride: Boolean? = null
+    fieldLightStyleOverride: Boolean? = null,
+    enabled: Boolean = true,
+    imeAction: ImeAction = if (minLines == 1) ImeAction.Done else ImeAction.Default,
+    keyboardActions: KeyboardActions = KeyboardActions.Default,
+    visualTransformation: VisualTransformation = if (keyboardType == KeyboardType.Password)
+        PasswordVisualTransformation() else VisualTransformation.None,
+    trailingContent: (@Composable () -> Unit)? = null
 ) {
     val dark = fieldLightStyleOverride?.not() ?: appUsesDarkTheme(config)
     val fieldBase = if (dark) Color(0xFF2C2C2E) else Color.White
-    val background = fieldBase.copy(alpha = if (dark) 0.54f else 0.70f)
-    val textColor = fieldTextColor ?: LocalContentColor.current
+    val superPerformance = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
+    val background = if (superPerformance) com.xiaomanjun.sleepdownschedule.glass.flatControlColor(dark)
+        else fieldBase.copy(alpha = if (dark) 0.54f else 0.70f)
+    val fieldShape = RoundedRectangle(cornerRadius ?: if (minLines == 1)
+        SleepDownDesignTokens.Field.SingleLineCorner else SleepDownDesignTokens.Field.MultiLineCorner)
+    val foreground = fieldTextColor ?: LocalContentColor.current
+    val textColor = if (enabled) foreground else foreground.copy(alpha = foreground.alpha * 0.48f)
+    val verticalPadding = if (minLines == 1) SleepDownDesignTokens.Field.SingleLineVerticalPadding
+        else SleepDownDesignTokens.Field.MultiLineVerticalPadding
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
+        enabled = enabled,
         minLines = minLines,
         singleLine = minLines == 1,
         keyboardOptions = KeyboardOptions(
             keyboardType = keyboardType,
-            imeAction = if (minLines == 1) ImeAction.Done else ImeAction.Default
+            imeAction = imeAction
         ),
+        keyboardActions = keyboardActions,
+        visualTransformation = visualTransformation,
         textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
         cursorBrush = SolidColor(textColor),
         modifier = modifier
-            .clip(
-                RoundedCornerShape(
-                    cornerRadius ?: if (minLines == 1) {
-                        SleepDownDesignTokens.Field.SingleLineCorner
-                    } else {
-                        SleepDownDesignTokens.Field.MultiLineCorner
-                    }
-                )
-            )
+            .clip(fieldShape)
             .background(background)
+            .then(if (superPerformance) Modifier.border(1.dp,
+                com.xiaomanjun.sleepdownschedule.glass.flatControlBorder(dark), fieldShape) else Modifier)
             .padding(
                 horizontal = SleepDownDesignTokens.Field.HorizontalPadding,
-                vertical = if (minLines == 1) {
-                    SleepDownDesignTokens.Field.SingleLineVerticalPadding
-                } else {
-                    SleepDownDesignTokens.Field.MultiLineVerticalPadding
-                }
+                vertical = if (trailingContent == null) verticalPadding else 0.dp
             ),
         decorationBox = { innerTextField ->
-            Box {
-                if (value.isBlank()) {
-                    Text(
-                        placeholder,
-                        color = textColor.copy(alpha = 0.52f),
-                        maxLines = if (minLines == 1) 1 else 2,
-                        overflow = TextOverflow.Clip
-                    )
+            val input: @Composable () -> Unit = {
+                Box {
+                    if (value.isBlank()) {
+                        Text(
+                            placeholder,
+                            color = textColor.copy(alpha = 0.52f),
+                            maxLines = if (minLines == 1) 1 else 2,
+                            overflow = TextOverflow.Clip
+                        )
+                    }
+                    innerTextField()
                 }
-                innerTextField()
+            }
+            if (trailingContent == null) input() else {
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Box(Modifier.weight(1f).padding(vertical = verticalPadding)) { input() }
+                    trailingContent()
+                }
             }
         }
     )

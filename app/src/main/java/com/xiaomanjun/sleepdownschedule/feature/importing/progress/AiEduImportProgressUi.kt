@@ -1,45 +1,25 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing.progress
 
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.core.ui.text.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.transition.legacy.*
-
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
-
-import com.xiaomanjun.sleepdownschedule.feature.importing.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
-
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
-
-import android.content.ClipData
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.os.Build
 import android.os.Bundle
 import android.util.Base64
-import android.view.RoundedCorner
 import android.view.WindowManager
-import androidx.activity.compose.BackHandler
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,31 +28,28 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import com.xiaomanjun.sleepdownschedule.core.ui.layout.rememberFloatingInputInsets
+import com.xiaomanjun.sleepdownschedule.core.ui.layout.floatingInputPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -85,53 +62,69 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.BlurEffect
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.TileMode
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionOnScreen
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidPanel
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.UnevenRoundedRectangle
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.TopGlassIconButton
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.material.controlAccentColor
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
+import com.xiaomanjun.sleepdownschedule.core.ui.text.*
+import com.xiaomanjun.sleepdownschedule.feature.agent.*
+import com.xiaomanjun.sleepdownschedule.feature.home.day.*
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
@@ -139,110 +132,143 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
+import com.xiaomanjun.sleepdownschedule.transition.legacy.*
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.roundToInt
-import kotlin.math.abs
-import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
 import top.yukonga.miuix.kmp.squircle.squircleSurface
 
 open class AiEduImportProgressActivityHost : ComponentActivity() {
+    private var displayedTaskId by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
         val app = application as CourseScheduleApp
+        displayedTaskId = intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID)
+        AiImportForegroundService.clearCompletion(this, displayedTaskId)
         setContent {
             val state by app.repository.state.collectAsStateWithLifecycle(AppState())
+            val activeProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
+            val recoveredEntry by produceState<AiImportHistoryEntry?>(null, displayedTaskId, activeProgress?.taskId) {
+                value = if (!displayedTaskId.isNullOrBlank() && activeProgress?.taskId != displayedTaskId) {
+                    withContext(Dispatchers.IO) {
+                        AiImportHistoryStore.load(this@AiEduImportProgressActivityHost)
+                            .firstOrNull { it.context?.taskId == displayedTaskId }
+                    }
+                } else null
+            }
+            val recoveredDraft = remember(recoveredEntry, state.config) {
+                recoveredEntry?.let { AiImportHistoryStore.restore(it, state.config).getOrNull() }
+            }
             CourseScheduleTheme(config = state.config) {
+                androidx.compose.runtime.key(displayedTaskId) {
                 AiEduImportProgressPage(
                     config = state.config,
+                    taskId = displayedTaskId,
+                    historicalProgress = recoveredDraft?.let { historyConversationProgress(checkNotNull(recoveredEntry), it) },
+                    historicalDraft = recoveredDraft,
+                    historicalEntryId = recoveredEntry?.id,
                     onImportSubmitted = { returnToScheduleHome() },
                     onScreenModeRequested = {
                         finish()
                         AiEduImportProgressSession.useScreenMode()
                     },
                     onClose = {
-                        if (AiEduImportProgressSession.progress.value?.awaitingConfirmation == true) {
+                        if (AiEduImportProgressSession.progress.value?.let {
+                                it.awaitingConfirmation && (displayedTaskId.isNullOrBlank() || it.taskId == displayedTaskId)
+                            } == true) {
                             AiEduImportProgressSession.cancel()
                         }
                         finish()
                     }
                 )
+                }
             }
         }
     }
-}
 
-internal fun aiComposerBottomInsetPx(
-    imeBottomPx: Int,
-    navigationBottomPx: Int,
-    baselineRootHeightPx: Int,
-    currentRootHeightPx: Int,
-    baselineRootTopOnScreenPx: Int,
-    currentRootTopOnScreenPx: Int,
-    tolerancePx: Int,
-    hostConsumesImeResize: Boolean = false
-): Int {
-    // The quick-history detail is hosted inside MainActivity, whose adjustResize parent can
-    // consume the IME displacement outside this page's fixed morph target. Its local root metrics
-    // therefore look unchanged even though the visible viewport has already moved. Trust the
-    // explicit host contract in that route instead of adding the same IME height a second time.
-    if (hostConsumesImeResize) return navigationBottomPx
-    if (imeBottomPx <= navigationBottomPx) return navigationBottomPx
-    if (baselineRootHeightPx <= 0 || currentRootHeightPx <= 0) return imeBottomPx
-
-    // OEMs can honor ADJUST_NOTHING in three different ways: leave the root untouched,
-    // resize it, or pan the whole window. Only compensate the portion that has not already
-    // been applied by the window manager, otherwise the composer moves by two IME heights.
-    // Use the physical bottom-edge displacement. Some OEMs resize and pan during the same IME
-    // session; max(resize, pan) under-counts that combined movement and adds a second partial IME
-    // offset, which is the intermittent "composer flies upward" failure.
-    val baselineRootBottomPx = baselineRootTopOnScreenPx.toLong() + baselineRootHeightPx
-    val currentRootBottomPx = currentRootTopOnScreenPx.toLong() + currentRootHeightPx
-    val alreadyAppliedPx = (baselineRootBottomPx - currentRootBottomPx)
-        .coerceIn(0L, Int.MAX_VALUE.toLong())
-        .toInt()
-    val remainingPx = (imeBottomPx - alreadyAppliedPx).coerceAtLeast(0)
-    return if (remainingPx <= tolerancePx) 0 else remainingPx
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        displayedTaskId = intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID)
+        AiImportForegroundService.clearCompletion(
+            this,
+            intent.getStringExtra(AiImportTaskManager.EXTRA_TASK_ID)
+        )
+    }
 }
 
 @Composable
 internal fun AiEduImportProgressPage(
     config: ScheduleConfigEntity,
     onClose: () -> Unit,
+    taskId: String? = null,
     onImportSubmitted: () -> Unit = onClose,
     onScreenModeRequested: () -> Unit = AiEduImportProgressSession::useScreenMode,
     historicalProgress: AiEduImportProgress? = null,
     historicalDraft: ImportDraft? = null,
     historicalEntryId: String? = null,
     showHistoryAction: Boolean = true,
-    hostConsumesImeResize: Boolean = false,
     onImportRequested: ((ImportDraft, Boolean) -> Unit)? = null
 ) {
-    val sessionProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
-    val sessionPreviewDraft by AiEduImportProgressSession.previewDraft.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    val observedSessionProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     val historicalMode = historicalProgress != null && historicalDraft != null
-    var localProgress by remember(historicalProgress) { mutableStateOf(historicalProgress) }
+    var localProgress by remember(historicalProgress, historicalDraft) {
+        mutableStateOf(if (historicalProgress != null && historicalDraft != null)
+            ensureImportCheckpoint(historicalProgress, historicalDraft) else historicalProgress)
+    }
     var localPreviewDraft by remember(historicalDraft) { mutableStateOf(historicalDraft) }
-    val current = if (historicalMode) {
+    var ownedRevisionTaskId by androidx.compose.runtime.saveable.rememberSaveable(taskId, historicalEntryId) {
+        mutableStateOf<String?>(null)
+    }
+    val sessionProgress = observedSessionProgress?.takeIf {
+        taskId.isNullOrBlank() || it.taskId == taskId
+    }
+    val ownedRevisionProgress = observedSessionProgress?.takeIf {
+        ownedRevisionTaskId != null && it.taskId == ownedRevisionTaskId
+    }
+    val current = ownedRevisionProgress ?: if (historicalMode) {
         checkNotNull(localProgress ?: historicalProgress)
     } else {
-        sessionProgress ?: AiEduImportProgress(steps = listOf("等待 AI 教务导入任务"))
+        sessionProgress ?: AiEduImportProgress(
+            finished = true,
+            liveSummary = "此任务已不在当前会话中。可从导入历史恢复已校验阶段，或重新选择材料开始。",
+            steps = listOf("等待选择导入任务")
+        )
     }
-    val previewDraft = if (historicalMode) localPreviewDraft else sessionPreviewDraft
+    val ownsLiveTask = ownedRevisionProgress != null || (!historicalMode && sessionProgress != null)
+    val selectedWorkspaceDraft = remember(current.checkpoints, current.selectedCheckpointId, current.taskId, config) {
+        current.checkpoints.firstOrNull { it.id == current.selectedCheckpointId && it.taskId == current.taskId }
+            ?.restore(config)?.getOrNull()
+    }
+    val previewDraft = if (ownedRevisionProgress != null) {
+        selectedWorkspaceDraft
+    } else if (historicalMode) {
+        localPreviewDraft
+    } else {
+        selectedWorkspaceDraft.takeIf { sessionProgress != null }
+    }
     fun updateProgress(next: AiEduImportProgress) {
         if (historicalMode) localProgress = next else AiEduImportProgressSession.update(next)
     }
-    fun updatePreviewDraft(next: ImportDraft) {
-        if (historicalMode) localPreviewDraft = next else AiEduImportProgressSession.setPreviewDraft(next)
-    }
+    var importSubmitting by remember(current.taskId) { mutableStateOf(false) }
     fun requestImport(draft: ImportDraft, createNewSchedule: Boolean) {
+        // Stop the same attempt before handing the immutable selection to existing confirmation.
+        // A notification for an old task must never import another task's preview.
+        if (!historicalMode && ownedRevisionProgress == null && sessionProgress == null) return
+        if (importSubmitting) return
+        importSubmitting = true
+        if (AiEduImportProgressSession.progress.value?.let { it.taskId == current.taskId && !it.finished } == true) {
+            AiImportTaskManager.pauseImport(context, current.taskId)
+        }
         onImportRequested?.invoke(draft, createNewSchedule)
             ?: AiEduImportProgressSession.requestFinalImport(draft, createNewSchedule)
         onImportSubmitted()
@@ -250,14 +276,12 @@ internal fun AiEduImportProgressPage(
     val listState = rememberLazyListState()
     val textColor = glassForegroundColor(settingsVisualConfig(config))
     val pageTitle = current.routeLabel.takeIf { it.isNotBlank() } ?: "AI 教务导入"
-    var executionExpanded by remember { mutableStateOf(!current.finished) }
+    var executionExpanded by remember { mutableStateOf(false) }
     var previewAttachment by remember { mutableStateOf<AiEduAttachmentPreviewRequest?>(null) }
     var previewSourceHidden by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     var rootPositionOnScreen by remember { mutableStateOf(Offset.Zero) }
     var rootPositionInWindow by remember { mutableStateOf(Offset.Zero) }
-    var baselineRootHeightPx by remember { mutableIntStateOf(0) }
-    var baselineRootTopOnScreenPx by remember { mutableIntStateOf(0) }
     val previewBackgroundZoom = remember { Animatable(1f) }
     val previewSceneBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.ActivityBackground,
@@ -285,51 +309,88 @@ internal fun AiEduImportProgressPage(
     var composerHeightPx by remember { mutableStateOf(0) }
     val runtimePickerState = rememberAiRuntimePickerState()
     var historySourceHidden by remember { mutableStateOf(false) }
-    val context = LocalContext.current
     val density = LocalDensity.current
-    val imeBottomPx = WindowInsets.ime.getBottom(density)
-    val navigationBottomPx = WindowInsets.navigationBars.getBottom(density)
-    val insetTolerancePx = with(density) { 24.dp.roundToPx() }
-    LaunchedEffect(
-        imeBottomPx,
-        navigationBottomPx,
-        rootSize.width,
-        rootSize.height,
-        rootPositionOnScreen.y
-    ) {
-        if (imeBottomPx <= navigationBottomPx && rootSize.height > 0) {
-            // Closing animations can report a hidden IME one or two frames before an OEM restores
-            // the resized/panned root. Commit only a settled hidden-window baseline so the next
-            // keyboard session never starts from a transient short root.
-            withFrameNanos { }
-            withFrameNanos { }
-            baselineRootHeightPx = rootSize.height
-            baselineRootTopOnScreenPx = rootPositionOnScreen.y.roundToInt()
+    val inputInsets = rememberFloatingInputInsets()
+    val conversationScope = rememberCoroutineScope()
+    fun persistWorkspace(previousDraft: ImportDraft?, next: AiEduImportProgress, draft: ImportDraft) {
+        (context.applicationContext as CourseScheduleApp).applicationScope.launch(Dispatchers.IO) {
+            if (historicalEntryId != null) AiImportHistoryStore.update(context, historicalEntryId, draft, next)
+            else AiImportHistoryStore.updateMatching(context, previousDraft ?: draft, draft, next)
         }
     }
-    val composerBottomInsetPx = aiComposerBottomInsetPx(
-        imeBottomPx = imeBottomPx,
-        navigationBottomPx = navigationBottomPx,
-        baselineRootHeightPx = baselineRootHeightPx,
-        currentRootHeightPx = rootSize.height,
-        baselineRootTopOnScreenPx = baselineRootTopOnScreenPx,
-        currentRootTopOnScreenPx = rootPositionOnScreen.y.roundToInt(),
-        tolerancePx = insetTolerancePx,
-        hostConsumesImeResize = hostConsumesImeResize
-    )
-    val conversationScope = rememberCoroutineScope()
-    LaunchedEffect(current.finished) {
-        if (current.finished) executionExpanded = false
+    fun selectCheckpoint(id: String): Result<Unit> = runCatching {
+        if (historicalMode && ownedRevisionProgress == null) {
+            val (next, draft) = selectImportCheckpoint(current, id, config).getOrThrow()
+            val branch = forkImportCheckpointHistory(next)
+            localProgress = branch
+            localPreviewDraft = draft
+            persistWorkspace(previewDraft, branch, draft)
+        } else {
+            val draft = AiEduImportProgressSession.selectCheckpoint(current.taskId, id).getOrThrow()
+            val next = AiEduImportProgressSession.progress.value?.takeIf { it.taskId == current.taskId }
+                ?: error("导入任务已切换")
+            persistWorkspace(previewDraft, next, draft)
+        }
+    }
+    fun saveCheckpointJson(id: String, json: String): Result<Unit> = runCatching {
+        if (historicalMode && ownedRevisionProgress == null) {
+            val (next, checkpoint) = editImportCheckpoint(current, id, json, config).getOrThrow()
+            val draft = checkpoint.restore(config).getOrThrow()
+            val branch = forkImportCheckpointHistory(next)
+            localProgress = branch
+            localPreviewDraft = draft
+            persistWorkspace(previewDraft, branch, draft)
+        } else {
+            val checkpoint = AiEduImportProgressSession.editCheckpointJson(current.taskId, id, json).getOrThrow()
+            // Do not let the model continue editing an obsolete workspace after a local change.
+            if (!current.finished) AiImportTaskManager.pauseImport(context, current.taskId)
+            val next = AiEduImportProgressSession.progress.value?.takeIf { it.taskId == current.taskId }
+                ?: error("导入任务已切换")
+            persistWorkspace(previewDraft, next, checkpoint.restore(config).getOrThrow())
+        }
+    }
+    LaunchedEffect(
+        historicalMode,
+        ownedRevisionTaskId,
+        ownedRevisionProgress?.finished,
+        selectedWorkspaceDraft
+    ) {
+        val completed = ownedRevisionProgress
+        if (historicalMode && completed?.finished == true) {
+            localProgress = completed
+            selectedWorkspaceDraft?.let { localPreviewDraft = it }
+            ownedRevisionTaskId = null
+        }
+    }
+    LaunchedEffect(current.taskId, current.finished) {
+        if (current.finished) {
+            executionExpanded = false
+            conversationSending = false
+        }
+        // Enter every task at its latest result, including an already running task.
+        withFrameNanos { }
+        val last = listState.layoutInfo.totalItemsCount - 1
+        if (last >= 0) {
+            listState.scrollToItem(last)
+            val layout = listState.layoutInfo
+            layout.visibleItemsInfo.lastOrNull()?.let { item ->
+                listState.scrollBy((item.offset + item.size + layout.afterContentPadding - layout.viewportEndOffset).coerceAtLeast(0).toFloat())
+            }
+        }
     }
     BackHandler(enabled = current.awaitingConfirmation) {
         AiEduImportProgressSession.cancel()
         onClose()
+    }
+    LaunchedEffect(current.returnToBrowser) {
+        if (!historicalMode && current.returnToBrowser) onClose()
     }
 
     Box(
         Modifier
             .fillMaxSize()
             .clipToBounds()
+            .then(inputInsets.viewportModifier)
             .onGloballyPositioned {
                 rootSize = it.size
                 rootPositionOnScreen = it.positionOnScreen()
@@ -349,15 +410,6 @@ internal fun AiEduImportProgressPage(
                     val zoom = previewBackgroundZoom.value
                     scaleX = zoom
                     scaleY = zoom
-                    val depthProgress = (
-                        (zoom - 1f) / (HomeAnchoredMorphBackgroundScale - 1f)
-                        ).coerceIn(0f, 1f)
-                    val blurPx = 12.dp.toPx() * depthProgress
-                    renderEffect = if (blurPx > 0.01f) {
-                        BlurEffect(blurPx, blurPx, TileMode.Clamp)
-                    } else {
-                        null
-                    }
                 }
         ) {
             Box(Modifier.fillMaxSize().glassBackdropProducer(previewSceneBackdrop)) {
@@ -458,6 +510,24 @@ internal fun AiEduImportProgressPage(
                         ),
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
+                current.conversationTurns.forEachIndexed { index, turn ->
+                    item(key = "conversation-turn-$index") {
+                        AiEduUserMessage(
+                            progress = current.copy(userPrompt = turn.userPrompt),
+                            textColor = textColor, config = config, backdrop = backdrop,
+                            includeAttachment = index == 0,
+                            showAttachment = !previewSourceHidden,
+                            onPreview = { previewAttachment = it }
+                        )
+                        AiEduConversationTurnReply(turn, textColor)
+                        current.checkpoints.lastOrNull { it.payload == turn.artifactPayload }?.let { checkpoint ->
+                            Text("查看此轮课表 · ${checkpoint.courseCount} 门课程",
+                                modifier = Modifier.clickable { selectCheckpoint(checkpoint.id) }.padding(vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.labelLarge)
+                        }
+                    }
+                }
                 item {
                     AiEduUserMessage(
                         progress = current,
@@ -465,23 +535,26 @@ internal fun AiEduImportProgressPage(
                         config = config,
                         backdrop = backdrop,
                         showAttachment = !previewSourceHidden,
+                        includeAttachment = current.conversationTurns.isEmpty(),
                         onPreview = { previewAttachment = it }
                     )
                 }
-                current.conversationTurns.forEachIndexed { index, turn ->
-                    item(key = "conversation-turn-${index}-${turn.userPrompt.hashCode()}") {
-                        AiEduConversationTurnSummary(
-                            turn = turn,
-                            index = index + 1,
-                            textColor = textColor
+                val summary = if (current.finished || current.awaitingConfirmation) current.reasoningOutput.ifBlank {
+                    current.liveSummary
+                } else ""
+                val completedWithPreview = current.finished && current.error == null && previewDraft != null && !current.awaitingUserInput
+                if (completedWithPreview) item(key = "finished-process") {
+                    AiEduModelSummary(if (executionExpanded) summary else "", textColor, title = "处理过程") {
+                        AgentRunTrace(
+                            statuses = aiEduAgentRunStatuses(current), expanded = executionExpanded,
+                            foreground = textColor, active = false, onToggle = { executionExpanded = !executionExpanded }
                         )
                     }
                 }
-                val summary = current.liveSummary.ifBlank { current.reasoningOutput }
-                if (summary.isNotBlank()) item {
+                if (!completedWithPreview && summary.isNotBlank()) item(key = "model-summary") {
                     AiEduModelSummary(summary = summary, textColor = textColor)
                 }
-                if (current.steps.isNotEmpty()) item {
+                if (!completedWithPreview && current.steps.isNotEmpty()) item {
                     AgentRunTrace(
                         statuses = aiEduAgentRunStatuses(current),
                         expanded = executionExpanded,
@@ -510,8 +583,44 @@ internal fun AiEduImportProgressPage(
                         )
                     }
                 }
-                previewDraft?.let { draft ->
+                if (!current.awaitingConfirmation && current.activityReports.isNotEmpty()) {
+                    item(key = "live-activity-reports") {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            current.activityReports.takeLast(if (executionExpanded) 12 else 3).forEach { report ->
+                                Text(
+                                    "${if (report.kind == AiImportReportKind.MODEL) "AI" else "操作"} · ${report.text}",
+                                    color = textColor.copy(alpha = if (report.kind == AiImportReportKind.MODEL) 0.9f else 0.62f),
+                                    style = if (report.kind == AiImportReportKind.MODEL) MaterialTheme.typography.bodyMedium
+                                        else MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                    }
+                }
+                if (!current.finished && current.error == null && !current.awaitingConfirmation && current.taskId.isNotBlank()) {
+                    item(key = "live-model-reasoning") {
+                        AiImportReasoningPanel(taskId = current.taskId, textColor = textColor,
+                            summary = current.liveSummary)
+                    }
+                }
+                if (current.awaitingUserInput) item(key = "model-questions") {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("需要你补充", color = textColor, style = MaterialTheme.typography.titleMedium)
+                        Text(current.liveSummary, color = textColor.copy(alpha = 0.75f), style = MaterialTheme.typography.bodyMedium)
+                        current.clarificationQuestions.forEachIndexed { index, question ->
+                            Text("${index + 1}. $question", color = textColor, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+                if (current.checkpoints.isNotEmpty()) item(key = "checkpoint-workspace") {
+                    AiImportCheckpointPanel(current, textColor, config, backdrop, ::selectCheckpoint, ::saveCheckpointJson)
+                }
+                previewDraft?.takeIf { !current.awaitingConfirmation }?.let { draft ->
                     item {
+                        if (current.assistantMessage.isNotBlank()) {
+                            AgentMarkdownText(current.assistantMessage, textColor, MaterialTheme.typography.bodyMedium)
+                            Spacer(Modifier.height(12.dp))
+                        }
                         AiEduInlineImportPreview(
                             draft = draft,
                             textColor = textColor,
@@ -528,9 +637,17 @@ internal fun AiEduImportProgressPage(
                 }
                     }
                 }
+
+            }
+        }
+        // A full-page sibling of the scaffold, like the school search dock. Keep it within the
+        // page recorder so history and attachment transitions still include the input.
                 AiEduConversationComposer(
                     value = conversationInput,
-                    sending = conversationSending,
+                    sending = conversationSending || (!current.finished && !current.awaitingConfirmation),
+                    canInterrupt = ownsLiveTask && AiImportTaskManager.canInterrupt(current.taskId),
+                    awaitingUserInput = current.awaitingUserInput,
+                    onStop = { AiImportTaskManager.pauseImport(context, current.taskId) },
                     config = config,
                     backdrop = conversationContentBackdrop,
                     runtimePickerState = runtimePickerState,
@@ -539,113 +656,41 @@ internal fun AiEduImportProgressPage(
                         (current.pageText.isNotBlank() || current.screenshotPreviews.isNotEmpty()),
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
-                        .padding(bottom = with(density) { composerBottomInsetPx.toDp() })
-                        .onSizeChanged { composerHeightPx = it.height },
+                        // Reserve the whole occupied area, including the manual IME/nav inset.
+                        // Measuring inside padding only reserved the capsule, leaving the last
+                        // message and import buttons behind it when the keyboard opened.
+                        .onSizeChanged { composerHeightPx = it.height }
+                        .floatingInputPadding(inputInsets),
                     onValueChange = { conversationInput = it.take(600) },
                     onSend = send@{
                         val prompt = conversationInput.trim().ifBlank {
                             if (current.awaitingConfirmation) current.userPrompt else return@send
                         }
-                        if (conversationSending) return@send
-                        conversationInput = ""
                         if (current.awaitingConfirmation) {
+                            conversationInput = ""
                             updateProgress(current.copy(userPrompt = prompt))
                             AiEduImportProgressSession.confirm()
+                        } else if (ownsLiveTask && AiImportTaskManager.canInterrupt(current.taskId)) {
+                            ownedRevisionTaskId = AiImportTaskManager.continueImport(context, current.taskId, prompt)
+                            if (ownedRevisionTaskId != null) conversationInput = ""
                         } else {
+                            if (conversationSending || !current.finished) return@send
                             val baseDraft = previewDraft ?: return@send
+                            conversationInput = ""
                             conversationSending = true
-                            conversationScope.launch {
-                                val settings = AiImportSettingsStore.loadForRuntime(context)
-                                    ?: AiImportSettingsStore.load(context)
-                                var workingProgress = current.copy(
-                                    steps = current.steps + listOf(
-                                        "正在理解你的新要求",
-                                        "模型正在分析课程、周次和节次"
-                                    ),
-                                    userPrompt = prompt,
-                                    liveSummary = "我正在理解你的修改要求，并核对现有课程、周次和节次信息。",
-                                    finished = false,
-                                    error = null
-                                )
-                                updateProgress(workingProgress)
-                                val progressTicker = launch {
-                                    listOf(
-                                        "模型正在核对现有课表结构",
-                                        "模型正在生成修改方案",
-                                        "仍在等待模型完成，请保留此页面"
-                                    ).forEach { summary ->
-                                        delay(2_400)
-                                        if (!workingProgress.finished) {
-                                            workingProgress = workingProgress.copy(
-                                                steps = workingProgress.steps + summary,
-                                                liveSummary = summary
-                                            )
-                                            updateProgress(workingProgress)
-                                        }
-                                    }
-                                }
-                                AiScheduleImportService(context)
-                                    .reviseSchedule(baseDraft, prompt, current, settings)
-                                    .mapCatching { result ->
-                                        val revised = ScheduleImportParser.parse(
-                                            result.output.ifBlank { result.rawOutput },
-                                            baseDraft.config
-                                        ).getOrThrow().copy(source = ImportDraftSource.AI_EDU)
-                                        revised to result
-                                    }
-                                    .onSuccess { (revised, result) ->
-                                        progressTicker.cancel()
-                                        val previousTurns = current.conversationTurns.ifEmpty {
-                                            listOf(
-                                                AiEduImportConversationTurn(
-                                                    userPrompt = current.userPrompt,
-                                                    reasoningOutput = current.reasoningOutput,
-                                                    aiOutput = current.aiOutput
-                                                )
-                                            )
-                                        }
-                                        val nextProgress = workingProgress.copy(
-                                            steps = workingProgress.steps + listOf("模型已给出修改摘要", "修改结果通过本地校验"),
-                                            userPrompt = prompt,
-                                            requestSent = true,
-                                            reasoningOutput = result.reasoningOutput,
-                                            aiOutput = result.rawOutput,
-                                            liveSummary = result.reasoningOutput.ifBlank {
-                                                "本轮已按你的要求更新课表，并通过本地校验。"
-                                            },
-                                            finished = true,
-                                            error = null,
-                                            conversationTurns = previousTurns + AiEduImportConversationTurn(
-                                                userPrompt = prompt,
-                                                reasoningOutput = result.reasoningOutput,
-                                                aiOutput = result.rawOutput
-                                            )
-                                        )
-                                        updatePreviewDraft(revised)
-                                        updateProgress(nextProgress)
-                                        if (historicalEntryId != null) {
-                                            AiImportHistoryStore.update(context, historicalEntryId, revised, nextProgress)
-                                        } else {
-                                            AiImportHistoryStore.updateMatching(context, baseDraft, revised, nextProgress)
-                                        }
-                                    }
-                                    .onFailure { error ->
-                                        progressTicker.cancel()
-                                        updateProgress(
-                                            workingProgress.copy(
-                                                steps = workingProgress.steps + "本次修改未完成",
-                                                finished = true,
-                                                error = error.message ?: "AI 没有完成这次修改"
-                                            )
-                                        )
-                                    }
-                                conversationSending = false
-                            }
+                            val settings = AiImportSettingsStore.loadForRuntime(context)
+                                ?: AiImportSettingsStore.load(context)
+                            ownedRevisionTaskId = AiImportTaskManager.startRevision(
+                                context = context,
+                                baseDraft = baseDraft,
+                                instruction = prompt,
+                                baseProgress = current,
+                                settings = settings,
+                                historicalEntryId = historicalEntryId
+                            )
                         }
                     }
                 )
-            }
-        }
             }
         }
         previewAttachment?.let { request ->
@@ -678,36 +723,40 @@ private fun Bitmap.cropToWindowBounds(
 }.getOrNull()
 
 @Composable
-private fun AiEduConversationTurnSummary(
+private fun AiEduConversationTurnReply(
     turn: AiEduImportConversationTurn,
-    index: Int,
     textColor: Color
 ) {
-    val summary = turn.reasoningOutput.ifBlank { "模型已完成这一轮修改。" }
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .background(textColor.copy(alpha = 0.055f))
             .padding(horizontal = 14.dp, vertical = 11.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text("第 $index 轮修改", color = textColor.copy(alpha = 0.64f), style = MaterialTheme.typography.labelMedium)
-        Text(turn.userPrompt, color = textColor, style = MaterialTheme.typography.bodyMedium, maxLines = 3)
-        Text(summary, color = textColor.copy(alpha = 0.70f), style = MaterialTheme.typography.bodySmall, maxLines = 5)
+        Text(turn.status,
+            modifier = Modifier.padding(vertical = 8.dp),
+            color = textColor.copy(alpha = 0.64f), style = MaterialTheme.typography.labelMedium)
+        if (turn.reasoningOutput.isNotBlank()) AiEduModelSummary(turn.reasoningOutput, textColor)
+        if (turn.assistantMessage.isNotBlank()) AgentMarkdownText(turn.assistantMessage, textColor, MaterialTheme.typography.bodyMedium)
+        if (turn.artifactPayload.isNotBlank()) Text("课表已通过本地校验",
+            color = textColor.copy(alpha = 0.64f), style = MaterialTheme.typography.bodySmall)
     }
 }
 
 @Composable
-private fun AiEduModelSummary(summary: String, textColor: Color) {
+private fun AiEduModelSummary(
+    summary: String, textColor: Color, title: String = "模型摘要",
+    details: (@Composable () -> Unit)? = null
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text("模型摘要", color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
-        Text(summary, color = textColor.copy(alpha = 0.86f), style = MaterialTheme.typography.bodyMedium)
+        Text(title, modifier = Modifier.padding(vertical = 8.dp), color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
+        if (summary.isNotBlank()) AgentMarkdownText(summary, textColor.copy(alpha = 0.86f), MaterialTheme.typography.bodyMedium)
+        details?.invoke()
     }
 }
 
@@ -724,13 +773,15 @@ private fun AiEduCaptureConfirmation(
     val hasCapturedVisual = progress.screenshotPreviews.isNotEmpty()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
-            if (hasCapturedText || hasCapturedVisual) "确认发送课表资料" else "未能可靠读取课表文字",
+            progress.confirmationTitle.ifBlank {
+                if (hasCapturedText || hasCapturedVisual) "确认发送课表资料" else "未能可靠读取课表文字"
+            },
             color = textColor,
             style = MaterialTheme.typography.titleMedium,
             fontWeight = FontWeight.SemiBold
         )
         Text(
-            if (hasCapturedVisual) {
+            progress.confirmationMessage.ifBlank { if (hasCapturedVisual) {
                 "已准备高清视觉截取，请检查上方附件。截图会按页面顺序发送，重叠区域只用于校对，不会重复导入课程。"
             } else if (!hasCapturedText && hasVisualCaptureAction) {
                 "当前课表可能由图片、Canvas 或跨域页面渲染。你可以进入高清识屏，应用会按页面位置截取多张清晰视口图，不会压成模糊长图；确认后才会发送给视觉模型。"
@@ -740,7 +791,7 @@ private fun AiEduCaptureConfirmation(
                 "已抓取到页面文字。需要识别图片、Canvas 或复杂排版时，可切换到支持视觉输入的模型后使用高清视觉截取。"
             } else {
                 "当前模型无法使用高清视觉截取。请切换到支持视觉输入的模型，或返回可复制文字的课表页面。"
-            },
+            } },
             color = textColor.copy(alpha = 0.66f),
             style = MaterialTheme.typography.bodyMedium
         )
@@ -760,7 +811,7 @@ private fun AiEduCaptureConfirmation(
                 },
                 LiquidAlertAction(
                     progress.cancelActionLabel.ifBlank { "返回重抓" },
-                    LiquidAlertActionStyle.Secondary,
+                    LiquidAlertActionStyle.Cancel,
                     onClick = AiEduImportProgressSession::cancel
                 )
             )
@@ -791,7 +842,7 @@ private fun AiEduCaptureConfirmation(
                     },
                 LiquidAlertAction(
                     progress.cancelActionLabel.ifBlank { "返回重抓" },
-                    LiquidAlertActionStyle.Secondary,
+                    LiquidAlertActionStyle.Cancel,
                     onClick = AiEduImportProgressSession::cancel
                 )
             )
@@ -988,7 +1039,7 @@ internal fun AiEduHistorySwipeRow(
                     Modifier
                         .fillMaxSize()
                         .padding(horizontal = 16.dp)
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(RoundedRectangle(18.dp))
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.42f))
                         .onGloballyPositioned { cardBounds = it.boundsInWindow() }
                 ) {
@@ -1025,6 +1076,7 @@ private fun AiEduUserMessage(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     showAttachment: Boolean,
+    includeAttachment: Boolean = true,
     onPreview: (AiEduAttachmentPreviewRequest) -> Unit
 ) {
     val density = LocalDensity.current
@@ -1045,7 +1097,7 @@ private fun AiEduUserMessage(
         horizontalAlignment = Alignment.End,
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        if (hasAttachment) {
+        if (includeAttachment && hasAttachment) {
             if (showAttachment || attachmentSize == IntSize.Zero) {
                 AiEduLiquidPanel(
                     backdrop = backdrop,
@@ -1062,7 +1114,7 @@ private fun AiEduUserMessage(
                             }
                         },
                     accent = Color(0xFF8E8E93),
-                    shape = RoundedCornerShape(20.dp)
+                    shape = RoundedRectangle(20.dp)
                 ) {
                     AiEduAttachmentCardContent(attachment = attachment, textColor = textColor)
                 }
@@ -1079,7 +1131,7 @@ private fun AiEduUserMessage(
             modifier = Modifier
                 .fillMaxWidth(0.86f)
                 .wrapContentWidth(Alignment.End)
-                .clip(RoundedCornerShape(22.dp, 22.dp, 6.dp, 22.dp))
+                .clip(UnevenRoundedRectangle(22.dp, 22.dp, 6.dp, 22.dp))
                 .background(Color(0xFF0A84FF))
         ) {
             Text(
@@ -1087,8 +1139,6 @@ private fun AiEduUserMessage(
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                 color = Color.White,
                 style = MaterialTheme.typography.bodyLarge,
-                maxLines = 8,
-                overflow = TextOverflow.Ellipsis
             )
         }
     }
@@ -1145,7 +1195,7 @@ private fun AiEduAttachmentThumbnail(
     }
     Box(
         modifier = modifier
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedRectangle(12.dp))
             .background(Color(0xFF0A84FF).copy(alpha = 0.12f)),
         contentAlignment = Alignment.Center
     ) {
@@ -1185,32 +1235,26 @@ private fun AiEduAttachmentMorphOverlay(
     var closing by remember(request) { mutableStateOf(false) }
     val target = Rect(0f, 0f, rootSize.width.toFloat(), rootSize.height.toFloat())
     val screenCornerRadiusPx = deviceScreenCornerRadiusPx()
-    val geometry = homeAnchoredMorphGeometry(
-        source = request.sourceBounds,
-        target = target,
-        rawProgress = progress.value,
-        closing = closing,
-        // A document preview is a direct card-to-page expansion. The droplet/pinch trajectory
-        // used by Home menu destinations made this short vertical transition visibly change
-        // direction; use the same reversible direct geometry for opening and closing instead.
-        directClosing = true,
-        sourceCornerRadiusPx = with(density) { 20.dp.toPx() },
-        pinchDiameterPx = with(density) { 44.dp.toPx() },
-        minimumDropPx = with(density) { 10.dp.toPx() },
-        maximumDropPx = with(density) { 54.dp.toPx() },
-        maximumArcPx = with(density) { 46.dp.toPx() },
-        targetCornerRadiusPx = screenCornerRadiusPx
+    val morphProgress = progress.value.coerceIn(0f, 1f)
+    val source = request.sourceBounds
+    val rect = Rect(
+        left = source.left + (target.left - source.left) * morphProgress,
+        top = source.top + (target.top - source.top) * morphProgress,
+        right = source.right + (target.right - source.right) * morphProgress,
+        bottom = source.bottom + (target.bottom - source.bottom) * morphProgress
     )
-    val fullyOpen = !closing && progress.value >= 0.999f
-    val renderedCornerRadiusPx = if (fullyOpen) 0f else geometry.cornerRadiusPx
-    val sourceBlurPx = with(density) { 5.dp.toPx() } * homeMorphSmoothStep(
-        0f,
-        0.34f,
-        geometry.pathProgress
-    )
-    val contentBlurPx = with(density) { 5.dp.toPx() } * (
-        1f - homeMorphSmoothStep(0.42f, 0.98f, geometry.expansionProgress)
-    )
+    val sourceHandoff = aiAttachmentPreviewSmoothStep(0.06f, 0.32f, morphProgress)
+    val sourceAlpha = 1f - sourceHandoff
+    val sourceScale = 1f - 0.018f * sourceHandoff
+    val contentReveal = aiAttachmentPreviewSmoothStep(0.14f, 0.82f, morphProgress)
+    val contentMotionBlurPx =
+        detailMotionBlurRadiusDp(morphProgress) * 0.65f * density.density
+    val sourceCornerRadiusPx = with(density) { 20.dp.toPx() }
+    val cornerRadiusPx = sourceCornerRadiusPx +
+        (screenCornerRadiusPx - sourceCornerRadiusPx) * morphProgress
+    val fullyOpen = morphProgress >= 0.999f
+    val renderedCornerRadiusPx = if (fullyOpen) 0f else cornerRadiusPx
+    val shellColor = if (appUsesDarkTheme(config)) Color(0xFF202124) else Color(0xFFF7F7F8)
     fun dismiss() {
         if (!closing) {
             closing = true
@@ -1219,15 +1263,18 @@ private fun AiEduAttachmentMorphOverlay(
                     launch {
                         progress.animateTo(
                             0f,
-                            tween(HomeAnchoredMorphCloseDurationMillis, easing = LinearEasing)
+                            tween(
+                                AiAttachmentPreviewCloseDurationMillis,
+                                easing = AiAttachmentPreviewCloseEasing
+                            )
                         )
                     }
                     launch {
                         backgroundZoom.animateTo(
                             1f,
                             tween(
-                                HomeAnchoredMorphBackgroundDurationMillis,
-                                easing = HomeAnchoredBackgroundEasing
+                                AiAttachmentPreviewBackgroundDurationMillis,
+                                easing = AiAttachmentPreviewCloseEasing
                             )
                         )
                     }
@@ -1246,16 +1293,19 @@ private fun AiEduAttachmentMorphOverlay(
             launch {
                 progress.animateTo(
                     1f,
-                    tween(HomeAnchoredMorphOpenDurationMillis, easing = LinearEasing)
+                    tween(
+                        AiAttachmentPreviewOpenDurationMillis,
+                        easing = AiAttachmentPreviewOpenEasing
+                    )
                 )
             }
             launch {
                 backgroundZoom.animateTo(
-                    HomeAnchoredMorphBackgroundScale,
+                    AiAttachmentPreviewBackgroundScale,
                     tween(
-                        HomeAnchoredMorphBackgroundDurationMillis,
-                        delayMillis = HomeAnchoredMorphBackgroundDelayMillis,
-                        easing = HomeAnchoredBackgroundEasing
+                        AiAttachmentPreviewBackgroundDurationMillis,
+                        delayMillis = 24,
+                        easing = AiAttachmentPreviewOpenEasing
                     )
                 )
             }
@@ -1265,48 +1315,34 @@ private fun AiEduAttachmentMorphOverlay(
     Box(
         Modifier
             .fillMaxSize()
-            .background(Color.Black.copy(alpha = 0.34f * geometry.expansionProgress))
+            .background(Color.Black.copy(alpha = 0.34f * morphProgress))
             .clickable(onClick = ::dismiss)
     )
     Box(
         Modifier
-            .offset { IntOffset(geometry.rect.left.roundToInt(), geometry.rect.top.roundToInt()) }
+            .offset { IntOffset(rect.left.roundToInt(), rect.top.roundToInt()) }
             .size(
-                with(density) { geometry.rect.width.toDp() },
-                with(density) { geometry.rect.height.toDp() }
+                with(density) { rect.width.toDp() },
+                with(density) { rect.height.toDp() }
             )
-             .graphicsLayer {
-                 clip = !fullyOpen
-                 shape = RoundedCornerShape(with(density) { renderedCornerRadiusPx.toDp() })
-                 compositingStrategy = if (fullyOpen) {
-                     CompositingStrategy.Auto
-                 } else {
-                     CompositingStrategy.Offscreen
-                 }
-             }
+            .graphicsLayer {
+                clip = !fullyOpen
+                shape = RoundedRectangle(with(density) { renderedCornerRadiusPx.toDp() })
+            }
+            .background(
+                color = shellColor,
+                shape = RoundedRectangle(with(density) { renderedCornerRadiusPx.toDp() })
+            )
             .clickable(enabled = false) {}
     ) {
-        AiEduLiquidPanel(
-            backdrop = backdrop,
-            config = config,
-            modifier = Modifier
-                .fillMaxSize()
-                .graphicsLayer { alpha = geometry.surfaceAlpha.coerceAtLeast(0.08f) },
-            accent = Color(0xFF8E8E93),
-            shape = RoundedCornerShape(with(density) { renderedCornerRadiusPx.toDp() })
-        ) { }
-        if (geometry.sourceAlpha > 0.01f) {
+        if (sourceAlpha > 0.01f) {
             Box(
                 Modifier
                     .fillMaxSize()
                     .graphicsLayer {
-                        alpha = geometry.sourceAlpha
-                        scaleX = geometry.sourceScale
-                        scaleY = geometry.sourceScale
-                        compositingStrategy = CompositingStrategy.Offscreen
-                        renderEffect = if (sourceBlurPx > 0.01f) {
-                            BlurEffect(sourceBlurPx, sourceBlurPx, TileMode.Clamp)
-                        } else null
+                        alpha = sourceAlpha
+                        scaleX = sourceScale
+                        scaleY = sourceScale
                     }
             ) {
                 AiEduAttachmentCardContent(
@@ -1316,62 +1352,71 @@ private fun AiEduAttachmentMorphOverlay(
                 )
             }
         }
-        if (geometry.contentAlpha > 0.01f) {
+        AiEduLiquidPanel(
+            backdrop = backdrop,
+            config = config,
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = contentReveal
+                    translationY = (1f - contentReveal) * 12.dp.toPx()
+                    scaleX = 0.97f + 0.03f * contentReveal
+                    scaleY = 0.97f + 0.03f * contentReveal
+                    compositingStrategy = if (contentMotionBlurPx > 0.01f) {
+                        CompositingStrategy.Offscreen
+                    } else {
+                        CompositingStrategy.Auto
+                    }
+                    renderEffect = platformMotionBlurRenderEffect(contentMotionBlurPx)
+                },
+            accent = Color(0xFF8E8E93),
+            shape = RoundedRectangle(0.dp)
+        ) {
             Column(
                 Modifier
                     .fillMaxSize()
-                    .graphicsLayer {
-                        alpha = geometry.contentAlpha
-                        compositingStrategy = CompositingStrategy.Offscreen
-                        renderEffect = if (contentBlurPx > 0.01f) {
-                            BlurEffect(contentBlurPx, contentBlurPx, TileMode.Clamp)
-                        } else null
-                    }
                     .padding(top = 34.dp, start = 16.dp, end = 16.dp, bottom = 18.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(request.attachment.title, modifier = Modifier.weight(1f), color = textColor, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    Text("完成", modifier = Modifier.clickable(onClick = ::dismiss).padding(12.dp), color = Color(0xFF0A84FF), fontWeight = FontWeight.SemiBold)
+                    Text("完成", modifier = Modifier.clickable(onClick = ::dismiss).padding(12.dp), color = controlAccentColor(Color(0xFF0A84FF)), fontWeight = FontWeight.SemiBold)
                 }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    if (request.attachment.text.isNotBlank()) item {
+                    if (request.attachment.text.isNotBlank()) item(key = "attachment-text") {
                         Text(request.attachment.text, color = textColor.copy(alpha = 0.88f), style = MaterialTheme.typography.bodyMedium, lineHeight = 21.sp)
                     }
-                    itemsIndexed(request.attachment.images) { index, image ->
+                    itemsIndexed(
+                        items = request.attachment.images,
+                        key = { _, image -> image.pageIndex }
+                    ) { index, image ->
                         AiEduPreviewImage(image, "第 ${index + 1} 页")
                     }
                 }
             }
         }
     }
+
+}
+
+private const val AiAttachmentPreviewOpenDurationMillis = 430
+private const val AiAttachmentPreviewCloseDurationMillis = 360
+private const val AiAttachmentPreviewBackgroundDurationMillis = 280
+private const val AiAttachmentPreviewBackgroundScale = 1.04f
+private val AiAttachmentPreviewOpenEasing = CubicBezierEasing(0.20f, 0f, 0f, 1f)
+private val AiAttachmentPreviewCloseEasing = CubicBezierEasing(0.40f, 0f, 0.20f, 1f)
+
+private fun aiAttachmentPreviewSmoothStep(start: Float, end: Float, value: Float): Float {
+    val normalized = ((value - start) / (end - start)).coerceIn(0f, 1f)
+    return normalized * normalized * (3f - 2f * normalized)
 }
 
 @Composable
-internal fun deviceScreenCornerRadiusPx(): Float {
-    val view = LocalView.current
-    val density = LocalDensity.current
-    val fallback = with(density) { 32.dp.toPx() }
-    return remember(view, density.density) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            listOf(
-                RoundedCorner.POSITION_TOP_LEFT,
-                RoundedCorner.POSITION_TOP_RIGHT,
-                RoundedCorner.POSITION_BOTTOM_LEFT,
-                RoundedCorner.POSITION_BOTTOM_RIGHT
-            ).mapNotNull { position -> view.rootWindowInsets?.getRoundedCorner(position)?.radius }
-                .maxOrNull()
-                ?.toFloat()
-                ?.takeIf { it > 0f }
-                ?: fallback
-        } else {
-            fallback
-        }
-    }
-}
+internal fun deviceScreenCornerRadiusPx(): Float =
+    com.xiaomanjun.sleepdownschedule.core.ui.interaction.deviceScreenCornerRadiusPx()
 
 @Composable
 private fun AiEduPreviewImage(image: RenderedPageImage, description: String) {
@@ -1387,7 +1432,7 @@ private fun AiEduPreviewImage(image: RenderedPageImage, description: String) {
         Image(
             bitmap = it,
             contentDescription = description,
-            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)),
+            modifier = Modifier.fillMaxWidth().clip(RoundedRectangle(20.dp)),
             contentScale = ContentScale.FillWidth
         )
     }
@@ -1417,8 +1462,11 @@ private fun AiEduInlineImportPreview(
         draft.courses.forEach { course ->
             ImportPreviewCourseCard(course, draft.periods, draft.config)
         }
+        remember(draft) { importConflictNotice(draft) }?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        }
         Text(
-            "如果内容不对，直接在下方告诉 AI 怎么修改。确认无误后再选择导入方式。",
+            "如果内容不对，直接在下方告诉 AI 怎么修改。确认导入后会打开该课表，并引导你设置开学周。",
             color = textColor.copy(alpha = 0.62f),
             style = MaterialTheme.typography.bodySmall
         )
@@ -1437,6 +1485,9 @@ private fun AiEduInlineImportPreview(
 private fun AiEduConversationComposer(
     value: String,
     sending: Boolean,
+    canInterrupt: Boolean,
+    awaitingUserInput: Boolean,
+    onStop: () -> Unit,
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     runtimePickerState: AiRuntimePickerState,
@@ -1452,7 +1503,7 @@ private fun AiEduConversationComposer(
         modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 10.dp),
-        shape = if (attachmentVisible) RoundedCornerShape(26.dp) else RoundedCornerShape(50),
+        shape = if (attachmentVisible) RoundedRectangle(26.dp) else Capsule(),
         accent = Color(0xFF8E8E93)
     ) {
         Column(
@@ -1484,7 +1535,11 @@ private fun AiEduConversationComposer(
                         Box(contentAlignment = Alignment.CenterStart) {
                             if (value.isBlank()) {
                                 AutoFitSingleLineText(
-                                    text = if (attachmentVisible) {
+                                    text = if (awaitingUserInput) {
+                                        "回答问题，或补充导入要求…"
+                                    } else if (sending && canInterrupt) {
+                                        "可停止解析，或补充要求…"
+                                    } else if (attachmentVisible) {
                                         "帮我按规则导入…"
                                     } else {
                                         "告诉 AI 哪里需要修改…"
@@ -1505,12 +1560,12 @@ private fun AiEduConversationComposer(
                 )
                 if (backdrop != null) {
                     LiquidButton(
-                        onClick = onSend,
+                        onClick = { if (sending && canInterrupt && value.isBlank()) onStop() else onSend() },
                         backdrop = backdrop,
                         modifier = Modifier.size(40.dp),
                         height = 40.dp,
-                        surfaceColor = Color(0xFF0A84FF).copy(alpha = 0.88f),
-                        tint = Color(0xFF0A84FF),
+                        surfaceColor = controlAccentColor(Color(0xFF0A84FF)).copy(alpha = 0.88f),
+                        tint = controlAccentColor(Color(0xFF0A84FF)),
                         contentPadding = PaddingValues(0.dp),
                         blurRadius = 4.dp,
                         lensHeight = 14.dp,
@@ -1518,14 +1573,16 @@ private fun AiEduConversationComposer(
                         chromaticAberration = false
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text(if (sending && canInterrupt && value.isBlank()) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     }
                 } else {
                     Box(
-                        Modifier.size(40.dp).clip(CircleShape).background(Color(0xFF0A84FF)).clickable(onClick = onSend),
+                        Modifier.size(40.dp).clip(CircleShape).background(controlAccentColor(Color(0xFF0A84FF))).clickable {
+                            if (sending && canInterrupt && value.isBlank()) onStop() else onSend()
+                        },
                         contentAlignment = Alignment.Center
-                    ) { Text(if (sending) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold) }
+                    ) { Text(if (sending && canInterrupt && value.isBlank()) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold) }
                 }
             }
         }
@@ -1538,7 +1595,7 @@ private fun AiEduLiquidPanel(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     accent: Color,
-    shape: Shape = RoundedCornerShape(28.dp),
+    shape: Shape = RoundedRectangle(28.dp),
     content: @Composable BoxScope.() -> Unit
 ) {
     val lightStyle = glassUsesLightStyle(config)

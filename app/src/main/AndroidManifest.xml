@@ -14,7 +14,9 @@
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <uses-permission android:name="android.permission.ACCESS_NOTIFICATION_POLICY" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
 
     <queries>
         <intent>
@@ -26,9 +28,9 @@
         android:name=".CourseScheduleApp"
         android:allowBackup="true"
         android:enableOnBackInvokedCallback="true"
-        android:icon="@mipmap/ic_launcher"
+        android:icon="@mipmap/ic_launcher_kanban"
         android:label="@string/app_name"
-        android:roundIcon="@mipmap/ic_launcher_round"
+        android:roundIcon="@mipmap/ic_launcher_kanban"
         android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
@@ -47,7 +49,7 @@
                 android:value="SleepDown 课程勿扰" />
             <meta-data
                 android:name="android.service.zen.automatic.ruleInstanceLimit"
-                android:value="1" />
+                android:value="2" />
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -121,6 +123,42 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity-alias>
+        <activity-alias
+            android:name=".LauncherKanbanFollow"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_kanban"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherKanbanLight"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_kanban_light"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".LauncherKanbanDark"
+            android:enabled="false"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher_kanban_dark"
+            android:label="@string/app_name"
+            android:targetActivity=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
         <activity
             android:name=".SettingsDetailActivity"
             android:exported="true"
@@ -152,6 +190,12 @@
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".MainActivity" />
         <activity
+            android:name=".feature.settings.ScheduleAdjustmentsActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".SettingsDetailActivity" />
+        <activity
             android:name=".ScheduleManagerActivity"
             android:exported="false"
             android:theme="@style/AppTheme"
@@ -165,6 +209,11 @@
             android:name=".OplusCourseManagementActivity"
             android:exported="false"
             android:theme="@style/AppTheme.OplusSeamlessDetail"
+            android:parentActivityName=".MainActivity" />
+        <activity
+            android:name=".feature.experimental.colorosui.ColorOsCourseManagementActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
             android:parentActivityName=".MainActivity" />
         <activity
             android:name=".CourseManagementDetailActivity"
@@ -190,7 +239,14 @@
             android:name=".EduImportActivity"
             android:exported="false"
             android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
             android:parentActivityName=".EduSchoolSelectActivity" />
+        <activity
+            android:name=".feature.schedule.autorefresh.SwuUnifiedAuthActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".SettingsDetailActivity" />
         <activity
             android:name=".AiEduImportProgressActivity"
             android:exported="false"
@@ -222,6 +278,13 @@
         </provider>
         <receiver android:name=".CourseAlarmReceiver" android:exported="false" />
         <receiver android:name=".LiveUpdateActionReceiver" android:exported="false" />
+        <receiver
+            android:name=".feature.reminder.LegacyDndStateReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.app.action.INTERRUPTION_FILTER_CHANGED" />
+            </intent-filter>
+        </receiver>
         <service
             android:name=".LiveUpdateForegroundService"
             android:exported="false"
@@ -234,6 +297,15 @@
             android:name=".DayAgentForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+        <service
+            android:name=".AiImportForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+        <receiver android:name=".feature.widget.WidgetPinnedReceiver" android:exported="false" />
+        <service
+            android:name=".feature.importing.chatgpt.ChatGptLoginService"
+            android:exported="false"
+            android:foregroundServiceType="shortService" />
         <receiver
             android:name=".TodayCoursesWidgetProvider"
             android:label="@string/widget_today_courses_name"
@@ -294,6 +366,7 @@
                 <action android:name="android.intent.action.DATE_CHANGED" />
                 <action android:name="android.intent.action.TIME_SET" />
                 <action android:name="android.intent.action.TIMEZONE_CHANGED" />
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
     </application>

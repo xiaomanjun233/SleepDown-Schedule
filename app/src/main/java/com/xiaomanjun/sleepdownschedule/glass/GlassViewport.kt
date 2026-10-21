@@ -86,10 +86,10 @@ internal fun decideCourseGlassViewportMaterial(
     val previousDistance = previousDistanceOutsidePx
     val movingTowardWindow = previousDistance != null &&
         distanceOutsidePx < previousDistance - 0.5f
+    // Retain through a wider exit band. Crossing the visible edge is not a reason to
+    // destroy a material which may reverse direction on the very next scroll frame.
     val alreadyPrewarmedOutside = currentlyMounted &&
-        previousDistance != null &&
-        previousDistance > 0.5f &&
-        distanceOutsidePx <= prewarmDistancePx
+        distanceOutsidePx <= prewarmDistancePx * 2f
     val enterPrewarmBand = !currentlyMounted &&
         movingTowardWindow &&
         distanceOutsidePx <= prewarmDistancePx

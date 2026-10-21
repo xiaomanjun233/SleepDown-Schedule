@@ -70,6 +70,17 @@ class CustomCourseTimeTest {
     }
 
     @Test
+    fun eventsBeforeAfterAndBetweenTeachingTimesGetSupplementaryRows() {
+        listOf("06:00" to "07:00", "11:00" to "12:00", "09:45" to "09:55").forEach { (start, end) ->
+            assertTrue(courseNeedsSupplementaryWeekRow(course(start, end), periods))
+        }
+        assertFalse(courseNeedsSupplementaryWeekRow(course("08:27", "08:28"), periods))
+        assertFalse(courseNeedsSupplementaryWeekRow(course("07:50", "08:30"), periods))
+        assertFalse(courseNeedsSupplementaryWeekRow(course(), periods))
+        assertTrue(courseNeedsSupplementaryWeekRow(course("11:00", "12:00"), emptyList()))
+    }
+
+    @Test
     fun invalidOrIncompleteExactTimeFallsBackToPeriods() {
         val course = course("09:00", "08:30")
 

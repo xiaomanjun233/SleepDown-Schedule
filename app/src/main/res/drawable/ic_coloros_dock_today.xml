@@ -1,0 +1,7 @@
+<!-- The current HomeTodayIcon, shared with the Compose home dock. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#00000000" android:strokeColor="#FF000000"
+        android:strokeWidth="1.9" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M6,3.5H18C20,3.5 21,4.5 21,6.5V17.5C21,19.5 20,20.5 18,20.5H6C4,20.5 3,19.5 3,17.5V6.5C3,4.5 4,3.5 6,3.5Z M3,7.5H21 M12,10.5V14.5H15" />
+</vector>

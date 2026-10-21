@@ -1,0 +1,8 @@
+<!-- Copyright 2025, compose-miuix-ui contributors; SPDX-License-Identifier: Apache-2.0.
+     Same MiuixIcons.Regular.More glyph as HomeActionIcons, converted for native COUI views. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="1042.8" android:viewportHeight="1042.8">
+    <group android:scaleY="-1" android:translateY="1042.8">
+        <path android:fillColor="#FF000000" android:fillType="nonZero" android:pathData="M521.4,955.9 Q492.4,955.9,471.4,934.9 Q450.4,913.9,450.4,884.9 Q450.4,855.9,471.4,834.9 Q492.4,813.9,521.4,813.9 Q550.4,813.9,571.4,834.9 Q592.4,855.9,592.4,884.9 Q592.4,913.9,571.4,934.9 Q550.4,955.9,521.4,955.9 Z M521.4,227.9 Q492.4,227.9,471.4,207.4 Q450.4,186.9,450.4,156.9 Q450.4,127.9,471.4,107.4 Q492.4,86.9,521.4,86.9 Q550.4,86.9,571.4,107.4 Q592.4,127.9,592.4,156.9 Q592.4,186.9,571.4,207.4 Q550.4,227.9,521.4,227.9 Z M521.4,591.9 Q492.4,591.9,471.4,570.9 Q450.4,549.9,450.4,520.9 Q450.4,491.9,471.4,470.9 Q492.4,449.9,521.4,449.9 Q550.4,449.9,571.4,470.9 Q592.4,491.9,592.4,520.9 Q592.4,549.9,571.4,570.9 Q550.4,591.9,521.4,591.9 Z" />
+    </group>
+</vector>

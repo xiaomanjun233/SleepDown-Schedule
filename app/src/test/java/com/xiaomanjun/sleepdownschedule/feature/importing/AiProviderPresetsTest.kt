@@ -3,10 +3,25 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 import com.xiaomanjun.sleepdownschedule.*
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AiProviderPresetsTest {
+    @Test
+    fun chatGptOnlyOffersAccountDiscoveredModelsAndNoUnverifiedReasoningLevels() {
+        val preset = AiProviderPresets.chatGpt
+        assertTrue(AiProviderPresets.modelOptions(preset).isEmpty())
+        assertTrue(AiProviderPresets.modelOptions(preset.id).isEmpty())
+        assertTrue(AiProviderPresets.reasoningEfforts(preset).isEmpty())
+        assertEquals(AiAuthType.ChatGptOAuth, preset.authType)
+        // ChatGPT file upload was enabled by the existing account upload transport.
+        assertTrue(preset.supportsFileUpload)
+        assertFalse(preset.supportsPdfDirect)
+        val discovered = preset.copy(availableModels = listOf("account-model"))
+        assertEquals(listOf("account-model"), AiProviderPresets.modelOptions(discovered).map { it.model })
+    }
+
     @Test
     fun openAiDefaultsToCurrentStableAliasAndKeepsPreviousModels() {
         val models = AiProviderPresets.modelOptions(AiProviderPresets.openAI.id).map { it.model }
@@ -38,7 +53,7 @@ class AiProviderPresetsTest {
         assertEquals("", profile.baseUrl)
         assertEquals("", profile.defaultModel)
         assertEquals(AiEndpointStyle.RESPONSES, profile.endpointStyle)
-        assertEquals(AiAuthType.CustomHeader, profile.authType)
+        assertEquals(AiAuthType.ApiKeyBearer, profile.authType)
         assertEquals(emptyList<String>(), models.map(AiModelOption::model))
         assertTrue(AiProviderPresets.shouldUseResponses(profile))
         assertTrue(AiProviderPresets.supportsImageInput(profile))
@@ -100,12 +115,20 @@ class AiProviderPresetsTest {
     }
 
     @Test
-    fun deepSeekVisionExperimentIsAnExplicitMultimodalResponsesModel() {
+    fun retiredFlashAliasesUseCurrentMultimodalModelWithoutChangingOtherSettings() {
         val vision = AiProviderPresets.deepSeek.copy(defaultModel = "deepseek-v4-flash-vision-exp")
 
         assertEquals(AiEndpointStyle.RESPONSES, AiProviderPresets.deepSeek.endpointStyle)
         assertTrue(AiProviderPresets.supportsResponses(vision))
         assertTrue(AiProviderPresets.supportsImageInput(vision))
-        assertTrue(!AiProviderPresets.supportsImageInput(AiProviderPresets.deepSeek))
+        assertTrue(AiProviderPresets.supportsImageInput(AiProviderPresets.deepSeek))
+        val old = vision.copy(availableModels = listOf("deepseek-v4-flash", "deepseek-v4-flash-vision-exp", "custom-model"))
+        val current = AiProviderPresets.normalizeDeepSeekProfile(old)
+        assertEquals("deepseek-flash", current.defaultModel)
+        assertEquals(listOf("deepseek-flash", "custom-model"), current.availableModels)
+        assertEquals(old.reasoningEffort, current.reasoningEffort)
+        assertEquals(listOf("deepseek-flash", "deepseek-v4-pro", "custom-model"), AiProviderPresets.modelOptions(current).map { it.model })
+        val customEndpoint = old.copy(baseUrl = "https://example.com/v1")
+        assertEquals(customEndpoint, AiProviderPresets.normalizeDeepSeekProfile(customEndpoint))
     }
 }

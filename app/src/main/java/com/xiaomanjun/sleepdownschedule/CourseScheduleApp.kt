@@ -2,17 +2,26 @@ package com.xiaomanjun.sleepdownschedule
 
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
+import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleWorker
 
 import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.performance.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
+import com.xiaomanjun.sleepdownschedule.feature.reminder.LegacyDndStateReceiver
 
 import android.app.ActivityManager
 import android.app.Application
+import android.app.NotificationManager
+import android.os.Build
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.res.Configuration
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.ProcessLifecycleOwner
@@ -28,6 +37,8 @@ import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
 import com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestoreService
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentRepository
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetAppearanceRepository
+import com.xiaomanjun.sleepdownschedule.feature.coloros.ColorOSCourseBridge
+import com.xiaomanjun.sleepdownschedule.feature.experimental.XiaomiSuperIsland
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 
 /**
@@ -52,15 +63,48 @@ class CourseScheduleApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        AppMaterialPreferences.load(this)
+        com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.ChatGptAuthManager.initialize(this)
+        AppIconManager.onIconChanged = { TodayCoursesWidgetProvider.refreshAll(this) }
         AppIconManager.applyStoredMode(this)
+        AutoRefreshScheduleWorker.ensureSchedule(this, AutoRefreshScheduleStore.load(this))
+        com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavAutomation.schedule(this)
         SleepDownRemoteConfig.initialize(this, applicationScope)
         ActivityTransitionCoordinator.install(this)
+        if (BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES) ColorOSCourseBridge.install(this, database)
+        if (BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES) {
+            applicationScope.launch(Dispatchers.IO) { XiaomiSuperIsland.restoreInterruptedBypass(this@CourseScheduleApp) }
+        }
+        ContextCompat.registerReceiver(
+            this,
+            CourseAlarmReceiver(),
+            IntentFilter(Intent.ACTION_SCREEN_ON).apply { addAction(Intent.ACTION_USER_PRESENT) },
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        ContextCompat.registerReceiver(this, TodayCoursesWidgetProvider(),
+            IntentFilter(Intent.ACTION_USER_PRESENT).apply { addAction(Intent.ACTION_CONFIGURATION_CHANGED) },
+            ContextCompat.RECEIVER_NOT_EXPORTED)
+        // Before Android 10, interruption-filter broadcasts reach only registered receivers.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+            ContextCompat.registerReceiver(
+                this,
+                LegacyDndStateReceiver(),
+                IntentFilter(NotificationManager.ACTION_INTERRUPTION_FILTER_CHANGED),
+                ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(object : DefaultLifecycleObserver {
             override fun onStart(owner: LifecycleOwner) {
+                com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavAutomation.checkOnForeground(this@CourseScheduleApp)
                 setTaskExcludedFromRecents(false)
+                NotificationScheduler.requestRefresh(this@CourseScheduleApp)
             }
 
             override fun onStop(owner: LifecycleOwner) {
+                // Some ColorOS/Oplus launchers remove the visible task when a launcher alias is
+                // changed during an Activity return/theme handoff. Appearance changes record the
+                // desired alias immediately, then publish it only after the process is backgrounded.
+                AppIconManager.applyStoredMode(this@CourseScheduleApp)
                 if (hideFromRecentsEnabled) setTaskExcludedFromRecents(true)
             }
         })
@@ -104,6 +148,11 @@ class CourseScheduleApp : Application() {
         }
     }
 
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        NotificationScheduler.refreshLiveUpdateIcon(this)
+    }
+
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
         if (shouldClearHomeWallpaperCaches(level)) {
@@ -125,7 +174,7 @@ class CourseScheduleApp : Application() {
 
     private suspend fun cleanupPersistedAppData() {
         runCatching {
-            BackupRestoreService(this, database).resumePending()
+            BackupRestoreService(this, database).resumePending { cleanupAfterBackupRecovery() }
         }.onSuccess { results ->
             results.flatMap { it.warnings }.forEach { warning ->
                 Log.w("CourseScheduleApp", "Backup restore resume: $warning")
@@ -133,9 +182,13 @@ class CourseScheduleApp : Application() {
         }.onFailure { error ->
             Log.w("CourseScheduleApp", "Backup restore resume failed", error)
         }
+    }
+
+    private suspend fun cleanupAfterBackupRecovery() {
         cleanupTransientCacheData()
         runCatching {
             repository.ensureDefaults()
+            repository.migrateLegacyPeriodSchemeLibrary(this)
             cleanupUnreferencedScheduleWallpapers(this, repository.referencedWallpaperUris())
             ScheduleSnapshotStore.cleanupUnreferenced(this, repository.referencedScheduleIds())
         }.onFailure { error ->

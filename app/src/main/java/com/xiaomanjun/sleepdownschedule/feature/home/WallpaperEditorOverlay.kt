@@ -1,8 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
-
 import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.BackHandler
@@ -22,16 +19,15 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -46,7 +42,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -57,10 +52,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
+import com.xiaomanjun.sleepdownschedule.core.ui.material.controlAccentColor
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -82,14 +84,16 @@ internal fun WallpaperEditorOverlay(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val windowSize = LocalWindowInfo.current.containerSize
     val scope = rememberCoroutineScope()
     val progress = remember { Animatable(0f) }
     var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
     var sourceSize by remember(uri) { mutableStateOf<WallpaperSourceSize?>(null) }
-    var orientation by remember { mutableStateOf(WallpaperPreviewOrientation.Portrait) }
+    var orientation by remember(uri) { mutableStateOf(wallpaperOrientation(windowSize.width, windowSize.height)) }
     var portraitCrop by remember(uri) { mutableStateOf(WallpaperCropState()) }
     var landscapeCrop by remember(uri) { mutableStateOf(WallpaperCropState()) }
     var applying by remember { mutableStateOf(false) }
+    var saveError by remember { mutableStateOf<String?>(null) }
     val activeCrop = if (orientation == WallpaperPreviewOrientation.Portrait) portraitCrop else landscapeCrop
 
     LaunchedEffect(uri) {
@@ -118,9 +122,15 @@ internal fun WallpaperEditorOverlay(
     fun save() {
         if (applying) return
         applying = true
+        saveError = null
         scope.launch {
             val appContext = context.applicationContext
-            val savedUri = withContext(Dispatchers.IO) { persistWallpaperSource(appContext, uri) ?: uri }
+            val savedUri = withContext(Dispatchers.IO) { persistWallpaperSource(appContext, uri) }
+            if (savedUri == null) {
+                saveError = "壁纸保存失败，请重新选择图片后重试"
+                applying = false
+                return@launch
+            }
             val savedSize = sourceSize ?: withContext(Dispatchers.IO) { readWallpaperSourceSize(appContext, savedUri) }
             val lightText = withContext(Dispatchers.IO) { wallpaperPrefersLightText(appContext, savedUri.toString()) }
             onApply(
@@ -141,6 +151,9 @@ internal fun WallpaperEditorOverlay(
     }
 
     BackHandler(visible && !applying, onBack = onCancel)
+    LaunchedEffect(saveError) {
+        saveError?.let { android.widget.Toast.makeText(context, it, android.widget.Toast.LENGTH_LONG).show() }
+    }
     val p = progress.value.coerceIn(0f, 1f)
     BoxWithConstraints(
         modifier = modifier
@@ -152,7 +165,7 @@ internal fun WallpaperEditorOverlay(
                 onClick = {}
             )
     ) {
-        val aspect = remember(context, orientation) { calculateWallpaperPreviewAspect(context, orientation) }
+        val aspect = calculateWallpaperPreviewAspect(windowSize.width, windowSize.height, orientation)
         val availableHeight = (maxHeight - 250.dp).coerceAtLeast(280.dp)
         val desiredWidth = if (adaptiveMetrics.isLargeScreen) {
             minOf(
@@ -182,7 +195,7 @@ internal fun WallpaperEditorOverlay(
                 .size(cardWidth, cardHeight)
                 .graphicsLayer {
                     shadowElevation = 30.dp.toPx() * p
-                    shape = RoundedCornerShape(corner)
+                    shape = RoundedRectangle(corner)
                     clip = true
                 }
                 .background(Color(0xFF1C1C1E)),
@@ -220,7 +233,7 @@ internal fun WallpaperEditorOverlay(
             Spacer(Modifier.weight(1f))
             Text("调整壁纸", color = Color.White, style = MaterialTheme.typography.titleLarge)
             Spacer(Modifier.weight(1f))
-            WallpaperHeaderButton(if (applying) "保存中" else "完成", backdrop, Color(0xFF0A84FF).copy(alpha = 0.84f), !applying, ::save)
+            WallpaperHeaderButton(if (applying) "保存中" else "完成", backdrop, controlAccentColor(Color(0xFF0A84FF)).copy(alpha = 0.84f), !applying, ::save)
         }
 
         Column(
@@ -267,7 +280,7 @@ internal fun WallpaperHeaderButton(
             contentPadding = PaddingValues(horizontal = 16.dp)
         ) { Text(text, color = Color.White, style = MaterialTheme.typography.labelLarge) }
     } else {
-        Surface(modifier = Modifier.size(86.dp, 40.dp), shape = RoundedCornerShape(50), color = surface, enabled = enabled, onClick = onClick) {
+        Surface(modifier = Modifier.size(86.dp, 40.dp), shape = Capsule(), color = surface, enabled = enabled, onClick = onClick) {
             Box(contentAlignment = Alignment.Center) { Text(text, color = Color.White) }
         }
     }
@@ -280,12 +293,12 @@ private fun WallpaperRoundOrientationButton(
     backdrop: Backdrop?,
     onClick: () -> Unit
 ) {
-    val surface = if (selected) Color(0xFF0A84FF).copy(alpha = 0.86f) else Color(0xFF4A4A4F).copy(alpha = 0.76f)
+    val surface = if (selected) controlAccentColor(Color(0xFF0A84FF)).copy(alpha = 0.86f) else Color(0xFF4A4A4F).copy(alpha = 0.76f)
     val icon: @Composable () -> Unit = {
         Canvas(Modifier.size(22.dp)) {
             val width = if (portrait) size.width * 0.52f else size.width * 0.84f
             val height = if (portrait) size.height * 0.84f else size.height * 0.52f
-            drawRoundRect(
+            drawContinuousRoundRect(
                 color = Color.White,
                 topLeft = Offset((size.width - width) / 2f, (size.height - height) / 2f),
                 size = androidx.compose.ui.geometry.Size(width, height),
@@ -307,7 +320,7 @@ private fun WallpaperRoundOrientationButton(
             lensAmount = 44.dp
         ) { Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { icon() } }
     } else {
-        Surface(modifier = Modifier.size(52.dp), shape = RoundedCornerShape(50), color = surface, onClick = onClick) {
+        Surface(modifier = Modifier.size(52.dp), shape = Capsule(), color = surface, onClick = onClick) {
             Box(contentAlignment = Alignment.Center) { icon() }
         }
     }

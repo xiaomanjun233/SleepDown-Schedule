@@ -8,11 +8,10 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -20,9 +19,7 @@ private val AgentChatJson = Json { ignoreUnknownKeys = true; isLenient = true }
 
 internal fun AiImportSettings.usesOfficialOpenAiEndpoint(): Boolean =
     profile.id == AiProviderPresets.openAI.id &&
-        normalizeAiBaseUrlForProvider(profile.id, profile.baseUrl)
-            .trimEnd('/')
-            .equals("https://api.openai.com/v1", ignoreCase = true)
+        isOfficialOpenAIBaseUrl(normalizeAiBaseUrlForProvider(profile.id, profile.baseUrl))
 
 internal fun AiImportSettings.usesDeepSeekChatEndpoint(): Boolean =
     profile.id == AiProviderPresets.deepSeek.id ||
@@ -37,63 +34,109 @@ internal fun AiImportSettings.usesDeepSeekChatEndpoint(): Boolean =
  * Agent orchestration and local tool execution stay in [DayAgentService]; this class owns request
  * serialization, authentication, HTTP, and streaming response normalization.
  */
-internal class DayAgentChatTransport {
+internal class DayAgentChatTransport(
+    private val interaction: AiImportInteraction? = null,
+    private val onReasoning: ((String) -> Unit)? = null
+) {
     fun post(settings: AiImportSettings, body: String): String {
+        if (interaction != null) {
+            val path = settings.profile.chatCompletionsPath.trim('/')
+            val base = if (path.isEmpty()) settings.profile.baseUrl.trim().trimEnd('/')
+                else normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl).trimEnd('/')
+            return postJson(if (path.isEmpty()) base else "$base/$path", settings.apiKey, body,
+                settings.profile.authType, settings.profile.id,
+                AiImportNetworkContext("AGENT", interaction = interaction, onReasoningUpdate = onReasoning, onPhase = interaction.onHttpPhase))
+        }
         val connection = openConnection(settings, body)
         return try {
             connection.readResponse(settings.profile.id)
+        } catch (error: Throwable) {
+            interaction?.checkActive()
+            throw error
         } finally {
             connection.disconnect()
         }
     }
 
-    fun stream(settings: AiImportSettings, body: String, onDelta: (String) -> Unit): String {
+    fun stream(
+        settings: AiImportSettings,
+        body: String,
+        onDelta: (String) -> Unit,
+        onUsage: (AgentTokenUsage) -> Unit
+    ): String {
+        fun phase(value: AiImportHttpPhase) {
+            interaction?.checkActive()
+            interaction?.onTransportPhase?.invoke(value)
+        }
+        phase(AiImportHttpPhase.REQUEST_CREATED)
+        phase(AiImportHttpPhase.BODY_WRITE_START)
         val connection = openConnection(settings, body)
         return try {
+            phase(AiImportHttpPhase.BODY_WRITE_END)
             val code = connection.responseCode
+            phase(AiImportHttpPhase.HEADERS_RECEIVED)
             if (code !in 200..299) {
                 val error = connection.errorStream
                     ?.bufferedReader()
-                    ?.use { it.readText() }
+                    ?.use { it.readAiBoundedText() }
                     .orEmpty()
                     .take(300)
-                throw IllegalStateException(formatAiRequestError(code, error, settings.profile.id))
+                throw AiServiceResponseException(formatAiRequestError(code, error, settings.profile.id), error, httpStatus = code)
             }
             if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
-                val content = parseFullChatContent(
-                    connection.inputStream.bufferedReader().use { it.readText() }
-                )
+                phase(AiImportHttpPhase.BODY_READ_START)
+                val response = connection.inputStream.bufferedReader().use { it.readAiBoundedText() }
+                interaction?.checkActive()
+                onUsage(parseAgentTokenUsage(response))
+                val content = parseFullChatContent(response)
                 onDelta(content)
-                content
+                finishAiImportStream(content, publishFinal = {
+                    interaction?.publishStream(false, content, force = true)
+                }, onEnd = { phase(AiImportHttpPhase.STREAM_END) })
             } else {
                 val result = StringBuilder()
+                val importStream = interaction?.let { ChatCompletionSseAccumulator() }
                 var hasFinalContent = false
-                BufferedReader(InputStreamReader(connection.inputStream, Charsets.UTF_8)).useLines { lines ->
-                    lines.forEach { line ->
-                        if (!line.startsWith("data:")) return@forEach
-                        val data = line.removePrefix("data:").trim()
-                        if (data == "[DONE]" || data.isBlank()) return@forEach
-                        val content = runCatching {
-                            val choice = AgentChatJson.parseToJsonElement(data)
-                                .jsonObject["choices"]
-                                ?.jsonArray
-                                ?.firstOrNull()
-                                ?.jsonObject
-                                ?: return@runCatching ""
-                            val streamed = choice["delta"]?.jsonObject
-                            agentTextFromJson(streamed?.get("content"))
-                                .ifBlank { agentTextFromJson(choice["text"]) }
-                        }.getOrNull().orEmpty()
-                        if (content.isNotEmpty()) {
-                            hasFinalContent = true
-                            result.append(content)
-                            onDelta(content)
-                        }
+                var finishReason = ""
+                var firstEvent = true
+                connection.forEachSseDataLine(checkActive = { interaction?.checkActive() }) { data ->
+                    if (firstEvent) {
+                        firstEvent = false
+                        phase(AiImportHttpPhase.FIRST_EVENT)
+                    }
+                    importStream?.consume(data)
+                    importStream?.activities?.forEach { interaction?.publishActivity(it) }
+                    importStream?.let { interaction?.publishStream(it.reasoning.isNotEmpty(), it.courseOutput) }
+                    val event = parseSseJsonObject(data) ?: return@forEachSseDataLine
+                    val usage = agentTokenUsage(event)
+                    if (!usage.isEmpty) onUsage(usage)
+                    val content = runCatching {
+                        val choice = event["choices"]
+                            ?.jsonArray
+                            ?.firstOrNull()
+                            ?.jsonObject
+                            ?: return@runCatching ""
+                        (choice["finish_reason"] as? kotlinx.serialization.json.JsonPrimitive)?.contentOrNull
+                            ?.takeIf(String::isNotBlank)?.let { finishReason = it }
+                        val streamed = choice["delta"]?.jsonObject
+                        agentTextFromJson(streamed?.get("content"))
+                            .ifBlank { agentTextFromJson(choice["text"]) }
+                    }.getOrNull().orEmpty()
+                    if (content.isNotEmpty()) {
+                        hasFinalContent = true
+                        result.append(content)
+                        onDelta(content)
                     }
                 }
+                check(finishReason == "stop") { "AI 最终回复未正常结束，请重试。" }
                 if (!hasFinalContent) throw MissingAgentBodyException()
-                result.toString()
+                finishAiImportStream(result.toString(), publishFinal = {
+                    interaction?.publishStream(importStream?.reasoning?.isNotEmpty() == true, result.toString(), force = true)
+                }, onEnd = { phase(AiImportHttpPhase.STREAM_END) })
             }
+        } catch (error: Throwable) {
+            interaction?.checkActive()
+            throw error
         } finally {
             connection.disconnect()
         }
@@ -127,7 +170,8 @@ internal class DayAgentChatTransport {
         includeTools: Boolean,
         includeMemoryTool: Boolean = false,
         forceMiMoWebSearch: Boolean = false,
-        excludedTools: Set<AgentToolName> = emptySet()
+        excludedTools: Set<AgentToolName> = emptySet(),
+        importWorkspace: Boolean = false
     ): String = buildJsonObject {
         put("model", settings.profile.defaultModel)
         put("stream", stream)
@@ -138,7 +182,7 @@ internal class DayAgentChatTransport {
             put(
                 "tools",
                 agentToolDefinitions(
-                    includeMiMoWebSearch = supportsMiMoOfficialWebSearch(
+                    includeMiMoWebSearch = !importWorkspace && supportsMiMoOfficialWebSearch(
                         providerId = settings.profile.id,
                         baseUrl = normalizeAiBaseUrlForProvider(
                             settings.profile.id,
@@ -146,11 +190,12 @@ internal class DayAgentChatTransport {
                         ),
                         model = settings.profile.defaultModel
                     ),
-                    forceMiMoWebSearch = forceMiMoWebSearch,
+                    forceMiMoWebSearch = !importWorkspace && forceMiMoWebSearch,
                     includeMemoryTool = includeMemoryTool,
                     // Several compatible providers reject this Chat Completions extension.
                     strictFunctions = settings.usesOfficialOpenAiEndpoint(),
-                    excludedTools = excludedTools
+                    excludedTools = excludedTools,
+                    importWorkspace = importWorkspace
                 )
             )
             put("tool_choice", "auto")
@@ -165,25 +210,29 @@ internal class DayAgentChatTransport {
         settings: AiImportSettings,
         body: String
     ): HttpURLConnection {
-        val base = normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl)
-        val path = settings.profile.chatCompletionsPath.ifBlank { "/chat/completions" }
-        val connection = URL(
-            base.trimEnd('/') + "/" + path.trimStart('/')
-        ).openConnection() as HttpURLConnection
-        connection.requestMethod = "POST"
-        connection.connectTimeout = 30_000
-        // Streaming providers may legitimately pause while reasoning. This is an inactivity
-        // timeout, not a total request deadline; keep it long enough for those pauses.
-        connection.readTimeout = 600_000
-        connection.doOutput = true
-        connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
-        if (settings.profile.authType == AiAuthType.CustomHeader) {
-            connection.setRequestProperty("api-key", settings.apiKey)
+        val path = settings.profile.chatCompletionsPath.trim('/')
+        val base = if (path.isEmpty()) {
+            // 未显式配置路径：直接使用下发的完整地址，不再 normalize 剥掉 /chat/completions 等后缀
+            settings.profile.baseUrl.trim().trimEnd('/')
         } else {
-            connection.setRequestProperty("Authorization", "Bearer ${settings.apiKey}")
+            normalizeAiBaseUrlForProvider(settings.profile.id, settings.profile.baseUrl).trimEnd('/')
         }
-        connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
-        return connection
+        val connection = openAiPostConnection(
+            url = if (path.isEmpty()) base else "$base/$path",
+            apiKey = settings.apiKey,
+            authType = settings.profile.authType,
+            contentType = "application/json; charset=utf-8",
+            accept = null
+        )
+        try {
+            interaction?.attach(connection)
+            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            return connection
+        } catch (error: Throwable) {
+            connection.disconnect()
+            interaction?.checkActive()
+            throw error
+        }
     }
 }
 
@@ -203,9 +252,9 @@ internal class MissingAgentBodyException : IllegalStateException("AI 没有返�
 private fun HttpURLConnection.readResponse(providerId: String): String {
     val code = responseCode
     val stream = if (code in 200..299) inputStream else errorStream
-    val text = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+    val text = stream?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
     if (code !in 200..299) {
-        throw IllegalStateException(formatAiRequestError(code, text, providerId))
+        throw AiServiceResponseException(formatAiRequestError(code, text, providerId), text, httpStatus = code)
     }
     return text
 }

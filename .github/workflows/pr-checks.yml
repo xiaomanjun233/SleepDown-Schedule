@@ -1,0 +1,139 @@
+name: Pull request checks
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  scope:
+    name: PR scope
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      android: ${{ steps.scope.outputs.android }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - id: scope
+        run: python3 .github/scripts/pr_scope.py
+      - name: Verify PR scope and sync ancestry
+        run: python3 -m unittest discover -s .github/scripts/tests -p 'test_pr_scope.py'
+      - name: Check source dependency boundaries
+        run: python3 scripts/check_architecture.py
+
+  android:
+    name: Android compile
+    needs: scope
+    if: needs.scope.outputs.android == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v7
+        with:
+          repository: compose-miuix-ui/miuix
+          ref: c36fab72391801d1e3ea5a00f966bf16bac28d4c
+          path: .ci/miuix
+          persist-credentials: false
+      - name: Apply public Miuix patches
+        shell: bash
+        run: |
+          git -C .ci/miuix apply "$GITHUB_WORKSPACE/patches/miuix-0.9.3-sleepdown.patch"
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+          log-accepted-android-sdk-licenses: 'false'
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-37.0'
+      - name: Compile without release signing
+        run: bash ./gradlew compileGithubReleaseKotlin -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix" -Psleepdown.useMavenMirrors=false --console=plain --no-daemon --no-parallel --max-workers=2 --stacktrace
+      - name: Verify shared schemes, backups and reminder scheduling
+        run: >-
+          bash ./gradlew testGithubDebugUnitTest
+          --tests 'com.xiaomanjun.sleepdownschedule.core.web.*Test'
+          --tests 'com.xiaomanjun.sleepdownschedule.core.identity.AppIdentityTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ControlMaterialProviderTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.agent.AgentExecutionTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.platform.coloros.VisualEffectModeTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetricsTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredMorphGeometryTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemesTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustmentsTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationAdjustmentSchedulingTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationSchedulingTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.reminder.CourseSessionReminderTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemeLibraryTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTopologyMappingTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTimelineEditingTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTimelineChangesTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.DatabaseMigrationCoverageTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.settings.PeriodSchemeEditorSaveTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.ScheduleImportCustomCourseTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.WakeUpImportSessionTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangImportSessionCustomTimeTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.IcsScheduleCodecTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportDocumentTextTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportCheckpoint*'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportStreamActivityTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportActivityReportsTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportNotificationIsolationTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiLiveReasoningTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiImportConversationTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiEduImportProgressSessionTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiInteractiveImportTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiManagedProtocolRegressionTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.agent.AgentImport*Test'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.agent.AgentToolProtocolTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskLoopTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.ChatGpt*Test'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.AiProviderPresetsTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.*Test'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.agent.AgentToolsTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.ImportedWeekNormalizationTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.data.repository.AutoRefreshTimingPreservationTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.SharedPeriodSchemeRepositoryTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.SharedPeriodSchemeMigrationTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupCodecTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupExportImportPlanTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupRoomRestoreTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestoreCoordinatorTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestoreServiceConcurrencyTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavClientTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.BackupSettingsCompletenessTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.backup.SharedPeriodSchemeBackupTest'
+          -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix"
+          -Psleepdown.useMavenMirrors=false
+          --console=plain --no-daemon --no-parallel --max-workers=2 --stacktrace
+      - name: Package unsigned debug build
+        run: bash ./gradlew assembleGithubDebug -Psleepdown.miuixSourcePath="$GITHUB_WORKSPACE/.ci/miuix" -Psleepdown.useMavenMirrors=false --console=plain --no-daemon --no-parallel --max-workers=2
+
+  result:
+    name: PR checks
+    if: ${{ always() && !github.event.pull_request.draft }}
+    needs: [scope, android]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Check results
+        env:
+          SCOPE_RESULT: ${{ needs.scope.result }}
+          ANDROID_RESULT: ${{ needs.android.result }}
+        run: |
+          test "$SCOPE_RESULT" = success
+          test "$ANDROID_RESULT" = success || test "$ANDROID_RESULT" = skipped

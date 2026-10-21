@@ -1,0 +1,1557 @@
+package com.xiaomanjun.sleepdownschedule.feature.agent
+
+import android.app.Activity
+import android.content.Context
+import android.content.ContextWrapper
+import android.graphics.BitmapFactory
+import android.util.Base64
+import android.view.Window
+import android.view.WindowManager
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateTo
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import com.xiaomanjun.sleepdownschedule.core.ui.layout.rememberFloatingInputInsets
+import com.xiaomanjun.sleepdownschedule.core.ui.layout.floatingInputPadding
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlurEffect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.catalog.utils.InteractiveHighlight
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedCornerStyle
+import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.UnevenRoundedRectangle
+import com.xiaomanjun.sleepdownschedule.AgentMessageEntity
+import com.xiaomanjun.sleepdownschedule.AppState
+import com.xiaomanjun.sleepdownschedule.MainActivity
+import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.deviceScreenCornerRadiusPx
+import com.xiaomanjun.sleepdownschedule.domain.agent.AgentActionHandler
+import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlan
+import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlanExecutionResult
+import com.xiaomanjun.sleepdownschedule.domain.agent.previewAgentPlan
+import com.xiaomanjun.sleepdownschedule.feature.agent.background.DayAgentRunCoordinator
+import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettingsStore
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiProviderPresets
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiRuntimePicker
+import com.xiaomanjun.sleepdownschedule.feature.importing.loadAiImportFile
+import com.xiaomanjun.sleepdownschedule.feature.importing.rememberAiRuntimePickerState
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation
+import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionEnvelope
+import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionGeometry
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.glassMorphHost
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.ui.GlassSurface
+import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
+import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
+import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBackdropBlur
+import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBlurDirection
+import com.xiaomanjun.sleepdownschedule.glass.ui.TopAssistantOpenEasing
+import com.xiaomanjun.sleepdownschedule.glass.ui.TopAssistantSurface
+import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.glass.ui.assistantMorphBounds
+import com.xiaomanjun.sleepdownschedule.glass.ui.fixedAssistantContentSize
+import com.xiaomanjun.sleepdownschedule.glass.ui.rememberTopAssistantMotion
+import com.xiaomanjun.sleepdownschedule.glass.ui.topAssistantBezierSpec
+import com.xiaomanjun.sleepdownschedule.glass.ui.topAssistantMorphRect
+import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedActionType
+import com.xiaomanjun.sleepdownschedule.transition.legacy.BACKGROUND_EXIT_DURATION
+import com.xiaomanjun.sleepdownschedule.transition.legacy.BACKGROUND_OPEN_DURATION
+import com.xiaomanjun.sleepdownschedule.transition.legacy.BackgroundExitEasing
+import com.xiaomanjun.sleepdownschedule.transition.legacy.BackgroundOpenEasing
+import java.io.File
+import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.PopupLayout
+
+@Composable
+internal fun DayAgentConversationDialog(
+    state: AppState,
+    backdrop: Backdrop?,
+    facts: DayAgentFacts,
+    messages: List<AgentMessageEntity>,
+    repository: DayAgentRepository,
+    initialText: String,
+    initialQuestion: String?,
+    sourceBounds: Rect,
+    sourceCornerRadius: Dp,
+    sourceVisual: DayAgentCardVisual,
+    sourceForeground: Color,
+    sourceActivityAccent: Color,
+    sourceGlassTokens: GlassTokens,
+    backgroundMotionState: DayAgentBackgroundMotionState,
+    onAgentAction: AgentActionHandler,
+    onOverlayReady: () -> Unit,
+    onPrepareDismiss: () -> Unit,
+    onSourceHandoff: (AgentSourceHandoffTransform) -> Unit,
+    onDismiss: () -> Unit,
+    homePresentation: Boolean = false,
+    homeAnchorBounds: Rect? = null,
+    homeInitiallyFullScreen: Boolean = false,
+    onImportFile: ((android.net.Uri) -> Unit)? = null
+) {
+    val scope = rememberCoroutineScope()
+    val focusRequester = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    val inputState = remember { mutableStateOf("") }
+    var inputCapsuleBounds by remember { mutableStateOf(Rect.Zero) }
+    var textInputBounds by remember { mutableStateOf(Rect.Zero) }
+    var imageAttachment by remember { mutableStateOf<AgentImageAttachment?>(null) }
+    var attachmentMenuExpanded by remember { mutableStateOf(false) }
+    var attachmentError by remember { mutableStateOf<String?>(null) }
+    var runStatusesExpanded by remember { mutableStateOf(true) }
+    var closing by remember { mutableStateOf(false) }
+    val dialogContext = LocalContext.current
+    val hostWindow = remember(dialogContext) { dialogContext.findAgentHostActivity()?.window }
+    DisposableEffect(hostWindow, homePresentation) {
+        val previousSoftInputMode = hostWindow?.attributes?.softInputMode
+        hostWindow?.let(::keepHostBehindAgentIme)
+        // Both entry points share MainActivity. Insets must reach Compose throughout the IME
+        // animation, including the day-card conversation. Fitted decor can defer the bottom
+        // inset until the final layout, leaving the composer behind the rising keyboard.
+        if (hostWindow != null) {
+            androidx.core.view.WindowCompat.setDecorFitsSystemWindows(hostWindow, false)
+        }
+        onDispose {
+            if (previousSoftInputMode != null) {
+                hostWindow.setSoftInputMode(previousSoftInputMode)
+            }
+            if (hostWindow != null) {
+                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(hostWindow, true)
+            }
+        }
+    }
+
+    val backgroundRun by remember(state.config.id, facts.date) {
+        DayAgentRunCoordinator.observe(state.config.id, facts.date)
+    }.collectAsStateWithLifecycle()
+    val streamingText = backgroundRun.streamingText
+    val sending = backgroundRun.running
+    val runStatuses = backgroundRun.statuses
+    val error = backgroundRun.error
+    var agentAiSettings by remember(dialogContext) {
+        mutableStateOf(AiImportSettingsStore.load(dialogContext))
+    }
+    val runtimePickerState = rememberAiRuntimePickerState()
+    val providerName = agentAiSettings.profile.displayName
+    val attachmentUploadEnabled = AiProviderPresets.supportsImageInput(agentAiSettings.profile)
+    val appliedActionKeys = remember(state.config.id) {
+        mutableStateOf(DayAgentPreferences.getAppliedActions(dialogContext, state.config.id))
+    }
+    // Keep the shown proposal tied to its original facts. Refreshing the timetable must not
+    // silently change a pending confirmation or erase its before/after details after saving.
+    val confirmationSnapshots = remember(state.config.id, facts.date) {
+        mutableMapOf<Pair<Long, String>, Pair<DayAgentFacts, ParsedAgentActions>>()
+    }
+    var executingActionKeys by remember(state.config.id) { mutableStateOf(emptySet<String>()) }
+    var actionFeedback by remember(state.config.id) {
+        mutableStateOf(emptyMap<String, AgentPlanExecutionResult>())
+    }
+    val expansion = remember { Animatable(0f) }
+    val homeMotion = rememberTopAssistantMotion()
+    val homeDockFade = remember { Animatable(1f) }
+    val fullMotion = rememberTopAssistantMotion(if (homeInitiallyFullScreen) 1f else 0f)
+    var homeFullScreen by remember { mutableStateOf(homeInitiallyFullScreen) }
+    var homeResponseVisible by remember { mutableStateOf(sending) }
+    var homeResponseStartId by remember { mutableStateOf(0L) }
+    var homeSubmittedText by remember { mutableStateOf("") }
+    val homeResponseMotion = remember { Animatable(0f) }
+    var homeAnswerHeightPx by remember { mutableIntStateOf(0) }
+    val homeReplyHeight = remember { Animatable(0f) }
+    var fullPullDistance by remember { mutableFloatStateOf(0f) }
+    var fullPullArmed by remember { mutableStateOf(false) }
+    var fullPullHapticSent by remember { mutableStateOf(false) }
+    var fullPullReturnJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
+    LaunchedEffect(homeFullScreen) {
+        if (!homeFullScreen) attachmentMenuExpanded = false
+        fullMotion.animateTo(if (homeFullScreen) 1f else 0f, overshoot = false)
+    }
+    LaunchedEffect(homeResponseVisible) {
+        val target = if (homeResponseVisible) 1f else 0f
+        homeResponseMotion.animateTo(target, topAssistantBezierSpec(homeResponseMotion.value, target, vertical = true))
+    }
+    val conversationListState = rememberLazyListState()
+    val foreground = if (homePresentation) Color.White else LocalAdaptiveGlass.current.contentColor
+    val answerTextStyle = if (homePresentation) MaterialTheme.typography.bodyLarge.copy(
+        fontSize = 16.sp, lineHeight = 24.sp
+    ) else MaterialTheme.typography.bodyMedium
+    val agentCardContentBackdrop = rememberGlassLayerBackdrop(
+        domain = GlassBackdropDomain.Content,
+        providerId = "day-agent-card-content"
+    )
+    val agentInputBackdrop = if (backdrop != null) {
+        rememberGlassCombinedBackdrop(backdrop, agentCardContentBackdrop)
+    } else null
+    val density = LocalDensity.current
+    val liveAdaptiveMetrics = rememberHomeAdaptiveMetrics()
+    // Keep one valid geometry snapshot for the lifetime of this overlay. Some devices briefly
+    // publish transitional window bounds while focus moves between apps or system pickers.
+    val adaptiveMetrics = if (homePresentation) liveAdaptiveMetrics else remember { liveAdaptiveMetrics }
+    val windowWidth = adaptiveMetrics.screenWidth
+    val windowHeight = adaptiveMetrics.screenHeight
+    val sourceCardRect = sourceBounds
+    val anchoredTabletConversation = !homePresentation && adaptiveMetrics.isTabletLandscape
+    val anchoredTargetRect = remember(
+        sourceCardRect,
+        windowHeight,
+        adaptiveMetrics.safeBottom,
+        density.density,
+        anchoredTabletConversation
+    ) {
+        if (anchoredTabletConversation) {
+            tabletDayAgentConversationTargetRect(
+                source = sourceCardRect,
+                windowHeightPx = with(density) { windowHeight.toPx() },
+                density = density.density,
+                safeBottom = adaptiveMetrics.safeBottom
+            )
+        } else null
+    }
+    val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val answerTopPadding = if (anchoredTargetRect != null) {
+        with(density) { anchoredTargetRect.top.toDp() }
+    } else if (adaptiveMetrics.isLargeScreen) {
+        adaptiveMetrics.tabletContentTop
+    } else {
+        statusBarTop + (windowHeight * 0.018f).coerceIn(10.dp, 20.dp)
+    }
+    val answerWidth = if (anchoredTargetRect != null) {
+        with(density) { anchoredTargetRect.width.toDp() }
+    } else if (adaptiveMetrics.isLargeScreen) {
+        val availableWidth = windowWidth - adaptiveMetrics.tabletContentMargin * 2f
+        minOf(availableWidth, 760.dp).coerceAtLeast(minOf(availableWidth, 560.dp))
+    } else {
+        windowWidth - 28.dp
+    }
+    val answerMaxHeight = if (anchoredTargetRect != null) {
+        with(density) { anchoredTargetRect.height.toDp() }
+    } else if (adaptiveMetrics.isLargeScreen) {
+        val availableHeight = windowHeight - adaptiveMetrics.tabletContentTop - adaptiveMetrics.safeBottom - 36.dp
+        minOf(availableHeight, 640.dp).coerceAtLeast(minOf(availableHeight, 420.dp))
+    } else {
+        (windowHeight * 0.58f).coerceIn(280.dp, 560.dp)
+    }
+    val targetWidthPx = with(density) { answerWidth.toPx() }
+    val targetHeightPx = with(density) { answerMaxHeight.toPx() }
+    val targetTopPx = anchoredTargetRect?.top ?: with(density) {
+        if (adaptiveMetrics.isLargeScreen) {
+            val availableTop = answerTopPadding
+            val availableBottom = windowHeight - adaptiveMetrics.safeBottom - 18.dp
+            (availableTop + (availableBottom - availableTop - answerMaxHeight) / 2f).coerceAtLeast(availableTop).toPx()
+        } else {
+            answerTopPadding.toPx()
+        }
+    }
+    val targetLeftPx = anchoredTargetRect?.left ?: with(density) {
+        if (adaptiveMetrics.isLargeScreen) {
+            ((windowWidth - answerWidth) / 2f).toPx()
+        } else {
+            14.dp.toPx()
+        }
+    }
+    val screenCenterXPx = with(density) { windowWidth.toPx() / 2f }
+    val targetRect = remember(anchoredTargetRect, targetLeftPx, targetTopPx, targetWidthPx, targetHeightPx) {
+        anchoredTargetRect ?: Rect(
+            left = targetLeftPx,
+            top = targetTopPx,
+            right = targetLeftPx + targetWidthPx,
+            bottom = targetTopPx + targetHeightPx
+        )
+    }
+    val sourceRect = remember(sourceCardRect, anchoredTabletConversation, density.density) {
+        if (anchoredTabletConversation) {
+            tabletDayAgentConversationSourceRect(sourceCardRect, density.density)
+        } else sourceCardRect
+    }
+    val sourceRadiusPx = with(density) {
+        if (anchoredTabletConversation) 4.dp.toPx() else sourceCornerRadius.toPx()
+    }
+    val targetRadiusPx = with(density) { if (anchoredTabletConversation) 28.dp.toPx() else 32.dp.toPx() }
+    val inputInsets = rememberFloatingInputInsets()
+    val imeBottomPx = WindowInsets.ime.getBottom(density)
+    val deviceCornerPx = deviceScreenCornerRadiusPx()
+    val compactHomeInput = homePresentation && !homeFullScreen
+    val homeEdgeInset = 8.dp
+    val homeExpandedWidth = if (adaptiveMetrics.isLargeScreen) windowWidth * 0.5f else windowWidth
+    val homeWidth = if (adaptiveMetrics.isLargeScreen) homeExpandedWidth else windowWidth - homeEdgeInset * 2f
+    // Concentric with the display corners: equal top/side spacing, lens inside the black cap.
+    val homeTop = homeEdgeInset
+    var composerTextHeightPx by remember { mutableIntStateOf(0) }
+    val composerTextHeight = with(density) { composerTextHeightPx.toDp() }
+    val homeInputTargetHeight = maxOf(56.dp, composerTextHeight + 24.dp) +
+        if (imageAttachment != null && !compactHomeInput) 38.dp else 0.dp
+    val homeInputHeight by animateDpAsState(homeInputTargetHeight,
+        tween(180, easing = CubicBezierEasing(0.20f, 0.72f, 0.26f, 1f)), label = "agent-composer-height")
+    // Lift the input into the camera cap instead of reserving a separate status-bar row.
+    val homeInputTop = homeTop + 8.dp
+    val homeCapsuleHeight = homeInputHeight + 16.dp
+    val homeAvailableBottom = windowHeight - inputInsets.bottom - 8.dp
+    val homeTopBarHeight = SleepDownDesignTokens.SecondaryPage.CompactTopBarHeight
+    val homeWindowButtonSize = SleepDownDesignTokens.SecondaryPage.BackButtonSize
+    val homeHandleHeight = 32.dp
+    val homeResponseTop = maxOf(20.dp, adaptiveMetrics.safeTop - homeTop + 4.dp)
+    val homeAnswerLimit = minOf(
+        windowHeight * 0.52f,
+        homeAvailableBottom - homeTop - homeResponseTop - homeHandleHeight
+    ).coerceAtLeast(1.dp)
+    val homeHasReply = homeResponseVisible
+    // The compact result shows this answer; the full page retains the shared, complete history.
+    val visibleMessages = if (compactHomeInput) {
+        messages.drop(messages.indexOfLast { it.role == "user" } + 1)
+            .filter { it.role == "assistant" && it.id > homeResponseStartId }
+    } else messages
+    val homeReplyTarget = with(density) {
+        if (homeHasReply) {
+            val answerHeight = homeAnswerHeightPx.toFloat()
+                .coerceIn(0f, homeAnswerLimit.toPx())
+            (homeResponseTop.toPx() + answerHeight + homeHandleHeight.toPx() - homeCapsuleHeight.toPx()).coerceAtLeast(0f)
+        }
+        else 0f
+    }
+    LaunchedEffect(homePresentation, homeReplyTarget, homeFullScreen) {
+        if (homePresentation && !homeFullScreen) homeReplyHeight.animateTo(
+            homeReplyTarget, tween(150, easing = CubicBezierEasing(0.16f, 0.80f, 0.24f, 1f))
+        )
+    }
+    fun homeCompactRect() = with(density) {
+        val left = (windowWidth - homeWidth).toPx() / 2f
+        val replyHeight = homeReplyHeight.value.coerceIn(0f, homeAnswerLimit.toPx() + homeHandleHeight.toPx())
+        Rect(left, homeTop.toPx(), left + homeWidth.toPx(), (homeTop + homeCapsuleHeight).toPx() + replyHeight)
+    }
+    val homeFullRect = with(density) {
+        val left = (windowWidth - homeExpandedWidth).toPx() / 2f
+        Rect(left, 0f, left + homeExpandedWidth.toPx(), windowHeight.toPx())
+    }
+    // Reading width may remain compact on tablets; the material always covers the window.
+    val homeMaterialFullRect = with(density) { Rect(0f, 0f, windowWidth.toPx(), windowHeight.toPx()) }
+    val homeFinalWidth = if (homeFullScreen) homeExpandedWidth else homeWidth
+    val homeFullScreenSettled by remember(homePresentation, homeFullScreen, closing) { derivedStateOf {
+        homePresentation && homeFullScreen && !closing &&
+        !fullMotion.drop.isRunning && !fullMotion.spread.isRunning &&
+        !homeMotion.drop.isRunning && !homeMotion.spread.isRunning &&
+        fullMotion.drop.value >= 1f && fullMotion.spread.value >= 1f &&
+        homeMotion.drop.value >= 1f && homeMotion.spread.value >= 1f
+    } }
+    // Text always measures in the final viewport; only the outside reveal changes each frame.
+    val homeFinalHeight = if (homeFullScreen) windowHeight else maxOf(
+        homeCapsuleHeight, homeResponseTop + homeAnswerLimit + homeHandleHeight
+    )
+    val homeComposerWidth = if (homeFullScreen) homeExpandedWidth - 16.dp else homeWidth - 8.dp
+    val homeSurfaceEnvelope = remember(homeMaterialFullRect, sourceRect, density.density) {
+        GlassTransitionEnvelope.covering(listOf(
+            GlassTransitionGeometry(sourceRect, 0f), GlassTransitionGeometry(homeMaterialFullRect, 0f)
+        ), with(density) { 56.dp.toPx() })
+    }
+    val homeInputLightInset = rememberUpdatedState(with(density) {
+        Offset((windowWidth - homeWidth).toPx() / 2f + (homeWidth - homeComposerWidth).toPx() / 2f,
+            homeInputTop.toPx()) - homeSurfaceEnvelope.boundsInRoot.topLeft
+    })
+    val homeInputLightRadius = rememberUpdatedState(with(density) { minOf(homeWidth, homeCapsuleHeight).toPx() * 1.5f })
+    val homeInputInteraction = remember(scope, density.density) {
+        InteractiveHighlight(
+            animationScope = scope,
+            position = { _, pointer -> pointer + homeInputLightInset.value },
+            radius = { homeInputLightRadius.value },
+            ambientAlpha = 0.035f,
+            spotAlpha = 0.10f,
+            pressProgressAnimationSpec = tween(320, easing = CubicBezierEasing(0.32f, 0f, 0.24f, 1f)),
+            positionAnimationSpec = tween(260, easing = CubicBezierEasing(0.22f, 0.65f, 0.28f, 1f))
+        )
+    }
+    fun homeComposerTopPx(): Float = with(density) {
+        val p = fullMotion.drop.value.coerceIn(0f, 1f)
+        val compactY = homeInputTop.toPx()
+        val fullY = windowHeight.toPx() - inputInsets.bottomPx - 8.dp.toPx() - homeInputHeight.toPx()
+        compactY + (fullY - compactY) * p
+    }
+    fun conversationGeometry(): Rect {
+        if (!homePresentation) {
+            val raw = expansion.value.coerceIn(0f, 1f)
+            return agentMorphGeometry(sourceRect, targetRect,
+                agentMorphPositionProgress(raw, closing), agentMorphSizeProgress(raw, closing),
+                with(density) { adaptiveMetrics.animationArc.toPx() })
+        }
+        val destination = topAssistantMorphRect(homeCompactRect(), homeFullRect, fullMotion.drop.value, fullMotion.spread.value)
+            .let { it.copy(bottom = it.bottom + fullPullDistance * (1f - fullMotion.drop.value.coerceIn(0f, 1f))) }
+        return topAssistantMorphRect(
+            if (closing) homeAnchorBounds ?: sourceRect else sourceRect,
+            destination, homeMotion.drop.value, homeMotion.spread.value
+        )
+    }
+    fun homeShellRadiusPx(): Float = with(density) {
+        if (homeFullScreenSettled) return@with 0f
+        val geometry = conversationGeometry()
+        val full = fullMotion.spread.value.coerceIn(0f, 1f)
+        val compactRadius = homeCapsuleHeight.toPx() / 2f
+        val targetRadius = compactRadius + (deviceCornerPx - compactRadius) * full
+        val originRadius = if (closing) (homeAnchorBounds ?: sourceRect).height / 2f
+            else minOf(sourceRadiusPx, sourceRect.height / 2f)
+        val open = homeMotion.drop.value.coerceIn(0f, 1f)
+        (originRadius + (targetRadius - originRadius) * open)
+            .coerceAtMost(minOf(geometry.width, geometry.height) / 2f)
+    }
+    fun homeShellShape(): Shape = RoundedRectangle(with(density) { homeShellRadiusPx().toDp() })
+    fun settleFullPull(commit: Boolean) {
+        if (commit && fullPullArmed) {
+            keyboard?.hide()
+            homeFullScreen = true
+        }
+        fullPullArmed = false
+        fullPullReturnJob?.cancel()
+        fullPullReturnJob = scope.launch {
+            androidx.compose.animation.core.AnimationState(fullPullDistance).animateTo(
+                0f, tween(320, easing = CubicBezierEasing(0.20f, 0.72f, 0.26f, 1f))
+            ) { fullPullDistance = value }
+        }
+    }
+    val homeGeometry = rememberUpdatedState<() -> GlassTransitionGeometry> {
+        val destination = topAssistantMorphRect(homeCompactRect(), homeMaterialFullRect,
+            fullMotion.drop.value, fullMotion.spread.value).let {
+            it.copy(bottom = it.bottom + fullPullDistance * (1f - fullMotion.drop.value.coerceIn(0f, 1f)))
+        }
+        GlassTransitionGeometry(topAssistantMorphRect(
+            if (closing) homeAnchorBounds ?: sourceRect else sourceRect,
+            destination, homeMotion.drop.value, homeMotion.spread.value
+        ), homeShellRadiusPx().coerceAtLeast(0f))
+    }
+    val homeSurfaceAllocation = remember(homeSurfaceEnvelope) {
+        GlassMorphAllocation(
+            homeSurfaceEnvelope,
+            geometry = { homeGeometry.value() }, paddingPx = with(density) { 56.dp.toPx() }
+        )
+    }
+    val homeSurfaceBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "home-agent-surface")
+    val homeFinishedBackdrop = rememberGlassCombinedBackdrop(homeSurfaceBackdrop, agentCardContentBackdrop)
+    val composerBackdrop = if (homePresentation) homeFinishedBackdrop else agentInputBackdrop
+    val homeExpandGesture = Modifier.assistantPullGesture(
+        enabled = homePresentation && !homeFullScreen && !closing,
+        canStart = { position ->
+            val handleTop = conversationGeometry().height - with(density) { homeHandleHeight.toPx() }
+            // The rightmost send/stop control owns a gesture that starts on it.
+            val onSend = !homeHasReply && position.x >= with(density) { (homeComposerWidth - 56.dp).toPx() }
+            !onSend && (!homeHasReply || position.y >= handleTop || (!conversationListState.canScrollBackward &&
+                position.y > with(density) { homeResponseTop.toPx() }))
+        },
+        onStart = { fullPullReturnJob?.cancel(); fullPullHapticSent = false },
+        onDistance = {
+            fullPullDistance = assistantPullDistance(it, with(density) { 100.dp.toPx() })
+            val crossed = fullPullDistance >= with(density) { 48.dp.toPx() }
+            if (crossed && !fullPullHapticSent) {
+                fullPullHapticSent = true
+                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+            }
+            fullPullArmed = crossed
+        },
+        onRelease = ::settleFullPull
+    )
+    val imagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            attachmentError = null
+            loadAiImportFile(dialogContext, uri)
+                .onSuccess { file ->
+                    imageAttachment = AgentImageAttachment(
+                        mimeType = if (file.mimeType.startsWith("image/")) {
+                            "image/jpeg"
+                        } else {
+                            file.mimeType
+                        },
+                        base64 = Base64.encodeToString(file.bytes, Base64.NO_WRAP),
+                        sourceName = file.displayName
+                    )
+                }
+                .onFailure { attachmentError = it.message ?: "图片读取失败" }
+        }
+    }
+    DisposableEffect(state.config.id, facts.date) {
+        DayAgentRunCoordinator.setConversationVisible(
+            state.config.id,
+            facts.date,
+            true
+        )
+        onDispose {
+            DayAgentRunCoordinator.setConversationVisible(
+                state.config.id,
+                facts.date,
+                false
+            )
+        }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_START) {
+        DayAgentRunCoordinator.setConversationVisible(
+            state.config.id,
+            facts.date,
+            true
+        )
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) {
+        DayAgentRunCoordinator.setConversationVisible(
+            state.config.id,
+            facts.date,
+            false
+        )
+        if (!closing) {
+            scope.launch {
+                expansion.snapTo(1f)
+                if (!anchoredTabletConversation && !homePresentation) {
+                    backgroundMotionState.progress.snapTo(1f)
+                    backgroundMotionState.backgroundZoom.snapTo(DayAgentBackgroundZoomRestScale)
+                }
+            }
+        }
+    }
+    fun dismissAnimated(afterDismiss: (() -> Unit)? = null) {
+        if (closing) return
+        closing = true
+        keyboard?.hide()
+        // Give the host a closing hook, but keep the real source card hidden until the overlay
+        // has fully returned. Showing it here creates a second stationary card under the Morph.
+        onPrepareDismiss()
+        scope.launch {
+            coroutineScope {
+                launch {
+                    if (homePresentation) {
+                        launch { homeMotion.animateTo(0f, overshoot = false) }
+                        expansion.animateTo(0f, tween(260))
+                    } else expansion.animateTo(
+                        0f,
+                        tween(AgentMorphCloseDurationMillis, easing = LinearEasing)
+                    )
+                }
+                launch {
+                    // Hand over while there is still a visible final return segment. The Dialog
+                    // is removed immediately and the real shell completes the same geometry,
+                    // avoiding the expensive cross-window composition hitch near expansion == 0.
+                    while (expansion.value > 0.01f) {
+                        withFrameNanos { }
+                    }
+                    val raw = expansion.value.coerceIn(0f, 1f)
+                    val geometry = agentMorphGeometry(
+                        source = sourceRect,
+                        target = targetRect,
+                        positionProgress = agentMorphPositionProgress(raw, closing = true),
+                        sizeProgress = agentMorphSizeProgress(raw, closing = true),
+                        maxArcPx = with(density) { adaptiveMetrics.animationArc.toPx() }
+                    )
+                    if (!homePresentation) onSourceHandoff(
+                        AgentSourceHandoffTransform(
+                            scaleX = geometry.width / sourceRect.width.coerceAtLeast(1f),
+                            scaleY = geometry.height / sourceRect.height.coerceAtLeast(1f),
+                            translationX = geometry.center.x - sourceRect.center.x,
+                            translationY = geometry.center.y - sourceRect.center.y
+                        )
+                    )
+                }
+                if (!anchoredTabletConversation && !homePresentation) {
+                    launch {
+                        backgroundMotionState.progress.animateTo(
+                            0f,
+                            tween(BACKGROUND_EXIT_DURATION, easing = BackgroundExitEasing)
+                        )
+                    }
+                }
+                // Mirror the open: the background keeps easing back after the card has
+                // collapsed, so closing reads as the home surface settling home rather
+                // than snapping with the card.
+                if (!anchoredTabletConversation && !homePresentation) {
+                    launch {
+                        backgroundMotionState.backgroundZoom.animateTo(
+                            1f,
+                            tween(
+                                DayAgentBackgroundZoomCloseDurationMillis,
+                                easing = CubicBezierEasing(0.16f, 0.84f, 0.24f, 1.0f)
+                            )
+                        )
+                    }
+                }
+            }
+            // Keep the camera-sized cap fully visible through the return motion, then dissolve it.
+            if (homePresentation) homeDockFade.animateTo(0f, tween(110))
+            onDismiss()
+            // Page-opening Agent actions are dispatched only after the source card has handed
+            // ownership back to Home. Dispatching them at button-down left the Agent card alive
+            // underneath the destination Activity/overlay for one transition.
+            afterDismiss?.invoke()
+        }
+    }
+
+    val importFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && onImportFile != null) dismissAnimated { onImportFile(uri) }
+    }
+
+    fun send(questionOverride: String? = null) {
+        val question = questionOverride?.trim().orEmpty().ifBlank { inputState.value.trim() }
+        if (question.isBlank() || sending) return
+        runStatusesExpanded = true
+        val started = DayAgentRunCoordinator.start(
+            context = dialogContext,
+            scheduleId = state.config.id,
+            facts = facts,
+            question = question,
+            imageAttachment = imageAttachment
+        )
+        if (homePresentation) {
+            homeResponseStartId = messages.lastOrNull()?.id ?: 0L
+            homeSubmittedText = question
+            homeResponseVisible = true
+            keyboard?.hide()
+        }
+        if (started) {
+            inputState.value = ""
+            imageAttachment = null
+            attachmentMenuExpanded = false
+            attachmentError = null
+        }
+    }
+
+    fun toggleSend() {
+        if (sending) {
+            DayAgentRunCoordinator.cancel(
+                context = dialogContext,
+                scheduleId = state.config.id,
+                date = facts.date
+            )
+        } else {
+            send()
+        }
+    }
+
+    val streamingParts = remember(streamingText) { splitAgentReasoning(streamingText) }
+    LaunchedEffect(streamingParts.answer.isNotBlank()) {
+        if (streamingParts.answer.isNotBlank()) runStatusesExpanded = false
+    }
+
+    val overlayVisible = remember { mutableStateOf(true) }
+    PopupLayout(
+        visible = overlayVisible,
+        enterTransition = EnterTransition.None,
+        exitTransition = ExitTransition.None,
+        enableWindowDim = false,
+        enableBackHandler = false,
+        renderInRootScaffold = true
+    ) {
+          BackHandler {
+              if (homePresentation && attachmentMenuExpanded) attachmentMenuExpanded = false
+              else if (homePresentation && imeBottomPx > 0) keyboard?.hide()
+              else if (homePresentation && homeFullScreen) homeFullScreen = false
+              else dismissAnimated()
+          }
+          Box(Modifier.fillMaxSize().then(inputInsets.viewportModifier)) {
+              Box(
+                  Modifier
+                      .fillMaxSize()
+                      .clickable(
+                          interactionSource = remember { MutableInteractionSource() },
+                          indication = null,
+                          onClick = ::dismissAnimated
+                      )
+              ) {
+            if (homePresentation) Box(
+                (if (homeFullScreenSettled) Modifier.matchParentSize() else Modifier.glassMorphHost(homeSurfaceAllocation))
+                    .graphicsLayer { alpha = homeDockFade.value }
+                    .glassBackdropProducer(homeSurfaceBackdrop)
+            ) {
+                TopAssistantSurface(
+                    backdrop, state.config, androidx.compose.ui.graphics.RectangleShape,
+                    nativeMaterial = true,
+                    nativeFollowLightIntensityScale = if (homeResponseVisible && !homeFullScreen) 0.45f else 1f,
+                    modifier = Modifier.matchParentSize(),
+                    morphAllocation = homeSurfaceAllocation.takeUnless { homeFullScreenSettled },
+                    shapeProvider = if (homeFullScreenSettled) null else ::homeShellShape,
+                    edgeEffectsEnabled = !homeFullScreenSettled,
+                    refractionEnabled = !homeFullScreen && !fullMotion.drop.isRunning,
+                    surfaceFrame = {
+                        ((homeInputTop - homeTop) * (1f - fullMotion.drop.value.coerceIn(0f, 1f))) to
+                            (0.04f + 0.40f * (1f - homeResponseMotion.value.coerceIn(0f, 1f)) *
+                                (1f - fullMotion.drop.value.coerceIn(0f, 1f)))
+                    },
+                    interactiveHighlight = homeInputInteraction.takeIf { compactHomeInput && !homeResponseVisible }
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .offset {
+                        val geometry = conversationGeometry()
+                        IntOffset(geometry.left.roundToInt(), geometry.top.roundToInt())
+                    }
+                    .assistantMorphBounds(::conversationGeometry)
+                    .then(homeExpandGesture)
+                     .graphicsLayer {
+                         val raw = expansion.value.coerceIn(0f, 1f)
+                         val sizeProgress = agentMorphSizeProgress(raw, closing)
+                         alpha = if (anchoredTabletConversation) {
+                             agentSmoothStep(0.08f, 0.26f, sizeProgress)
+                         } else if (homePresentation && closing) homeDockFade.value else 1f
+                         val cornerProgress = agentSmoothStep(0.04f, 0.90f, sizeProgress)
+                        val visualRadiusPx =
+                            sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * cornerProgress
+                        // Restore the native round-rect clip used by this route in v1.2.3.
+                        shape = if (homePresentation) {
+                            homeShellShape()
+                        } else RoundedCornerShape(visualRadiusPx.toDp())
+                         clip = !homeFullScreenSettled &&
+                             (!homePresentation || homeResponseVisible || homeFullScreen || homeMotion.drop.isRunning)
+                     }
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = {}
+                    )
+                    // Record only the expanded card. Inputs below sample this plus the base home
+                    // layer; they must never fall through to wallpaper-only sampling.
+                    .glassBackdropProducer(agentCardContentBackdrop)
+             ) {
+                if (!homePresentation) {
+                GlassSurface(
+                    nativeMaterial = true,
+                    nativeDockMaterial = true,
+                    nativeFollowLightIntensityScale = 0.45f,
+                    backdrop = backdrop,
+                    config = state.config,
+                    modifier = Modifier.matchParentSize(),
+                    shape = RoundedCornerShape(32.dp),
+                    // Keep the expanded conversation shell visually identical to the compact
+                    // home card. Passing the resolved tokens also preserves the card's light/dark
+                    // wallpaper treatment instead of maintaining a second drifting parameter set.
+                    tokens = sourceGlassTokens
+                ) {}
+                }
+                if (!homePresentation && !anchoredTabletConversation) {
+                    DayAgentCardVisualContent(
+                        visual = sourceVisual,
+                        foreground = sourceForeground,
+                        activityAccent = sourceActivityAccent,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .graphicsLayer {
+                                val raw = expansion.value.coerceIn(0f, 1f)
+                                alpha = if (closing) {
+                                    1f - agentSmoothStep(0.32f, 0.56f, raw)
+                                } else {
+                                    1f - agentSmoothStep(0.10f, 0.38f, raw)
+                                }
+                                val blurPx = 5.dp.toPx() * agentSmoothStep(0f, 0.56f, raw)
+                                compositingStrategy = CompositingStrategy.Offscreen
+                                renderEffect = if (blurPx > 0.01f) {
+                                    BlurEffect(blurPx, blurPx, TileMode.Clamp)
+                                } else null
+                            }
+                    )
+                }
+                  if (!homePresentation || homeResponseVisible || homeFullScreen) Column(
+                      Modifier
+                          .then(if (homePresentation) Modifier.fixedAssistantContentSize(homeFinalWidth, homeFinalHeight)
+                              else Modifier)
+                          .graphicsLayer {
+                              val raw = expansion.value.coerceIn(0f, 1f)
+                              alpha = if (closing) {
+                                  // Crossfade to the final compact card while the Dialog is still
+                                  // the uppermost window. At the real-card handoff (0.32), no
+                                  // clipped conversation content remains.
+                                  agentSmoothStep(0.32f, 0.56f, raw)
+                              } else {
+                                  agentSmoothStep(0.10f, 0.38f, raw)
+                              }
+                              if (homePresentation) alpha *= maxOf(
+                                  homeResponseMotion.value, fullMotion.drop.value
+                              ).coerceIn(0f, 1f)
+                              val blurPx = 5.dp.toPx() * (
+                                  1f - agentSmoothStep(0.38f, 0.92f, raw)
+                              )
+                              compositingStrategy = if (blurPx > 0.01f) CompositingStrategy.Offscreen else CompositingStrategy.Auto
+                              renderEffect = if (blurPx > 0.01f) {
+                                  BlurEffect(blurPx, blurPx, TileMode.Clamp)
+                              } else null
+                          }
+                          .padding(
+                              start = if (homePresentation) 22.dp else 16.dp,
+                              top = if (homePresentation) {
+                                  if (homeFullScreen) 0.dp else homeResponseTop
+                              } else 16.dp,
+                              end = if (homePresentation) 22.dp else 16.dp,
+                              bottom = if (homePresentation && homeFullScreen)
+                                  0.dp
+                                  else if (homePresentation) homeHandleHeight else 0.dp
+                          ),
+                     verticalArrangement = Arrangement.spacedBy(if (homePresentation && !homeFullScreen) 0.dp else 10.dp)
+                  ) {
+                      /*
+                       * Once the streamed answer has been persisted it immediately joins `messages`.
+                       * Keep this turn's real execution trace attached to that assistant message so
+                       * the trace cannot jump below the completed answer during the Flow hand-off.
+                       */
+                      val tracedAssistantMessageId = visibleMessages.lastOrNull()
+                          ?.takeIf { message ->
+                              message.role == "assistant" && runStatuses.isNotEmpty()
+                          }
+                          ?.id
+                      LazyColumn(
+                         state = conversationListState,
+                         modifier = if (homePresentation && !homeFullScreen) {
+                             Modifier.heightIn(max = homeAnswerLimit).onSizeChanged {
+                                 homeAnswerHeightPx = it.height
+                             }
+                         } else Modifier.weight(1f),
+                         contentPadding = PaddingValues(
+                             top = if (homePresentation && homeFullScreen) adaptiveMetrics.safeTop + homeTopBarHeight
+                                 else if (!homePresentation) 34.dp else 0.dp,
+                             bottom = if (homePresentation && homeFullScreen)
+                                 inputInsets.bottom +
+                                     homeInputHeight + 24.dp
+                                 else if (anchoredTabletConversation) 58.dp
+                                 else if (compactHomeInput) 4.dp else 16.dp
+                         ),
+                         verticalArrangement = Arrangement.spacedBy(10.dp)
+                     ) {
+                         if (messages.isEmpty() && streamingText.isBlank() && (!homePresentation || homeFullScreen)) {
+                             item {
+                                 if (homePresentation) DayAgentCardVisualContent(
+                                     sourceVisual.copy(trailingStatus = sourceVisual.trailingStatus.takeIf { sourceVisual.weatherAlert }),
+                                     foreground, sourceActivityAccent, decorated = false
+                                 )
+                                 else AgentMarkdownText(initialText, foreground, MaterialTheme.typography.bodyMedium)
+                             }
+                         }
+                          items(visibleMessages, key = { it.id }) { message ->
+                              val isUser = message.role == "user"
+                              if (isUser) {
+                                  val userContent = remember(message.content) {
+                                      parseAgentMessageContent(message.content)
+                                  }
+                                  // Decode off the main thread and downsample to the preview
+                                  // size; the original synchronous full-size decode ran inside
+                                  // composition and janked scrolling past attachment messages.
+                                  val sentPreview by produceState<androidx.compose.ui.graphics.ImageBitmap?>(
+                                      initialValue = null,
+                                      userContent.attachmentFileName
+                                  ) {
+                                      value = userContent.attachmentFileName?.let { fileName ->
+                                          withContext(Dispatchers.IO) {
+                                              runCatching {
+                                                  val path = File(
+                                                      dialogContext.filesDir,
+                                                      "agent_attachments/$fileName"
+                                                  ).absolutePath
+                                                  val bounds = BitmapFactory.Options().apply {
+                                                      inJustDecodeBounds = true
+                                                  }
+                                                  BitmapFactory.decodeFile(path, bounds)
+                                                  val options = BitmapFactory.Options().apply {
+                                                      inSampleSize = maxOf(
+                                                          1,
+                                                          maxOf(bounds.outWidth, bounds.outHeight) / 512
+                                                      )
+                                                  }
+                                                  BitmapFactory.decodeFile(path, options)?.asImageBitmap()
+                                              }.getOrNull()
+                                          }
+                                      }
+                                  }
+                                  Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                      Column(
+                                          horizontalAlignment = Alignment.End,
+                                          verticalArrangement = Arrangement.spacedBy(6.dp)
+                                      ) {
+                                          sentPreview?.let {
+                                              Image(
+                                                  bitmap = it,
+                                                  contentDescription = "已发送图片",
+                                                  contentScale = ContentScale.Crop,
+                                                  modifier = Modifier
+                                                      .width(176.dp)
+                                                      .height(112.dp)
+                                                      .clip(UnevenRoundedRectangle(14.dp, 14.dp, 4.dp, 14.dp))
+                                              )
+                                          }
+                                          if (userContent.text.isNotBlank()) {
+                                              Text(
+                                                  text = userContent.text,
+                                                  modifier = Modifier
+                                                      .background(
+                                                          Color(0xFF168CFF).copy(alpha = 0.88f),
+                                                          UnevenRoundedRectangle(18.dp, 18.dp, 4.dp, 18.dp)
+                                                      )
+                                                      .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                  color = Color.White,
+                                                  style = MaterialTheme.typography.bodyMedium
+                                              )
+                                          }
+                                      }
+                                  }
+                              } else {
+                                 val messageParts = remember(message.content) {
+                                     splitAgentReasoning(message.content)
+                                 }
+                                  val confirmationKey = message.id to messageParts.answer
+                                  val previouslyApplied = appliedActionKeys.value.any { it.startsWith("${message.id}:") }
+                                  val confirmation = if (previouslyApplied && confirmationKey !in confirmationSnapshots) {
+                                      facts to ParsedAgentActions("这项操作已执行并验证。", emptyList())
+                                  } else confirmationSnapshots.getOrPut(confirmationKey) {
+                                      facts to parseAgentActions(messageParts.answer, facts)
+                                  }
+                                  val confirmationFacts = confirmation.first
+                                  val parsed = confirmation.second
+                                  var storedTraceExpanded by remember(message.id) { mutableStateOf(false) }
+                                  Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                      if (!homePresentation && message.id == tracedAssistantMessageId) {
+                                           AgentRunTrace(
+                                               statuses = runStatuses,
+                                               expanded = runStatusesExpanded,
+                                               foreground = foreground,
+                                               active = sending,
+                                               onToggle = {
+                                                  runStatusesExpanded = !runStatusesExpanded
+                                              }
+                                          )
+                                      } else if (!homePresentation && messageParts.statuses.isNotEmpty()) {
+                                          AgentRunTrace(
+                                              statuses = messageParts.statuses,
+                                              expanded = storedTraceExpanded,
+                                              foreground = foreground,
+                                              active = false,
+                                              onToggle = { storedTraceExpanded = !storedTraceExpanded }
+                                          )
+                                      }
+                                      if (!homePresentation && messageParts.reasoning.isNotBlank()) {
+                                          AgentReasoningTrace(
+                                              reasoning = messageParts.reasoning,
+                                             foreground = foreground
+                                         )
+                                     }
+                                     if (parsed.displayText.isNotBlank()) {
+                                         AgentMarkdownText(parsed.displayText, foreground, answerTextStyle, spacious = homePresentation)
+                                     }
+                                     val courseActions = parsed.actions.filter { action ->
+                                          action.type == AgentValidatedActionType.ADD ||
+                                              action.type == AgentValidatedActionType.UPDATE ||
+                                              action.type == AgentValidatedActionType.REPLACE ||
+                                              action.type == AgentValidatedActionType.DELETE
+                                     }
+                                      val settingActions = parsed.actions.filter { action ->
+                                          action.type == AgentValidatedActionType.SET_SETTING ||
+                                              action.type == AgentValidatedActionType.SET_PERIOD_SETTINGS ||
+                                              action.type == AgentValidatedActionType.SET_ADJUSTMENTS
+                                     }
+                                     val plans = buildList {
+                                         if (parsed.actions.any { it !in courseActions && it !in settingActions } && parsed.actions.size > 1) {
+                                             add("workflow-plan" to AgentPlan(parsed.actions))
+                                             return@buildList
+                                         }
+                                         if (courseActions.isNotEmpty() && settingActions.isNotEmpty()) {
+                                             add("combined-plan" to AgentPlan(courseActions + settingActions))
+                                         } else if (courseActions.isNotEmpty()) {
+                                             add("course-plan" to AgentPlan(courseActions))
+                                         }
+                                         if (settingActions.isNotEmpty() && courseActions.isEmpty()) {
+                                             add("setting-plan" to AgentPlan(settingActions))
+                                         }
+                                         parsed.actions
+                                             .filterNot { it in courseActions || it in settingActions }
+                                              .forEachIndexed { actionIndex, action ->
+                                                  add("single-$actionIndex" to AgentPlan(listOf(action)))
+                                              }
+                                      }
+                                      plans.forEach { (planSuffix, plan) ->
+                                          val actionKey = "${message.id}:$planSuffix"
+                                          val alreadyApplied = actionKey in appliedActionKeys.value
+                                          val executing = actionKey in executingActionKeys
+                                          val preview = remember(plan, confirmationFacts.sourceHash) {
+                                              previewAgentPlan(
+                                                  before = confirmationFacts.semesterCourses,
+                                                  plan = plan,
+                                                  periodDefinitions = confirmationFacts.periodDefinitions
+                                              )
+                                          }
+                                          AgentPlanConfirmation(plan, preview, confirmationFacts, foreground, alreadyApplied)
+                                          actionFeedback[actionKey]?.let { result ->
+                                              Text(
+                                                  text = result.message,
+                                                  color = if (result.success) {
+                                                      Color(0xFF55C2FF)
+                                                  } else {
+                                                      Color(0xFFFF6B63)
+                                                  },
+                                                  style = MaterialTheme.typography.labelSmall
+                                              )
+                                          }
+                                          val undo = actionFeedback[actionKey]?.undo
+                                          if (alreadyApplied && undo != null) {
+                                              AgentOperationLiquidButton(
+                                                  text = "撤销本次修改",
+                                                  backdrop = backdrop,
+                                                  config = state.config,
+                                                  destructive = false,
+                                                  applied = false,
+                                                  enabled = !executing,
+                                                  modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false },
+                                                  onClick = {
+                                                      executingActionKeys += actionKey
+                                                      undo { undoResult ->
+                                                          executingActionKeys -= actionKey
+                                                          actionFeedback =
+                                                              actionFeedback + (actionKey to undoResult)
+                                                           if (undoResult.success) {
+                                                               appliedActionKeys.value =
+                                                                   appliedActionKeys.value - actionKey
+                                                               DayAgentPreferences.unmarkActionApplied(
+                                                                   dialogContext,
+                                                                   state.config.id,
+                                                                   actionKey
+                                                               )
+                                                           }
+                                                      }
+                                                  }
+                                              )
+                                          }
+                                          AgentOperationLiquidButton(
+                                              text = when {
+                                                  alreadyApplied -> "已执行并验证：${agentPlanSummary(plan)}"
+                                                  executing -> "正在保存并核对…"
+                                                  else -> agentPlanButtonLabel(plan)
+                                              },
+                                              backdrop = backdrop,
+                                              config = state.config,
+                                              destructive = plan.actions.any {
+                                                  it.type == AgentValidatedActionType.DELETE ||
+                                                      it.type == AgentValidatedActionType.DELETE_SCHEDULE
+                                              },
+                                              applied = alreadyApplied,
+                                              enabled = !executing && !alreadyApplied,
+                                              modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false },
+                                              onClick = {
+                                                  if (actionKey !in appliedActionKeys.value) {
+                                                      val dispatch = {
+                                                          executingActionKeys += actionKey
+                                                          val inputMessage = messages.lastOrNull { it.role == "user" && it.id < message.id }
+                                                          val attachment = if (plan.actions.any { it.type == AgentValidatedActionType.OPEN_IMPORT } && inputMessage != null)
+                                                              agentImportAttachmentFile(dialogContext.filesDir, inputMessage.content) else null
+                                                          val dispatchedPlan = if (attachment != null)
+                                                              AgentPlan(plan.actions.map { action ->
+                                                                  if (action.type == AgentValidatedActionType.OPEN_IMPORT)
+                                                                      action.copy(importAttachmentUri = android.net.Uri.fromFile(attachment).toString()) else action
+                                                              })
+                                                              else plan
+                                                          onAgentAction(dispatchedPlan) { result ->
+                                                              executingActionKeys -= actionKey
+                                                              actionFeedback = actionFeedback + (actionKey to result)
+                                                               if (result.success && result.verified) {
+                                                                  appliedActionKeys.value =
+                                                                      appliedActionKeys.value + actionKey
+                                                                  DayAgentPreferences.markActionApplied(
+                                                                      dialogContext,
+                                                                      state.config.id,
+                                                                      actionKey
+                                                                  )
+                                                              }
+                                                          }
+                                                      }
+                                                      if (plan.actions.any { it.type == AgentValidatedActionType.OPEN_SETTINGS ||
+                                                          it.type == AgentValidatedActionType.OPEN_IMPORT ||
+                                                          it.type == AgentValidatedActionType.ACTIVATE_SCHEDULE }) {
+                                                          dismissAnimated(afterDismiss = dispatch)
+                                                      } else {
+                                                          dispatch()
+                                                      }
+                                                  }
+                                              }
+                                          )
+                                     }
+                                 }
+                             }
+                         }
+                           if (runStatuses.isNotEmpty() && tracedAssistantMessageId == null &&
+                               (!homePresentation || (sending && streamingParts.answer.isBlank()))) {
+                               item {
+                                    if (homePresentation) AgentRunStatusRow(
+                                        status = runStatuses.last(), foreground = foreground, shimmer = sending
+                                    ) else AgentRunTrace(
+                                       statuses = runStatuses,
+                                       expanded = runStatusesExpanded,
+                                       foreground = foreground,
+                                       active = sending,
+                                       onToggle = {
+                                          runStatusesExpanded = !runStatusesExpanded
+                                      }
+                                  )
+                              }
+                          }
+                          if (!homePresentation && streamingParts.reasoning.isNotBlank()) {
+                              item {
+                                  AgentReasoningTrace(
+                                      reasoning = streamingParts.reasoning,
+                                      foreground = foreground,
+                                      forceCollapsed = streamingParts.answer.isNotBlank()
+                                  )
+                              }
+                          }
+                           if (streamingParts.answer.isNotBlank()) {
+                              item {
+                                  val streamingDisplayText = remember(streamingParts.answer, facts.sourceHash) {
+                                      parseAgentActions(streamingParts.answer, facts).displayText
+                                  }
+                                  AgentMarkdownText(
+                                      streamingDisplayText,
+                                     foreground,
+                                     answerTextStyle,
+                                     spacious = homePresentation
+                                 )
+                              }
+                          }
+                           if (sending && streamingText.isBlank() && runStatuses.isEmpty()) {
+                              item {
+                                  AgentRunStatusRow(
+                                      status = AgentRunStatus(
+                                          AgentRunStatusIcon.THINKING,
+                                          "正在准备"
+                                       ),
+                                       foreground = foreground,
+                                       shimmer = true
+                                   )
+                              }
+                          }
+                         (error ?: attachmentError)?.let { message ->
+                             item { Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium) }
+                         }
+                     }
+                 }
+                if (homePresentation && !homeFullScreen && homeHasReply) {
+                    Box(
+                        Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(homeHandleHeight)
+                            .graphicsLayer {
+                                alpha = homeResponseMotion.value.coerceIn(0f, 1f)
+                            }
+                            .semantics {
+                                contentDescription = "下拉进入全屏，上划关闭助手"
+                                customActions = listOf(CustomAccessibilityAction("关闭助手") { dismissAnimated(); true })
+                            }
+                            .pointerInput(homeHasReply, closing) {
+                                var dragY = 0f
+                                val dismissThreshold = 24.dp.toPx()
+                                detectVerticalDragGestures(
+                                    onDragStart = { dragY = 0f },
+                                    onDragCancel = { dragY = 0f },
+                                    onDragEnd = {
+                                        if (dragY <= -dismissThreshold) dismissAnimated()
+                                        dragY = 0f
+                                    }
+                                ) { change, distance ->
+                                    dragY += distance
+                                    change.consume()
+                                }
+                            }
+                            .clickable(role = Role.Button) { keyboard?.hide(); homeFullScreen = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Box(Modifier.size(36.dp, 4.dp).clip(Capsule()).background(Color.White.copy(alpha = 0.65f)))
+                    }
+                }
+            }
+
+              // Later siblings sample the finished card, never the wallpaper or themselves.
+              if (!homePresentation || homeFullScreen) Box(
+                  Modifier.offset {
+                      val frame = conversationGeometry()
+                      IntOffset(frame.left.roundToInt(), frame.top.roundToInt())
+                  }.assistantMorphBounds(::conversationGeometry).graphicsLayer {
+                      shape = if (homePresentation) homeShellShape() else RoundedCornerShape(32.dp)
+                      clip = !homeFullScreenSettled
+                      alpha = if (homePresentation) fullMotion.drop.value.coerceIn(0f, 1f) *
+                          (if (closing) homeDockFade.value else homeMotion.drop.value.coerceIn(0f, 1f))
+                          else agentSmoothStep(0.38f, 0.92f, expansion.value)
+                  }
+              ) {
+                  ProgressiveBackdropBlur(
+                      backdrop = if (homePresentation) homeFinishedBackdrop else agentCardContentBackdrop,
+                      modifier = if (homePresentation) Modifier.align(Alignment.BottomCenter) else Modifier,
+                      tintColor = if (homePresentation) Color.Black else sourceForeground,
+                      height = if (homePresentation)
+                          inputInsets.bottom +
+                              homeInputHeight + 72.dp else 52.dp,
+                      blurRadius = 9.dp,
+                      tintIntensity = 0f,
+                      direction = if (homePresentation) ProgressiveBlurDirection.BottomToTop
+                          else ProgressiveBlurDirection.TopToBottom,
+                      topMaskFadeStart = 0.20f,
+                      radiusFadeStart = 0.10f,
+                      fallbackTintStops = listOf(0f to Color.Black.copy(alpha = 0.10f), 1f to Color.Transparent)
+                  )
+                  if (homePresentation) Box(
+                      Modifier.align(Alignment.TopEnd).padding(
+                          top = adaptiveMetrics.safeTop + (homeTopBarHeight - 48.dp) / 2f,
+                          end = SleepDownDesignTokens.SecondaryPage.HorizontalPadding - (48.dp - homeWindowButtonSize) / 2f
+                      )
+                  ) {
+                      AgentWindowIconButton(
+                          backdrop = homeFinishedBackdrop, config = state.config, collapse = true,
+                          onClick = { keyboard?.hide(); homeFullScreen = false }
+                      )
+                  }
+                  else Row(
+                      Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically
+                  ) {
+                      Text("✦ AI 助理", color = foreground, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                      Text(providerName, color = foreground.copy(alpha = 0.58f), style = MaterialTheme.typography.labelSmall)
+                  }
+              }
+
+
+              val composerVisible by remember(homePresentation, homeResponseVisible, homeFullScreen) { derivedStateOf {
+                  !homePresentation || !homeResponseVisible || homeFullScreen ||
+                      homeResponseMotion.isRunning || fullMotion.drop.isRunning ||
+                      homeResponseMotion.value < 1f || fullMotion.drop.value > 0.001f
+              } }
+              if (composerVisible) AgentInputLiquidCapsule(
+                     backdrop = composerBackdrop,
+                    foreground = foreground,
+                    config = state.config,
+                    heightOverride = homeInputHeight.takeIf { homePresentation },
+                    expanded = imageAttachment != null && !compactHomeInput,
+                    sharedInteractiveHighlight = if (compactHomeInput) homeInputInteraction else null,
+                    surfaceVisibility = { if (homePresentation) fullMotion.drop.value.coerceIn(0f, 1f) else 1f },
+                    modifier = (if (homePresentation) {
+                        Modifier.width(homeComposerWidth).offset {
+                            IntOffset(((windowWidth - homeComposerWidth).toPx() / 2f).roundToInt(),
+                                homeComposerTopPx().roundToInt())
+                        }.then(if (compactHomeInput && !homeHasReply) homeExpandGesture else Modifier).graphicsLayer {
+                            alpha = ((homeMotion.drop.value - 0.35f) / 0.55f).coerceIn(0f, 1f)
+                            alpha *= 1f - homeResponseMotion.value.coerceIn(0f, 1f) *
+                                (1f - fullMotion.drop.value.coerceIn(0f, 1f))
+                        }.drawWithContent {
+                            val frame = conversationGeometry()
+                            val left = (windowWidth.toPx() - homeComposerWidth.toPx()) / 2f
+                            val top = homeComposerTopPx()
+                            // The already laid-out input is revealed with the same moving shell.
+                            clipRect(frame.left - left, frame.top - top, frame.right - left, frame.bottom - top) {
+                                this@drawWithContent.drawContent()
+                            }
+                        }
+                    } else Modifier
+                        .align(
+                            if (anchoredTabletConversation) Alignment.BottomStart
+                            else Alignment.BottomCenter
+                        )
+                        .then(
+                            if (anchoredTabletConversation) {
+                                Modifier
+                                    .offset(x = with(density) { targetLeftPx.toDp() })
+                                    .width(answerWidth)
+                            } else {
+                                Modifier.fillMaxWidth()
+                            }
+                        )
+                        .floatingInputPadding(inputInsets)
+                        .padding(
+                            horizontal = if (anchoredTabletConversation) 0.dp else 14.dp,
+                            vertical = 10.dp
+                        )
+                        .graphicsLayer {
+                            val p = expansion.value
+                            alpha = ((p - 0.12f) / 0.58f).coerceIn(0f, 1f)
+                            val scale = 0.94f + 0.06f * p
+                            scaleX = scale
+                            scaleY = scale
+                            translationY = 18.dp.toPx() * (1f - p)
+                        })
+                        .onGloballyPositioned { inputCapsuleBounds = it.boundsInRoot() },
+                    shape = if (imageAttachment == null) {
+                        RoundedRectangle(cornerRadius = 28.dp, style = RoundedCornerStyle.Continuous)
+                    } else {
+                        RoundedRectangle(cornerRadius = 26.dp, style = RoundedCornerStyle.Continuous)
+                    },
+                    tokens = GlassTokens.dialog(intensity = 1f).copy(
+                        blur = 16.dp,
+                        surfaceAlpha = if (homePresentation) 0.22f else if (appUsesDarkTheme(state.config)) 0.08f else 0.14f,
+                        shadowAlpha = 0.06f
+                    ),
+                    baseSurfaceColorOverride = if (homePresentation) Color.Black else Color.White,
+                    interactionEnabledAt = { _: Size, localOffset: Offset ->
+                        val rootOffset = Offset(
+                            x = inputCapsuleBounds.left + localOffset.x,
+                            y = inputCapsuleBounds.top + localOffset.y
+                        )
+                        compactHomeInput || !textInputBounds.contains(rootOffset)
+                    }
+            ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(start = if (compactHomeInput) 12.dp else 8.dp, end = if (compactHomeInput) 4.dp else 8.dp)
+                    ) {
+                         imageAttachment?.takeUnless { compactHomeInput }?.let { attachment ->
+                             Row(
+                                 modifier = Modifier
+                                      .padding(start = 44.dp, end = 4.dp)
+                                      .fillMaxWidth()
+                                      .height(36.dp),
+                                 verticalAlignment = Alignment.CenterVertically
+                             ) {
+                                 Text(
+                                     text = "图片 · ${attachment.sourceName}",
+                                    color = foreground.copy(alpha = 0.72f),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    maxLines = 1,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Text(
+                                    text = "×",
+                                    color = foreground,
+                                    modifier = Modifier
+                                        .clip(CircleShape)
+                                        .clickable { imageAttachment = null }
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                )
+                            }
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                             if (!compactHomeInput && (attachmentUploadEnabled || onImportFile != null)) {
+                                     AgentAttachmentPopup(
+                                         show = attachmentMenuExpanded,
+                                         imagesEnabled = attachmentUploadEnabled, filesEnabled = onImportFile != null,
+                                         config = state.config, backdrop = agentInputBackdrop, foreground = foreground,
+                                         onDismiss = { attachmentMenuExpanded = false },
+                                         onToggle = { attachmentMenuExpanded = !attachmentMenuExpanded },
+                                         onImage = { imagePicker.launch("image/*") },
+                                         onFile = { importFilePicker.launch(arrayOf("*/*")) }
+                                     )
+                             }
+                            if (compactHomeInput && homeResponseVisible) Text(
+                                homeSubmittedText,
+                                color = foreground,
+                                style = MaterialTheme.typography.bodyLarge,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            ) else AgentComposerTextField(
+                                inputState = inputState,
+                                focusRequester = focusRequester,
+                                foreground = foreground,
+                                onBoundsChanged = { textInputBounds = it },
+                                multiline = homePresentation,
+                                onHeightChanged = { composerTextHeightPx = it },
+                                onSend = { send() },
+                                modifier = Modifier.weight(1f)
+                            )
+                            if (!compactHomeInput) AiRuntimePicker(
+                                state = runtimePickerState,
+                                config = state.config,
+                                backdrop = agentInputBackdrop,
+                                labelMaxWidth = 72.dp,
+                                embedded = true,
+                                foregroundOverride = foreground,
+                                onSettingsChanged = { next ->
+                                    agentAiSettings = next
+                                    if (!AiProviderPresets.supportsImageInput(next.profile)) {
+                                        imageAttachment = null
+                                        attachmentMenuExpanded = false
+                                    }
+                                }
+                            )
+                            if (compactHomeInput) AgentCapsuleSendButton(
+                                sending = sending,
+                                enabled = sending || inputState.value.isNotBlank(),
+                                onClick = ::toggleSend
+                            ) else AgentSendLiquidButton(
+                                backdrop = agentInputBackdrop,
+                                sending = sending,
+                                onClick = ::toggleSend
+                            )
+                        }
+                    }
+                }
+                }
+         LaunchedEffect(Unit) {
+              backgroundMotionState.progress.snapTo(0f)
+              backgroundMotionState.backgroundZoom.snapTo(1f)
+              // Commit the p=0 source snapshot to the Dialog window before hiding the real
+              // card below it. A second frame applies that hide while expansion is still zero,
+              // eliminating the one-frame hole between the two layers.
+              withFrameNanos { }
+              onOverlayReady()
+              withFrameNanos { }
+              coroutineScope {
+                 launch {
+                     if (homePresentation) {
+                         launch { homeMotion.animateTo(1f, overshoot = !homeInitiallyFullScreen) }
+                         expansion.animateTo(1f, tween(320))
+                     } else expansion.animateTo(
+                          1f,
+                          tween(AgentMorphOpenDurationMillis, easing = LinearEasing)
+                     )
+                 }
+                  if (!anchoredTabletConversation && !homePresentation) {
+                      launch {
+                          backgroundMotionState.progress.animateTo(
+                              1f,
+                              tween(BACKGROUND_OPEN_DURATION, easing = BackgroundOpenEasing)
+                          )
+                      }
+                  }
+                 // The background depth trails the card on a longer ease-out so it keeps
+                 // receding after the card has opened — the inertial pull on the home surface.
+                  if (!anchoredTabletConversation && !homePresentation) {
+                      launch {
+                          backgroundMotionState.backgroundZoom.animateTo(
+                              DayAgentBackgroundZoomRestScale,
+                              tween(
+                                  DayAgentBackgroundZoomOpenDurationMillis,
+                                  easing = CubicBezierEasing(0.16f, 0.84f, 0.24f, 1.0f)
+                              )
+                          )
+                      }
+                  }
+             }
+             if (!homePresentation || (!homeResponseVisible && !homeFullScreen)) {
+                 focusRequester.requestFocus()
+                 keyboard?.show()
+             }
+             initialQuestion?.takeIf { it.isNotBlank() }?.let(::send)
+         }
+       LaunchedEffect(sending) {
+           if (!sending) return@LaunchedEffect
+           snapshotFlow { streamingText.length }.collect {
+               withFrameNanos { }
+               val lastIndex = conversationListState.layoutInfo.totalItemsCount - 1
+               if (lastIndex >= 0) {
+                   conversationListState.scrollToItem(lastIndex, Int.MAX_VALUE)
+               }
+           }
+       }
+       LaunchedEffect(messages.size, error) {
+           withFrameNanos { }
+           val lastIndex = conversationListState.layoutInfo.totalItemsCount - 1
+           if (lastIndex >= 0) {
+               conversationListState.scrollToItem(lastIndex, Int.MAX_VALUE)
+           }
+       }
+          }
+      }
+ }
+
+@Suppress("DEPRECATION")
+private fun keepHostBehindAgentIme(window: Window) {
+    // The Agent dialog owns IME resizing for its floating input. Keep the Activity window at its
+    // original height so the home Dock stays underneath the keyboard on phones and tablets.
+    window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+}
+
+private tailrec fun Context.findAgentHostActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findAgentHostActivity()
+    else -> null
+}

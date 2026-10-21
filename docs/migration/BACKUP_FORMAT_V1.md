@@ -5,6 +5,10 @@
 格式版本：`1`
 与 Room `databaseVersion` 完全独立。
 
+2026-10-08 扩展：`showNonCurrentWeekCourses` 默认关闭；调休 JSON 的 `allDayPlaceholder` 默认关闭；卡片布局增加独立的 `TOP` / `MIDDLE`，旧 `CENTERED` / `TOP_DOWN` 保持原有对齐；可选 `preferences.materialLevel` 保存三档材质偏好，旧包缺失时保留当前值。当前设备处于超级性能档时，恢复其他档位的备份不会解除该保护，须从通用设置主动切换。
+
+WebDAV 复用此格式与既有校验、预览、Replace 恢复流程，仅增加传输和可选调度。自动备份与恢复检查均需在本机开启，频率通过设置 Popup 选择；恢复检查只产生提示，绝不自动写入课表。WebDAV 凭据使用 Android Keystore 加密，存入 `noBackupFilesDir`，不进入 `.sleepdown`、系统备份、日志或错误报告。自动任务选项不进入普通备份，避免恢复到新设备后自动联网。详见 [#67 验收记录](../reports/ISSUE_67_2026-10-08.md)。
+
 ## 1. 目标和不变量
 
 `.sleepdown` 是面向用户的完整应用数据迁移包，不是 Room 数据库快照，也不是 Android Auto Backup 的替代 XML。它必须满足：
@@ -194,6 +198,8 @@ data.json 是独立于 Room Entity 的长期 DTO。枚举保存为协议字符�
 `config` 必须覆盖当前 `ScheduleConfigEntity` 的全部用户字段：
 
 - `totalWeeks`、`currentWeek`、`notificationLeadMinutes`、`termStartDate`、`autoCurrentWeek`、`termState`；
+
+  `autoCurrentWeek` 继续读写以兼容旧文件；当前产品始终开启日期推算，旧记录或恢复完成后的配置由 Repository 初始化为开启。`currentWeek` 保留为缺少开学日期时的周次依据；不为升级猜测开学日期，也不删除备份字段。
 - `notificationsEnabled`、`notificationMode`；
 - `wallpaperAssetId`（不再保存 `wallpaperUri`）、`wallpaperBlur`、`wallpaperBrightness`；
 - portrait/landscape 的 centerX、centerY、scale，以及 `wallpaperSourceWidth/Height`；
@@ -252,6 +258,14 @@ preferences.json 只允许明确定义的非敏感 DTO：
 AI provider DTO 可以包含 provider ID、展示名、provider type、非敏感 endpoint、model、capabilities、endpoint style、structured output/input mode、available models、reasoning effort 和用户选择；绝不能包含 `apiKey`、加密 API key、Authorization header 或任何 token。
 
 不进入 preferences.json：`course_alarm_prefs`、`live_update_service_state`、`app_update_state`、`pending_import_setup`、天气缓存、教务 Cookie、WebView state、PackageManager/permission/AlarmManager/AppWidget 实例状态。
+
+### 6.1 公共作息库与上课安静设置
+
+`savedPeriodSchemes` 是可选的公共作息列表。每项的 `sources`（课表名、原作息名）、`alternateNames`（归并前名称）和 `createdInLibrary`（手动新建）均为可选字段，旧备份缺省为空列表 / `false`，旧解析器可忽略新增字段。来源只保存名称，不引用 Room schedule / scheme ID。
+
+作息库恢复按内容归并，并保留本机已有的不同作息；相同 ID 对应不同时间时保留两份，不用备份覆盖本机编辑。整个列表缺省时保留本机公共库。Room 恢复后重新发现课表来源，避免复用旧 Room ID 的导入标记。课表中原有的节次与作息备份格式保持兼容。
+
+`courseQuietSettings` 为可选的应用全局设置，不按课表 ID 保存；勿扰与声音开关及时间偏移由所有课表共用。系统勿扰规则、权限和恢复运行态不进入该字段。
 
 AI import history 保留用户主动保存的导入记录；`aiImportHistoryRetentionDays` 显式保存现有 `retention_days`（允许 7、30、90、0），最多 10 条上限作为导出边界。历史 context JSON 中的截图应转为 asset ID，不应携带旧临时 URI。
 

@@ -1,13 +1,12 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.*
-
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
@@ -16,6 +15,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeInitialTopInset
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeTopOverlayHeight
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -187,7 +190,9 @@ internal data class HomeAdaptiveMetrics(
     val dayPaneGap: Dp,
     val tabletContentMargin: Dp,
     val tabletContentTop: Dp,
-    val animationArc: Dp
+    val animationArc: Dp,
+    val contentWidth: Dp = screenWidth,
+    val usesSidebar: Boolean = false
 ) {
     val isLargeScreen: Boolean
         get() = profile != HomeAdaptiveProfile.Phone
@@ -196,13 +201,32 @@ internal data class HomeAdaptiveMetrics(
         get() = profile == HomeAdaptiveProfile.TabletLandscape
 }
 
+/** Page geometry may shrink for navigation without reclassifying the actual window. */
+internal val LocalHomeAdaptiveMetrics = compositionLocalOf<HomeAdaptiveMetrics?> { null }
+
+internal fun HomeAdaptiveMetrics.withSidebarInsets(start: Dp, end: Dp, expanded: Boolean = true): HomeAdaptiveMetrics {
+    if (!isLargeScreen) return this
+    val availableWidth = (screenWidth - start - end).coerceAtLeast(1.dp)
+    val originalPaneSpace = (screenWidth - tabletContentMargin * 2 - dayPaneGap).coerceAtLeast(1.dp)
+    val availablePaneSpace = (availableWidth - tabletContentMargin * 2 - dayPaneGap).coerceAtLeast(1.dp)
+    return copy(
+        contentWidth = availableWidth,
+        usesSidebar = true,
+        daySidePaneWidth = (daySidePaneWidth *
+            (availablePaneSpace.value / originalPaneSpace.value).coerceAtMost(1f) +
+            if (expanded) availablePaneSpace * 0.055f else 0.dp)
+            .coerceAtMost(availablePaneSpace * 0.46f)
+    )
+}
+
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun rememberHomeAdaptiveMetrics(): HomeAdaptiveMetrics {
+    LocalHomeAdaptiveMetrics.current?.let { return it }
     val density = LocalDensity.current
     val windowSize = currentWindowSizeDp()
     val safeTop = with(density) {
-        WindowInsets.safeDrawing.getTop(this).toDp()
+        maxOf(WindowInsets.safeDrawing.getTop(this), WindowInsets.statusBarsIgnoringVisibility.getTop(this)).toDp()
     }
     val safeBottom = with(density) {
         // Keep all home geometry stable while an Agent Dialog owns the IME. On MIUI,
@@ -248,8 +272,8 @@ internal fun calculateHomeAdaptiveMetrics(
     val screenWidth = widthDp.dp
     val screenHeight = heightDp.dp
     val isLandscape = widthDp > heightDp
-    val isLargeScreen = widthDp >= 600 && heightDp >= 480
-    val isTabletLandscape = isLargeScreen && isLandscape && widthDp >= 840 && heightDp >= 560
+    val isLargeScreen = widthDp >= 600
+    val isTabletLandscape = isLargeScreen && isLandscape
     val aspect = widthDp.toFloat() / heightDp.toFloat().coerceAtLeast(1f)
     val isThreeTwoLike = isTabletLandscape && aspect in 1.35f..1.75f
     val baseWeekTop = HomeInitialTopInset - 22.dp
@@ -274,7 +298,9 @@ internal fun calculateHomeAdaptiveMetrics(
             safeBottom = safeBottom,
             isThreeTwoLike = false,
             topOverlayHeight = HomeTopOverlayHeight,
-            topGradientHeight = HomeTopOverlayHeight,
+            // The top gradient extends well past the week's fixed header band so the boundless
+            // header reads as a continuation of the app top bar chrome.
+            topGradientHeight = 230.dp,
             dayContentTopPadding = compactDayTop,
             weekTopSpacerHeight = compactWeekTop,
             daySidePaneWidth = 0.dp,
@@ -294,7 +320,9 @@ internal fun calculateHomeAdaptiveMetrics(
             safeBottom = safeBottom,
             isThreeTwoLike = false,
             topOverlayHeight = HomeTopOverlayHeight,
-            topGradientHeight = HomeTopOverlayHeight,
+            // The top gradient extends well past the week's fixed header band so the boundless
+            // header reads as a continuation of the app top bar chrome.
+            topGradientHeight = 230.dp,
             dayContentTopPadding = compactDayTop.coerceIn(100.dp, 116.dp),
             weekTopSpacerHeight = compactWeekTop,
             daySidePaneWidth = 0.dp,
@@ -305,13 +333,16 @@ internal fun calculateHomeAdaptiveMetrics(
         )
     }
 
-    val topOverlay = (safeTop + if (isThreeTwoLike) 96.dp else 104.dp).coerceIn(104.dp, 132.dp)
-    val contentTop = (safeTop + if (isThreeTwoLike) 76.dp else 84.dp).coerceIn(84.dp, 112.dp)
+    val compactLandscape = heightDp < 560 || widthDp < 840
+    val topOverlay = if (compactLandscape) safeTop + 66.dp else
+        (safeTop + if (isThreeTwoLike) 96.dp else 104.dp).coerceIn(104.dp, 132.dp)
+    val contentTop = if (compactLandscape) safeTop + 68.dp else
+        (safeTop + if (isThreeTwoLike) 76.dp else 84.dp).coerceIn(84.dp, 112.dp)
     // The day view's left rail is a working pane (date + Today Agent), not a narrow summary
     // sidebar. Give it enough room for a readable conversation while retaining a larger safe
     // margin at both window edges on tablets.
-    val sidePaneWidth = (screenWidth * if (isThreeTwoLike) 0.38f else 0.39f)
-        .coerceIn(384.dp, 520.dp)
+    val sidePaneWidth = if (compactLandscape) screenWidth * 0.38f else
+        (screenWidth * if (isThreeTwoLike) 0.38f else 0.39f).coerceIn(384.dp, 520.dp)
     return HomeAdaptiveMetrics(
         profile = HomeAdaptiveProfile.TabletLandscape,
         screenWidth = screenWidth,
@@ -320,12 +351,12 @@ internal fun calculateHomeAdaptiveMetrics(
         safeBottom = safeBottom,
         isThreeTwoLike = isThreeTwoLike,
         topOverlayHeight = topOverlay,
-        topGradientHeight = topOverlay + 10.dp,
+        topGradientHeight = topOverlay + 90.dp,
         dayContentTopPadding = contentTop,
         weekTopSpacerHeight = (contentTop - 30.dp).coerceIn(54.dp, 82.dp),
         daySidePaneWidth = sidePaneWidth,
-        dayPaneGap = 20.dp,
-        tabletContentMargin = if (isThreeTwoLike) 38.dp else 40.dp,
+        dayPaneGap = if (compactLandscape) 12.dp else 20.dp,
+        tabletContentMargin = if (compactLandscape) 16.dp else if (isThreeTwoLike) 38.dp else 40.dp,
         tabletContentTop = contentTop,
         animationArc = 40.dp
     )
@@ -379,5 +410,8 @@ internal fun adaptiveWeekCardCornerRadius(
     } else {
         baseRadius + (maximumRadius - baseRadius) * (safeProgress - 0.5f) * 2f
     }
-    return radius.dp
+    // 大屏（宽窗口）在滑块基础上再扩大一截曲率，短卡仍保持不塌成胶囊
+    val tabletBoost = if (shortWindowEdge >= 600f) 3f else 0f
+    val scaledRadius = (radius + tabletBoost).coerceAtMost(shortCardEdge * 0.34f)
+    return scaledRadius.dp
 }

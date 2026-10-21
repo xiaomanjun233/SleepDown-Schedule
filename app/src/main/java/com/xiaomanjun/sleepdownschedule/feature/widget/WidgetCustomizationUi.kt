@@ -1,59 +1,44 @@
 package com.xiaomanjun.sleepdownschedule.feature.widget
 
-import com.xiaomanjun.sleepdownschedule.feature.widget.providers.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
-import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
-
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
-
 import android.appwidget.AppWidgetManager
-import android.widget.FrameLayout
-import android.widget.RemoteViews
-import android.widget.Toast
-import android.view.ViewGroup
 import android.content.ComponentName
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Bundle
+import android.view.ViewGroup
+import android.widget.FrameLayout
+import android.widget.RemoteViews
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
-import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -62,6 +47,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -70,33 +56,53 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInWindow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.LiquidSlider
-import kotlinx.coroutines.Dispatchers
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidControlSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidMenuButton
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.material.controlAccentColor
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceSection
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionRow
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsToggleRow
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
+import com.xiaomanjun.sleepdownschedule.feature.agent.*
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
+import com.xiaomanjun.sleepdownschedule.feature.home.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.*
+import com.xiaomanjun.sleepdownschedule.feature.widget.providers.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.abs
 import top.yukonga.miuix.kmp.squircle.squircleClip
 
 private data class WidgetEditRequest(
@@ -129,6 +135,16 @@ fun WidgetCustomizationScreen(
     onEditorVisibilityChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
+    var showManualWidgetHelp by remember { mutableStateOf(false) }
+    if (showManualWidgetHelp) {
+        LiquidAlertDialog(
+            title = "手动添加方法",
+            message = "返回桌面，长按空白处，打开“小组件”或“添加小部件”，找到 SleepDown，再选择“今日课程 2×2”等组件。小米桌面可能需要继续进入“安卓小部件”。不同桌面版本的入口名称可能不同；普通桌面小组件无需安装额外的 ColorOS 课程组件。",
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { showManualWidgetHelp = false })),
+            backdrop = backdrop, config = state.config,
+            onDismissRequest = { showManualWidgetHelp = false }
+        )
+    }
     val scope = rememberCoroutineScope()
     val app = context.applicationContext as CourseScheduleApp
     val repository = app.widgetAppearanceRepository
@@ -142,7 +158,7 @@ fun WidgetCustomizationScreen(
     val topPadding = detailContentTopPadding() +
         if (adaptiveMetrics.isLargeScreen) 18.dp else 0.dp
 
-    fun installedIds(type: WidgetAppearanceVariant): IntArray {
+    fun providerComponent(type: WidgetAppearanceVariant): ComponentName {
         val provider = when (type) {
             WidgetAppearanceVariant.COURSES_LARGE -> TodayCoursesWidgetProvider::class.java
             WidgetAppearanceVariant.COURSES_SQUARE -> TodayCoursesSquareWidgetProvider::class.java
@@ -150,14 +166,18 @@ fun WidgetCustomizationScreen(
             WidgetAppearanceVariant.WEEK_SCHEDULE -> WeekScheduleWidgetProvider::class.java
             WidgetAppearanceVariant.TODAY_ASSISTANT -> TodayAssistantWidgetProvider::class.java
         }
-        return manager.getAppWidgetIds(ComponentName(context, provider))
+        return ComponentName(context, provider)
     }
+    fun installedIds(type: WidgetAppearanceVariant): IntArray = manager.getAppWidgetIds(providerComponent(type))
     val widgetTypes = ActiveWidgetAppearanceVariants
     val pagerState = rememberPagerState { widgetTypes.size }
     val selectedPage by remember(pagerState) {
         derivedStateOf { pagerState.settledPage.coerceIn(widgetTypes.indices) }
     }
     val selectedType = widgetTypes[selectedPage]
+    // Reuse the exact rendered previews already displayed by the pager. A pin request without
+    // EXTRA_APPWIDGET_PREVIEW can produce an empty confirmation sheet on the current launcher.
+    val widgetPreviews = remember { mutableStateMapOf<WidgetAppearanceVariant, RemoteViews>() }
 
     suspend fun reload() {
         appearances = repository.all()
@@ -230,7 +250,11 @@ fun WidgetCustomizationScreen(
     val currentId = WidgetDefaultAppearanceId
     val current = widgetAppearanceForType(appearances, selectedType, currentId)
     val darkPage = appUsesDarkTheme(state.config)
-    val hasWallpaper = current.wallpaperUri != null
+    val hasWallpaper = current.enabled && current.wallpaperUri != null
+    val hasBackgroundImage = appearances.any { it.variant == selectedType.key && it.wallpaperUri != null }
+    val backgroundEnabled = current.enabled || appearances.any {
+        it.variant == selectedType.key && it.enabled && it.wallpaperUri != null
+    }
 
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
@@ -315,7 +339,8 @@ fun WidgetCustomizationScreen(
                                         useParentSize = true,
                                         onBoundsChanged = {
                                             if (page == pagerState.currentPage) currentPreviewBounds = it
-                                        }
+                                        },
+                                        onRemoteViewsReady = { widgetPreviews[type] = it }
                                     )
                                 }
                                 Spacer(Modifier.height(8.dp))
@@ -326,6 +351,32 @@ fun WidgetCustomizationScreen(
                     ProjectPagerIndicator(
                         pagerState = pagerState,
                         pageCount = widgetTypes.size
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                    LiquidMenuButton(
+                        backdrop = backdrop,
+                        label = "添加到桌面",
+                        onClick = {
+                            if (requiresManualWidgetPin(android.os.Build.BRAND, android.os.Build.MANUFACTURER)) {
+                                showManualWidgetHelp = true
+                            } else {
+                                try {
+                                    val preview = widgetPinPreview(context, selectedType, widgetPreviews[selectedType])
+                                    val extras = Bundle().apply { putParcelable(AppWidgetManager.EXTRA_APPWIDGET_PREVIEW, preview) }
+                                    requestWidgetPin(context, providerComponent(selectedType), extras)
+                                } catch (error: Exception) {
+                                    android.util.Log.e("WidgetPreview", "Unable to prepare pin preview for ${selectedType.key}", error)
+                                    Toast.makeText(context, "小组件预览生成失败，请稍后重试", Toast.LENGTH_LONG).show()
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f),
+                        textColorOverride = Color.White,
+                        surfaceColorOverride = controlAccentColor(Color(0xFF0A84FF)).copy(alpha = 0.72f)
                     )
                     LiquidMenuButton(
                         backdrop = backdrop,
@@ -338,7 +389,7 @@ fun WidgetCustomizationScreen(
                                 currentPreviewBounds
                             )
                         },
-                        modifier = Modifier.width(132.dp),
+                        modifier = Modifier.weight(1f),
                         textColorOverride = if (darkPage) Color.White else Color.Black,
                         surfaceColorOverride = if (darkPage) {
                             Color(0xFF4A4A4F).copy(alpha = 0.72f)
@@ -346,7 +397,16 @@ fun WidgetCustomizationScreen(
                             Color.White.copy(alpha = 0.74f)
                         }
                     )
+                    }
                 }
+            }
+            item {
+                SettingsActionRow(
+                    title = "手动添加方法",
+                    subtitle = "桌面没有响应时，也可以从小组件菜单添加",
+                    buttonText = "查看", iconRes = R.drawable.ic_courses,
+                    backdrop = backdrop, onClick = { showManualWidgetHelp = true }
+                )
             }
             item {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -355,12 +415,18 @@ fun WidgetCustomizationScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsToggleRow(
                         title = "使用自定义背景",
-                        subtitle = if (current.wallpaperUri == null) "先选择一张图片" else "关闭不会删除图片和取景",
-                        checked = current.enabled,
+                        subtitle = if (!hasBackgroundImage) "先选择一张图片" else "同时控制已添加的同类组件；关闭后保留各自图片与取景。",
+                        checked = backgroundEnabled,
                         backdrop = backdrop,
-                        enabled = current.wallpaperUri != null,
+                        enabled = hasBackgroundImage,
                         onCheckedChange = { enabled ->
-                            saveDefault(selectedType) { it.copy(enabled = enabled) }
+                            val targetType = selectedType
+                            appearances = appearances.map { if (it.variant == targetType.key) it.copy(enabled = enabled) else it }
+                            scope.launch {
+                                repository.setBackgroundEnabled(targetType, enabled)
+                                reload()
+                                refresh(targetType)
+                            }
                         }
                     )
                     SettingsDivider()
@@ -404,7 +470,7 @@ fun WidgetCustomizationScreen(
                         title = "恢复默认",
                         subtitle = "清除当前组件类型的背景",
                         buttonText = "恢复",
-                        iconRes = R.drawable.ic_download,
+                        iconRes = R.drawable.ic_refresh,
                         backdrop = backdrop,
                         onClick = {
                             val targetType = selectedType
@@ -495,8 +561,10 @@ private fun WidgetSliderRow(
             .padding(horizontal = 18.dp, vertical = 14.dp)
     ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(valueText, color = MaterialTheme.colorScheme.primary)
+            Text(title, style = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.headline1,
+                fontWeight = FontWeight.Medium)
+            Text(valueText, style = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.body2,
+                color = top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurfaceVariantSummary)
         }
         if (backdrop != null) {
             Box(Modifier.fillMaxWidth()) {
@@ -551,13 +619,16 @@ private fun WidgetRemoteViewsPreview(
     useParentSize: Boolean = false,
     transparentBackground: Boolean = false,
     onBoundsChanged: (Rect) -> Unit = {},
-    onReady: () -> Unit = {}
+    onReady: () -> Unit = {},
+    onRemoteViewsReady: (RemoteViews) -> Unit = {}
 ) {
     val context = LocalContext.current
     val renderSize = remember(type) { canonicalWidgetPreviewSize(type) }
+    val systemUiMode = androidx.compose.ui.platform.LocalConfiguration.current.uiMode
     var remoteViews by remember(type) { mutableStateOf<RemoteViews?>(null) }
     val latestOnReady = rememberUpdatedState(onReady)
-    LaunchedEffect(type, appearance, state, transparentBackground) {
+    val latestOnRemoteViewsReady = rememberUpdatedState(onRemoteViewsReady)
+    LaunchedEffect(type, appearance, state, transparentBackground, systemUiMode) {
         // Slider/crop gestures can emit dozens of appearance snapshots per second. Keep the
         // last valid preview on screen and collapse that burst into one expensive bitmap pass.
         if (remoteViews != null) delay(90)
@@ -633,6 +704,7 @@ private fun WidgetRemoteViewsPreview(
         rendered.exceptionOrNull()?.let { if (it is CancellationException) throw it }
         rendered.onSuccess { (views, _) ->
             remoteViews = views
+            latestOnRemoteViewsReady.value(views)
             latestOnReady.value()
         }.onFailure {
             android.util.Log.e("WidgetPreview", "Failed to render ${type.key} preview", it)
@@ -659,7 +731,7 @@ private fun WidgetRemoteViewsPreview(
         val scale = with(density) {
             (maxWidth.toPx() / renderSize.widthDp.dp.toPx()).coerceAtLeast(0.1f)
         }
-        AndroidView(
+        key(type) { AndroidView(
             factory = { viewContext ->
                 FrameLayout(viewContext).apply {
                     setBackgroundColor(android.graphics.Color.TRANSPARENT)
@@ -671,7 +743,7 @@ private fun WidgetRemoteViewsPreview(
                 val remote = remoteViews ?: return@AndroidView
                 if (host.tag !== remote) {
                     runCatching {
-                        if (host.childCount == 1 && host.tag != null) {
+                        if (host.childCount == 1 && (host.tag as? RemoteViews)?.layoutId == remote.layoutId) {
                             remote.reapply(host.context, host.getChildAt(0))
                         } else {
                             val view = remote.apply(host.context, host)
@@ -696,7 +768,7 @@ private fun WidgetRemoteViewsPreview(
                     scaleX = scale
                     scaleY = scale
                 }
-        )
+        ) }
     }
 }
 
@@ -844,7 +916,7 @@ private fun WidgetWallpaperEditor(
                 .size(cardWidth, cardHeight)
                 .graphicsLayer {
                     shadowElevation = 30.dp.toPx() * p
-                    shape = RoundedCornerShape(cardCorner)
+                    shape = RoundedRectangle(cardCorner)
                     clip = true
                 }
                 .background(Color(0xFF1C1C1E).copy(alpha = p)),
@@ -931,7 +1003,7 @@ private fun WidgetWallpaperEditor(
             WallpaperHeaderButton(
                 "完成",
                 backdrop,
-                Color(0xFF0A84FF).copy(alpha = 0.84f),
+                controlAccentColor(Color(0xFF0A84FF)).copy(alpha = 0.84f),
                 !closing && !sourceLoading && (uri == null || bitmap != null)
             ) {
                 val source = uri
@@ -987,7 +1059,7 @@ private fun WidgetWallpaperRoundAction(
     backdrop: Backdrop?,
     onClick: () -> Unit
 ) {
-    val surface = if (destructive) Color(0xFFFF453A).copy(alpha = 0.82f) else Color(0xFF0A84FF).copy(alpha = 0.86f)
+    val surface = if (destructive) Color(0xFFFF453A).copy(alpha = 0.82f) else controlAccentColor(Color(0xFF0A84FF)).copy(alpha = 0.86f)
     Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
         if (backdrop != null) {
             LiquidButton(
@@ -1007,7 +1079,7 @@ private fun WidgetWallpaperRoundAction(
             Surface(
                 onClick = onClick,
                 modifier = Modifier.size(56.dp),
-                shape = RoundedCornerShape(50),
+                shape = Capsule(),
                 color = surface
             ) {
                 Box(contentAlignment = Alignment.Center) {

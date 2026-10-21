@@ -9,6 +9,18 @@ import org.junit.Test
 class RemoteConfigModelsTest {
     private val json = Json { ignoreUnknownKeys = true }
 
+    @Test fun poolSupportsLegacyFallbackAndExplicitRevocation() {
+        val primary = RemoteAiConfig(true, 1, "one", "https://one.example/responses", "one", "responses", true, "AES-256-GCM", 1, 1, "nonce", "cipher", 10, 100)
+        val legacy = RemoteBootstrap(1, 10, ai = primary)
+        assertEquals(listOf(primary), legacy.managedAiConfigs())
+        assertEquals(emptyList<RemoteAiConfig>(), legacy.copy(aiConfigs = emptyList()).managedAiConfigs())
+        val backup = primary.copy(keyId = "two", configVersion = 2, priority = 10)
+        val current = legacy.copy(aiConfigs = listOf(backup, primary))
+        assertEquals(listOf(primary, backup), current.managedAiConfigs())
+        val encoded = Json.encodeToString(RemoteBootstrap.serializer(), current)
+        assertEquals(current, json.decodeFromString<RemoteBootstrap>(encoded))
+    }
+
     @Test
     fun bootstrapParsesUnknownFieldsAndOptionalSections() {
         val bootstrap = json.decodeFromString<RemoteBootstrap>(

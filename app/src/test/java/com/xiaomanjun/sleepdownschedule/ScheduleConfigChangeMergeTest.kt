@@ -1,10 +1,39 @@
 package com.xiaomanjun.sleepdownschedule
 
 import androidx.compose.ui.unit.dp
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeHeaderGlassTokens
+import com.xiaomanjun.sleepdownschedule.domain.schedule.withChangesFrom
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.mergePersonalizationCandidate
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.resolveActivePersonalizationSlider
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsSection
+import com.xiaomanjun.sleepdownschedule.feature.settings.TabletSettingsNavigationState
+import com.xiaomanjun.sleepdownschedule.feature.settings.shouldInterceptSettingsBack
+import com.xiaomanjun.sleepdownschedule.feature.settings.usesPersistentCenteredSettingsTitle
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScheduleConfigChangeMergeTest {
+    @Test
+    fun concurrentSettingsSavesPreserveAdjustmentDraftAndOtherChanges() {
+        val original = defaultConfig()
+        val adjustments = "[{\"date\":\"2026-10-01\"}]"
+        val latest = original.copy(darkMode = !original.darkMode)
+        val savedAdjustment = latest.withChangesFrom(original, original.copy(scheduleAdjustmentsJson = adjustments))
+        assertEquals(latest.darkMode, savedAdjustment.darkMode)
+        assertEquals(adjustments, savedAdjustment.scheduleAdjustmentsJson)
+
+        val savedNotifications = savedAdjustment.withChangesFrom(original,
+            original.copy(notificationLeadMinutes = 30))
+        assertEquals(adjustments, savedNotifications.scheduleAdjustmentsJson)
+        assertEquals(latest.darkMode, savedNotifications.darkMode)
+        assertEquals(30, savedNotifications.notificationLeadMinutes)
+    }
+
     @Test
     fun newSchedulesDefaultToCenteredDock() {
         val converters = ScheduleConverters()
@@ -17,6 +46,7 @@ class ScheduleConfigChangeMergeTest {
             LiveUpdateChipTextMode.NORMAL,
             converters.stringToLiveUpdateChipTextMode("SHORT")
         )
+        assertEquals(HomeStartMode.TWO_DAY, converters.stringToHomeStartMode("TWO_DAY"))
     }
 
     @Test
@@ -58,6 +88,7 @@ class ScheduleConfigChangeMergeTest {
         val database = defaultConfig(id = 4).copy(
             notificationLeadMinutes = 35,
             notificationsEnabled = false,
+            liveUpdateActionsEnabled = false,
             currentWeek = 8,
             darkMode = false,
             homeChromeBlurScale = 1.8f,
@@ -79,6 +110,7 @@ class ScheduleConfigChangeMergeTest {
 
         assertEquals(35, rebased.notificationLeadMinutes)
         assertEquals(false, rebased.notificationsEnabled)
+        assertEquals(false, rebased.liveUpdateActionsEnabled)
         assertEquals(8, rebased.currentWeek)
         assertEquals(false, rebased.followSystemDarkMode)
         assertEquals(true, rebased.darkMode)
@@ -137,7 +169,8 @@ class ScheduleConfigChangeMergeTest {
             notificationLeadMinutes = 35,
             notificationsEnabled = false,
             notificationMode = NotificationMode.LIVE_UPDATE,
-            liveUpdateChipTextMode = LiveUpdateChipTextMode.SHORT
+            liveUpdateChipTextMode = LiveUpdateChipTextMode.SHORT,
+            liveUpdateActionsEnabled = false
         )
 
         val merged = database.withNotificationSettingsFrom(notificationDraft)
@@ -149,6 +182,7 @@ class ScheduleConfigChangeMergeTest {
         assertEquals(false, merged.notificationsEnabled)
         assertEquals(NotificationMode.LIVE_UPDATE, merged.notificationMode)
         assertEquals(LiveUpdateChipTextMode.SHORT, merged.liveUpdateChipTextMode)
+        assertEquals(false, merged.liveUpdateActionsEnabled)
     }
 
     @Test
@@ -202,6 +236,31 @@ class ScheduleConfigChangeMergeTest {
 
         assertEquals(7f, afterBrightness.wallpaperBlur)
         assertEquals(0.55f, afterBrightness.wallpaperBrightness)
+    }
+
+    @Test
+    fun rapidWeekCardChangesDoNotRestoreStaleSwitchValues() {
+        val presented = defaultConfig(id = 3)
+        val afterLocation = mergePersonalizationCandidate(
+            presented, presented.copy(weekCardShowLocation = false), "week-location"
+        )
+        val afterTeacher = mergePersonalizationCandidate(
+            afterLocation, presented.copy(weekCardShowTeacher = false), "week-teacher"
+        )
+        val afterLayout = mergePersonalizationCandidate(
+            afterTeacher, presented.copy(weekCardContentLayout = WeekCardContentLayout.TOP_DOWN), "week-layout"
+        )
+
+        assertFalse(afterLayout.weekCardShowLocation)
+        assertFalse(afterLayout.weekCardShowTeacher)
+        assertEquals(WeekCardContentLayout.TOP_DOWN, afterLayout.weekCardContentLayout)
+
+        val afterLocationAgain = mergePersonalizationCandidate(
+            afterLayout, presented.copy(weekCardShowLocation = true), "week-location"
+        )
+        assertTrue(afterLocationAgain.weekCardShowLocation)
+        assertFalse(afterLocationAgain.weekCardShowTeacher)
+        assertEquals(WeekCardContentLayout.TOP_DOWN, afterLocationAgain.weekCardContentLayout)
     }
 
     @Test

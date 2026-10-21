@@ -12,12 +12,15 @@ pluginManagement {
             ?.takeIf { it.isDirectory }
             ?.let { localRepository -> maven { url = localRepository.toURI() } }
         mavenLocal()
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
+        val useMirrors = providers.gradleProperty("sleepdown.useMavenMirrors").map(String::toBoolean).getOrElse(true)
+        if (useMirrors) maven { url = uri("https://maven.aliyun.com/repository/google") }
         google()
         mavenCentral()
         gradlePluginPortal()
-        maven { url = uri("https://maven.aliyun.com/repository/central") }
-        maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+        if (useMirrors) {
+            maven { url = uri("https://maven.aliyun.com/repository/central") }
+            maven { url = uri("https://maven.aliyun.com/repository/gradle-plugin") }
+        }
     }
 }
 
@@ -57,15 +60,21 @@ dependencyResolutionManagement {
             ?.takeIf { it.isDirectory }
             ?.let { localRepository -> maven { url = localRepository.toURI() } }
         mavenLocal()
-        maven { url = uri("https://maven.aliyun.com/repository/google") }
+        val useMirrors = providers.gradleProperty("sleepdown.useMavenMirrors").map(String::toBoolean).getOrElse(true)
+        if (useMirrors) maven { url = uri("https://maven.aliyun.com/repository/google") }
         google()
         mavenCentral()
-        maven { url = uri("https://maven.aliyun.com/repository/central") }
-        maven { url = uri("https://maven.aliyun.com/repository/public") }
+        if (useMirrors) {
+            maven { url = uri("https://maven.aliyun.com/repository/central") }
+            maven { url = uri("https://maven.aliyun.com/repository/public") }
+        }
     }
 }
 
 rootProject.name = "CourseSchedule"
 include(":app")
 include(":benchmark")
+include(":coloros-wakeup-proxy")
+include(":kyant-backdrop")
+project(":kyant-backdrop").projectDir = file("third-party/kyant-backdrop")
 

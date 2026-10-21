@@ -1,0 +1,82 @@
+package com.xiaomanjun.sleepdownschedule.feature.importing.shiguang
+
+import com.xiaomanjun.sleepdownschedule.PeriodEntity
+import com.xiaomanjun.sleepdownschedule.defaultConfig
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
+import org.junit.Test
+
+class ShiguangImportSessionCustomTimeTest {
+    @Test fun sparseSchoolSlotsKeepOriginalNumbersAndClock() {
+        val session = ShiguangImportSession()
+        session.begin(defaultConfig(), basePeriods, allowImportedBellTimes = true)
+        session.stageTimeSlots("""[{"number":3,"startTime":"10:00","endTime":"10:45"},{"number":5,"startTime":"11:00","endTime":"11:45"}]""")
+        session.stageCourses("""[{"name":"课程","teacher":"","position":"","day":1,"startSection":5,"endSection":5,"weeks":[1,2]}]""")
+        val draft = session.complete()
+        assertEquals(listOf(1, 2), draft.periods.map { it.periodIndex })
+        assertEquals(listOf(5), draft.courses.single().periods)
+        assertEquals("11:00", draft.courses.single().customStartTime)
+        assertEquals("5,11:00-11:45", draft.courses.single().originalPeriodTimes)
+    }
+    @Test fun overlappingSchoolSlotsKeepBothOriginalClocksAndCourses() {
+        val session = ShiguangImportSession()
+        session.begin(defaultConfig(), basePeriods, allowImportedBellTimes = true)
+        session.stageTimeSlots("""[{"number":1,"startTime":"08:00","endTime":"09:00"},{"number":2,"startTime":"08:30","endTime":"09:30"}]""")
+        session.stageCourses("""[{"name":"早课","teacher":"","position":"","day":1,"startSection":1,"endSection":1,"weeks":[1,2]},
+            {"name":"晚课","teacher":"","position":"","day":1,"startSection":2,"endSection":2,"weeks":[1,2]}]""")
+        val draft = session.complete()
+        assertEquals(2, draft.courses.size)
+        assertEquals(listOf(2), draft.courses.last().periods)
+        assertEquals("08:00", draft.courses.first().customStartTime)
+        assertEquals("09:00", draft.courses.first().customEndTime)
+        assertEquals("08:30", draft.courses.last().customStartTime)
+        assertEquals("09:30", draft.courses.last().customEndTime)
+        assertEquals("2,08:30-09:30", draft.courses.last().originalPeriodTimes)
+        org.junit.Assert.assertNotNull(com.xiaomanjun.sleepdownschedule.feature.importing.importConflictNotice(draft))
+        val stored = com.xiaomanjun.sleepdownschedule.feature.importing.draftToPayload(draft).toString()
+        val restored = com.xiaomanjun.sleepdownschedule.feature.importing.ScheduleImportParser
+            .parseStoredDraft(stored, draft.config).getOrThrow()
+        assertEquals(draft.courses.map { it.customPeriodTimes }, restored.courses.map { it.customPeriodTimes })
+        assertEquals(draft.courses.map { it.originalPeriodTimes }, restored.courses.map { it.originalPeriodTimes })
+        assertEquals(draft.courses.map { it.periods }, restored.courses.map { it.periods })
+    }
+    private val basePeriods = listOf(
+        PeriodEntity(1, "08:20", "09:00"),
+        PeriodEntity(2, "09:15", "09:55"),
+        PeriodEntity(3, "10:20", "11:00"),
+        PeriodEntity(4, "11:15", "11:55")
+    )
+
+    @Test
+    fun explicitCourseTimeSurvivesWithoutCustomFlagAndKeepsSectionAnchors() {
+        val session = ShiguangImportSession()
+        session.begin(defaultConfig(), basePeriods, allowImportedBellTimes = true)
+        session.stageTimeSlots("""[
+          {"number":1,"startTime":"08:20","endTime":"09:00"},
+          {"number":2,"startTime":"09:15","endTime":"09:55"},
+          {"number":3,"startTime":"10:20","endTime":"11:00"},
+          {"number":4,"startTime":"11:15","endTime":"11:55"}
+        ]""")
+        session.stageCourses("""[{"name":"数控机床加工技术与实践","teacher":"","position":"实训中心","day":3,"startSection":3,"endSection":4,"weeks":[1,2,3],"customStartTime":"10:10","customEndTime":"11:45","customPeriodTimes":"3,10:10-10:50;4,11:05-11:45"}]""")
+
+        val draft = session.complete()
+        val course = draft.courses.single()
+
+        assertEquals("10:20", draft.periods.first { it.periodIndex == 3 }.startTime)
+        assertEquals(listOf(3, 4), course.periods)
+        assertEquals(listOf(1, 2, 3), course.weeks)
+        assertEquals("10:10", course.customStartTime)
+        assertEquals("11:45", course.customEndTime)
+        assertEquals("3,10:10-10:50;4,11:05-11:45", course.customPeriodTimes)
+    }
+
+    @Test
+    fun incompleteExactRangeIsRejectedInsteadOfFallingBackToGlobalPeriods() {
+        val session = ShiguangImportSession()
+        session.begin(defaultConfig(), basePeriods)
+
+        assertThrows(IllegalArgumentException::class.java) {
+            session.stageCourses("""[{"name":"实验课","teacher":"","position":"","day":3,"startSection":3,"endSection":4,"weeks":[1],"customStartTime":"10:10"}]""")
+        }
+    }
+}

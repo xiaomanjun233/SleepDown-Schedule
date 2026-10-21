@@ -8,28 +8,70 @@ class AppIconModeTest {
     fun launcherAliasClassNameUsesNamespaceInsteadOfVariantApplicationId() {
         assertEquals(
             "com.xiaomanjun.sleepdownschedule.LauncherFollow",
-            launcherAliasClassName(LauncherAlias.FOLLOW)
+            launcherAliasClassName(LauncherAlias.MINIMAL_FOLLOW)
+        )
+        assertEquals(
+            "com.xiaomanjun.sleepdownschedule.LauncherKanbanFollow",
+            launcherAliasClassName(LauncherAlias.KANBAN_FOLLOW)
         )
     }
 
     @Test
     fun explicitModesIgnoreThemeState() {
         assertEquals(
-            LauncherAlias.LIGHT,
-            resolveLauncherAlias(AppIconMode.LIGHT, followsSystemDarkMode = true, darkTheme = true)
+            LauncherAlias.MINIMAL_LIGHT,
+            resolveLauncherAlias(
+                AppIconMode.LIGHT,
+                AppIconStyle.MINIMAL,
+                followsSystemDarkMode = true,
+                darkTheme = true
+            )
         )
         assertEquals(
-            LauncherAlias.DARK,
-            resolveLauncherAlias(AppIconMode.DARK, followsSystemDarkMode = true, darkTheme = false)
+            LauncherAlias.MINIMAL_DARK,
+            resolveLauncherAlias(
+                AppIconMode.DARK,
+                AppIconStyle.MINIMAL,
+                followsSystemDarkMode = true,
+                darkTheme = false
+            )
+        )
+        assertEquals(
+            LauncherAlias.KANBAN_LIGHT,
+            resolveLauncherAlias(
+                AppIconMode.LIGHT,
+                AppIconStyle.KANBAN,
+                followsSystemDarkMode = true,
+                darkTheme = true
+            )
+        )
+        assertEquals(
+            LauncherAlias.KANBAN_DARK,
+            resolveLauncherAlias(
+                AppIconMode.DARK,
+                AppIconStyle.KANBAN,
+                followsSystemDarkMode = true,
+                darkTheme = false
+            )
         )
     }
 
     @Test
     fun followModeUsesDynamicAliasWhenAppFollowsSystem() {
         assertEquals(
-            LauncherAlias.FOLLOW,
+            LauncherAlias.MINIMAL_FOLLOW,
             resolveLauncherAlias(
                 AppIconMode.FOLLOW_DARK_MODE,
+                AppIconStyle.MINIMAL,
+                followsSystemDarkMode = true,
+                darkTheme = false
+            )
+        )
+        assertEquals(
+            LauncherAlias.KANBAN_FOLLOW,
+            resolveLauncherAlias(
+                AppIconMode.FOLLOW_DARK_MODE,
+                AppIconStyle.KANBAN,
                 followsSystemDarkMode = true,
                 darkTheme = false
             )
@@ -39,17 +81,37 @@ class AppIconModeTest {
     @Test
     fun followModeUsesAppThemeWhenDarkModeIsManual() {
         assertEquals(
-            LauncherAlias.LIGHT,
+            LauncherAlias.MINIMAL_LIGHT,
             resolveLauncherAlias(
                 AppIconMode.FOLLOW_DARK_MODE,
+                AppIconStyle.MINIMAL,
                 followsSystemDarkMode = false,
                 darkTheme = false
             )
         )
         assertEquals(
-            LauncherAlias.DARK,
+            LauncherAlias.MINIMAL_DARK,
             resolveLauncherAlias(
                 AppIconMode.FOLLOW_DARK_MODE,
+                AppIconStyle.MINIMAL,
+                followsSystemDarkMode = false,
+                darkTheme = true
+            )
+        )
+        assertEquals(
+            LauncherAlias.KANBAN_LIGHT,
+            resolveLauncherAlias(
+                AppIconMode.FOLLOW_DARK_MODE,
+                AppIconStyle.KANBAN,
+                followsSystemDarkMode = false,
+                darkTheme = false
+            )
+        )
+        assertEquals(
+            LauncherAlias.KANBAN_DARK,
+            resolveLauncherAlias(
+                AppIconMode.FOLLOW_DARK_MODE,
+                AppIconStyle.KANBAN,
                 followsSystemDarkMode = false,
                 darkTheme = true
             )

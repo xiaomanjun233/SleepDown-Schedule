@@ -1,13 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.core.performance
 
-import com.xiaomanjun.sleepdownschedule.app.startup.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
-
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
-
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.PowerManager
@@ -15,13 +7,15 @@ import android.os.Trace
 import android.util.Log
 import android.view.View
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -30,21 +24,19 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.metrics.performance.JankStats
 import androidx.metrics.performance.PerformanceMetricsState
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassSceneSnapshot
 import com.xiaomanjun.sleepdownschedule.glass.GlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import java.util.LinkedHashMap
 import java.util.Locale
 import kotlin.math.ceil
-import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 enum class StartupPhase {
     Loading,
@@ -69,11 +61,6 @@ fun animatedGlassQuality(phase: StartupPhase): Float = when (phase) {
 
 val StartupPhase.isAtLeastEntrance: Boolean
     get() = this == StartupPhase.Entrance || this == StartupPhase.Settle || this == StartupPhase.FullQuality
-
-@Composable
-fun StartupPerformanceBoost(active: Boolean) {
-    // Glass quality is lowered elsewhere during heavy transitions; no CPU/GPU performance hint is requested here.
-}
 
 @Composable
 fun StartupJankStats(
@@ -525,13 +512,37 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
     val renderKey = remember(sourceKey, blurBucket) {
         homeWallpaperRenderKey(config, useDarkDefaultWallpaper)
     }
+    val explicitNoWallpaper = config.wallpaperUri.isNullOrBlank() &&
+        config.defaultWallpaperStyle == DefaultWallpaperStyle.NONE
     // Keep the last rendered image while only the blur bucket is changing.  Keying
     // this state by renderKey used to replace it with an empty bitmap for one frame,
     // which was visible as a flash whenever the blur slider crossed an integer.
-    val images = remember { mutableStateOf(synchronized(wallpaperRenderCache) {
-        wallpaperRenderCache[renderKey] ?: HomeWallpaperImages(null, null, null, blurBucket)
-    }) }
+    val images = remember {
+        mutableStateOf(
+            if (explicitNoWallpaper) {
+                HomeWallpaperImages(null, null, null, blurBucket, renderKey = renderKey)
+            } else {
+                synchronized(wallpaperRenderCache) {
+                    wallpaperRenderCache[renderKey] ?: HomeWallpaperImages(null, null, null, blurBucket)
+                }
+            }
+        )
+    }
     LaunchedEffect(renderKey) {
+        if (explicitNoWallpaper) {
+            val noWallpaper = HomeWallpaperImages(
+                source = null,
+                reducedSource = null,
+                blurredSource = null,
+                blurBucket = blurBucket,
+                representativeColors = DefaultCourseCardPalette,
+                readabilityBitmap = null,
+                renderKey = renderKey
+            )
+            synchronized(wallpaperRenderCache) { wallpaperRenderCache[renderKey] = noWallpaper }
+            images.value = noWallpaper
+            return@LaunchedEffect
+        }
         val cached = synchronized(wallpaperRenderCache) { wallpaperRenderCache[renderKey] }
         if (cached != null) {
             images.value = cached
@@ -550,13 +561,15 @@ fun rememberHomeWallpaperImages(config: ScheduleConfigEntity): State<HomeWallpap
                         synchronized(wallpaperSourceCache) { wallpaperSourceCache[sourceKey] = entry }
                     }
                 }
+                val blurredSource = createBlurredWallpaperBitmap(sourceEntry?.source, blurBucket)
                 HomeWallpaperImages(
                     source = sourceEntry?.source,
                     reducedSource = sourceEntry?.reducedSource,
-                    blurredSource = createBlurredWallpaperBitmap(sourceEntry?.source, blurBucket),
+                    blurredSource = blurredSource,
                     blurBucket = blurBucket,
                     representativeColors = sourceEntry?.representativeColors ?: DefaultCourseCardPalette,
-                    readabilityBitmap = sourceEntry?.readabilityBitmap,
+                    readabilityBitmap = if (blurredSource != null) createWallpaperReadabilityBitmap(blurredSource)
+                        else sourceEntry?.readabilityBitmap,
                     renderKey = renderKey
                 ).prepareToDraw()
             }.getOrElse {

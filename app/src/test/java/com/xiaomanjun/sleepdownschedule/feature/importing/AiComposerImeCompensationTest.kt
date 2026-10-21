@@ -1,6 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
-import com.xiaomanjun.sleepdownschedule.feature.importing.progress.aiComposerBottomInsetPx
+import com.xiaomanjun.sleepdownschedule.core.ui.layout.floatingInputBottomInsetPx
 
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -91,23 +91,6 @@ class AiComposerImeCompensationTest {
         )
     }
 
-    @Test
-    fun adjustResizeHostDoesNotApplyImeTwiceWhenMorphRootLooksUnchanged() {
-        assertEquals(
-            72,
-            aiComposerBottomInsetPx(
-                imeBottomPx = 900,
-                navigationBottomPx = 72,
-                baselineRootHeightPx = 2400,
-                currentRootHeightPx = 2400,
-                baselineRootTopOnScreenPx = 0,
-                currentRootTopOnScreenPx = 0,
-                tolerancePx = 24,
-                hostConsumesImeResize = true
-            )
-        )
-    }
-
     private fun inset(
         ime: Int,
         navigation: Int,
@@ -115,13 +98,9 @@ class AiComposerImeCompensationTest {
         currentHeight: Int,
         baselineTop: Int = 0,
         currentTop: Int = 0
-    ): Int = aiComposerBottomInsetPx(
-        imeBottomPx = ime,
-        navigationBottomPx = navigation,
-        baselineRootHeightPx = baselineHeight,
-        currentRootHeightPx = currentHeight,
-        baselineRootTopOnScreenPx = baselineTop,
-        currentRootTopOnScreenPx = currentTop,
-        tolerancePx = 24
+    ): Int = floatingInputBottomInsetPx(
+        ime, navigation,
+        if (baselineHeight > 0) baselineTop + baselineHeight else 0,
+        currentTop + currentHeight
     )
 }

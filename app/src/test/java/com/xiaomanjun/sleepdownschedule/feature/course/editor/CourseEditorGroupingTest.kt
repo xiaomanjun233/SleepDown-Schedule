@@ -27,17 +27,6 @@ class CourseEditorGroupingTest {
     )
 
     @Test
-    fun equivalentFragmentsOnDifferentWeekdaysUseSeparateEditorPages() {
-        val monday = course(1, weekday = 1, weeks = listOf(1, 2, 3))
-        val thursday = course(2, weekday = 4, weeks = listOf(6, 7, 8))
-
-        val groups = buildCourseEditorGroups(monday, listOf(monday, thursday))
-
-        assertEquals(2, groups.size)
-        assertEquals(listOf(1, 4), groups.map { it.representative?.weekday })
-    }
-
-    @Test
     fun equivalentFragmentsOnSameWeekdayShareOneEditorPage() {
         val earlyWeeks = course(1, weekday = 1, weeks = listOf(1, 2, 3))
         val lateWeeks = course(2, weekday = 1, weeks = listOf(6, 7, 8))
@@ -93,5 +82,43 @@ class CourseEditorGroupingTest {
                 selectedWeekdayCount = 1
             )?.id
         )
+    }
+
+    @Test
+    fun applyAllIncludesWeeksWithDifferentExactTimesButKeepsOtherCoursesSeparate() {
+        val original = course(41, weekday = 1, weeks = listOf(1, 2))
+            .copy(customStartTime = "10:10", customEndTime = "11:45")
+        val anotherTime = course(42, weekday = 1, weeks = listOf(3, 4))
+            .copy(customStartTime = "10:20", customEndTime = "11:55")
+        val otherTeacher = course(43, weekday = 1, weeks = listOf(5, 6), teacher = "周老师")
+
+        val scope = courseApplyAllScope(
+            original,
+            original.copy(customStartTime = "10:30", customEndTime = "12:00"),
+            listOf(original, anotherTime, otherTeacher)
+        )
+
+        assertEquals(setOf(41L, 42L), scope.originals.map(CourseEntity::id).toSet())
+        assertEquals(listOf(1, 2, 3, 4), scope.edited.weeks)
+        assertEquals("10:30", scope.edited.customStartTime)
+        assertEquals("12:00", scope.edited.customEndTime)
+    }
+
+    @Test
+    fun applyAllDoesNotCollapseConcurrentOrUnchangedTimeVariants() {
+        val original = course(41, weekday = 1, weeks = listOf(1, 2))
+            .copy(customStartTime = "10:10", customEndTime = "11:45")
+        val laterWeeks = course(42, weekday = 1, weeks = listOf(3, 4))
+            .copy(customStartTime = "10:20", customEndTime = "11:55")
+        val concurrent = course(43, weekday = 1, weeks = listOf(2, 5))
+            .copy(customStartTime = "10:30", customEndTime = "12:00")
+
+        val timeEdit = courseApplyAllScope(original, original.copy(customStartTime = "10:40"),
+            listOf(original, laterWeeks, concurrent))
+        val noteEdit = courseApplyAllScope(original, original.copy(note = "更新备注"),
+            listOf(original, laterWeeks, concurrent))
+
+        assertEquals(setOf(41L, 42L), timeEdit.originals.map(CourseEntity::id).toSet())
+        assertEquals(listOf(41L), noteEdit.originals.map(CourseEntity::id))
     }
 }

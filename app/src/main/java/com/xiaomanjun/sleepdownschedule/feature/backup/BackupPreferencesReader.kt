@@ -52,11 +52,13 @@ object BackupPreferencesReader {
         return BackupPreferencesExport(
             preferences = BackupPreferences(
                 preferencesVersion = BackupFormatV1.PREFERENCES_VERSION,
+                materialLevel = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.level.name,
                 appIcon = AppIconManager.backupPreferences(context),
                 dayAgent = DayAgentPreferences.backupPreferences(context, scheduleStableIdsByRoomId),
                 aiImport = AiImportSettingsStore.exportForBackup(context),
                 aiImportHistoryRetentionDays = AiImportHistoryStore.retentionDays(context),
-                aiImportHistory = backupHistories
+                aiImportHistory = backupHistories,
+                courseQuietSettings = com.xiaomanjun.sleepdownschedule.feature.reminder.CourseQuietPreferences.read(context)
             ),
             additionalAssets = historyAssets
         )

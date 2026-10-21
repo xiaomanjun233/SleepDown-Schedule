@@ -38,7 +38,7 @@ internal fun rememberScreenScaledBackdrop(
             scale = scale,
             rootPositionOnScreen = rootPositionOnScreen,
             rootSize = rootSize
-        )
+        ).also { com.xiaomanjun.sleepdownschedule.glass.GlassSourceDemand.link(it, backdrop) }
     }
 }
 

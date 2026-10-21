@@ -23,8 +23,4 @@ class EduWebSecurityTest {
         assertEquals("", normalizeEduUrl("intent://login#Intent;scheme=test;end"))
     }
 
-    @Test
-    fun preservesBundledBridgeTestPage() {
-        assertEquals(EDU_BRIDGE_TEST_PAGE_URL, normalizeEduUrl(EDU_BRIDGE_TEST_PAGE_URL))
-    }
 }

@@ -1,0 +1,985 @@
+package com.xiaomanjun.sleepdownschedule.feature.settings
+
+import android.view.HapticFeedbackConstants
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.*
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.kyant.backdrop.Backdrop
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceCategory
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsMinutePickerContent
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsPickerValueRow
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTimePickerContent
+import com.xiaomanjun.sleepdownschedule.domain.schedule.*
+import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekResizeCornerShape
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.model.*
+import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
+
+private val TimelineCourseColor = Color(0xFF0A84FF)
+private val TimelineBreakColor = Color(0xFFB078D8)
+private val TimelineEnterEasing = CubicBezierEasing(0.28f, 0f, 0.2f, 1f)
+private val TimelineExitEasing = CubicBezierEasing(0.4f, 0f, 0.7f, 1f)
+private val TimelineInsertEasing = CubicBezierEasing(0.2f, 0f, 0.2f, 1f)
+private val TimelineRemoveEasing = CubicBezierEasing(0.4f, 0f, 1f, 1f)
+private val TimelineMinuteHeight = 4.dp
+private val TimelineDragMinuteStep = 8.dp
+private const val TimelineEnterDuration = 480
+private fun timelineSceneProgress(progress: Float, closing: Boolean): Float =
+    if (closing) 1f - TimelineExitEasing.transform(1f - progress) else TimelineEnterEasing.transform(progress)
+
+private fun timelineRowProgress(progress: Float, order: Int, closing: Boolean): Float {
+    val delay = if (closing) order.coerceAtMost(8) * 0.018f
+        else 0.10f + order.coerceAtMost(8) * 0.032f
+    val elapsed = if (closing) 1f - progress else progress
+    val local = ((elapsed - delay) / if (closing) (1f - delay) else 0.48f).coerceIn(0f, 1f)
+    return if (closing) 1f - TimelineExitEasing.transform(local) else TimelineEnterEasing.transform(local)
+}
+
+private fun timelineRailProgress(progress: Float, closing: Boolean): Float =
+    if (closing) ((progress - 0.68f) / 0.32f).coerceIn(0f, 1f)
+    else TimelineEnterEasing.transform(((progress - 0.85f) / 0.15f).coerceIn(0f, 1f))
+// The moving action needs its position before the underlay starts to sink.
+private fun LayoutCoordinates.timelineBoundsInRoot() = Rect(
+    localToRoot(Offset.Zero), Size(size.width.toFloat(), size.height.toFloat())
+)
+internal fun PeriodDayPart.timelineLabel() = when (this) {
+    PeriodDayPart.MORNING -> "上午"
+    PeriodDayPart.NOON -> "中午"
+    PeriodDayPart.AFTERNOON -> "下午"
+    PeriodDayPart.EVENING -> "晚上"
+}
+
+private data class TimelineBlock(
+    val period: Int,
+    val part: PeriodDayPart,
+    val start: Int,
+    val end: Int,
+    val isBreak: Boolean = false,
+    val beforeFirst: Boolean = false
+) {
+    val key get() = when {
+        beforeFirst -> "leading-$part"
+        else -> "${if (isBreak) "break" else "lesson"}-$period"
+    }
+    val minutes get() = end - start
+    val title get() = if (beforeFirst) "课前间隔" else if (isBreak) "课间" else "第 $period 节"
+    val color get() = if (isBreak) TimelineBreakColor else TimelineCourseColor
+}
+
+/** Stored bells are authoritative for both the summary and the editor's entry points. */
+internal fun periodSchemeTimelineTimes(config: ScheduleConfigEntity, active: PeriodSchemeDraft): List<PeriodSchemeTimeEntity> =
+    if (active.times.isNotEmpty()) active.times.sortedBy { it.periodIndex }
+    else resolveSchemeTimes(config, active).sortedBy { it.periodIndex }
+
+private fun timelineBlocks(config: ScheduleConfigEntity, active: PeriodSchemeDraft,
+    includeLeading: Boolean = false): List<TimelineBlock> {
+    val times = periodSchemeTimelineTimes(config, active)
+    return buildList {
+        times.forEachIndexed { position, time ->
+            val part = PeriodDayPart.entries.firstOrNull { time.periodIndex in config.periodRange(it) } ?: return@forEachIndexed
+            val start = parseMinuteOfDay(time.startTime) ?: return@forEachIndexed
+            val end = parseMinuteOfDay(time.endTime) ?: return@forEachIndexed
+            if (includeLeading && time.periodIndex == config.periodRange(part).first) {
+                val anchor = timelinePartAnchorMinute(config, active, part)
+                if (start > anchor) add(TimelineBlock(time.periodIndex, part, anchor, start, true, beforeFirst = true))
+            }
+            add(TimelineBlock(time.periodIndex, part, start, end))
+            val next = times.getOrNull(position + 1)
+            if (next != null && next.periodIndex in config.periodRange(part)) {
+                // Keep a zero-minute break in the timeline so two back-to-back lessons stay editable.
+                val nextStart = parseMinuteOfDay(next.startTime)
+                if (nextStart != null && nextStart >= end) add(TimelineBlock(time.periodIndex, part, end, nextStart, true))
+            }
+        }
+    }
+}
+
+private fun TimelineBlock.stableKey(lessonKeys: List<Int>): String = when {
+    beforeFirst -> key
+    else -> "${if (isBreak) "break" else "lesson"}-${lessonKeys[period - 1]}"
+}
+
+private fun TimelineBlock.displayHeight(fontScale: Float): Dp =
+    (TimelineMinuteHeight * minutes).coerceAtLeast(72.dp * fontScale.coerceAtLeast(1f))
+
+private fun resizeTimelineEntry(session: PeriodTimelineSession, block: TimelineBlock, minutes: Int): PeriodTimelineSession {
+    return if (block.beforeFirst) resizeTimelineLeadingBreak(
+        session, block.part, minutes
+    ) else resizeTimelineBlock(session, block.period, block.isBreak, minutes)
+}
+
+/** Opening the timeline materializes automatic rules, which a rename must not overwrite. */
+internal fun preservePeriodSchemeMetadataForRename(
+    original: PeriodTimelineSession,
+    edited: PeriodTimelineSession
+): PeriodTimelineSession {
+    val withoutRename = edited.updateActive(edited.active.copy(scheme = edited.active.scheme.copy(
+        name = original.active.scheme.name)))
+    return if (!withoutRename.hasChangesFrom(original)) {
+        original.updateActive(original.active.copy(scheme = original.active.scheme.copy(
+            name = edited.active.scheme.name)))
+    } else edited
+}
+
+@Composable
+internal fun PeriodSchemeEditor(
+    state: AppState,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    draft: SchedulePeriodSchemesDraft,
+    onDraftChange: (SchedulePeriodSchemesDraft) -> Unit,
+    onCountsChange: (Int, Int, Int, Int) -> Unit,
+    topPadding: androidx.compose.ui.unit.Dp,
+    leadingContent: @Composable () -> Unit,
+    managementContent: (@Composable (hideSource: Boolean) -> Unit)? = null,
+    managementRequest: PeriodSchemeManagementRequest? = null,
+    onSaveSession: (suspend (PeriodTimelineSession) -> Unit)? = null,
+    onEditorFinished: () -> Unit = {},
+    exitCommitRequest: Int = 0,
+    exitCoordinator: PeriodEditorExitCoordinator? = null
+) {
+    val active = draft.schemes.firstOrNull { it.scheme.id == draft.activeSchemeId } ?: return
+    val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
+    val chromeProgress = LocalSettingsEditorProgress.current
+    var session by remember(config.id) { mutableStateOf<PeriodTimelineSession?>(null) }
+    var initialSession by remember(config.id) { mutableStateOf<PeriodTimelineSession?>(null) }
+    var showWizard by remember { mutableStateOf(false) }
+    var showExitConfirmation by remember { mutableStateOf(false) }
+    var deletingBlock by remember { mutableStateOf<TimelineBlock?>(null) }
+    var pickingBlock by remember { mutableStateOf<TimelineBlock?>(null) }
+    var pickingPart by remember { mutableStateOf<PeriodDayPart?>(null) }
+    var requestedBlock by remember { mutableStateOf<TimelineBlock?>(null) }
+    var editorLaidOut by remember { mutableStateOf(false) }
+    var dragBase by remember { mutableStateOf<PeriodTimelineSession?>(null) }
+    var localError by remember { mutableStateOf<String?>(null) }
+    var additionError by remember { mutableStateOf<String?>(null) }
+    var closing by remember { mutableStateOf(false) }
+    var lessonKeys by remember { mutableStateOf(emptyList<Int>()) }
+    var nextLessonKey by remember { mutableIntStateOf(0) }
+    var changingKeys by remember { mutableStateOf(emptySet<String>()) }
+    var changingStructure by remember { mutableStateOf(false) }
+    val cardMotion = remember { Animatable(1f) }
+    val breakExpansion = remember { Animatable(1f) }
+    var previousBreakHeights by remember { mutableStateOf(emptyMap<String, Dp>()) }
+    val motion = remember { Animatable(0f) }
+    val editorOpen by remember { derivedStateOf { motion.value == 1f } }
+    val scope = rememberCoroutineScope()
+    val normalScroll = rememberScrollState()
+    var actionSource by remember { mutableStateOf(Rect.Zero) }
+    var frozenActionSource by remember { mutableStateOf(Rect.Zero) }
+    var editorOrigin by remember { mutableStateOf(Offset.Zero) }
+    var actionDestination by remember { mutableStateOf(Rect.Zero) }
+    val density = LocalDensity.current
+    val sunkenBlur = remember(density) { platformMotionBlurRenderEffect(with(density) { 10.dp.toPx() }) }
+    val headerTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 8.dp
+    val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val summary = remember(config, active) { timelineBlocks(config, active) }
+    val pageColor = settingsPageBackground(state.config)
+    val editorBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "period-editor-content") {
+        drawRect(pageColor)
+        drawContent()
+    }
+    LaunchedEffect(motion, chromeProgress, closing) {
+        snapshotFlow { timelineSceneProgress(motion.value, closing) }.collect {
+            chromeProgress?.floatValue = it
+        }
+    }
+    DisposableEffect(chromeProgress) { onDispose { chromeProgress?.floatValue = 0f } }
+    DisposableEffect(exitCoordinator) { onDispose { exitCoordinator?.abandon() } }
+
+    fun enter(value: PeriodTimelineSession) {
+        exitCoordinator?.opened()
+        initialSession = PeriodTimelineSession(config, draft)
+        frozenActionSource = actionSource
+        localError = null
+        additionError = null
+        editorLaidOut = false
+        lessonKeys = (1..value.config.totalPeriodCount()).toList()
+        nextLessonKey = value.config.totalPeriodCount() + 1
+        session = value
+    }
+    fun addPeriod(
+        part: PeriodDayPart,
+        restoring: Boolean = false,
+        operation: (PeriodTimelineSession) -> PeriodTimelineSession?
+    ) {
+        if (changingStructure) return
+        val current = session ?: return
+        val value = operation(current)
+        if (value == null) {
+            if (current.config.totalPeriodCount() >= 40) {
+                additionError = "最多支持 40 节，添加或恢复节次前请先减少总节数。"
+                return
+            }
+            // Diagnose the same atomic operation without duplicating the domain's time rules.
+            val blocked = current.draft.schemes.firstOrNull { scheme ->
+                operation(current.copy(draft = current.draft.copy(
+                    schemes = listOf(scheme), activeSchemeId = scheme.scheme.id
+                ))) == null
+            }
+            val action = if (restoring) "恢复" else "添加"
+            additionError = if (blocked != null) {
+                val name = blocked.scheme.name.ifBlank { "未命名作息" }
+                val invalid = validateResolvedPeriodTimes(resolveSchemeTimes(current.config, blocked))
+                if (invalid != null) "“$name”的时间有误：$invalid。请先修正这套作息。"
+                else "“$name”的${part.timelineLabel()}没有足够空间${action}节次，请先调整这套作息的时间。"
+            } else "当前作息无法${action}节次，请检查节数和时间安排。"
+            return
+        }
+        val after = (value.draft.topologyOperations.last() as PeriodTopologyOperation.AddAfter).periodIndex
+        val oldKeys = timelineBlocks(current.config, current.active, true).map { it.stableKey(lessonKeys) }.toSet()
+        val updatedKeys = lessonKeys.toMutableList().apply { add(after, nextLessonKey++) }
+        changingStructure = true
+        scope.launch {
+            cardMotion.snapTo(0f)
+            changingKeys = timelineBlocks(value.config, value.active, true)
+                .map { it.stableKey(updatedKeys) }.toSet() - oldKeys
+            lessonKeys = updatedKeys
+            session = value
+            localError = null
+            withFrameNanos { }
+            cardMotion.animateTo(1f, tween(200, easing = TimelineInsertEasing))
+            changingKeys = emptySet()
+            changingStructure = false
+        }
+    }
+    fun leave(commit: Boolean) {
+        if (closing || changingStructure || motion.value < 1f) return
+        val current = session ?: return
+        if (commit) {
+            val error = current.draft.schemes.firstNotNullOfOrNull {
+                validateResolvedPeriodTimes(resolveSchemeTimes(current.config, it))
+            }
+            if (error != null) { localError = error; exitCoordinator?.cancelRequest(); return }
+        }
+        val hasChanges = initialSession?.let { current.hasChangesFrom(it) } ?: true
+        closing = true
+        scope.launch {
+            if (commit && hasChanges && onSaveSession != null) {
+                try {
+                    val initial = initialSession
+                    // The timeline materializes automatic rules for manipulation. A name-only
+                    // edit must keep the original generation mode, overrides and special breaks.
+                    val savedSession = if (managementRequest?.creating == false && initial != null)
+                        preservePeriodSchemeMetadataForRename(initial, current) else current
+                    onSaveSession(savedSession)
+                } catch (failure: Exception) {
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
+                    localError = failure.message ?: "作息保存失败"
+                    exitCoordinator?.cancelRequest()
+                    closing = false
+                    return@launch
+                }
+            }
+            motion.animateTo(0f, tween(260, easing = LinearEasing))
+            if (commit && hasChanges && onSaveSession == null) {
+                onCountsChange(current.config.morningPeriodCount, current.config.noonPeriodCount,
+                    current.config.afternoonPeriodCount, current.config.eveningPeriodCount)
+                onDraftChange(current.draft)
+            }
+            session = null
+            initialSession = null
+            editorLaidOut = false
+            closing = false
+            localError = null
+            onEditorFinished()
+            exitCoordinator?.closedAfterDraftHandoff()
+        }
+    }
+    fun requestExit() {
+        val current = session ?: return
+        val initial = initialSession ?: return
+        if (!closing && !changingStructure && motion.value == 1f) {
+            if (current.hasChangesFrom(initial)) showExitConfirmation = true
+            else leave(commit = false)
+        }
+    }
+    LaunchedEffect(session != null, editorLaidOut) {
+        if (session != null && editorLaidOut) {
+            withFrameNanos { }
+            motion.animateTo(1f, tween(TimelineEnterDuration, easing = LinearEasing))
+        }
+    }
+    BackHandler(enabled = session != null) { requestExit() }
+    LaunchedEffect(managementRequest?.id) {
+        val request = managementRequest ?: return@LaunchedEffect
+        actionSource = request.source
+        if (request.creating) showWizard = true
+        else enter(request.session.updateActive(request.session.active.materializeForTimeline(request.session.config)))
+    }
+    LaunchedEffect(exitCommitRequest) {
+        if (exitCommitRequest > 0 && session != null) requestExit()
+    }
+    LaunchedEffect(exitCoordinator?.requestVersion, editorOpen) {
+        if (exitCoordinator?.pending == true && editorOpen) requestExit()
+    }
+    LaunchedEffect(editorOpen, requestedBlock) {
+        if (editorOpen && requestedBlock != null) {
+            pickingBlock = requestedBlock
+            requestedBlock = null
+        }
+    }
+
+    Box(Modifier.fillMaxSize().onGloballyPositioned { editorOrigin = it.localToRoot(Offset.Zero) }) {
+        if (managementContent != null) {
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                val p = timelineSceneProgress(motion.value, closing)
+                alpha = 1f - p
+                translationY = 28.dp.toPx() * p
+                scaleX = 1f - 0.04f * p
+                scaleY = scaleX
+                transformOrigin = TransformOrigin(0.5f, 0f)
+                renderEffect = if (motion.value > 0f && motion.value < 1f) sunkenBlur else null
+            }.then(if (session != null) Modifier.clearAndSetSemantics { } else Modifier)) {
+                managementContent(editorLaidOut)
+            }
+        } else {
+        Column(
+            Modifier.fillMaxSize()
+                .graphicsLayer {
+                    val p = timelineSceneProgress(motion.value, closing)
+                    alpha = 1f - p
+                    translationY = 28.dp.toPx() * p
+                    scaleX = 1f - 0.04f * p
+                    scaleY = scaleX
+                    transformOrigin = TransformOrigin(0.5f, 0f)
+                    renderEffect = if (motion.value > 0f && motion.value < 1f) sunkenBlur else null
+                }
+                .then(if (session != null) Modifier.clearAndSetSemantics { } else Modifier)
+                .verticalScroll(normalScroll, enabled = session == null)
+                .padding(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = navBottom + 32.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            leadingContent()
+            Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    GlassPreferenceCategory("详细节次", modifier = Modifier.weight(1f))
+                    DialogLiquidButton(backdrop, "编辑", {
+                        enter(PeriodTimelineSession(config, draft).updateActive(active.materializeForTimeline(config)))
+                    }, role = DialogButtonRole.Confirm,
+                        height = 32.dp, horizontalPadding = 12.dp, shadowEnabled = false,
+                        modifier = Modifier.minimumInteractiveComponentSize()
+                            .onGloballyPositioned {
+                                if (session == null) {
+                                    val touchBounds = it.timelineBoundsInRoot()
+                                    val visualHalfHeight = with(density) { 16.dp.toPx() }
+                                    actionSource = Rect(
+                                        touchBounds.left, touchBounds.center.y - visualHalfHeight,
+                                        touchBounds.right, touchBounds.center.y + visualHalfHeight
+                                    )
+                                }
+                            }
+                            .graphicsLayer { alpha = if (editorLaidOut) 0f else 1f })
+                }
+                Spacer(Modifier.height(8.dp))
+                SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
+                    val lessons = summary.filterNot { it.isBreak }
+                    lessons.forEachIndexed { position, block ->
+                        key(block.key) {
+                            if (position > 0) {
+                                val previous = lessons[position - 1]
+                                val gap = summary.firstOrNull { it.isBreak && it.period == previous.period }
+                                Box(Modifier.fillMaxWidth()) {
+                                    when {
+                                        previous.part != block.part -> PeriodTimelineSeparator("${block.part.timelineLabel()}时段", TimelineCourseColor)
+                                        gap != null && gap.minutes != active.scheme.breakDurationMinutes ->
+                                            PeriodTimelineSeparator(if (gap.minutes == 0) "连课" else "课间 · ${gap.minutes}分钟", TimelineBreakColor)
+                                        else -> SettingsDivider()
+                                    }
+                                }
+                            }
+                            SettingsPickerValueRow(block.title, "${timelineMinuteText(block.start)} - ${timelineMinuteText(block.end)}",
+                                onClick = {
+                                    enter(PeriodTimelineSession(config, draft).updateActive(active.materializeForTimeline(config)))
+                                    requestedBlock = block
+                                })
+                        }
+                    }
+                }
+            }
+        }
+        }
+        session?.let { edit ->
+            // Keep the sinking underlay from receiving editor touches.
+            Box(Modifier.fillMaxSize().clickable(interactionSource = null, indication = null) {})
+            val blocks = remember(edit) { timelineBlocks(edit.config, edit.active, includeLeading = true) }
+            val editScroll = rememberScrollState()
+            var viewportHeight by remember { mutableIntStateOf(0) }
+            var retainedScroll by remember { mutableIntStateOf(0) }
+            val interactive = editorOpen && !closing && !changingStructure
+            LaunchedEffect(editScroll) {
+                snapshotFlow { editScroll.isScrollInProgress to editScroll.value }.collect { (scrolling, offset) ->
+                    if (scrolling && dragBase == null) retainedScroll = offset
+                }
+            }
+            fun resize(block: TimelineBlock, minutes: Int): Int {
+                val current = session ?: return block.minutes
+                val updated = resizeTimelineEntry(dragBase ?: current, block, minutes)
+                session = updated
+                return timelineBlocks(updated.config, updated.active, includeLeading = true)
+                    .firstOrNull { it.key == block.key }?.minutes ?: if (block.isBreak) 0 else block.minutes
+            }
+            Column(Modifier.fillMaxSize().glassBackdropProducer(editorBackdrop)
+                .onGloballyPositioned { editorLaidOut = true }
+                .onSizeChanged { viewportHeight = it.height }
+                .verticalScroll(editScroll, enabled = interactive && dragBase == null)
+                // Keep the current offset valid even when a card near the bottom becomes shorter.
+                .heightIn(min = with(density) { (retainedScroll + viewportHeight).toDp() })
+                .padding(start = 16.dp, end = 16.dp, top = headerTop + 64.dp, bottom = navBottom + 40.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(if (managementContent != null)
+                    "拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间；保存后同步到引用这套作息的全部课表"
+                    else "拖动右下角调整时长 · 每格 1 分钟\n仅修改当前课表，保存作息修改时创建公共副本", fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) })
+                if (managementContent != null) {
+                    Box(Modifier.fillMaxWidth().graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) }) {
+                        SettingsTextFieldRow("作息名称", edit.active.scheme.name, { name ->
+                            if (interactive) session = edit.updateActive(edit.active.copy(
+                                scheme = edit.active.scheme.copy(name = name.take(60))))
+                        }, enabled = interactive)
+                    }
+                }
+                var order = 0
+                PeriodDayPart.entries.forEach { part ->
+                    val partBlocks = blocks.filter { it.part == part }
+                    val vacancies = edit.vacancies.filter { it.part == part }
+                    if (partBlocks.isNotEmpty() || vacancies.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            TimelinePartDivider(part, timelinePartAnchorMinute(edit.config, edit.active, part),
+                                Modifier.graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) },
+                                enabled = interactive && edit.config.periodCount(part) > 0) { pickingPart = part }
+                                Column(Modifier.fillMaxWidth().semantics {
+                                    contentDescription = "${part.timelineLabel()}，课程 ${partBlocks.filterNot { it.isBreak }.sumOf { it.minutes }} 分钟，课间 ${partBlocks.filter { it.isBreak }.sumOf { it.minutes }} 分钟"
+                                },
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    fun insertionPosition(block: TimelineBlock): Int = when {
+                                        block.beforeFirst -> 0
+                                        else -> block.period - edit.config.periodRange(part).first + 1
+                                    }
+                                    fun hasAddAfter(block: TimelineBlock): Boolean = block.isBreak &&
+                                        vacancies.any { it.after == insertionPosition(block) }
+                                    partBlocks.forEachIndexed { blockIndex, block ->
+                                        val index = order++
+                                        val stableKey = block.stableKey(lessonKeys)
+                                        key(stableKey) {
+                                            if (block.isBreak && block.minutes == 0) {
+                                                Box(Modifier.fillMaxWidth().padding(end = 38.dp)
+                                                    .heightIn(min = 48.dp)
+                                                    .graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) }
+                                                    .clickable(enabled = interactive, onClickLabel = "添加课间") { pickingBlock = block },
+                                                    contentAlignment = Alignment.Center) {
+                                                    Text("添加课间", color = TimelineBreakColor, style = MaterialTheme.typography.labelLarge)
+                                                }
+                                            } else {
+                                            Box(Modifier.fillMaxWidth()) {
+                                            Box(Modifier.fillMaxWidth().padding(end = 38.dp)) {
+                                            TimelineEditCard(block, index, { motion.value }, closing,
+                                                resizeStartHeight = if (block.isBreak && breakExpansion.value < 1f)
+                                                    previousBreakHeights[stableKey] ?: 0.dp else null,
+                                                resizeProgress = { breakExpansion.value },
+                                                sizeProgress = { if (stableKey in changingKeys) cardMotion.value else 1f },
+                                                ready = editorLaidOut, enabled = interactive,
+                                                onPick = { pickingBlock = block },
+                                                onDelete = { deletingBlock = block },
+                                                onResizeStarted = {
+                                                    retainedScroll = editScroll.value
+                                                    dragBase = session
+                                                },
+                                                onResizeFinished = { dragBase = null },
+                                                onResize = { resize(block, it) })
+                                            }
+                                            TimelineRatioRailSegment(block.color,
+                                                first = blockIndex == 0 || hasAddAfter(partBlocks[blockIndex - 1]) || partBlocks[blockIndex - 1].minutes == 0,
+                                                last = blockIndex == partBlocks.lastIndex || hasAddAfter(block) || partBlocks[blockIndex + 1].minutes == 0,
+                                                modifier = Modifier.matchParentSize().graphicsLayer {
+                                                    alpha = timelineRailProgress(motion.value, closing) *
+                                                        if (stableKey in changingKeys) cardMotion.value else 1f
+                                                })
+                                            }
+                                            }
+                                            if (block.isBreak) {
+                                                val after = insertionPosition(block)
+                                                vacancies.filter { it.after == after }.forEach { vacancy ->
+                                                    TimelineAddPeriodButton(backdrop, interactive, Modifier.padding(top = 10.dp, end = 38.dp)) {
+                                                        addPeriod(part, restoring = true) { insertTimelinePeriod(it, vacancy.id) }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    val visibleInsertionPoints = partBlocks.filter { it.isBreak }.map(::insertionPosition).toSet()
+                                    vacancies.filter { it.after !in visibleInsertionPoints }.forEach { vacancy ->
+                                        TimelineAddPeriodButton(backdrop, interactive, Modifier.padding(end = 38.dp)) {
+                                            addPeriod(part, restoring = true) { insertTimelinePeriod(it, vacancy.id) }
+                                        }
+                                    }
+                                    if (vacancies.none { it.after == edit.config.periodCount(part) }) {
+                                        TimelineAddPeriodButton(backdrop, interactive,
+                                            Modifier.padding(end = 38.dp).graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) }) {
+                                            addPeriod(part) { appendTimelinePeriod(it, part) }
+                                        }
+                                    }
+                                }
+                        }
+                    } else {
+                        // Vacancies are editor-local; an empty saved section still needs an entry point.
+                        TimelineAddPeriodButton(backdrop, interactive,
+                            Modifier.padding(end = 38.dp).graphicsLayer { alpha = timelineSceneProgress(motion.value, closing) },
+                            label = "${part.timelineLabel()} · 添加节次") {
+                            addPeriod(part) { appendTimelinePeriod(it, part) }
+                        }
+                    }
+                }
+                localError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            }
+            val blurTint = if (glassUsesLightStyle(state.config)) Color.White else Color(0xFF111111)
+            ProgressiveBackdropBlur(editorBackdrop, Modifier.align(Alignment.TopCenter).graphicsLayer { alpha = motion.value },
+                tintColor = blurTint, height = headerTop + 76.dp, blurRadius = 12.dp,
+                fallbackTintStops = listOf(0f to blurTint.copy(alpha = 0.42f), 0.68f to blurTint.copy(alpha = 0.18f), 1f to Color.Transparent))
+            Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = headerTop),
+                verticalAlignment = Alignment.CenterVertically) {
+                DialogLiquidButton(editorBackdrop, "取消", { requestExit() }, monochromeNeutral = true,
+                    modifier = Modifier.graphicsLayer {
+                        alpha = timelineSceneProgress(motion.value, closing)
+                        translationX = -32.dp.toPx() * (1f - timelineSceneProgress(motion.value, closing))
+                    })
+                Text("编辑作息", modifier = Modifier.weight(1f).graphicsLayer { alpha = motion.value },
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center, fontWeight = FontWeight.SemiBold)
+                Box(Modifier.onGloballyPositioned { actionDestination = it.timelineBoundsInRoot() }) {
+                    // Measure the destination once. The shared action is drawn at the root,
+                    // outside the scrolling rows, so no viewport can slice it during travel.
+                    DialogLiquidButton(editorBackdrop, "完成", {}, role = DialogButtonRole.Confirm,
+                        modifier = Modifier.graphicsLayer { alpha = 0f }.clearAndSetSemantics {})
+                }
+            }
+            if (editorLaidOut && actionDestination != Rect.Zero) {
+                TimelineMovingAction(
+                    backdrop = editorBackdrop,
+                    source = frozenActionSource.takeUnless { it == Rect.Zero } ?: actionDestination,
+                    destination = actionDestination, rootOrigin = editorOrigin,
+                    sourceIcon = if (managementRequest != null) {
+                        if (managementRequest.creating) R.drawable.ic_add_course else R.drawable.ic_edit
+                    } else null,
+                    progress = { timelineSceneProgress(motion.value, closing) },
+                    onClick = { requestExit() }
+                )
+            }
+        }
+    }
+    additionError?.let { message ->
+        LiquidAlertDialog("无法添加节次", message,
+            listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { additionError = null })),
+            popupBackdrop, state.config, { additionError = null })
+    }
+    if (showExitConfirmation) LiquidAlertDialog("保存作息调整",
+        if (managementRequest?.creating == true) "要保存这套新作息吗？保存后可在课表设置中选择。"
+        else if (managementContent != null) "要保存本次作息调整吗？${managementRequest?.original?.usages.orEmpty().size} 张引用此作息的课表会同步更新。"
+        else "要保留本次作息调整吗？保存课表设置时会创建公共副本，仅影响当前课表。",
+        listOf(
+            LiquidAlertAction("保存", LiquidAlertActionStyle.Primary, onClick = { showExitConfirmation = false; leave(true) }),
+            LiquidAlertAction("不保存", LiquidAlertActionStyle.Destructive, onClick = { showExitConfirmation = false; leave(false) }),
+            LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Cancel, onClick = {
+                showExitConfirmation = false; exitCoordinator?.cancelRequest()
+            })
+        ), popupBackdrop, state.config, { showExitConfirmation = false; exitCoordinator?.cancelRequest() })
+    if (showWizard) PeriodSchemeCreationWizard(config, draft, popupBackdrop, state.config,
+        onDismiss = { showWizard = false; if (managementContent != null) onEditorFinished() },
+        onCreated = { showWizard = false; enter(it) }, standalone = managementContent != null)
+    deletingBlock?.let { block ->
+        LiquidAlertDialog("移除${block.title}", if (block.isBreak) "后续课程将在当前时段内提前 ${block.minutes} 分钟，节次编号不变。"
+            else "这套作息的节次编号将连续调整，删除后可从课间下方添加节次。如果课程占用了被删除的节次，保存会被阻止。",
+            listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = { deletingBlock = null }),
+                LiquidAlertAction("移除", LiquidAlertActionStyle.Destructive, onClick = {
+                    session?.let { edit ->
+                        val result = if (block.isBreak) resizeTimelineEntry(edit, block, 0) else deleteTimelinePeriod(edit, block.period)
+                        if (result == null) localError = "至少需要保留一个节次" else if (!changingStructure) {
+                            changingStructure = true
+                            val before = timelineBlocks(edit.config, edit.active, includeLeading = true)
+                            val precedingBreak = before.getOrNull(before.indexOfFirst { it.key == block.key } - 1)
+                                ?.takeIf { !block.isBreak && it.isBreak && it.part == block.part && block.period == edit.config.periodRange(block.part).last }
+                            changingKeys = listOfNotNull(block, precedingBreak).map { it.stableKey(lessonKeys) }.toSet()
+                            scope.launch {
+                                cardMotion.animateTo(0f, tween(160, easing = TimelineRemoveEasing))
+                                previousBreakHeights = before.filter { it.isBreak }.associate {
+                                    it.stableKey(lessonKeys) to it.displayHeight(density.fontScale)
+                                }
+                                val updatedKeys = if (block.isBreak) lessonKeys else lessonKeys.filterIndexed { index, _ -> index != block.period - 1 }
+                                val expandingBreak = timelineBlocks(result.config, result.active, includeLeading = true)
+                                    .filter { it.isBreak }.any {
+                                        it.displayHeight(density.fontScale) != (previousBreakHeights[it.stableKey(updatedKeys)] ?: 0.dp)
+                                    }
+                                if (expandingBreak) breakExpansion.snapTo(0f)
+                                lessonKeys = updatedKeys
+                                session = result
+                                changingKeys = emptySet()
+                                cardMotion.snapTo(1f)
+                                if (expandingBreak) {
+                                    withFrameNanos { }
+                                    breakExpansion.animateTo(1f, tween(220, easing = TimelineInsertEasing))
+                                }
+                                previousBreakHeights = emptyMap()
+                                changingStructure = false
+                            }
+                        }
+                    }
+                    deletingBlock = null
+                })), popupBackdrop, state.config, { deletingBlock = null })
+    }
+    pickingBlock?.let { block ->
+        val edit = session
+        if (edit != null) TimelineBlockPicker(block, edit, popupBackdrop, state.config,
+            onDismiss = { pickingBlock = null }, onChange = { session = it; pickingBlock = null })
+    }
+    pickingPart?.let { part ->
+        session?.let { edit -> TimelinePartStartPicker(part, edit, popupBackdrop, state.config,
+            onDismiss = { pickingPart = null }, onChange = { session = it; pickingPart = null }) }
+    }
+}
+
+@Composable
+private fun TimelineMovingAction(
+    backdrop: Backdrop?, source: Rect, destination: Rect,
+    rootOrigin: Offset, sourceIcon: Int?, progress: () -> Float, onClick: () -> Unit
+) {
+    val p = progress()
+    val bounds = androidx.compose.ui.geometry.lerp(source, destination, p)
+    val density = LocalDensity.current
+    val contentProgress = ((p - 0.20f) / 0.50f).coerceIn(0f, 1f)
+    DialogLiquidButton(
+        backdrop = backdrop,
+        label = "完成", onClick = onClick, role = DialogButtonRole.Confirm,
+        height = with(density) { bounds.height.toDp() }, horizontalPadding = 0.dp,
+        shadowEnabled = false,
+        modifier = Modifier.offset {
+            IntOffset((bounds.left - rootOrigin.x).roundToInt(), (bounds.top - rootOrigin.y).roundToInt())
+        }.width(with(density) { bounds.width.toDp() }).semantics { contentDescription = "完成编辑作息" },
+        content = {
+            Box(contentAlignment = Alignment.Center) {
+                Box(Modifier.graphicsLayer { alpha = 1f - contentProgress }) {
+                    if (sourceIcon != null) Icon(painterResource(sourceIcon), null,
+                        Modifier.size(20.dp), tint = Color.White)
+                    else Text("编辑", color = Color.White, style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
+                }
+                Text("完成", modifier = Modifier.graphicsLayer { alpha = contentProgress }, color = Color.White,
+                    style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold,
+                    maxLines = 1, softWrap = false)
+            }
+        }
+    )
+}
+
+@Composable
+private fun TimelineEditCard(
+    block: TimelineBlock, order: Int, progress: () -> Float, closing: Boolean,
+    ready: Boolean, enabled: Boolean, sizeProgress: () -> Float,
+    resizeStartHeight: Dp?, resizeProgress: () -> Float,
+    onPick: () -> Unit, onDelete: () -> Unit, onResizeStarted: () -> Unit, onResizeFinished: () -> Unit,
+    onResize: (Int) -> Int
+) {
+    val view = LocalView.current
+    val density = LocalDensity.current
+    val stepPx = with(density) { TimelineDragMinuteStep.toPx() }
+    val latestResize by rememberUpdatedState(onResize)
+    val latestMinutes by rememberUpdatedState(block.minutes)
+    val latestStart by rememberUpdatedState(onResizeStarted)
+    val latestFinish by rememberUpdatedState(onResizeFinished)
+    var dragging by remember { mutableStateOf(false) }
+    DisposableEffect(Unit) { onDispose { if (dragging) latestFinish() } }
+    val targetHeight = block.displayHeight(density.fontScale)
+    val height = resizeStartHeight?.let { it + (targetHeight - it) * resizeProgress() } ?: targetHeight
+    BoxWithConstraints(Modifier.fillMaxWidth().height(height).graphicsLayer {
+        val p = if (ready) timelineRowProgress(progress(), order, closing) else 0f
+        alpha = p * sizeProgress()
+        scaleX = sizeProgress()
+        scaleY = scaleX
+        translationY = 48.dp.toPx() * (1f - p)
+    }) {
+        val cardWidth = maxWidth
+        Box(Modifier.fillMaxSize().clip(RoundedRectangle(24.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainer)
+            .background(block.color.copy(alpha = if (dragging) 0.18f else 0.08f))
+            .clickable(enabled = enabled, onClickLabel = "选择${block.title}时间", onClick = onPick)) {
+            Row(Modifier.fillMaxSize().padding(start = 22.dp, end = 24.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text(block.title, fontWeight = if (block.isBreak) FontWeight.Bold else FontWeight.SemiBold,
+                        fontSize = if (block.isBreak) 16.sp else 18.sp)
+                    Text("${timelineMinuteText(block.start)} – ${timelineMinuteText(block.end)}", fontSize = if (block.isBreak) 12.sp else 14.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                Text("${block.minutes}分钟", color = block.color,
+                    fontSize = if (cardWidth < 300.dp) 24.sp else 28.sp,
+                    fontWeight = FontWeight.SemiBold, maxLines = 1)
+            }
+        }
+        Box(
+            Modifier.align(Alignment.TopStart).offset(x = (-5).dp, y = (-5).dp).size(48.dp)
+                .semantics { contentDescription = "移除${block.title}" }
+                .clickable(enabled = enabled, interactionSource = null, indication = null, onClick = onDelete)
+        ) {
+            Box(Modifier.size(22.dp).clip(Capsule()).background(Color(0xFFE94955)), contentAlignment = Alignment.Center) {
+                Box(Modifier.width(10.dp).height(2.dp).clip(Capsule()).background(Color.White))
+            }
+        }
+        val cornerShape = remember(cardWidth, height) { WeekResizeCornerShape(DpSize(cardWidth, height), 24.dp, 34.dp) }
+        Box(Modifier.align(Alignment.BottomEnd).offset(x = 4.dp, y = 4.dp).size(48.dp)
+            .semantics {
+                contentDescription = "调整${block.title}时长"
+                stateDescription = "${block.minutes} 分钟"
+                customActions = listOf(
+                    CustomAccessibilityAction("增加 1 分钟") { latestResize(latestMinutes + 1); true },
+                    CustomAccessibilityAction("减少 1 分钟") { latestResize(latestMinutes - 1); true }
+                )
+            }
+            .pointerInput(enabled, block.key, stepPx) {
+                if (!enabled) return@pointerInput
+                var distance = 0f
+                var initial = 0
+                var lastRequested = 0
+                var lastApplied = 0
+                detectVerticalDragGestures(
+                    onDragStart = { distance = 0f; initial = latestMinutes; lastRequested = initial; lastApplied = initial; dragging = true; latestStart() },
+                    onDragEnd = { dragging = false; latestFinish() }, onDragCancel = { dragging = false; latestFinish() }
+                ) { change, amount ->
+                    change.consume()
+                    distance += amount
+                    val requested = initial + (distance / stepPx).roundToInt()
+                    if (requested != lastRequested) {
+                        lastRequested = requested
+                        val applied = latestResize(requested)
+                        if (applied != lastApplied) {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            lastApplied = applied
+                        }
+                    }
+                }
+            }, contentAlignment = Alignment.BottomEnd) {
+            Box(Modifier.size(34.dp).background(block.color.copy(alpha = if (dragging) 0.95f else 0.65f), cornerShape))
+        }
+    }
+}
+
+@Composable
+private fun TimelineAddPeriodButton(
+    backdrop: Backdrop?, enabled: Boolean, modifier: Modifier = Modifier,
+    label: String = "添加节次", onClick: () -> Unit
+) {
+    Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        DialogLiquidButton(backdrop, label, { if (enabled) onClick() }, role = DialogButtonRole.Confirm)
+    }
+}
+
+@Composable
+private fun PeriodTimelineSeparator(label: String, tint: Color) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+        Box(Modifier.weight(1f).height(1.dp).background(tint.copy(alpha = 0.28f)))
+        Text(label, Modifier.clip(Capsule()).background(tint.copy(alpha = 0.18f)).padding(horizontal = 11.dp, vertical = 5.dp),
+            color = tint, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Box(Modifier.weight(1f).height(1.dp).background(tint.copy(alpha = 0.28f)))
+    }
+}
+
+@Composable
+private fun TimelinePartDivider(
+    part: PeriodDayPart, start: Int, modifier: Modifier = Modifier, enabled: Boolean = true, onClick: () -> Unit
+) {
+    val color = MaterialTheme.colorScheme.onSurface
+    SleepDownTimeSectionDivider(color, modifier, label = {
+        Text(part.timelineLabel(), style = MaterialTheme.typography.titleSmall, color = color, fontWeight = FontWeight.SemiBold)
+    }, time = {
+        Box(Modifier.heightIn(min = 48.dp).clickable(enabled = enabled, onClickLabel = "调整${part.timelineLabel()}起点", onClick = onClick),
+            contentAlignment = Alignment.Center) {
+            Text(timelineMinuteText(start), style = MaterialTheme.typography.labelMedium, color = TimelineCourseColor)
+        }
+    })
+}
+
+@Composable
+private fun TimelinePartStartPicker(
+    part: PeriodDayPart, session: PeriodTimelineSession, backdrop: Backdrop?, visualConfig: ScheduleConfigEntity,
+    onDismiss: () -> Unit, onChange: (PeriodTimelineSession) -> Unit
+) {
+    val bounds = timelineFlexiblePartStartBounds(session.config, session.active, part) ?: return
+    val original = timelinePartAnchorMinute(session.config, session.active, part)
+    var selected by remember { mutableIntStateOf(original.coerceIn(bounds)) }
+    var visible by remember { mutableStateOf(true) }
+    var pending by remember { mutableStateOf<PeriodTimelineSession?>(null) }
+    SleepDownPickerDialog(visible, "${part.timelineLabel()}分段起点", { visible = false }, backdrop, visualConfig,
+        onDismissFinished = { pending?.let(onChange) ?: onDismiss() },
+        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)) {
+        Column(verticalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.QuickSheet.PickerContentSpacing)) {
+            SettingsTimePickerContent(selected, bounds) { selected = it }
+            val preview = remember(session, part, selected) { moveTimelinePartWithNeighbours(session, part, selected) }
+            val movedParts = PeriodDayPart.entries.filter { section ->
+                session.config.periodCount(section) > 0 &&
+                    timelinePartAnchorMinute(session.config, session.active, section) !=
+                    timelinePartAnchorMinute(preview.config, preview.active, section)
+            }
+            val movementHint = when (movedParts.size) {
+                0 -> "当前起点未改变"
+                1 -> "仅平移${part.timelineLabel()}；课程与课间时长不变"
+                else -> "将同时平移${movedParts.joinToString("、") { it.timelineLabel() }}；课程与课间时长不变"
+            }
+            Text(movementHint, fontSize = 12.sp,
+                color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.66f))
+            PeriodPickerActions(backdrop, visualConfig, onCancel = { visible = false }, onConfirm = {
+                    pending = moveTimelinePartWithNeighbours(session, part, selected)
+                    visible = false
+            })
+        }
+    }
+}
+
+@Composable
+private fun TimelineRatioRailSegment(color: Color, first: Boolean, last: Boolean, modifier: Modifier) {
+    // Share the card's measured bounds. Bridge only the gap to another card; action rows carry no time.
+    Canvas(modifier) {
+        val radius = CornerRadius(7.dp.toPx())
+        val halfGap = 6.dp.toPx()
+        val outline = Path().apply {
+            addRoundRect(RoundRect(
+                left = size.width - 14.dp.toPx(), top = if (first) 0f else -halfGap,
+                right = size.width, bottom = size.height + if (last) 0f else halfGap,
+                topLeftCornerRadius = if (first) radius else CornerRadius.Zero,
+                topRightCornerRadius = if (first) radius else CornerRadius.Zero,
+                bottomLeftCornerRadius = if (last) radius else CornerRadius.Zero,
+                bottomRightCornerRadius = if (last) radius else CornerRadius.Zero
+            ))
+        }
+        drawPath(outline, color)
+    }
+}
+
+private enum class TimelinePickerPage { DETAILS, START, DURATION }
+
+@Composable
+private fun TimelineBlockPicker(
+    block: TimelineBlock, session: PeriodTimelineSession, backdrop: Backdrop?, visualConfig: ScheduleConfigEntity,
+    onDismiss: () -> Unit, onChange: (PeriodTimelineSession) -> Unit
+) {
+    var candidate by remember { mutableStateOf(session) }
+    var page by remember { mutableStateOf(if (block.isBreak) TimelinePickerPage.DURATION else TimelinePickerPage.DETAILS) }
+    var selected by remember { mutableIntStateOf(block.minutes) }
+    var visible by remember { mutableStateOf(true) }
+    var pending by remember { mutableStateOf<PeriodTimelineSession?>(null) }
+    val current = timelineBlocks(candidate.config, candidate.active, includeLeading = true)
+        .firstOrNull { it.key == block.key } ?: block
+    val firstLesson = !block.isBreak && block.period == candidate.config.periodRange(block.part).first
+    val title = when (page) {
+        TimelinePickerPage.DETAILS -> "编辑${block.title}"
+        TimelinePickerPage.START -> "开始时间"
+        TimelinePickerPage.DURATION -> if (block.isBreak) "${block.title}时长" else "课时时长"
+    }
+    SleepDownPickerDialog(visible, title,
+        onDismissRequest = {
+            if (page == TimelinePickerPage.DETAILS || block.isBreak) visible = false else page = TimelinePickerPage.DETAILS
+        }, backdrop = backdrop, config = visualConfig,
+        onDismissFinished = { pending?.let(onChange) ?: onDismiss() },
+        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
+        contentTransitionKey = page,
+        contentForState = { displayed ->
+            val shown = displayed as TimelinePickerPage
+            Column(verticalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.QuickSheet.PickerContentSpacing)) {
+                when (shown) {
+                    TimelinePickerPage.DETAILS -> Column {
+                        SettingsPickerValueRow("开始时间", timelineMinuteText(current.start), enabled = firstLesson, onClick = {
+                            selected = current.start; page = TimelinePickerPage.START
+                        })
+                        SettingsPickerValueRow("课时时长", "${current.minutes} 分钟", onClick = {
+                            selected = current.minutes; page = TimelinePickerPage.DURATION
+                        })
+                        Text("结束于 ${timelineMinuteText(current.end)} · 后续课程在本时段内顺延",
+                            color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.66f), fontSize = 12.sp,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp))
+                    }
+                    TimelinePickerPage.START -> {
+                        val bounds = timelineFirstLessonStartBounds(candidate.config, candidate.active, block.part)
+                            ?: current.start..current.start
+                        SettingsTimePickerContent(selected, bounds) { selected = it }
+                        Text("不能早于分段起点 ${timelineMinuteText(bounds.first)}，后续课程一起顺延",
+                            fontSize = 12.sp, color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.66f))
+                    }
+                    TimelinePickerPage.DURATION -> {
+                        val maximumSession = resizeTimelineEntry(candidate, current, LastMinuteOfDay)
+                        val maximum = timelineBlocks(maximumSession.config, maximumSession.active, includeLeading = true)
+                            .firstOrNull { it.key == block.key }?.minutes ?: current.minutes
+                        // 0 keeps the break absent so two lessons stay back to back.
+                        val minimum = if (block.isBreak) 0 else minimumTimelineLessonMinutes(candidate.config, candidate.active, block.period)
+                        SettingsMinutePickerContent(selected, { selected = it }, minimum..maxOf(minimum, maximum))
+                    }
+                }
+                PeriodPickerActions(backdrop, visualConfig, onCancel = {
+                        if (shown == TimelinePickerPage.DETAILS || block.isBreak) visible = false else page = TimelinePickerPage.DETAILS
+                    }, onConfirm = {
+                        when (shown) {
+                            TimelinePickerPage.DETAILS -> { pending = candidate; visible = false }
+                            TimelinePickerPage.START -> {
+                                candidate = shiftTimelineFirstLesson(candidate, block.part, selected)
+                                page = TimelinePickerPage.DETAILS
+                            }
+                            TimelinePickerPage.DURATION -> {
+                                candidate = resizeTimelineEntry(candidate, current, selected)
+                                if (block.isBreak) { pending = candidate; visible = false } else page = TimelinePickerPage.DETAILS
+                            }
+                        }
+                    })
+            }
+        }
+    ) {}
+}

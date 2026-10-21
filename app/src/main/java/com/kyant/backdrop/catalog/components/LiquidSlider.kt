@@ -2,8 +2,6 @@
 // Modified for SleepDown-Schedule.
 package com.kyant.backdrop.catalog.components
 
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -21,7 +19,6 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -31,7 +28,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
@@ -63,6 +59,8 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -70,7 +68,6 @@ import kotlinx.coroutines.android.awaitFrame
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
-import kotlin.math.abs
 
 internal enum class LiquidSliderPhase {
     Idle,
@@ -182,7 +179,8 @@ private class LiquidSliderMotionState(
     initialValue: Float,
     private val valueRange: ClosedFloatingPointRange<Float>,
     private val visibilityThreshold: Float,
-    private val scope: CoroutineScope
+    private val scope: CoroutineScope,
+    private val pressedScale: Float
 ) {
     private val valueSpec = spring<Float>(1f, 1000f, visibilityThreshold)
     private val velocitySpec = spring<Float>(0.5f, 300f, 0.05f)
@@ -302,8 +300,8 @@ private class LiquidSliderMotionState(
 
     private fun press() {
         scope.launch { pressProgress.animateTo(1f, pressSpec) }
-        scope.launch { scaleX.animateTo(1.5f, scaleXSpec) }
-        scope.launch { scaleY.animateTo(1.5f, scaleYSpec) }
+        scope.launch { scaleX.animateTo(pressedScale, scaleXSpec) }
+        scope.launch { scaleY.animateTo(pressedScale, scaleYSpec) }
     }
 
     private fun release() {
@@ -328,8 +326,13 @@ fun LiquidSlider(
     visibilityThreshold: Float,
     backdrop: Backdrop,
     snapValue: Float? = null,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    compactThumb: Boolean = false
 ) {
+    if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeSliderRenderer.current?.invoke(
+            com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSliderRequest(
+                value, valueRange, onPreviewValueChange, onPreviewModeChange, onCommit, modifier, snapValue
+            )) == true) return
     val isLightTheme = !isSystemInDarkTheme()
     val accentColor = if (isLightTheme) Color(0xFF0088FF) else Color(0xFF0091FF)
     val trackColor = if (isLightTheme) Color(0xFF787878).copy(0.2f) else Color(0xFF787880).copy(0.36f)
@@ -342,8 +345,9 @@ fun LiquidSlider(
     val currentPreviewMode by rememberUpdatedState(onPreviewModeChange)
     val currentCommit by rememberUpdatedState(onCommit)
     val currentValue by rememberUpdatedState(value)
-    val motion = remember(valueRange, visibilityThreshold) {
-        LiquidSliderMotionState(currentValue(), valueRange, visibilityThreshold, scope)
+    val pressedScale = if (compactThumb) 1.2f else 1.5f
+    val motion = remember(valueRange, visibilityThreshold, pressedScale) {
+        LiquidSliderMotionState(currentValue(), valueRange, visibilityThreshold, scope, pressedScale)
     }
     val previewDispatcher = remember(scope) { FramePreviewDispatcher(scope) }
     val material = remember {
@@ -386,7 +390,7 @@ fun LiquidSlider(
     ) {
         val trackWidth = constraints.maxWidth.toFloat()
         val density = LocalDensity.current
-        val thumbInsetPx = with(density) { 10.dp.toPx() }
+        val thumbInsetPx = with(density) { (if (compactThumb) 16.dp else 10.dp).toPx() }
         val thumbHitRadiusPx = with(density) { 18.dp.toPx() }
         val dragThresholdPx = with(density) { 4.dp.toPx() }
         val snapHitRadiusPx = with(density) { 12.dp.toPx() }
@@ -542,13 +546,15 @@ fun LiquidSlider(
                             backdrop,
                             rememberBackdrop(trackBackdrop) { drawBackdrop ->
                                 val progress = motion.pressProgress.value
-                                scale(lerp(2f / 3f, 1f, progress), lerp(0f, 1f, progress)) {
+                                scale(lerp(1f / pressedScale, 1f, progress), lerp(0f, 1f, progress)) {
                                     drawBackdrop()
                                 }
                             }
                         ),
                         descriptor = descriptor,
                         material = material,
+                        fallbackColor = Color.White,
+                        fallbackOpacity = 1f,
                         shape = { Capsule() },
                         effectFrame = GlassEffectFrame(blur = null),
                         effectsOverride = {
@@ -560,8 +566,8 @@ fun LiquidSlider(
                         highlightOverride = {
                             val progress = motion.pressProgress.value
                             Highlight.Ambient.copy(
-                                width = Highlight.Ambient.width / 1.5f,
-                                blurRadius = Highlight.Ambient.blurRadius / 1.5f,
+                                width = Highlight.Ambient.width / pressedScale,
+                                blurRadius = Highlight.Ambient.blurRadius / pressedScale,
                                 alpha = progress * 0.45f
                             )
                         },
@@ -581,7 +587,8 @@ fun LiquidSlider(
                             drawRect(Color.White.copy(alpha = 1f - motion.pressProgress.value))
                         }
                     )
-                    .size(40.dp, 24.dp)
+                    // Keep the 36dp gesture track; only the visible thumb becomes smaller.
+                    .size(if (compactThumb) 34.dp else 40.dp, if (compactThumb) 22.dp else 24.dp)
             )
         }
     }

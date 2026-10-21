@@ -1,6 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseReminderSessions
+
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeCourseClock
 
 import android.content.Context
 import java.io.File
@@ -17,6 +20,10 @@ import java.time.temporal.ChronoUnit
 import java.time.temporal.TemporalAdjusters
 
 object IcsScheduleCodec {
+    fun isSleepDown(bytes: ByteArray): Boolean = bytes.toString(Charsets.UTF_8).lineSequence().any {
+        it.startsWith("X-SLEEPDOWN-", ignoreCase = true) ||
+            (it.startsWith("PRODID:", ignoreCase = true) && it.contains("SleepDown", ignoreCase = true))
+    }
     private val compactDate = DateTimeFormatter.BASIC_ISO_DATE
     private val compactDateTime = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmmss")
     private val compactDateTimeMinutes = DateTimeFormatter.ofPattern("yyyyMMdd'T'HHmm")
@@ -28,18 +35,20 @@ object IcsScheduleCodec {
         val metadata = parseSleepDownMetadata(text)
         val events = parseEvents(text)
         require(events.isNotEmpty()) { "ICS 中没有找到日历事件" }
+        require(events.none { "RECURRENCE-ID" in it.properties }) { "日历包含单次例外安排，请通过 AI 文件导入核对" }
 
         val occurrences = events.flatMap(::expandEvent).distinctBy {
-            listOf(it.name, it.location, it.description, it.start, it.end)
+            listOf(it.name, it.location, it.description, it.start, it.end, it.customPeriodTimes)
         }
         require(occurrences.isNotEmpty()) { "ICS 中没有可导入的定时课程事件" }
 
-        val firstMonday = occurrences.minOf { it.start.toLocalDate() }
+        val firstMonday = (metadata.termStartDate ?: occurrences.minOf { it.start.toLocalDate() })
             .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         val rawLastWeek = occurrences.maxOf { occurrence ->
             ChronoUnit.WEEKS.between(firstMonday, occurrence.start.toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))).toInt() + 1
         }
         val totalWeeks = (metadata.totalWeeks ?: rawLastWeek).coerceIn(1, 60)
+        require(rawLastWeek <= totalWeeks) { "日历日期超出课表周数范围，请通过 AI 文件导入确认学期范围" }
         val usable = occurrences.filter { occurrence ->
             val week = ChronoUnit.WEEKS.between(
                 firstMonday,
@@ -53,8 +62,13 @@ object IcsScheduleCodec {
             .distinct()
             .sortedWith(compareBy<Pair<LocalTime, LocalTime>> { it.first }.thenBy { it.second })
         require(timeRanges.isNotEmpty()) { "ICS 中没有可识别的课程时间" }
-        val periodIndexByRange = timeRanges.withIndex().associate { it.value to it.index + 1 }
-        val inferredPeriods = timeRanges.mapIndexed { index, range ->
+        // Events on different weekdays may overlap in clock time. Split at event boundaries
+        // instead of making each event a global period, which creates an invalid bell scheme.
+        val boundaries = timeRanges.flatMap { listOf(it.first, it.second) }.distinct().sorted()
+        val inferredRanges = boundaries.zipWithNext().filter { (start, end) ->
+            timeRanges.any { it.first <= start && it.second >= end }
+        }
+        val inferredPeriods = inferredRanges.mapIndexed { index, range ->
             PeriodEntity(
                 periodIndex = index + 1,
                 startTime = range.first.format(displayTime),
@@ -74,7 +88,11 @@ object IcsScheduleCodec {
             val location: String?,
             val weekday: Int,
             val sourceIdentity: String,
-            val note: String?
+            val note: String?,
+            val periods: List<Int>,
+            val start: LocalTime,
+            val end: LocalTime,
+            val customPeriodTimes: String?
         )
 
         val grouped = usable.groupBy { occurrence ->
@@ -83,16 +101,22 @@ object IcsScheduleCodec {
                 .filter { it in periodsByIndex }
                 .distinct()
                 .sorted()
-            val inferredPeriod = periodIndexByRange[occurrence.start.toLocalTime() to occurrence.end.toLocalTime()]
+            val anchors = embeddedPeriods.ifEmpty {
+                courseAnchorPeriodsForTimeRange(occurrence.start.toLocalTime(), occurrence.end.toLocalTime(), periods)
+            }
             CourseKey(
                 name = occurrence.name.ifBlank { "未命名课程" },
                 teacher = teacher,
                 location = occurrence.location.takeIf { it.isNotBlank() },
                 weekday = occurrence.start.dayOfWeek.value,
-                sourceIdentity = occurrence.sourceCourseId ?: "generic-${embeddedPeriods.ifEmpty { listOfNotNull(inferredPeriod) }.joinToString(",")}",
+                sourceIdentity = occurrence.sourceCourseId ?: "generic-${anchors.joinToString(",")}",
                 note = occurrence.description
                     .takeIf { it.isNotBlank() }
-                    ?.takeUnless { description -> teacher != null && description.trim() == "教师：$teacher" }
+                    ?.takeUnless { description -> teacher != null && description.trim() == "教师：$teacher" },
+                periods = anchors,
+                start = occurrence.start.toLocalTime(),
+                end = occurrence.end.toLocalTime(),
+                customPeriodTimes = occurrence.customPeriodTimes
             )
         }
         val courses = grouped.map { (key, values) ->
@@ -102,19 +126,28 @@ object IcsScheduleCodec {
                     occurrence.start.toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
                 ).toInt() + 1
             }.filter { it in 1..totalWeeks }.distinct().sorted()
+            val standardStart = key.periods.firstOrNull()?.let(periodsByIndex::get)?.startTime
+            val standardEnd = key.periods.lastOrNull()?.let(periodsByIndex::get)?.endTime
+            val hasDistinctTime = key.start.format(displayTime) != standardStart ||
+                key.end.format(displayTime) != standardEnd
+            val clock = normalizeCourseClock(
+                key.start.format(displayTime).takeIf { hasDistinctTime || key.customPeriodTimes != null },
+                key.end.format(displayTime).takeIf { hasDistinctTime || key.customPeriodTimes != null },
+                key.customPeriodTimes,
+                key.periods
+            )
             CourseEntity(
                 name = key.name,
                 teacher = key.teacher,
                 location = key.location,
                 weekday = key.weekday,
-                periods = values.flatMap { occurrence ->
-                    occurrence.periodIndices.filter { it in periodsByIndex }.ifEmpty {
-                        listOfNotNull(periodIndexByRange[occurrence.start.toLocalTime() to occurrence.end.toLocalTime()])
-                    }
-                }.distinct().sorted(),
+                periods = key.periods,
                 weeks = weeks,
                 weekParity = WeekParity.ALL,
                 note = key.note,
+                customStartTime = clock.start,
+                customEndTime = clock.end,
+                customPeriodTimes = clock.periodTimes,
                 scheduleId = baseConfig.id
             )
         }.filter { it.weeks.isNotEmpty() }
@@ -140,7 +173,10 @@ object IcsScheduleCodec {
                 eveningPeriodCount = counts.evening
             ),
             periods = periods,
-            courses = courses
+            courses = courses,
+            notices = if (metadata.periods.isEmpty()) listOf(
+                "此日历没有学校节次，已按事件起止时间生成 ${periods.size} 个显示节次，保留各课程的实际时间。请核对开学日期与作息。"
+            ) else emptyList()
         )
     }
 
@@ -171,7 +207,11 @@ object IcsScheduleCodec {
                 appendLine("X-SLEEPDOWN-PERIOD:${period.periodIndex},${period.startTime},${period.endTime}")
             }
             courses.sortedWith(compareBy<CourseEntity> { it.weekday }.thenBy { it.name }).forEach { course ->
-                val ranges = course.customTimeRangeOrNull()?.let { (start, end) ->
+                val ranges = if (course.arrangementProjection != null) courseReminderSessions(course, periods).mapNotNull { session ->
+                    val start = courseStartTime(session, periods) ?: return@mapNotNull null
+                    val end = courseEndTime(session, periods) ?: return@mapNotNull null
+                    IcsPeriodRange(session.periods, start, end)
+                } else course.customTimeRangeOrNull()?.let { (start, end) ->
                     listOf(IcsPeriodRange(course.periods.distinct().sorted(), start, end))
                 } ?: contiguousPeriodRanges(course.periods, periodsByIndex)
                 course.weeks.distinct().sorted()
@@ -196,6 +236,8 @@ object IcsScheduleCodec {
                             if (description.isNotBlank()) appendLine("DESCRIPTION:${escapeText(description)}")
                             appendLine("X-SLEEPDOWN-WEEK:$week")
                             appendLine("X-SLEEPDOWN-PERIODS:${range.indices.joinToString(",")}")
+                            course.customPeriodTimes?.takeIf { course.arrangementProjection == null }
+                                ?.let { appendLine("X-SLEEPDOWN-PERIOD-TIMES:$it") }
                             appendLine("END:VEVENT")
                         }
                     }
@@ -227,7 +269,8 @@ object IcsScheduleCodec {
         val start: LocalDateTime,
         val end: LocalDateTime,
         val periodIndices: List<Int> = emptyList(),
-        val sourceCourseId: String? = null
+        val sourceCourseId: String? = null,
+        val customPeriodTimes: String? = null
     )
 
     private data class SleepDownMetadata(
@@ -304,14 +347,17 @@ object IcsScheduleCodec {
     }
 
     private fun expandEvent(event: IcsEvent): List<Occurrence> {
-        val startProperty = event.properties["DTSTART"]?.firstOrNull() ?: return emptyList()
-        val start = parseDateTime(startProperty) ?: return emptyList()
+        if (event.properties["STATUS"]?.firstOrNull()?.value.equals("CANCELLED", true)) return emptyList()
+        val startProperty = event.properties["DTSTART"]?.firstOrNull() ?: error("日历事件缺少开始时间")
+        val start = parseDateTime(startProperty) ?: error("日历包含全天事件或无法确定的上课时间，请通过 AI 文件导入核对")
         val end = event.properties["DTEND"]?.firstOrNull()?.let(::parseDateTime)
             ?: event.properties["DURATION"]?.firstOrNull()?.value?.let { value ->
                 runCatching { start.plus(Duration.parse(value)) }.getOrNull()
             }
-            ?: start.plusHours(1)
-        if (!end.isAfter(start)) return emptyList()
+            ?: error("日历没有提供结束时间，请通过 AI 文件导入核对")
+        require(end.isAfter(start) && end.toLocalDate() == start.toLocalDate()) {
+            "日历包含跨日或不完整的课程时间，请通过 AI 文件导入核对"
+        }
         val duration = Duration.between(start, end)
         val exclusions = event.properties["EXDATE"].orEmpty().flatMap { property ->
             property.value.split(',').mapNotNull { value -> parseDateTime(property.copy(value = value)) }
@@ -322,6 +368,13 @@ object IcsScheduleCodec {
         val recurrence = event.properties["RRULE"]?.firstOrNull()?.value?.split(';')
             ?.mapNotNull { part -> part.split('=', limit = 2).takeIf { it.size == 2 }?.let { it[0].uppercase() to it[1] } }
             ?.toMap()
+        require(recurrence == null || (recurrence.keys.all {
+            it in setOf("FREQ", "INTERVAL", "COUNT", "UNTIL", "BYDAY", "WKST")
+        } && recurrence["FREQ"]?.uppercase() in setOf("DAILY", "WEEKLY") &&
+            (recurrence["WKST"] == null || recurrence["WKST"] == "MO") &&
+            recurrence["BYDAY"].orEmpty().none(Char::isDigit))) {
+            "日历包含复杂重复规则，请通过 AI 文件导入核对"
+        }
         val starts = when (recurrence?.get("FREQ")?.uppercase()) {
             "WEEKLY" -> expandWeekly(start, recurrence)
             "DAILY" -> expandDaily(start, recurrence)
@@ -333,8 +386,9 @@ object IcsScheduleCodec {
         val embeddedPeriods = event.properties["X-SLEEPDOWN-PERIODS"]?.firstOrNull()?.value
             ?.split(',')?.mapNotNull { it.trim().toIntOrNull() }.orEmpty()
         val sourceCourseId = event.properties["X-SLEEPDOWN-COURSE-ID"]?.firstOrNull()?.value?.trim()?.takeIf { it.isNotBlank() }
+        val customPeriodTimes = event.properties["X-SLEEPDOWN-PERIOD-TIMES"]?.firstOrNull()?.value
         return starts.take(1000).map { occurrenceStart ->
-            Occurrence(name, location, description, occurrenceStart, occurrenceStart.plus(duration), embeddedPeriods, sourceCourseId)
+            Occurrence(name, location, description, occurrenceStart, occurrenceStart.plus(duration), embeddedPeriods, sourceCourseId, customPeriodTimes)
         }
     }
 

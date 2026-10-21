@@ -1,0 +1,1650 @@
+--- a/backdrop/src/androidMain/kotlin/com/kyant/backdrop/internal/Paint.kt
++++ b/backdrop/src/androidMain/kotlin/com/kyant/backdrop/internal/Paint.kt
+@@ -14,3 +14,4 @@
+ internal actual fun Paint.setRuntimeShader(runtimeShader: RuntimeShader?) {
+     this.asFrameworkPaint().shader = runtimeShader?.asAndroidRuntimeShader()
+ }
++
+--- a/backdrop/src/androidMain/kotlin/com/kyant/backdrop/internal/RenderEffect.kt
++++ b/backdrop/src/androidMain/kotlin/com/kyant/backdrop/internal/RenderEffect.kt
+@@ -48,3 +48,4 @@
+         ).asComposeRenderEffect()
+     }
+ }
++
+--- a/backdrop/src/androidMain/kotlin/com/kyant/backdrop/Platform.kt
++++ b/backdrop/src/androidMain/kotlin/com/kyant/backdrop/Platform.kt
+@@ -8,3 +8,4 @@
+ 
+ @ChecksSdkIntAtLeast(Build.VERSION_CODES.TIRAMISU)
+ actual fun isRuntimeShaderSupported(): Boolean = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
++
+--- a/backdrop/src/androidMain/kotlin/com/kyant/backdrop/RuntimeShader.kt
++++ b/backdrop/src/androidMain/kotlin/com/kyant/backdrop/RuntimeShader.kt
+@@ -68,3 +68,4 @@
+         shader.setColorUniform(name, color.toArgb())
+     }
+ }
++
+--- /dev/null
++++ b/backdrop/src/androidMain/kotlin/com/kyant/backdrop/RuntimeShaderCache.kt
+@@ -0,0 +1,9 @@
++package com.kyant.backdrop
++
++// Each effect sets uniforms then immediately snapshots a native RenderEffect on this thread.
++// Other render/preview threads must never mutate the same RuntimeShader builder concurrently.
++private val effectShaders = object : ThreadLocal<EffectShaderRegistry>() {
++    override fun initialValue() = EffectShaderRegistry()
++}
++
++internal actual fun sharedEffectShaderRegistry(): EffectShaderRegistry = checkNotNull(effectShaders.get())
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/Backdrop.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/Backdrop.kt
+@@ -15,3 +15,4 @@
+         layerBlock: (GraphicsLayerScope.() -> Unit)? = null
+     )
+ }
++
+--- /dev/null
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/BackdropDiagnostics.kt
+@@ -0,0 +1,26 @@
++package com.kyant.backdrop
++
++import androidx.compose.ui.unit.IntSize
++
++/** Optional diagnostic sink. Recorded pixel area is NOT a measurement of GPU allocation. */
++object BackdropDiagnostics {
++    var observer: ((String, Long) -> Unit)? = null
++    internal fun event(name: String, value: Long = 1L) { observer?.invoke(name, value) }
++}
++
++internal class BackdropLayerDiagnostics(private val kind: String) {
++    private var previousSize = IntSize.Zero
++    fun created() = BackdropDiagnostics.event("$kind.Created")
++    fun released() {
++        BackdropDiagnostics.event("$kind.Released")
++        previousSize = IntSize.Zero
++    }
++    fun recorded(size: IntSize) {
++        BackdropDiagnostics.event("$kind.Recorded")
++        if (size != previousSize) {
++            BackdropDiagnostics.event("$kind.SizeChanged")
++            previousSize = size
++        }
++        BackdropDiagnostics.event("$kind.RecordedPixelArea", size.width.toLong() * size.height)
++    }
++}
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/BackdropEffectScope.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/BackdropEffectScope.kt
+@@ -1,6 +1,8 @@
++// Modified for SleepDown on 2026-09-08; upstream 2.0.0, Apache-2.0 (see README.md).
+ package com.kyant.backdrop
+ 
+ import androidx.compose.ui.geometry.Size
++import androidx.compose.ui.geometry.Offset
+ import androidx.compose.ui.graphics.RenderEffect
+ import androidx.compose.ui.graphics.Shape
+ import androidx.compose.ui.graphics.drawscope.DrawScope
+@@ -10,6 +12,7 @@
+ sealed interface BackdropEffectScope : Density, RuntimeShaderCache {
+ 
+     val size: Size
++    val effectOffset: Offset
+ 
+     val layoutDirection: LayoutDirection
+ 
+@@ -25,23 +28,24 @@
+     override var density: Float = 1f
+     override var fontScale: Float = 1f
+     override var size: Size = Size.Unspecified
++    override var effectOffset: Offset = Offset.Zero
+     override var layoutDirection: LayoutDirection = LayoutDirection.Ltr
+     override var padding: Float = 0f
+     override var renderEffect: RenderEffect? = null
+ 
+-    private val runtimeShaderCache = RuntimeShaderCacheImpl()
++    private val runtimeShaderCache = RuntimeShaderCacheImpl(shareEffects = true)
+ 
+     override fun obtainRuntimeShader(key: String, string: String): RuntimeShader {
+         return runtimeShaderCache.obtainRuntimeShader(key, string)
+     }
+ 
+-    fun update(scope: DrawScope): Boolean {
+-        val newDensity = scope.density
++    fun update(scope: DrawScope, effectSize: Size = scope.size, offset: Offset = Offset.Zero, densityScale: Float = 1f): Boolean {
++        val newDensity = scope.density * densityScale
+         val newFontScale = scope.fontScale
+-        val newSize = scope.size
++        val newSize = effectSize
+         val newLayoutDirection = scope.layoutDirection
+ 
+-        val changed = newDensity != density ||
++        val changed = offset != effectOffset || newDensity != density ||
+                 newFontScale != fontScale ||
+                 newSize != size ||
+                 newLayoutDirection != layoutDirection
+@@ -50,6 +54,7 @@
+             density = newDensity
+             fontScale = newFontScale
+             size = newSize
++            effectOffset = offset
+             layoutDirection = newLayoutDirection
+         }
+ 
+--- /dev/null
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/BackdropRenderOptions.kt
+@@ -0,0 +1,30 @@
++package com.kyant.backdrop
++
++import androidx.compose.ui.geometry.Rect
++
++/** SleepDown extension. Pausing retains node ownership without recording material layers. */
++class BackdropRenderOptions(
++    val enabled: () -> Boolean = { true },
++    val sampleBackdrop: Boolean = true,
++    val bounds: () -> Rect? = { null },
++    val allocationPadding: Float? = null,
++    /** Non-null only when the caller can describe ALL effect inputs with an immutable value. */
++    val effectKey: () -> Any? = { null },
++    val cacheDecorations: Boolean = false,
++    /** A moving course lens uses its placement outline without a second draw-time clip. */
++    val clipGenericOutlineInDraw: Boolean = true,
++    /** Sample-only course nodes clip in draw without retaining an extra placement layer. */
++    val placementLayer: Boolean = true,
++    /** Sampling resolution only; layout, clipping and decorations remain at full resolution. */
++    val sampleScale: Float = 1f,
++    /** A retained scene may suppress position-only invalidation while its outer layer moves. */
++    val coordinatesFrozen: () -> Boolean = { false },
++    /** Complete scene identity; only a frozen, matching scene may reuse a sampled recording. */
++    val sampleRecordKey: () -> Any? = { null },
++    /** Skip background recording for fully clipped course cards; never changes node lifetime. */
++    val viewport: BackdropViewport? = null
++) {
++    companion object {
++        val Default = BackdropRenderOptions()
++    }
++}
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/Backdrop.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/Backdrop.kt
+@@ -35,3 +35,4 @@
+         onDraw { with(backdrop) { drawBackdrop(density, coordinates, layerBlock) } }
+     }
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/CanvasBackdrop.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/CanvasBackdrop.kt
+@@ -33,3 +33,4 @@
+         onDraw()
+     }
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/CombinedBackdrop.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/CombinedBackdrop.kt
+@@ -97,3 +97,4 @@
+         }
+     }
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/EmptyBackdrop.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/EmptyBackdrop.kt
+@@ -23,3 +23,4 @@
+     ) {
+     }
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/LayerBackdrop.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/LayerBackdrop.kt
+@@ -4,6 +4,7 @@
+ import androidx.compose.runtime.Stable
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.mutableIntStateOf
+ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.graphics.GraphicsLayerScope
+@@ -41,9 +42,18 @@
+ 
+     internal var layerCoordinates: LayoutCoordinates? by mutableStateOf(null)
+ 
++    internal var contentVersion: Int by mutableIntStateOf(0)
++
+     private var inverseLayerScope: InverseLayerScope? = null
+ 
+     override fun DrawScope.drawBackdrop(
++        density: Density,
++        coordinates: LayoutCoordinates?,
++        layerBlock: (GraphicsLayerScope.() -> Unit)?
++    ) = drawLayerAtSource(graphicsLayer, density, coordinates, layerBlock)
++
++    internal fun DrawScope.drawLayerAtSource(
++        layer: GraphicsLayer,
+         density: Density,
+         coordinates: LayoutCoordinates?,
+         layerBlock: (GraphicsLayerScope.() -> Unit)?
+@@ -63,7 +73,7 @@
+                 }
+             translate(-offset.x, -offset.y)
+         }) {
+-            drawLayer(graphicsLayer)
++            drawLayer(layer)
+         }
+     }
+ 
+@@ -72,3 +82,4 @@
+             ?: InverseLayerScope().also { inverseLayerScope = it }
+     }
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/LayerBackdropModifier.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/LayerBackdropModifier.kt
+@@ -1,4 +1,7 @@
++// Modified for SleepDown on 2026-09-08; upstream 2.0.0, Apache-2.0 (see README.md).
+ package com.kyant.backdrop.backdrops
++
++import androidx.compose.runtime.snapshots.Snapshot
+ 
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+@@ -9,23 +12,35 @@
+ import androidx.compose.ui.node.invalidateDraw
+ import androidx.compose.ui.platform.InspectorInfo
+ import com.kyant.backdrop.internal.recordLayer
++import com.kyant.backdrop.BackdropLayerDiagnostics
++import com.kyant.backdrop.BackdropDiagnostics
++import androidx.compose.ui.unit.toIntSize
++import com.kyant.backdrop.internal.BackdropRecordingCache
+ 
+-fun Modifier.layerBackdrop(backdrop: LayerBackdrop): Modifier =
+-    this then LayerBackdropElement(backdrop)
++/**
++ * A non-null key promises that all recorded pixels are unchanged. Return null for dynamic
++ * content. The caller must include asynchronous image changes and animation state in the key.
++ * Size, density, direction, source replacement and detach are invalidated by the node itself.
++ */
++fun Modifier.layerBackdrop(backdrop: LayerBackdrop, recordKey: (() -> Any?)? = null): Modifier =
++    this then LayerBackdropElement(backdrop, recordKey)
+ 
+ private class LayerBackdropElement(
+-    val backdrop: LayerBackdrop
++    val backdrop: LayerBackdrop,
++    val recordKey: (() -> Any?)?
+ ) : ModifierNodeElement<LayerBackdropNode>() {
+ 
+     override fun create(): LayerBackdropNode {
+-        return LayerBackdropNode(backdrop)
++        return LayerBackdropNode(backdrop, recordKey)
+     }
+ 
+     override fun update(node: LayerBackdropNode) {
+         if (node.backdrop != backdrop) {
+             node.backdrop.layerCoordinates = null
+             node.backdrop = backdrop
++            node.markNeedsRecord()
+         }
++        node.recordKey = recordKey
+         node.invalidateDraw()
+     }
+ 
+@@ -39,22 +54,40 @@
+         if (other !is LayerBackdropElement) return false
+ 
+         if (backdrop != other.backdrop) return false
++        if (recordKey != other.recordKey) return false
+ 
+         return true
+     }
+ 
+     override fun hashCode(): Int {
+-        return backdrop.hashCode()
++        return 31 * backdrop.hashCode() + (recordKey?.hashCode() ?: 0)
+     }
+ }
+ 
+ private class LayerBackdropNode(
+-    var backdrop: LayerBackdrop
++    var backdrop: LayerBackdrop,
++    var recordKey: (() -> Any?)?
+ ) : DrawModifierNode, GlobalPositionAwareModifierNode, Modifier.Node() {
++    private val layerDiagnostics = BackdropLayerDiagnostics("ProducerRecord")
++    private val recordingCache = BackdropRecordingCache()
++
++    fun markNeedsRecord() = recordingCache.clear()
+ 
+     override fun ContentDrawScope.draw() {
+         drawContent()
+-        recordLayer(backdrop.graphicsLayer) { backdrop.onDraw(this@draw) }
++        val key = recordKey?.invoke()
++        val dimensions = size.toIntSize()
++        if (recordingCache.needsRecord(key, dimensions, density, fontScale, layoutDirection)) {
++            recordLayer(backdrop.graphicsLayer) { backdrop.onDraw(this@draw) }
++            recordingCache.recorded(key, dimensions, density, fontScale, layoutDirection)
++            layerDiagnostics.recorded(backdrop.graphicsLayer.size)
++            // Publishing a recording must not subscribe this producer to its own revision.
++            // A read/write in draw otherwise keeps invalidating retained home RenderNodes,
++            // including while the course editor is sampling the frozen scene.
++            Snapshot.withoutReadObservation { backdrop.contentVersion++ }
++        } else {
++            BackdropDiagnostics.event("ProducerRecord.Reused")
++        }
+     }
+ 
+     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
+@@ -64,6 +97,7 @@
+     }
+ 
+     override fun onDetach() {
++        markNeedsRecord()
+         backdrop.layerCoordinates = null
+     }
+ }
+--- /dev/null
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/SharedBlurBackdrop.kt
+@@ -0,0 +1,145 @@
++// SleepDown implementation on the Apache-2.0 Kyant 2.0.0 API; see README.md.
++package com.kyant.backdrop.backdrops
++
++import androidx.compose.runtime.Stable
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableFloatStateOf
++import androidx.compose.runtime.mutableIntStateOf
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.setValue
++import androidx.compose.runtime.snapshots.Snapshot
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.GraphicsLayerScope
++import androidx.compose.ui.graphics.RectangleShape
++import androidx.compose.ui.graphics.drawscope.ContentDrawScope
++import androidx.compose.ui.graphics.drawscope.DrawScope
++import androidx.compose.ui.graphics.layer.GraphicsLayer
++import androidx.compose.ui.graphics.layer.CompositingStrategy
++import androidx.compose.ui.graphics.layer.drawLayer
++import androidx.compose.ui.layout.LayoutCoordinates
++import androidx.compose.ui.node.DrawModifierNode
++import androidx.compose.ui.node.ModifierNodeElement
++import androidx.compose.ui.node.requireGraphicsContext
++import androidx.compose.ui.platform.InspectorInfo
++import androidx.compose.ui.unit.Density
++import androidx.compose.ui.unit.toIntSize
++import com.kyant.backdrop.Backdrop
++import com.kyant.backdrop.BackdropEffectScopeImpl
++import com.kyant.backdrop.BackdropLayerDiagnostics
++import com.kyant.backdrop.effects.blur
++import com.kyant.backdrop.effects.vibrancy
++import com.kyant.backdrop.internal.BackdropRecordingCache
++
++/**
++ * Full-resolution wallpaper prefix shared by course lenses. The filtering node is separate
++ * from the published node, which has no RenderEffect of its own. Both retain display lists:
++ * record { drawLayer(blurLayer) } alone is NOT a pixel snapshot. The published node explicitly
++ * uses Offscreen so HWUI rasterizes its unchanged display list into one retained shared surface,
++ * instead of replaying the inner filter with each card's different clip. GPU work still occurs
++ * when that surface is dirty; there is no CPU readback or per-card fullscreen blur request.
++ */
++@Stable
++class SharedBlurBackdrop(val source: LayerBackdrop, radiusPx: Float, vibrant: Boolean) : Backdrop {
++    var radiusPx: Float by mutableFloatStateOf(radiusPx)
++    var vibrant: Boolean by mutableStateOf(vibrant)
++    internal var layer: GraphicsLayer? by mutableStateOf(null)
++    internal var contentRevision: Int by mutableIntStateOf(0)
++    val ready: Boolean get() = layer != null && source.layerCoordinates?.isAttached == true
++    override val isCoordinatesDependent = true
++
++    fun preRenderModifier(sourceKey: () -> Any?): Modifier = RecorderElement(this, sourceKey)
++
++    override fun DrawScope.drawBackdrop(
++        density: Density,
++        coordinates: LayoutCoordinates?,
++        layerBlock: (GraphicsLayerScope.() -> Unit)?
++    ) {
++        // Raw and filtered wallpaper use the same full-resolution coordinate transform.
++        with(source) { drawLayerAtSource(layer ?: graphicsLayer, density, coordinates, layerBlock) }
++    }
++}
++
++private data class RecorderElement(val backdrop: SharedBlurBackdrop, val sourceKey: () -> Any?) : ModifierNodeElement<RecorderNode>() {
++    override fun create() = RecorderNode(backdrop, sourceKey)
++    override fun update(node: RecorderNode) {
++        if (node.backdrop !== backdrop) {
++            node.backdrop.layer = null
++            node.cache.clear()
++            node.resetEffectTracking()
++            node.backdrop = backdrop
++        }
++        node.sourceKey = sourceKey
++    }
++    override fun InspectorInfo.inspectableProperties() { name = "sharedWallpaperBlur" }
++}
++
++private class RecorderNode(var backdrop: SharedBlurBackdrop, var sourceKey: () -> Any?) : Modifier.Node(), DrawModifierNode {
++    val cache = BackdropRecordingCache()
++    private var blurLayer: GraphicsLayer? = null
++    private var bakedLayer: GraphicsLayer? = null
++    private val diagnostics = BackdropLayerDiagnostics("SharedWallpaper")
++    private val effects = object : BackdropEffectScopeImpl() { override val shape = RectangleShape }
++    private var lastRadius = Float.NaN
++    private var lastVibrant: Boolean? = null
++
++    fun resetEffectTracking() {
++        lastRadius = Float.NaN
++        lastVibrant = null
++        effects.reset()
++    }
++
++    override fun ContentDrawScope.draw() {
++        drawContent()
++        val filtered = blurLayer ?: return
++        val published = bakedLayer ?: return
++        val dimensions = size.toIntSize()
++        if (dimensions.width <= 0 || dimensions.height <= 0 ||
++            backdrop.source.layerCoordinates?.isAttached != true) return
++        val key = sourceKey()?.let { it to backdrop.source.contentVersion }
++        val sourceDirty = cache.needsRecord(key, dimensions, density, fontScale, layoutDirection)
++        val geometryDirty = effects.update(this)
++        val effectDirty = geometryDirty || lastRadius != backdrop.radiusPx || lastVibrant != backdrop.vibrant
++        if (effectDirty) {
++            effects.apply {
++                if (backdrop.vibrant) vibrancy()
++                blur(backdrop.radiusPx)
++            }
++            filtered.renderEffect = effects.renderEffect
++            lastRadius = backdrop.radiusPx
++            lastVibrant = backdrop.vibrant
++        }
++        if (sourceDirty) {
++            filtered.record(dimensions) { drawLayer(backdrop.source.graphicsLayer) }
++            cache.recorded(key, dimensions, density, fontScale, layoutDirection)
++            diagnostics.recorded(dimensions)
++        }
++        if (sourceDirty || effectDirty) {
++            published.record(dimensions) { drawLayer(filtered) }
++            diagnostics.recorded(dimensions)
++            backdrop.layer = published
++            Snapshot.withoutReadObservation { backdrop.contentRevision++ }
++        }
++    }
++
++    override fun onAttach() {
++        val context = requireGraphicsContext()
++        blurLayer = context.createGraphicsLayer()
++        bakedLayer = context.createGraphicsLayer().apply {
++            // A null effect with Auto only forwards a display list. This single shared raster
++            // boundary is essential: the filtered node must not inherit every card's clip.
++            compositingStrategy = CompositingStrategy.Offscreen
++        }
++        repeat(2) { diagnostics.created() }
++    }
++
++    override fun onDetach() {
++        backdrop.layer = null
++        val context = requireGraphicsContext()
++        blurLayer?.let { context.releaseGraphicsLayer(it); diagnostics.released() }
++        bakedLayer?.let { context.releaseGraphicsLayer(it); diagnostics.released() }
++        blurLayer = null
++        bakedLayer = null
++        cache.clear()
++        resetEffectTracking()
++    }
++}
+--- /dev/null
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/TransformAwareLayerBackdrop.kt
+@@ -0,0 +1,51 @@
++// SleepDown extension to Kyant Backdrop, Apache-2.0.
++package com.kyant.backdrop.backdrops
++
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.geometry.isSpecified
++import androidx.compose.ui.graphics.GraphicsLayerScope
++import androidx.compose.ui.graphics.Matrix
++import androidx.compose.ui.graphics.drawscope.DrawScope
++import androidx.compose.ui.graphics.drawscope.withTransform
++import androidx.compose.ui.graphics.layer.drawLayer
++import androidx.compose.ui.layout.LayoutCoordinates
++import androidx.compose.ui.unit.Density
++import com.kyant.backdrop.Backdrop
++
++/** Opt-in for popups whose ancestors scale/stretch while the sampled page stays still. */
++fun LayerBackdrop.withTransformCompensation(): Backdrop = TransformAwareLayerBackdrop(this)
++
++private class TransformAwareLayerBackdrop(private val source: LayerBackdrop) : Backdrop {
++    override val isCoordinatesDependent = true
++    private val sourceToConsumer = Matrix()
++
++    override fun DrawScope.drawBackdrop(
++        density: Density,
++        coordinates: LayoutCoordinates?,
++        layerBlock: (GraphicsLayerScope.() -> Unit)?
++    ) {
++        val consumer = coordinates?.takeIf { it.isAttached } ?: return
++        val producer = source.layerCoordinates?.takeIf { it.isAttached } ?: return
++        sourceToConsumer.reset()
++        try {
++            consumer.transformFrom(producer, sourceToConsumer)
++        } catch (_: IllegalArgumentException) {
++            // Separate popup windows have different roots and window origins. Map the affine
++            // basis through screen space; translating window positions alone loses both scale
++            // and the decor inset. This path intentionally excludes perspective transforms.
++            val origin = consumer.screenToLocal(producer.localToScreen(Offset.Zero))
++            val x = consumer.screenToLocal(producer.localToScreen(Offset(1f, 0f)))
++            val y = consumer.screenToLocal(producer.localToScreen(Offset(0f, 1f)))
++            if (!origin.isSpecified || !x.isSpecified || !y.isSpecified) return
++            sourceToConsumer[0, 0] = x.x - origin.x
++            sourceToConsumer[0, 1] = x.y - origin.y
++            sourceToConsumer[1, 0] = y.x - origin.x
++            sourceToConsumer[1, 1] = y.y - origin.y
++            sourceToConsumer[3, 0] = origin.x
++            sourceToConsumer[3, 1] = origin.y
++        }
++        // LayoutCoordinates already includes the popup's graphics layers. Applying Kyant's
++        // explicit layerBlock inverse as well would compensate the same transform twice.
++        withTransform({ transform(sourceToConsumer) }) { drawLayer(source.graphicsLayer) }
++    }
++}
+--- /dev/null
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/BackdropViewport.kt
+@@ -0,0 +1,25 @@
++// SleepDown extension to the Apache-2.0 Kyant API.
++package com.kyant.backdrop
++
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.geometry.Rect
++import androidx.compose.ui.layout.LayoutCoordinates
++import androidx.compose.ui.layout.boundsInWindow
++
++/** A drawing-only sampling boundary. Unknown bounds keep first-frame sampling enabled. */
++class BackdropViewport {
++    private var bounds: Rect? by mutableStateOf(null)
++
++    fun update(windowBounds: Rect) {
++        bounds = windowBounds
++    }
++
++    internal fun intersects(coordinates: LayoutCoordinates): Boolean =
++        bounds?.let { viewport ->
++            val card = coordinates.boundsInWindow(clipBounds = false)
++            card.right >= viewport.left && card.left <= viewport.right &&
++                card.bottom >= viewport.top && card.top <= viewport.bottom
++        } ?: true
++}
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/DrawBackdropModifier.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/DrawBackdropModifier.kt
+@@ -1,3 +1,4 @@
++// Modified for SleepDown on 2026-09-08; upstream 2.0.0, Apache-2.0 (see README.md).
+ package com.kyant.backdrop
+ 
+ import androidx.compose.runtime.getValue
+@@ -7,9 +8,14 @@
+ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.GraphicsLayerScope
++import androidx.compose.ui.graphics.Outline
++import androidx.compose.ui.graphics.Path
++import androidx.compose.ui.geometry.RoundRect
+ import androidx.compose.ui.graphics.Shape
+ import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+ import androidx.compose.ui.graphics.drawscope.DrawScope
++import androidx.compose.ui.graphics.drawscope.inset
++import androidx.compose.ui.geometry.Offset
+ import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.graphics.layer.GraphicsLayer
+ import androidx.compose.ui.graphics.layer.drawLayer
+@@ -23,20 +29,26 @@
+ import androidx.compose.ui.node.ModifierNodeElement
+ import androidx.compose.ui.node.ObserverModifierNode
+ import androidx.compose.ui.node.observeReads
++import androidx.compose.ui.node.invalidateDraw
+ import androidx.compose.ui.node.requireGraphicsContext
++import androidx.compose.ui.node.requireLayoutDirection
+ import androidx.compose.ui.platform.InspectorInfo
+ import androidx.compose.ui.unit.Constraints
+ import androidx.compose.ui.unit.IntOffset
+ import androidx.compose.ui.unit.IntSize
+ import com.kyant.backdrop.backdrops.LayerBackdrop
++import com.kyant.backdrop.backdrops.SharedBlurBackdrop
+ import com.kyant.backdrop.highlight.Highlight
+ import com.kyant.backdrop.highlight.HighlightElement
+ import com.kyant.backdrop.internal.ShapeProvider
+ import com.kyant.backdrop.internal.recordLayer
++import com.kyant.backdrop.internal.BackdropRecordingCache
+ import com.kyant.backdrop.shadow.InnerShadow
+ import com.kyant.backdrop.shadow.InnerShadowElement
+ import com.kyant.backdrop.shadow.Shadow
+ import com.kyant.backdrop.shadow.ShadowElement
++import androidx.compose.ui.unit.Density
++import kotlin.math.ceil
+ 
+ private val DefaultHighlight = { Highlight.Default }
+ private val DefaultShadow = { Shadow.Default }
+@@ -51,9 +63,10 @@
+     onDrawBehind: (DrawScope.() -> Unit)? = null,
+     onDrawBackdrop: DrawScope.(drawBackdrop: DrawScope.() -> Unit) -> Unit = DefaultOnDrawBackdrop,
+     onDrawSurface: (DrawScope.() -> Unit)? = null,
+-    onDrawFront: (DrawScope.() -> Unit)? = null
++    onDrawFront: (DrawScope.() -> Unit)? = null,
++    renderOptions: BackdropRenderOptions = BackdropRenderOptions.Default
+ ): Modifier {
+-    val shapeProvider = ShapeProvider(shape)
++    val shapeProvider = ShapeProvider(shape, renderOptions)
+     return this
+         .then(
+             if (layerBlock != null) {
+@@ -89,9 +102,10 @@
+     onDrawBehind: (DrawScope.() -> Unit)? = null,
+     onDrawBackdrop: DrawScope.(drawBackdrop: DrawScope.() -> Unit) -> Unit = DefaultOnDrawBackdrop,
+     onDrawSurface: (DrawScope.() -> Unit)? = null,
+-    onDrawFront: (DrawScope.() -> Unit)? = null
++    onDrawFront: (DrawScope.() -> Unit)? = null,
++    renderOptions: BackdropRenderOptions = BackdropRenderOptions.Default
+ ): Modifier {
+-    val shapeProvider = ShapeProvider(shape)
++    val shapeProvider = ShapeProvider(shape, renderOptions)
+     return this
+         .then(
+             if (layerBlock != null) {
+@@ -172,8 +186,10 @@
+     }
+ 
+     override fun update(node: DrawBackdropNode) {
++        node.invalidateSampleRecording()
++        val effectsChanged = node.shapeProvider != shapeProvider || node.effects != effects
+         node.backdrop = backdrop
+-        node.shapeProvider = shapeProvider
++        if (node.shapeProvider != shapeProvider) node.shapeProvider = shapeProvider
+         node.effects = effects
+         node.layerBlock = layerBlock
+         if (node.exportedBackdrop != exportedBackdrop) {
+@@ -184,7 +200,8 @@
+         node.onDrawBackdrop = onDrawBackdrop
+         node.onDrawSurface = onDrawSurface
+         node.onDrawFront = onDrawFront
+-        node.invalidateDrawCache()
++        node.synchronizeSampleLayer()
++        if (effectsChanged) node.invalidateDrawCache() else node.invalidateDraw()
+     }
+ 
+     override fun InspectorInfo.inspectableProperties() {
+@@ -233,7 +250,7 @@
+ 
+ private class DrawBackdropNode(
+     var backdrop: Backdrop,
+-    var shapeProvider: ShapeProvider,
++    shapeProvider: ShapeProvider,
+     var effects: BackdropEffectScope.() -> Unit,
+     var layerBlock: (GraphicsLayerScope.() -> Unit)?,
+     var exportedBackdrop: LayerBackdrop?,
+@@ -243,6 +260,10 @@
+     var onDrawFront: (DrawScope.() -> Unit)?
+ ) : LayoutModifierNode, DrawModifierNode, GlobalPositionAwareModifierNode, ObserverModifierNode, Modifier.Node() {
+ 
++    // The placement layer retains its callback after a pager reuses a card host. Observe a
++    // replacement provider so its clip follows the current outline at unchanged size.
++    var shapeProvider: ShapeProvider by mutableStateOf(shapeProvider)
++
+     private val effectScope =
+         object : BackdropEffectScopeImpl() {
+ 
+@@ -250,56 +271,105 @@
+         }
+ 
+     private var graphicsLayer: GraphicsLayer? = null
++    private val layerDiagnostics = BackdropLayerDiagnostics("Sample")
++    private val sampleRecordingCache = BackdropRecordingCache()
++    private var lastEffectKey: Any? = null
++    private var lastEffectShape: Shape? = null
++    private val drawClipPath = Path()
++    private var clippedRoundRect: RoundRect? = null
+ 
+     private val layoutLayerBlock: GraphicsLayerScope.() -> Unit = {
+         clip = true
+-        shape = shapeProvider.shape
++        shape = shapeProvider.snapshot(size, requireLayoutDirection(), this)
+         compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen
+     }
+ 
++    // This layout/draw node places its content in an inner layer. invalidateDraw() alone can
++    // dirty the outer coordinator while that layer keeps replaying its old sample. Observe
++    // coordinates from draw so movement invalidates the layer that actually records the glass.
++    // LayoutCoordinates mutates in place, so assigning the same instance must still notify it.
+     private var layoutCoordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
+-
+     private var padding by mutableFloatStateOf(0f)
+ 
+     private val recordBackdropBlock: (DrawScope.() -> Unit) = {
+         val canvas = drawContext.canvas
+         val padding = padding
+-
++        val sampleScale = shapeProvider.options.sampleScale
++
++        canvas.save()
++        canvas.scale(sampleScale, sampleScale)
+         if (padding != 0f) {
+-            canvas.translate(padding, padding)
++            canvas.translate(padding / sampleScale, padding / sampleScale)
+         }
+         onDrawBackdrop {
+             with(backdrop) {
+                 drawBackdrop(
+-                    density = effectScope,
++                    density = Density(effectScope.density / sampleScale, effectScope.fontScale),
+                     coordinates = layoutCoordinates,
+                     layerBlock = layerBlock
+                 )
+             }
+         }
+-        if (padding != 0f) {
++        canvas.restore()
++    }
++
++    private val drawBackdropLayer: DrawScope.() -> Unit = drawBackdropLayer@{
++        if (!shapeProvider.options.sampleBackdrop) return@drawBackdropLayer
++        val viewport = shapeProvider.options.viewport
++        val coordinates = layoutCoordinates
++        if (viewport != null && coordinates?.isAttached == true &&
++            !viewport.intersects(coordinates)) {
++            BackdropDiagnostics.event("Sample.OutsideViewport")
++            return@drawBackdropLayer
++        }
++
++        val layer = graphicsLayer
++        if (layer == null) {
++            val canvas = drawContext.canvas
++            canvas.save()
++            try {
++                canvas.clipRect(0f, 0f, size.width, size.height)
++                onDrawBackdrop {
++                    with(backdrop) { drawBackdrop(effectScope, coordinates, layerBlock) }
++                }
++            } finally {
++                canvas.restore()
++            }
++            if (backdrop is SharedBlurBackdrop) BackdropDiagnostics.event("Sample.SharedBlit")
++            return@drawBackdropLayer
++        }
++
++        val sampleScale = shapeProvider.options.sampleScale
++        val allocationPadding = shapeProvider.options.allocationPadding ?: padding
++        require(allocationPadding >= padding) { "Fixed allocation must cover effect padding" }
++        val recordingSize = IntSize(
++            ceil(size.width * sampleScale + allocationPadding * 2).toInt().coerceAtLeast(1),
++            ceil(size.height * sampleScale + allocationPadding * 2).toInt().coerceAtLeast(1)
++        )
++        // Only retained, frozen scenes need a completed local recording. Ordinary course cards
++        // follow the reference path: one local Lens layer sampling the shared wallpaper node.
++        val shared = backdrop as? SharedBlurBackdrop
++        val frozen = shapeProvider.options.coordinatesFrozen()
++        val key = if (frozen) shapeProvider.options.sampleRecordKey()?.let {
++            if (shared != null) it to shared.contentRevision else it
++        } else null
++        if (!frozen || sampleRecordingCache.needsRecord(key, recordingSize, density, fontScale, layoutDirection)) {
++            recordLayer(layer, size = recordingSize, block = recordBackdropBlock)
++            layerDiagnostics.recorded(layer.size)
++            sampleRecordingCache.recorded(key, recordingSize, density, fontScale, layoutDirection)
++            if (shared != null) BackdropDiagnostics.event("Sample.SharedDirect")
++        } else {
++            BackdropDiagnostics.event("Sample.FrozenReuse")
++        }
++        layer.topLeft = IntOffset.Zero
++        val canvas = drawContext.canvas
++        canvas.save()
++        try {
++            canvas.scale(1f / sampleScale, 1f / sampleScale)
+             canvas.translate(-padding, -padding)
+-        }
+-    }
+-
+-    private val drawBackdropLayer: DrawScope.() -> Unit = {
+-        val layer = graphicsLayer
+-        if (layer != null) {
+-            val padding = padding
+-
+-            recordLayer(
+-                layer,
+-                size = IntSize(
+-                    size.width.toInt() + padding.toInt() * 2,
+-                    size.height.toInt() + padding.toInt() * 2
+-                ),
+-                block = recordBackdropBlock
+-            )
+-
+-            layer.topLeft =
+-                if (padding != 0f) IntOffset(-padding.toInt(), -padding.toInt())
+-                else IntOffset.Zero
+             drawLayer(layer)
++        } finally {
++            canvas.restore()
+         }
+     }
+ 
+@@ -309,20 +379,78 @@
+     ): MeasureResult {
+         val placeable = measurable.measure(constraints)
+         return layout(placeable.width, placeable.height) {
+-            placeable.placeWithLayer(IntOffset.Zero, layerBlock = layoutLayerBlock)
++            if (shapeProvider.options.placementLayer) {
++                placeable.placeWithLayer(IntOffset.Zero, layerBlock = layoutLayerBlock)
++            } else {
++                placeable.place(IntOffset.Zero)
++            }
+         }
+     }
+ 
+     override fun ContentDrawScope.draw() {
+-        if (effectScope.update(this)) {
+-            updateEffects()
+-        }
+-
+-        onDrawBehind?.invoke(this)
+-        drawBackdropLayer()
+-        onDrawSurface?.invoke(this)
+-        drawContent()
+-        onDrawFront?.invoke(this)
++        // Disabled material still draws its local content. Observe only its enable flag so
++        // wallpaper revisions and coordinate changes cannot invalidate an invisible sample.
++        if (!shapeProvider.options.enabled()) return drawContent()
++        // Observe freeze/resume here, so resume refreshes the existing sample once even if no
++        // layout callback follows. The retained GraphicsLayer still references child RenderNodes:
++        // suppressing only the parent's drawContent does not stop their own invalidations.
++        shapeProvider.options.coordinatesFrozen()
++        // Keep the draw observation even when a frozen sample skips the recording block.
++        layoutCoordinates
++        // Reads made inside GraphicsLayer.record are not owned by this modifier's draw
++        // observer. Observe the shared wallpaper origin here so its first placement refreshes
++        // cards that drew before the producer reported coordinates. Also observe rerecordings:
++        // the producer reuses one GraphicsLayer, so its content can change without its identity.
++        (backdrop as? SharedBlurBackdrop)?.let { shared ->
++            shared.source.layerCoordinates
++            shared.contentRevision
++        }
++        val bounds = shapeProvider.options.bounds()
++        val sampleScale = shapeProvider.options.sampleScale
++        require(sampleScale > 0f && sampleScale <= 1f)
++        check(sampleScale == 1f || (bounds == null && exportedBackdrop == null)) {
++            "Downsampling requires ordinary geometry without an exported backdrop"
++        }
++        check(bounds == null || exportedBackdrop == null) {
++            "Fixed geometry does not support exported backdrops"
++        }
++        if (effectScope.update(this, (bounds?.size ?: size) * sampleScale,
++                (bounds?.topLeft ?: Offset.Zero) * sampleScale, sampleScale)) {
++            updateEffects(geometryChanged = true)
++        }
++
++        // A retained placement layer may replay rectangular pixels after a card is reused.
++        // Clip the material recording to the current rounded or path outline as well; the
++        // separate highlight and shadow nodes keep their original out-of-bounds light.
++        val outline = if (shapeProvider.options.clipGenericOutlineInDraw) {
++            shapeProvider.shape.createOutline(size, layoutDirection, this)
++        } else null
++        val canvas = drawContext.canvas
++        val clipMaterial = outline != null && outline !is Outline.Rectangle
++        if (clipMaterial) {
++            canvas.save()
++            when (val current = checkNotNull(outline)) {
++                is Outline.Rounded -> {
++                    if (clippedRoundRect != current.roundRect) {
++                        drawClipPath.rewind()
++                        drawClipPath.addRoundRect(current.roundRect)
++                        clippedRoundRect = current.roundRect
++                    }
++                    canvas.clipPath(drawClipPath)
++                }
++                is Outline.Generic -> canvas.clipPath(current.path)
++                is Outline.Rectangle -> canvas.clipRect(current.rect)
++            }
++        }
++        try {
++            drawSurfaceCallback(onDrawBehind)
++            drawBackdropLayer()
++            drawSurfaceCallback(onDrawSurface)
++            drawContent()
++            drawSurfaceCallback(onDrawFront)
++        } finally {
++            if (clipMaterial) canvas.restore()
++        }
+ 
+         exportedBackdrop?.graphicsLayer?.let { layer ->
+             recordLayer(layer) {
+@@ -337,9 +465,15 @@
+     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
+         if (coordinates.isAttached) {
+             if (backdrop.isCoordinatesDependent) {
+-                layoutCoordinates = coordinates
++                // Always accept a new node; retained scene contents keep their recorded position.
++                // Moving foreground cards still resample the live wallpaper at every position.
++                if (!shapeProvider.options.coordinatesFrozen() || layoutCoordinates !== coordinates) {
++                    invalidateSampleRecording()
++                    layoutCoordinates = coordinates
++                }
+             } else {
+                 if (layoutCoordinates != null) {
++                    invalidateSampleRecording()
+                     layoutCoordinates = null
+                 }
+             }
+@@ -347,6 +481,16 @@
+         }
+     }
+ 
++    private fun DrawScope.drawSurfaceCallback(block: (DrawScope.() -> Unit)?) {
++        if (block == null) return
++        val bounds = shapeProvider.options.bounds()
++        if (bounds == null) block() else {
++            inset(bounds.left, bounds.top, size.width - bounds.right, size.height - bounds.bottom) {
++                block()
++            }
++        }
++    }
++
+     override fun onObservedReadsChanged() {
+         invalidateDrawCache()
+     }
+@@ -359,30 +503,68 @@
+         observeReads { updateEffects() }
+     }
+ 
+-    private fun updateEffects() {
+-        if (!isRenderEffectSupported()) return
++    private fun updateEffects(geometryChanged: Boolean = false) {
++        if (geometryChanged) invalidateSampleRecording()
++        if (!shapeProvider.options.enabled() || !shapeProvider.options.sampleBackdrop || !isRenderEffectSupported()) return
++
++        val effectKey = shapeProvider.options.effectKey()
++        val effectShape = shapeProvider.innerShape
++        if (!geometryChanged && effectKey != null && effectKey == lastEffectKey && effectShape == lastEffectShape) return
+ 
+         effectScope.apply(effects)
+-        graphicsLayer?.renderEffect = effectScope.renderEffect
++        lastEffectKey = effectKey
++        lastEffectShape = effectShape
++        BackdropDiagnostics.event("Sample.EffectRebuilt")
++        val effect = effectScope.renderEffect
++        if (effect != null || effectScope.padding != 0f) {
++            val layer = graphicsLayer ?: requireGraphicsContext().createGraphicsLayer().also {
++                graphicsLayer = it
++                layerDiagnostics.created()
++            }
++            if (layer.renderEffect != effect) layer.renderEffect = effect
++        } else {
++            releaseSampleLayer()
++        }
+         padding = effectScope.padding
+     }
+ 
++    private fun releaseSampleLayer() {
++        graphicsLayer?.let {
++            requireGraphicsContext().releaseGraphicsLayer(it)
++            layerDiagnostics.released()
++        }
++        graphicsLayer = null
++        invalidateSampleRecording()
++    }
++
++    fun synchronizeSampleLayer() {
++        if (isAttached && !shapeProvider.options.sampleBackdrop) releaseSampleLayer()
++    }
++
+     override fun onAttach() {
+-        val graphicsContext = requireGraphicsContext()
+-        graphicsLayer = graphicsContext.createGraphicsLayer()
+-
++        synchronizeSampleLayer()
+         observeEffects()
+     }
+ 
+     override fun onDetach() {
++        invalidateSampleRecording()
+         val graphicsContext = requireGraphicsContext()
+         graphicsLayer?.let { layer ->
+             graphicsContext.releaseGraphicsLayer(layer)
++            layerDiagnostics.released()
+             graphicsLayer = null
+         }
+ 
+         effectScope.reset()
++        lastEffectKey = null
++        lastEffectShape = null
+         layoutCoordinates = null
++        clippedRoundRect = null
++        drawClipPath.rewind()
+         exportedBackdrop?.layerCoordinates = null
+     }
++
++    fun invalidateSampleRecording() {
++        sampleRecordingCache.clear()
++    }
+ }
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/Blur.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/Blur.kt
+@@ -27,3 +27,4 @@
+             edgeTreatment
+         )
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/ColorFilter.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/ColorFilter.kt
+@@ -73,3 +73,4 @@
+     )
+     return ColorMatrixColorFilter(colorMatrix)
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/Lens.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/Lens.kt
+@@ -1,3 +1,4 @@
++// Modified for SleepDown on 2026-09-08; upstream 2.0.0, Apache-2.0 (see README.md).
+ package com.kyant.backdrop.effects
+ 
+ import androidx.annotation.FloatRange
+@@ -43,7 +44,7 @@
+                 }
+             shader.apply {
+                 setFloatUniform("size", size.width, size.height)
+-                setFloatUniform("offset", -padding, -padding)
++                setFloatUniform("offset", -padding - effectOffset.x, -padding - effectOffset.y)
+                 setFloatUniform("cornerRadii", cornerRadii)
+                 setFloatUniform("refractionHeight", refractionHeight)
+                 setFloatUniform("refractionAmount", -refractionAmount)
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/RenderEffect.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/RenderEffect.kt
+@@ -32,3 +32,4 @@
+         )
+     renderEffect = renderEffect.chain(effect)
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/highlight/Highlight.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/highlight/Highlight.kt
+@@ -26,3 +26,4 @@
+         val Plain: Highlight = Highlight(style = HighlightStyle.Plain)
+     }
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/highlight/HighlightModifier.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/highlight/HighlightModifier.kt
+@@ -1,5 +1,7 @@
++// Modified for SleepDown on 2026-09-08; upstream 2.0.0, Apache-2.0 (see README.md).
+ package com.kyant.backdrop.highlight
+ 
++import com.kyant.backdrop.BackdropLayerDiagnostics
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.Outline
+ import androidx.compose.ui.graphics.Paint
+@@ -9,6 +11,7 @@
+ import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+ import androidx.compose.ui.graphics.drawscope.DrawScope
+ import androidx.compose.ui.graphics.drawscope.translate
++import androidx.compose.ui.graphics.drawscope.inset
+ import androidx.compose.ui.graphics.layer.GraphicsLayer
+ import androidx.compose.ui.graphics.layer.drawLayer
+ import androidx.compose.ui.node.DrawModifierNode
+@@ -37,7 +40,7 @@
+     }
+ 
+     override fun update(node: HighlightNode) {
+-        node.shapeProvider = shapeProvider
++        if (node.shapeProvider != shapeProvider) node.shapeProvider = shapeProvider
+         node.highlight = highlight
+         node.invalidateDraw()
+     }
+@@ -84,7 +87,12 @@
+ 
+     private var prevStyle: HighlightStyle? = null
+ 
++    private val layerDiagnostics = BackdropLayerDiagnostics("Highlight")
++
++    private var recordedMaterial: List<Any?>? = null
++
+     override fun ContentDrawScope.draw() {
++        if (!shapeProvider.options.enabled()) return drawContent()
+         val highlight = highlight()
+         if (highlight == null || highlight.width.value <= 0f) {
+             return drawContent()
+@@ -104,7 +112,12 @@
+                     ceil(size.height).toInt() + 2
+                 )
+ 
+-            val outline = shapeProvider.shape.createOutline(size, layoutDirection, density)
++            val bounds = shapeProvider.options.bounds()
++            val outline = if (bounds == null) {
++                shapeProvider.shape.createOutline(size, layoutDirection, density)
++            } else {
++                shapeProvider.innerShape.createOutline(bounds.size, layoutDirection, density)
++            }
+             val clipPath =
+                 if (outline is Outline.Rounded) {
+                     clipPath ?: Path().also { clipPath = it }
+@@ -112,20 +125,32 @@
+                     null
+                 }
+ 
+-            configurePaint(highlight)
+-
+-            highlightLayer.alpha = highlight.alpha
+-            highlightLayer.blendMode = highlight.style.blendMode
+-            highlightLayer.record(safeSize) {
+-                translate(1f, 1f) {
+-                    val canvas = drawContext.canvas
+-                    canvas.save()
+-                    canvas.clipOutline(outline, clipPath)
+-                    canvas.drawOutline(outline, paint)
+-                    canvas.restore()
++            val materialKey = listOf(size, this.density, fontScale, layoutDirection, outline, highlight, bounds)
++            val canReuse = shapeProvider.options.cacheDecorations && (highlight.style is HighlightStyle.Default || highlight.style is HighlightStyle.Ambient || highlight.style is HighlightStyle.Plain)
++            if (!canReuse || recordedMaterial != materialKey) {
++                if (bounds == null) configurePaint(highlight) else {
++                    inset(bounds.left, bounds.top, size.width - bounds.right, size.height - bounds.bottom) {
++                        configurePaint(highlight)
++                    }
+                 }
++    
++                highlightLayer.alpha = highlight.alpha
++                highlightLayer.blendMode = highlight.style.blendMode
++                highlightLayer.record(safeSize) {
++                    translate(1f + (bounds?.left ?: 0f), 1f + (bounds?.top ?: 0f)) {
++                        val canvas = drawContext.canvas
++                        canvas.save()
++                        canvas.clipOutline(outline, clipPath)
++                        canvas.drawOutline(outline, paint)
++                        canvas.restore()
++                    }
++                }
++    
++                layerDiagnostics.recorded(highlightLayer.size)
++                recordedMaterial = materialKey
++            } else {
++                com.kyant.backdrop.BackdropDiagnostics.event("Decoration.Reused")
+             }
+-
+             translate(-1f, -1f) {
+                 drawLayer(highlightLayer)
+             }
+@@ -133,14 +158,17 @@
+     }
+ 
+     override fun onAttach() {
++        layerDiagnostics.created()
+         val graphicsContext = requireGraphicsContext()
+         highlightLayer = graphicsContext.createGraphicsLayer()
+     }
+ 
+     override fun onDetach() {
++        recordedMaterial = null
+         val graphicsContext = requireGraphicsContext()
+         highlightLayer?.let { layer ->
+             graphicsContext.releaseGraphicsLayer(layer)
++            layerDiagnostics.released()
+             highlightLayer = null
+         }
+         clipPath = null
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/highlight/HighlightStyle.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/highlight/HighlightStyle.kt
+@@ -136,3 +136,4 @@
+         bottomLeft.fastCoerceAtMost(maxRadius)
+     )
+ }
++
+--- /dev/null
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/BackdropRecordingCache.kt
+@@ -0,0 +1,29 @@
++package com.kyant.backdrop.internal
++
++import androidx.compose.ui.unit.IntSize
++import androidx.compose.ui.unit.LayoutDirection
++
++/** Tracks a completed recording, never a scheduled or transparent draw. Owns no GPU resource. */
++internal class BackdropRecordingCache {
++    private var key: Any? = null
++    private var size = IntSize.Zero
++    private var density = Float.NaN
++    private var fontScale = Float.NaN
++    private var direction: LayoutDirection? = null
++
++    fun needsRecord(key: Any?, size: IntSize, density: Float, fontScale: Float, direction: LayoutDirection): Boolean =
++        key == null || this.key != key || this.size != size || this.density != density ||
++            this.fontScale != fontScale || this.direction != direction
++
++    fun recorded(key: Any?, size: IntSize, density: Float, fontScale: Float, direction: LayoutDirection) {
++        this.key = key
++        this.size = size
++        this.density = density
++        this.fontScale = fontScale
++        this.direction = direction
++    }
++
++    fun clear() {
++        key = null
++    }
++}
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/InverseLayerScope.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/InverseLayerScope.kt
+@@ -128,3 +128,4 @@
+         transform(matrix)
+     }
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/LayerRecorder.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/LayerRecorder.kt
+@@ -24,3 +24,4 @@
+         }
+     }
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/Outline.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/Outline.kt
+@@ -16,3 +16,4 @@
+         is Outline.Generic -> clipPath(outline.path)
+     }
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/Paint.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/Paint.kt
+@@ -6,3 +6,4 @@
+ internal expect fun Paint.blur(radius: Float)
+ 
+ internal expect fun Paint.setRuntimeShader(runtimeShader: RuntimeShader?)
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/RenderEffect.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/RenderEffect.kt
+@@ -15,3 +15,4 @@
+     renderEffect: RenderEffect? = null,
+     colorFilter: ColorFilter
+ ): RenderEffect
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/Shaders.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/Shaders.kt
+@@ -202,3 +202,4 @@
+     float t = step(0.0, d);
+     return half4(t, t, t, 1.0) * intensity;
+ }"""
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/ShapeProvider.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/internal/ShapeProvider.kt
+@@ -1,23 +1,44 @@
++// Modified for SleepDown on 2026-09-08; upstream 2.0.0, Apache-2.0 (see README.md).
+ package com.kyant.backdrop.internal
+ 
+ import androidx.compose.runtime.Immutable
++import androidx.compose.runtime.State
++import androidx.compose.runtime.derivedStateOf
+ import androidx.compose.ui.geometry.Size
++import androidx.compose.ui.geometry.Rect
++import androidx.compose.ui.graphics.Path
++import androidx.compose.ui.graphics.addOutline
+ import androidx.compose.ui.graphics.Outline
+ import androidx.compose.ui.graphics.Shape
+ import androidx.compose.ui.unit.Density
+ import androidx.compose.ui.unit.LayoutDirection
++import com.kyant.backdrop.BackdropRenderOptions
+ 
+ @Immutable
+-internal class ShapeProvider(val shapeBlock: () -> Shape) {
++internal class ShapeProvider(
++    val shapeBlock: () -> Shape,
++    val options: BackdropRenderOptions = BackdropRenderOptions.Default
++) {
++
++    // Cache ownership stays with the node when equivalent modifier elements are recreated.
++    override fun equals(other: Any?): Boolean =
++        other is ShapeProvider && shapeBlock == other.shapeBlock && options == other.options
++
++    override fun hashCode(): Int = 31 * shapeBlock.hashCode() + options.hashCode()
+ 
+     private var _shape: Shape? = null
+-    private var _outline: Outline? = null
++    private var _bounds: Rect? = null
++    private var _outline: State<Outline>? = null
+     private var _size: Size = Size.Unspecified
+     private var _layoutDirection: LayoutDirection? = null
+     private var _density: Float? = null
+ 
+     val innerShape
+         get() = shapeBlock()
++
++    /** Read dynamic geometry inside the layer's observation scope, including at fixed host size. */
++    fun snapshot(size: Size, layoutDirection: LayoutDirection, density: Density): Shape =
++        OutlineSnapshot(shape.createOutline(size, layoutDirection, density))
+ 
+     val shape = object : Shape {
+ 
+@@ -27,18 +48,36 @@
+             density: Density
+         ): Outline {
+             val shape = shapeBlock()
+-            if (_shape != shape) {
++            val bounds = options.bounds()
++            if (_shape != shape || _bounds != bounds || bounds != null) {
+                 _shape = shape
++                _bounds = bounds
+                 _outline = null
+             }
+             if (_outline == null || _size != size || _layoutDirection != layoutDirection || _density != density.density) {
+                 _size = size
+                 _layoutDirection = layoutDirection
+                 _density = density.density
+-                _outline = shape.createOutline(size, layoutDirection, density)
++                // A stable Shape may read animation state itself. Observe that state even when
++                // host size and Shape identity stay fixed; static outlines remain cached.
++                _outline = derivedStateOf {
++                    if (bounds == null) {
++                        shape.createOutline(size, layoutDirection, density)
++                    } else {
++                        Outline.Generic(Path().apply {
++                            addPath(Path().apply {
++                                addOutline(shape.createOutline(bounds.size, layoutDirection, density))
++                            }, bounds.topLeft)
++                        })
++                    }
++                }
+             }
+ 
+-            return _outline!!
++            return _outline!!.value
+         }
+     }
+ }
++
++private data class OutlineSnapshot(val outline: Outline) : Shape {
++    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline = outline
++}
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/Platform.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/Platform.kt
+@@ -3,3 +3,4 @@
+ expect fun isRenderEffectSupported(): Boolean
+ 
+ expect fun isRuntimeShaderSupported(): Boolean
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/RuntimeShader.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/RuntimeShader.kt
+@@ -24,3 +24,4 @@
+ 
+     fun setColorUniform(name: String, color: Color)
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/RuntimeShaderCache.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/RuntimeShaderCache.kt
+@@ -1,3 +1,4 @@
++// Modified for SleepDown on 2026-10-09; Nexio shared-effect program strategy (see README.md).
+ package com.kyant.backdrop
+ 
+ import org.intellij.lang.annotations.Language
+@@ -7,15 +8,56 @@
+     fun obtainRuntimeShader(key: String, @Language("AGSL") string: String): RuntimeShader
+ }
+ 
+-internal class RuntimeShaderCacheImpl : RuntimeShaderCache {
++internal class RuntimeShaderCacheImpl(shareEffects: Boolean = false) : RuntimeShaderCache {
+ 
+-    private val runtimeShaders = mutableMapOf<String, RuntimeShader>()
++    private val shared = if (shareEffects) sharedEffectShaderRegistry() else null
++    private val runtimeShaders = mutableMapOf<ShaderProgramKey, RuntimeShader>()
+ 
+     override fun obtainRuntimeShader(key: String, string: String): RuntimeShader {
+-        return runtimeShaders.getOrPut(key) { RuntimeShader(string) }
++        val program = ShaderProgramKey(key, string)
++        return runtimeShaders.getOrPut(program) {
++            shared?.acquire(program) ?: RuntimeShader(string)
++        }
+     }
+ 
+     fun clear() {
++        if (shared != null) runtimeShaders.keys.forEach(shared::release)
+         runtimeShaders.clear()
+     }
+ }
++
++internal data class ShaderProgramKey(val name: String, val source: String)
++
++/**
++ * RenderEffect snapshots uniforms immediately, so effect builders may share compiled programs.
++ * Direct-paint highlight shaders retain node ownership. Keep this registry on the drawing thread
++ * and release programs with their last consumer instead of retaining an unbounded process cache.
++ */
++internal class EffectShaderRegistry {
++    private class Entry(val shader: RuntimeShader, var owners: Int = 1)
++    private val programs = mutableMapOf<ShaderProgramKey, Entry>()
++
++    fun acquire(key: ShaderProgramKey): RuntimeShader {
++        val existing = programs[key]
++        if (existing != null) {
++            existing.owners++
++            BackdropDiagnostics.event("Shader.ProgramReused")
++            return existing.shader
++        }
++        val shader = RuntimeShader(key.source)
++        programs[key] = Entry(shader)
++        BackdropDiagnostics.event("Shader.ProgramCreated")
++        return shader
++    }
++
++    fun release(key: ShaderProgramKey) {
++        val entry = checkNotNull(programs[key])
++        if (--entry.owners == 0) {
++            programs.remove(key)
++            BackdropDiagnostics.event("Shader.ProgramReleased")
++        }
++    }
++}
++
++internal expect fun sharedEffectShaderRegistry(): EffectShaderRegistry
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/shadow/InnerShadow.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/shadow/InnerShadow.kt
+@@ -39,3 +39,4 @@
+         blendMode = if (fraction < 0.5f) start.blendMode else stop.blendMode
+     )
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/shadow/InnerShadowModifier.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/shadow/InnerShadowModifier.kt
+@@ -1,5 +1,7 @@
++// Modified for SleepDown on 2026-09-08; upstream 2.0.0, Apache-2.0 (see README.md).
+ package com.kyant.backdrop.shadow
+ 
++import com.kyant.backdrop.BackdropLayerDiagnostics
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.BlendMode
+ import androidx.compose.ui.graphics.BlurEffect
+@@ -33,7 +35,7 @@
+     }
+ 
+     override fun update(node: InnerShadowNode) {
+-        node.shapeProvider = shapeProvider
++        if (node.shapeProvider != shapeProvider) node.shapeProvider = shapeProvider
+         node.shadow = shadow
+         node.invalidateDraw()
+     }
+@@ -75,7 +77,12 @@
+ 
+     private var prevRadius = Float.NaN
+ 
++    private val layerDiagnostics = BackdropLayerDiagnostics("InnerShadow")
++
++    private var recordedMaterial: List<Any?>? = null
++
+     override fun ContentDrawScope.draw() {
++        if (!shapeProvider.options.enabled()) return drawContent()
+         drawContent()
+ 
+         if (!isRenderEffectSupported()) return
+@@ -100,30 +107,38 @@
+                     null
+                 }
+ 
+-            configurePaint(shadow)
+-
+-            shadowLayer.alpha = shadow.alpha
+-            shadowLayer.blendMode = shadow.blendMode
+-            if (prevRadius != radius) {
+-                shadowLayer.renderEffect =
+-                    if (radius > 0f) {
+-                        BlurEffect(radius, radius, TileMode.Decal)
+-                    } else {
+-                        null
+-                    }
+-                prevRadius = radius
++            val materialKey = listOf(size, this.density, fontScale, layoutDirection, outline, shadow)
++            val canReuse = shapeProvider.options.cacheDecorations
++            if (!canReuse || recordedMaterial != materialKey) {
++                configurePaint(shadow)
++    
++                shadowLayer.alpha = shadow.alpha
++                shadowLayer.blendMode = shadow.blendMode
++                if (prevRadius != radius) {
++                    shadowLayer.renderEffect =
++                        if (radius > 0f) {
++                            BlurEffect(radius, radius, TileMode.Decal)
++                        } else {
++                            null
++                        }
++                    prevRadius = radius
++                }
++                shadowLayer.record {
++                    val canvas = drawContext.canvas
++                    canvas.save()
++                    canvas.clipOutline(outline, clipPath)
++                    canvas.drawOutline(outline, paint)
++                    canvas.translate(offsetX, offsetY)
++                    canvas.drawOutline(outline, ShadowMaskPaint)
++                    canvas.translate(-offsetX, -offsetY)
++                    canvas.restore()
++                }
++    
++                layerDiagnostics.recorded(shadowLayer.size)
++                recordedMaterial = materialKey
++            } else {
++                com.kyant.backdrop.BackdropDiagnostics.event("Decoration.Reused")
+             }
+-            shadowLayer.record {
+-                val canvas = drawContext.canvas
+-                canvas.save()
+-                canvas.clipOutline(outline, clipPath)
+-                canvas.drawOutline(outline, paint)
+-                canvas.translate(offsetX, offsetY)
+-                canvas.drawOutline(outline, ShadowMaskPaint)
+-                canvas.translate(-offsetX, -offsetY)
+-                canvas.restore()
+-            }
+-
+             val canvas = drawContext.canvas
+             canvas.save()
+             canvas.clipOutline(outline, clipPath)
+@@ -133,6 +148,7 @@
+     }
+ 
+     override fun onAttach() {
++        layerDiagnostics.created()
+         val graphicsContext = requireGraphicsContext()
+         shadowLayer =
+             graphicsContext.createGraphicsLayer().apply {
+@@ -141,9 +157,12 @@
+     }
+ 
+     override fun onDetach() {
++        recordedMaterial = null
++        prevRadius = Float.NaN
+         val graphicsContext = requireGraphicsContext()
+         shadowLayer?.let { layer ->
+             graphicsContext.releaseGraphicsLayer(layer)
++            layerDiagnostics.released()
+             shadowLayer = null
+         }
+     }
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/shadow/Shadow.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/shadow/Shadow.kt
+@@ -25,3 +25,4 @@
+         val Default: Shadow = Shadow()
+     }
+ }
++
+--- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/shadow/ShadowModifier.kt
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/shadow/ShadowModifier.kt
+@@ -1,5 +1,7 @@
++// Modified for SleepDown on 2026-09-08; upstream 2.0.0, Apache-2.0 (see README.md).
+ package com.kyant.backdrop.shadow
+ 
++import com.kyant.backdrop.BackdropLayerDiagnostics
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.graphics.BlendMode
+ import androidx.compose.ui.graphics.Paint
+@@ -31,7 +33,7 @@
+     }
+ 
+     override fun update(node: ShadowNode) {
+-        node.shapeProvider = shapeProvider
++        if (node.shapeProvider != shapeProvider) node.shapeProvider = shapeProvider
+         node.shadow = shadow
+         node.invalidateDraw()
+     }
+@@ -70,7 +72,12 @@
+ 
+     private val paint = Paint()
+ 
++    private val layerDiagnostics = BackdropLayerDiagnostics("Shadow")
++
++    private var recordedMaterial: List<Any?>? = null
++
+     override fun ContentDrawScope.draw() {
++        if (!shapeProvider.options.enabled()) return drawContent()
+         val shadow = shadow() ?: return drawContent()
+ 
+         val shadowLayer = shadowLayer
+@@ -88,20 +95,28 @@
+             )
+             val outline = shapeProvider.shape.createOutline(size, layoutDirection, density)
+ 
+-            configurePaint(shadow)
+-
+-            shadowLayer.alpha = shadow.alpha
+-            shadowLayer.blendMode = shadow.blendMode
+-            shadowLayer.record(shadowSize) {
+-                translate(radius * 2f + offsetX, radius * 2f + offsetY) {
+-                    val canvas = drawContext.canvas
+-                    canvas.drawOutline(outline, paint)
+-                    canvas.translate(-offsetX, -offsetY)
+-                    canvas.drawOutline(outline, ShadowMaskPaint)
+-                    canvas.translate(offsetX, offsetY)
++            val materialKey = listOf(size, this.density, fontScale, layoutDirection, outline, shadow)
++            val canReuse = shapeProvider.options.cacheDecorations
++            if (!canReuse || recordedMaterial != materialKey) {
++                configurePaint(shadow)
++    
++                shadowLayer.alpha = shadow.alpha
++                shadowLayer.blendMode = shadow.blendMode
++                shadowLayer.record(shadowSize) {
++                    translate(radius * 2f + offsetX, radius * 2f + offsetY) {
++                        val canvas = drawContext.canvas
++                        canvas.drawOutline(outline, paint)
++                        canvas.translate(-offsetX, -offsetY)
++                        canvas.drawOutline(outline, ShadowMaskPaint)
++                        canvas.translate(offsetX, offsetY)
++                    }
+                 }
++    
++                layerDiagnostics.recorded(shadowLayer.size)
++                recordedMaterial = materialKey
++            } else {
++                com.kyant.backdrop.BackdropDiagnostics.event("Decoration.Reused")
+             }
+-
+             translate(-radius * 2f, -radius * 2f) {
+                 drawLayer(shadowLayer)
+             }
+@@ -111,6 +126,7 @@
+     }
+ 
+     override fun onAttach() {
++        layerDiagnostics.created()
+         val graphicsContext = requireGraphicsContext()
+         shadowLayer =
+             graphicsContext.createGraphicsLayer().apply {
+@@ -119,9 +135,11 @@
+     }
+ 
+     override fun onDetach() {
++        recordedMaterial = null
+         val graphicsContext = requireGraphicsContext()
+         shadowLayer?.let { layer ->
+             graphicsContext.releaseGraphicsLayer(layer)
++            layerDiagnostics.released()
+             shadowLayer = null
+         }
+     }

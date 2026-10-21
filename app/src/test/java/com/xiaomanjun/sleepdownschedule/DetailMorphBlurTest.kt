@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMotionBlurRadiusDp
+import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMorphUsesTransientClip
+import com.xiaomanjun.sleepdownschedule.transition.legacy.morphSnapshotDepthProgress
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

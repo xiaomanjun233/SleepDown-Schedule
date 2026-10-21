@@ -1,10 +1,20 @@
 package com.xiaomanjun.sleepdownschedule.feature.update
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GiteeAppUpdaterTest {
+    @Test
+    fun componentSelectsNewestReleaseEvenWhenGiteeReturnsOldestFirst() {
+        val latest = release("v1.2.6-exp10", true)
+        val candidates = listOf(release("v1.2.6-exp", true), latest, release("v1.2.6-exp2", true))
+        assertEquals(latest, GiteeAppUpdater.selectLatestAssetRelease(candidates))
+        assertEquals(latest, GiteeAppUpdater.selectLatestAssetRelease(candidates.reversed()))
+        assertEquals(latest, GiteeAppUpdater.selectLatestAssetRelease(candidates + release("v1.3.0-exp").copy(apkUrl = null)))
+    }
+
     @Test
     fun comparesNumericVersions() {
         assertTrue(GiteeAppUpdater.isVersionNewer("v1.1", "1.0"))
@@ -18,4 +28,102 @@ class GiteeAppUpdaterTest {
         assertTrue(GiteeAppUpdater.isVersionNewer("1.0", "1.0 beta"))
         assertFalse(GiteeAppUpdater.isVersionNewer("1.0 beta", "1.0"))
     }
+
+    @Test
+    fun numberedBetaDoesNotBecomeAnExtraVersionComponent() {
+        assertTrue(GiteeAppUpdater.isVersionNewer("v1.4.3", "1.4.3_beta2"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.4.3_beta99", "1.4.3"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3_beta10", "1.4.3_beta2"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.4.3_beta2", "1.4.3_beta10"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.4.4_beta1", "1.4.3"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.4.2", "1.4.3_beta2"))
+    }
+
+    @Test
+    fun releaseStagesAndBuildMetadataAreOrderedIndependently() {
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3-rc1", "1.4.3-beta10"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.4.3+99", "1.4.3+1"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.4.3_beta2", "v1.4.3-beta2"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3-exp2", "1.4.3-exp"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.4.3-exp", "1.4.3-exp2"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3_beta7", "1.4.3-exp"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.4.3", "1.4.3-exp"))
+    }
+
+    @Test
+    fun revisionsUpgradeTheBaseVersionAndSortNumerically() {
+        assertTrue(GiteeAppUpdater.isVersionNewer("v1.2.7-r1", "1.2.7"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.2.7", "1.2.7-r1"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.2.7-r10", "1.2.7-r2"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.2.7-r2", "1.2.7-r10"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("v1.2.7-r1", "1.2.7-r1"))
+    }
+
+    @Test
+    fun revisionsDoNotOverrideVersionStageOrPrereleaseSequence() {
+        assertTrue(GiteeAppUpdater.isVersionNewer("v1.2.7.1", "1.2.7"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.2.7.1", "1.2.7-r1"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.2.7-r99", "1.2.7.1"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.2.8", "1.2.7-r99"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.2.7-r99", "1.2.8"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.2.7", "1.2.7_beta5-r99"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.2.7-rc1", "1.2.7_beta5-r99"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.2.7_beta6", "1.2.7_beta5-r99"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.2.7_beta5-r99", "1.2.7_beta6"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("v1.2.7_beta5-r1", "1.2.7_beta5"))
+    }
+
+    @Test
+    fun buildMetadataDoesNotAddOrChangeARevision() {
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.2.7+build-r99", "1.2.7"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.2.7-r1+build-r99", "1.2.7-r1+build-r2"))
+        assertTrue(GiteeAppUpdater.isVersionNewer("V1.2.7-R2+build1", "1.2.7-r1+build99"))
+    }
+
+    @Test
+    fun channelsSelectTheLatestStableRevisionInEitherListOrder() {
+        val latest = release("v1.2.7-r10")
+        val candidates = listOf(release("v1.2.7"), release("v1.2.7-r2"), latest,
+            release("v1.2.7_beta5-r99", true), release("v1.3.0-exp1", true))
+        for (includeBeta in listOf(false, true)) {
+            assertEquals(latest, GiteeAppUpdater.selectRelease(candidates, includeBeta))
+            assertEquals(latest, GiteeAppUpdater.selectRelease(candidates.reversed(), includeBeta))
+        }
+        assertEquals(latest, GiteeAppUpdater.selectLatestAssetRelease(candidates.take(3)))
+        assertEquals(latest, GiteeAppUpdater.selectLatestAssetRelease(candidates.take(3).reversed()))
+    }
+
+    private fun release(tag: String, prerelease: Boolean = false) =
+        GiteeReleaseInfo(tag, tag, "", "app.apk", "https://example.test/app.apk", "", prerelease)
+
+    @Test
+    fun channelsFilterBothReleaseFlagAndBetaNameAndIgnoreListOrder() {
+        val stable = release("1.4.3")
+        val nextBeta = release("1.4.4_beta1")
+        val flagged = release("1.5.0", prerelease = true)
+        val releases = listOf(nextBeta, release("1.4.2"), flagged, stable)
+        assertEquals(stable, GiteeAppUpdater.selectRelease(releases, false))
+        assertEquals(flagged, GiteeAppUpdater.selectRelease(releases, true))
+        assertEquals(nextBeta, GiteeAppUpdater.selectRelease(listOf(nextBeta, stable), true))
+    }
+
+    @Test
+    fun stableStillWinsAtSameVersionWhenBetaChannelIsEnabled() {
+        val stable = release("1.4.3")
+        assertEquals(stable, GiteeAppUpdater.selectRelease(listOf(stable, release("1.4.3_beta20", true)), true))
+    }
+
+    @Test
+    fun beta8UpgradesBeta7WithoutSelectingExperimentalReleases() {
+        val beta8 = release("v1.2.6_beta8", true)
+        val stable = release("v1.2.5")
+        val releases = listOf(release("v1.2.6-exp3", true), release("v1.3.0-exp3"),
+            release("v1.2.6_beta7", true), stable, beta8)
+        assertEquals(beta8, GiteeAppUpdater.selectRelease(releases, true))
+        assertEquals(stable, GiteeAppUpdater.selectRelease(releases, false))
+        assertTrue(GiteeAppUpdater.isVersionNewer(beta8.tagName, "1.2.6_beta7"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("1.2.6_beta7", beta8.tagName))
+        assertTrue(GiteeAppUpdater.isVersionNewer("1.2.6-exp3", "1.2.6-exp2"))
+    }
+
 }

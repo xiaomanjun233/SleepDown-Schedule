@@ -1,16 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.backup
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
-
-
-import com.xiaomanjun.sleepdownschedule.*
-
-import com.xiaomanjun.sleepdownschedule.core.identity.AppIdentity
-
 import android.net.Uri
+import android.provider.DocumentsContract
+import android.text.format.Formatter
 import android.util.Log
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -23,9 +15,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,23 +28,45 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import kotlinx.coroutines.launch
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.identity.AppIdentity
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceSection
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionButton
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionRow
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.*
+import java.io.File
 import java.text.SimpleDateFormat
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private data class BackupRestorePreviewState(
     val archive: DecodedBackupArchive,
@@ -72,13 +86,15 @@ private data class BackupGuidePage(
 fun BackupRestoreSettingsScreen(
     state: AppState,
     backdrop: Backdrop?,
-    onOpenPreview: (Uri) -> Unit = {}
+    onOpenPreview: (Uri) -> Unit = {},
+    onOpenWebDav: () -> Unit = {}
 ) {
     val context = LocalContext.current
     val app = remember(context) { context.applicationContext as CourseScheduleApp }
     val scope = rememberCoroutineScope()
     val topPadding = detailContentTopPadding()
-    val defaultFileName = remember { defaultBackupFileName() }
+    val documentExport = remember(app) { BackupDocumentExport(File(app.cacheDir, "backup_exports")) }
+    var preparedBackupName by rememberSaveable { mutableStateOf<String?>(null) }
     var busyLabel by remember { mutableStateOf<String?>(null) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var statusIsError by remember { mutableStateOf(false) }
@@ -86,7 +102,8 @@ fun BackupRestoreSettingsScreen(
     fun showFailure(title: String, guidance: String, error: Throwable) {
         Log.e("SleepDownBackup", title, error)
         statusIsError = true
-        statusMessage = "$title。$guidance"
+        val detail = error.message?.take(240)?.takeIf { it.isNotBlank() }
+        statusMessage = "$title${detail?.let { "：$it" }.orEmpty()}。$guidance"
     }
 
     val exportLauncher = rememberLauncherForActivityResult(
@@ -94,26 +111,47 @@ fun BackupRestoreSettingsScreen(
         // when the suggested display name ends in `.sleepdown`.
         contract = ActivityResultContracts.CreateDocument(BackupDocumentMimeType)
     ) { destination ->
-        if (destination == null) return@rememberLauncherForActivityResult
+        val prepared = preparedBackupName
+        preparedBackupName = null
         scope.launch {
-            busyLabel = "正在整理课表、设置和图片…"
+            if (destination == null) {
+                prepared?.let { withContext(Dispatchers.IO) { documentExport.discard(it) } }
+                busyLabel = null
+                return@launch
+            }
+            busyLabel = "正在保存并校验备份…"
             statusMessage = null
             statusIsError = false
-            runCatching {
-                val archive = BackupExportService(app, app.database).export()
-                val output = context.contentResolver.openOutputStream(destination, "wt")
-                    ?: error("系统未能打开备份保存位置")
-                output.use { BackupCodec.write(it, archive) }
-            }.onSuccess {
-                statusMessage = "备份已保存。应用里的课表和设置没有变化。"
-            }.onFailure { error ->
+            var saved = false
+            try {
+                val bytes = withContext(Dispatchers.IO) {
+                    checkNotNull(prepared) { "待保存的备份已失效，请重新点击保存" }
+                    Log.i("SleepDownBackup", "Local export saving; provider=${destination.authority}")
+                    documentExport.save(
+                        prepared,
+                        openDestination = { app.contentResolver.openOutputStream(destination, "wt") },
+                        readDestination = { app.contentResolver.openInputStream(destination) }
+                    )
+                }
+                saved = true
+                Log.i("SleepDownBackup", "Local export verified; bytes=$bytes")
+                statusMessage = "备份已保存（${Formatter.formatFileSize(app, bytes)}）。应用里的课表和设置没有变化。"
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
                 showFailure(
                     title = "备份没有保存成功",
                     guidance = "请重新选择保存位置，并确认设备还有足够的可用空间",
                     error = error
                 )
+            } finally {
+                withContext(NonCancellable + Dispatchers.IO) {
+                    // This URI is the new document just returned by CreateDocument, never an imported backup.
+                    if (!saved) runCatching { DocumentsContract.deleteDocument(app.contentResolver, destination) }
+                    prepared?.let { documentExport.discard(it) }
+                }
+                busyLabel = null
             }
-            busyLabel = null
         }
     }
 
@@ -145,7 +183,7 @@ fun BackupRestoreSettingsScreen(
                     BackupGuidePage(
                         R.drawable.ic_material_settings_backup_restore,
                         "个性化设置",
-                        "保存卡片样式、深色模式、首页、课程提醒、今日助手、AI 服务选项和小组件样式。",
+                        "保存卡片样式、深色模式、首页、课程提醒、AI 助理、AI 服务选项和小组件样式。",
                         tint = Color(0xFF8C78E8)
                     ),
                     BackupGuidePage(
@@ -175,7 +213,37 @@ fun BackupRestoreSettingsScreen(
                         iconRes = R.drawable.ic_share_schedule,
                         backdrop = backdrop,
                         onClick = {
-                            if (busyLabel == null) exportLauncher.launch(defaultFileName)
+                            if (busyLabel == null && preparedBackupName == null) {
+                                busyLabel = "正在整理并检查备份…"
+                                statusMessage = null
+                                statusIsError = false
+                                scope.launch {
+                                    var prepared: String? = null
+                                    var pickerOpened = false
+                                    try {
+                                        withContext(Dispatchers.IO) {
+                                            val archive = BackupExportService(app, app.database).export()
+                                            prepared = documentExport.prepare(archive)
+                                        }
+                                        Log.i("SleepDownBackup", "Local export prepared and validated")
+                                        preparedBackupName = prepared
+                                        exportLauncher.launch(defaultBackupFileName())
+                                        pickerOpened = true
+                                    } catch (error: CancellationException) {
+                                        throw error
+                                    } catch (error: Exception) {
+                                        showFailure("无法生成备份", "尚未创建导出文件，现有数据没有变化", error)
+                                    } finally {
+                                        if (!pickerOpened) {
+                                            preparedBackupName = null
+                                            withContext(NonCancellable + Dispatchers.IO) {
+                                                prepared?.let { documentExport.discard(it) }
+                                            }
+                                        }
+                                        busyLabel = null
+                                    }
+                                }
+                            }
                         }
                     )
                     SettingsDivider()
@@ -189,6 +257,13 @@ fun BackupRestoreSettingsScreen(
                             if (busyLabel == null) importLauncher.launch(arrayOf("*/*"))
                         }
                     )
+                }
+            }
+        }
+        item(key = "webdav") {
+            GlassPreferenceSection("WebDAV 备份") {
+                SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
+                    SettingsNavigationRow("远端备份与恢复", "连接个人网盘或 NAS，管理手动与自动备份", onClick = onOpenWebDav)
                 }
             }
         }
@@ -264,19 +339,22 @@ fun BackupRestorePreviewScreen(
     }
 
     fun restorePreview(previewState: BackupRestorePreviewState) {
+        // Claim the submission before launch/recomposition, including callbacks retained by the
+        // closing confirmation dialog. A delayed callback must not reuse an already handled preview.
+        if (busyLabel != null || preview !== previewState) return
+        busyLabel = "正在恢复，请不要关闭应用…"
+        showReplaceConfirmation = false
         scope.launch {
-            busyLabel = "正在恢复，请不要关闭应用…"
             statusMessage = null
             statusIsError = false
-            runCatching {
+            try {
                 // Read the latest target again immediately before Replace, because data may have
                 // changed after this preview was created.
-                BackupRestoreService(app, app.database).restore(
+                val result = BackupRestoreService(app, app.database).restore(
                     archive = previewState.archive,
                     operationId = previewState.operationId,
                     replaceConfirmed = true
                 )
-            }.onSuccess { result ->
                 preview = null
                 val warningSuffix = if (result.warnings.isEmpty()) {
                     ""
@@ -284,14 +362,17 @@ fun BackupRestorePreviewScreen(
                     " 有 ${result.warnings.size} 项内容需要你在恢复后重新检查。"
                 }
                 statusMessage = "恢复完成。$warningSuffix"
-            }.onFailure { error ->
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
                 showFailure(
                     title = "恢复没有完成",
                     guidance = "请重新打开 SleepDown 查看结果；如果恢复已经开始，应用会自动继续处理未完成的步骤",
                     error = error
                 )
+            } finally {
+                busyLabel = null
             }
-            busyLabel = null
         }
     }
 
@@ -321,14 +402,17 @@ fun BackupRestorePreviewScreen(
                     preview = previewState,
                     backdrop = backdrop,
                     config = state.config,
-                    onConfirm = { showReplaceConfirmation = true }
+                    canRestore = busyLabel == null,
+                    onConfirm = {
+                        if (busyLabel == null && preview === previewState) showReplaceConfirmation = true
+                    }
                 )
             }
         }
     }
 
     val previewState = preview
-    if (showReplaceConfirmation && previewState != null) {
+    if (showReplaceConfirmation && previewState != null && busyLabel == null) {
         val report = previewState.report
         val replacementMessage = if (report.requiresExplicitReplaceConfirmation) {
             "确认后，当前课表、设置和相关图片会被这份备份替换，应用里不能撤销。API Key、登录状态和系统权限不会被改动。"
@@ -343,12 +427,13 @@ fun BackupRestorePreviewScreen(
             },
             message = replacementMessage,
             actions = listOf(
-                LiquidAlertAction("返回检查", LiquidAlertActionStyle.Secondary) {
+                LiquidAlertAction("返回检查", LiquidAlertActionStyle.Cancel) {
                     showReplaceConfirmation = false
                 },
                 LiquidAlertAction(
                     if (report.requiresExplicitReplaceConfirmation) "替换并恢复" else "确认恢复",
-                    LiquidAlertActionStyle.Destructive
+                    if (report.requiresExplicitReplaceConfirmation) LiquidAlertActionStyle.Destructive
+                    else LiquidAlertActionStyle.Primary
                 ) {
                     showReplaceConfirmation = false
                     restorePreview(previewState)
@@ -410,6 +495,7 @@ private fun BackupPreviewContent(
     preview: BackupRestorePreviewState,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
+    canRestore: Boolean,
     onConfirm: () -> Unit
 ) {
     val report = preview.report
@@ -524,13 +610,17 @@ private fun BackupPreviewContent(
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.Center
                 ) {
-                    SettingsActionButton(
-                        label = "继续恢复",
-                        backdrop = backdrop,
-                        onClick = onConfirm,
-                        modifier = Modifier.fillMaxWidth(),
-                        destructive = true
-                    )
+                    if (canRestore) {
+                        SettingsActionButton(
+                            label = "继续恢复",
+                            backdrop = backdrop,
+                            onClick = onConfirm,
+                            modifier = Modifier.fillMaxWidth(),
+                            destructive = true
+                        )
+                    } else {
+                        Text("正在恢复，请稍候…", style = MaterialTheme.typography.labelLarge)
+                    }
                 }
             }
         }

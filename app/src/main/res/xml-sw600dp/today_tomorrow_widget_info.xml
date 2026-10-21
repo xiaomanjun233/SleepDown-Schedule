@@ -8,8 +8,8 @@
     android:previewImage="@drawable/widget_picker_preview_courses_large"
     android:previewLayout="@layout/widget_preview_today_tomorrow"
     android:resizeMode="horizontal|vertical"
-    android:targetCellWidth="2"
-    android:targetCellHeight="1"
+    android:minResizeWidth="40dp"
+    android:minResizeHeight="40dp"
     android:updatePeriodMillis="1800000"
     android:widgetCategory="home_screen"
     tools:targetApi="s" />

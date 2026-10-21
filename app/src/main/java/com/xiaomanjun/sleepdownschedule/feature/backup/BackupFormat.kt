@@ -1,9 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.backup
 
 import com.xiaomanjun.sleepdownschedule.*
-
-import kotlinx.serialization.Serializable
+import com.xiaomanjun.sleepdownschedule.model.AppIconPreferencesSnapshot
 import java.util.UUID
+import kotlinx.serialization.Serializable
 
 /**
  * Stable, Room-independent identifiers used inside a .sleepdown archive.
@@ -167,7 +167,9 @@ data class BackupChecksums(
 data class BackupData(
     val dataVersion: Int,
     val schedules: List<BackupSchedule> = emptyList(),
-    val widgetAppearances: List<BackupWidgetAppearance> = emptyList()
+    val widgetAppearances: List<BackupWidgetAppearance> = emptyList(),
+    /** Null identifies older archives whose schemes belonged to individual schedules. */
+    val sharedPeriodSchemes: List<BackupPeriodScheme>? = null
 )
 
 @Serializable
@@ -180,7 +182,8 @@ data class BackupSchedule(
     val periods: List<BackupPeriod> = emptyList(),
     val periodSchemes: List<BackupPeriodScheme> = emptyList(),
     val agentDailySessions: List<BackupAgentDailySession> = emptyList(),
-    val agentMessages: List<BackupAgentMessage> = emptyList()
+    val agentMessages: List<BackupAgentMessage> = emptyList(),
+    val activePeriodSchemeId: String? = null
 )
 
 /** Protocol DTO for ScheduleConfigEntity. It intentionally has no database id or URI field. */
@@ -209,6 +212,10 @@ data class BackupScheduleConfig(
     val cardAlpha: Float,
     val courseCardBlur: Float,
     val courseCardGlassEnabled: Boolean,
+    val courseCardOutlineLightEnabled: Boolean = true,
+    val courseCardRefractionStrength: Float = 0.5f,
+    val courseCardGaussianBlurEnabled: Boolean = true,
+    val courseCardColoredTextEnabled: Boolean = false,
     val courseCardFontScale: Float,
     val courseCardColorMode: String = "SOLID",
     val courseCardPalette: String = "",
@@ -221,6 +228,10 @@ data class BackupScheduleConfig(
     val weekCardHeightDp: Float?,
     val weekCardHeightScale: Float = 1f,
     val weekCardCornerProgress: Float = 0.5f,
+    val weekCardShowLocation: Boolean = true,
+    val weekCardShowTeacher: Boolean = true,
+    val weekCardTextAlignment: String = "CENTER",
+    val weekCardContentLayout: String = "CURRENT",
     val homeTextLight: Boolean,
     val followSystemDarkMode: Boolean,
     val darkMode: Boolean,
@@ -239,7 +250,10 @@ data class BackupScheduleConfig(
     val hideFromRecents: Boolean,
     val autoCheckUpdates: Boolean,
     val homeChromeBlurScale: Float = DefaultHomeChromeBlurScale,
-    val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale
+    val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale,
+    val scheduleAdjustmentsJson: String = "",
+    val showNonCurrentWeekCourses: Boolean = false,
+    val periodAlignmentMode: String = "INDEX"
 )
 
 @Serializable
@@ -255,7 +269,9 @@ data class BackupCourse(
     val note: String?,
     val customStartTime: String? = null,
     val customEndTime: String? = null,
-    val customColorArgb: Long? = null
+    val customColorArgb: Long? = null,
+    val customPeriodTimes: String? = null,
+    val originalPeriodTimes: String? = null
 )
 
 @Serializable
@@ -279,7 +295,13 @@ data class BackupPeriodScheme(
     val eveningStartTime: String,
     val specialBreaksJson: String,
     val overridesJson: String,
-    val times: List<BackupPeriodSchemeTime> = emptyList()
+    val times: List<BackupPeriodSchemeTime> = emptyList(),
+    val publicId: String = "",
+    val sourceScheduleName: String = "",
+    val morningPeriodCount: Int = 0,
+    val noonPeriodCount: Int = 0,
+    val afternoonPeriodCount: Int = 0,
+    val eveningPeriodCount: Int = 0
 )
 
 @Serializable
@@ -334,18 +356,14 @@ data class BackupWidgetAppearance(
 @Serializable
 data class BackupPreferences(
     val preferencesVersion: Int,
-    val appIcon: BackupAppIconPreferences? = null,
+    val materialLevel: String? = null,
+    val appIcon: AppIconPreferencesSnapshot? = null,
     val dayAgent: BackupDayAgentPreferences? = null,
     val aiImport: BackupAiImportPreferences? = null,
     val aiImportHistoryRetentionDays: Int = BackupFormatV1.DEFAULT_AI_IMPORT_HISTORY_RETENTION_DAYS,
-    val aiImportHistory: List<BackupAiImportHistoryEntry> = emptyList()
-)
-
-@Serializable
-data class BackupAppIconPreferences(
-    val mode: String,
-    val followsSystemDarkMode: Boolean,
-    val darkTheme: Boolean
+    val aiImportHistory: List<BackupAiImportHistoryEntry> = emptyList(),
+    val savedPeriodSchemes: List<com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme>? = null,
+    val courseQuietSettings: com.xiaomanjun.sleepdownschedule.domain.schedule.CourseQuietSettings? = null
 )
 
 @Serializable
@@ -359,7 +377,8 @@ data class BackupDayAgentPreferences(
     val memoryTurnDay: String?,
     val memoryTurnCount: Int,
     val memoryLastAgentUpdateDay: String?,
-    val appliedActionsBySchedule: Map<String, List<String>> = emptyMap()
+    val appliedActionsBySchedule: Map<String, List<String>> = emptyMap(),
+    val weekAssistantEnabled: Boolean = true
 )
 
 @Serializable

@@ -1,6 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.feature.backup
 
-import com.xiaomanjun.sleepdownschedule.app.startup.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
 
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
@@ -15,6 +14,7 @@ import com.xiaomanjun.sleepdownschedule.core.identity.AppIdentity
 
 import android.content.Context
 import androidx.room.withTransaction
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -59,23 +59,24 @@ class BackupRestoreService(
 ) {
     private val appContext = context.applicationContext
 
-    suspend fun readTargetSnapshot(): BackupImportTargetSnapshot = database.withTransaction {
-        val knownPreferenceFiles = listOf(
-            "app_icon_preferences",
-            "day_agent_preferences",
-            "ai_import_settings",
-            "ai_import_history"
-        )
-        BackupImportTargetSnapshot(
-            scheduleIds = database.scheduleProfileDao().getProfiles().mapTo(linkedSetOf()) { it.id },
-            courseIds = database.courseDao().getAllCourses().mapTo(linkedSetOf()) { it.id },
-            schemeIds = database.periodSchemeDao().getAllSchemes().mapTo(linkedSetOf()) { it.id },
-            messageIds = database.agentDao().getAllMessages().mapTo(linkedSetOf()) { it.id },
-            hasPreferences = knownPreferenceFiles.any {
-                appContext.getSharedPreferences(it, Context.MODE_PRIVATE).all.isNotEmpty()
-            } || AiImportHistoryStore.loadForBackup(appContext).isNotEmpty(),
-            hasWidgetAppearances = database.widgetAppearanceDao().getAll().isNotEmpty()
-        )
+    suspend fun readTargetSnapshot(): BackupImportTargetSnapshot {
+        com.xiaomanjun.sleepdownschedule.data.repository.ScheduleRepository(database)
+            .migrateLegacyPeriodSchemeLibrary(appContext)
+        return database.withTransaction {
+            val knownPreferenceFiles = listOf(
+                "app_icon_preferences", "day_agent_preferences", "ai_import_settings", "ai_import_history"
+            )
+            BackupImportTargetSnapshot(
+                scheduleIds = database.scheduleProfileDao().getProfiles().mapTo(linkedSetOf()) { it.id },
+                courseIds = database.courseDao().getAllCourses().mapTo(linkedSetOf()) { it.id },
+                schemeIds = database.periodSchemeDao().getAllSchemes().mapTo(linkedSetOf()) { it.id },
+                messageIds = database.agentDao().getAllMessages().mapTo(linkedSetOf()) { it.id },
+                hasPreferences = knownPreferenceFiles.any {
+                    appContext.getSharedPreferences(it, Context.MODE_PRIVATE).all.isNotEmpty()
+                } || AiImportHistoryStore.loadForBackup(appContext).isNotEmpty(),
+                hasWidgetAppearances = database.widgetAppearanceDao().getAll().isNotEmpty()
+            )
+        }
     }
 
     suspend fun restore(
@@ -84,11 +85,40 @@ class BackupRestoreService(
         replaceConfirmed: Boolean,
         existingTarget: BackupImportTargetSnapshot? = null,
         failureInjector: BackupRestoreFailureInjector = NoBackupRestoreFailureInjector
-    ): BackupRestoreResult = withContext(Dispatchers.IO) {
+    ): BackupRestoreResult = BackupRestoreCoordinator.restore {
+        withContext(Dispatchers.IO) {
+            requireNoOtherPendingRestore(operationId)
+            restoreExclusive(archive, operationId, replaceConfirmed, existingTarget, failureInjector)
+        }
+    }
+
+    private fun requireNoOtherPendingRestore(operationId: String) {
+        // A failed operation can retain committed/uncertain state or files awaiting rollback.
+        // Do not let a later restore reuse those files before recovery has retired that journal.
+        File(appContext.filesDir, ".sleepdown_restore").listFiles().orEmpty()
+            .filter { it.isDirectory && it.name != operationId }
+            .forEach { directory ->
+                val marker = BackupRestoreJournal(appContext.filesDir, directory.name).readMarker()
+                check(marker == null || marker.state == BackupRestoreState.FINALIZED) {
+                    "上次恢复尚未完成，请重新打开 SleepDown 完成恢复后再试"
+                }
+            }
+    }
+
+    /** Only called while the coordinator owns both the journal and the live restore files. */
+    private suspend fun restoreExclusive(
+        archive: DecodedBackupArchive,
+        operationId: String,
+        replaceConfirmed: Boolean,
+        existingTarget: BackupImportTargetSnapshot? = null,
+        failureInjector: BackupRestoreFailureInjector
+    ): BackupRestoreResult {
         AppIdentity.requireTrustedBackupSource(
             archive.manifest.sourcePackageName,
             appContext.packageName
         )
+        com.xiaomanjun.sleepdownschedule.data.repository.ScheduleRepository(database)
+            .migrateLegacyPeriodSchemeLibrary(appContext)
         val journal = BackupRestoreJournal(appContext.filesDir, operationId)
         val fingerprint = archiveFingerprint(archive)
         var marker = journal.readMarker()
@@ -116,7 +146,7 @@ class BackupRestoreService(
         }
 
         if (marker.state == BackupRestoreState.FINALIZED) {
-            return@withContext BackupRestoreResult(
+            return BackupRestoreResult(
                 operationId = operationId,
                 state = BackupRestoreState.FINALIZED,
                 warnings = planWarnings(marker.plan),
@@ -127,7 +157,7 @@ class BackupRestoreService(
         failureInjector.check(BackupRestoreFaultPoint.AFTER_VALIDATED)
         var dbMayBeCommitted = marker.state.ordinal >= BackupRestoreState.DB_COMMITTED.ordinal
         var createdPathsInMemory = emptySet<String>()
-        try {
+        return try {
             if (marker.state.ordinal < BackupRestoreState.DB_COMMITTED.ordinal) {
                 val stage = BackupAssetStager.stage(appContext.filesDir, archive, operationId)
                 val restoredAssets = BackupPrivateAssetRestorer.prepare(
@@ -158,7 +188,8 @@ class BackupRestoreService(
                 dbMayBeCommitted = true
                 marker = marker.copy(
                     state = BackupRestoreState.DB_COMMITTED,
-                    dbCommitStarted = false
+                    dbCommitStarted = false,
+                    sharedSchemeGraphCommitted = true
                 )
                 journal.writeMarker(marker)
                 failureInjector.check(BackupRestoreFaultPoint.AFTER_DATABASE_COMMIT)
@@ -181,11 +212,23 @@ class BackupRestoreService(
         }
     }
 
-    /** Called from Application startup; only journaled, already-confirmed operations are resumed. */
-    suspend fun resumePending(): List<BackupRestoreResult> = withContext(Dispatchers.IO) {
+    /**
+     * Called from Application startup; only journaled, already-confirmed operations are resumed.
+     * Startup's unreferenced-file cleanup must share ownership so it cannot delete live staging.
+     */
+    suspend fun resumePending(afterRecovery: suspend () -> Unit = {}): List<BackupRestoreResult> =
+        BackupRestoreCoordinator.recover {
+            withContext(Dispatchers.IO) {
+                val results = resumePendingExclusive()
+                afterRecovery()
+                results
+            }
+        }
+
+    private suspend fun resumePendingExclusive(): List<BackupRestoreResult> {
         val root = File(appContext.filesDir, ".sleepdown_restore")
-        if (!root.isDirectory) return@withContext emptyList()
-        root.listFiles().orEmpty()
+        if (!root.isDirectory) return emptyList()
+        return root.listFiles().orEmpty()
             .filter(File::isDirectory)
             .mapNotNull { operationDirectory ->
                 val operationId = operationDirectory.name
@@ -214,7 +257,7 @@ class BackupRestoreService(
                         }
                         marker.state.ordinal < BackupRestoreState.DB_COMMITTED.ordinal -> {
                             val archive = restoreArchiveFromPayload(journal)
-                            restore(
+                            restoreExclusive(
                                 archive = archive,
                                 operationId = operationId,
                                 replaceConfirmed = true,
@@ -229,6 +272,7 @@ class BackupRestoreService(
                         )
                     }
                 }.getOrElse { error ->
+                    if (error is CancellationException) throw error
                     BackupRestoreResult(
                         operationId = operationId,
                         state = marker.state,
@@ -247,6 +291,30 @@ class BackupRestoreService(
     ): BackupRestoreResult {
         var current = marker
         val warnings = planWarnings(current.plan).toMutableList()
+        if (!current.sharedSchemeGraphCommitted) {
+            // A previous app version may have committed its schedule rows and stopped before
+            // applying the preference-only library. Finish that import in Room, without replacing
+            // the already committed schedules or relying on the retired preference writer.
+            val payload = journal.readPayload()
+            if (payload.data.sharedPeriodSchemes == null && payload.preferences.savedPeriodSchemes != null) {
+                val libraryArchive = DecodedBackupArchive(payload.manifest,
+                    payload.data.copy(schedules = emptyList(), widgetAppearances = emptyList()),
+                    BackupPreferences(BackupFormatV1.PREFERENCES_VERSION,
+                        savedPeriodSchemes = payload.preferences.savedPeriodSchemes), payload.checksums, emptyList())
+                val libraryPlan = BackupImportPlanBuilder.build(libraryArchive, current.operationId,
+                    BackupImportTargetSnapshot(schemeIds = database.periodSchemeDao().getAllSchemes().mapTo(linkedSetOf()) { it.id }))
+                val rows = BackupRoomRestoreMapper.map(libraryArchive, libraryPlan)
+                database.withTransaction {
+                    val dao = database.periodSchemeDao()
+                    val merge = mergeBackupSchemeRows(dao.getAllSchemes(), dao.getAllTimes(),
+                        rows.periodSchemes, rows.periodSchemeTimes, current.operationId)
+                    if (merge.additions.isNotEmpty()) dao.upsertSchemes(merge.additions)
+                    if (merge.times.isNotEmpty()) dao.upsertTimes(merge.times)
+                }
+            }
+            current = current.copy(sharedSchemeGraphCommitted = true)
+            journal.writeMarker(current)
+        }
         if (current.state.ordinal < BackupRestoreState.PREFS_COMMITTED.ordinal) {
             failureInjector.check(BackupRestoreFaultPoint.BEFORE_PREFERENCES_COMMIT)
             val preferences = journal.readPreferences()
@@ -332,6 +400,7 @@ class BackupRestoreService(
                 .forEach { if (it.isFile) it.delete() }
         }
         guarded("课程提醒刷新失败") {
+            ScheduleRepository(database).ensureDefaults()
             val snapshot = ScheduleRepository(database).activeSnapshot()
             NotificationScheduler.refreshToday(
                 appContext,

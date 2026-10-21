@@ -1,13 +1,27 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.*
-
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardAlphaSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardBlurSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardFontSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardRefractionSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWallpaperBlurSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWallpaperBrightnessSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWeekCornerSlider
+
+/** Explicit appearance edits may refresh a frozen scene without replacing its course inputs. */
+internal fun AppState.withPersonalizationConfig(candidate: ScheduleConfigEntity?): AppState =
+    if (candidate != null && candidate.id == config.id && candidate != config) {
+        copy(config = candidate)
+    } else {
+        this
+    }
 
 /**
  * Lightweight, transient values used while a personalization slider is being dragged.
@@ -25,6 +39,8 @@ internal class PersonalizationPreviewState {
         private set
     var cardBlur by mutableStateOf<Float?>(null)
         private set
+    var cardRefractionStrength by mutableStateOf<Float?>(null)
+        private set
     var cardFontScale by mutableStateOf<Float?>(null)
         private set
     var weekCardCornerProgress by mutableStateOf<Float?>(null)
@@ -36,6 +52,7 @@ internal class PersonalizationPreviewState {
             PersonalizeWallpaperBrightnessSlider -> wallpaperBrightness = candidate.wallpaperBrightness
             PersonalizeCardAlphaSlider -> cardAlpha = candidate.cardAlpha
             PersonalizeCardBlurSlider -> cardBlur = candidate.courseCardBlur
+            PersonalizeCardRefractionSlider -> cardRefractionStrength = candidate.courseCardRefractionStrength
             PersonalizeCardFontSlider -> cardFontScale = candidate.courseCardFontScale
             PersonalizeWeekCornerSlider -> weekCardCornerProgress = candidate.weekCardCornerProgress
         }
@@ -47,6 +64,7 @@ internal class PersonalizationPreviewState {
             PersonalizeWallpaperBrightnessSlider -> wallpaperBrightness = null
             PersonalizeCardAlphaSlider -> cardAlpha = null
             PersonalizeCardBlurSlider -> cardBlur = null
+            PersonalizeCardRefractionSlider -> cardRefractionStrength = null
             PersonalizeCardFontSlider -> cardFontScale = null
             PersonalizeWeekCornerSlider -> weekCardCornerProgress = null
         }
@@ -57,6 +75,7 @@ internal class PersonalizationPreviewState {
         wallpaperBrightness = null
         cardAlpha = null
         cardBlur = null
+        cardRefractionStrength = null
         cardFontScale = null
         weekCardCornerProgress = null
     }

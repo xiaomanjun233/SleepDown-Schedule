@@ -44,7 +44,7 @@ class HomePersonalizationGeometryTest {
     }
 
     @Test
-    fun compactSliderNeverCutsOffTheCompleteTimeline() {
+    fun compactSliderKeepsPeriodNumbersReadableWhenTimeLinesCollapse() {
         val fontScale = 1.30f
         val adaptive = adaptiveWeekRowHeightDp(
             viewportHeightDp = 960f,
@@ -56,7 +56,8 @@ class HomePersonalizationGeometryTest {
         val floor = minimumWeekCardHeightScale(adaptive, fontScale)
         val compactHeight = adaptive * weekCardHeightScaleFromSlider(0f, floor)
 
-        assertTrue(compactHeight + 0.0001f >= minimumWeekTimelineRowHeightDp(fontScale))
+        assertTrue(compactHeight + 0.0001f >= minimumWeekTimelineNumberOnlyRowHeightDp(fontScale))
+        assertTrue(compactHeight < minimumWeekTimelineRowHeightDp(fontScale))
         assertEquals(floor, normalizedWeekCardHeightScale(MinimumWeekCardHeightScale, floor), 0.0001f)
     }
 

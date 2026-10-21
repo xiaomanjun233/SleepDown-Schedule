@@ -1,11 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.transition.legacy
 
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
-
 import android.graphics.Bitmap
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
@@ -18,18 +12,16 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -49,10 +41,18 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.launch
+import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsSection
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import kotlin.math.PI
 import kotlin.math.sin
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
 val DetailOpenEasing = Easing { fraction ->
     val inverse = 1f - fraction
@@ -127,7 +127,7 @@ private class DetailMorphClipShape(
                 (screenCornerRadiusPx - sourceCornerRadiusPx) * state.progress
         }
         val compensatedRadiusDp = (radiusPx / state.scale / density.density).dp
-        return RoundedCornerShape(compensatedRadiusDp).createOutline(
+        return RoundedRectangle(compensatedRadiusDp).createOutline(
             size = Size(
                 width = screenWidth,
                 height = state.clipBottom.coerceAtLeast(1f)
@@ -144,7 +144,7 @@ fun DetailScheduleMorphOverlay(
     detailState: AppState,
     onMorphStateChange: (DetailMorphState) -> Unit,
     onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
-    onPreviewLiveUpdate: () -> Unit,
+    onPreviewLiveUpdate: (ScheduleConfigEntity) -> Unit,
     onFinished: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -285,7 +285,7 @@ fun DetailScheduleMorphOverlay(
                     val bgScale = backgroundScale.value
                     scaleX = bgScale
                     scaleY = bgScale
-                    shape = RoundedCornerShape(20.dp)
+                    shape = RoundedRectangle(20.dp)
                     clip = bgScale < 0.999f
                     val blurProgress = ((1f - bgScale) / (1f - 0.92f)).coerceIn(0f, 1f)
                     val blurPx = (blurProgress * 6f).coerceIn(0f, 6f) * density.density
@@ -341,7 +341,7 @@ fun DetailScheduleMorphOverlay(
                         .align(Alignment.TopStart)
                         .fillMaxWidth()
                         .graphicsLayer {
-                            shape = RoundedCornerShape(sourceSnapshotCorner)
+                            shape = RoundedRectangle(sourceSnapshotCorner)
                             clip = true
                         }
                         .graphicsLayer { alpha = values.sourceSnapshotAlpha },

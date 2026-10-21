@@ -1,88 +1,42 @@
 package com.xiaomanjun.sleepdownschedule.transition.legacy
 
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RectF
 import android.graphics.Shader
-import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.keyframes
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CornerBasedShape
-import androidx.compose.foundation.shape.CornerSize
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.BlendMode
-import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathFillType
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
-import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.catalog.components.LiquidPanel
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.coroutineScope
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
+import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import kotlin.math.abs
-import kotlin.math.ceil
-import kotlin.math.hypot
-import kotlin.math.roundToInt
 
 @Composable
 internal fun MirroredEdgeSnapshot(
@@ -92,6 +46,7 @@ internal fun MirroredEdgeSnapshot(
     alphaProvider: () -> Float,
     modifier: Modifier = Modifier
 ) {
+    val edgeEffect = remember(blurPx) { platformBlurRenderEffect(blurPx) }
     val shader = remember(bitmap) {
         BitmapShader(bitmap, Shader.TileMode.MIRROR, Shader.TileMode.MIRROR)
     }
@@ -104,7 +59,7 @@ internal fun MirroredEdgeSnapshot(
         modifier = modifier
             .graphicsLayer {
                 this.alpha = alphaProvider().coerceIn(0f, 1f)
-                renderEffect = platformBlurRenderEffect(blurPx)
+                renderEffect = edgeEffect
             }
             .drawWithCache {
                 val insetX = size.width * insetFraction.coerceIn(0f, 0.49f)
@@ -151,6 +106,8 @@ internal fun MorphSnapshotBackground(
 internal fun MorphSnapshotBackground(
     bitmap: Bitmap,
     backgroundScaleProvider: () -> Float,
+    nativeRoundClip: Boolean = false,
+    dialog: com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot? = null,
     modifier: Modifier = Modifier
 ) {
     val density = LocalDensity.current
@@ -166,10 +123,7 @@ internal fun MorphSnapshotBackground(
             alphaProvider = { 1f },
             modifier = Modifier.fillMaxSize()
         )
-        Image(
-            bitmap = bitmap.asImageBitmap(),
-            contentDescription = null,
-            contentScale = ContentScale.FillBounds,
+        Box(
             modifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
@@ -186,15 +140,18 @@ internal fun MorphSnapshotBackground(
                     val shrinkProgress = ((1f - scale) / 0.08f).coerceIn(0f, 1f)
                     if (shrinkProgress > 0.001f) {
                         val radiusPx = 24.dp.toPx() * shrinkProgress
+                        // All eleven draws share the same continuous outline. Building it inside
+                        // each feather stroke multiplies path construction during every frame.
+                        val roundedShape = if (nativeRoundClip) androidx.compose.foundation.shape.RoundedCornerShape(radiusPx.toDp())
+                            else RoundedRectangle(radiusPx.toDp())
+                        val roundedOutline = roundedShape.createOutline(
+                            size, layoutDirection, this@drawWithContent
+                        )
+                        val roundedPath = Path().apply { addOutline(roundedOutline) }
                         val outside = Path().apply {
                             fillType = PathFillType.EvenOdd
                             addRect(Rect(0f, 0f, size.width, size.height))
-                            addRoundRect(
-                                RoundRect(
-                                    rect = Rect(0f, 0f, size.width, size.height),
-                                    cornerRadius = CornerRadius(radiusPx, radiusPx)
-                                )
-                            )
+                            addPath(roundedPath)
                         }
                         drawPath(outside, Color.Black, blendMode = BlendMode.Clear)
 
@@ -203,16 +160,25 @@ internal fun MorphSnapshotBackground(
                         repeat(featherSteps) { index ->
                             val linear = 1f - index / featherSteps.toFloat()
                             val remaining = linear * linear * (3f - 2f * linear)
-                            drawRoundRect(
+                            if (nativeRoundClip) drawRoundRect(
                                 color = Color.Black.copy(alpha = 0.115f),
-                                cornerRadius = CornerRadius(radiusPx, radiusPx),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(radiusPx, radiusPx),
+                                style = Stroke(width = featherPx * 2f * remaining),
+                                blendMode = BlendMode.DstOut
+                            ) else drawPath(
+                                path = roundedPath,
+                                color = Color.Black.copy(alpha = 0.115f),
                                 style = Stroke(width = featherPx * 2f * remaining),
                                 blendMode = BlendMode.DstOut
                             )
                         }
                     }
                 }
-        )
+        ) {
+            Image(bitmap = bitmap.asImageBitmap(), contentDescription = null,
+                contentScale = ContentScale.FillBounds, modifier = Modifier.fillMaxSize())
+            dialog?.let { NativeDialogSnapshotLayer(it, bitmap.width, bitmap.height) }
+        }
     }
 }
 
@@ -220,3 +186,39 @@ internal fun morphSnapshotDepthProgress(scale: Float): Float =
     (abs(scale.coerceIn(0.92f, 1.08f) - 1f) / 0.08f).coerceIn(0f, 1f)
 
 
+
+/** Reattach COUI's real material between the source page and the copied dialog text/buttons. */
+@Composable
+private fun NativeDialogSnapshotLayer(
+    snapshot: com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot,
+    sourceWidth: Int, sourceHeight: Int
+) {
+    val density = LocalDensity.current
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize()) {
+        val sx = constraints.maxWidth.toFloat() / sourceWidth.coerceAtLeast(1)
+        val sy = constraints.maxHeight.toFloat() / sourceHeight.coerceAtLeast(1)
+        fun positioned(rect: androidx.compose.ui.geometry.Rect): Modifier = Modifier
+            .nativeSnapshotPosition(rect.left * sx, rect.top * sy, rect.width * sx, rect.height * sy)
+        val surface = positioned(snapshot.materialBounds)
+        val shape = androidx.compose.foundation.shape.RoundedCornerShape(
+            with(density) { (snapshot.cornerRadiusPx * minOf(sx, sy)).toDp() })
+        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer.current?.invoke(
+            com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest(
+                modifier = surface, shape = shape, dark = snapshot.dark,
+                role = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Dialog,
+                edgeEffects = false, followTouch = false
+            )
+        ) {}
+        Image(snapshot.foreground.asImageBitmap(), contentDescription = null,
+            contentScale = ContentScale.FillBounds, modifier = positioned(snapshot.windowBounds))
+    }
+}
+
+private fun Modifier.nativeSnapshotPosition(x: Float, y: Float, width: Float, height: Float): Modifier = this
+    .graphicsLayer { translationX = x; translationY = y }
+    .layout { measurable, _ ->
+        val w = width.toInt().coerceAtLeast(1)
+        val h = height.toInt().coerceAtLeast(1)
+        val placeable = measurable.measure(androidx.compose.ui.unit.Constraints.fixed(w, h))
+        layout(w, h) { placeable.place(0, 0) }
+    }

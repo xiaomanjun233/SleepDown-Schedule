@@ -12,6 +12,15 @@ import org.junit.Test
 
 class TransitionRouteCatalogTest {
     @Test
+    fun colorOsCourseManagementUsesTheSamePageTransitionAsSettingsDetails() {
+        val course = TransitionRouteCatalog.get(TransitionRouteId.HomeMenuToCourseManagement)
+        val settings = TransitionRouteCatalog.get(TransitionRouteId.SettingsToSettingsDetail)
+        assertEquals(settings.legacyProfile, course.legacyProfile)
+        assertEquals(settings.nativePolicy, course.nativePolicy)
+        assertTrue(!course.requiresOpeningAnchor && !course.requiresReturnAnchor)
+    }
+
+    @Test
     fun everyRouteIdHasExactlyOneCatalogEntryAndWireName() {
         val routes = TransitionRouteCatalog.all()
         assertEquals(TransitionRouteId.entries.size, routes.size)

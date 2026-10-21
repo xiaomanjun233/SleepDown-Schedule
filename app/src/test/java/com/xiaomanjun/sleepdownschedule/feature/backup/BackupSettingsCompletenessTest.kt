@@ -11,6 +11,27 @@ import org.junit.Test
 
 class BackupSettingsCompletenessTest {
     @Test
+    fun olderBackupWithoutNewCardSettingsKeepsTheOriginalAppearance() {
+        val archive = BackupExportMapper.toArchive(
+            metadata = metadata(),
+            snapshot = BackupRoomSnapshot(
+                schedules = listOf(ScheduleProfileEntity(7, "旧备份", true)),
+                configs = listOf(defaultConfig(7))
+            ),
+            preferences = BackupPreferences(preferencesVersion = BackupFormatV1.PREFERENCES_VERSION)
+        )
+        val json = kotlinx.serialization.json.Json { encodeDefaults = true }
+        val serialized = json.encodeToJsonElement(BackupScheduleConfig.serializer(), archive.data.schedules.single().config)
+            as kotlinx.serialization.json.JsonObject
+        val oldFields = kotlinx.serialization.json.JsonObject(serialized.filterKeys {
+            it != "courseCardColoredTextEnabled" && it != "weekCardContentLayout"
+        })
+        val restored = json.decodeFromJsonElement(BackupScheduleConfig.serializer(), oldFields)
+        assertEquals(false, restored.courseCardColoredTextEnabled)
+        assertEquals("CURRENT", restored.weekCardContentLayout)
+    }
+
+    @Test
     fun everyPortableRoomFieldAcrossAllNineTablesHasAProtocolCounterpart() {
         assertPortableFields(
             ScheduleProfileEntity::class.java,
@@ -18,13 +39,13 @@ class BackupSettingsCompletenessTest {
             roomOnly = setOf("id"),
             protocolOnly = setOf(
                 "id", "config", "courses", "periods", "periodSchemes",
-                "agentDailySessions", "agentMessages"
+                "agentDailySessions", "agentMessages", "activePeriodSchemeId"
             )
         )
         assertPortableFields(
             CourseEntity::class.java,
             BackupCourse::class.java,
-            roomOnly = setOf("id", "scheduleId"),
+            roomOnly = setOf("id", "scheduleId", "arrangementProjection"),
             protocolOnly = setOf("id")
         )
         assertPortableFields(
@@ -59,7 +80,8 @@ class BackupSettingsCompletenessTest {
 
     @Test
     fun everyScheduleConfigFieldHasAnExplicitBackupCounterpart() {
-        val roomFields = instanceFieldNames(ScheduleConfigEntity::class.java) - setOf("id", "wallpaperUri")
+        // The shared scheme relationship belongs to BackupSchedule and uses an archive-local ID.
+        val roomFields = instanceFieldNames(ScheduleConfigEntity::class.java) - setOf("id", "wallpaperUri", "activePeriodSchemeId")
         val protocolFields = instanceFieldNames(BackupScheduleConfig::class.java) - "wallpaperAssetId"
 
         assertEquals(
@@ -111,6 +133,10 @@ class BackupSettingsCompletenessTest {
             cardAlpha = 0.72f,
             courseCardBlur = 12.5f,
             courseCardGlassEnabled = false,
+            courseCardOutlineLightEnabled = false,
+            courseCardRefractionStrength = 0.71f,
+            courseCardGaussianBlurEnabled = false,
+            courseCardColoredTextEnabled = true,
             courseCardFontScale = 1.18f,
             courseCardColorMode = CourseCardColorMode.GRADIENT,
             courseCardPalette = "FF123456,FF345678",
@@ -123,6 +149,7 @@ class BackupSettingsCompletenessTest {
             weekCardHeightDp = 63f,
             weekCardHeightScale = 1.24f,
             weekCardCornerProgress = 0.82f,
+            weekCardContentLayout = WeekCardContentLayout.TOP_DOWN,
             homeTextLight = true,
             homeChromeBlurScale = 1.35f,
             homeChromeSamplingScale = 0.7f,

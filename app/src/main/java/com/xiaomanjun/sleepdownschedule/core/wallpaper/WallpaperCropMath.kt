@@ -1,10 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.core.wallpaper
 
-import com.xiaomanjun.sleepdownschedule.*
-
-import android.app.Activity
-import android.content.Context
-import android.os.Build
+import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import kotlin.math.max
@@ -18,18 +14,10 @@ data class WallpaperCropState(
     val scale: Float = 1f
 )
 
-fun calculateWallpaperPreviewAspect(context: Context, orientation: WallpaperPreviewOrientation): Float {
-    val bounds = runCatching {
-        val activity = context as? Activity ?: return@runCatching null
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            activity.windowManager.currentWindowMetrics.bounds
-        } else {
-            @Suppress("DEPRECATION")
-            android.graphics.Rect().also { activity.windowManager.defaultDisplay.getRectSize(it) }
-        }
-    }.getOrNull()
-    val width = bounds?.width()?.takeIf { it > 0 } ?: 0
-    val height = bounds?.height()?.takeIf { it > 0 } ?: 0
+fun wallpaperOrientation(width: Int, height: Int): WallpaperPreviewOrientation =
+    if (width > height) WallpaperPreviewOrientation.Landscape else WallpaperPreviewOrientation.Portrait
+
+fun calculateWallpaperPreviewAspect(width: Int, height: Int, orientation: WallpaperPreviewOrientation): Float {
     if (width <= 0 || height <= 0) {
         return if (orientation == WallpaperPreviewOrientation.Portrait) 9f / 20f else 20f / 9f
     }

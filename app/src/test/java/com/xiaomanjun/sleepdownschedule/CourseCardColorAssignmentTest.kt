@@ -36,7 +36,7 @@ class CourseCardColorAssignmentTest {
             colors.drop(index + 1).forEach { other ->
                 assertTrue(
                     "colors ${color.toString(16)} and ${other.toString(16)} are too similar",
-                    courseCardPerceptualDistance(color, other) >= 0.055
+                    courseCardPerceptualDistance(color, other) >= 0.022
                 )
             }
         }

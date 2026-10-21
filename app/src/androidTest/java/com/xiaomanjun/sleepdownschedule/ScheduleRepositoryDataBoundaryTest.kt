@@ -3,6 +3,10 @@ package com.xiaomanjun.sleepdownschedule
 import android.content.Context
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import com.xiaomanjun.sleepdownschedule.feature.agent.AgentActionScope
+import com.xiaomanjun.sleepdownschedule.feature.agent.AgentPlan
+import com.xiaomanjun.sleepdownschedule.feature.agent.AgentValidatedAction
+import com.xiaomanjun.sleepdownschedule.feature.agent.AgentValidatedActionType
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After

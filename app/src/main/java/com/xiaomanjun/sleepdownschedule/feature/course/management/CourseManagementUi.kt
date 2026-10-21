@@ -1,79 +1,59 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.management
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.transition.legacy.*
-import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.core.performance.*
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
-import com.xiaomanjun.sleepdownschedule.domain.course.*
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeCoursePeriodTimes
 
-import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
-import android.os.Bundle
-import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -86,17 +66,17 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -104,39 +84,49 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.zIndex
-import androidx.core.view.WindowCompat
-import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import top.yukonga.miuix.kmp.utils.overScrollVertical
-import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
-import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
-import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
-import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
-import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
-import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
-import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
-import androidx.lifecycle.viewmodel.compose.viewModel
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.catalog.components.LiquidButton
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
+import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedRectangle
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.performance.*
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.LightTopBarButtonShadow
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
+import com.xiaomanjun.sleepdownschedule.domain.course.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.isHiddenByPeriodAlignment
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalTimeSegments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.previewCourseEdits
+import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
+import com.xiaomanjun.sleepdownschedule.feature.home.day.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
+import com.xiaomanjun.sleepdownschedule.transition.legacy.*
 import java.time.LocalTime
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
+import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
+import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-private val CourseManagementCardShape = RoundedCornerShape(20.dp)
+private val CourseManagementCardShape = RoundedRectangle(20.dp)
 
 @Composable
 internal fun CourseManagementColorProvider(
@@ -381,7 +371,8 @@ internal fun ManagedCourseListCardContent(
     group: ManagedCourseGroup,
     config: ScheduleConfigEntity,
     periods: List<PeriodEntity>,
-    modifier: Modifier
+    modifier: Modifier,
+    selected: Boolean = false
 ) {
     val representative = group.representative
     val cardColor = courseCardBaseColor(config, representative)
@@ -397,7 +388,9 @@ internal fun ManagedCourseListCardContent(
     Column(
         modifier = modifier
             .background(
-                MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.86f),
+                MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.86f).let { surface ->
+                    if (selected) Color.Black.copy(alpha = 0.08f).compositeOver(surface) else surface
+                },
                 CourseManagementCardShape
             )
             .padding(horizontal = 14.dp, vertical = 16.dp),
@@ -411,7 +404,7 @@ internal fun ManagedCourseListCardContent(
                 Modifier
                     .width(3.dp)
                     .height(24.dp)
-                    .clip(RoundedCornerShape(50))
+                    .clip(Capsule())
                     .background(if (showCourseColor) cardColor else Color.Transparent)
             )
             Text(
@@ -450,7 +443,9 @@ internal fun ManagedCourseListCardContent(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             group.courses.forEach { arrangement ->
                 Text(
-                    text = "周${weekdayLabel(arrangement.weekday)} ${courseTimeLabel(arrangement, periods)}",
+                    text = "周${weekdayLabel(arrangement.weekday)} " + if (arrangement.isHiddenByPeriodAlignment()) {
+                        "暂不显示 · 原始第${arrangement.originalArrangement().periods.joinToString("、")}节"
+                    } else courseTimeLabel(arrangement, periods),
                     color = summaryColor,
                     style = MiuixTheme.textStyles.body2,
                     lineHeight = 20.sp,
@@ -474,7 +469,7 @@ internal fun HomeMenuActivitySourceFallback(
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(2.dp)
     ) {
-        listOf("日视图 / 周视图", "添加单节课", "课程管理", "手动导入课表", "教务系统导入", "课表设置")
+        listOf("日视图 / 周视图", "添加单节课", "课程管理", "口令/文件导入", "教务系统导入", "课表设置", "多课表管理")
             .forEachIndexed { index, label ->
                 Row(
                     Modifier.fillMaxWidth().height(42.dp),
@@ -484,7 +479,7 @@ internal fun HomeMenuActivitySourceFallback(
                         Modifier
                             .width(3.dp)
                             .height(24.dp)
-                            .clip(RoundedCornerShape(50))
+                            .clip(Capsule())
                             .background(
                                 if (index == highlightedRowIndex) foreground.copy(alpha = 0.34f)
                                 else Color.Transparent
@@ -502,6 +497,25 @@ internal fun HomeMenuActivitySourceFallback(
             }
     }
 }
+
+internal fun newManagedCourseArrangement(
+    template: CourseEntity,
+    config: ScheduleConfigEntity,
+    periods: List<PeriodEntity>
+): CourseEntity = template.copy(
+    id = 0,
+    weekday = 1,
+    periods = listOf(periods.firstOrNull()?.periodIndex ?: 1),
+    weeks = (1..config.totalWeeks.coerceAtLeast(1)).toList(),
+    weekParity = WeekParity.ALL,
+    customStartTime = null,
+    customEndTime = null,
+    customPeriodTimes = null,
+    // The new arrangement owns a new clock; the template's snapshot/projection describes its old periods.
+    originalPeriodTimes = null,
+    arrangementProjection = null,
+    scheduleId = config.id
+)
 
 private data class ManagedArrangementDraft(
     val localKey: Long,
@@ -525,16 +539,21 @@ internal fun CourseManagementDetailPage(
     group: ManagedCourseGroup,
     state: AppState,
     onBack: () -> Unit,
-    onSave: (List<CourseEntity>) -> Unit
+    onSave: (List<CourseEntity>) -> Unit,
+    onSaveAndThen: ((List<CourseEntity>, (Boolean) -> Unit) -> Unit)? = null,
+    onExitHandlerChange: (((() -> Unit) -> Unit)?) -> Unit = {}
 ) {
+    var pendingExitAction by remember(group.key) { mutableStateOf<(() -> Unit)?>(null) }
+    var saving by remember(group.key) { mutableStateOf(false) }
     var name by remember(group.key) { mutableStateOf(group.representative.name) }
     var selectedColor by remember(group.key) { mutableStateOf(group.representative.customColorArgb) }
     var nextLocalKey by remember(group.key) { mutableLongStateOf(-1L) }
     var arrangements by remember(group.key) {
-        mutableStateOf(group.courses.map { ManagedArrangementDraft(it.id, it) })
+        mutableStateOf(group.courses.map { ManagedArrangementDraft(it.id, it.originalArrangement()) })
     }
     var pickerRequest by remember { mutableStateOf<CourseEditorPickerRequest?>(null) }
     var pickerVisible by remember { mutableStateOf(false) }
+    var colorPickerVisible by remember { mutableStateOf(false) }
     var showSaveChangesDialog by remember(group.key) { mutableStateOf(false) }
     var validationMessage by remember(group.key) { mutableStateOf<String?>(null) }
     var pendingDelete by remember(group.key) { mutableStateOf<PendingArrangementDelete?>(null) }
@@ -556,11 +575,33 @@ internal fun CourseManagementDetailPage(
     }
 
     val replacements = replacementsForSave()
-    val hasChanges = name != group.representative.name || replacements != group.courses
+    val hasChanges = name != group.representative.name || replacements != group.courses.map { it.originalArrangement() }
+
+    fun finishBack() {
+        saving = false
+        showSaveChangesDialog = false
+        val action = pendingExitAction
+        pendingExitAction = null
+        if (action != null) action() else onBack()
+    }
+    fun commit(values: List<CourseEntity>) {
+        if (saving) return
+        if (onSaveAndThen != null) {
+            saving = true
+            onSaveAndThen(values) { success ->
+                saving = false
+                if (success) finishBack() else {
+                    pendingExitAction = null
+                    validationMessage = "保存失败，请重试"
+                }
+            }
+        } else onSave(values)
+    }
 
     fun updateArrangement(localKey: Long, transform: (CourseEntity) -> CourseEntity) {
         arrangements = arrangements.map { draft ->
-            if (draft.localKey == localKey) draft.copy(course = transform(draft.course)) else draft
+            if (draft.localKey == localKey) draft.copy(course = captureOriginalPeriodTimes(
+                transform(draft.course), state.periods, draft.course)) else draft
         }
     }
 
@@ -572,17 +613,17 @@ internal fun CourseManagementDetailPage(
         }
         val replacementsToSave = replacementsForSave()
         if (replacementsToSave.isEmpty()) {
-            onSave(replacementsToSave)
+            commit(replacementsToSave)
             return
         }
         val conflictWeeks = conflictWeeksForEditedCourseGroup(
-            originals = group.courses,
-            edited = replacementsToSave,
+            originals = state.previewCourseEdits(group.courses),
+            edited = state.previewCourseEdits(replacementsToSave),
             courses = state.courses,
             periodDefinitions = state.periods
         )
         if (conflictWeeks.isEmpty()) {
-            onSave(replacementsToSave)
+            commit(replacementsToSave)
         } else {
             showSaveChangesDialog = false
             pendingConflictSave = PendingCourseManagementConflictSave(
@@ -593,15 +634,30 @@ internal fun CourseManagementDetailPage(
     }
 
     fun requestBack() {
+        if (saving) return
         if (hasChanges) {
             showSaveChangesDialog = true
         } else {
-            onBack()
+            finishBack()
         }
+    }
+
+    val latestExitHandler = rememberUpdatedState<(()->Unit)->Unit> { action ->
+        pendingExitAction = action
+        requestBack()
+    }
+    DisposableEffect(group.key) {
+        onExitHandlerChange { action -> latestExitHandler.value(action) }
+        onDispose { onExitHandlerChange(null) }
     }
 
     BackHandler(enabled = hasChanges) { requestBack() }
 
+    Box(Modifier.fillMaxSize().then(if (saving) Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+            }
+        } else Modifier)) {
     DetailActivityScaffold(
         title = name.ifBlank { "课程详情" },
         config = state.config,
@@ -615,18 +671,9 @@ internal fun CourseManagementDetailPage(
                 label = "添加安排",
                 onClick = {
                     val template = arrangements.lastOrNull()?.course ?: group.representative
-                    val firstPeriod = state.periods.firstOrNull()?.periodIndex ?: 1
-                    val added = template.copy(
-                        id = 0,
+                    val added = newManagedCourseArrangement(template, state.config, state.periods).copy(
                         name = name.ifBlank { template.name },
-                        weekday = 1,
-                        periods = listOf(firstPeriod),
-                        weeks = (1..state.config.totalWeeks.coerceAtLeast(1)).toList(),
-                        weekParity = WeekParity.ALL,
-                        customStartTime = null,
-                        customEndTime = null,
-                        customColorArgb = selectedColor,
-                        scheduleId = state.config.id
+                        customColorArgb = selectedColor
                     )
                     arrangements = arrangements + ManagedArrangementDraft(nextLocalKey--, added)
                     scope.launch { listState.animateScrollToItem(arrangements.lastIndex + 1) }
@@ -634,7 +681,9 @@ internal fun CourseManagementDetailPage(
                 role = DialogButtonRole.Confirm,
                 iconRes = R.drawable.ic_add_course,
                 roundIcon = true,
-                blurRadius = 10.dp
+                blurRadius = 10.dp,
+                shadowEnabled = !appUsesDarkTheme(state.config),
+                shadowStyle = LightTopBarButtonShadow
             )
         }
     ) { cardBackdrop ->
@@ -675,6 +724,8 @@ internal fun CourseManagementDetailPage(
                     onNameChange = { name = it },
                     selectedColor = selectedColor,
                     onColorSelected = { selectedColor = it },
+                    onOpenColorPicker = { colorPickerVisible = true },
+                    backdrop = cardBackdrop,
                     config = state.config
                 )
             }
@@ -741,6 +792,20 @@ internal fun CourseManagementDetailPage(
                 }
             )
         }
+        CourseColorPicker(
+            show = colorPickerVisible,
+            selectedColorArgb = selectedColor,
+            automaticColorArgb = courseCardBaseColor(
+                state.config,
+                group.representative.copy(customColorArgb = null)
+            ).toArgb().toLong() and 0xFFFFFFFFL,
+            backdrop = pickerBackdrop,
+            config = state.config,
+            renderInRootScaffold = true,
+            onDismissRequest = { colorPickerVisible = false },
+            onDismissFinished = {},
+            onColorSelected = { selectedColor = it }
+        )
         if (showSaveChangesDialog) {
             val canSave = arrangements.isEmpty() || name.trim().isNotBlank()
             LiquidAlertDialog(
@@ -750,16 +815,17 @@ internal fun CourseManagementDetailPage(
                 actions = listOf(
                     LiquidAlertAction(
                         label = "继续编辑",
-                        style = LiquidAlertActionStyle.Secondary,
+                        style = LiquidAlertActionStyle.Cancel,
                         onClick = {
                             validationMessage = null
+                            pendingExitAction = null
                             showSaveChangesDialog = false
                         }
                     ),
                     LiquidAlertAction(
                         label = "不保存",
                         style = LiquidAlertActionStyle.Destructive,
-                        onClick = onBack
+                        onClick = ::finishBack
                     ),
                     LiquidAlertAction(
                         label = "保存并退出",
@@ -772,6 +838,7 @@ internal fun CourseManagementDetailPage(
                 config = state.config,
                 onDismissRequest = {
                     validationMessage = null
+                    pendingExitAction = null
                     showSaveChangesDialog = false
                 }
             )
@@ -783,7 +850,7 @@ internal fun CourseManagementDetailPage(
                 actions = listOf(
                     LiquidAlertAction(
                         label = "取消",
-                        style = LiquidAlertActionStyle.Secondary,
+                        style = LiquidAlertActionStyle.Cancel,
                         onClick = {
                             pending.cancel()
                             pendingDelete = null
@@ -814,9 +881,9 @@ internal fun CourseManagementDetailPage(
                 config = state.config,
                 onKeepTemporarily = {
                     pendingConflictSave = null
-                    onSave(pending.replacements)
+                    commit(pending.replacements)
                 },
-                onReturn = { pendingConflictSave = null },
+                onReturn = { pendingConflictSave = null; pendingExitAction = null },
                 retentionMessage = buildString {
                     append("“${pending.replacements.firstOrNull()?.name ?: group.representative.name}”在")
                     append(pending.conflictWeeks.take(4).joinToString("、") { "第${it}周" })
@@ -825,6 +892,7 @@ internal fun CourseManagementDetailPage(
                 }
             )
         }
+    }
     }
 }
 
@@ -857,6 +925,8 @@ private fun CourseIdentityCard(
     onNameChange: (String) -> Unit,
     selectedColor: Long?,
     onColorSelected: (Long?) -> Unit,
+    onOpenColorPicker: () -> Unit,
+    backdrop: Backdrop?,
     config: ScheduleConfigEntity
 ) {
     CourseManagementSettingsSection(title = "课程信息") {
@@ -874,40 +944,13 @@ private fun CourseIdentityCard(
                 insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
             )
             val palette = LocalCourseCardPalette.current.ifEmpty { DefaultCourseCardPalette }
-            FlowRow(
+            val visiblePalette = palette.take(4)
+            Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Box(
-                    Modifier.size(34.dp).clip(RoundedCornerShape(50))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .then(
-                            if (selectedColor == null) {
-                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(50))
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .clickable { onColorSelected(null) },
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (selectedColor == null) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_check),
-                            contentDescription = "已选择自动课程颜色",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.align(Alignment.TopEnd).padding(2.dp).size(11.dp)
-                        )
-                    }
-                    Icon(
-                        painter = painterResource(R.drawable.ic_course_color_auto),
-                        contentDescription = "自动课程颜色",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(19.dp)
-                    )
-                }
-                palette.take(6).forEach { argb ->
+                visiblePalette.forEach { argb ->
                     val selected = selectedColor == argb
                     Box(
                         Modifier
@@ -916,14 +959,14 @@ private fun CourseIdentityCard(
                                 scaleX = if (selected) 1.12f else 1f
                                 scaleY = if (selected) 1.12f else 1f
                             }
-                            .clip(RoundedCornerShape(50))
+                            .clip(Capsule())
                             .background(Color(argb.toInt()))
                             .then(
                                 if (selected) {
                                     Modifier.border(
                                         2.dp,
                                         if (Color(argb.toInt()).luminance() > 0.55f) Color.Black else Color.White,
-                                        RoundedCornerShape(50)
+                                        Capsule()
                                     )
                                 } else {
                                     Modifier
@@ -941,6 +984,12 @@ private fun CourseIdentityCard(
                         }
                     }
                 }
+                CourseColorPaletteButton(
+                    backdrop = backdrop,
+                    selected = selectedColor != null && selectedColor !in visiblePalette,
+                    onClick = onOpenColorPicker,
+                    size = 34.dp
+                )
             }
         }
     }
@@ -958,18 +1007,34 @@ private fun CourseArrangementEditorCard(
     onCourseChange: (CourseEntity) -> Unit,
     onOpenPicker: (CourseEditorPickerRequest) -> Unit
 ) {
+    val effective = projectCourseArrangement(captureOriginalPeriodTimes(course, periods), config, periods)
+    val matchingCustomClock = course.hasCustomTime() && course.customPeriodTimes.isNullOrBlank() &&
+        !effective.hasCustomTime() && !effective.isHiddenByPeriodAlignment()
+    val displayedPeriodIndices = effective.periods.ifEmpty { course.periods }
+    val hidden = effective.arrangementProjection?.hiddenPeriods.orEmpty()
     CourseManagementSettingsSection(title = "上课安排 ${index + 1}") {
+        if (hidden.isNotEmpty()) {
+            val originalTimes = course.originalTimeSegments().joinToString("；") { "${it.start}–${it.end}" }
+            Text(buildString {
+                append("原始安排：${course.periods.joinToString("、")} 节")
+                if (originalTimes.isNotBlank()) append(" · $originalTimes")
+                append("\n${hidden.joinToString("、")} 节当前未显示。")
+            }, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.body2)
+        }
         CourseManagementArrowRow(
             title = "上课星期",
             value = "周${weekdayLabel(course.weekday)}",
             onClick = {
                 onOpenPicker(
-                    CourseEditorPickerRequest.Wheel(
+                    CourseEditorPickerRequest.Grid(
                         title = "选择上课星期",
                         labels = (1..7).map { "周${weekdayLabel(it)}" },
-                        startIndex = (course.weekday - 1).coerceIn(0, 6),
-                        onConfirm = { selected, _ ->
-                            onCourseChange(course.copy(weekday = selected + 1))
+                        selectedIndices = buildSet { add((course.weekday - 1).coerceIn(0, 6)) },
+                        preferredColumns = 7,
+                        onConfirm = { set ->
+                            set.minOrNull()?.let { selected ->
+                                onCourseChange(course.copy(weekday = selected + 1))
+                            }
                         }
                     )
                 )
@@ -977,12 +1042,13 @@ private fun CourseArrangementEditorCard(
         )
         CourseManagementArrowRow(
             title = "上课节次",
-            value = if (course.hasCustomTime()) courseTimeLabel(course, periods)
-            else "第${course.periods.minOrNull() ?: 1}-${course.periods.maxOrNull() ?: 1}节",
+            value = if (effective.hasCustomTime()) courseTimeLabel(effective, periods)
+            else "第${displayedPeriodIndices.minOrNull() ?: 1}-${displayedPeriodIndices.maxOrNull() ?: 1}节",
             onClick = {
-                val values = periods.map(PeriodEntity::periodIndex).distinct().sorted().ifEmpty { listOf(1) }
-                val startIndex = values.indexOf(course.periods.minOrNull()).coerceAtLeast(0)
-                val endIndex = values.indexOf(course.periods.maxOrNull()).coerceAtLeast(startIndex)
+                val values = (periods.map(PeriodEntity::periodIndex) + course.periods).distinct().sorted().ifEmpty { listOf(1) }
+                val displayedPeriods = if (matchingCustomClock) effective.periods else course.periods
+                val startIndex = values.indexOf(displayedPeriods.minOrNull()).coerceAtLeast(0)
+                val endIndex = values.indexOf(displayedPeriods.maxOrNull()).coerceAtLeast(startIndex)
                 onOpenPicker(
                     CourseEditorPickerRequest.Period(
                         title = "选择节次",
@@ -994,14 +1060,28 @@ private fun CourseArrangementEditorCard(
                         customEndTime = course.customEndTime,
                         regularStartTime = periods.firstOrNull { it.periodIndex == values[startIndex] }?.startTime,
                         regularEndTime = periods.firstOrNull { it.periodIndex == values[endIndex] }?.endTime,
+                        periodIndices = course.periods.distinct().sorted(),
+                        customPeriodTimes = course.customPeriodTimes,
+                        customTimeMatchesPeriods = matchingCustomClock,
                         onConfirmPeriods = { start, end ->
                             onCourseChange(
                                 course.copy(
                                     periods = values.subList(start, end + 1),
+                                    originalPeriodTimes = null,
                                     customStartTime = null,
-                                    customEndTime = null
+                                    customEndTime = null,
+                                    customPeriodTimes = null
                                 )
                             )
+                        },
+                        onConfirmLessonTimes = { times ->
+                            onCourseChange(course.copy(
+                                periods = times.map { it.index },
+                                originalPeriodTimes = null,
+                                customStartTime = times.first().start.toString(),
+                                customEndTime = times.last().end.toString(),
+                                customPeriodTimes = encodeCoursePeriodTimes(times)
+                            ))
                         },
                         onConfirmCustomTime = { startText, endText ->
                             val start = LocalTime.parse(startText)
@@ -1010,8 +1090,10 @@ private fun CourseArrangementEditorCard(
                             onCourseChange(
                                 course.copy(
                                     periods = anchors,
+                                    originalPeriodTimes = null,
                                     customStartTime = startText,
-                                    customEndTime = endText
+                                    customEndTime = endText,
+                                    customPeriodTimes = null
                                 )
                             )
                         }
@@ -1276,7 +1358,6 @@ private fun CourseManagementWeekChoice(
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val shape = RoundedCornerShape(12.dp)
     val baseColor = if (selected) {
         MaterialTheme.colorScheme.primary
     } else {
@@ -1294,8 +1375,7 @@ private fun CourseManagementWeekChoice(
     )
     Box(
         modifier = modifier
-            .clip(shape)
-            .background(surfaceColor)
+            .squircleSurface(color = surfaceColor, cornerRadius = 12.dp)
             .clickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -1415,7 +1495,7 @@ private fun SwipeDeleteArrangementCard(
             }
         Box(
             deleteModifier
-                .clip(RoundedCornerShape(50))
+                .clip(Capsule())
                 .background(Color(0xFFFF3B30))
                 .clickable(onClick = ::requestDelete),
             contentAlignment = Alignment.Center

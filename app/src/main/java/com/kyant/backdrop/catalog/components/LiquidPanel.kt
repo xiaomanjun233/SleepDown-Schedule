@@ -35,6 +35,8 @@ fun LiquidPanel(
     blurRadius: Dp = 10.dp,
     lensHeight: Dp = 24.dp,
     lensAmount: Dp = 34.dp,
+    morphAllocation: com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation? = null,
+    backdropSampleScale: Float = 1f,
     content: @Composable BoxScope.() -> Unit
 ) {
     val material = remember(blurRadius, lensHeight, lensAmount, surfaceColor) {
@@ -64,6 +66,10 @@ fun LiquidPanel(
             descriptor = descriptor,
             material = material,
             shape = { shape },
+            renderBounds = { morphAllocation?.localBounds() },
+            allocationPaddingPx = morphAllocation?.paddingPx,
+            backdropSampleScale = if (morphAllocation == null) backdropSampleScale else 1f,
+            cacheDecorations = morphAllocation == null,
             effectFrame = GlassEffectFrame(
                 blur = blurRadius,
                 lensHeight = lensHeight,

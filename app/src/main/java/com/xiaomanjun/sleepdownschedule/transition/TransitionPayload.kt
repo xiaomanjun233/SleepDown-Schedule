@@ -83,6 +83,7 @@ data class TransitionPayload(
         openingAnchor?.let(::StaticTransitionAnchorProvider),
     val nativeSourceViewProvider: TransitionNativeSourceViewProvider? = null,
     val backgroundBitmap: Bitmap? = null,
+    val backgroundDialog: com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot? = null,
     val parentSessionId: TransitionSessionId? = null,
     /**
      * Keeps a source-owned visual handoff alive until a renderer has actually taken ownership.

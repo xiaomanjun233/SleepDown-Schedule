@@ -1,121 +1,96 @@
-# SleepDown 课程表：开发交接
+# SleepDown Schedule 开发指南
 
-## 项目约束
+本文件供人和各类 AI 编程助手共同使用，保留长期有效的协作原则、数据边界和交付方式。开始任务时完整阅读本文件，接续工作再读 [当前交接](docs/AI_HANDOFF.md)并核对实际 Git 状态；其余文档按任务查阅，入口见 [docs/README.md](docs/README.md)。版本关系见 [版本基线](docs/RELEASE_MODEL.md)，分支、提交、PR 与合并步骤统一见 [开发工作流](docs/DEVELOPMENT_WORKFLOW.md)，外部贡献见 [CONTRIBUTING.md](CONTRIBUTING.md)。单次调查和验收记录留在对应报告中，不累积成全局禁令。
 
-- Android 课程表，核心特色是 Miuix 风格、液态玻璃视觉和 AI/Agent 融合。
-- 保留现有功能、视觉、动画、模糊、折射、色散及第三方开源库引用；除非用户明确要求，性能优化不得靠删除既有效果完成。
-- 数据安全优先。数据库、配置、备份恢复和升级必须提供迁移路径，不得主动清除或覆盖用户数据。
-- UI 按窗口、安全区、字体比例和当前数据自适应，不为单一 DPI、分辨率或设备写死特例。
-- 工作树可能包含用户素材和临时证据；禁止使用 `git reset --hard`、`git checkout --`，不得删除或整理任务外文件。
-- 未经明确同意，不推送、不打标签、不发布 Release。
-- 验证按风险选择最小充分集合；只有相关源码、构建配置或验收条件变化，或用户明确要求时，才重跑完整测试。
-- 未指定构建变体时只构建 GitHub Release。开发阶段可用 `-Psleepdown.skipReleaseResourceShrink=true` 跳过资源压缩，但正式发布候选包必须开启资源压缩并保留 R8、lintVital、打包和签名。
-- 大面积玻璃优化已进入正式配置并保持常开；已停止的液态动效实验及其构建开关已从生产代码删除。交付包构建签名 Release 并覆盖安装到已连接设备；安装后不自动启动，除非用户要求。
+## 判断与执行
 
-## 仓库、版本与构建
+优先级：用户数据正确 → 功能稳定 → 性能与真实体验 → 代码美观。
 
-- 工作目录：`D:\Android studio\CourseSchedule`；集成分支：`main`；远端：`origin` / `gitee`。
-- Java：`D:\Android studio\JDK`；Gradle 用户目录：`C:\Users\23085\.gradle`。
-- 已发布冻结版：`v1.1.5`，旧包名 `com.example.courseschedule`，`versionCode=25`，Room 36。
-- 当前开发版：`1.2.2` / `versionCode=28`，正式包名 `com.xiaomanjun.sleepdownschedule`，Room 38，含 `github/store` 渠道和 `.debug` 隔离。1.2.1 保持已发布冻结状态。
-- 旧包升级通过 v1.1.5 导出 `.sleepdown` 后由新包恢复；`BackupFormatV1` 必须继续兼容。迁移审计见 `docs/migration/`。
-- Release 签名位于仓库外的长期 keystore；禁止将路径、密码或服务端凭据写入仓库。
-- 构建命令：
+- 先看工作树状态、相关代码和已有实现，再定位根因。修改范围由证据和用户目标决定；跨文件修复是正常选择，无需为日常实现反复请示。
+- 用户当前明确要求可以调整已有功能、视觉参数和文档基线。“保持现有行为”约束的是任务外改动与纯结构重构，不能阻止本次要修的问题。
+- 会话中已有的授权持续有效。“开 PR”包含为该 PR 提交、推送及后续更新；“打包安装”包含构建和覆盖安装。不要重复询问已经明确的事项。
+- 只有缺少必要信息、超出授权、可能丢失用户数据或实质改变目标时才请求决定。一般实现风险说明后继续处理。
+- 选择足以解决根因的简单方案。避免无关重构、机械拆文件、猜测性 fallback、无界重试和无决策价值的测试；确有必要的错误处理、抽象和验证由实际场景决定。
+- 调试使用真实堆栈、状态、输入输出摘要与设备证据。实验尽量一次改变一个核心变量，错误在合适边界暴露，不以默认值掩盖失败。
+- 复用已确认的结论，使用 `rg` / `rg --files` 定位，避免重复读取大文件。只有用户或更高层指令允许时才使用协作 Agent，并分配独立文件与清晰边界。
 
-  ```powershell
-  $env:JAVA_HOME='D:\Android studio\JDK'
-  $env:GRADLE_USER_HOME='C:\Users\23085\.gradle'
-  .\gradlew.bat assembleGithubRelease --console=plain --no-parallel --max-workers=2
-  ```
+## 文档与事实来源
 
-- APK：`app/build/outputs/apk/github/release/app-github-release.apk`。设备只覆盖安装签名 Release；安装前运行 `adb devices -l`。
-- 2026-08-26 最近已安装验收基线：大玻璃 `true`、液态动效 `false`，APK SHA-256 `6F052C5B5F3FC17DB4E9E31F038A5B618E62DBC5F721006DF6F77895CC286113`，已覆盖安装到 PLJ110 `3B15AE023YL00000`，未由 Codex 启动。
+- 代码、构建配置、Manifest、数据库迁移和实际设备行为是当前实现的事实来源。文档中的历史版本、数量、路径和实验参数需要对照代码。
+- 专项文档说明对应模块的约定；带日期的报告、worklog、archive 和 Release Notes 记录当时状态，不自动成为当前任务的额外限制。
+- 文档冲突先检查适用范围和证据，在授权范围内更新过时说明。不要为满足旧清单扩大本次修改。
+- 长期规则只在所属规范中维护，其他入口引用它；当前分支、未完成事项和已获授权写入 `docs/AI_HANDOFF.md`。换 AI、交付阶段成果或结束一轮任务时更新相关交接，保留其他活动任务的记录。交接中的授权是历史摘要，接手者须能追溯到用户指令，不能把文档本身当作新增授权。
+- 目录与依赖：[PROJECT_STRUCTURE.md](docs/architecture/PROJECT_STRUCTURE.md)。`app` 负责装配，`feature` 负责功能，`domain/model` 负责规则与模型，`data` 负责持久化，`core` 负责通用能力；`core/data/domain` 不依赖具体功能页面。
+- `glass/` 和 `transition/` 分别维护玻璃与跨 Activity 转场。独立官网 `sleepdown-site/` 不参与 Android 构建；本地 Miuix 来源以 `settings.gradle.kts` 为准。
 
-## 长期视觉与交互规则
+## 数据、隐私与兼容性
 
-- 动态壁纸上的玻璃弹窗、表单、选择器和卡片必须统一使用实际玻璃前景色/反色来源；不得在同一卡片混用 `MaterialTheme`、`appPanelForegroundColor` 与写死黑白色。新增或改造后同时验收明亮与暗色壁纸。
-- 现有成熟 Morph 必须复用真实锚点、轨迹、时序、背景深度和内容交接。运动阶段的 clip、RenderEffect 与 Offscreen 到稳定终点必须释放；不得另写近似动画或返回假锚点。
-- 跨 Activity 页面使用 `transition/` 的统一路线、单向 Backdrop 和既有 Morph。多课表快速设置的“详细设置”保存草稿后走 `QuickSheetToSettingsDetail`；原 QuickSheet 留在首页下层，目标 Activity 直接从真实按钮 bounds 展开，不使用 Bitmap 快照或页内第二套 Overlay。
-- Backdrop producer 只能包住完整业务 underlay；Popup/Dialog host 必须作为后绘制的同级兄弟节点。页面、TopBar 和低层 Overlay 都应进入 producer，最高层弹窗不得进入自己的采样树。禁止以 draw-mask 或页面特例规避 RenderNode 自递归。
-- 首页三点菜单保持已验收的 194×317dp、30dp 外壳和 11dp 同心间距；课程管理、教务导入等目的页复用统一首页目的页 Morph。
-- 首页课程编辑器的星期、节次、周次和单双周入口使用箭头行；静止态不常驻灰底。首页点击后打开居中 Picker；课程管理详情的周次才允许原地折叠。
-- 周视图长按移动与右下角缩放互斥。拖拽、缩放阈值、落地、冲突退回、保存交接和邻卡余震继续使用既有弹簧与阻尼路线，不得新增生硬补间。
-- 首页 Dock 的玻璃明暗在“壁纸自适应首页”和“应用主题设置页”之间切换时，点击或滑动确认后必须以 Kyant 内部叠化切换材质、选中层和前景色，不能瞬切或同时绘制两个完整 Dock。
+- 不主动清除或覆盖用户数据。数据库变更必须属于任务范围，并具备连续迁移、备份兼容与升级验证，不用清库绕过。
+- 保持 Room、BackupFormatV1、SleepDown 口令、ICS、Widget、通知、AI 历史及已发布导入/恢复格式的兼容。确需改变协议时明确迁移方案。
+- v1.1.5 的旧身份 `com.example.courseschedule` 通过导出 `.sleepdown` 后在新包恢复迁移；保留该链路。当前包名、版本、渠道、签名和 Room 版本读取实际配置。
+- Android 组件 FQCN、Intent wire id、TransitionRoute 和兼容门面变更必须考虑已发布客户端与系统引用。
+- `SleepDown-Server/` 是本地私有后端，其源码、产物、数据库、环境与管理配置不得暂存、提交、推送或上传。
+- 密钥、签名配置、服务端凭据和可恢复的用户原始数据不进入仓库、日志或报告。诊断只保留必要摘要。
 
-## 液态玻璃 2.0 当前基线
+## 界面与性能
 
-- Backdrop 为 2.0.0，Shapes 为 1.2.0。`glass/` 统一管理采样域、材质 token、provider/consumer、场景阶段、诊断、稳定 envelope、课程卡合批与 `LiquidMorphController/Spec`；业务代码不得直接新建 `LayerBackdrop` 或调用 `drawBackdrop`。
-- 首页保留 `Background`、`Content`、`PickerScene` 三个独立采样域；`ChromeCombined` 只组合前两者。拓扑必须拒绝自采样、域错配和循环。
-- 稳定周课程卡按整页空间分组，最多 8 卡共享 blur/lens 链；0–7、8–11、12+ 卡采样比例分别为 1.0、0.75、0.5。逐卡 tint、高光、阴影、内容、手势和语义仍保持独立全分辨率。
-- 课程卡遮挡生命周期保持 `Live → Preparing → Suspended → PostCloseRestore → Revealing → Live`。Opening/Open/Closing 使用无课程 shader 的纯色缓存；Closing 后按 16.666667ms 恢复 group，再用 200ms 只叠化玻璃材质。禁止恢复 FinalCommit、PostClose 快照、CPU readback、整层课程卡缩放/淡入和 8 波恢复。
-- 刷新率变化不得改变采样比例或强制 60Hz；背景继续使用既有 Opening 12 档、Closing 32 档与 42% 处全分辨率单层交接。不得靠降低终态折射、色散、阴影或 decoration 换性能。
-- 阶段三三点菜单液态动效实验已从生产代码删除，归档分支仅作证据；未经用户重新授权不得重新引入。性能诊断与历史失败方案见 `docs/performance/`。
+- 复用 [公共设计系统](docs/architecture/SLEEPDOWN_DESIGN_SYSTEM.md) 的 Dialog、Alert、Picker、QuickSheet 和 Popup。需要新的交互时扩展已有入口，按当前需求选择布局和动效。
+- 适配窗口、安全区、字体比例、明暗主题与壁纸；不写单设备尺寸特例。视觉改动保留可访问性、可读性和完整交互。
+- 页面完整 underlay 是 Backdrop producer，弹层 host 是后绘制的同级消费者，避免自采样、循环与域错配。业务组件通过 `glass/` 入口使用材质，不直接创建 `LayerBackdrop` 或调用 `drawBackdrop`。
+- 有真实锚点的成熟 Morph 复用现有路线；无锚点弹层可使用公共中心动画。退出内容保留到动画完成，运动期临时 clip、RenderEffect 和 Offscreen 资源在稳定后释放。
+- 周视图移动与缩放互斥，冲突退回和保存交接保持正确；课程编辑和多课表快速设置沿用各自保存语义。用户要求调整的外观和动画在对应路线内修改。
+- 性能优化先定位 CPU、GPU、重组、采样、生命周期或缓存瓶颈。以同场景证据验证收益，避免无依据叠加缓存、模糊层或删除视觉效果。
+- 玻璃实现与历史调查见 [LIQUID_GLASS_FRAMEWORK.md](docs/performance/LIQUID_GLASS_FRAMEWORK.md)，当前路径以代码为准。
 
-## 设计系统、弹窗与 Popup
+## 专项链路（相关任务才查阅）
 
-- `core/ui/designsystem/` 是二级页节奏、Dialog、Alert、Picker、QuickSheet、标题栏、按钮与输入胶囊的公共入口；规范见 `docs/architecture/SLEEPDOWN_DESIGN_SYSTEM.md`。
-- 居中 Alert/Picker/短编辑器统一使用 `rememberCenteredDialogVisuals`、300dp 最大宽、连续 G2 外框、内容驱动高度和 48dp Capsule 动作按钮。按钮只使用普通压暗反馈；危险操作只红字，不改变玻璃着色。
-- 弹窗壳使用当前 SleepDown 中性 Kyant 材质和中段高光；按钮沿用现版材质。标题与说明使用额外水平内容内缩，不能贴近壳体边缘；按钮仍可保持较宽并与正文形成清晰层级。
-- 居中弹窗背景使用预构建低成本 plain blur 和压暗，进度随入退场变化；必须覆盖完整业务 underlay（含二级页大标题），退出节点到进度归零后才卸载。中心弹窗不启用预测性返回形变。
-- 普通 Dropdown 与级联 Popup 以 NexioSchedule `4de678c` 的本地 Miuix 改造为基线，业务调用 `SleepDownLiquidDropdownPreference` / `SleepDownLiquidCascadingPopup`。保留应用明暗主题、真实 IME 可用窗口、根层 Backdrop、防自采样和无 Backdrop 同几何降级；不得另写近似 Popup。
-- 级联 Popup 返回顺序：二级、一级、键盘；第一次空白点击同时关闭一二级且保留输入焦点，下一次空白点击再由页面收键盘。模型快捷选单二级层冻结并贴住一级真实锚点。
-- 多课表快速设置继续使用 `QuickScheduleSettingsSheets` 半屏 QuickSheet 与原生 Kyant lens；Popup 改造不得改变它的高度、布局、按钮、日期子 Sheet或材质几何。
+- 教务导入复用拾光官方 adapter → bridge → SleepDown UI，不重复维护学校协议。保留协议未知字段兼容、上游来源与许可证；当前使用的协议与索引读取代码和上游基线。
+- WakeUp、星链和 SleepDown 口令共用既有入口及预览确认流程。教务缓存按实际失效需要更新。
+- AI 导入保持 AI → ImportDraft → 本地校验 → Preview → 用户确认 → 数据库。后台 transport / Service 与解析规则分层；权限提醒不能阻止用户开始导入。
+- 文件处理见 [AI_FILE_IMPORT.md](docs/ai/AI_FILE_IMPORT.md)。PDF 先提取文字，无文字才按模型能力转图片。Repair 复用 provider/endpoint，只修格式及 schema，不重传文件、不重新 OCR，最多 3 次并逐次校验。
+- 后台问题区分 Android 生命周期与 OEM 冻结策略；先确认 Service、socket、UID 和网络状态再改 transport。长期任务使用符合语义的 FGS 与通知，避免假保活、无限 wakelock 和无意义轮询。
+- 课程勿扰优先沿用应用自有 AutomaticZenRule，无权限时引导系统授权。Launcher 切换以 Manifest 与 `AppIconManager` 的已有 alias 映射为准，最终仅启用一个目标，图标数量不在文档写死。
+- Widget 按 host 尺寸生成完整 RemoteViews，背景与文字使用同一坐标系。节次分段只调整现有边界，不隐式改变课程编号、总节数或用户时间。
+- Oplus ViewSeamless 实验保持关闭，用户明确恢复前不扩散。官网沿用既有部署链路，收费资源需明确授权。
 
-## 周视图、配色与课程管理
+## 工作树与 Git
 
-- 周视图行高保存设备无关的相对倍率。恢复已验收的“自适应”基准档位：它必须在滑条视觉上始终居中，并按当前窗口、安全区、表头和节次数让全周网格刚好铺满可见页。
-- 行高滑条使用围绕中点的非规则/分段映射：中点精确映射自适应值，左右分别提供紧凑和宽松范围；不得为了压缩档位改变已验收的自适应基准，也不得隐藏时间轴文字。字体或节次过多时继续使用既有可读高度下限和纵向滚动。
-- 周课程卡 G2 圆角单独保存 0–1 进度，归入字体/玻璃等卡片外观组。配色保持纯色、同色系渐变和彩色三行；候选为无黑框的圆形。渐变深端保持同色相并提高浓度，不得压成黑灰；彩色的四种种子继续交给现有稳定分配算法。
-- 课程管理在三种颜色模式都保留识别条；仅彩色模式允许改课程级颜色。自定义时间、冲突检测、小幅回弹滚动及 Room/备份/口令/ICS/通知/组件字段链路保持兼容。
-- 手机周视图节次栏为 56dp、课程区保留 8dp 右余量；大屏保持现有 tablet 布局。
+- 默认 PowerShell，源码修改使用 `apply_patch`。只暂存本次文件，保留用户改动和任务外素材；不使用 `git reset --hard` 或 `git checkout --` 丢弃工作树。
+- 代码在独立分支完成，默认 `codex/` 前缀。围绕用户目标组织 PR；同轮追加的问题保留可独立回退的提交边界，避免混入无关整理。
+- `main` 是稳定版本与正式发布基线，`develop` 是日常开发与集成基线；新普通任务从最新 `develop` 派生独立分支，PR 目标为 `develop`。`release/*` 从 develop 准备正式发布，验证后 PR 到 main 并同步回 develop；`hotfix/*` 从 main 派生，合入 main 后及时同步 develop。历史 `exp` 和 `-expN` 保留追溯。厂商实验功能集中在隔离目录，GitHub 版启用，商店版由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 关闭。分支收尾、版本、组件和发布规则见 [开发工作流](docs/DEVELOPMENT_WORKFLOW.md)及[版本基线](docs/RELEASE_MODEL.md)。
+- 使用 Codex 时，GitHub 元数据操作使用自带 GitHub plugin，不使用 GitHub CLI；其他助手使用其环境可用且已获授权的 GitHub 集成或界面，如实说明能力缺口。Git 本身用于本地版本管理与已授权的 fetch/push。远端推送、PR、标签、发布和部署须在用户授权范围内；PR 授权不包含合并或 Release，不因更换助手重复索取已有授权。
+- 每次 Beta 发布同步更新应用内日志与发布页，保留本轮各 Beta 的独立日志；正式版发布时再归并本轮 Beta 内容，去重并移除已撤回的改动。日志使用产品语言，用户指定的文案优先。
+- 不提交 `.gradle-user-home/`、`tmp/`、`sleepdown-promo/`、`ui.xml`、设备截图和临时验收图，除非用户明确指定。
+- 删除或移动前确认精确目标；破坏性操作必须有授权，不删除任务外文件。
 
-## 教务导入与 AI
+## 验证与安装
 
-- 教务导入使用拾光仓库 2.0：优先 `school_index.pb`（`protocol_version=2`），YAML 仅作私有/开发兼容回退；未知字段安全跳过。上游基线记录和 `GLOBAL_TOOLS/test_page.html` 必须保留。
-- 教务页的页面内容必须是 Backdrop producer，搜索胶囊、悬浮字母栏等玻璃消费者位于其后的同级 Overlay host，确保真实 blur/lens，不允许仅以半透明色伪装玻璃。
-- 学校/工具按类别使用全宽单张 Miuix 卡片，组内不显示分割线。字母索引使用灰色文字和悬浮玻璃胶囊。
-- 搜索框采用首页 Agent 同系低高度玻璃胶囊。聚焦时输入区向左收缩，右侧从同一母体分裂出动作胶囊：空文本显示“取消”，有文本显示“搜索”；取消、返回或清空退出搜索后按逆向 Morph 合回。
-- 拾光官方 WakeUp 与星链课表口令归入 AI 手动导入，与 SleepDown 自有口令共用同一个输入框；先尝试自有口令，失败后按特征复用 `GLOBAL_TOOLS/wake_up.js` 或 `starlink.js` 并回填同一导入链路。不得进入独立页面，也不得在“添加单节课”或教务学校列表中新增独立入口。
-- AI 手动导入文件说明必须列出 PDF、图片、XLSX、CSV、DOCX、PPTX、ODS、TXT、Markdown、JSON、XML、HTML；PDF 先取文字，无文字再转图且只交给支持图片的模型。详细矩阵见 `docs/ai/AI_FILE_IMPORT.md`。
-- AI 历史预览和列表统一走 `AiHistoryToDetail` 进入唯一的 `AiImportHistoryDetailActivity/AiEduImportProgressPage`。IME 补偿、附件全屏 Morph 与历史滚动层级保持现有已验收实现。
-- Day Agent 提示词与工具协议见 `docs/architecture/DAY_AGENT_RUNTIME.md`。MiMo 官方 `web_search` 是供应商插件，不计入本地未知工具；只有明确搜索证据可进入最终回答。天气使用 ApiZero 坐标接口并保留缓存回退。
+根据修改风险执行最小充分验证，不为局部改动无意义地重复全套任务：
 
-## 其他不可回退行为
+- 默认按下表完成编译或打包；只有数据、时间规则、解析、状态机等存在实际回归风险时才运行相关测试。样式、文案和可逆的局部交互调整不追加机械测试，也不顺带运行无关套件。
+- 删除已退役实现时清理对应旧测试；仍保护当前数据兼容或业务规则的测试应保留。过时测试引用不能成为每次开发反复扩大验证范围的理由。
 
-- 详细设置的上午/下午基础分段、中午和晚上开关只重分配现有节次边界，总节数、课程编号、自定义时间与课程不得改变；开关互不回撤。
-- 4×2 小组件按 host 尺寸提供完整 RemoteViews，背景和文字处于同一坐标系；平板最小 460×140dp、手机 250×110dp，字体使用统一自适应放大基线。
-- Android 15/17 课程勿扰优先使用应用自有 `AutomaticZenRule`；无授权打开系统勿扰访问页。Launcher 只允许三个动态图标 alias，切换前禁用全部旧 alias，再启用唯一目标。
-- `sleepdown-site/` 线上仍由杭州 ECS 直出；未授权不得创建 OSS/CDN 等按量资源。
-- `SleepDown-Server/` 为私有后端，不得暂存、提交、推送或上传任何源码、构建产物、数据库、环境文件、管理配置、API Key 或密钥。
+| 修改类型 | 验证入口 |
+| --- | --- |
+| Kotlin / Compose | `compileGithubReleaseKotlin` |
+| 资源、Manifest、依赖、打包或用户要求安装 | `assembleGithubRelease`（包含 Kotlin 编译） |
+| 时间规则、解析、迁移、状态机 | 对应定向测试或真实场景验证 |
+| 纯文档 | 检查内容与 diff，无需构建 |
 
-## 跨 Activity 与 Oplus 暂停项
+默认环境及正式构建：
 
-- 业务只通过 `transition/TransitionRoute`、`ActivityTransitionCoordinator` 与 `CrossActivityTransitionHost` 声明路线、Intent 和锚点；异常、超时或能力拒绝必须回退同一路线的 Legacy renderer。详细说明见 `docs/TRANSITION_FRAMEWORK.md`。
-- Oplus ViewSeamless 全局开关和逐路线 allowlist 继续关闭；`TODO(OPLUS_DEFERRED_20260823)` 与归档分支仅保留调查证据。正式页仍存在 CLOSE 中心淡出或空帧，用户未明确恢复前不得继续调 callback、registration View、vendor Bundle 或扩散路线。
-- 发布前仍需补齐迁移、备份、真实 v1.1.5 恢复、Store 权限和新包 Widget 首装验收。
+```powershell
+$env:JAVA_HOME='D:\Android studio\JDK'
+$env:GRADLE_USER_HOME='C:\Users\23085\.gradle'
+.\gradlew.bat assembleGithubRelease --console=plain --no-parallel --max-workers=2
+```
 
-## 当前任务验收（2026-08-27，正在进行）
+按机器内存减少 worker；避免同时运行多个高内存构建。开发可使用 `-Psleepdown.skipReleaseResourceShrink=true`，正式候选保留资源压缩、R8、lintVital、打包与签名。Release 签名位于仓库外。
 
-已完成并应保留：周视图已验收自适应行高基准及中点非规则映射；教务类别卡片已改为无分割线；Popup 公共入口和本地 Miuix 已具备可注入 `visualStyle`；WakeUp/星链已归入 AI 手动导入口令链路。公共 Alert 保持独立 `260dp` 最大宽；一个或两个按钮组成单行按钮区时只轻微收短约 `7–8dp`，按钮尺寸、横向位置与底边距不变。Picker 使用独立紧凑节奏，不沿用 Alert 的大段标题留白。
+本机 Android SDK 的 ADB 使用独立 `5038` 端口，默认连接为 `ADB_SERVER_SOCKET=tcp:127.0.0.1:5038`；SDK 路径为 `D:\Android studio\AndroidSDK\platform-tools\adb.exe`。OPPO 互联使用的 `5037` 服务端不作为本项目安装入口。当前应用进程可能尚未继承用户环境，项目命令统一显式使用 `adb -P 5038`，避免混用服务端。
 
-1. 从根层修复设置二级页 Popup：完整页面 underlay（TopBar、大标题、页面内容及低层 Overlay）全部进入同一个 Backdrop producer；Popup host 在其后作为同级兄弟，一级与二级 Popup 都消费该根 Backdrop，不能只采到内容卡片，也不能把 Popup 自身挂入采样树。
-2. 模型快捷选单必须统一调用 `SleepDownLiquidCascadingPopup`，使用与设置 Dropdown 完全相同的 Nexio/Miuix 材质、圆角、明暗色、动画和根 Backdrop；删除或绕开业务层独立菜单外观，二级菜单继续贴住一级真实锚点。
-3. 居中 Picker、调色盘与壁纸取色使用较紧凑的标题和内容间距；壁纸预览按窗口余量自适应，底部按钮不得被裁切。Alert 的单行按钮区只做轻微高度收缩，三按钮纵向布局保留独立节奏；外壳/按钮保持 G2 同心关系和既有底部间距。
-4. Nexio Popup 的高光方向改为从上向下衰减，降低模糊并提高折射；一级和二级均使用同一公共材质链。模型快捷选单必须真正统一调用该链路，不能显示旧 Miuix 普通样式；触发文字的反色跟随输入胶囊当前前景色。
-5. 从根层修复所有二级页的完整采样：页面 TopBar、大标题、分类标题、卡片与低层 Overlay 都进入 producer，中心弹窗和 Miuix Popup host 在其后消费；禁止页面特例和 RenderNode 自采样。
-6. 教务页搜索胶囊和字母栏与返回键消费同一层 backdrop，降低模糊、提高折射。搜索框保持底部单手区，IME 顶起和动作胶囊分裂必须连续动画，不能点击瞬移。字母栏显示蓝色当前位置/滑动进度，每次滚动出现，停止后先收缩再淡出，交互与隐藏均有过渡。
-7. 教务 Web/适配器详情页建立完整 producer/consumer 层级，修复所有玻璃降级为半透明；快捷历史网页入口的文字反色改为跟随其真实玻璃材质。
-8. AI 手动导入原口令输入框同时接受 SleepDown、WakeUp 与星链课表口令。先走 SleepDown，本地失败后按特征选择 `wake_up.js` 或 `starlink.js` 的拾光流程，解析结果直接进入同一预览/确认链路；不得新增独立页面或课程编辑器入口。
-9. 代码合入 `main` 后等待用户确认；确认后才构建签名 `assembleGithubRelease`，必须开启资源压缩。核对版本 `1.2.2 (28)`、大玻璃常开配置和签名后覆盖安装到 PLJ110 `3B15AE023YL00000`，不自动启动应用。
+复用 `scripts/Invoke-Adb.ps1` 可固定 SDK 来源与 `5038` 通道；本机 PowerShell 7 / Windows PowerShell 5 的 `adb` 命令也转到该入口。入口通过 `server-status` 核对实际服务端程序和当前用户配对密钥目录；5038 被其他来源占用时，仅重启这条通道，确认 SDK 接管后才发送项目命令。只固定客户端路径或端口不能保证服务端来源正确。用户环境同时设置 `ANDROID_ADB_SERVER_PORT=5038`，供 Android Studio / DDMLib 识别同一端口；修改前已运行的程序需重启才会继承用户环境。连接结果以 `connected to` / `already connected to` 及后续设备状态为准，不能只凭原生 ADB 的退出码判断成功；该脚本将打印连接失败却返回 `0` 的情况修正为失败退出码。无线端口可能变化，优先使用已配对设备的 mDNS 服务发现当前端点，不固化旧手机端口。
 
-本轮已完成的层级修复（2026-08-27）：多课表 QuickSheet 的详细设置 Morph 按钮改用窗口坐标并按首页根坐标归一后再从“首页 underlay + 半屏 Popup”合成帧裁剪；截帧只在捕获阶段冻结首页 Popup host，交接后立即恢复实时绘制。详细设置内的 Miuix Dropdown/Cascading Popup 跟随当前 Scaffold 的 `renderInRootScaffold`，不再落到首页冻结 host 后方。教务搜索胶囊提升为整页根级悬浮 Overlay，底部位置通过内部偏移保持不变，扩大渲染包络并在稳定态卸载零半径 Offscreen RenderEffect，避免父级 padding、44dp 容器或矩形离屏边界裁切玻璃阴影和按压扩展。
+用户要求安装时先运行 `adb -P 5038 devices -l`，确认目标后使用 `adb -P 5038 -s <设备地址> install -r app/build/outputs/apk/github/release/app-github-release.apk` 覆盖安装签名 Release。默认不自动启动，除非用户要求。
 
-当前定位证据：本地 Miuix `Scaffold` 的 `underlayModifier` 已明确只包业务层并把 popup host 留为后绘制兄弟；仍需核对三个设置 Scaffold 的生产范围。模型入口在 `feature/importing/AiRuntimePicker.kt`；教务搜索、字母栏、Web 内页与 AI 手动导入均在 `feature/importing/ImportUi.kt`；拾光脚本位于 `app/src/main/assets/shiguang_warehouse-main/resources/GLOBAL_TOOLS/wake_up.js` 与 `starlink.js`。
-
-## 工作方式
-
-- 默认使用 PowerShell；搜索优先 `rg` / `rg --files`，源码修改使用 `apply_patch`。
-- 先诊断并保留证据，再修复；崩溃优先读取真实堆栈。
-- GitHub 相关操作优先使用已连接的 GitHub 能力；本地 Git 只用于工作树、分支、暂存和提交。
-- 更新日志与 Release Notes 面向最终用户，避免 Morph、Backdrop、Room、RenderNode 等内部术语；安装/迁移注意写在开头，应用内日志不写开发流水账。
-- `.gradle-user-home/`、`tmp/`、`sleepdown-promo/`、`ui.xml`、根目录设备截图和临时验收图不属于源码提交范围，除非用户单独指定。
+只报告实际执行的验证；实机记录设备、系统、场景和结果。未执行项说明原因。完成回复简洁交代修改及原因、主要文件与影响、构建/测试和安装结果；面向用户的更新日志使用产品语言。

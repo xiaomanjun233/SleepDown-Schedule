@@ -1,10 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.core.wallpaper
 
-import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 
 import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -12,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import kotlin.math.roundToInt
@@ -35,26 +35,19 @@ fun FocusCroppedWallpaper(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     alpha: Float = 1f,
-    useSavedCrop: Boolean = true
-) {
-    BoxWithConstraints(modifier = modifier) {
-        val orientation = if (maxHeight >= maxWidth) {
-            WallpaperPreviewOrientation.Portrait
-        } else {
-            WallpaperPreviewOrientation.Landscape
-        }
-        val cropState = if (useSavedCrop) {
-            config.wallpaperCropState(orientation)
-        } else {
-            WallpaperCropState()
-        }
-        FocusCroppedBitmap(
-            bitmap = bitmap,
-            cropState = cropState,
-            modifier = Modifier.fillMaxSize(),
-            alpha = alpha
-        )
+    useSavedCrop: Boolean = true,
+    orientation: WallpaperPreviewOrientation = LocalWindowInfo.current.containerSize.let {
+        wallpaperOrientation(it.width, it.height)
     }
+) {
+    // A sidebar or inset can make the wallpaper viewport portrait inside a landscape window.
+    // The saved crop belongs to the window; preview surfaces supply their own orientation.
+    FocusCroppedBitmap(
+        bitmap = bitmap,
+        cropState = if (useSavedCrop) config.wallpaperCropState(orientation) else WallpaperCropState(),
+        modifier = modifier,
+        alpha = alpha
+    )
 }
 
 private fun DrawScope.drawFocusCroppedBitmap(

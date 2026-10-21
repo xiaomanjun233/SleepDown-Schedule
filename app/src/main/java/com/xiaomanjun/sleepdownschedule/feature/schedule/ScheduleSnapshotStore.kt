@@ -1,25 +1,25 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule
 
-import com.xiaomanjun.sleepdownschedule.*
-
 import android.content.Context
 import android.graphics.Bitmap
-import androidx.core.graphics.createBitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import androidx.core.graphics.createBitmap
+import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
 import java.io.File
 import java.io.FileOutputStream
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 /** Disk is only a second-level visual cache; Room entities remain bitmap-free. */
 object ScheduleSnapshotStore {
-    // v3 invalidates snapshots produced before the picker moved to an isolated Popup layer.
-    private fun directory(context: Context): File = File(context.filesDir, "schedule_snapshots_v3").apply { mkdirs() }
+    // v4 includes native home chrome in the page capture; old previews omitted the COUI Dock.
+    private fun directory(context: Context): File = File(context.filesDir, "schedule_snapshots_v4").apply { mkdirs() }
 
     fun file(context: Context, scheduleId: Int): File = File(directory(context), "schedule-$scheduleId.jpg")
 
@@ -85,10 +85,10 @@ object ScheduleSnapshotStore {
         val line = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(72, 255, 255, 255); strokeWidth = safeWidth / 360f }
         val margin = safeWidth * 0.045f
         val topBarTop = safeHeight * 0.055f
-        canvas.drawRoundRect(RectF(margin, topBarTop, safeWidth - margin, topBarTop + safeHeight * 0.065f), safeWidth * 0.04f, safeWidth * 0.04f, glass)
+        canvas.drawContinuousRoundRect(RectF(margin, topBarTop, safeWidth - margin, topBarTop + safeHeight * 0.065f), safeWidth * 0.04f, safeWidth * 0.04f, glass)
         val gridTop = safeHeight * 0.20f
         val gridBottom = safeHeight * 0.88f
-        canvas.drawRoundRect(RectF(margin, gridTop, safeWidth - margin, gridBottom), safeWidth * 0.035f, safeWidth * 0.035f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(36, 255, 255, 255) })
+        canvas.drawContinuousRoundRect(RectF(margin, gridTop, safeWidth - margin, gridBottom), safeWidth * 0.035f, safeWidth * 0.035f, Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.argb(36, 255, 255, 255) })
         repeat(6) { column ->
             val x = margin + (safeWidth - margin * 2) * column / 5f
             canvas.drawLine(x, gridTop, x, gridBottom, line)
@@ -97,7 +97,7 @@ object ScheduleSnapshotStore {
             val y = gridTop + (gridBottom - gridTop) * row / 8f
             canvas.drawLine(margin, y, safeWidth - margin, y, line)
         }
-        canvas.drawRoundRect(
+        canvas.drawContinuousRoundRect(
             RectF(safeWidth * 0.34f, safeHeight * 0.91f, safeWidth * 0.66f, safeHeight * 0.965f),
             safeWidth * 0.04f,
             safeWidth * 0.04f,

@@ -14,7 +14,6 @@ internal fun ScheduleConfigEntity.withGeneralSettingsFrom(draft: ScheduleConfigE
         dockAlignment = draft.dockAlignment,
         defaultWallpaperStyle = draft.defaultWallpaperStyle,
         defaultHomeMode = draft.defaultHomeMode,
-        liveUpdateActionsEnabled = draft.liveUpdateActionsEnabled,
         hideFromRecents = draft.hideFromRecents,
         autoCheckUpdates = draft.autoCheckUpdates
     )
@@ -30,7 +29,8 @@ internal fun ScheduleConfigEntity.withNotificationSettingsFrom(draft: ScheduleCo
         notificationLeadMinutes = draft.notificationLeadMinutes,
         notificationsEnabled = draft.notificationsEnabled,
         notificationMode = draft.notificationMode,
-        liveUpdateChipTextMode = draft.liveUpdateChipTextMode
+        liveUpdateChipTextMode = draft.liveUpdateChipTextMode,
+        liveUpdateActionsEnabled = draft.liveUpdateActionsEnabled
     )
 }
 
@@ -48,6 +48,7 @@ internal fun ScheduleConfigEntity.withChangesFrom(
 
     return copy(
         totalWeeks = changed(original.totalWeeks, updated.totalWeeks, totalWeeks),
+        periodAlignmentMode = changed(original.periodAlignmentMode, updated.periodAlignmentMode, periodAlignmentMode),
         currentWeek = changed(original.currentWeek, updated.currentWeek, currentWeek),
         notificationLeadMinutes = changed(
             original.notificationLeadMinutes,
@@ -118,6 +119,26 @@ internal fun ScheduleConfigEntity.withChangesFrom(
             updated.courseCardGlassEnabled,
             courseCardGlassEnabled
         ),
+        courseCardOutlineLightEnabled = changed(
+            original.courseCardOutlineLightEnabled,
+            updated.courseCardOutlineLightEnabled,
+            courseCardOutlineLightEnabled
+        ),
+        courseCardRefractionStrength = changed(
+            original.courseCardRefractionStrength,
+            updated.courseCardRefractionStrength,
+            courseCardRefractionStrength
+        ),
+        courseCardGaussianBlurEnabled = changed(
+            original.courseCardGaussianBlurEnabled,
+            updated.courseCardGaussianBlurEnabled,
+            courseCardGaussianBlurEnabled
+        ),
+        courseCardColoredTextEnabled = changed(
+            original.courseCardColoredTextEnabled,
+            updated.courseCardColoredTextEnabled,
+            courseCardColoredTextEnabled
+        ),
         courseCardFontScale = changed(
             original.courseCardFontScale,
             updated.courseCardFontScale,
@@ -174,6 +195,10 @@ internal fun ScheduleConfigEntity.withChangesFrom(
             updated.weekCardCornerProgress,
             weekCardCornerProgress
         ),
+        weekCardShowLocation = changed(original.weekCardShowLocation, updated.weekCardShowLocation, weekCardShowLocation),
+        weekCardShowTeacher = changed(original.weekCardShowTeacher, updated.weekCardShowTeacher, weekCardShowTeacher),
+        weekCardTextAlignment = changed(original.weekCardTextAlignment, updated.weekCardTextAlignment, weekCardTextAlignment),
+        weekCardContentLayout = changed(original.weekCardContentLayout, updated.weekCardContentLayout, weekCardContentLayout),
         homeTextLight = changed(original.homeTextLight, updated.homeTextLight, homeTextLight),
         homeChromeBlurScale = changed(
             original.homeChromeBlurScale,
@@ -202,6 +227,8 @@ internal fun ScheduleConfigEntity.withChangesFrom(
             hideEmptyWeekends
         ),
         dockAlignment = changed(original.dockAlignment, updated.dockAlignment, dockAlignment),
+        scheduleAdjustmentsJson = changed(original.scheduleAdjustmentsJson, updated.scheduleAdjustmentsJson, scheduleAdjustmentsJson),
+        showNonCurrentWeekCourses = changed(original.showNonCurrentWeekCourses, updated.showNonCurrentWeekCourses, showNonCurrentWeekCourses),
         defaultHomeMode = changed(original.defaultHomeMode, updated.defaultHomeMode, defaultHomeMode),
         liveUpdateActionsEnabled = changed(
             original.liveUpdateActionsEnabled,
@@ -267,6 +294,10 @@ internal fun ScheduleConfigEntity.withPersonalizationFrom(
     cardAlpha = updated.cardAlpha,
     courseCardBlur = updated.courseCardBlur,
     courseCardGlassEnabled = updated.courseCardGlassEnabled,
+    courseCardOutlineLightEnabled = updated.courseCardOutlineLightEnabled,
+    courseCardRefractionStrength = updated.courseCardRefractionStrength,
+    courseCardGaussianBlurEnabled = updated.courseCardGaussianBlurEnabled,
+    courseCardColoredTextEnabled = updated.courseCardColoredTextEnabled,
     courseCardFontScale = updated.courseCardFontScale,
     courseCardColorMode = updated.courseCardColorMode,
     courseCardPalette = updated.courseCardPalette,
@@ -279,6 +310,10 @@ internal fun ScheduleConfigEntity.withPersonalizationFrom(
     weekCardHeightDp = updated.weekCardHeightDp,
     weekCardHeightScale = updated.weekCardHeightScale,
     weekCardCornerProgress = updated.weekCardCornerProgress,
+    weekCardShowLocation = updated.weekCardShowLocation,
+    weekCardShowTeacher = updated.weekCardShowTeacher,
+    weekCardTextAlignment = updated.weekCardTextAlignment,
+    weekCardContentLayout = updated.weekCardContentLayout,
     homeTextLight = updated.homeTextLight
 )
 

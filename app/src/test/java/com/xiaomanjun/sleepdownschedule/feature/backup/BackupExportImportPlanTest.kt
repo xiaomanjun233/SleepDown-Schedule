@@ -14,6 +14,28 @@ import org.junit.Test
 
 class BackupExportImportPlanTest {
     @Test
+    fun mapperRejectsInconsistentSnapshotsInsteadOfWeakeningFormatValidation() {
+        val snapshot = BackupRoomSnapshot(
+            schedules = listOf(ScheduleProfileEntity(7, "有效课表", true)),
+            configs = listOf(defaultConfig(7))
+        )
+        val course = CourseEntity(id = 1, name = "不能丢弃的课程", teacher = "", location = "",
+            weekday = 1, periods = listOf(1), weeks = listOf(1), weekParity = WeekParity.ALL,
+            note = "", scheduleId = 1)
+        for (invalid in listOf(snapshot.copy(configs = listOf(defaultConfig(1))),
+            snapshot.copy(courses = listOf(course)),
+            snapshot.copy(periods = listOf(PeriodEntity(1, "08:00", "08:45", 1))))) {
+            try {
+                BackupExportMapper.toArchive(metadata(), invalid,
+                    BackupPreferences(preferencesVersion = BackupFormatV1.PREFERENCES_VERSION))
+                fail("Missing ownership for actual timetable data must be reported")
+            } catch (expected: IllegalArgumentException) {
+                assertTrue(expected.message!!.contains("不存在的 schedule profile"))
+            }
+        }
+    }
+
+    @Test
     fun exportMapperReadsEveryRoomRelationAndStripsPrivateAgentAttachmentMarker() {
         val wallpaperUri = "content://local/schedule-wallpaper"
         val widgetWallpaperUri = "content://local/widget-wallpaper"

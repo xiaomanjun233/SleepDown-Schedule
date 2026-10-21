@@ -113,7 +113,7 @@ object BackupImportPlanBuilder {
             existingIds = existing.courseIds
         )
         val schemeIds = allocateLongIds(
-            stableIds = schedules.flatMap { it.periodSchemes }.map { it.id },
+            stableIds = backupSchemeGraph(archive).schemes.map { it.id },
             existingIds = existing.schemeIds
         )
         val sessionTargets = linkedMapOf<String, BackupImportSessionTarget>()
@@ -192,6 +192,9 @@ object BackupImportPlanBuilder {
     }
 
     private fun validateImportReferencesAndEnums(archive: DecodedBackupArchive) {
+        backupSchemeGraph(archive).schemes.forEach {
+            strictEnum<PeriodSchemeMode>(it.mode, "shared period scheme mode")
+        }
         val assets = archive.assets.associateBy { it.assetId }
         val descriptors = archive.manifest.assets.associateBy { it.assetId }
 
@@ -244,7 +247,8 @@ object BackupImportPlanBuilder {
         archive.preferences.aiImport?.let { ai ->
             ai.providers.forEach { provider ->
                 strictEnum<AiProviderType>(provider.providerType, "AI providerType")
-                strictEnum<AiAuthType>(provider.authType, "AI authType")
+                val authType = strictEnum<AiAuthType>(provider.authType, "AI authType")
+                AiProviderPresets.validateRestoredProviderIdentity(provider.id, authType)
                 strictEnum<AiEndpointStyle>(provider.endpointStyle, "AI endpointStyle")
                 strictEnum<StructuredOutputMode>(provider.structuredOutputMode, "AI structuredOutputMode")
                 strictEnum<AiInputMode>(provider.inputMode, "AI inputMode")
@@ -261,10 +265,9 @@ object BackupImportPlanBuilder {
         }
     }
 
-    private inline fun <reified T : Enum<T>> strictEnum(value: String, label: String) {
+    private inline fun <reified T : Enum<T>> strictEnum(value: String, label: String): T =
         runCatching { enumValueOf<T>(value) }
             .getOrElse { throw IllegalArgumentException("未知 $label: $value") }
-    }
 
     private fun allocateIntIds(stableIds: List<String>, existingIds: Set<Int>): Map<String, Int> {
         require(stableIds.size == stableIds.toSet().size) { "stable ID 重复" }

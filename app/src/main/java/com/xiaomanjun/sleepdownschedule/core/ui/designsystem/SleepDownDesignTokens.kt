@@ -15,6 +15,8 @@ import androidx.compose.ui.unit.dp
  * not be used as an excuse to retune it; visual changes require their own reviewed batch.
  */
 object SleepDownDesignTokens {
+    val LightPageBackground = Color(0xFFE4E5EB)
+
     /**
      * Shared page chrome and content rhythm for secondary screens.
      *
@@ -59,16 +61,19 @@ object SleepDownDesignTokens {
         val MaxBlur = 16.dp
         val ActionHeight = 50.dp
         val ActionSpacing = 10.dp
+        val SelectionContentMaxHeight = 320.dp
         val MessageActionSpacing = 28.dp
         // Short-copy alerts may tighten this gap without changing their action geometry or the
         // action-to-edge spacing.
         val AlertSingleLineActionSpacing = 18.dp
         // Single-row-action alerts are tightened only through their copy band. Their action row
         // keeps the accepted height, spacing and edge inset.
-        val CompactAlertTopInset = 28.dp
-        val CompactTitleContentSpacing = 11.dp
+        val CompactAlertTopInset = 24.dp
+        val CompactTitleContentSpacing = 9.dp
+        val CompactMultilineAlertTopInset = 28.dp
+        val CompactMultilineTitleContentSpacing = 11.dp
         val CompactMessageActionSpacing = 27.dp
-        val CompactSingleLineActionSpacing = 16.dp
+        val CompactSingleLineActionSpacing = 10.dp
         // A title plus a two-line message keeps its measured shell and action row unchanged; only
         // the copy is optically lifted so the extra line does not make the upper half look heavy.
         val ThreeLineAlertTextLift = 3.dp

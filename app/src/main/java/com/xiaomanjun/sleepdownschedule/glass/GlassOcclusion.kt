@@ -32,7 +32,11 @@ enum class CourseGlassOcclusionPhase {
  * at most every second display frame instead of doubling material initialization throughput.
  */
 internal const val CourseGlassRestoreCadenceNanos = 16_666_667L
-internal const val CourseGlassMaterialRevealDurationMillis = 200
+internal const val CourseGlassRestoreGroupsPerBatch = 2
+
+internal fun courseGlassRestoreFrameDue(previous: Long, current: Long): Boolean =
+    current - previous >= CourseGlassRestoreCadenceNanos * 9 / 10
+internal const val CourseGlassMaterialRevealDurationMillis = 280
 
 internal fun courseGlassFlatFallbackAlpha(baseAlpha: Float, materialProgress: Float): Float =
     baseAlpha.coerceIn(0f, 1f) * (1f - materialProgress.coerceIn(0f, 1f))
@@ -72,6 +76,9 @@ class CourseGlassRestoreRegistry {
     }
 
     @Synchronized
+    fun pageKeys(pageWeek: Int): Set<String> = pageGroups[pageWeek].orEmpty().map { it.key }.toSet()
+
+    @Synchronized
     fun orderedGroupKeys(targetWeek: Int): List<String> = pageGroups.values
         .flatten()
         .distinctBy { it.key }
@@ -93,10 +100,10 @@ data class CourseGlassRestorePlan(
 ) {
     fun mountsGroup(groupKey: String?): Boolean = when (phase) {
         CourseGlassOcclusionPhase.Live,
-        CourseGlassOcclusionPhase.Preparing,
-        CourseGlassOcclusionPhase.Revealing -> true
+        CourseGlassOcclusionPhase.Preparing -> true
         CourseGlassOcclusionPhase.Suspended -> false
-        CourseGlassOcclusionPhase.PostCloseRestore ->
+        CourseGlassOcclusionPhase.PostCloseRestore,
+        CourseGlassOcclusionPhase.Revealing ->
             groupKey != null && groupKey in restoredGroupKeys
     }
 }
@@ -123,7 +130,8 @@ internal fun shouldSuspendCourseGlassMaterials(
     weekMode: Boolean,
     exactCacheCoverActive: Boolean,
     substantialOverlayActive: Boolean
-): Boolean = experimentEnabled && weekMode && exactCacheCoverActive && substantialOverlayActive
+): Boolean = !GlassMotionExperiments.continuousMaterialDrawing &&
+    experimentEnabled && weekMode && exactCacheCoverActive && substantialOverlayActive
 
 /** Stable key: restore progress never changes planner membership or positional Compose keys. */
 internal fun courseGlassRestoreGroupKey(

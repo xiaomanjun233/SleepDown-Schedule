@@ -1,6 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.backup
 
-import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.model.AppIconPreferencesSnapshot
+import com.xiaomanjun.sleepdownschedule.model.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemeSource
 
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.decodeFromString
@@ -24,6 +26,84 @@ import java.util.zip.ZipOutputStream
 import java.util.zip.CRC32
 
 class BackupCodecTest {
+    @Test fun presentationAndMaterialSettingsRoundTripWithoutCredentials() {
+        val original = fixtureArchive()
+        val source = original.copy(preferences = original.preferences.copy(materialLevel = "SUPER_PERFORMANCE"),
+            data = original.data.copy(schedules = original.data.schedules.map { it.copy(config = it.config.copy(
+                showNonCurrentWeekCourses = true, weekCardContentLayout = "MIDDLE", weekCardTextAlignment = "START",
+                scheduleAdjustmentsJson = """[{"date":"2026-10-08","allDayPlaceholder":true}]""")) }))
+        val restored = BackupCodec.decode(BackupCodec.encode(source))
+        assertEquals(source.data, restored.data)
+        assertEquals("SUPER_PERFORMANCE", restored.preferences.materialLevel)
+        val settings = BackupJson.encodeToString(restored.preferences)
+        assertFalse(settings.contains("webdav", ignoreCase = true))
+        assertEquals(null, BackupJson.decodeFromString<BackupPreferences>("{\"preferencesVersion\":1}").materialLevel)
+        val oldConfig = BackupJson.encodeToString(fixtureConfig("asset_550e8400-e29b-41d4-a716-446655440000"))
+            .replace(Regex(",?\\\"showNonCurrentWeekCourses\\\":false"), "")
+        assertFalse(BackupJson.decodeFromString<BackupScheduleConfig>(oldConfig).showNonCurrentWeekCourses)
+    }
+    @Test fun roundTripIncludesIndependentPeriodLibraryAndQuietSettings() {
+        val config = defaultConfig().copy(morningPeriodCount = 1, noonPeriodCount = 0, afternoonPeriodCount = 0, eveningPeriodCount = 0)
+        val saved = com.xiaomanjun.sleepdownschedule.domain.schedule.savePeriodSchemeSnapshot("library-1", "夏令时", config,
+            com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemeDraft(
+                PeriodSchemeEntity(1, 1, "夏令时"), listOf(PeriodSchemeTimeEntity(1, 1, "08:30", "09:20"))))
+            .copy(sources = listOf(PeriodSchemeSource("旧课表", "学校作息")),
+                alternateNames = listOf("学校作息"), createdInLibrary = true, roomId = 0)
+        val preferences = fixtureArchive().preferences.copy(savedPeriodSchemes = listOf(saved),
+            courseQuietSettings = com.xiaomanjun.sleepdownschedule.domain.schedule.CourseQuietSettings(
+                doNotDisturbEnabled = true, soundEnabled = true, advanceMinutes = 1, delayMinutes = 1))
+        val source = fixtureArchive().copy(preferences = preferences)
+        assertEquals(preferences, BackupCodec.decode(BackupCodec.encode(source)).preferences)
+    }
+
+    @Test fun oldPreferencesDoNotInventLibraryOrQuietSettings() {
+        val old = "{\"preferencesVersion\":1}"
+        val decoded = BackupJson.decodeFromString<BackupPreferences>(old)
+        assertEquals(null, decoded.savedPeriodSchemes)
+        assertEquals(null, decoded.courseQuietSettings)
+    }
+
+    @Test fun invalidLibraryTimelineAndQuietOffsetAreRejectedBeforeRestore() {
+        val config = defaultConfig().copy(morningPeriodCount = 1, noonPeriodCount = 0, afternoonPeriodCount = 0, eveningPeriodCount = 0)
+        val saved = com.xiaomanjun.sleepdownschedule.domain.schedule.savePeriodSchemeSnapshot("library-1", "夏令时", config,
+            com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemeDraft(
+                PeriodSchemeEntity(1, 1, "夏令时"), listOf(PeriodSchemeTimeEntity(1, 1, "08:30", "09:20"))))
+        val base = fixtureArchive()
+        val invalid = listOf(
+            base.preferences.copy(savedPeriodSchemes = listOf(saved.copy(times = listOf(
+                com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodTime(1, "09:20", "08:30"))))),
+            base.preferences.copy(courseQuietSettings = com.xiaomanjun.sleepdownschedule.domain.schedule.CourseQuietSettings(advanceMinutes = 31)))
+        for (preferences in invalid) {
+            try { BackupCodec.encode(base.copy(preferences = preferences)); fail("Invalid preferences must fail validation") }
+            catch (expected: BackupCodecException) { assertTrue(expected.message!!.isNotBlank()) }
+        }
+    }
+
+    @Test
+    fun roundTripIncludesAdjustmentsAndWeekAssistantPreference() {
+        val source = fixtureArchive()
+        val adjustments = com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments(listOf(
+            com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustment("2026-10-10", "2026-10-05", "补课")
+        ))
+        val updated = source.copy(
+            data = source.data.copy(schedules = source.data.schedules.map {
+                it.copy(config = it.config.copy(scheduleAdjustmentsJson = adjustments))
+            }),
+            preferences = source.preferences.copy(dayAgent = source.preferences.dayAgent?.copy(weekAssistantEnabled = false))
+        )
+        val restored = BackupCodec.decode(BackupCodec.encode(updated))
+        assertEquals(adjustments, restored.data.schedules.first().config.scheduleAdjustmentsJson)
+        assertEquals(updated.preferences.dayAgent, restored.preferences.dayAgent)
+        assertFalse(requireNotNull(restored.preferences.dayAgent).weekAssistantEnabled)
+    }
+
+    @Test
+    fun olderConfigWithoutAdjustmentFieldDefaultsToUnchangedSchedule() {
+        val serialized = BackupJson.encodeToString(fixtureConfig("asset_550e8400-e29b-41d4-a716-446655440000"))
+        val old = serialized.replace(Regex(",?\\\"scheduleAdjustmentsJson\\\":\\\"\\\""), "")
+        assertEquals("", BackupJson.decodeFromString<BackupScheduleConfig>(old).scheduleAdjustmentsJson)
+    }
+
     @Test
     fun emptyArchiveRoundTripsWithoutImplicitDefaults() {
         val source = BackupArchive(
@@ -446,7 +526,7 @@ class BackupCodecTest {
             ),
             preferences = BackupPreferences(
                 preferencesVersion = BackupFormatV1.PREFERENCES_VERSION,
-                appIcon = BackupAppIconPreferences("FOLLOW_DARK_MODE", true, false),
+                appIcon = AppIconPreferencesSnapshot(mode = "FOLLOW_DARK_MODE", followsSystemDarkMode = true, darkTheme = false),
                 dayAgent = BackupDayAgentPreferences(
                     hasDecision = true,
                     enabled = true,

@@ -1,10 +1,5 @@
 package com.xiaomanjun.sleepdownschedule
 
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.app.startup.*
-import com.xiaomanjun.sleepdownschedule.app.state.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.*
-
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
@@ -16,6 +11,7 @@ import android.view.ViewTreeObserver
 import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
@@ -25,15 +21,19 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.xiaomanjun.sleepdownschedule.app.state.*
+import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
+import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
-import java.util.concurrent.atomic.AtomicBoolean
 
 class MainActivity : ComponentActivity() {
     private val pendingExternalIcsUri = MutableStateFlow<Uri?>(null)
@@ -132,16 +132,25 @@ fun CourseScheduleTheme(
     config: ScheduleConfigEntity = defaultConfig(),
     content: @Composable () -> Unit
 ) {
+    com.xiaomanjun.sleepdownschedule.app.ui.ProvideVisualEffects {
+        CourseScheduleThemeContent(config, content)
+    }
+}
+
+@Composable
+private fun CourseScheduleThemeContent(
+    config: ScheduleConfigEntity,
+    content: @Composable () -> Unit
+) {
     val darkTheme = appUsesDarkTheme(config)
     val view = LocalView.current
     LaunchedEffect(config.followSystemDarkMode, darkTheme, view.context) {
-        // Changing launcher aliases from a secondary settings Activity can make
-        // ColorOS/Oplus remove the visible task. Apply icon changes only from the
-        // main Activity; settings still update their theme immediately and the
-        // launcher alias catches up when the user returns home.
+        // Changing launcher aliases during the settings-to-home handoff can make ColorOS/Oplus
+        // remove the visible task. Record the desired appearance here; CourseScheduleApp applies
+        // the alias only after the whole process enters the background.
         if (view.context is MainActivity) {
             AppIconManager.syncAppearance(
-                context = view.context,
+                context = view.context.applicationContext,
                 followsSystemDarkMode = config.followSystemDarkMode,
                 darkTheme = darkTheme
             )
@@ -169,16 +178,19 @@ fun CourseScheduleTheme(
                 if (darkTheme) 0 else android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
     }
-    val blue = Color(0xFF007AFF)
-    val blueContainer = Color(0xFFD6E9FF)
-    val darkBlueContainer = Color(0xFF003A66)
+    val native = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesNativeControls
+    val blue = if (native) Color(com.xiaomanjun.sleepdownschedule.platform.coloros.rememberColorOsThemeAccent(config, darkTheme))
+        else Color(0xFF007AFF)
+    val blueContainer = if (native) androidx.compose.ui.graphics.lerp(blue, Color.White, 0.84f) else Color(0xFFD6E9FF)
+    val darkBlueContainer = if (native) androidx.compose.ui.graphics.lerp(blue, Color.Black, 0.55f) else Color(0xFF003A66)
     MaterialTheme(
+        shapes = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownContinuousShapes,
         colorScheme = if (darkTheme) {
             darkColorScheme(
                 primary = blue,
                 onPrimary = Color.White,
                 primaryContainer = darkBlueContainer,
-                onPrimaryContainer = Color(0xFFD6E9FF),
+                onPrimaryContainer = blueContainer,
                 secondary = blue,
                 secondaryContainer = darkBlueContainer,
                 tertiary = blue,
@@ -193,19 +205,19 @@ fun CourseScheduleTheme(
                 primary = blue,
                 onPrimary = Color.White,
                 primaryContainer = blueContainer,
-                onPrimaryContainer = Color(0xFF003A66),
+                onPrimaryContainer = darkBlueContainer,
                 secondary = blue,
                 secondaryContainer = blueContainer,
                 tertiary = blue,
                 tertiaryContainer = blueContainer,
-                background = Color.White,
+                background = SleepDownDesignTokens.LightPageBackground,
                 surface = Color.White,
                 surfaceVariant = Color(0xFFF2F2F7),
                 surfaceContainerHigh = Color.White
             )
         }
     ) {
-        Surface(modifier = Modifier.fillMaxSize(), content = content)
+        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background, content = content)
     }
 }
 
@@ -219,7 +231,7 @@ internal fun android.view.Window.applyAppThemeSurface(darkTheme: Boolean) {
     val backgroundColor = if (darkTheme) {
         android.graphics.Color.BLACK
     } else {
-        android.graphics.Color.rgb(0xED, 0xEE, 0xF3)
+        SleepDownDesignTokens.LightPageBackground.toArgb()
     }
     setBackgroundDrawable(android.graphics.drawable.ColorDrawable(backgroundColor))
     decorView.setBackgroundColor(backgroundColor)

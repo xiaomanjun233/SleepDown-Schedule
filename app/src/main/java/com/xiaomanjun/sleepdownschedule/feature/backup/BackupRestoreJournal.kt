@@ -1,10 +1,11 @@
 package com.xiaomanjun.sleepdownschedule.feature.backup
 
 import com.xiaomanjun.sleepdownschedule.*
-
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
@@ -29,6 +30,7 @@ data class BackupRestoreMarker(
     val finalAssetPathsById: Map<String, String> = emptyMap(),
     val newlyCreatedAssetPaths: Set<String> = emptySet(),
     val dbCommitStarted: Boolean = false,
+    val sharedSchemeGraphCommitted: Boolean = false,
     val updatedAt: Long = System.currentTimeMillis()
 )
 
@@ -174,12 +176,10 @@ class BackupRestoreJournal(
                 output.flush()
                 output.fd.sync()
             }
-            if (!temporary.renameTo(target)) {
-                if (!target.exists() || !target.readBytes().contentEquals(bytes)) {
-                    throw BackupRestoreJournalException("无法原子写入 restore journal: ${target.path}")
-                }
-                if (!temporary.delete()) throw BackupRestoreJournalException("无法清理 restore journal 临时文件")
-            }
+            Files.move(
+                temporary.toPath(), target.toPath(),
+                StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING
+            )
         } catch (error: BackupRestoreJournalException) {
             throw error
         } catch (error: IOException) {

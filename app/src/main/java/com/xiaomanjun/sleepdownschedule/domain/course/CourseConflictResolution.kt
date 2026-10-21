@@ -25,7 +25,6 @@ data class WeekConflictGroup(
     val courses: List<CourseEntity> = segments
         .map { it.course }
         .distinctBy { it.id }
-        .sortedBy { it.id }
 
     val hasConflict: Boolean get() = courses.size > 1
 }
@@ -37,7 +36,7 @@ fun buildWeekConflictGroups(
 ): List<WeekConflictGroup> {
     if (periodIndexes.isEmpty()) return emptyList()
     val positionByPeriod = periodIndexes.withIndex().associate { it.value to it.index }
-    val segments = courses.flatMap { course ->
+    val segments = courses.flatMap { courseAlignmentFragments(it, periodDefinitions) }.flatMap { course ->
         val positions = course.periods
             .mapNotNull(positionByPeriod::get)
             .distinct()
@@ -104,7 +103,8 @@ fun buildWeekConflictGroups(
         }
         groups += WeekConflictGroup(
             component.sortedWith(
-                compareBy<WeekCourseSegment> { it.startPosition }
+                compareBy<WeekCourseSegment> { courseStartTime(it.course, periodDefinitions) ?: LocalTime.MIN }
+                    .thenBy { it.startPosition }
                     .thenBy { it.endPosition }
                     .thenBy { it.course.id }
             )
@@ -128,32 +128,23 @@ fun CourseEntity.conflictsWith(
     if (id == other.id || scheduleId != other.scheduleId || weekday != other.weekday) return false
     if (week !in weeks || week !in other.weeks) return false
     if (!parityMatches(weekParity, week) || !parityMatches(other.weekParity, week)) return false
-    if (periodDefinitions.isNotEmpty() && (hasCustomTime() || other.hasCustomTime())) {
+    if (periodDefinitions.isNotEmpty()) {
         val ownIntervals = occupiedTimeIntervals(periodDefinitions)
         val otherIntervals = other.occupiedTimeIntervals(periodDefinitions)
-        if (ownIntervals.isNotEmpty() && otherIntervals.isNotEmpty()) {
-            return ownIntervals.any { (ownStart, ownEnd) ->
+        return ownIntervals.any { (ownStart, ownEnd) ->
                 otherIntervals.any { (otherStart, otherEnd) ->
                     ownStart < otherEnd && otherStart < ownEnd
                 }
-            }
         }
     }
     val otherPeriods = other.periods.toHashSet()
     return periods.any(otherPeriods::contains)
 }
 
-private fun CourseEntity.occupiedTimeIntervals(
+internal fun CourseEntity.occupiedTimeIntervals(
     periodDefinitions: List<PeriodEntity>
 ): List<Pair<LocalTime, LocalTime>> {
-    customTimeRangeOrNull()?.let { return listOf(it) }
-    val definitions = periodDefinitions.associateBy(PeriodEntity::periodIndex)
-    return periods.distinct().mapNotNull { periodIndex ->
-        val period = definitions[periodIndex] ?: return@mapNotNull null
-        val start = runCatching { LocalTime.parse(period.startTime) }.getOrNull() ?: return@mapNotNull null
-        val end = runCatching { LocalTime.parse(period.endTime) }.getOrNull() ?: return@mapNotNull null
-        (start to end).takeIf { end.isAfter(start) }
-    }
+    return courseTimeSegments(this, periodDefinitions).map { it.start to it.end }
 }
 
 fun conflictWeeksForEditedCourse(
@@ -224,12 +215,16 @@ fun conflictWeeksForSingleWeekEdit(
     targetWeek: Int,
     courses: List<CourseEntity>,
     periodDefinitions: List<PeriodEntity> = emptyList()
-): List<Int> = conflictWeeksForEditedCourse(
-    original = original.copy(weeks = listOf(targetWeek)),
-    edited = edited.copy(weeks = listOf(targetWeek)),
-    courses = courses,
-    periodDefinitions = periodDefinitions
-)
+): List<Int> {
+    val destinationWeek = edited.weeks.distinct().singleOrNull() ?: targetWeek
+    if (destinationWeek != targetWeek) return conflictWeeksForAddedCourses(
+        listOf(edited.copy(id = 0, weeks = listOf(destinationWeek))),
+        courses.filterNot { it.id == original.id } + original.copy(weeks = original.weeks.filter { it != targetWeek }),
+        periodDefinitions
+    )
+    return conflictWeeksForEditedCourse(original.copy(weeks = listOf(targetWeek)),
+        edited.copy(weeks = listOf(targetWeek)), courses, periodDefinitions)
+}
 
 fun nearestAvailableCourseMove(
     course: CourseEntity,

@@ -2,11 +2,10 @@ package com.xiaomanjun.sleepdownschedule
 
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 
+import android.app.AlarmManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 class CourseBootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -16,21 +15,16 @@ class CourseBootReceiver : BroadcastReceiver() {
                 Intent.ACTION_MY_PACKAGE_REPLACED,
                 Intent.ACTION_DATE_CHANGED,
                 Intent.ACTION_TIME_CHANGED,
-                Intent.ACTION_TIMEZONE_CHANGED
+                Intent.ACTION_TIMEZONE_CHANGED,
+                AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED
             )
         ) {
             return
         }
         val pending = goAsync()
-        val app = context.applicationContext as CourseScheduleApp
-        app.applicationScope.launch(Dispatchers.IO) {
-            try {
-                app.repository.ensureDefaults()
-                val snapshot = app.repository.activeSnapshot()
-                NotificationScheduler.refreshToday(context, snapshot.courses, snapshot.config, snapshot.periods)
-            } finally {
-                pending.finish()
-            }
+        // Rebuild absolute timestamps after clock/zone changes and restore cleared alarms at boot.
+        NotificationScheduler.requestRefresh(context, forceReschedule = true) {
+            pending.finish()
         }
     }
 }

@@ -12,9 +12,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -232,11 +231,16 @@ private data class GlassEnvelopeSnapshotShape(
             minimumValue = 0f,
             maximumValue = minOf(rect.width, rect.height) / 2f
         )
-        return Outline.Rounded(
-            RoundRect(
-                rect = rect,
-                cornerRadius = CornerRadius(radius, radius)
-            )
+        return Outline.Generic(
+            androidx.compose.ui.graphics.Path().apply {
+                addPath(
+                    androidx.compose.ui.graphics.Path().apply {
+                        addOutline(com.kyant.shapes.RoundedRectangle(with(density) { radius.toDp() })
+                            .createOutline(rect.size, layoutDirection, density))
+                    },
+                    rect.topLeft
+                )
+            }
         )
     }
 }
@@ -302,6 +306,7 @@ fun GlassTransitionLayer(
     temporaryClipActive: Boolean,
     motionAlpha: () -> Float = { 1f },
     modifier: Modifier = Modifier,
+    motionTransform: Modifier = Modifier,
     content: @Composable BoxScope.(
         envelope: GlassTransitionEnvelope,
         geometry: () -> GlassTransitionGeometry
@@ -338,6 +343,7 @@ fun GlassTransitionLayer(
                 width = with(density) { ceil(bounds.width).toInt().toDp() },
                 height = with(density) { ceil(bounds.height).toInt().toDp() }
             )
+            .then(motionTransform)
             .then(layerModifier)
     ) {
         content(envelope) { geometryState.value.invoke() }

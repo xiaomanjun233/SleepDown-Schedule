@@ -9,6 +9,17 @@ import org.junit.Test
 
 class CourseConflictResolutionTest {
     @Test
+    fun `conflicting courses display by real start time without rewriting the clocks`() {
+        val later = course(1, periods = listOf(1)).copy(customStartTime = "08:30", customEndTime = "09:30")
+        val earlier = course(99, periods = listOf(1)).copy(customStartTime = "08:00", customEndTime = "09:00")
+        val group = buildWeekConflictGroups(listOf(later, earlier), listOf(1),
+            listOf(PeriodEntity(1, "08:00", "09:30"))).single()
+        assertEquals(listOf(99L, 1L), group.courses.map { it.id })
+        assertEquals(listOf("08:00", "08:30"), group.courses.map { it.customStartTime })
+        assertEquals(listOf("09:00", "09:30"), group.courses.map { it.customEndTime })
+    }
+
+    @Test
     fun `splits discontinuous periods into separate visual segments`() {
         val groups = buildWeekConflictGroups(
             courses = listOf(course(1, periods = listOf(1, 2, 4))),
