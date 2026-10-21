@@ -24,6 +24,20 @@ def forbidden_path(path: str) -> bool:
     )
 
 
+def whitespace_diff(base: str, head: str, target: str) -> str:
+    """A develop bootstrap may inherit already accepted main/vendor whitespace."""
+    stable = "refs/remotes/origin/main"
+    if target == "develop" and subprocess.run(
+        ["git", "rev-parse", "--verify", stable], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+    ).returncode == 0:
+        inherited = all(subprocess.run(
+            ["git", "merge-base", "--is-ancestor", ancestor, descendant]
+        ).returncode == 0 for ancestor, descendant in ((base, stable), (stable, head)))
+        if inherited:
+            return f"{stable}...{head}"
+    return f"{base}...{head}"
+
+
 def main() -> None:
     event = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
     pull = event["pull_request"]
@@ -38,7 +52,8 @@ def main() -> None:
     if any(forbidden_path(path) for path in paths):
         raise SystemExit("Remove private data, credentials, local files or build outputs from this PR. See CONTRIBUTING.md.")
     # Unified patch context lines intentionally end in a space; validate patches during dependency setup.
-    subprocess.run(["git", "diff", "--check", diff, "--", ".", ":(exclude)**/*.patch"], check=True)
+    whitespace = whitespace_diff(base, head, pull["base"]["ref"])
+    subprocess.run(["git", "diff", "--check", whitespace, "--", ".", ":(exclude)**/*.patch"], check=True)
     all_paths = subprocess.check_output(["git", "diff", "--name-only", "-z", diff], text=True, encoding="utf-8").split("\0")
     with Path(os.environ["GITHUB_OUTPUT"]).open("a", encoding="utf-8") as output:
         output.write(f"android={str(any(android_change(path) for path in all_paths)).lower()}\n")

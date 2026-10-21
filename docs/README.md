@@ -10,7 +10,7 @@
 | [AGENTS.md](../AGENTS.md) | 人与各类助手共用的长期边界、验证和本机交付方式 | 长期协作约定变化 |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | 外部贡献者的 Fork、构建、PR 与评审入口 | 对外贡献流程变化 |
 | [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md) | 分支、提交、PR、CI、合并、清理和交接的统一流程 | 开发流程变化 |
-| [RELEASE_MODEL.md](RELEASE_MODEL.md) | 版本、渠道、发布规则与注明日期的基线快照 | 发布或 main 回流关系变化 |
+| [RELEASE_MODEL.md](RELEASE_MODEL.md) | 版本、渠道、发布规则与注明日期的基线快照 | 发布或 main/develop 同步关系变化 |
 | [AI_HANDOFF.md](AI_HANDOFF.md) | 当前目标、分支/PR、已有授权来源、验证、产物和下一步 | 阶段交付、更换助手或任务结束 |
 | 专项规范 | 对应模块的设计与实现约定 | 模块契约或实现路线变化 |
 | 日期报告、`reports/`、`archive/` | 当时的调查、验收和暂停实验记录 | 形成可追溯的阶段结论；后续纠正需注明时间与新证据 |

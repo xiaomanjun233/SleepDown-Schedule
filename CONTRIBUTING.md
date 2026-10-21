@@ -2,11 +2,11 @@
 
 欢迎提交问题反馈、文档和代码修复。贡献前阅读 [许可证](LICENSE.md)与 [AGENTS.md](AGENTS.md)中的项目约定。涉及数据格式、系统权限或大幅交互变化时，建议先在 Issue 说明场景；没有 Issue 编号也可以提交 PR。
 
-`main` 是唯一持续开发入口，普通 PR 面向上游 `main`。它与最新正式版可能暂有历史差异，开始前查看 [版本基线](docs/RELEASE_MODEL.md)与 [当前交接](docs/AI_HANDOFF.md)，不要把 Release 标签自动当作 main 已更新的证明。
+`develop` 是日常开发与集成入口，普通 PR 面向上游 `develop`；`main` 是稳定版本与正式发布基线。开始前查看 [版本基线](docs/RELEASE_MODEL.md)与 [当前交接](docs/AI_HANDOFF.md)，不要把 Release 标签自动当作 main 已更新的证明。
 
 ## 外部贡献：从 Fork 到合并
 
-1. Fork 仓库，从最新上游 `main` 创建短期分支；若依赖未回流的发布代码或其他 PR，在描述中明确说明。
+1. Fork 仓库，从最新上游 `develop` 创建短期分支；若依赖未回流的发布代码或其他 PR，在描述中明确说明。
 2. 每个 PR 围绕一个目标。提交标题和分支名表达含义即可，不强制前缀、格式或 Issue 编号。
 3. 完成修改，按风险执行下表中的最小验证，只提交相关文件；不要修改正式版本号、发布日志或第三方依赖来凑过检查，除非它们属于任务。
 4. 可以先创建 Draft 分享进度。实现和必要验证准备好后转为 Ready for review，按[模板](.github/pull_request_template.md)说明最终行为、验证与未完成项。
@@ -16,8 +16,8 @@
 git clone https://github.com/<你的用户名>/SleepDown-Schedule.git
 cd SleepDown-Schedule
 git remote add upstream https://github.com/xiaomanjun233/SleepDown-Schedule.git
-git fetch --no-tags upstream main
-git switch -c fix/my-change upstream/main
+git fetch --no-tags upstream develop
+git switch -c fix/my-change upstream/develop
 ```
 
 使用 AI 辅助贡献时，由提交者核对代码、来源和验证结果。只写实际执行的检查，界面截图或录屏按需提供并去除个人信息。需要换助手接续时，保留任务分支与 PR，按 [交接规范](docs/DEVELOPMENT_WORKFLOW.md#7-更换助手与交接维护)记录，不要求下一位从头实现或重跑无关测试。

@@ -15,7 +15,7 @@ SleepDown 是面向日常学习的 Android 课程表：从导入整学期课程�
 
 ### 正式版、Beta 与厂商实验功能
 
-`main` 是唯一持续维护的应用基线。当前正式版为 [`1.2.7-r1`](https://github.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v1.2.7-r1)（`1.2.7` 的修复版本），该轮最后预发布为 `1.2.7_beta5-r1`。Beta 是下一正式版本的逐次候选；每个 Beta 保留独立记录，正式版把仍有效的改动归并成正式日志。下载时按发行页的正式版或预发布标记选择，源码 `main` 不等同于已安装的正式版本。OPPO/一加/realme 流体云、荣耀 YOYO 建议和小米超级岛作为按设备出现的实验功能进入 GitHub 版普通应用，商店版关闭相应实验入口。
+`main` 是稳定版本与正式发布基线，`develop` 用于日常开发和功能集成。当前正式版为 [`1.2.7.1`](https://github.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v1.2.7.1)，该轮最后预发布为 `1.2.7_beta5-r1`。Beta 是下一正式版本的逐次候选；每个 Beta 保留独立记录，正式版把仍有效的改动归并成正式日志。下载时按发行页的正式版或预发布标记选择，源码 `main` 不等同于已安装的正式版本。OPPO/一加/realme 流体云、荣耀 YOYO 建议和小米超级岛作为按设备出现的实验功能进入 GitHub 版普通应用，商店版关闭相应实验入口。
 
 早期的 `1.01 beta`—`1.10 beta` 是独立的历史版本序列，不是当前 1.2.6 的 Beta 编号。每一版的更新日志摘要与有证据的时间锚点收录在[最初十个 Beta](docs/EARLY_BETA_HISTORY.md)；无法确认日期或归属的早期画面没有硬配到某一版。
 
@@ -125,7 +125,7 @@ git clone https://gitee.com/xiaomanjun233/SleepDown-Schedule.git
 
 分发或提供修改版时，必须同步公开对应源代码，使项目至少达到源码可见标准，并遵守许可证中的显著署名、修改说明和非官方标识要求；商业使用须另行取得书面授权。
 
-新贡献与普通开发面向 `main`；`develop`、`exp` 仅供历史追溯，短期任务分支不作为长期下载入口。发布由标签固定，源码与 main 的实际关系见[版本基线](docs/RELEASE_MODEL.md)；不能把存在 Release 视为已合并 main。
+新贡献与普通开发从最新 `develop` 创建独立分支，PR 面向 `develop`；正式发布通过 `release/*` 验证后合入 `main`，紧急修复从 `main` 派生 `hotfix/*` 并及时回流 develop。历史 `exp` 和短期任务分支不作为长期下载入口。发布由标签固定，源码与 main 的实际关系见[版本基线](docs/RELEASE_MODEL.md)；不能把存在 Release 视为已合并 main。
 
 提交改进与 Pull Request 的具体步骤见文末[开发协作](#开发协作)章节。
 

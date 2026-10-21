@@ -1,25 +1,25 @@
 # 当前工作交接
 
-更新：2026-10-20，Asia/Shanghai。此页保存维护者主工作目录的当前交接，历史过程引用报告；不代表其他 worktree 的任务已结束。接手前完整阅读 [AGENTS.md](../AGENTS.md)，再核对实际 Git、PR、用户新指令与本页是否一致。流程和交接字段见 [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md)。
+更新：2026-10-21，Asia/Shanghai。本页记录 main→develop 流程迁移任务；其他工作树保持独立。先读 [AGENTS.md](../AGENTS.md)，核对 Git/PR 与用户最新要求。规则见[开发工作流](DEVELOPMENT_WORKFLOW.md)。
 
-给下一位助手的简短入口：
+## 当前目标与分支
 
-> 先读 AGENTS.md 和 docs/AI_HANDOFF.md，核对当前分支、工作树及 PR 状态，接着完成未完事项。沿用可核实的用户授权和已有成果，按本次变化选择验证；遇到差异先查事实并更新交接。
+- 用户本轮明确要求恢复 main + develop：main 稳定发布，develop 日常集成，独立任务默认从最新 develop 派生，正式发布经 release 分支验证。允许提交、推送及 PR；没有合并、改正式版本、发布 APK 的授权。
+- 本任务分支 `codex/develop-workflow` 基于 main `9b6acbb2`，独立工作树 `tmp/develop-workflow/`。目标 PR 为 develop，保留 main 全部祖先；远端 develop 在合并前仍是 `848ac5a4`。
+- 祖先检查：develop 是 main 祖先，独有 0、落后 610，无需重置或强推。两分支显示 protected；保护细则读取 403，未修改保护。完整审查见[同步报告](reports/2026-10-21-main-develop-workflow.md)。
+- #74/#78 已合并；#79 开放、目标 main，在 `tmp/architecture-refactor/` 的 `codex/architecture-boundaries` 接续架构及金标转场批次。不要复制实现或覆盖该工作树。待同步 PR 合并后再调整 #79 目标，复查 diff/CI。
+- 主目录的 `codex/zust-edu-adapter` 及未提交学校适配报告属于独立活动任务，本轮未切换、暂存或修改。其他工作树和 stash 不清理。
+- AGENTS.md 已公开跟踪；保留公共规则与历史，未删除或 untrack。后续本机环境可移入未跟踪本地配置，不能借此重写历史。最新正式版仍为 1.2.7.1 / 35，没有本轮版本变更。
 
-## 当前分支与目标
+## 验证与下一步
 
-| 对象 | 核对结果 |
-| --- | --- |
-| 主工作目录 | 仓库根目录 `CourseSchedule`；当前分支 `codex/nexio-glass-parity` |
-| 关联 PR | [#78](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/78)，目标 `main`，Draft，未合并 |
-| 最新正式版 | `v1.2.7.1`，源码 `bdc380ee6796de6c633fe2688120a77c9fe8356f`，应用 `1.2.7.1` / 35，双平台正式发布、GitHub latest 已确认。r1 已按用户要求撤下，双平台旧标签与源码 `fa93ae65` 保留 |
-| main | `a320f6a8`，实际 `1.2.7_beta5` / 34，是正式版祖先；`1.2.7.1` 发布提交比其多 106 个提交 |
-| 已提交的运行时代码锚点 | 最新运行时修复 `5d123ac4`（修订号比较），发布提交 `bdc380ee`；此前界面运行时锚点 `c3bb034c`。`844ba11d` 统一时间呈现，`e52d9918` 保留隐藏节次摘要，`1b111ad8` 统一附件/预览文字，`e7312a99` 修正 Dock 间距与触觉，`90a0fb3e` / `c3bb034c` 修正快速设置布局；`47b37ae7` 包含 Popup 锚点、日视图上传及课程外观修订 |
-| 当前目标 | 已解决 `1.2.7` 收不到 r1 更新：以旧版能识别的 `1.2.7.1` / 35 双平台正式补发，并修复后续修订号比较。r1 已撤下；用户明确批准本次使用既有发布脚本连接。原版更新函数对真实 Gitee 列表验证通过，两种 Beta 设置均选中本版。未安装或实机验收。详见[更新识别与发布记录](reports/2026-10-20-update-revision-compatibility.md) |
+本轮只改变流程文档、PR 模板和触发事件；本地检查 diff、链接及 PR scope，Android 实现与 main 相同。同步 PR 相对 develop 含 610 个既有提交，云端应按完整 diff 运行 Android 检查，不能当纯文档 PR。未安装、发布、合并或修改分支保护。
 
-从 main 建立本任务分支后，只在任务分支快进到正式版。#78 携带上一正式版的 64 个已发布提交及之后的修复，`1.2.7.1` 发布源码相对 main 共多 106 个提交，不能当作只含几处界面修改的小 PR。main 与发布基线差异尚未实际收口。新独立任务的分支选择按开发流程处理，不继续从历史 `develop` 或 `exp` 开发。
+合并须由用户另行授权。同步 PR 通过评审/CI 后，以 merge commit 合入 develop，再核对 `git merge-base --is-ancestor origin/main origin/develop`；随后处理 #79 目标。保护建议与发布操作见同步报告。
 
-本轮交接、协作文档和草稿 CI 规则位于 #78 分支，main 尚未同步。其他机器续做本任务应先获取并核对该分支。已核对 main 受保护，仓库允许 merge、squash、rebase 三种合并方式；GitHub 集成读取保护细则返回 403，本轮没有据旧文档断言具体审批数量，也未改动仓库设置。
+## 2026-10-20 及之前的历史交付记录
+
+以下保留原验收和发布证据，具体 PR 状态以上述新核对为准，不把旧发布授权扩展到本轮。
 
 ## 已完成与关键结论
 

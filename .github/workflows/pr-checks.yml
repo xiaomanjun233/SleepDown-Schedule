@@ -2,7 +2,7 @@ name: Pull request checks
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, ready_for_review, edited]
 
 permissions:
   contents: read
@@ -26,6 +26,8 @@ jobs:
           persist-credentials: false
       - id: scope
         run: python3 .github/scripts/pr_scope.py
+      - name: Verify PR scope and sync ancestry
+        run: python3 -m unittest discover -s .github/scripts/tests -p 'test_pr_scope.py'
       - name: Check source dependency boundaries
         run: python3 scripts/check_architecture.py
 

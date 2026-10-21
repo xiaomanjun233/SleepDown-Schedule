@@ -57,7 +57,7 @@
 
 - 默认 PowerShell，源码修改使用 `apply_patch`。只暂存本次文件，保留用户改动和任务外素材；不使用 `git reset --hard` 或 `git checkout --` 丢弃工作树。
 - 代码在独立分支完成，默认 `codex/` 前缀。围绕用户目标组织 PR；同轮追加的问题保留可独立回退的提交边界，避免混入无关整理。
-- `main` 是唯一持续开发基线；新普通功能从当前 `main` 派生短期分支，PR 目标为 `main`。历史 `develop`、`exp` 和 `-expN` 不再作为开发或发布入口，保留可追溯历史。厂商实验功能集中在隔离目录，GitHub 版启用，商店版由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 关闭。分支收尾、版本、组件和发布规则见 [开发工作流](docs/DEVELOPMENT_WORKFLOW.md)及[版本基线](docs/RELEASE_MODEL.md)。
+- `main` 是稳定版本与正式发布基线，`develop` 是日常开发与集成基线；新普通任务从最新 `develop` 派生独立分支，PR 目标为 `develop`。`release/*` 从 develop 准备正式发布，验证后 PR 到 main 并同步回 develop；`hotfix/*` 从 main 派生，合入 main 后及时同步 develop。历史 `exp` 和 `-expN` 保留追溯。厂商实验功能集中在隔离目录，GitHub 版启用，商店版由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 关闭。分支收尾、版本、组件和发布规则见 [开发工作流](docs/DEVELOPMENT_WORKFLOW.md)及[版本基线](docs/RELEASE_MODEL.md)。
 - 使用 Codex 时，GitHub 元数据操作使用自带 GitHub plugin，不使用 GitHub CLI；其他助手使用其环境可用且已获授权的 GitHub 集成或界面，如实说明能力缺口。Git 本身用于本地版本管理与已授权的 fetch/push。远端推送、PR、标签、发布和部署须在用户授权范围内；PR 授权不包含合并或 Release，不因更换助手重复索取已有授权。
 - 每次 Beta 发布同步更新应用内日志与发布页，保留本轮各 Beta 的独立日志；正式版发布时再归并本轮 Beta 内容，去重并移除已撤回的改动。日志使用产品语言，用户指定的文案优先。
 - 不提交 `.gradle-user-home/`、`tmp/`、`sleepdown-promo/`、`ui.xml`、设备截图和临时验收图，除非用户明确指定。

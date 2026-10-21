@@ -16,17 +16,35 @@ git stash list
 
 确认当前任务、分支、已有改动和其他工作树的用途。工作目录干净不代表 stash、忽略文件或其他任务已清理；不为切换助手强制重置、自动 pop stash 或移动其他任务。
 
-在允许联网的环境更新上游引用：维护者使用 `git fetch --no-tags origin main`；Fork 贡献者使用 `git fetch --no-tags upstream main`。不强制覆盖发布标签。无法联网时记录本地引用的核对时间，不声称已同步最新代码。
+在允许联网的环境更新上游引用：维护者使用 `git fetch --no-tags origin main develop`；Fork 贡献者使用 `git fetch --no-tags upstream main develop`。不强制覆盖发布标签。无法联网时记录本地引用的核对时间，不声称已同步最新代码。
 
 | 场景 | 分支选择 |
 | --- | --- |
-| 新的独立功能、修复或文档任务 | 从最新上游 `main` 创建短期分支，PR 目标为 `main` |
-| 同一未合并 PR 的反馈或换助手续做 | 复用该 PR 分支，先核对远端 head 与本地差异，不从 main 重做一遍 |
+| 新的独立功能、修复或文档任务 | 从最新上游 `develop` 创建短期分支，PR 目标为 `develop` |
+| 同一未合并 PR 的反馈或换助手续做 | 复用该 PR 分支，先核对远端 head 与本地差异，不从基线重做一遍 |
 | 多项确实独立的工作 | 各自分支，必要时独立 worktree；不要让多个任务同时修改同一工作树 |
 | 依赖另一未合并 PR | 在描述中列出依赖和最终目标；依赖合并后核对完整 diff，避免把依赖误算为新改动 |
 | 正式版源码领先 main 等历史欠账 | 先核对提交关系和已有回流 PR；明确实际基线与多出的已发布提交，再选择续做或独立回流，不能把任务分支快进写成 main 已更新 |
 
-维护者默认使用 `codex/<任务>`；外部贡献者不强制前缀。`develop`、`exp` 和 `-expN` 仅供追溯，恢复单项历史功能时从当前有效基线单独挑选。当前 main 与正式版的实际关系见版本基线和交接页；没有合并授权时，完成候选与记录，不顺带改写 main。
+维护者默认使用 `codex/<任务>`，也可使用 `feature/*`、`fix/*`、`refactor/*`；外部贡献者不强制前缀。main 负责稳定版本与正式发布，develop 负责日常集成；历史 `exp` 和 `-expN` 仅供追溯。当前 main 与正式版的实际关系见版本基线和交接页；没有合并授权时，完成候选与记录，不顺带改写 main。
+
+### 分支流向与同步
+
+| 分支 | 来源与目标 | 边界 |
+| --- | --- | --- |
+| `main` | release/hotfix PR 的目标 | 稳定版本与正式发布基线 |
+| `develop` | 普通任务 PR、main 同步 PR 的目标 | 日常集成，持续吸收 main 修复 |
+| `feature/*`、`fix/*`、`refactor/*`、`codex/*` | 最新 develop → develop | 一个明确目标，短期维护 |
+| `release/*` | develop → main | 正式版本准备、验证和必要修复；版本改动须属已授权发布任务 |
+| `hotfix/*` | main → main | 紧急正式修复，合入后回流 develop |
+
+普通任务在 fetch 后用 `git switch -c codex/<任务> origin/develop` 创建；当前目录有其他工作时使用独立 worktree，不切换或重置其他任务。
+
+main 的 release/hotfix 合并完成后，从最新 develop 创建同步分支，合并最新 origin/main，检查差异、冲突及验证后 PR 到 develop。同步 PR 使用 **merge commit** 保留 main 祖先，不 squash/rebase；release 进入 main 同样保留祖先，避免后续回流重复整批提交。同步分支快进或本地合并不表示远端 develop 已更新。不得直接重置 develop 到 main，不强推、不覆盖历史。
+
+正式发布前核对候选源码；合并后核对实际 main SHA、Tag 和 APK 源码一致，再按独立发布授权创建 Tag/Release。release/hotfix 的修复应及时回到 develop，避免下一发布周期丢失；不做无边界的双向自动合并。
+
+流程切换前已开放的 #79 是暂时例外：先保留目标 main；本轮同步 PR 合并、确认 main 已是 develop 祖先后，再单独调整 #79 目标到 develop，复查完整 diff 和 CI。保留其 head 与提交历史，不自动关闭、重建、合并，不在同步尚未合并时把 610 个历史提交混入重构评审。
 
 ## 2. 修改与提交
 
@@ -51,7 +69,7 @@ git commit -m "说明本次变化"
 
 `SleepDown-Server/`、密钥、数据库、设备原始数据、临时日志和截图、APK、构建缓存不得入库。用户明确指定的公开素材先核对来源与隐私。不要用 `git add .` 代替范围审阅。
 
-未推送的个人分支可按需要整理提交。已共享的 PR 分支默认追加修复提交；需要更新基线时优先合并上游 main。重写已共享历史或强推须有明确授权，不因换助手或追求整齐自动 rebase、amend 或 force push。
+未推送的个人分支可按需要整理提交。已共享的 PR 分支默认追加修复提交；需要更新基线时优先合并目标分支的上游（普通任务为 develop）。重写已共享历史或强推须有明确授权，不因换助手或追求整齐自动 rebase、amend 或 force push。
 
 ## 3. 最小充分验证
 
@@ -65,7 +83,7 @@ git commit -m "说明本次变化"
 
 Codex 的 GitHub 元数据操作使用自带 GitHub plugin，不使用 GitHub CLI；其他助手使用环境中已授权的集成或界面。Git fetch/push 使用 Git。缺少某项能力时保留已完成结果并说明具体缺口，不改用私人凭据或绕过权限。
 
-普通改动面向 `main`。按[统一模板](../.github/pull_request_template.md)写清：
+普通改动面向 `develop`，发布准备与紧急修复面向 `main`。按[统一模板](../.github/pull_request_template.md)写清：
 
 - 触发问题、原有行为和最终变化；标题与描述反映最终实现。
 - 需要时说明基线、依赖 PR、额外已发布提交和数据兼容影响。
@@ -80,7 +98,7 @@ Codex 的 GitHub 元数据操作使用自带 GitHub plugin，不使用 GitHub CL
 | 本地进行中 | 范围尚未清楚或未获远端操作授权，先保留本地提交 |
 | Draft | 开发迭代、等待设备反馈或还有未完成项；跳过自动 PR 检查，仍可能显示一条 skipped run |
 | Ready for review | 实现与必要验证已完成，未完成项有明确说明，开始请求维护者评审与完整 CI |
-| 已合并 | 改动进入 main；不等于已打包、安装或发布 |
+| 已合并 | 改动进入 PR 目标分支；不等于已打包、安装或发布 |
 | 已关闭但未合并 | 说明撤回、重复或已发布覆盖的证据，保留需要追溯的历史 |
 
 工作流源于 [pr-checks.yml](../.github/workflows/pr-checks.yml)：草稿跳过，`ready_for_review` 开始检查；可评审 PR 在打开、重开和推送时检查，同一 PR 的新运行取消旧运行。不要用保持草稿来掩盖待修复的失败；应记录原因和下一步。
@@ -100,14 +118,14 @@ Codex 的 GitHub 元数据操作使用自带 GitHub plugin，不使用 GitHub CL
 | 方式 | 使用规范 |
 | --- | --- |
 | Create a merge commit（默认） | 保留有意义的提交边界、作者与原始 SHA；发布基线回流、包含已发布祖先或多项独立修复时使用 |
-| Squash and merge | 单一小问题且分支包含大量临时提交时可用；合并说明保留真实贡献者和必要来源，合并后从新 main 创建下一分支 |
+| Squash and merge | 单一小问题且分支包含大量临时提交时可用；合并说明保留真实贡献者和必要来源，合并后从更新的目标分支创建下一分支 |
 | Rebase and merge | 有明确线性历史需求时再选；会改变提交 SHA，不用于保留发布标签祖先关系的回流 |
 
 GitHub 三种方式的行为见[官方说明](https://docs.github.com/en/pull-requests/reference/pull-request-merges)。默认不 squash 已发布源码的回流，避免 main 的版本归属与发布祖先关系继续分离。不能为遵循默认方式覆盖平台当前规则；遇到冲突先给出具体影响。
 
 合并前再次确认 PR 号、目标分支和 head 未被其他任务更新；通过集成支持的预期 head 校验或回读核对，避免将新追加但未审阅的改动带入。只报告平台已确认的合并结果与合并提交。
 
-合并后 fetch main，核对合并提交已进入远端 main；本地 main 仅在干净且未被其他任务占用时快进同步。下一个独立任务从新 main 开始；**同一 PR 的追加修复只适用于它尚未合并时**。已合并分支不继续承载新任务，尤其不能在 squash 后沿旧分支反复开 PR。
+合并后 fetch 目标分支，核对合并提交已进入对应远端；本地分支仅在干净且未被其他任务占用时快进同步。下一个普通任务从最新 develop 开始；**同一 PR 的追加修复只适用于它尚未合并时**。已合并分支不继续承载新任务，尤其不能在 squash 后沿旧分支反复开 PR。
 
 ## 6. 发布与清理
 
