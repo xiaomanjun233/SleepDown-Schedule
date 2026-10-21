@@ -158,8 +158,15 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, style
     } ?: return false
     val glowOutsets = surface.courseGlow?.outsets
     val surfaceHost = remember(surface) {
-        if (glowOutsets == null) surface else FrameLayout(context).apply {
-            clipChildren = true
+        if (glowOutsets == null) surface else object : FrameLayout(context) {
+            override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+                super.onSizeChanged(w, h, oldw, oldh)
+                clipBounds = android.graphics.Rect(0, 0, w, h)
+            }
+        }.apply {
+            // Let the child's caustic reach the reserved padding; clip at this host's full
+            // bounds, not at the child card's bounds or at an unbounded page RenderNode.
+            clipChildren = false
             clipToPadding = false
             setPadding(glowOutsets.left, glowOutsets.top, glowOutsets.right, glowOutsets.bottom)
             addView(surface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
@@ -201,6 +208,7 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, style
             })
             .graphicsLayer {
                 alpha = latest.value.surfaceAlpha()
+                clip = glowOutsets != null
                 compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
             }
             .drawWithContent {
