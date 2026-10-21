@@ -88,6 +88,7 @@ jobs:
           --tests 'com.xiaomanjun.sleepdownschedule.DetailMorphBlurTest'
           --tests 'com.xiaomanjun.sleepdownschedule.glass.GlassFrameworkTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.home.HomePersonalizationGeometryTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeMorphPreloadTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.home.HomeMotionPerformancePolicyTest'
           --tests 'com.xiaomanjun.sleepdownschedule.Transition*Test'
           --tests 'com.xiaomanjun.sleepdownschedule.transition.SharedViewKit*Test'

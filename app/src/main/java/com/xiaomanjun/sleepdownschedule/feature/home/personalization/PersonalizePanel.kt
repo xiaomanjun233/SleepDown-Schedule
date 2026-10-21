@@ -121,7 +121,8 @@ fun PersonalizePanel(
     previewProgress: Float,
     onSliderPreviewActiveChange: (String, Boolean) -> Unit
 ) {
-    val rowReveal = remember { Animatable(0f) }
+    val nativeMotion = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()
+    val rowReveal = remember { Animatable(if (nativeMotion) 1f else 0f) }
     val rowDensity = LocalDensity.current
     val rowEasing = remember { CubicBezierEasing(0.22f, 0f, 0.30f, 1f) }
     val weekContentRows = if (mode == HomeMode.Week) 3 else 0
@@ -129,13 +130,13 @@ fun PersonalizePanel(
     val nativeMaterialActive = nativeMaterialMode?.enabled == true && !AppMaterialPreferences.isSuperPerformance
     val nativeMaterialRows = if (nativeMaterialMode == null) 0 else if (nativeMaterialActive) 3 else 1
     val rowEntranceDurationMillis = 610 + (weekContentRows + nativeMaterialRows) * 15
-    LaunchedEffect(rowEntranceActive, rowEntranceDurationMillis) {
-        if (rowEntranceActive) {
+    LaunchedEffect(rowEntranceActive, rowEntranceDurationMillis, nativeMotion) {
+        if (rowEntranceActive && !nativeMotion) {
             withFrameNanos { }
             rowReveal.animateTo(1f, tween(rowEntranceDurationMillis, easing = LinearEasing))
         }
     }
-    fun Modifier.rowEntrance(index: Int): Modifier = graphicsLayer {
+    fun Modifier.rowEntrance(index: Int): Modifier = if (nativeMotion) this else graphicsLayer {
         val t = ((rowReveal.value * rowEntranceDurationMillis - index * 15f) / 340f).coerceIn(0f, 1f)
         val progress = rowEasing.transform(t)
         alpha = progress

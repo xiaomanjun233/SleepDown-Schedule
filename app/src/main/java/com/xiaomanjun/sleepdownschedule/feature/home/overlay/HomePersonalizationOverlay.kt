@@ -156,6 +156,7 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
     adaptiveMetrics: HomeAdaptiveMetrics,
     previewProgress: Float,
     contentMounted: Boolean,
+    contentDuringMotion: Boolean,
     onContentLaidOut: () -> Unit,
     onDismissRequest: () -> Unit,
     sourceContent: @Composable (Modifier) -> Unit,
@@ -374,10 +375,10 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
     }
     val maxContentBlurPx = with(density) { 5.dp.toPx() }
     val formReveal = remember { Animatable(0f) }
-    val showForm = contentMounted && motionState.phase == HomeAnchoredOverlayPhase.Open
-    val revealForm = showForm && motionState.phase == HomeAnchoredOverlayPhase.Open
-    LaunchedEffect(revealForm) {
-        formReveal.animateTo(if (revealForm) 1f else 0f, tween(220))
+    val showForm = contentMounted && (contentDuringMotion || motionState.phase == HomeAnchoredOverlayPhase.Open)
+    val revealForm = !contentDuringMotion && showForm && motionState.phase == HomeAnchoredOverlayPhase.Open
+    LaunchedEffect(revealForm, contentDuringMotion) {
+        if (!contentDuringMotion) formReveal.animateTo(if (revealForm) 1f else 0f, tween(220))
     }
     val targetWidth = with(density) { targetRect.width.toDp() }
     val targetHeight = with(density) { targetRect.height.toDp() }
@@ -506,7 +507,9 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
                     geometry.value.pathProgress >= 0.999f
                 clip = !fullOpenEndpoint
                 this.shape = shape
-                compositingStrategy = if (fullOpenEndpoint || fixedAllocation != null) {
+                compositingStrategy = if (contentDuringMotion) {
+                    CompositingStrategy.ModulateAlpha
+                } else if (fullOpenEndpoint || fixedAllocation != null) {
                     CompositingStrategy.Auto
                 } else {
                     CompositingStrategy.Offscreen
@@ -533,7 +536,12 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
                 geometry.value.surfaceAlpha *
                     (1f - latestPreviewProgress.value.coerceIn(0f, 1f))
             },
-            contentAlphaProvider = { formReveal.value },
+            contentAlphaProvider = { if (contentDuringMotion) geometry.value.contentAlpha else formReveal.value },
+            contentScaleProvider = {
+                if (contentDuringMotion) Offset(geometry.value.rect.width / targetRect.width,
+                    geometry.value.rect.height / targetRect.height) else Offset(1f, 1f)
+            },
+            contentCompositingStrategy = if (contentDuringMotion) CompositingStrategy.ModulateAlpha else CompositingStrategy.Auto,
             contentBlurRadiusPxProvider = {
                 // Blur is now a crossfade between two pre-recorded GPU layers below. Leaving this
                 // outer target-sized layer unblurred avoids recomputing a full form RenderEffect on
@@ -546,7 +554,8 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
             content = { contentModifier ->
                 if (showForm) {
                     content(
-                        contentModifier
+                        contentModifier.then(if (contentDuringMotion && motionState.phase != HomeAnchoredOverlayPhase.Open)
+                            Modifier.clearAndSetSemantics { } else Modifier)
                     )
                 }
             }
@@ -578,9 +587,8 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
             sourceContent(Modifier.fillMaxSize())
         }
 
-        if (motionState.phase != HomeAnchoredOverlayPhase.Opening &&
-            motionState.phase != HomeAnchoredOverlayPhase.Open
-        ) {
+        if (motionState.phase != HomeAnchoredOverlayPhase.Open &&
+            (contentDuringMotion || motionState.phase != HomeAnchoredOverlayPhase.Opening)) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -607,6 +615,8 @@ private fun DeferredHomePersonalizeMorphPanel(
     warmupBackdropEffects: Boolean,
     surfaceAlphaProvider: () -> Float,
     contentAlphaProvider: () -> Float,
+    contentScaleProvider: () -> Offset,
+    contentCompositingStrategy: CompositingStrategy,
     contentBlurRadiusPxProvider: () -> Float,
     backdropBlurProgressProvider: () -> Float,
     onContentLaidOut: () -> Unit,
@@ -685,10 +695,10 @@ private fun DeferredHomePersonalizeMorphPanel(
             modifier = Modifier
                 .align(Alignment.Center)
                 .requiredSize(targetWidth, targetHeight)
-                .onSizeChanged {
-                    if (it.width > 0 && it.height > 0) onContentLaidOut()
-                }
                 .graphicsLayer {
+                    val contentScale = contentScaleProvider()
+                    scaleX = contentScale.x
+                    scaleY = contentScale.y
                     val contentAlpha = contentAlphaProvider()
                     alpha = contentAlpha
                     // Avoid allocating a target-sized offscreen blur layer while the content is
@@ -701,14 +711,16 @@ private fun DeferredHomePersonalizeMorphPanel(
                     compositingStrategy = if (blurPx > 0.01f) {
                         CompositingStrategy.Offscreen
                     } else {
-                        CompositingStrategy.Auto
+                        contentCompositingStrategy
                     }
                     renderEffect = if (blurPx > 0.01f) {
                         BlurEffect(blurPx, blurPx, TileMode.Clamp)
                     } else null
                 }
         ) {
-            content(Modifier.fillMaxSize())
+            content(Modifier.fillMaxSize().onSizeChanged {
+                if (it.width > 0 && it.height > 0) onContentLaidOut()
+            })
         }
     }
 }

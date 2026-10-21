@@ -28,6 +28,11 @@ internal data class ControlMaterialRenderers(
     }
 }
 
+/** Resolve the active material capabilities, regardless of which settings entry selected them. */
+@Composable
+internal fun usesNativeMaterialMotion(): Boolean =
+    LocalNativeMaterialSurfaceRenderer.current != null || LocalNativeCourseCardMode.current?.enabled == true
+
 @Composable
 internal fun ProvideControlMaterials(
     renderers: ControlMaterialRenderers,

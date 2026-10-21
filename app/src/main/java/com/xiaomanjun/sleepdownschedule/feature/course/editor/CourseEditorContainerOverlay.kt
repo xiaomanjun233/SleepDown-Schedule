@@ -25,10 +25,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -51,7 +53,11 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
@@ -76,6 +82,7 @@ import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphController
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphControllerBridge
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphDirection
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphInput
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphFrame
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphPhase
 import com.xiaomanjun.sleepdownschedule.glass.glassMorphContent
 import com.xiaomanjun.sleepdownschedule.glass.glassMorphHost
@@ -87,6 +94,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import kotlin.math.roundToInt
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalPersonalizationPreview
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
@@ -250,6 +258,9 @@ internal fun CourseEditorContainerOverlayHost(
     onRenderedCourseIdChange: (Long?) -> Unit = {},
     onPhaseChange: (CourseEditorOverlayPhase) -> Unit = {}
 ) {
+    val preloadContent = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()) {
         var dismissHandler by remember { mutableStateOf<(() -> Unit)?>(null) }
         var copySaving by remember { mutableStateOf(false) }
@@ -324,6 +335,7 @@ internal fun CourseEditorContainerOverlayHost(
     var copySaving by remember(request) { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     var editorContentMounted by remember { mutableStateOf(false) }
+    var editorContentLaidOut by remember { mutableStateOf(false) }
     val progress = motionState.progress
     val latestOnRenderedCourseIdChange by rememberUpdatedState(onRenderedCourseIdChange)
     val latestOnPhaseChange by rememberUpdatedState(onPhaseChange)
@@ -336,7 +348,8 @@ internal fun CourseEditorContainerOverlayHost(
 
     LaunchedEffect(request) {
         if (request != null) {
-            editorContentMounted = false
+            editorContentMounted = preloadContent
+            editorContentLaidOut = false
             motionState.retractTo(null)
             updatePhase(CourseEditorOverlayPhase.Preparing)
             renderedRequest = request
@@ -349,6 +362,12 @@ internal fun CourseEditorContainerOverlayHost(
                 waitedFrames++
             }
             latestAwaitOpeningGate()
+            if (preloadContent) {
+                snapshotFlow { editorContentLaidOut }.first { it }
+                // Layout and native-view attachment happen before the moving frame, rather than
+                // mounting the whole form after the shell settles. Request cancellation releases it.
+                withFrameNanos { }
+            }
             updatePhase(CourseEditorOverlayPhase.Opening)
             coroutineScope {
                 launch {
@@ -374,14 +393,18 @@ internal fun CourseEditorContainerOverlayHost(
                     )
                 }
             }
-            // Both shell and background finish before inputs, Pager or field glass are created.
-            // Present that settled shell once, then let the form run its own entrance.
             updatePhase(CourseEditorOverlayPhase.Open)
-            withFrameNanos { }
-            editorContentMounted = true
+            if (!preloadContent) {
+                withFrameNanos { }
+                editorContentMounted = true
+            }
         } else if (renderedRequest != null) {
-            // Keep only the morphing shell on exit; release inputs, Pager and form producers now.
-            editorContentMounted = false
+            // Native content stays with its shell through the return; inputs are blocked below.
+            if (preloadContent) {
+                focusManager.clearFocus(force = true)
+                keyboard?.hide()
+            }
+            if (!preloadContent) editorContentMounted = false
             updatePhase(CourseEditorOverlayPhase.Closing)
             coroutineScope {
                 launch {
@@ -757,21 +780,27 @@ internal fun CourseEditorContainerOverlayHost(
                     .clip(shellShape)
                     .courseEditorContentTaper { taper.value }
             ) {
-                if (request != null && editorContentMounted && overlayPhase == CourseEditorOverlayPhase.Open) {
-                    CourseEditorFormLayer(
-                        targetRect = targetRect,
-                        corner = corner.value,
-                        textColor = textColor,
-                        formData = formData,
-                        course = shownRequest.course,
-                        copyDraft = shownRequest.copyDraft,
-                        contextMessage = shownRequest.contextMessage,
-                        backdrop = editorFormBackdrop,
-                        onDismissRequest = { if (!copySaving) onDismissRequest() },
-                        onDismissHandlerChange = onDismissHandlerChange,
-                        onSave = saveEditedCourse,
-                        onDelete = deleteEditedCourse
-                    )
+                if (editorContentMounted && (preloadContent ||
+                        request != null && overlayPhase == CourseEditorOverlayPhase.Open)) {
+                    key(shownRequest) {
+                        CourseEditorFormLayer(
+                            targetRect = targetRect,
+                            corner = corner.value,
+                            textColor = textColor,
+                            formData = formData,
+                            course = shownRequest.course,
+                            copyDraft = shownRequest.copyDraft,
+                            contextMessage = shownRequest.contextMessage,
+                            backdrop = editorFormBackdrop,
+                            onDismissRequest = { if (!copySaving) onDismissRequest() },
+                            onDismissHandlerChange = onDismissHandlerChange,
+                            onSave = saveEditedCourse,
+                            onDelete = deleteEditedCourse,
+                            liveFrame = if (preloadContent) ({ frameState.value }) else null,
+                            interactive = overlayPhase == CourseEditorOverlayPhase.Open,
+                            onContentLaidOut = { editorContentLaidOut = true }
+                        )
+                    }
                 }
                 if (showSourceCover) {
                     CourseEditorSourceShell(
@@ -804,6 +833,13 @@ internal fun CourseEditorContainerOverlayHost(
                                 renderEffect = platformBlurRenderEffect(blurPx)
                             }
                     )
+                }
+                if (preloadContent && overlayPhase != CourseEditorOverlayPhase.Open) {
+                    Box(Modifier.fillMaxSize().pointerInput(Unit) {
+                        awaitPointerEventScope {
+                            while (true) awaitPointerEvent().changes.forEach { it.consume() }
+                        }
+                    })
                 }
             }
         }
@@ -851,7 +887,10 @@ private fun CourseEditorFormLayer(
     onDismissRequest: () -> Unit,
     onDismissHandlerChange: ((() -> Unit)?) -> Unit,
     onSave: (List<CourseEntity>, List<CourseEntity>) -> Unit,
-    onDelete: (List<CourseEntity>) -> Unit
+    onDelete: (List<CourseEntity>) -> Unit,
+    liveFrame: (() -> LiquidMorphFrame)? = null,
+    interactive: Boolean = true,
+    onContentLaidOut: () -> Unit = {}
 ) {
     if (targetRect.width <= 1f || targetRect.height <= 1f) {
         return
@@ -860,11 +899,10 @@ private fun CourseEditorFormLayer(
     var pagerPresentation by remember(formData, course) {
         mutableStateOf<CourseEditorPagerPresentation?>(null)
     }
-    // This subtree exists only after the shell/background settle, and is disposed on close.
-    val formStagger = remember { Animatable(0f) }
+    val formStagger = remember { Animatable(if (liveFrame != null) 1f else 0f) }
     var contentLaidOut by remember { mutableStateOf(false) }
     LaunchedEffect(contentLaidOut) {
-        if (contentLaidOut) {
+        if (contentLaidOut && liveFrame == null) {
             withFrameNanos { }
             formStagger.animateTo(
                 1f,
@@ -879,6 +917,7 @@ private fun CourseEditorFormLayer(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .then(if (interactive) Modifier else Modifier.clearAndSetSemantics { })
             .clip(RoundedRectangle(corner))
     ) {
         Box(
@@ -890,7 +929,21 @@ private fun CourseEditorFormLayer(
                     height = with(density) { targetRect.height.toDp() }
                 )
                 .onSizeChanged {
-                    if (it.width > 0 && it.height > 0) contentLaidOut = true
+                    if (it.width > 0 && it.height > 0) {
+                        contentLaidOut = true
+                        onContentLaidOut()
+                    }
+                }
+                .graphicsLayer {
+                    liveFrame?.invoke()?.let { frame ->
+                        transformOrigin = TransformOrigin(0f, 0f)
+                        scaleX = frame.rect.width / targetRect.width
+                        scaleY = frame.rect.height / targetRect.height
+                        alpha = frame.content.destinationContentAlpha
+                        // Native materials sample the live underlay; do not rasterize the form
+                        // into another blur/offscreen layer while its geometry changes.
+                        compositingStrategy = CompositingStrategy.ModulateAlpha
+                    }
                 },
             contentAlignment = Alignment.TopStart
         ) {
