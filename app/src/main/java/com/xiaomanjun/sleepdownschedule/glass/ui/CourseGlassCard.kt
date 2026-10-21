@@ -153,6 +153,8 @@ fun CourseGlassCard(
     editorSampleScale: Float = 1f,
     expandedOutlineLight: Boolean = false,
     followTouch: Boolean = true,
+    // Moving replicas and expanded forms keep material but do not own a course-card rim/light.
+    nativeEdgeEffects: Boolean = true,
     followLightRadius: androidx.compose.ui.unit.Dp? = null,
     muted: Boolean = false,
     flatOpacityOverride: Float? = null,
@@ -229,6 +231,7 @@ fun CourseGlassCard(
                 statusModifier.onGloballyPositioned { coordinates[0] = it }, shape, appUsesDarkTheme(config),
                 renderSurface, drawMaterialNodes, onClick, tintDraw,
                 followTouch = followTouch,
+                edgeEffects = nativeEdgeEffects,
                 followLightRadius = followLightRadius
             )) {
                 CompositionLocalProvider(LocalCourseTextBackground provides background) { content() }
