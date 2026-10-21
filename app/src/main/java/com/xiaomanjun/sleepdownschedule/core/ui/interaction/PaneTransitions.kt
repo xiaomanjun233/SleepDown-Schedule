@@ -1,4 +1,4 @@
-package com.xiaomanjun.sleepdownschedule.feature.home
+package com.xiaomanjun.sleepdownschedule.core.ui.interaction
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
@@ -29,6 +29,18 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 
+/** Shared sidebar-page motion. Feature navigation owns the target and the portrait transition. */
+private object LandscapePageMotion {
+    val Easing = CubicBezierEasing(0.22f, 0.72f, 0.20f, 1f)
+    val EnterFade = tween<Float>(300)
+    val ExitFade = tween<Float>(220)
+    val EnterScale = tween<Float>(360, easing = Easing)
+    val ExitScale = tween<Float>(300, easing = Easing)
+    val Blur = tween<Float>(320, easing = Easing)
+    const val HiddenScale = 0.96f
+    const val HiddenBlurDp = 10f
+}
+
 /** The sidebar lives outside this host. Only outgoing/incoming page pixels receive the effect. */
 @Composable
 internal fun <T> LandscapePageTransition(
@@ -37,7 +49,6 @@ internal fun <T> LandscapePageTransition(
     onMovingChange: (Boolean) -> Unit = {},
     content: @Composable (T) -> Unit
 ) {
-    val easing = CubicBezierEasing(0.22f, 0.72f, 0.20f, 1f)
     val pageTransition = updateTransition(target, label = "landscape-page")
     val moving = pageTransition.isRunning || pageTransition.currentState != pageTransition.targetState
     val latestMovingCallback by rememberUpdatedState(onMovingChange)
@@ -50,12 +61,14 @@ internal fun <T> LandscapePageTransition(
     } else Modifier
     pageTransition.AnimatedContent(modifier = modifier.then(inputGuard),
         transitionSpec = {
-            (fadeIn(tween(300)) + scaleIn(tween(360, easing = easing), initialScale = 0.96f))
-                .togetherWith(fadeOut(tween(220)) + scaleOut(tween(300, easing = easing), targetScale = 0.96f))
+            (fadeIn(LandscapePageMotion.EnterFade) +
+                scaleIn(LandscapePageMotion.EnterScale, initialScale = LandscapePageMotion.HiddenScale))
+                .togetherWith(fadeOut(LandscapePageMotion.ExitFade) +
+                    scaleOut(LandscapePageMotion.ExitScale, targetScale = LandscapePageMotion.HiddenScale))
                 .using(null)
         }) { page ->
-        val blur by transition.animateFloat(label = "landscape-page-blur", transitionSpec = { tween(320, easing = easing) }) {
-            if (it == EnterExitState.Visible) 0f else 10f
+        val blur by transition.animateFloat(label = "landscape-page-blur", transitionSpec = { LandscapePageMotion.Blur }) {
+            if (it == EnterExitState.Visible) 0f else LandscapePageMotion.HiddenBlurDp
         }
         Box(Modifier.fillMaxSize().graphicsLayer {
             val radius = blur.dp.toPx()

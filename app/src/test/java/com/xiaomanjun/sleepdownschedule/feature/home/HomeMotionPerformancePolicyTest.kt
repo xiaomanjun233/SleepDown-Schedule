@@ -45,9 +45,11 @@ class HomeMotionPerformancePolicyTest {
 
     @Test
     fun cachedAndLiveDepthCurveUsesTheSameEndpoints() {
-        assertEquals(0f, homeOverlayDepthProgress(1f), 0.0001f)
-        assertEquals(1f, homeOverlayDepthProgress(BackgroundZoomOpenScale), 0.0001f)
-        assertEquals(1f, homeOverlayDepthProgress(HomeMenuDestinationEduBackgroundScale), 0.0001f)
+        assertEquals(0f, homeOverlayDepthProgress(1f, CourseEditorMotion.BackgroundZoomOpenScale), 0.0001f)
+        assertEquals(1f, homeOverlayDepthProgress(CourseEditorMotion.BackgroundZoomOpenScale, CourseEditorMotion.BackgroundZoomOpenScale), 0.0001f)
+        assertEquals(1f, homeOverlayDepthProgress(HomeMenuDestinationEduBackgroundScale, CourseEditorMotion.BackgroundZoomOpenScale), 0.0001f)
+        // Changing the editor's depth must also update the shared backdrop normalization.
+        assertEquals(0.5f, homeOverlayDepthProgress(1.08f, editorBackgroundScale = 1.16f), 0.0001f)
     }
 
     @Test

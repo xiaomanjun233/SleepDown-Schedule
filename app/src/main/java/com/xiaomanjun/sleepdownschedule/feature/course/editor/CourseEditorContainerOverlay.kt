@@ -2,7 +2,6 @@ package com.xiaomanjun.sleepdownschedule.feature.course.editor
 import android.graphics.Matrix
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -73,18 +72,11 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation
 import com.xiaomanjun.sleepdownschedule.glass.GlassMotionExperiments
 import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionGeometry
-import com.xiaomanjun.sleepdownschedule.glass.LiquidBackdropDepthFrame
-import com.xiaomanjun.sleepdownschedule.glass.LiquidContentHandoffFrame
-import com.xiaomanjun.sleepdownschedule.glass.LiquidLayerLifecycleFrame
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphController
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphControllerBridge
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphDirection
-import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphFrame
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphInput
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphPhase
-import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphSpec
-import com.xiaomanjun.sleepdownschedule.glass.LiquidMotionSample
-import com.xiaomanjun.sleepdownschedule.glass.LiquidProgressKinematics
 import com.xiaomanjun.sleepdownschedule.glass.glassMorphContent
 import com.xiaomanjun.sleepdownschedule.glass.glassMorphHost
 import com.xiaomanjun.sleepdownschedule.glass.isAllocationEfficientFor
@@ -92,36 +84,12 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
-import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.min
 import kotlin.math.roundToInt
-import kotlin.math.sign
-import kotlin.math.sin
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalPersonalizationPreview
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
-private val CourseEditorOpenPositionEasing = CubicBezierEasing(0.18f, 0.72f, 0.18f, 1.0f)
-private val CourseEditorOpenSizeEasing = CubicBezierEasing(0.22f, 0.62f, 0.22f, 1.0f)
-private val CourseEditorClosePositionEasing = CubicBezierEasing(0.30f, 0.10f, 0.22f, 1.0f)
-private const val CourseEditorOpenDurationMillis = 380
-internal const val CourseEditorCloseDurationMillis = 440
-// The background zoom runs on its own, slower timeline than the card morph so it keeps
-// settling after the card has finished expanding/collapsing — reading as inertial pull
-// on the home surface behind the editor rather than a motion locked to the card.
-internal const val BackgroundZoomOpenScale = 1.08f
-private const val BackgroundZoomDelayMillis = 20
-private const val BackgroundZoomOpenDurationMillis = 420
-private const val BackgroundZoomCloseDurationMillis = CourseEditorCloseDurationMillis
-private val BackgroundZoomInertialEasing = CubicBezierEasing(0.30f, 0.0f, 0.20f, 1.0f)
-// A short overlapping entrance follows the shell; offscreen rows mount only when scrolled in.
-internal const val CourseEditorFormRevealDurationMillis = 300
-private val CourseEditorRowRevealEasing = CubicBezierEasing(0.22f, 0f, 0.30f, 1f)
-// 需要逐行飞入的行数：固定标题栏 + 表单行（课程名称/教师/地点/星期/节次/周次/单双周/颜色/备注/删除/错误）。
-internal const val CourseEditorFormRowCount = 12
-
 enum class CourseEditorOverlayPhase {
     Idle,
     Preparing,
@@ -295,7 +263,7 @@ internal fun CourseEditorContainerOverlayHost(
             onPhaseChange(phase)
             motionState.progress.animateTo(
                 if (request != null) 1f else 0f,
-                tween(if (request != null) 280 else 240, easing = CubicBezierEasing(0.2f, 0.7f, 0.2f, 1f))
+                CourseEditorMotion.centeredSpec(opening = request != null)
             )
         }
         DisposableEffect(Unit) {
@@ -387,7 +355,7 @@ internal fun CourseEditorContainerOverlayHost(
                     progress.animateTo(
                         targetValue = 1f,
                         animationSpec = tween(
-                            durationMillis = CourseEditorOpenDurationMillis,
+                            durationMillis = CourseEditorMotion.OpenDurationMillis,
                             easing = LinearEasing
                         )
                     )
@@ -397,11 +365,11 @@ internal fun CourseEditorContainerOverlayHost(
                 // on the home surface behind the editor.
                 launch {
                     motionState.backgroundZoom.animateTo(
-                        targetValue = BackgroundZoomOpenScale,
+                        targetValue = CourseEditorMotion.BackgroundZoomOpenScale,
                         animationSpec = tween(
-                            durationMillis = BackgroundZoomOpenDurationMillis,
-                            delayMillis = BackgroundZoomDelayMillis,
-                            easing = BackgroundZoomInertialEasing
+                            durationMillis = CourseEditorMotion.BackgroundZoomOpenDurationMillis,
+                            delayMillis = CourseEditorMotion.BackgroundZoomDelayMillis,
+                            easing = CourseEditorMotion.BackgroundZoomInertialEasing
                         )
                     )
                 }
@@ -420,7 +388,7 @@ internal fun CourseEditorContainerOverlayHost(
                     progress.animateTo(
                         targetValue = 0f,
                         animationSpec = tween(
-                            durationMillis = CourseEditorCloseDurationMillis,
+                            durationMillis = CourseEditorMotion.CloseDurationMillis,
                             easing = LinearEasing
                         )
                     )
@@ -431,8 +399,8 @@ internal fun CourseEditorContainerOverlayHost(
                     motionState.backgroundZoom.animateTo(
                         targetValue = 1f,
                         animationSpec = tween(
-                            durationMillis = BackgroundZoomCloseDurationMillis,
-                            easing = BackgroundZoomInertialEasing
+                            durationMillis = CourseEditorMotion.BackgroundZoomCloseDurationMillis,
+                            easing = CourseEditorMotion.BackgroundZoomInertialEasing
                         )
                     )
                 }
@@ -616,7 +584,7 @@ internal fun CourseEditorContainerOverlayHost(
                     direction = if (closingMorph) LiquidMorphDirection.Closing else LiquidMorphDirection.Opening,
                     backdropScale = motionState.backgroundZoom.value,
                     backdropBlurPx = with(density) {
-                        22.dp.toPx() * homeOverlayDepthProgress(motionState.backgroundZoom.value)
+                        22.dp.toPx() * homeOverlayDepthProgress(motionState.backgroundZoom.value, CourseEditorMotion.BackgroundZoomOpenScale)
                     },
                     useCachedBackdrop = overlayPhase == CourseEditorOverlayPhase.Preparing ||
                         overlayPhase == CourseEditorOverlayPhase.Opening ||
@@ -700,7 +668,7 @@ internal fun CourseEditorContainerOverlayHost(
     val blendedMorphBackdrop = com.xiaomanjun.sleepdownschedule.glass.ui.rememberCrossfadeBackdrop(
         source = if (shownRequest.sourceIsDayCard && hasSourceTransform) sourceCardBackdrop else backdrop,
         destination = backdrop,
-        progress = { smoothStep(0.12f, 0.62f, morphFrame.shapeProgress) }
+        progress = { courseEditorSmoothStep(0.12f, 0.62f, morphFrame.shapeProgress) }
     )
     // A wrapper around the wallpaper breaks CourseGlassCard's shared-blur identity check.
     // Start with the clicked day card's actual input and sampling path, then hand off to
@@ -900,16 +868,13 @@ private fun CourseEditorFormLayer(
             withFrameNanos { }
             formStagger.animateTo(
                 1f,
-                tween(CourseEditorFormRevealDurationMillis, easing = LinearEasing)
+                tween(CourseEditorMotion.FormRevealDurationMillis, easing = LinearEasing)
             )
         }
     }
     // Top-to-bottom order, with overlapping, independently eased upward entrances.
     val courseEditorFormRowEntrance: (Int) -> Float = { rowIndex ->
-        val delayMillis = rowIndex.coerceIn(0, CourseEditorFormRowCount) * 8f
-        val t = ((formStagger.value * CourseEditorFormRevealDurationMillis - delayMillis) / 200f)
-            .coerceIn(0f, 1f)
-        CourseEditorRowRevealEasing.transform(t)
+        CourseEditorMotion.formRowEntrance(rowIndex, formStagger.value)
     }
     Box(
         modifier = Modifier
@@ -994,19 +959,19 @@ private fun CourseEditorAnimatedContainer(
     val currentProgress = rememberUpdatedState(progressProvider)
     val editorBlur by remember(config.courseCardBlur) {
         derivedStateOf {
-            interpolateFloat(config.courseCardBlur, finalDialogBlur,
+            courseEditorInterpolate(config.courseCardBlur, finalDialogBlur,
                 quantizeHomeProgressiveBackdropBlurProgress(
-                    smoothStep(0.62f, 1f, currentProgress.value.invoke())
+                    courseEditorSmoothStep(0.62f, 1f, currentProgress.value.invoke())
                 ))
         }
     }
     val flatEditorOpacity by remember(config.courseCardBlur, config.courseCardGlassEnabled) {
         derivedStateOf {
-            interpolateFloat(
+            courseEditorInterpolate(
                 com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.policy.opacity(
                     config.courseCardBlur, com.xiaomanjun.sleepdownschedule.model.courseCardBlurMaximum(config.courseCardGlassEnabled)),
                 com.xiaomanjun.sleepdownschedule.glass.FlatControlOpacity,
-                smoothStep(0.12f, 0.62f, currentProgress.value.invoke())
+                courseEditorSmoothStep(0.12f, 0.62f, currentProgress.value.invoke())
             )
         }
     }
@@ -1086,181 +1051,3 @@ private fun validSourceRect(rect: Rect?, rootSize: IntSize): Rect? {
     // geometry; the window clips pixels outside the root without stretching the remainder.
     return rect
 }
-
-private fun interpolateFloat(start: Float, stop: Float, fraction: Float): Float {
-    val safe = fraction.coerceIn(0f, 1f)
-    return start + (stop - start) * safe
-}
-
-private data class CourseEditorVisualProgress(
-    val position: Float,
-    val size: Float
-)
-
-private fun courseEditorVisualProgress(
-    rawProgress: Float,
-    phase: CourseEditorOverlayPhase
-): CourseEditorVisualProgress {
-    val raw = rawProgress.coerceIn(0f, 1f)
-    return when (phase) {
-        CourseEditorOverlayPhase.Closing,
-        CourseEditorOverlayPhase.Disposing -> {
-            // Keep the same reverse parabola, but let its center advance gently at first so the
-            // close does not feel faster than the opening. Size contracts earlier and separately,
-            // making the return arc visible instead of moving a nearly full-size dialog.
-            val closingElapsed = 1f - raw
-            val closingPosition = CourseEditorClosePositionEasing.transform(closingElapsed)
-            val advancedClosingSize = (closingElapsed / 0.78f).coerceIn(0f, 1f)
-            val closingSize = CourseEditorOpenSizeEasing.transform(advancedClosingSize)
-            CourseEditorVisualProgress(
-                position = (1f - closingPosition).coerceIn(0f, 1f),
-                size = (1f - closingSize).coerceIn(0f, 1f)
-            )
-        }
-        CourseEditorOverlayPhase.Open -> CourseEditorVisualProgress(position = 1f, size = 1f)
-        else -> {
-            val delayedSizeProgress = ((raw - 0.10f) / 0.90f).coerceIn(0f, 1f)
-            CourseEditorVisualProgress(
-                position = CourseEditorOpenPositionEasing.transform(raw).coerceIn(0f, 1f),
-                size = CourseEditorOpenSizeEasing.transform(delayedSizeProgress).coerceIn(0f, 1f)
-            )
-        }
-    }
-}
-
-private fun courseEditorSettleScale(
-    rawProgress: Float,
-    phase: CourseEditorOverlayPhase
-): Float {
-    val raw = rawProgress.coerceIn(0f, 1f)
-    return when (phase) {
-        CourseEditorOverlayPhase.Opening -> {
-            val pulse = ((raw - 0.78f) / 0.22f).coerceIn(0f, 1f)
-            1f + sin(PI.toFloat() * pulse) * 0.008f
-        }
-        CourseEditorOverlayPhase.Closing -> {
-            val closingElapsed = 1f - raw
-            val pulse = ((closingElapsed - 0.78f) / 0.22f).coerceIn(0f, 1f)
-            1f + sin(PI.toFloat() * pulse) * 0.008f
-        }
-        else -> 1f
-    }
-}
-
-private fun curvedCourseEditorRect(
-    source: Rect,
-    target: Rect,
-    positionProgress: Float,
-    sizeProgress: Float,
-    pulseScale: Float,
-    maxArcPx: Float
-): Rect {
-    val positionT = positionProgress.coerceIn(0f, 1f)
-    val sizeT = sizeProgress.coerceIn(0f, 1f)
-    val sourceCenter = source.center
-    val targetCenter = target.center
-    val deltaY = targetCenter.y - sourceCenter.y
-    val arcAmplitude = min(maxArcPx, abs(deltaY) * 0.22f)
-    val controlX = (sourceCenter.x + targetCenter.x) / 2f
-    val controlY = (sourceCenter.y + targetCenter.y) / 2f + sign(deltaY) * arcAmplitude
-    val inverse = 1f - positionT
-    val centerX =
-        inverse * inverse * sourceCenter.x +
-            2f * inverse * positionT * controlX +
-            positionT * positionT * targetCenter.x
-    val centerY =
-        inverse * inverse * sourceCenter.y +
-            2f * inverse * positionT * controlY +
-            positionT * positionT * targetCenter.y
-    val width = interpolateFloat(source.width, target.width, sizeT) * pulseScale
-    val height = interpolateFloat(source.height, target.height, sizeT) * pulseScale
-    return Rect(
-        left = centerX - width / 2f,
-        top = centerY - height / 2f,
-        right = centerX + width / 2f,
-        bottom = centerY + height / 2f
-    )
-}
-
-private fun smoothStep(edge0: Float, edge1: Float, value: Float): Float {
-    val t = ((value - edge0) / (edge1 - edge0).coerceAtLeast(0.0001f)).coerceIn(0f, 1f)
-    return t * t * (3f - 2f * t)
-}
-
-internal fun legacyCourseEditorMorphSpec(
-    source: Rect,
-    target: Rect,
-    sourceCornerRadiusPx: Float,
-    targetCornerRadiusPx: Float,
-    maximumArcPx: Float,
-    sourceBlurMaxPx: Float,
-    destinationBlurMaxPx: Float,
-    hasSourceTransform: Boolean
-): LiquidMorphSpec = object : LiquidMorphSpec {
-    override val routeKey: String = "course-editor"
-
-    override fun frame(input: LiquidMorphInput): LiquidMorphFrame {
-        val closing = input.direction == LiquidMorphDirection.Closing
-        val phase = if (closing) CourseEditorOverlayPhase.Closing else CourseEditorOverlayPhase.Opening
-        val visualProgress = courseEditorVisualProgress(input.rawProgress, phase)
-        val pulseScale = courseEditorSettleScale(input.rawProgress, phase)
-        val rect = curvedCourseEditorRect(
-            source = source,
-            target = target,
-            positionProgress = visualProgress.position,
-            sizeProgress = visualProgress.size,
-            pulseScale = pulseScale,
-            maxArcPx = maximumArcPx
-        )
-        val cornerProgress = smoothStep(0.04f, 0.90f, visualProgress.size)
-        val corner = interpolateFloat(
-            sourceCornerRadiusPx,
-            targetCornerRadiusPx,
-            cornerProgress
-        )
-        val openingHandoff = smoothStep(0.12f, 0.50f, visualProgress.position)
-        val closingHandoff = smoothStep(0.04f, 0.18f, visualProgress.position)
-        val destinationAlpha = if (closing) closingHandoff else openingHandoff
-        val sourceAlpha = if (hasSourceTransform) 1f - destinationAlpha else 0f
-        val sourceBlurProgress = if (closing) {
-            smoothStep(0f, 0.12f, visualProgress.position)
-        } else {
-            smoothStep(0f, 0.24f, visualProgress.position)
-        }
-        val destinationBlur = if (closing) {
-            destinationBlurMaxPx
-        } else {
-            destinationBlurMaxPx * (1f - smoothStep(0.90f, 1f, visualProgress.position))
-        }
-        val trajectory = LiquidProgressKinematics(visualProgress.position, 0f, 0f)
-        val shape = LiquidProgressKinematics(visualProgress.size, 0f, 0f)
-        val moving = closing || input.rawProgress < 0.999f
-        return LiquidMorphFrame(
-            rect = rect,
-            cornerRadiusPx = corner,
-            trajectoryProgress = visualProgress.position,
-            shapeProgress = visualProgress.size,
-            motion = LiquidMotionSample(trajectory = trajectory, shape = shape),
-            content = LiquidContentHandoffFrame(
-                sourceAlpha = sourceAlpha,
-                destinationSurfaceAlpha = 1f,
-                destinationContentAlpha = destinationAlpha,
-                sourceBlurPx = sourceBlurMaxPx * sourceBlurProgress,
-                destinationBlurPx = destinationBlur,
-                destinationMounted = true,
-                destinationInteractive = !moving
-            ),
-            backdropDepth = LiquidBackdropDepthFrame(
-                scale = input.backdropScale,
-                blurPx = input.backdropBlurPx,
-                useCachedScene = input.useCachedBackdrop
-            ),
-            layerLifecycle = LiquidLayerLifecycleFrame(
-                keepMorphClip = moving,
-                keepOffscreenLayer = moving,
-                prewarmRequired = !closing && input.rawProgress <= 0f
-            )
-        )
-    }
-}
-

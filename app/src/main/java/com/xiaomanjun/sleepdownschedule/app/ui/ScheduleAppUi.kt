@@ -216,7 +216,7 @@ import com.xiaomanjun.sleepdownschedule.feature.agent.TodayAgentHost
 import com.xiaomanjun.sleepdownschedule.feature.agent.assistantPullGesture
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
 import com.xiaomanjun.sleepdownschedule.feature.agent.rememberDayAgentBackgroundMotionState
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorCloseDurationMillis
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorMotion
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorContainerOverlayHost
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorFlightRegistry
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorOverlayPhase
@@ -242,7 +242,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.HomeSidebarDestination
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeSwitchClip
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeSwitchPane
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeTopGradientBlur
-import com.xiaomanjun.sleepdownschedule.feature.home.LandscapePageTransition
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.LandscapePageTransition
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalAdjustedCourseEditor
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
@@ -1541,7 +1541,7 @@ fun CourseScheduleAppUi(
             homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
     val legacyHomeOverlayBackgroundBlurProgress: () -> Float = {
-        val legacyDepth = homeOverlayDepthProgress(homeOverlayBackgroundZoom())
+        val legacyDepth = homeOverlayDepthProgress(homeOverlayBackgroundZoom(), CourseEditorMotion.BackgroundZoomOpenScale)
         val previewActive = personalizationSession.sliderKey != null ||
             personalizationPreviewProgress > 0.001f
         val substantialOverlayActive = substantialCourseEditorCoverage ||
@@ -4240,7 +4240,7 @@ fun CourseScheduleAppUi(
                         val conflictWeek = dialog.conflictWeeks.first()
                         if (editorWasOpen) {
                             appScope.launch {
-                                delay(CourseEditorCloseDurationMillis.toLong() + 32L)
+                                delay(CourseEditorMotion.CloseDurationMillis.toLong() + 32L)
                                 homeDisplayWeek = conflictWeek
                                 homeMode = HomeMode.Week
                             }
@@ -4302,7 +4302,7 @@ fun CourseScheduleAppUi(
                     val conflictWeek = dialog.conflictWeeks.first()
                     if (editorWasOpen) {
                         appScope.launch {
-                            delay(CourseEditorCloseDurationMillis.toLong() + 32L)
+                            delay(CourseEditorMotion.CloseDurationMillis.toLong() + 32L)
                             homeDisplayWeek = conflictWeek
                             homeMode = HomeMode.Week
                         }
