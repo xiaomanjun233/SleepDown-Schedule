@@ -1,12 +1,20 @@
 # 当前工作交接
 
-更新：2026-10-21，Asia/Shanghai。此页保存本架构任务工作树的当前交接，历史过程引用报告；不代表主目录或其他 worktree 的任务已结束。接手前完整阅读 [AGENTS.md](../AGENTS.md)，再核对实际 Git、PR、用户新指令与本页是否一致。流程和交接字段见 [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md)。
+更新：2026-10-21，Asia/Shanghai。此页保存首页凝光修复任务的当前交接，保留依赖的架构任务历史；不代表主目录或其他 worktree 的任务已结束。接手前完整阅读 [AGENTS.md](../AGENTS.md)，再核对实际 Git、PR、用户新指令与本页是否一致。流程和交接字段见 [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md)。
 
 给下一位助手的简短入口：
 
 > 先读 AGENTS.md 和 docs/AI_HANDOFF.md，核对当前分支、工作树及 PR 状态，接着完成未完事项。沿用可核实的用户授权和已有成果，按本次变化选择验证；遇到差异先查事实并更新交接。
 
-## 当前分支与目标
+## 本次首页凝光修复
+
+独立工作树 `tmp/home-accent-icon-study/`，分支 `codex/home-material-corrections`，基于 #79 的 `bfb5eecd`。用户要求修复首页凝光主题色偶发变白，以及让课程卡片复用 Dock 的晶莹光效；后续明确取消自绘图标，样稿已撤出，现有图标保留。实现、验证边界与依赖 PR 顺序见[本次记录](reports/2026-10-21-coloros-home-material-fixes.md)。本次没有安装、合并、版本变更或发布授权。
+
+本批 `25a839aa` 为主题色修复，`5805745b` 为课程光效，可单独回退；关联 [PR 检索](https://github.com/xiaomanjun233/SleepDown-Schedule/pulls?q=is%3Apr+head%3Acodex%2Fhome-material-corrections)。最终代码 `compileGithubReleaseKotlin` 及 Dock 取色/Compose 边界/圆角三类 12 项回归成功（5m11s），0 失败/错误/跳过；567 文件依赖检查与 14 项检查器回归通过，无新增豁免。尚未实机验收主题色、外轮廓焦散阴影和系统效果开关。
+
+#79 最新运行时代码 `bfb5eecd` 的[完整 CI](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39567706241)已成功；#80 最终 `1c6a2c5e` 的[完整 CI](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39557219802)已成功。两项 PR 均保持开放，没有实际同步/合并 main 或 develop。
+
+## 依赖的架构任务与历史基线
 
 | 对象 | 核对结果 |
 | --- | --- |
@@ -37,7 +45,7 @@
 
 - 续批将纯色板/ARGB 编解码/Oklab 色差归 model、通用主题归 core、玻璃诊断归 glass，57 个调用文件只迁移 import/FQN，原计算与参数保留。core→glass 文件 16→11；性能/壁纸两区域不再反向依赖且有检查器严格规则。Release Kotlin 编译和 10 类 60 项回归通过（6m02s），566 文件/0 违规/41 声明循环、14 项检查器回归通过。报告见[根节点与边界续作](reports/2026-10-21-root-and-workflow-followup.md)。
 - 当前可复用的云端证据：#79 `79279664` [39557393396](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39557393396) 成功；#80 最终 `1c6a2c5e` [39557219802](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39557219802) 成功。本批基础边界在 79279664 后，不能用旧 head 代替新 head。merge-tree 仅预演确认将来集成有交接页与版本基线两份文档冲突；#80 合并后保留新流程及本任务/历史记录再解决，未实际合并。
-- 用户最新追加：首页凝光主题色偶发变白、希望课程卡片复用 Dock 底部晶莹光效，并先做自绘 SVG（Dock 线框/填充态）样稿。本架构批次先收口；视觉修复/设计将另建独立任务分支，不把尚未实现写成完成，不全量替换图标。图标样稿数量已异步询问，可在其间继续根因调查。
+- 用户追加的首页凝光主题色与课程光效已由本独立工作树承接，见本页开头及专项报告；用户随后取消 SVG 图标方案，现有图标保留。#79 的架构提交与本次视觉改动保持分开。
 
 - 根节点的更新 UI 状态/安装授权收口到 `feature/update/AppUpdateSession`，首页与设置页各持有自己的 Composition 会话、复用原后台下载；原弹窗内容对照一致。`HomeResumeEffect` 订阅/释放独立并使用当前回调，保留首次启动语义和原 picker generation。根节点 4493→4406、设置根页 330→266；没有调样式/参数。移除失效 settings 引用后基线 44→41，0 新增豁免。Release Kotlin 编译和实际 4 类 28 项回归通过（4m32s），检查器 13 项通过；签名 APK 仍仅对应前批 `143eddb3`，未安装或实机验收。
 - 新流程的 [#80](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/80) 已开放，目标 develop；实现 `a5df31a3` 的完整云端 CI [39555564064](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39555564064) 成功。两分支远端仍未同步，不把 PR 候选当作合并完成。#79 的 base 保持 main，待 #80 合并后再处理；本轮没有合并授权。
