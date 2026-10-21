@@ -8,6 +8,8 @@
 
 ## 本次首页凝光修复
 
+最新续修：用户在已安装包上反馈编辑展开亮框、拖动全屏闪光、滚动底部黑边，并要求凝光表单在动画中直接显示，同时核对金标未激活。`94307b41` 删除课程外部焦散/elevation、恢复裁切并限制独立 halo；`e9bec46c` 将凝光课程编辑/个性化改为 Preparing 完整布局、随 Morph 显示并保留至关闭完成，材质能力判断集中在既有公共 provider；`732c656f` 允许显式本地金标属性进入签名 Release，普通构建仍默认关闭，仅课程管理→详情为候选。首轮 102 项回归通过；最终源码 `732c656f` 完整签名 Release 构建及预载/课程数据/拖动状态 27 项回归成功（9m54s，0 失败/错误/跳过，两轮含重复项）。用户重新连接手机后，经项目默认 5038 通道在 PLJ110（Android 17）覆盖安装成功，系统更新时间 18:13:44，未清数据或自动启动。本轮包为 `tmp/review-apks/SleepDown-native-preload-pilot-732c656f-20261021.apk`，SHA-256 `125790245e56371e3a571f464741e449bffdc25931f06ae4b8caf4f155eb775c`；版本仍为 `1.2.7.1` / 35，签名核验通过。不要把旧 `ef98129a` APK 当作本轮产物。实际闪烁/黑边、预载流畅度及 ROM 金标接管仍待场景验收，不能以安装或开关替代。详见[后续反馈与验证](reports/2026-10-21-native-morph-live-content-feedback.md)。不合并或发布。
+
 独立工作树 `tmp/home-accent-icon-study/`，分支 `codex/home-material-corrections`，基于 #79 的 `bfb5eecd`。用户要求修复首页凝光主题色偶发变白，以及让课程卡片复用 Dock 的晶莹光效；后续明确取消自绘图标，样稿已撤出，现有图标保留。实现、验证边界与依赖 PR 顺序见[本次记录](reports/2026-10-21-coloros-home-material-fixes.md)。用户随后明确要求“打包安装”，并要求“换个通道”，授权本次覆盖安装及 5037 通道例外；没有合并、版本变更或发布授权。
 
 本批 `25a839aa` 为主题色修复，`5805745b` 为课程光效，可单独回退；关联 [PR 检索](https://github.com/xiaomanjun233/SleepDown-Schedule/pulls?q=is%3Apr+head%3Acodex%2Fhome-material-corrections)。最终代码 `compileGithubReleaseKotlin` 及 Dock 取色/Compose 边界/圆角三类 12 项回归成功（5m11s），0 失败/错误/跳过；567 文件依赖检查与 14 项检查器回归通过，无新增豁免。尚未实机验收主题色、外轮廓焦散阴影和系统效果开关。
