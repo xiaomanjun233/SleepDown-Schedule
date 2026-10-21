@@ -106,7 +106,6 @@ import com.xiaomanjun.sleepdownschedule.core.web.enableSleepDownDownloads
 import com.xiaomanjun.sleepdownschedule.core.web.releaseSleepDownWebView
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId

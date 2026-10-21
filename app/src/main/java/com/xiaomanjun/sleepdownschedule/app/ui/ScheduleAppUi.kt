@@ -120,9 +120,6 @@ import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.effects.blur
 import com.kyant.shapes.RoundedRectangle
@@ -143,7 +140,6 @@ import com.xiaomanjun.sleepdownschedule.SettingsDetailActivity
 import com.xiaomanjun.sleepdownschedule.WeekParity
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.app.state.ScheduleViewModel
-import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
 import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
 import com.xiaomanjun.sleepdownschedule.core.performance.ContentEntranceContainer
 import com.xiaomanjun.sleepdownschedule.core.performance.GlassPerformanceDiagnostics
@@ -352,14 +348,11 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.HolidayReminder
 import com.xiaomanjun.sleepdownschedule.feature.settings.ScheduleAdjustmentsActivity
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsScreen
-import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsUpdateDialog
-import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsUpdateDialogHost
 import com.xiaomanjun.sleepdownschedule.feature.settings.UpcomingHoliday
-import com.xiaomanjun.sleepdownschedule.feature.settings.readableUpdateMessage
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
-import com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdater
-import com.xiaomanjun.sleepdownschedule.feature.update.GiteeReleaseInfo
-import com.xiaomanjun.sleepdownschedule.feature.update.GiteeUpdateCheckResult
+import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateDialogHost
+import com.xiaomanjun.sleepdownschedule.feature.update.AutomaticAppUpdateCheck
+import com.xiaomanjun.sleepdownschedule.feature.update.rememberAppUpdateSession
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackendPolicy
 import com.xiaomanjun.sleepdownschedule.glass.GlassRenderPhase
@@ -925,7 +918,6 @@ fun CourseScheduleAppUi(
             AiEduImportProgressSession.consumeFinalImportRequest()
         }
     }
-    val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(externalIcsUri, state.loaded) {
         val uri = externalIcsUri ?: return@LaunchedEffect
         if (!state.loaded) return@LaunchedEffect
@@ -1042,57 +1034,8 @@ fun CourseScheduleAppUi(
         destinationCollapseHandedOff = false
         homeMenuDestinationRequest = request
     }
-    val currentVersionName = remember(context) {
-        runCatching {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
-        }.getOrDefault("1.0")
-    }
-    var automaticUpdateDialog by remember { mutableStateOf<SettingsUpdateDialog?>(null) }
-    var automaticDownloadedUpdate by remember { mutableStateOf<java.io.File?>(null) }
-    val automaticInstallPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        val apk = automaticDownloadedUpdate
-        if (apk != null && GiteeAppUpdater.canRequestPackageInstalls(context)) {
-            runCatching { GiteeAppUpdater.launchInstaller(context, apk) }
-                .onFailure { automaticUpdateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
-        }
-    }
-    fun downloadAutomaticUpdate(release: GiteeReleaseInfo) {
-        if (release.apkUrl == null) {
-            automaticUpdateDialog = SettingsUpdateDialog.NoApk(release)
-            return
-        }
-        automaticUpdateDialog = SettingsUpdateDialog.Downloading(release)
-        appScope.launch {
-            GiteeAppUpdater.downloadApk(context, release).fold(
-                onSuccess = { apk ->
-                    automaticDownloadedUpdate = apk
-                    if (GiteeAppUpdater.canRequestPackageInstalls(context)) {
-                        runCatching { GiteeAppUpdater.launchInstaller(context, apk) }
-                            .onSuccess { automaticUpdateDialog = null }
-                            .onFailure { automaticUpdateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
-                    } else {
-                        automaticUpdateDialog = SettingsUpdateDialog.InstallPermissionRequired
-                    }
-                },
-                onFailure = { automaticUpdateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
-            )
-        }
-    }
-    LaunchedEffect(state.loaded, state.config.autoCheckUpdates, currentVersionName) {
-        if (!state.loaded) return@LaunchedEffect
-        if (!AppDistribution.supportsSelfUpdate) return@LaunchedEffect
-        GiteeAppUpdater.restoreCachedStatus(context, currentVersionName)
-        if (!state.config.autoCheckUpdates || !GiteeAppUpdater.shouldRunDailyCheck(context)) return@LaunchedEffect
-        GiteeAppUpdater.markDailyCheckStarted(context)
-        GiteeAppUpdater.checkForUpdate(context, currentVersionName).onSuccess { result ->
-            GiteeAppUpdater.recordCheckResult(context, result)
-            if (result is GiteeUpdateCheckResult.UpdateAvailable) {
-                automaticUpdateDialog = SettingsUpdateDialog.Available(result.release)
-            }
-        }
-    }
+    val automaticUpdates = rememberAppUpdateSession()
+    AutomaticAppUpdateCheck(automaticUpdates, state.loaded, state.config.autoCheckUpdates)
     val wallpaperImages by rememberHomeWallpaperImages(visualState.config)
     val colorOsOverflowActions = remember { mutableStateOf<List<AddMenuAction>>(emptyList()) }
     val homeWallpaperRecordKey = remember { mutableStateOf<Any?>(null) }
@@ -1192,7 +1135,7 @@ fun CourseScheduleAppUi(
         startupPhase,
         screen,
         homeDialogVisible,
-        automaticUpdateDialog,
+        automaticUpdates.dialog,
         courseEditorRequest,
         remoteConfigState.bootstrap?.ai?.configVersion,
         remoteConfigState.bootstrap?.ai?.enabled,
@@ -1203,7 +1146,7 @@ fun CourseScheduleAppUi(
             startupPhase == StartupPhase.FullQuality &&
             screen is Screen.Home &&
             !homeDialogVisible &&
-            automaticUpdateDialog == null &&
+            automaticUpdates.dialog == null &&
             courseEditorRequest == null &&
             remoteExperience.agreement == null &&
             remoteExperience.notice == null &&
@@ -1959,40 +1902,29 @@ fun CourseScheduleAppUi(
         hideFromRecentsEnabled = state.config.hideFromRecents
     }
 
-    var initialLifecycleStartSeen by remember {
-        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
-    }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_START) {
-                PendingImportSetupStore.consume(context)?.let { pendingImportedSetupId = it }
-                if (initialLifecycleStartSeen) {
-                    viewModel.refreshNotifications()
-                    pendingPickerEditorScheduleId?.let { scheduleId ->
-                        pendingPickerEditorScheduleId = null
-                        val generation = ++snapshotGeneration
-                        appScope.launch {
-                            pickerState.phase = CustomizeUiState.ExitingEditor
-                            val snap = captureRenderedSchedule(scheduleId)
-                            if (generation == snapshotGeneration && pickerState.selectedScheduleId == scheduleId) {
-                                if (snap != null) {
-                                    pickerState.snapshots[scheduleId] = snap
-                                    pickerState.currentSnapshot = snap
-                                    pickerState.currentSnapshotScheduleId = scheduleId
-                                }
-                                pickerState.phase = CustomizeUiState.Picker
-                                hydratePersistedSnapshots(generation)
-                            }
+    HomeResumeEffect(
+        onStart = { PendingImportSetupStore.consume(context)?.let { pendingImportedSetupId = it } },
+        onReturn = {
+            viewModel.refreshNotifications()
+            pendingPickerEditorScheduleId?.let { scheduleId ->
+                pendingPickerEditorScheduleId = null
+                val generation = ++snapshotGeneration
+                appScope.launch {
+                    pickerState.phase = CustomizeUiState.ExitingEditor
+                    val snap = captureRenderedSchedule(scheduleId)
+                    if (generation == snapshotGeneration && pickerState.selectedScheduleId == scheduleId) {
+                        if (snap != null) {
+                            pickerState.snapshots[scheduleId] = snap
+                            pickerState.currentSnapshot = snap
+                            pickerState.currentSnapshotScheduleId = scheduleId
                         }
+                        pickerState.phase = CustomizeUiState.Picker
+                        hydratePersistedSnapshots(generation)
                     }
-                } else {
-                    initialLifecycleStartSeen = true
                 }
             }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
+    )
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -4452,36 +4384,17 @@ fun CourseScheduleAppUi(
         }
         }
 
-        SettingsUpdateDialogHost(
-            dialog = automaticUpdateDialog,
+        AppUpdateDialogHost(
+            session = automaticUpdates,
             backdrop = chromeBackdrop,
             config = state.config,
-            onDismiss = { automaticUpdateDialog = null },
-            onRetry = {
-                automaticUpdateDialog = SettingsUpdateDialog.Checking
-                appScope.launch {
-                    automaticUpdateDialog = GiteeAppUpdater.checkForUpdate(context, currentVersionName).fold(
-                        onSuccess = { result ->
-                            GiteeAppUpdater.recordCheckResult(context, result)
-                            when (result) {
-                                is GiteeUpdateCheckResult.UpdateAvailable -> SettingsUpdateDialog.Available(result.release)
-                                is GiteeUpdateCheckResult.UpToDate -> SettingsUpdateDialog.UpToDate(result.release.tagName)
-                            }
-                        },
-                        onFailure = { SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
-                    )
-                }
-            },
-            onDownload = ::downloadAutomaticUpdate,
+            onRetry = { automaticUpdates.checkForUpdate(markDailyCheck = false) },
             onOpenRelease = { release ->
                 context.startActivity(Intent(Intent.ACTION_VIEW, release.releaseUrl.toUri()))
             },
             onOpenBackup = {
-                automaticUpdateDialog = null
+                automaticUpdates.dismiss()
                 screen = Screen.Config
-            },
-            onRequestInstallPermission = {
-                automaticInstallPermissionLauncher.launch(GiteeAppUpdater.unknownSourcesSettingsIntent(context))
             }
         )
 

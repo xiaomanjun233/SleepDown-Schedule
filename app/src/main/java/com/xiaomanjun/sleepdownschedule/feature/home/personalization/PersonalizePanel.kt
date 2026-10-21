@@ -85,7 +85,6 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.feature.home.weekCardHeightScaleFromSlider
 import com.xiaomanjun.sleepdownschedule.feature.home.weekCardHeightSliderFromScale
-import com.xiaomanjun.sleepdownschedule.feature.settings.title
 import com.xiaomanjun.sleepdownschedule.glass.ui.DefaultCourseCardPalette
 import com.xiaomanjun.sleepdownschedule.glass.ui.FlatCourseCardMinimumAlpha
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassDialogSurface

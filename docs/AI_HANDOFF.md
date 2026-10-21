@@ -19,7 +19,7 @@
 | 2026-10-20 收口代码锚点 | `30b6d3c0` 共享值；`dacd6459` 个性化会话；`6290d180` Agent 纯计划准备；`6de4e216` 公共配置；`3f13196e` 教务生命周期；`823826d4` 通知呈现；`a004edb6` ChatGPT 工具与图片；`cb29c47f` 官方模型列表与选择；`1f1b2630` 材质和转场边界；`bc6b0e38` 共享备份快照 |
 | 2026-10-21 续作代码锚点 | `636d07fc` 功能内课表状态与共享命令；`fbb8a6e3` 根包别名检查；`d0b3598f` 共享转场几何与窗口规则；`69c99b07` 动效规格、帧计算与播放职责（最新运行时） |
 | 已发布的运行时代码锚点 | 最新发布运行时修复 `5d123ac4`（修订号比较），发布提交 `bdc380ee`；此前界面运行时锚点 `c3bb034c`。`844ba11d` 统一时间呈现，`e52d9918` 保留隐藏节次摘要，`1b111ad8` 统一附件/预览文字，`e7312a99` 修正 Dock 间距与触觉，`90a0fb3e` / `c3bb034c` 修正快速设置布局；`47b37ae7` 包含 Popup 锚点、日视图上传及课程外观修订 |
-| 当前目标 | #79 的动效维护边界整理已完成并本地验证，按用户澄清保留曲线与视觉。最新实现和验证见[动效维护整理](reports/2026-10-21-motion-maintainability.md)，入口见[动效维护](architecture/MOTION_MAINTENANCE.md)；此前状态/转场及 AI/课程修复保留。最终 head 的 CI 结果见 PR，不自动合并、不改版本、不发布 |
+| 当前目标 | #79 继续根节点、循环依赖与金标试点批次，保留曲线/时长/视觉。最新审查和剩余复杂区域见[根节点续作](reports/2026-10-21-root-and-workflow-followup.md)，金标/Oplus 清理见[首批实现](reports/2026-10-21-sharedviewkit-pilot.md)。流程变更另在 #80，不自动合并、不改版本、不发布 |
 
 本会话用户在架构重构请求后明确要求“先合并”，已通过 GitHub plugin 用 merge commit 合并 #78，并 fetch 核对发布源码可从 main 到达。此前 main 落后 1.2.7.1 的回流欠账已经收口；不要再从已合并的 `codex/nexio-glass-parity` 开发新功能。本次独立分支已快进到合并后的 main，再开始首批改动。
 
@@ -34,6 +34,9 @@
 2026-10-21 用户再次要求“继续重构”，沿用 #79 的实现、提交和推送授权。开始时已核对该 PR 开放、head `d2aeddd7` 与本地一致，main 未变，没有评审线程。主目录的学校适配分支及其未提交交接不属于本轮，不切换、不提交或覆盖。
 
 ## 已完成与关键结论
+
+- 根节点的更新 UI 状态/安装授权收口到 `feature/update/AppUpdateSession`，首页与设置页各持有自己的 Composition 会话、复用原后台下载；原弹窗内容对照一致。`HomeResumeEffect` 订阅/释放独立并使用当前回调，保留首次启动语义和原 picker generation。根节点 4493→4406、设置根页 330→266；没有调样式/参数。移除失效 settings 引用后基线 44→41，0 新增豁免。Release Kotlin 编译和实际 4 类 28 项回归通过（4m32s），检查器 13 项通过；签名 APK 仍仅对应前批 `143eddb3`，未安装或实机验收。
+- 新流程的 [#80](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/80) 已开放，目标 develop；实现 `a5df31a3` 的完整云端 CI [39555564064](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39555564064) 成功。两分支远端仍未同步，不把 PR 候选当作合并完成。#79 的 base 保持 main，待 #80 合并后再处理；本轮没有合并授权。
 
 - 2026-10-21 在调查后，用户明确要求继续架构整理、逐步接入金标并删除旧 Oplus 动画/死代码。本批接入标准 Kit 的单路线试点，删除旧后端/探针/测试；只保留四个已发布 Activity 名称的 Manifest alias，不保留旧动画。112 项回归、完整签名 Release 打包、store Kotlin 编译与无 SDK 运行依赖检查通过，细节见[首批实现](reports/2026-10-21-sharedviewkit-pilot.md)。默认关闭，未实机验收、安装、发布；专有 SDK 分发资格未确认。
 - 用户随后明确要求 main 稳定、develop 日常集成，覆盖此前 main-only 规则。已核对 develop `848ac5a4` 完全包含于 main `9b6acbb2`，落后 610、独有 0；另建 `codex/develop-workflow` 与独立工作树准备同步/流程 PR。main/develop 未直接更新，#79 暂保留 main；同步合并后再调整目标并重查 diff/CI。此任务不包含合并授权，保护细则因集成权限 403 无法读取。学校适配主工作树未动。

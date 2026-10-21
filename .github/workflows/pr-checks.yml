@@ -68,6 +68,8 @@ jobs:
           bash ./gradlew testGithubDebugUnitTest
           --tests 'com.xiaomanjun.sleepdownschedule.core.web.*Test'
           --tests 'com.xiaomanjun.sleepdownschedule.core.identity.AppIdentityTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.app.ui.HomeResumeEffectTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdaterTest'
           --tests 'com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ControlMaterialProviderTest'
           --tests 'com.xiaomanjun.sleepdownschedule.domain.agent.AgentExecutionTest'
           --tests 'com.xiaomanjun.sleepdownschedule.platform.coloros.VisualEffectModeTest'

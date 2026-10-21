@@ -52,7 +52,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignToke
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.material.controlAccentColor
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseColorPaletteButton
-import com.xiaomanjun.sleepdownschedule.feature.settings.title
 import com.xiaomanjun.sleepdownschedule.glass.ui.DefaultCourseCardPalette
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 import kotlinx.coroutines.flow.first

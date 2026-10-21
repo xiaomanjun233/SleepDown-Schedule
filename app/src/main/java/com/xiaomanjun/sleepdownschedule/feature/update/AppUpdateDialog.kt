@@ -1,4 +1,4 @@
-package com.xiaomanjun.sleepdownschedule.feature.settings
+package com.xiaomanjun.sleepdownschedule.feature.update
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -8,21 +8,20 @@ import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
-import com.xiaomanjun.sleepdownschedule.feature.update.GiteeReleaseInfo
 
-internal sealed interface SettingsUpdateDialog {
-    data object Checking : SettingsUpdateDialog
-    data class Available(val release: GiteeReleaseInfo) : SettingsUpdateDialog
-    data class UpToDate(val latestTag: String) : SettingsUpdateDialog
-    data class Downloading(val release: GiteeReleaseInfo) : SettingsUpdateDialog
-    data class NoApk(val release: GiteeReleaseInfo) : SettingsUpdateDialog
-    data class Error(val message: String) : SettingsUpdateDialog
-    data object InstallPermissionRequired : SettingsUpdateDialog
+internal sealed interface AppUpdateDialog {
+    data object Checking : AppUpdateDialog
+    data class Available(val release: GiteeReleaseInfo) : AppUpdateDialog
+    data class UpToDate(val latestTag: String) : AppUpdateDialog
+    data class Downloading(val release: GiteeReleaseInfo) : AppUpdateDialog
+    data class NoApk(val release: GiteeReleaseInfo) : AppUpdateDialog
+    data class Error(val message: String) : AppUpdateDialog
+    data object InstallPermissionRequired : AppUpdateDialog
 }
 
 @Composable
-internal fun SettingsUpdateDialogHost(
-    dialog: SettingsUpdateDialog?,
+internal fun AppUpdateDialogHost(
+    dialog: AppUpdateDialog?,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     onDismiss: () -> Unit,
@@ -34,7 +33,7 @@ internal fun SettingsUpdateDialogHost(
 ) {
     when (dialog) {
         null -> Unit
-        SettingsUpdateDialog.Checking -> LiquidAlertDialog(
+        AppUpdateDialog.Checking -> LiquidAlertDialog(
             title = "正在检查更新",
             message = "正在读取 Gitee 上最新的 SleepDown-Schedule Release。",
             actions = listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismiss)),
@@ -42,7 +41,7 @@ internal fun SettingsUpdateDialogHost(
             config = config,
             onDismissRequest = onDismiss
         )
-        is SettingsUpdateDialog.Available -> {
+        is AppUpdateDialog.Available -> {
             val release = dialog.release
             val notes = release.notes.trim().ifBlank { "该版本没有填写更新说明。" }
             LiquidAlertDialog(
@@ -57,7 +56,7 @@ internal fun SettingsUpdateDialogHost(
                 onDismissRequest = onDismiss
             )
         }
-        is SettingsUpdateDialog.UpToDate -> LiquidAlertDialog(
+        is AppUpdateDialog.UpToDate -> LiquidAlertDialog(
             title = "已是最新版本",
             message = "当前安装版本已不低于 Gitee 最新 Release（${dialog.latestTag}）。",
             actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = onDismiss)),
@@ -65,7 +64,7 @@ internal fun SettingsUpdateDialogHost(
             config = config,
             onDismissRequest = onDismiss
         )
-        is SettingsUpdateDialog.Downloading -> LiquidAlertDialog(
+        is AppUpdateDialog.Downloading -> LiquidAlertDialog(
             title = "正在下载 ${dialog.release.name}",
             message = "正在从 Gitee 下载 APK。现在可以返回或退到桌面，下载会在后台继续，并通过实时活动显示进度。",
             actions = listOf(
@@ -79,7 +78,7 @@ internal fun SettingsUpdateDialogHost(
             config = config,
             onDismissRequest = onDismiss
         )
-        is SettingsUpdateDialog.NoApk -> LiquidAlertDialog(
+        is AppUpdateDialog.NoApk -> LiquidAlertDialog(
             title = "Release 中没有 APK",
             message = "已找到 ${dialog.release.name}，但该 Release 没有附带 APK 安装包。可以查看发行版，或使用备用下载页。",
             actions = listOf(
@@ -90,7 +89,7 @@ internal fun SettingsUpdateDialogHost(
             config = config,
             onDismissRequest = onDismiss
         )
-        is SettingsUpdateDialog.Error -> LiquidAlertDialog(
+        is AppUpdateDialog.Error -> LiquidAlertDialog(
             title = "检查更新失败",
             message = dialog.message,
             actions = listOf(
@@ -101,7 +100,7 @@ internal fun SettingsUpdateDialogHost(
             config = config,
             onDismissRequest = onDismiss
         )
-        SettingsUpdateDialog.InstallPermissionRequired -> LiquidAlertDialog(
+        AppUpdateDialog.InstallPermissionRequired -> LiquidAlertDialog(
             title = "允许安装更新",
             message = "Android 需要你先允许 SleepDown 安装来自 Gitee 的更新。授权返回后会继续打开系统安装确认页面。",
             actions = listOf(

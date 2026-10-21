@@ -53,7 +53,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import java.io.File
 import java.text.SimpleDateFormat
 import java.time.Instant
