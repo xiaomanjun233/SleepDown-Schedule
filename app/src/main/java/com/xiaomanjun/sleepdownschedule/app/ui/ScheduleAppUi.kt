@@ -3424,7 +3424,6 @@ fun CourseScheduleAppUi(
                         // Activity launch. Ask the public ColorOS API to alpha the source Activity
                         // leash when its native animation starts, preventing a stationary menu
                         // from remaining below the moving system bitmap.
-                        nativeSourceLeashAlphaOutOnOpen = true,
                         // Source onResume happens before ColorOS finishes its CLOSE spring. Let
                         // the session-scoped backend release the hidden menu/button only after the
                         // matching native end callback (or Legacy completion/watchdog).

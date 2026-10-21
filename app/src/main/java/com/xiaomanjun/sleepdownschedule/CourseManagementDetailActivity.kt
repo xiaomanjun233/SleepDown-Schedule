@@ -118,8 +118,3 @@ open class CourseManagementDetailActivity : ComponentActivity() {
         super.onDestroy()
     }
 }
-
-/**
- * Opaque manifest host for ColorOS ViewSeamless. It inherits the exact production detail page;
- * the legacy route continues to target [CourseManagementDetailActivity]'s translucent window.
- */

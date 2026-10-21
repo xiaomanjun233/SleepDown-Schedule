@@ -427,9 +427,6 @@ internal fun AiEduImportProgressPage(
                             backdrop = topBarBackdrop,
                              onClick = { sourceBounds ->
                                  conversationScope.launch {
-                                     // TODO(OPLUS_DEFERRED_20260823): Exact source-overlay handoff
-                                     // remains unverified; PLJ110 still showed an AI-history OPEN
-                                     // blank frame in the signed acceptance build.
                                      // Capture the real button before hiding it, then record a
                                      // second frame for the clean page background used by Morph.
                                      historySnapshotRequested.set(true)
@@ -474,7 +471,6 @@ internal fun AiEduImportProgressPage(
                                                  StaticTransitionAnchorProvider(anchor),
                                              backgroundBitmap = backgroundSnapshot,
                                              onOpeningSourceHandoff = releaseOpeningSource,
-                                             nativeSourceLeashAlphaOutOnOpen = true,
                                              onSourceReleased = {
                                                  historySourceHidden = false
                                              }

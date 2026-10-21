@@ -129,7 +129,6 @@ open class AiImportHistoryActivityHost : ComponentActivity() {
 
 }
 
-/** Opaque manifest host for the verified ColorOS ViewSeamless AI-history route. */
 @Composable
 private fun AiImportHistoryPage(
     config: ScheduleConfigEntity,

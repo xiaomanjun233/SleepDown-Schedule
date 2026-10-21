@@ -79,6 +79,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -217,12 +218,14 @@ internal fun CourseManagementScreen(
     onOpenCourse: suspend (
         Long,
         Rect,
+        () -> Rect?,
         AnchoredMorphSnapshots?,
         () -> Unit,
         () -> Unit
     ) -> Boolean
 ) {
     val groups = remember(state.courses) { buildManagedCourseGroups(state.courses) }
+    val currentGroups by rememberUpdatedState(groups)
     val foreground = appPanelForegroundColor(state.config)
     val scope = rememberCoroutineScope()
     val activity = transitionActivity
@@ -255,7 +258,7 @@ internal fun CourseManagementScreen(
                         config = state.config,
                         periods = state.periods,
                         sourceHidden = hiddenGroupKey == group.key,
-                        onClick = { sourceBounds ->
+                        onClick = { sourceBounds, currentBounds ->
                             if (hiddenGroupKey != null) return@ManagedCourseListCard
                             scope.launch {
                                 val fullFrame = captureTransitionFrame()
@@ -300,6 +303,12 @@ internal fun CourseManagementScreen(
                                 val launched = onOpenCourse(
                                     group.representative.id,
                                     sourceBounds,
+                                    {
+                                        currentBounds().takeIf {
+                                            currentGroups.any { current -> current.key == group.key &&
+                                                current.courses.any { it.id == group.representative.id } }
+                                        }
+                                    },
                                     AnchoredMorphSnapshots(
                                         background = cleanBackground,
                                         source = sourceSnapshot
@@ -327,21 +336,29 @@ private fun ManagedCourseListCard(
     config: ScheduleConfigEntity,
     periods: List<PeriodEntity>,
     sourceHidden: Boolean,
-    onClick: (Rect) -> Unit
+    onClick: (Rect, () -> Rect?) -> Unit
 ) {
     var sourceBounds by remember(group.key) { mutableStateOf<Rect?>(null) }
+    var coordinates by remember(group.key) { mutableStateOf<LayoutCoordinates?>(null) }
+    DisposableEffect(group.key) { onDispose { coordinates = null } }
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .onGloballyPositioned { sourceBounds = it.boundsInWindow() }
+            .onGloballyPositioned { coordinates = it; sourceBounds = it.boundsInWindow() }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) {
-                // Use the full grid cell bounds as the Oplus source rect: the cell includes the
-                // card plus its grid padding/gap, so the placeholder covers the whole spot and no
-                // underlying card leaks out during the motion (accepting a rectangular morph).
-                sourceBounds?.let(onClick)
+                sourceBounds?.let { bounds ->
+                    onClick(bounds) {
+                        coordinates?.takeIf { it.isAttached }?.let { current ->
+                            val visible = current.boundsInWindow()
+                            // A clipped/recycled lazy item is not a reliable system return target.
+                            visible.takeIf { it.width >= current.size.width - 1f &&
+                                it.height >= current.size.height - 1f }
+                        }
+                    }
+                }
             }
     ) {
         ManagedCourseListCardContent(

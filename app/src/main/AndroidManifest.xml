@@ -205,11 +205,10 @@
             android:exported="false"
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".MainActivity" />
-        <activity
+        <activity-alias
             android:name=".OplusCourseManagementActivity"
-            android:exported="false"
-            android:theme="@style/AppTheme.OplusSeamlessDetail"
-            android:parentActivityName=".MainActivity" />
+            android:targetActivity=".CourseManagementActivity"
+            android:exported="false" />
         <activity
             android:name=".feature.experimental.colorosui.ColorOsCourseManagementActivity"
             android:exported="false"
@@ -221,20 +220,23 @@
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".CourseManagementActivity" />
         <activity
-            android:name=".OplusCourseManagementDetailActivity"
+            android:name=".NativeCourseManagementDetailActivity"
             android:exported="false"
-            android:theme="@style/AppTheme.OplusSeamlessDetail"
+            android:theme="@style/AppTheme.NativeDetail"
             android:parentActivityName=".CourseManagementActivity" />
+        <activity-alias
+            android:name=".OplusCourseManagementDetailActivity"
+            android:targetActivity=".NativeCourseManagementDetailActivity"
+            android:exported="false" />
         <activity
             android:name=".EduSchoolSelectActivity"
             android:exported="false"
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".MainActivity" />
-        <activity
+        <activity-alias
             android:name=".OplusEduSchoolSelectActivity"
-            android:exported="false"
-            android:theme="@style/AppTheme.OplusSeamlessDetail"
-            android:parentActivityName=".MainActivity" />
+            android:targetActivity=".EduSchoolSelectActivity"
+            android:exported="false" />
         <activity
             android:name=".EduImportActivity"
             android:exported="false"
@@ -257,11 +259,10 @@
             android:exported="false"
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".AiEduImportProgressActivity" />
-        <activity
+        <activity-alias
             android:name=".OplusAiImportHistoryActivity"
-            android:exported="false"
-            android:theme="@style/AppTheme.OplusSeamlessDetail"
-            android:parentActivityName=".AiEduImportProgressActivity" />
+            android:targetActivity=".AiImportHistoryActivity"
+            android:exported="false" />
         <activity
             android:name=".AiImportHistoryDetailActivity"
             android:exported="false"

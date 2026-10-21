@@ -2,7 +2,6 @@ package com.xiaomanjun.sleepdownschedule
 
 import com.xiaomanjun.sleepdownschedule.transition.AnchoredLegacyProfileId
 import com.xiaomanjun.sleepdownschedule.transition.LegacyTransitionProfile
-import com.xiaomanjun.sleepdownschedule.transition.TransitionNativeClosePolicy
 import com.xiaomanjun.sleepdownschedule.transition.TransitionNativePolicy
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteCatalog
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
@@ -30,17 +29,13 @@ class TransitionRouteCatalogTest {
     }
 
     @Test
-    fun onlyAnchoredRoutesCanEnterTheOplusAllowlist() {
+    fun onlyThePilotCanEnterTheSharedViewKitAllowlist() {
         val nativeCandidates = TransitionRouteCatalog.all().filter {
-            it.nativePolicy == TransitionNativePolicy.OplusAllowlisted
+            it.nativePolicy == TransitionNativePolicy.SharedViewKitAllowlisted
         }
         assertEquals(
             setOf(
-                TransitionRouteId.HomeToCourseManagement,
-                TransitionRouteId.CourseManagementToDetail,
-                TransitionRouteId.ManualImportToHistory,
-                TransitionRouteId.AiProgressToHistory,
-                TransitionRouteId.HomeToEduImport
+                TransitionRouteId.CourseManagementToDetail
             ),
             nativeCandidates.map { it.id }.toSet()
         )
@@ -54,61 +49,14 @@ class TransitionRouteCatalogTest {
     }
 
     @Test
-    fun menuOriginRoutesUseNativeOpenButLegacyClose() {
-        assertEquals(
-            TransitionNativeClosePolicy.LegacyOnly,
-            TransitionRouteCatalog.get(TransitionRouteId.HomeToCourseManagement).nativeClosePolicy
-        )
-        assertEquals(
-            TransitionNativeClosePolicy.LegacyOnly,
-            TransitionRouteCatalog.get(TransitionRouteId.HomeToEduImport).nativeClosePolicy
-        )
-        assertEquals(
-            TransitionNativeClosePolicy.MatchOpen,
-            TransitionRouteCatalog.get(TransitionRouteId.CourseManagementToDetail).nativeClosePolicy
-        )
-    }
-
-    @Test
-    fun validatedNativeRoutesUseConcreteOpaqueActivities() {
+    fun retiredVendorRoutesKeepLegacyAndThePilotUsesAConcreteOpaqueHost() {
         val detail = TransitionRouteCatalog.get(TransitionRouteId.CourseManagementToDetail)
-        val manualHistory = TransitionRouteCatalog.get(TransitionRouteId.ManualImportToHistory)
-        val aiHistory = TransitionRouteCatalog.get(TransitionRouteId.AiProgressToHistory)
-        val courseManagement = TransitionRouteCatalog.get(TransitionRouteId.HomeToCourseManagement)
-        val eduSchoolSelect = TransitionRouteCatalog.get(TransitionRouteId.HomeToEduImport)
         assertEquals(
-            "com.xiaomanjun.sleepdownschedule.OplusCourseManagementActivity",
-            courseManagement.nativeDestinationClassName
-        )
-        assertEquals(
-            "com.xiaomanjun.sleepdownschedule.OplusCourseManagementDetailActivity",
+            "com.xiaomanjun.sleepdownschedule.NativeCourseManagementDetailActivity",
             detail.nativeDestinationClassName
         )
-        assertEquals(
-            "com.xiaomanjun.sleepdownschedule.OplusAiImportHistoryActivity",
-            manualHistory.nativeDestinationClassName
-        )
-        assertEquals(
-            "com.xiaomanjun.sleepdownschedule.OplusAiImportHistoryActivity",
-            aiHistory.nativeDestinationClassName
-        )
-        assertEquals(
-            "com.xiaomanjun.sleepdownschedule.OplusEduSchoolSelectActivity",
-            eduSchoolSelect.nativeDestinationClassName
-        )
-        assertTrue(
-            TransitionRouteCatalog.all()
-                .filter {
-                    it.id !in setOf(
-                        TransitionRouteId.CourseManagementToDetail,
-                        TransitionRouteId.ManualImportToHistory,
-                        TransitionRouteId.AiProgressToHistory,
-                        TransitionRouteId.HomeToCourseManagement,
-                        TransitionRouteId.HomeToEduImport
-                    )
-                }
-                .all { it.nativeDestinationClassName == null }
-        )
+        assertTrue(TransitionRouteCatalog.all().filter { it.id != detail.id }
+            .all { it.nativePolicy == TransitionNativePolicy.Never && it.nativeDestinationClassName == null })
     }
 
     @Test

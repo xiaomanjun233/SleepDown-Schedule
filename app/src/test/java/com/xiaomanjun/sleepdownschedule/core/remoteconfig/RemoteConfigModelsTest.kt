@@ -33,6 +33,15 @@ class RemoteConfigModelsTest {
     }
 
     @Test
+    fun retiredVendorSwitchesCannotEnableTheNewBackendAndOldCachesStillParse() {
+        val old = json.decodeFromString<RemoteBootstrap>(
+            """{"schemaVersion":1,"serverTime":10,"transitions":{"oplusViewSeamlessEnabled":true,"oplusRouteAllowlist":["course_management_to_detail"]}}"""
+        )
+        assertFalse(old.transitions.sharedViewKitEnabled)
+        assertEquals(emptySet<String>(), old.transitions.sharedViewKitRouteAllowlist)
+    }
+
+    @Test
     fun disabledExpiredAndUnknownConfigsFailAvailabilityCheck() {
         val active = RemoteAiConfig(true, 1, "key", "https://example/v1", "model", "responses", true, "AES-256-GCM", 1, 1, "nonce", "cipher", 10, 100)
         assertEquals(RemoteAiAvailability.AVAILABLE, active.availability(99))

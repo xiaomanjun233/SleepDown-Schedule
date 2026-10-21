@@ -1,5 +1,7 @@
 # 动效维护入口
 
+金标跨 Activity 动画的能力、路线门控、SDK 边界与资源释放见 [TRANSITION_FRAMEWORK.md](../TRANSITION_FRAMEWORK.md)。参数由 SDK 管理；应用内 Morph 仍使用下述维护入口。
+
 动效按实际路线维护：公共交互放 `core/ui`，首页与课程编辑保留功能自己的曲线和帧计算，跨 Activity 放 `transition`，材质渲染与临时资源协议放 `glass`。下面的入口用于定位修改范围，不提供一套覆盖所有路线的全局曲线。
 
 ## 从界面找到入口

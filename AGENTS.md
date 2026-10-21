@@ -51,7 +51,7 @@
 - 后台问题区分 Android 生命周期与 OEM 冻结策略；先确认 Service、socket、UID 和网络状态再改 transport。长期任务使用符合语义的 FGS 与通知，避免假保活、无限 wakelock 和无意义轮询。
 - 课程勿扰优先沿用应用自有 AutomaticZenRule，无权限时引导系统授权。Launcher 切换以 Manifest 与 `AppIconManager` 的已有 alias 映射为准，最终仅启用一个目标，图标数量不在文档写死。
 - Widget 按 host 尺寸生成完整 RemoteViews，背景与文字使用同一坐标系。节次分段只调整现有边界，不隐式改变课程编号、总节数或用户时间。
-- Oplus ViewSeamless 实验保持关闭，用户明确恢复前不扩散。官网沿用既有部署链路，收费资源需明确授权。
+- 系统共享转场统一使用金标 SharedViewKit 能力查询与逐路线门控，原 Oplus 私有动画后端已退役。官网沿用既有部署链路，收费资源需明确授权。
 
 ## 工作树与 Git
 

@@ -9,7 +9,7 @@
         <item name="android:windowDrawsSystemBarBackgrounds">true</item>
     </style>
 
-    <style name="AppTheme.OplusSeamlessDetail" parent="@style/AppTheme">
+    <style name="AppTheme.NativeDetail" parent="@style/AppTheme">
         <item name="android:windowIsTranslucent">false</item>
         <item name="android:windowBackground">#FF000000</item>
         <item name="android:windowDisablePreview">false</item>

@@ -2,19 +2,19 @@ package com.xiaomanjun.sleepdownschedule.transition
 
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
+import com.xiaomanjun.sleepdownschedule.BuildConfig
 
 internal object TransitionFeatureGate {
-    fun allowsOplus(route: TransitionRouteSpec): Boolean {
-        val config = SleepDownRemoteConfig.state.value.bootstrap?.transitions
-        return TransitionFeaturePolicy.allowsOplus(route, config)
-    }
+    fun allowsSharedViewKit(route: TransitionRouteSpec): Boolean =
+        BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES &&
+            route.nativePolicy == TransitionNativePolicy.SharedViewKitAllowlisted &&
+            ((BuildConfig.DEBUG && BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST) ||
+                TransitionFeaturePolicy.allowsSharedViewKit(route,
+                    SleepDownRemoteConfig.state.value.bootstrap?.transitions))
 }
 
 internal object TransitionFeaturePolicy {
-    fun allowsOplus(
-        route: TransitionRouteSpec,
-        config: RemoteTransitionConfig?
-    ): Boolean = route.nativePolicy == TransitionNativePolicy.OplusAllowlisted &&
-        config?.oplusViewSeamlessEnabled == true &&
-        route.id.wireName in config.oplusRouteAllowlist
+    fun allowsSharedViewKit(route: TransitionRouteSpec, config: RemoteTransitionConfig?): Boolean =
+        route.nativePolicy == TransitionNativePolicy.SharedViewKitAllowlisted && config?.sharedViewKitEnabled == true &&
+            route.id.wireName in config.sharedViewKitRouteAllowlist
 }

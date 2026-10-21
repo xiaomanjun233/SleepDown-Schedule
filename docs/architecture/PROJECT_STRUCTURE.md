@@ -150,7 +150,7 @@ com/xiaomanjun/sleepdownschedule/
 | AI 历史、详情与进度 Activity | `feature.importing.history` / `feature.importing.progress` 中对应 `*Host` |
 | 四个扩展 Widget Provider | `feature.widget.providers` 中对应 `*Host` |
 | `DayAgentForegroundService` | `feature.agent.background.DayAgentForegroundServiceHost` |
-| Oplus 课程管理入口 | 根包独立薄文件，继承既有课程管理 Activity |
+| 原四个 Oplus Activity 名称 | Manifest 中未导出的 alias，保留系统恢复入口；旧类和私有动画后端已删除 |
 
 根包中的 `ScheduleDataCompat.kt`、`ScheduleCalendarCompat.kt`、`PeriodSchemesCompat.kt` 和 `ScheduleLabelsCompat.kt` 是有意保留的源码兼容门面。它们让结构迁移保持机械、可回退，也避免一次性改写全部调用点。
 
@@ -165,7 +165,7 @@ com/xiaomanjun/sleepdownschedule/
 | `feature/settings`、`feature/schedule/{manager,picker}` | 页面与共享设置控件已分开；课表编辑的保存交接与弹层会话保留在功能内。 |
 | `feature/importing`、`feature/agent/DayAgentConversationDialog.kt` | 完整导入会话或对话窗口生命周期保持内聚；助手卡片、呈现状态、几何、输入栏、消息内容与共享执行规则分别归位。 |
 | `feature/widget/providers/WeekScheduleWidgetRenderer.kt` | 同一 RemoteViews 输出的像素布局与位图渲染保持在一起；Provider 入口、日组件和周组件 renderer 已分开。 |
-| `transition/legacy`、`transition/OplusSeamlessBackend.kt` | 保留既有 renderer 和暂缓的 Oplus 调查边界；结构整理不改动动画所有权或交接时序。 |
+| `transition/legacy`、`transition/SharedViewKitBackend.kt` | Legacy 保留既有 renderer；标准 Kit 只处理握手、返回和会话资源，SDK 调用按渠道隔离。原 Oplus 私有转场已退役，详见[转场框架](../TRANSITION_FRAMEWORK.md)。 |
 | `data/local/AppDatabaseMigrations.kt`、`data/repository/ScheduleRepository.kt` | 前者按 Room 版本形成连续迁移账本，后者维持单一数据入口；拆分前需先定义稳定接口。 |
 
 在包依赖稳定且不存在反向引用后，再评估拆分 `:core:*` 和 `:feature:*` Gradle 模块。目录整理本身不以增加模块数量为目标。

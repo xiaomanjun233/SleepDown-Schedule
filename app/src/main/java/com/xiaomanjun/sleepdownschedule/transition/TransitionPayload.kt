@@ -4,7 +4,6 @@ import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.os.Looper
-import android.view.View
 import androidx.compose.ui.geometry.Rect
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -23,12 +22,8 @@ data class TransitionAnchorFrame(
 
 /**
  * Keeps the exact source pixels visible while native registration waits for an attached/layout
- * frame. Ownership is handed off exactly once by either Oplus' OPEN callback or the Legacy backend.
+ * frame. Ownership is handed off exactly once by either the native OPEN callback or the Legacy backend.
  *
- * TODO(OPLUS_DEFERRED_20260823): Retained as investigation evidence. The signed PLJ110 acceptance
- * build still flashed a blank frame on the AI-history OPEN routes with this handoff installed.
- * Do not treat this helper as a verified fix or extend it to more routes until that investigation
- * is explicitly resumed.
  */
 internal fun Activity.attachOpeningSourceSnapshotHandoff(
     anchor: TransitionAnchorFrame
@@ -66,11 +61,6 @@ fun interface TransitionAnchorProvider {
     fun resolve(): TransitionAnchorFrame?
 }
 
-/** Resolves the real, layout-owned Android View used by a native transition backend. */
-fun interface TransitionNativeSourceViewProvider {
-    fun resolve(): View?
-}
-
 class StaticTransitionAnchorProvider(
     private val anchor: TransitionAnchorFrame?
 ) : TransitionAnchorProvider {
@@ -81,7 +71,6 @@ data class TransitionPayload(
     val openingAnchor: TransitionAnchorFrame?,
     val returnAnchorProvider: TransitionAnchorProvider? =
         openingAnchor?.let(::StaticTransitionAnchorProvider),
-    val nativeSourceViewProvider: TransitionNativeSourceViewProvider? = null,
     val backgroundBitmap: Bitmap? = null,
     val backgroundDialog: com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot? = null,
     val parentSessionId: TransitionSessionId? = null,
@@ -91,12 +80,6 @@ data class TransitionPayload(
      * before installing its own validated placeholder. The store guarantees exactly-once release.
      */
     val onOpeningSourceHandoff: (() -> Unit)? = null,
-    /**
-     * Requests ColorOS to alpha the source Activity leash once its native OPEN animation starts.
-     * This is needed only when [onOpeningSourceHandoff] preserves visible source pixels through
-     * asynchronous registration; ordinary routes retain the system default.
-     */
-    val nativeSourceLeashAlphaOutOnOpen: Boolean = false,
     /**
      * Restores the real business-owned source after the session's renderer/bridge has released it.
      * It is session scoped and runs exactly once for native completion, Legacy completion or

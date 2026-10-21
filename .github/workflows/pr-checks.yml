@@ -83,6 +83,8 @@ jobs:
           --tests 'com.xiaomanjun.sleepdownschedule.feature.home.HomePersonalizationGeometryTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.home.HomeMotionPerformancePolicyTest'
           --tests 'com.xiaomanjun.sleepdownschedule.Transition*Test'
+          --tests 'com.xiaomanjun.sleepdownschedule.transition.SharedViewKit*Test'
+          --tests 'com.xiaomanjun.sleepdownschedule.core.remoteconfig.RemoteConfigModelsTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.home.week.WeekPresentationTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCustomTimeLabelsTest'
           --tests 'com.xiaomanjun.sleepdownschedule.domain.schedule.CoursePeriodAlignmentTest'

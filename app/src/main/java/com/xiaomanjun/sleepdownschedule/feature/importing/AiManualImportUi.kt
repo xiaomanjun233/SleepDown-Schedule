@@ -556,8 +556,6 @@ fun NormalizedAiManualImportScreen(
         historySourceHidden = historySourceHidden,
         onOpenHistory = { sourceBounds ->
             scope.launch {
-                // TODO(OPLUS_DEFERRED_20260823): Retained for investigation only. The signed
-                // PLJ110 acceptance build still flashed blank on this native OPEN path.
                 val captured = captureHistoryBackground()
                 val sourceSnapshot = captured?.cropToAiHistorySource(sourceBounds)
                 // A malformed crop cannot represent the real source button. Keeping the source
@@ -593,7 +591,6 @@ fun NormalizedAiManualImportScreen(
                         returnAnchorProvider = StaticTransitionAnchorProvider(anchor),
                         backgroundBitmap = backgroundSnapshot,
                         onOpeningSourceHandoff = releaseOpeningSource,
-                        nativeSourceLeashAlphaOutOnOpen = true,
                         onSourceReleased = { historySourceHidden = false }
                     )
                 )
