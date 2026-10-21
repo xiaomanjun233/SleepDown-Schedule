@@ -56,7 +56,7 @@ Intent 只承载 route/session 身份；Bitmap、返回解析器与临时资源�
 
 旧 Oplus 远程字段不再生效；远程解析器继续忽略未知字段，兼容旧 bootstrap/cache。配置不能把非候选路线升级为原生路线。
 
-本地 Debug 可用 `-Psleepdown.sharedViewKitTest=true` 测试唯一候选，不依赖后台配置；该属性不打开 Release 或商店版，不增加产品设置项。其他路线必须先完成自身截图、源交接和真实返回验证，再调整路由候选及白名单。
+本地可用 `-Psleepdown.sharedViewKitTest=true` 在 Debug 或签名 Release 中测试唯一候选，不依赖后台配置。普通构建默认仍关闭；商店版继续受 `SLEEPDOWN_EXPERIMENTAL_FEATURES=false` 排除，不打包 SDK，不增加产品设置项。签名 Release 用于相同包名/签名的实机验证，日志保留该试点的系统协议查询与回退原因。打开本地开关不等于 ROM 已接受：仍需能力、真实锚点、安全返回和 SDK options 均通过。其他路线必须先完成自身截图、源交接和真实返回验证，再调整路由候选及白名单。
 
 ## SDK 与绘制契约
 

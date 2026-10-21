@@ -7,14 +7,13 @@ import com.xiaomanjun.sleepdownschedule.BuildConfig
 internal object TransitionFeatureGate {
     fun allowsSharedViewKit(route: TransitionRouteSpec): Boolean =
         BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES &&
-            route.nativePolicy == TransitionNativePolicy.SharedViewKitAllowlisted &&
-            ((BuildConfig.DEBUG && BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST) ||
-                TransitionFeaturePolicy.allowsSharedViewKit(route,
-                    SleepDownRemoteConfig.state.value.bootstrap?.transitions))
+            TransitionFeaturePolicy.allowsSharedViewKit(route,
+                SleepDownRemoteConfig.state.value.bootstrap?.transitions,
+                localPilot = BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST)
 }
 
 internal object TransitionFeaturePolicy {
-    fun allowsSharedViewKit(route: TransitionRouteSpec, config: RemoteTransitionConfig?): Boolean =
-        route.nativePolicy == TransitionNativePolicy.SharedViewKitAllowlisted && config?.sharedViewKitEnabled == true &&
-            route.id.wireName in config.sharedViewKitRouteAllowlist
+    fun allowsSharedViewKit(route: TransitionRouteSpec, config: RemoteTransitionConfig?, localPilot: Boolean = false): Boolean =
+        route.nativePolicy == TransitionNativePolicy.SharedViewKitAllowlisted &&
+            (localPilot || config?.sharedViewKitEnabled == true && route.id.wireName in config.sharedViewKitRouteAllowlist)
 }

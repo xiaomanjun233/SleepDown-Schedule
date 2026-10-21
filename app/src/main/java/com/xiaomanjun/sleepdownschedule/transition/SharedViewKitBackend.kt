@@ -36,7 +36,12 @@ internal class SharedViewKitBackend(
             request.activity.isInMultiWindowMode || request.activity.isInPictureInPictureMode)
             return rejected("unsupportedWindow")
         if (movingSession != null) return rejected("animationInProgress")
-        val capabilities = sdk("capability") { if (api.supportedProtocol() > 0) SharedViewKitCapabilities.from(api.extras()) else null }
+        val capabilities = sdk("capability") {
+            val protocol = api.supportedProtocol()
+            if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST)
+                Log.i("SharedViewKit", "route=${request.route.id.wireName} supportedProtocol=$protocol")
+            if (protocol > 0) SharedViewKitCapabilities.from(api.extras()) else null
+        }
             ?: return rejected("unsupportedProtocol")
         // Pilot routes must be able to return safely when their business source was removed.
         if (capabilities.missingTargetBackType == null) return rejected("safeReturnUnavailable")

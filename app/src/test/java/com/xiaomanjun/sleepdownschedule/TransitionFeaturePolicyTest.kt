@@ -10,6 +10,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TransitionFeaturePolicyTest {
+    @Test fun explicitLocalPilotKeepsUnadaptedRoutesOnLegacy() {
+        for (id in TransitionRouteId.entries) {
+            val route = TransitionRouteCatalog.get(id)
+            assertTrue((id == TransitionRouteId.CourseManagementToDetail) ==
+                TransitionFeaturePolicy.allowsSharedViewKit(route, null, localPilot = true))
+        }
+    }
+
     private val nativeRoute = TransitionRouteCatalog.get(TransitionRouteId.CourseManagementToDetail)
     private val legacyOnlyRoute = TransitionRouteCatalog.get(TransitionRouteId.HomeToSettingsDetail)
 
