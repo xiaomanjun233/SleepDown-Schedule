@@ -205,7 +205,6 @@ internal fun WeekEditOverlayHost(
                 modifier = Modifier.fillMaxSize(),
                 shape = cardShape,
                 followTouch = false,
-                nativeEdgeEffects = false,
                 onClick = null
             ) {
                 WeekCourseOverlayCardContent(req.course, config)

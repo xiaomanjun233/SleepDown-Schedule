@@ -153,7 +153,7 @@ fun CourseGlassCard(
     editorSampleScale: Float = 1f,
     expandedOutlineLight: Boolean = false,
     followTouch: Boolean = true,
-    // Moving replicas and expanded forms keep material but do not own a course-card rim/light.
+    // Expanded forms can keep course material without the card's rim/caustic projection.
     nativeEdgeEffects: Boolean = true,
     followLightRadius: androidx.compose.ui.unit.Dp? = null,
     muted: Boolean = false,

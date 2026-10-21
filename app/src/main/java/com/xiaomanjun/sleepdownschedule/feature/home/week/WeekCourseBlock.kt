@@ -653,7 +653,6 @@ fun WeekCourseBlock(
                             config = config,
                             course = underlyingCourse,
                             followTouch = false,
-                            nativeEdgeEffects = false,
                             muted = subdued,
                             modifier = Modifier.fillMaxSize(),
                             shape = cardShape,
@@ -707,7 +706,6 @@ fun WeekCourseBlock(
                         config = config,
                         course = target,
                         followTouch = false,
-                        nativeEdgeEffects = false,
                         modifier = Modifier.fillMaxSize(),
                         shape = cardShape,
                         onClick = null

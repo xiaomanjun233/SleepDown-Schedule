@@ -8,6 +8,7 @@ import android.graphics.drawable.Drawable
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewOutlineProvider
+import android.widget.FrameLayout
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
@@ -28,11 +29,13 @@ import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.drawscope.CanvasDrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.motionEventSpy
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode
@@ -153,6 +156,15 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, style
     val surface = remember(native, style) {
         ColorOsNativeUi.prepare("create a material surface") { NativeMaterialSurface(context, source, style) }
     } ?: return false
+    val glowOutsets = surface.courseGlow?.outsets
+    val surfaceHost = remember(surface) {
+        if (glowOutsets == null) surface else FrameLayout(context).apply {
+            clipChildren = true
+            clipToPadding = false
+            setPadding(glowOutsets.left, glowOutsets.top, glowOutsets.right, glowOutsets.bottom)
+            addView(surface, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        }
+    }
     val latest = rememberUpdatedState(request)
     val ownedMotion = remember(request.elasticTouchFeedback) {
         if (request.elasticTouchFeedback) com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMenuMotion() else null
@@ -168,7 +180,9 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, style
     Box(request.modifier.graphicsLayer {
         val value = latest.value
         shape = value.shapeProvider?.invoke() ?: value.shape
-        clip = true
+        // Only the finite caustic host extends past the card; native material and text keep
+        // their own real card outline. A shape clip here would cut off the requested light.
+        clip = glowOutsets == null || !value.edgeEffects
         if (menuMotion == null) ownedMotion?.applyTo(this)
     }.then(if (touchSource == null) Modifier.motionEventSpy {
         surface.followTouch(it)
@@ -176,7 +190,15 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, style
     } else Modifier)
         .then(if (request.onClick != null) Modifier.clickable(interaction, indication = null,
             role = Role.Button, onClick = request.onClick) else Modifier)) {
-        if (request.renderSurface) key(surface) { AndroidView(factory = { surface }, modifier = Modifier.matchParentSize()
+        if (request.renderSurface) key(surface) { AndroidView(factory = { surfaceHost }, modifier = Modifier.matchParentSize()
+            .then(if (glowOutsets == null) Modifier else Modifier.layout { measurable, constraints ->
+                val width = constraints.maxWidth
+                val height = constraints.maxHeight
+                val child = measurable.measure(Constraints.fixed(
+                    width + glowOutsets.left + glowOutsets.right,
+                    height + glowOutsets.top + glowOutsets.bottom))
+                layout(width, height) { child.place(-glowOutsets.left, -glowOutsets.top) }
+            })
             .graphicsLayer {
                 alpha = latest.value.surfaceAlpha()
                 compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.ModulateAlpha
@@ -188,13 +210,18 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, style
                 drawContent()
             }, update = {
             source.updateTheme(context, request.dark)
-            it.updateOutline(request.shapeProvider?.invoke() ?: request.shape, density, direction)
-            it.configure(request, density, direction)
+            surface.updateOutline(request.shapeProvider?.invoke() ?: request.shape, density, direction)
+            surface.configure(request, density, direction)
         }) }
         CompositionLocalProvider(
             com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceActive provides true,
-            content = content
-        )
+        ) {
+            if (glowOutsets == null) content() else Box(Modifier.graphicsLayer {
+                val value = latest.value
+                shape = value.shapeProvider?.invoke() ?: value.shape
+                clip = true
+            }, propagateMinConstraints = true) { content() }
+        }
     }
     DisposableEffect(surface, touchSource) {
         touchSource?.onTouch = surface::followTouch
@@ -206,6 +233,8 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, style
 
 private class NativeMaterialSurface(context: Context, private val source: ColorOsNativeUi.Source,
     private val style: ColorOsSurfaceStyle) : View(context) {
+    val courseGlow = if (style == ColorOsSurfaceStyle.CourseCard)
+        ColorOsNativeUi.prepare("prepare bounded course caustic") { ColorOsCourseCardGlow(context, source) } else null
     private val effect = source.load(MaterialEffect)
     private val blurType = source.load(BlurType)
     private val strokeType = source.load(StrokeType)
@@ -409,6 +438,8 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
         setStroke.invoke(null, this, strokeType.getField(
             if (!stroke || isMenu) "TYPE_NO_EFFECT"
             else if (style == ColorOsSurfaceStyle.CourseCard) CourseStrokePreset else ContentStrokePreset).get(null))
+        courseGlow?.update(this, value.materialVisible && value.edgeEffects &&
+            managerType.getMethod("isCausticShadowEffectEnable").invoke(manager) == true)
         if (menuFrame != null) {
             menuFrame.javaClass.getDeclaredMethod("initMaterialEffects").apply { isAccessible = true }.invoke(menuFrame)
             val edge = menuFrame.javaClass.getDeclaredField("mShadowEdgeDrawable")
@@ -443,6 +474,7 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
 
     private fun clearMaterial() {
         touchLightEnabled = false
+        courseGlow?.update(this, false)
         clearBlur()
         setStroke.invoke(null, this, strokeType.getField("TYPE_NO_EFFECT").get(null))
         setCorners.invoke(null, this, null)
