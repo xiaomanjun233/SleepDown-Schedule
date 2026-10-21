@@ -5,7 +5,7 @@
 ## 当前目标与分支
 
 - 用户本轮明确要求恢复 main + develop：main 稳定发布，develop 日常集成，独立任务默认从最新 develop 派生，正式发布经 release 分支验证。允许提交、推送及 PR；没有合并、改正式版本、发布 APK 的授权。
-- 本任务分支 `codex/develop-workflow` 基于 main `9b6acbb2`，独立工作树 `tmp/develop-workflow/`。目标 PR 为 develop，保留 main 全部祖先；远端 develop 在合并前仍是 `848ac5a4`。
+- 本任务分支 `codex/develop-workflow` 基于 main `9b6acbb2`，独立工作树 `tmp/develop-workflow/`；已开放 [#80](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/80)，目标 develop，保留 main 全部祖先；远端 develop 在合并前仍是 `848ac5a4`。
 - 祖先检查：develop 是 main 祖先，独有 0、落后 610，无需重置或强推。两分支显示 protected；保护细则读取 403，未修改保护。完整审查见[同步报告](reports/2026-10-21-main-develop-workflow.md)。
 - #74/#78 已合并；#79 开放、目标 main，在 `tmp/architecture-refactor/` 的 `codex/architecture-boundaries` 接续架构及金标转场批次。不要复制实现或覆盖该工作树。待同步 PR 合并后再调整 #79 目标，复查 diff/CI。
 - 主目录的 `codex/zust-edu-adapter` 及未提交学校适配报告属于独立活动任务，本轮未切换、暂存或修改。其他工作树和 stash 不清理。
@@ -14,6 +14,8 @@
 ## 验证与下一步
 
 本轮只改变流程文档、PR 模板和触发事件；本地检查 diff、链接及 PR scope，Android 实现与 main 相同。同步 PR 相对 develop 含 610 个既有提交，云端应按完整 diff 运行 Android 检查，不能当纯文档 PR。未安装、发布、合并或修改分支保护。
+
+流程实现 `a5df31a3` 已通过完整云端 [39555564064](https://github.com/xiaomanjun233/SleepDown-Schedule/actions/runs/39555564064)，包括 scope、2 项祖先回归、Release 编译、定向测试及 Debug 打包。本地模拟 scope 检查 1107 个新增/修改路径，`android=true`。之后仅补充交接及忽略 Python 缓存，当前 head 的云端状态需从 PR 回读。
 
 合并须由用户另行授权。同步 PR 通过评审/CI 后，以 merge commit 合入 develop，再核对 `git merge-base --is-ancestor origin/main origin/develop`；随后处理 #79 目标。保护建议与发布操作见同步报告。
 

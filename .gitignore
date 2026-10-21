@@ -14,6 +14,7 @@ hs_err_pid*.log
 replay_pid*.log
 sleepdown_log_*.txt
 /.kotlin/
+__pycache__/
 /debug-artifacts/
 /SleepDown-*.apk
 /*.apk.idsig
