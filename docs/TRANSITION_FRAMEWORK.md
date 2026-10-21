@@ -6,6 +6,8 @@
 
 同 Activity 的首页弹层、历史详情、课程编辑器、周视图拖拽和 `CustomizeUiState` 仍由原状态机管理。
 
+按具体界面定位曲线、时长、纯帧计算和播放/释放入口，见[动效维护入口](architecture/MOTION_MAINTENANCE.md)。通用横屏切页归 `core/ui/interaction/PaneTransitions.kt`，课程编辑路线的参数和帧计算归 `feature/course/editor/CourseEditorMotion.kt`；它们不由跨 Activity 协调器接管。
+
 横屏跨 Activity 关闭锚点无缝 Morph 和 Oplus 原生转场：协调器不向目的页保留锚点、返回锚点提供者、源 View 与背景快照，但保留会话身份及源交接/释放回调。目的容器直接显示稳定真实页面，关闭仍经 `finishAfterLegacy` 清理会话。首页侧栏页面使用缩放、动态模糊与淡入淡出；只有明确接入的课程/导入表单使用中心飞入窗口，表面仍沿用原材质与圆角，飞入带轻微形变且稳定后释放变换层。原中心弹窗、shortcut、个性化、QuickSheet 和课表管理页仍走原局部路线。多课表切换保留黑场与全窗口堆叠，侧栏在 Picker 上方持续悬浮。竖屏跨 Activity 沿用下文路线；首页课程与设置切换保留圆角，交界处 underlay 采用主题底色。具体实现和验证见 [2026-10-02 横屏改造](2026-10-02-landscape-overhaul.md)。
 
 2026-09-14 的 Legacy 性能跟进将 HomeMenuDestination / Liquid 路线的进度读取下沉到布局和图层，固定内容录制完成后暂停内部玻璃的位置通知；全屏稳定端仍释放转场裁剪。详见 [动画排查记录](performance/2026-09-14-animation-import-audit.md)。

@@ -35,10 +35,12 @@
 | 首页导入状态、通知编解码、自定义课时显示与自动静音续作 | [2026-10-20 续作与课程修复](reports/2026-10-20-architecture-followup-and-course-fixes.md) |
 | 个性化、共享值、事务准备、教务/通知/材质边界及 ChatGPT/模型列表修复 | [2026-10-20 架构收口与 AI 修复](reports/2026-10-20-architecture-completion-and-ai-fixes.md) |
 | 功能内课表状态、共享转场计算与根包别名检查 | [2026-10-21 状态与转场边界续作](reports/2026-10-21-schedule-state-and-transition-boundaries.md) |
+| 动效参数、帧计算及播放职责整理的验证 | [2026-10-21 动效维护整理](reports/2026-10-21-motion-maintainability.md) |
 | 页面、弹窗、选择器与公共控件 | [SLEEPDOWN_DESIGN_SYSTEM.md](architecture/SLEEPDOWN_DESIGN_SYSTEM.md) |
 | 玻璃采样、渲染和生命周期 | [LIQUID_GLASS_FRAMEWORK.md](performance/LIQUID_GLASS_FRAMEWORK.md) |
 | 可选凝光材质、公共控件协议与运行时门控 | [SLEEPDOWN_COLOROS_FRAMEWORK.md](architecture/SLEEPDOWN_COLOROS_FRAMEWORK.md) |
 | 跨 Activity 转场 | [TRANSITION_FRAMEWORK.md](TRANSITION_FRAMEWORK.md) |
+| 定位动效参数、播放与资源释放边界 | [动效维护入口](architecture/MOTION_MAINTENANCE.md) |
 | AI 文件导入 | [AI_FILE_IMPORT.md](ai/AI_FILE_IMPORT.md) |
 | AI助理 | [DAY_AGENT_RUNTIME.md](architecture/DAY_AGENT_RUNTIME.md) |
 | 备份与升级 | [BACKUP_FORMAT_V1.md](migration/BACKUP_FORMAT_V1.md)、[1_2_0_PACKAGE_MIGRATION.md](migration/1_2_0_PACKAGE_MIGRATION.md) |
