@@ -161,7 +161,8 @@ internal fun legacyCourseEditorMorphSpec(
     maximumArcPx: Float,
     sourceBlurMaxPx: Float,
     destinationBlurMaxPx: Float,
-    hasSourceTransform: Boolean
+    hasSourceTransform: Boolean,
+    preloadedContent: Boolean = false
 ): LiquidMorphSpec = object : LiquidMorphSpec {
     override val routeKey: String = "course-editor"
 
@@ -186,7 +187,9 @@ internal fun legacyCourseEditorMorphSpec(
         )
         val openingHandoff = courseEditorSmoothStep(0.12f, 0.50f, visualProgress.position)
         val closingHandoff = courseEditorSmoothStep(0.04f, 0.18f, visualProgress.position)
-        val destinationAlpha = if (closing) closingHandoff else openingHandoff
+        val destinationAlpha = if (preloadedContent) {
+            com.xiaomanjun.sleepdownschedule.glass.liquidPreloadedContentAlpha(input.rawProgress)
+        } else if (closing) closingHandoff else openingHandoff
         val sourceAlpha = if (hasSourceTransform) 1f - destinationAlpha else 0f
         val sourceBlurProgress = if (closing) {
             courseEditorSmoothStep(0f, 0.12f, visualProgress.position)

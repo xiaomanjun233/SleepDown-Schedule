@@ -169,7 +169,8 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
         sourcePressedScale,
         targetRect,
         adaptiveMetrics,
-        density.density
+        density.density,
+        contentDuringMotion
     ) {
         legacyPersonalizationMorphSpec(
             source = sourceBounds,
@@ -188,7 +189,8 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
             },
             closingControlDropPx = with(density) {
                 ThreeDotMenuMotion.CloseControlDropDp.dp.toPx()
-            }
+            },
+            preloadedContent = contentDuringMotion
         )
     }
     val geometry = remember(morphSpec, motionState) {

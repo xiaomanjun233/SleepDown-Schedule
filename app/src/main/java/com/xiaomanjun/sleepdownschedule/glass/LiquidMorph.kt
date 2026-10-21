@@ -235,6 +235,15 @@ data class LiquidContentHandoffFrame(
     val destinationInteractive: Boolean = false
 )
 
+/** Preloaded forms crossfade on the raw clock, independently of the fast geometry easing.
+ * The same progress on return preserves alpha when an opening is interrupted. */
+internal fun liquidPreloadedContentAlpha(rawProgress: Float): Float {
+    val start = 0.35f
+    val end = 0.70f
+    val t = ((rawProgress - start) / (end - start)).coerceIn(0f, 1f)
+    return t * t * (3f - 2f * t)
+}
+
 data class LiquidBackdropDepthFrame(
     val scale: Float = 1f,
     val blurPx: Float = 0f,

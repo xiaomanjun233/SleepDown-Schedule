@@ -563,7 +563,8 @@ internal fun CourseEditorContainerOverlayHost(
         sourceCornerPx,
         adaptiveMetrics,
         density.density,
-        hasSourceTransform
+        hasSourceTransform,
+        preloadContent
     ) {
         legacyCourseEditorMorphSpec(
             source = sourceRect,
@@ -573,7 +574,8 @@ internal fun CourseEditorContainerOverlayHost(
             maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() },
             sourceBlurMaxPx = with(density) { 6.dp.toPx() },
             destinationBlurMaxPx = with(density) { 5.dp.toPx() },
-            hasSourceTransform = hasSourceTransform
+            hasSourceTransform = hasSourceTransform,
+            preloadedContent = preloadContent
         )
     }
     val materialEnvelope = remember(morphSpec, sourceRect, targetRect) {
