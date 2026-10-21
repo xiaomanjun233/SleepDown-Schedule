@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -72,17 +74,13 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LiquidOptionTabs
 import com.xiaomanjun.sleepdownschedule.core.web.releaseSleepDownWebView
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
@@ -208,7 +206,7 @@ fun NormalizedAiManualImportScreen(
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     fun releaseManualToolWebView() {
-        manualToolBridge?.bindWebView(null)
+        manualToolBridge?.close()
         manualToolWebView?.let { released ->
             released.uninstallShiguangRuntime()
             released.releaseSleepDownWebView(clearResourceCache = false)
@@ -219,7 +217,7 @@ fun NormalizedAiManualImportScreen(
     }
     DisposableEffect(Unit) {
         onDispose {
-            manualToolBridge?.bindWebView(null)
+            manualToolBridge?.close()
             manualToolWebView?.let { released ->
                 released.uninstallShiguangRuntime()
                 released.releaseSleepDownWebView(clearResourceCache = false)
@@ -247,7 +245,6 @@ fun NormalizedAiManualImportScreen(
             }
         lateinit var target: WebView
         val bridge = ShiguangBridgeHost(
-            context = context,
             onDraft = { draft ->
                 if (manualToolWebView === target) releaseManualToolWebView()
                 manualToolRequest = null
@@ -560,8 +557,6 @@ fun NormalizedAiManualImportScreen(
         historySourceHidden = historySourceHidden,
         onOpenHistory = { sourceBounds ->
             scope.launch {
-                // TODO(OPLUS_DEFERRED_20260823): Retained for investigation only. The signed
-                // PLJ110 acceptance build still flashed blank on this native OPEN path.
                 val captured = captureHistoryBackground()
                 val sourceSnapshot = captured?.cropToAiHistorySource(sourceBounds)
                 // A malformed crop cannot represent the real source button. Keeping the source
@@ -597,7 +592,6 @@ fun NormalizedAiManualImportScreen(
                         returnAnchorProvider = StaticTransitionAnchorProvider(anchor),
                         backgroundBitmap = backgroundSnapshot,
                         onOpeningSourceHandoff = releaseOpeningSource,
-                        nativeSourceLeashAlphaOutOnOpen = true,
                         onSourceReleased = { historySourceHidden = false }
                     )
                 )

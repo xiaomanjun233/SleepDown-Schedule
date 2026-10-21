@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.HomeReadabilityContext
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.LocalHomeReadability
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.sampleVisibleWallpaperColors
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import android.graphics.Bitmap
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -45,23 +49,14 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPreviewOrientati
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.calculateFocusCropRect
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.wallpaperCropState
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeTextContrastFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import kotlin.math.ceil
 import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.map
-
-data class HomeReadabilityContext(
-    val bitmap: Bitmap? = null,
-    val config: ScheduleConfigEntity? = null,
-    val rootSize: IntSize = IntSize.Zero,
-    val rootOffsetInWindow: Offset = Offset.Zero
-)
-
-val LocalHomeReadability = compositionLocalOf { HomeReadabilityContext() }
 
 private fun sampleVisibleWallpaperLuminances(
     context: HomeReadabilityContext,
@@ -70,54 +65,6 @@ private fun sampleVisibleWallpaperLuminances(
     rows: Int = 5
 ): FloatArray? = sampleVisibleWallpaperColors(context, bounds, columns, rows)
     ?.map { it.luminance() }?.toFloatArray()
-
-internal fun sampleVisibleWallpaperColors(
-    context: HomeReadabilityContext,
-    bounds: Rect,
-    columns: Int = 7,
-    rows: Int = 5
-): List<ComposeColor>? {
-    if (bounds.width <= 0f || bounds.height <= 0f) return null
-    val bitmap = context.bitmap ?: return null
-    val config = context.config ?: return null
-    val root = context.rootSize
-    if (root.width <= 0 || root.height <= 0 || bitmap.width <= 0 || bitmap.height <= 0) {
-        return null
-    }
-    val useSavedCrop = !config.wallpaperUri.isNullOrBlank()
-    val cropState = if (useSavedCrop) {
-        config.wallpaperCropState(
-            if (root.width <= root.height) WallpaperPreviewOrientation.Portrait
-            else WallpaperPreviewOrientation.Landscape
-        )
-    } else WallpaperCropState()
-    val drawn = calculateFocusCropRect(
-        bitmapWidth = bitmap.width,
-        bitmapHeight = bitmap.height,
-        containerWidth = root.width.toFloat(),
-        containerHeight = root.height.toFloat(),
-        cropState = cropState
-    )
-    if (drawn.width <= 0f || drawn.height <= 0f) return null
-    val visibleBounds = bounds.intersect(Rect(0f, 0f, root.width.toFloat(), root.height.toFloat()))
-    if (visibleBounds.width <= 0f || visibleBounds.height <= 0f) return null
-    val samples = ArrayList<ComposeColor>(columns * rows)
-    val brightness = config.wallpaperBrightness.coerceIn(0.35f, 1f)
-    for (row in 0 until rows) {
-        for (column in 0 until columns) {
-            val rootX = visibleBounds.left + visibleBounds.width * ((column + 0.5f) / columns)
-            val rootY = visibleBounds.top + visibleBounds.height * ((row + 0.5f) / rows)
-            val x = (((rootX - drawn.left) / drawn.width) * bitmap.width)
-                .roundToInt().coerceIn(0, bitmap.width - 1)
-            val y = (((rootY - drawn.top) / drawn.height) * bitmap.height)
-                .roundToInt().coerceIn(0, bitmap.height - 1)
-            val pixel = bitmap[x, y]
-            val source = ComposeColor(pixel)
-            samples.add(ComposeColor(source.red * brightness, source.green * brightness, source.blue * brightness))
-        }
-    }
-    return samples
-}
 
 internal fun homeStatusBarWallpaperLuminance(context: HomeReadabilityContext): Float? {
     val root = context.rootSize

@@ -10,6 +10,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
@@ -58,7 +60,7 @@ fun CrossActivityTransitionHost(
     }
 
     val openingAnchor = payload?.openingAnchor
-    val returnAnchor = remember(payload) { payload?.returnAnchorProvider?.resolve() }
+    var returnAnchor by remember(payload) { mutableStateOf(payload?.returnAnchorProvider?.resolve()) }
     val floatingOverlayHost = remember { DetailActivityFloatingOverlayHost() }
     val floatingOverlayVisible = session == null || state == null || state == TransitionSessionState.Open
     CompositionLocalProvider(LocalDetailActivityFloatingOverlayHost provides floatingOverlayHost) {
@@ -110,6 +112,7 @@ fun CrossActivityTransitionHost(
                     }
                 },
                 onCloseRequested = {
+                    returnAnchor = payload?.returnAnchorProvider?.resolve()
                     if (ActivityTransitionCoordinator.requestNativeClose(activity, sessionId)) {
                         activity.finish()
                         true

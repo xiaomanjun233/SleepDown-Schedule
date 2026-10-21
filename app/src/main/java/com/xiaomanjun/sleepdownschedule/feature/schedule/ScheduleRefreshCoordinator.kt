@@ -1,8 +1,12 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule
 
 import com.xiaomanjun.sleepdownschedule.*
+import android.content.Context
+import com.xiaomanjun.sleepdownschedule.data.repository.ScheduleRepository
+import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.channels.BufferOverflow
@@ -10,6 +14,7 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -56,4 +61,10 @@ class ScheduleRefreshCoordinator(
             onFailure(error)
         }
     }
+}
+
+internal suspend fun refreshScheduleSurfaces(context: Context, repository: ScheduleRepository) = withContext(Dispatchers.IO) {
+    val snapshot = repository.activeSnapshot()
+    NotificationScheduler.refreshToday(context, snapshot.courses, snapshot.config, snapshot.periods)
+    TodayCoursesWidgetProvider.refreshAll(context)
 }

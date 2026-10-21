@@ -27,7 +27,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.core.net.toUri
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
@@ -41,13 +40,9 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.hasNetPeriodTopologyChan
 import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
 import com.xiaomanjun.sleepdownschedule.domain.schedule.previewPeriodCourseMapping
 import com.xiaomanjun.sleepdownschedule.domain.schedule.schemeConfig
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.compactWeekSelectionLabel
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorScopeDescription
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.home.week.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
-import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode
 import com.xiaomanjun.sleepdownschedule.transition.legacy.ScheduleCustomizeIdExtra

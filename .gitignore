@@ -3,6 +3,7 @@
 **/build
 /.idea
 .DS_Store
+__pycache__/
 /captures
 .externalNativeBuild
 .cxx

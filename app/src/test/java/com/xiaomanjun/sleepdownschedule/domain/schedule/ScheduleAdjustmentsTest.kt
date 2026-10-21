@@ -9,6 +9,16 @@ import org.junit.Test
 import java.time.LocalDate
 
 class ScheduleAdjustmentsTest {
+    @Test fun sharedModelRetainsThePublishedSerializationNameAndJson() {
+        assertEquals("com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustment",
+            com.xiaomanjun.sleepdownschedule.model.ScheduleAdjustment.serializer().descriptor.serialName)
+        val oldJson = """[{"date":"2026-10-20","sourceDate":"2026-10-19","label":"补课","allDayPlaceholder":true}]"""
+        val decoded = decodeScheduleAdjustments(oldJson)
+        assertEquals(oldJson, encodeScheduleAdjustments(decoded))
+        assertEquals(com.xiaomanjun.sleepdownschedule.model.ScheduleAdjustment(
+            "2026-10-20", "2026-10-19", "补课", true), decoded.single())
+    }
+
     @Test fun changingAndRestoringAnAdjustmentRefreshesDateLookups() {
         val date = LocalDate.of(2026, 10, 8)
         val stopped = defaultConfig().copy(scheduleAdjustmentsJson = encodeScheduleAdjustments(listOf(ScheduleAdjustment(date.toString()))))

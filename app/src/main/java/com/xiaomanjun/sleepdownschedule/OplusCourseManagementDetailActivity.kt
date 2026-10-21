@@ -1,3 +1,0 @@
-package com.xiaomanjun.sleepdownschedule
-
-class OplusCourseManagementDetailActivity : CourseManagementDetailActivity()

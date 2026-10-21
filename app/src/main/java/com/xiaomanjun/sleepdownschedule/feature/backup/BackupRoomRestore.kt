@@ -3,7 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.backup
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.widget.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.MulticolorCourseCardArgb
+import com.xiaomanjun.sleepdownschedule.model.MulticolorCourseCardArgb
 
 import androidx.room.withTransaction
 

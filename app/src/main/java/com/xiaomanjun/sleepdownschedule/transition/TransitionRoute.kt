@@ -57,9 +57,7 @@ sealed interface LegacyTransitionProfile {
     data object TaskReturn : LegacyTransitionProfile
 }
 
-enum class TransitionNativePolicy { Never, OplusAllowlisted }
-
-enum class TransitionNativeClosePolicy { MatchOpen, LegacyOnly }
+enum class TransitionNativePolicy { Never, SharedViewKitAllowlisted }
 
 enum class TransitionDestinationWindowPolicy { Existing, OpaqueNativeCandidate }
 
@@ -68,12 +66,10 @@ data class TransitionRouteSpec(
     val destinationClassName: String,
     val legacyProfile: LegacyTransitionProfile,
     val nativePolicy: TransitionNativePolicy = TransitionNativePolicy.Never,
-    val nativeClosePolicy: TransitionNativeClosePolicy =
-        TransitionNativeClosePolicy.MatchOpen,
     val destinationWindowPolicy: TransitionDestinationWindowPolicy =
         TransitionDestinationWindowPolicy.Existing,
     /**
-     * A real opaque Activity component used only after ViewSeamless accepts this route. Activity
+     * A real opaque Activity component used only after the native backend accepts this route. Activity
      * aliases cannot change WindowManager's translucency classification for their target and must
      * never be used here.
      */
@@ -103,10 +99,6 @@ object TransitionRouteCatalog {
                 sourceCornerRadiusDp = 30f,
                 returnCornerRadiusDp = 21f
             ),
-            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
-            nativeClosePolicy = TransitionNativeClosePolicy.LegacyOnly,
-            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
-            nativeDestinationClassName = "$PackageName.OplusCourseManagementActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),
@@ -117,10 +109,10 @@ object TransitionRouteCatalog {
                 profileId = AnchoredLegacyProfileId.CourseManagementDetail,
                 sourceCornerRadiusDp = 20f
             ),
-            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
             destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
             nativeDestinationClassName =
-                "$PackageName.OplusCourseManagementDetailActivity",
+                "$PackageName.NativeCourseManagementDetailActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),
@@ -131,9 +123,6 @@ object TransitionRouteCatalog {
                 profileId = AnchoredLegacyProfileId.Parabolic,
                 sourceCornerRadiusDp = 21f
             ),
-            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
-            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
-            nativeDestinationClassName = "$PackageName.OplusAiImportHistoryActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),
@@ -144,9 +133,6 @@ object TransitionRouteCatalog {
                 profileId = AnchoredLegacyProfileId.Liquid,
                 sourceCornerRadiusDp = 21f
             ),
-            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
-            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
-            nativeDestinationClassName = "$PackageName.OplusAiImportHistoryActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),
@@ -166,7 +152,7 @@ object TransitionRouteCatalog {
             "$PackageName.SettingsDetailActivity",
             LegacyTransitionProfile.PlatformDefault
         ),
-        // 多课表快速设置的"详细设置"按钮：走非 Oplus 锚定 Morph 链路。
+        // 多课表快速设置的"详细设置"按钮：保留本地锚定 Morph 链路。
         // 使用 Manifest 原生透明的真实 Activity 保留首页 Surface；页面仍复用同一个
         // SettingsDetailActivityHost，不能用运行时 setTheme 或 Activity alias 代替。
         TransitionRouteSpec(
@@ -207,10 +193,6 @@ object TransitionRouteCatalog {
                 sourceCornerRadiusDp = 30f,
                 returnCornerRadiusDp = 21f
             ),
-            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
-            nativeClosePolicy = TransitionNativeClosePolicy.LegacyOnly,
-            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
-            nativeDestinationClassName = "$PackageName.OplusEduSchoolSelectActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),

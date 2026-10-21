@@ -1,7 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.designsystem
 
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
 
 import androidx.compose.runtime.Composable

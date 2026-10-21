@@ -26,7 +26,7 @@ import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.WeekCardContentLayout
 import com.xiaomanjun.sleepdownschedule.WeekCardTextAlignment
 import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseCardText
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalPersonalizationPreview
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalPersonalizationPreview
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeCourseTextColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.model.effectiveWeekCardTextAlignment

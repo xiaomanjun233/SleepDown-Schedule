@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.widget
 
+import com.xiaomanjun.sleepdownschedule.model.decodeCourseCardPalette
+
+import com.xiaomanjun.sleepdownschedule.model.DefaultCourseCardPalette
+
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*

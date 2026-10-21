@@ -2,7 +2,6 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.backup.*
 import android.net.Uri
 import android.util.Base64
 import kotlinx.serialization.Serializable
@@ -115,7 +114,8 @@ data class AiProviderProfile(
     val supportsFileUpload: Boolean = capabilities.supportsFileUpload,
     val supportsPdfDirect: Boolean = capabilities.supportsPdfFileInput,
     val availableModels: List<String> = emptyList(),
-    val reasoningEffort: AiReasoningEffort = AiReasoningEffort.MEDIUM
+    val reasoningEffort: AiReasoningEffort = AiReasoningEffort.MEDIUM,
+    @kotlinx.serialization.Transient val modelCatalog: List<AiModelOption> = emptyList()
 )
 
 data class AiImportSettings(
@@ -256,6 +256,7 @@ fun extractAiReasoningForDisplay(output: String): String {
         .trim()
 }
 
+@Serializable
 data class AiModelOption(
     val label: String,
     val model: String,

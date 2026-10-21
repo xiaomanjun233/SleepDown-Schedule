@@ -1,8 +1,10 @@
 # 液态玻璃 2.0 统一框架与同 Activity 动画
 
-更新时间：2026-10-18
+更新时间：2026-10-21
 
 ## 当前结论
+
+- 2026-10-21：纯色板、ARGB 编解码和色差算法归 model，主题判断归 core；玻璃逐帧诊断归 `glass/GlassPerformanceDiagnostics.kt`，通用性能和壁纸读取不再依赖 glass。原算法、Trace/日志、采样与视觉保持一致；这属于维护边界整理，不是性能收益证据，见[根节点与边界续作](../reports/2026-10-21-root-and-workflow-followup.md)。
 
 - 2026-10-18：课程卡改为对照 Nexio `99f14cbc` 的全分辨率共享前缀与逐卡 Lens 路线，移除 0.48 和按数量降采样、普通课程卡本地采样缓存；无效果直接绘制，视口外仅跳过采样，保留冻结场景及编辑/Morph 兼容。普通课程阴影改用 Compose 缓存遮罩，底色绘制合并并复用渐变 Brush。共享 `blurLayer → bakedLayer` 仍是 RenderNode 引用，不是像素快照，不能据此声称模糊 GPU 开销为零。当前实现及验证见 [对齐记录](../reports/2026-10-18-nexio-glass-parity.md)；下文采样比例和旧实现的表述属于历史阶段。
 

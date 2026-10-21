@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing.history
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.content.Intent
 import android.graphics.Bitmap
 import android.os.Bundle
@@ -40,12 +42,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.progress.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
@@ -131,7 +131,6 @@ open class AiImportHistoryActivityHost : ComponentActivity() {
 
 }
 
-/** Opaque manifest host for the verified ColorOS ViewSeamless AI-history route. */
 @Composable
 private fun AiImportHistoryPage(
     config: ScheduleConfigEntity,

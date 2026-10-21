@@ -42,7 +42,6 @@ import com.xiaomanjun.sleepdownschedule.DefaultWallpaperStyle
 import com.xiaomanjun.sleepdownschedule.DockAlignment
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.app.ui.Screen
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidControlSlider
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
@@ -54,7 +53,7 @@ import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.adaptiveGlassStateFromLuminance
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.normalizedHomeChromeBlurScale
 import kotlin.math.abs
 import kotlin.math.pow
@@ -300,7 +299,7 @@ private fun LiquidGlassDockPreview(
             }
             CompositionLocalProvider(LocalAdaptiveGlass provides adaptiveGlass) {
                 FloatingDock(
-                    selected = Screen.Home,
+                    homeSelected = true,
                     backdrop = previewBackdrop,
                     config = config,
                     modifier = Modifier.align(Alignment.BottomCenter),

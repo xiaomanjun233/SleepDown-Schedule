@@ -6,9 +6,10 @@ import android.security.keystore.KeyProperties
 import android.util.Base64
 import androidx.core.content.edit
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
-import com.xiaomanjun.sleepdownschedule.feature.backup.*
+import com.xiaomanjun.sleepdownschedule.model.backup.BackupAiImportPreferences
+import com.xiaomanjun.sleepdownschedule.model.backup.BackupAiProvider
 import com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.ChatGptAuthManager
 import java.security.KeyStore
 import java.util.UUID
@@ -82,6 +83,7 @@ object AiImportSettingsStore {
     }
 
     fun notifyRemoteConfigChanged() = notifyChanged()
+    internal fun notifyModelCatalogChanged() = notifyChanged()
 
     private fun managedFreeSettings(context: Context, prefs: android.content.SharedPreferences): AiImportSettings {
         val effort = runCatching {
@@ -92,7 +94,7 @@ object AiImportSettingsStore {
                 ).orEmpty()
             )
         }.getOrDefault(AiProviderPresets.dailyFree.reasoningEffort)
-        return SleepDownRemoteConfig.managedFreeSettings(context, effort)
+        return ManagedAiRemoteConfig.managedFreeSettings(context, effort)
     }
 
     fun hasUserConfiguredApiKey(context: Context): Boolean {
@@ -163,7 +165,7 @@ object AiImportSettingsStore {
         if (prefs.contains(KeyManagedFreeOfferDecision)) return false
         val selectedId = load(context).profile.id
         if (selectedId == AiProviderPresets.dailyFree.id || AiProviderPresets.isChatGptId(selectedId)) return false
-        return !hasUserConfiguredApiKey(context) && SleepDownRemoteConfig.isManagedFreeAvailable(context)
+        return !hasUserConfiguredApiKey(context) && ManagedAiRemoteConfig.isManagedFreeAvailable(context)
     }
 
     fun enableManagedFreeAi(context: Context) {
@@ -542,7 +544,7 @@ object AiImportSettingsStore {
                 remove(KeyEncryptedApiKey)
             }
         }
-        return AiImportSettings(AiProviderPresets.normalizeDeepSeekProfile(profile), apiKey)
+        return AiImportSettings(AiProviderModelCatalog.applyCached(context, AiProviderPresets.normalizeDeepSeekProfile(profile)), apiKey)
     }
 
     fun loadProvider(context: Context, providerId: String): AiImportSettings {
@@ -662,7 +664,7 @@ object AiImportSettingsStore {
             }
         }
         val apiKey = prefs.getString(apiKeyKey(profile.id), null)?.let { decrypt(context, it) }.orEmpty()
-        return AiImportSettings(AiProviderPresets.normalizeDeepSeekProfile(profile), apiKey)
+        return AiImportSettings(AiProviderModelCatalog.applyCached(context, AiProviderPresets.normalizeDeepSeekProfile(profile)), apiKey)
     }
 
     private fun chatGptSettings(context: Context, profile: AiProviderProfile): AiImportSettings {

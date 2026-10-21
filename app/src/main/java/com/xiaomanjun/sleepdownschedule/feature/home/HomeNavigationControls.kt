@@ -58,7 +58,6 @@ import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.DockAlignment
 import com.xiaomanjun.sleepdownschedule.MainActivity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.app.ui.Screen
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColor
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeActionIconPainter
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.dockImeCompensationPx
@@ -67,7 +66,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialContro
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassLens
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassPill
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
 import kotlinx.coroutines.delay
@@ -75,7 +74,7 @@ import kotlinx.coroutines.delay
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun FloatingDock(
-    selected: Screen,
+    homeSelected: Boolean,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
@@ -84,7 +83,7 @@ fun FloatingDock(
     onConfig: () -> Unit
 ) {
     val adaptiveGlass = LocalAdaptiveGlass.current
-    val lightGlass = if (selected is Screen.Home) {
+    val lightGlass = if (homeSelected) {
         adaptiveGlass.lightGlass
     } else {
         !appUsesDarkTheme(config)
@@ -109,7 +108,7 @@ fun FloatingDock(
     )
     val bottomOffset = (bottomInset + 8.dp).coerceAtLeast(8.dp)
     val dockTextColor by animateColorAsState(
-        targetValue = if (selected is Screen.Home) {
+        targetValue = if (homeSelected) {
             adaptiveGlass.contentColor
         } else if (appUsesDarkTheme(config)) {
             ComposeColor.White
@@ -140,7 +139,7 @@ fun FloatingDock(
     ) {
         CompositionLocalProvider(LocalContentColor provides dockTextColor) {
             HomeDockTabs(
-                selectedIndex = if (selected is Screen.Home) 0 else 1, parallel = false,
+                selectedIndex = if (homeSelected) 0 else 1, parallel = false,
                 config = config, backdrop = backdrop, lightGlass = lightGlass,
                 modifier = Modifier.width(LocalHomeMaterialControls.current.ordinaryDockWidth()).excludeParentPullGesture(),
                 onSelect = { index -> if (index == 0) onHome() else onConfig() }

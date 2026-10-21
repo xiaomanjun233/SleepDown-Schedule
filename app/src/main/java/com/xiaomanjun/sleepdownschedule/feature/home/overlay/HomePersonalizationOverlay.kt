@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.overlay
 
+import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredMorphGeometry
+import com.xiaomanjun.sleepdownschedule.transition.legacy.homeMorphSmoothStep
+
 import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -89,7 +92,7 @@ import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownPlainGlassSurface
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassDialogSurface
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
-import com.xiaomanjun.sleepdownschedule.transition.legacy.legacyPersonalizationMorphSpec
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.legacyPersonalizationMorphSpec
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.first

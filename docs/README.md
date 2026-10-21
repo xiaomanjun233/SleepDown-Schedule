@@ -31,10 +31,18 @@
 | 1.2.7.1 兼容补发与 r1 下架 | [更新识别修复、发布与核验记录](reports/2026-10-20-update-revision-compatibility.md) |
 | 按用户任务查功能与实现入口 | [FEATURE_MAP.md](FEATURE_MAP.md) |
 | 目录、依赖与结构调整 | [PROJECT_STRUCTURE.md](architecture/PROJECT_STRUCTURE.md)、[CODE_ORGANIZATION.md](architecture/CODE_ORGANIZATION.md) |
+| 全项目架构审查、首批重构与后续顺序 | [2026-10-20 架构审查](reports/2026-10-20-architecture-review.md) |
+| 首页导入状态、通知编解码、自定义课时显示与自动静音续作 | [2026-10-20 续作与课程修复](reports/2026-10-20-architecture-followup-and-course-fixes.md) |
+| 个性化、共享值、事务准备、教务/通知/材质边界及 ChatGPT/模型列表修复 | [2026-10-20 架构收口与 AI 修复](reports/2026-10-20-architecture-completion-and-ai-fixes.md) |
+| 功能内课表状态、共享转场计算与根包别名检查 | [2026-10-21 状态与转场边界续作](reports/2026-10-21-schedule-state-and-transition-boundaries.md) |
+| 动效参数、帧计算及播放职责整理的验证 | [2026-10-21 动效维护整理](reports/2026-10-21-motion-maintainability.md) |
+| 根节点更新会话、生命周期、剩余循环与分支迁移 | [2026-10-21 根节点续作](reports/2026-10-21-root-and-workflow-followup.md) |
+| 金标官方能力调查及旧 Oplus 动画退役 | [接入调查](reports/2026-10-21-sharedviewkit-integration-audit.md)、[首批实现与验证](reports/2026-10-21-sharedviewkit-pilot.md) |
 | 页面、弹窗、选择器与公共控件 | [SLEEPDOWN_DESIGN_SYSTEM.md](architecture/SLEEPDOWN_DESIGN_SYSTEM.md) |
 | 玻璃采样、渲染和生命周期 | [LIQUID_GLASS_FRAMEWORK.md](performance/LIQUID_GLASS_FRAMEWORK.md) |
 | 可选凝光材质、公共控件协议与运行时门控 | [SLEEPDOWN_COLOROS_FRAMEWORK.md](architecture/SLEEPDOWN_COLOROS_FRAMEWORK.md) |
 | 跨 Activity 转场 | [TRANSITION_FRAMEWORK.md](TRANSITION_FRAMEWORK.md) |
+| 定位动效参数、播放与资源释放边界 | [动效维护入口](architecture/MOTION_MAINTENANCE.md) |
 | AI 文件导入 | [AI_FILE_IMPORT.md](ai/AI_FILE_IMPORT.md) |
 | AI助理 | [DAY_AGENT_RUNTIME.md](architecture/DAY_AGENT_RUNTIME.md) |
 | 备份与升级 | [BACKUP_FORMAT_V1.md](migration/BACKUP_FORMAT_V1.md)、[1_2_0_PACKAGE_MIGRATION.md](migration/1_2_0_PACKAGE_MIGRATION.md) |

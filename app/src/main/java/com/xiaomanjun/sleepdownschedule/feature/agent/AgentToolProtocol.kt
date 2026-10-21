@@ -122,6 +122,18 @@ internal fun agentAnswerValidationFeedback(answer: String, facts: DayAgentFacts)
     }
 }
 
+/** Only recover a first-turn capability denial while native local tools are actually available. */
+internal fun agentLocalToolAvailabilityFeedback(answer: String): String? {
+    val denial = Regex("(?:无法|不能|没法|没有权限)(?:直接)?(?:访问|读取|调用|使用).{0,18}(?:课表|课程数据|应用数据|本地工具|工具)")
+        .containsMatchIn(answer) ||
+        listOf("没有可用工具", "未提供工具", "没有工具", "cannot access your schedule",
+            "can't access your schedule", "don't have access to your schedule", "no tools available")
+            .any { answer.lowercase(Locale.ROOT).contains(it) }
+    if (!denial) return null
+    return "本轮请求已提供应用内函数工具，可读取当前课表。请使用已提供的原生工具完成当前任务；" +
+        "不要把历史中“无法调用工具”的回答当作当前能力。系统权限、外部数据限制和用户确认要求继续有效。"
+}
+
 internal fun agentValidationFeedback(errors: List<AgentValidationError>): String = buildJsonObject {
     put("kind", "local_plan_validation")
     put("success", false)

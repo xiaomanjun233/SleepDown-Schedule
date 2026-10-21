@@ -61,7 +61,7 @@ app ──装配──> feature ──> domain/model
 - Home、周视图、Morph 与玻璃代码拆分时保持函数体、Modifier 顺序、几何和时间参数不变。
 - 每批变更使用独立回退点，并执行与风险相称的最小充分验证。
 
-## 当前落地结构（2026-10-14 核对）
+## 当前落地结构（2026-10-20 核对）
 
 ```text
 com/xiaomanjun/sleepdownschedule/
@@ -72,6 +72,8 @@ com/xiaomanjun/sleepdownschedule/
 ├── model/                            # 跨功能模型与持久化字段
 │   ├── VisualEffectMode.kt          # 保存的视效选项与有效模式规则
 │   ├── AppIconPreferencesSnapshot.kt
+│   ├── {CourseArrangement,ScheduleAdjustment}.kt # 时间与调休共享值，规则留在 domain
+│   ├── backup/                      # Agent/AI 备份快照与稳定 ID，保留 V1 序列化名称
 │   └── agent/AgentActions.kt        # 助手操作模型
 ├── data/                             # 数据入口
 │   ├── local/                       # Room、DAO、连续迁移
@@ -132,7 +134,14 @@ com/xiaomanjun/sleepdownschedule/
 - 课程管理、课表管理、首页日/周视图、Home overlay、设置通用组件、AI 历史/进度、Widget provider 和 Agent 后台服务均进入对应功能包。
 - 二级页内容节奏、Dialog、Alert、Picker、输入胶囊、操作按钮和 QuickSheet 的稳定壳已收口到 `core/ui/designsystem/`；规范按设置型、内容型和沉浸型保留可组合差异，详见 `SLEEPDOWN_DESIGN_SYSTEM.md`。
 - Day Agent 的稳定提示、工具决策和最终写入协议已分段，已读快照工具会在同一回合动态收窄；运行规则见 `DAY_AGENT_RUNTIME.md`。
+- 已确认 AI 设置计划由 `feature/agent/AgentSettingPlanExecutor.kt` 负责校验、事务调用、偏好写入、回读、回滚和撤销。`app/state/ScheduleViewModel` 只装配原作用域与刷新回调，并公开只读提示状态；Repository 继续拥有数据库事务。整体债务、检查基线与后续顺序见 [2026-10-20 架构审查](../reports/2026-10-20-architecture-review.md)。
 - Manifest 中已有 Activity、Service、Receiver 和 Widget Provider 的 FQCN 由根包薄入口保持不变；数据库、备份和 Intent 协议不需要迁移。
+- 首页导入交接状态由 `feature/home/HomeImportHandoffState.kt` 持有，根 Composable 继续装配入口关闭和动画。通知 Intent/重启存储的编解码由 `feature/reminder/LiveUpdatePayloadCodec.kt` 持有，NotificationScheduler 保留兼容门面，Service 保留启动/停止与恢复状态清理。详情见[续作报告](../reports/2026-10-20-architecture-followup-and-course-fixes.md)。
+- 个性化草稿/提交回读由 `feature/home/personalization/PersonalizationSession` 持有；共享预览、可读性采样和冻结上下文分别由 `core/ui/material`、`core/wallpaper`、`core/ui/text` 提供，glass 不再引用 home 功能包。详情 Morph 的设置内容由 app 装配，transition 只持有原运动和保存退出握手。
+- 课表管理、调休及教务登录的 Activity 状态由 `feature/schedule/ScheduleScreenViewModel` 持有，与首页复用 `ScheduleActions`，保留各 Activity 的 ViewModelStore 和提交后刷新。共享 Legacy 几何由 `transition/legacy` 提供，首页专属 adapter 留在 home；转场不再引用首页布局。详见[2026-10-21 续作](../reports/2026-10-21-schedule-state-and-transition-boundaries.md)。
+- `domain/agent/AgentPlanPreparation` 准备课程修改片段，Repository 在同一 Room 事务内读取、准备、写入和验证。`core/remoteconfig/SleepDownRemoteConfig` 负责公共 bootstrap，`feature/importing/ManagedAiRemoteConfig` 负责托管 AI；通知呈现位于 `LiveUpdateNotificationRenderer`，调度与 Service 保留原所有权。最新验证与剩余依赖见[架构收口报告](../reports/2026-10-20-architecture-completion-and-ai-fixes.md)。
+- 首页自动更新与设置手动更新的页面会话由 `feature/update/AppUpdateSession` 持有，共用检查、下载与安装授权流程，后台 transport/Service 不变；`app/ui/HomeResumeEffect` 负责 observer 订阅/释放，导航和导入仍由根节点装配。剩余复杂区域与 41 条声明循环见[根节点续作审查](../reports/2026-10-21-root-and-workflow-followup.md)。
+- 默认课程色板、ARGB 编解码和纯色差计算归 `model/CourseCardPalette.kt`，通用主题归 `core/ui/theme/AppTheme.kt`，玻璃诊断归 `glass/GlassPerformanceDiagnostics.kt`。壁纸读取与通用性能不依赖玻璃，检查器对这两个区域设立严格规则；余下 core/glass UI 循环逐步收敛，不用兼容别名掩盖。
 
 ## 稳定入口与实现映射
 
@@ -143,7 +152,7 @@ com/xiaomanjun/sleepdownschedule/
 | AI 历史、详情与进度 Activity | `feature.importing.history` / `feature.importing.progress` 中对应 `*Host` |
 | 四个扩展 Widget Provider | `feature.widget.providers` 中对应 `*Host` |
 | `DayAgentForegroundService` | `feature.agent.background.DayAgentForegroundServiceHost` |
-| Oplus 课程管理入口 | 根包独立薄文件，继承既有课程管理 Activity |
+| 原四个 Oplus Activity 名称 | Manifest 中未导出的 alias，保留系统恢复入口；旧类和私有动画后端已删除 |
 
 根包中的 `ScheduleDataCompat.kt`、`ScheduleCalendarCompat.kt`、`PeriodSchemesCompat.kt` 和 `ScheduleLabelsCompat.kt` 是有意保留的源码兼容门面。它们让结构迁移保持机械、可回退，也避免一次性改写全部调用点。
 
@@ -158,7 +167,7 @@ com/xiaomanjun/sleepdownschedule/
 | `feature/settings`、`feature/schedule/{manager,picker}` | 页面与共享设置控件已分开；课表编辑的保存交接与弹层会话保留在功能内。 |
 | `feature/importing`、`feature/agent/DayAgentConversationDialog.kt` | 完整导入会话或对话窗口生命周期保持内聚；助手卡片、呈现状态、几何、输入栏、消息内容与共享执行规则分别归位。 |
 | `feature/widget/providers/WeekScheduleWidgetRenderer.kt` | 同一 RemoteViews 输出的像素布局与位图渲染保持在一起；Provider 入口、日组件和周组件 renderer 已分开。 |
-| `transition/legacy`、`transition/OplusSeamlessBackend.kt` | 保留既有 renderer 和暂缓的 Oplus 调查边界；结构整理不改动动画所有权或交接时序。 |
+| `transition/legacy`、`transition/SharedViewKitBackend.kt` | Legacy 保留既有 renderer；标准 Kit 只处理握手、返回和会话资源，SDK 调用按渠道隔离。原 Oplus 私有转场已退役，详见[转场框架](../TRANSITION_FRAMEWORK.md)。 |
 | `data/local/AppDatabaseMigrations.kt`、`data/repository/ScheduleRepository.kt` | 前者按 Room 版本形成连续迁移账本，后者维持单一数据入口；拆分前需先定义稳定接口。 |
 
 在包依赖稳定且不存在反向引用后，再评估拆分 `:core:*` 和 `:feature:*` Gradle 模块。目录整理本身不以增加模块数量为目标。

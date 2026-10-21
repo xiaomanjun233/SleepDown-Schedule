@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing.progress
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -106,7 +108,6 @@ import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.UnevenRoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.TopGlassIconButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.material.controlAccentColor
@@ -117,7 +118,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.text.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
@@ -429,9 +429,6 @@ internal fun AiEduImportProgressPage(
                             backdrop = topBarBackdrop,
                              onClick = { sourceBounds ->
                                  conversationScope.launch {
-                                     // TODO(OPLUS_DEFERRED_20260823): Exact source-overlay handoff
-                                     // remains unverified; PLJ110 still showed an AI-history OPEN
-                                     // blank frame in the signed acceptance build.
                                      // Capture the real button before hiding it, then record a
                                      // second frame for the clean page background used by Morph.
                                      historySnapshotRequested.set(true)
@@ -476,7 +473,6 @@ internal fun AiEduImportProgressPage(
                                                  StaticTransitionAnchorProvider(anchor),
                                              backgroundBitmap = backgroundSnapshot,
                                              onOpeningSourceHandoff = releaseOpeningSource,
-                                             nativeSourceLeashAlphaOutOnOpen = true,
                                              onSourceReleased = {
                                                  historySourceHidden = false
                                              }

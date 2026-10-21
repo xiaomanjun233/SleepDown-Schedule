@@ -49,6 +49,9 @@ internal fun CourseQuietSettingsGroup(backdrop: Backdrop?, config: ScheduleConfi
         exactAlarms = NotificationScheduler.canScheduleExactCourseAlarms(context)
         error = CourseQuietScheduler.lastError(context)
         settings = CourseQuietPreferences.read(context)
+        // Granting policy/exact-alarm access can return to this page after the old refresh
+        // stopped scheduling. Re-evaluate the current class and its next boundary now.
+        if (settings.enabled) NotificationScheduler.requestReschedule(context)
     }
     fun update(next: com.xiaomanjun.sleepdownschedule.domain.schedule.CourseQuietSettings) {
         if (busy) return
@@ -72,7 +75,7 @@ internal fun CourseQuietSettingsGroup(backdrop: Backdrop?, config: ScheduleConfi
             SettingsToggleRow("自动勿扰", "", settings.doNotDisturbEnabled,
                 backdrop, enabled = !busy, onCheckedChange = { update(settings.copy(doNotDisturbEnabled = it)) })
             SettingsDivider()
-            SettingsToggleRow("自动静音／震动", "", settings.soundEnabled,
+            SettingsToggleRow("自动静音／震动", "上课时静音媒体，下课恢复原音量；课中手动调整会保留", settings.soundEnabled,
                 backdrop, enabled = !busy, onCheckedChange = { update(settings.copy(soundEnabled = it)) })
             AnimatedVisibility(settings.soundEnabled,
                 enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {

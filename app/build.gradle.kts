@@ -108,11 +108,14 @@ android {
             .getOrElse("legacy")
         require(glassOcclusionMode in setOf("legacy", "retained", "live"))
         all {
+            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST", "false")
             buildConfigField("boolean", "SLEEPDOWN_LOCAL_EDU_TEST", "false")
             buildConfigField("String", "GLASS_OCCLUSION_MODE", "\"legacy\"")
             buildConfigField("boolean", "GLASS_FIXED_MORPH", "false")
         }
         getByName("debug") {
+            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST",
+                providers.gradleProperty("sleepdown.sharedViewKitTest").map(String::toBoolean).getOrElse(false).toString())
             buildConfigField("boolean", "SLEEPDOWN_LOCAL_EDU_TEST", (eduAdapterTestAssets != null).toString())
             if (eduAdapterTestAssets != null) versionNameSuffix = "-edu-test"
             buildConfigField("boolean", "GLASS_FIXED_MORPH", providers.gradleProperty("sleepdown.glassFixedMorph").getOrElse("false").toBoolean().toString())
@@ -222,7 +225,7 @@ dependencies {
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("androidx.exifinterface:exifinterface:1.4.2")
-    compileOnly("com.oplus.animation:viewseamless:1.0.0@aar")
+    "githubImplementation"("gsai.sdk:sharedview-kit:1.0.0.4")
     implementation(project(":kyant-backdrop"))
     implementation("io.github.kyant0:shapes:1.2.0")
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.3")

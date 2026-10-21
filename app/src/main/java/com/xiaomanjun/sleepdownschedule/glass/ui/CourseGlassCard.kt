@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.glass.ui
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -41,14 +43,12 @@ import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.LiquidCourseCardBlurMax
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.SimpleCourseCardBlurMax
-import com.xiaomanjun.sleepdownschedule.app.ui.Screen
 import com.xiaomanjun.sleepdownschedule.core.performance.LocalGlassQuality
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextBackground
 import com.xiaomanjun.sleepdownschedule.courseCardBlurMaximum
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalPersonalizationPreview
-import com.xiaomanjun.sleepdownschedule.feature.home.day.CourseCard
-import com.xiaomanjun.sleepdownschedule.feature.home.day.hasAnyWallpaper
-import com.xiaomanjun.sleepdownschedule.feature.home.day.homeFlatBackgroundColor
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalPersonalizationPreview
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.homeFlatBackgroundColor
 import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame

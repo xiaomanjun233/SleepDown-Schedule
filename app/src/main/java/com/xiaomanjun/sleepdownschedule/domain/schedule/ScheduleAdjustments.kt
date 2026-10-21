@@ -1,19 +1,12 @@
 package com.xiaomanjun.sleepdownschedule.domain.schedule
 
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
-import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 
-/** A null source means no classes. A source uses that original teaching date, without chaining. */
-@Serializable
-data class ScheduleAdjustment(
-    val date: String, val sourceDate: String? = null, val label: String = "",
-    /** Presentation only. Calendar queries deliberately ignore this flag. */
-    val allDayPlaceholder: Boolean = false
-)
+typealias ScheduleAdjustment = com.xiaomanjun.sleepdownschedule.model.ScheduleAdjustment
 
 private val adjustmentJson = Json { ignoreUnknownKeys = true }
 

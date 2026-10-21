@@ -15,7 +15,7 @@ import android.text.TextUtils
 import androidx.core.graphics.withClip
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.createBlurredWallpaperBitmap
-import com.xiaomanjun.sleepdownschedule.feature.home.day.hasAnyWallpaper
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetAppearanceEntity
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetBackgroundRenderer
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetBackgroundResult

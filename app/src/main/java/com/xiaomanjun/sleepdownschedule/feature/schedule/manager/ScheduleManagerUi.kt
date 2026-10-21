@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.manager
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
+import com.xiaomanjun.sleepdownschedule.model.DefaultCourseCardPalette
+
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
@@ -93,14 +97,12 @@ import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.app.state.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.feature.schedule.ScheduleScreenViewModel
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.home.week.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
@@ -127,8 +129,8 @@ open class ScheduleManagerActivityHost : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             val app = application as CourseScheduleApp
-            val viewModel: ScheduleViewModel = viewModel(
-                factory = ScheduleViewModelFactory(app, app.repository)
+            val viewModel: ScheduleScreenViewModel = viewModel(
+                factory = ScheduleScreenViewModel.Factory(app, app.repository, app.applicationScope)
             )
             val state by viewModel.allSchedulesState.collectAsStateWithLifecycle()
             CourseScheduleTheme(config = state.config) {
@@ -136,7 +138,7 @@ open class ScheduleManagerActivityHost : ComponentActivity() {
                     state = state,
                     onSelect = { id ->
                         Log.d("ScheduleManager", "select schedule id=$id")
-                        viewModel.activateSchedule(id) { finish() }
+                        viewModel.actions.activateSchedule(id) { finish() }
                     },
                     onCustomize = { id ->
                         Log.d("ScheduleManager", "customize schedule id=$id")
@@ -152,15 +154,15 @@ open class ScheduleManagerActivityHost : ComponentActivity() {
                     },
                     onCreate = {
                         Log.d("ScheduleManager", "create schedule")
-                        viewModel.createSchedule()
+                        viewModel.actions.createSchedule()
                     },
                     onRename = { id, name ->
                         Log.d("ScheduleManager", "rename schedule id=$id name=$name")
-                        viewModel.renameSchedule(id, name)
+                        viewModel.actions.renameSchedule(id, name)
                     },
                     onDelete = { id ->
                         Log.d("ScheduleManager", "delete schedule id=$id")
-                        viewModel.deleteSchedule(id)
+                        viewModel.actions.deleteSchedule(id)
                     },
                     onBack = { finish() }
                 )

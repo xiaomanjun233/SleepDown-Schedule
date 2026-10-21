@@ -130,8 +130,16 @@ internal object ChatGptProtocol {
             .mapNotNull {
                 val slug = it.optString(if (accountCatalog != null) "slug" else "id")
                 if (slug.isBlank()) null else ChatGptModel(slug, it.optString("display_name").ifBlank { slug },
-                    it.optBoolean("supports_images", false))
+                    imageInputCapability(it))
             }.distinctBy { it.slug }
+    }
+    private fun imageInputCapability(model: JSONObject): Boolean? {
+        (model.opt("supports_images") as? Boolean)?.let { return it }
+        (model.opt("supports_image_input") as? Boolean)?.let { return it }
+        val input = model.optJSONArray("input_modalities")
+            ?: model.optJSONObject("modalities")?.optJSONArray("input")
+            ?: return null
+        return (0 until input.length()).any { input.optString(it) == "image" }
     }
 }
 

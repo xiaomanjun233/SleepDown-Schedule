@@ -27,13 +27,11 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xiaomanjun.sleepdownschedule.app.state.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.performance.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
 import com.xiaomanjun.sleepdownschedule.domain.course.*
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 import com.xiaomanjun.sleepdownschedule.feature.course.management.*
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
@@ -119,6 +117,7 @@ open class CourseManagementActivity : ComponentActivity() {
                                              onOpenCourse = {
                                                  courseId,
                                                  detailSourceBounds,
+                                                 currentReturnBounds,
                                                 snapshots,
                                                  onOpeningSourceHandoff,
                                                 onSourceReleased ->
@@ -141,16 +140,14 @@ open class CourseManagementActivity : ComponentActivity() {
                                                     intent = detailIntent,
                                                     payload = TransitionPayload(
                                                         openingAnchor = anchor,
-                                                        // Course detail closes to the same captured
-                                                        // card frame. The Oplus backend owns a plain
-                                                        // decor snapshot View for the whole session;
-                                                        // business UI no longer exposes a Compose
-                                                        // AndroidView as a vendor source.
                                                         returnAnchorProvider =
-                                                            TransitionAnchorProvider { anchor },
+                                                            TransitionAnchorProvider {
+                                                                currentReturnBounds()?.let {
+                                                                    anchor.copy(boundsInWindow = it)
+                                                                }
+                                                            },
                                                         backgroundBitmap = snapshots?.background,
                                                         onOpeningSourceHandoff = onOpeningSourceHandoff,
-                                                        nativeSourceLeashAlphaOutOnOpen = true,
                                                         onSourceReleased = onSourceReleased
                                                     )
                                                 )

@@ -7,6 +7,21 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ChatGptModelProfileTest {
+    @Test fun missingCatalogCapabilityAllowsAnImageAttemptButExplicitRefusalDoesNot() {
+        val profile = AiProviderPresets.chatGpt.copy(defaultModel = "account-model")
+        val unknown = ChatGptProtocol.models(org.json.JSONObject(
+            """{"models":[{"slug":"account-model","visibility":"list","display_name":"Account model"}]}"""))
+        assertEquals(null, unknown.single().supportsImages)
+        assertEquals(true, resolveChatGptModelProfile(profile, unknown).supportsVision)
+        val textOnly = ChatGptProtocol.models(org.json.JSONObject(
+            """{"models":[{"slug":"account-model","visibility":"list","input_modalities":["text"]}]}"""))
+        assertEquals(false, resolveChatGptModelProfile(profile, textOnly).supportsVision)
+        val vision = ChatGptProtocol.models(org.json.JSONObject(
+            """{"models":[{"slug":"account-model","visibility":"list","input_modalities":["text","image"]}]}"""))
+        assertEquals(true, resolveChatGptModelProfile(profile, vision).supportsVision)
+        assertEquals(false, resolveChatGptModelProfile(profile, emptyList()).supportsVision)
+    }
+
     private val models = listOf(
         ChatGptModel("text", "Text", supportsImages = false),
         ChatGptModel("vision", "Vision", supportsImages = true)

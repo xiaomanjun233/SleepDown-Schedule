@@ -16,6 +16,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class HomeAdaptiveMetricsTest {
+    @Test fun sharedMorphArcRetainsPhoneAndTabletWindowBoundaries() {
+        listOf(Triple(393, 852, 48), Triple(599, 300, 48), Triple(600, 600, 44),
+            Triple(600, 599, 40), Triple(800, 1200, 44), Triple(1200, 800, 40)).forEach { (width, height, expected) ->
+            val shared = com.xiaomanjun.sleepdownschedule.core.ui.interaction.adaptiveMorphArcDp(width, height)
+            assertEquals(expected.dp, shared)
+            assertEquals(shared, calculateHomeAdaptiveMetrics(width, height, 24.dp, 16.dp, 1.3f).animationArc)
+        }
+    }
+
     @Test
     fun phoneUsesStableResolutionAwareDayGeometry() {
         val metrics = calculateHomeAdaptiveMetrics(

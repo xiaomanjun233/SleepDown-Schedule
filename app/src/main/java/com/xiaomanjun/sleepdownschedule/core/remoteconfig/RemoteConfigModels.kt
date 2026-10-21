@@ -23,8 +23,8 @@ internal fun RemoteBootstrap.managedAiConfigs(): List<RemoteAiConfig> =
 /** Server-side kill switches. Missing or stale configuration always keeps native transitions off. */
 @Serializable
 data class RemoteTransitionConfig(
-    val oplusViewSeamlessEnabled: Boolean = false,
-    val oplusRouteAllowlist: Set<String> = emptySet()
+    val sharedViewKitEnabled: Boolean = false,
+    val sharedViewKitRouteAllowlist: Set<String> = emptySet()
 )
 
 @Serializable

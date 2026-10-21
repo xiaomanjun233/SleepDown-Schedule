@@ -98,19 +98,14 @@ import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
 import com.xiaomanjun.sleepdownschedule.core.web.enableSleepDownDownloads
 import com.xiaomanjun.sleepdownschedule.core.web.releaseSleepDownWebView
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
@@ -163,7 +158,6 @@ internal fun EduImportActivityScreen(
     val currentOnParsed by rememberUpdatedState(onParsed)
     val bridge = remember(adapter) {
         ShiguangBridgeHost(
-            context = context,
             onDraft = { draft ->
                 webView?.commitSystemCredentialAutofill()
                 currentOnParsed(draft)
@@ -171,6 +165,9 @@ internal fun EduImportActivityScreen(
             onMessage = { message = it },
             onInteractionRequest = { bridgeInteraction = it }
         )
+    }
+    DisposableEffect(bridge) {
+        onDispose { bridge.close() }
     }
     EduBridgeInteractionDialog(
         request = bridgeInteraction,

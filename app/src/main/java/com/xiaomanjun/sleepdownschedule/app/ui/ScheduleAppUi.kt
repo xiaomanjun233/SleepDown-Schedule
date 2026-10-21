@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.app.ui
 
+import com.xiaomanjun.sleepdownschedule.feature.settings.ScheduleConfigScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsSection
+
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsDetailPageExtra
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
@@ -116,9 +120,6 @@ import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
-import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.effects.blur
 import com.kyant.shapes.RoundedRectangle
@@ -137,12 +138,11 @@ import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.SettingsDetailActivity
 import com.xiaomanjun.sleepdownschedule.WeekParity
-import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.app.state.ScheduleViewModel
-import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
 import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
 import com.xiaomanjun.sleepdownschedule.core.performance.ContentEntranceContainer
-import com.xiaomanjun.sleepdownschedule.core.performance.GlassPerformanceDiagnostics
+import com.xiaomanjun.sleepdownschedule.glass.GlassPerformanceDiagnostics
 import com.xiaomanjun.sleepdownschedule.core.performance.LocalGlassQuality
 import com.xiaomanjun.sleepdownschedule.core.performance.LocalStartupPhase
 import com.xiaomanjun.sleepdownschedule.core.performance.PerformanceAnimationState
@@ -212,7 +212,7 @@ import com.xiaomanjun.sleepdownschedule.feature.agent.TodayAgentHost
 import com.xiaomanjun.sleepdownschedule.feature.agent.assistantPullGesture
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
 import com.xiaomanjun.sleepdownschedule.feature.agent.rememberDayAgentBackgroundMotionState
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorCloseDurationMillis
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorMotion
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorContainerOverlayHost
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorFlightRegistry
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorOverlayPhase
@@ -238,14 +238,14 @@ import com.xiaomanjun.sleepdownschedule.feature.home.HomeSidebarDestination
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeSwitchClip
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeSwitchPane
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeTopGradientBlur
-import com.xiaomanjun.sleepdownschedule.feature.home.LandscapePageTransition
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.LandscapePageTransition
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalAdjustedCourseEditor
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeAdaptiveMetrics
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePagerStartOverflow
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeTextContrastFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.NativeHomeDockChrome
-import com.xiaomanjun.sleepdownschedule.feature.home.PersonalizationPreviewState
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizationPreviewState
 import com.xiaomanjun.sleepdownschedule.feature.home.RetainedHomeValue
 import com.xiaomanjun.sleepdownschedule.feature.home.ScheduleManagerEntryPill
 import com.xiaomanjun.sleepdownschedule.feature.home.WallpaperEditorOverlay
@@ -256,19 +256,19 @@ import com.xiaomanjun.sleepdownschedule.feature.home.day.ApplyCourseEditDialog
 import com.xiaomanjun.sleepdownschedule.feature.home.day.CourseConflictRetentionDialog
 import com.xiaomanjun.sleepdownschedule.feature.home.day.DayViewPreferences
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeBackdropFallback
-import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeReadabilityContext
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.HomeReadabilityContext
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeScreen
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeWallpaper
-import com.xiaomanjun.sleepdownschedule.feature.home.day.LocalHomeReadability
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.LocalHomeReadability
 import com.xiaomanjun.sleepdownschedule.feature.home.day.WallpaperGlassSamplingToneOverlay
 import com.xiaomanjun.sleepdownschedule.feature.home.day.WallpaperToneOverlay
 import com.xiaomanjun.sleepdownschedule.feature.home.day.courseWeeksChanged
-import com.xiaomanjun.sleepdownschedule.feature.home.day.hasAnyWallpaper
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeStatusBarWallpaperLuminance
 import com.xiaomanjun.sleepdownschedule.feature.home.day.luminance
 import com.xiaomanjun.sleepdownschedule.feature.home.day.occurrenceOverrideKey
-import com.xiaomanjun.sleepdownschedule.feature.home.day.sampleVisibleWallpaperColors
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.sampleVisibleWallpaperColors
 import com.xiaomanjun.sleepdownschedule.feature.home.day.visibleWeekdaysForBuckets
 import com.xiaomanjun.sleepdownschedule.feature.home.day.weekCourseBuckets
 import com.xiaomanjun.sleepdownschedule.feature.home.homeOverlayDepthProgress
@@ -287,7 +287,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredMorphOv
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredOverlayKind
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredOverlayPhase
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredOverlayRequest
-import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeMenuDestinationCloseDurationMillis
+import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeMenuDestinationCloseDurationMillis
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeMenuDestinationKind
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeMenuDestinationOverlayHost
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeMenuDestinationRequest
@@ -297,17 +297,17 @@ import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseShortcut
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.homeAddMenuTargetRect
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.rememberHomeAnchoredMorphState
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.rememberHomeMenuDestinationMotionState
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardAlphaSlider
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardBlurSlider
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardFontSlider
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardRefractionSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardAlphaSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardBlurSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardFontSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardRefractionSlider
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizePanel
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWallpaperBlurSlider
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWallpaperBrightnessSlider
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeWeekHeightSlider
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.mergePersonalizationCandidate
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.resolveActivePersonalizationSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWallpaperBlurSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWallpaperBrightnessSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWeekHeightSlider
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizationSession
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
+import com.xiaomanjun.sleepdownschedule.feature.home.HomeImportHandoffState
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeSidebarState
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeSwitchMotion
 import com.xiaomanjun.sleepdownschedule.feature.home.shouldReuseHomeSurface
@@ -348,14 +348,11 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.HolidayReminder
 import com.xiaomanjun.sleepdownschedule.feature.settings.ScheduleAdjustmentsActivity
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsScreen
-import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsUpdateDialog
-import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsUpdateDialogHost
 import com.xiaomanjun.sleepdownschedule.feature.settings.UpcomingHoliday
-import com.xiaomanjun.sleepdownschedule.feature.settings.readableUpdateMessage
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
-import com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdater
-import com.xiaomanjun.sleepdownschedule.feature.update.GiteeReleaseInfo
-import com.xiaomanjun.sleepdownschedule.feature.update.GiteeUpdateCheckResult
+import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateDialogHost
+import com.xiaomanjun.sleepdownschedule.feature.update.AutomaticAppUpdateCheck
+import com.xiaomanjun.sleepdownschedule.feature.update.rememberAppUpdateSession
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackendPolicy
 import com.xiaomanjun.sleepdownschedule.glass.GlassRenderPhase
@@ -371,7 +368,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalCourseCardColorAssignments
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalCourseCardPalette
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.buildCourseCardColorAssignments
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardColorKey
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardGlassEffectFrame
@@ -445,12 +442,8 @@ fun CourseScheduleAppUi(
     var pendingPickerEditorScheduleId by remember { mutableStateOf<Int?>(null) }
     var quickScheduleDraft by remember { mutableStateOf<QuickScheduleDraft?>(null) }
     var quickScheduleReturnToManager by remember { mutableStateOf(false) }
-    var importSubmitting by remember { mutableStateOf(false) }
-    var importSourceState by remember { mutableStateOf<AppState?>(null) }
+    val importHandoff = remember { HomeImportHandoffState() }
     val importHomeReveal = remember { Animatable(1f) }
-    var importPreviewMounted by remember { mutableStateOf(false) }
-    var importPreviousCourseIds by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    var importExpectedCourseCount by remember { mutableStateOf<Int?>(null) }
     val dayAgentBackgroundMotionState = rememberDayAgentBackgroundMotionState()
     val dayAgentCountdownCinematic = remember { DayAgentCountdownCinematicState() }
     var dayAgentPagerSettled by remember { mutableStateOf(false) }
@@ -460,31 +453,21 @@ fun CourseScheduleAppUi(
     var detailCaptureRecordCleanFrame by remember { mutableStateOf(false) }
     val detailCaptureMaskActive = remember { AtomicBoolean(false) }
     // Saving may activate a new schedule before the import window has finished retracting.
-    val baseVisualState = importSourceState ?: (previewScheduleId?.let(allSchedulesState::forSchedule) ?: state)
-    var personalizationDraftConfig by remember { mutableStateOf<ScheduleConfigEntity?>(null) }
-    var personalizationPendingCommitConfig by remember { mutableStateOf<ScheduleConfigEntity?>(null) }
-    var personalizationSliderPreviewKey by remember { mutableStateOf<String?>(null) }
-    val personalizationPreviewState = remember { PersonalizationPreviewState() }
+    val baseVisualState = importHandoff.sourceState ?: (previewScheduleId?.let(allSchedulesState::forSchedule) ?: state)
+    val personalizationSession = remember { PersonalizationSession() }
+    val personalizationPreviewState = personalizationSession.preview
     val personalizationPreviewProgress by animateFloatAsState(
-        targetValue = if (personalizationSliderPreviewKey != null) 1f else 0f,
+        targetValue = if (personalizationSession.sliderKey != null) 1f else 0f,
         animationSpec = tween(durationMillis = 180, easing = CubicBezierEasing(0.22f, 0f, 0.2f, 1f)),
         label = "personalization-preview-transition"
     )
-    LaunchedEffect(baseVisualState.config, personalizationPendingCommitConfig) {
-        val pending = personalizationPendingCommitConfig
-        if (pending != null && baseVisualState.config == pending) {
-            personalizationPendingCommitConfig = null
-        }
+    LaunchedEffect(baseVisualState.config, personalizationSession.pendingCommit) {
+        personalizationSession.acknowledge(baseVisualState.config)
     }
     LaunchedEffect(baseVisualState.config.id) {
-        if (personalizationDraftConfig?.id != baseVisualState.config.id) {
-            personalizationDraftConfig = null
-        }
-        if (personalizationPendingCommitConfig?.id != baseVisualState.config.id) {
-            personalizationPendingCommitConfig = null
-        }
+        personalizationSession.selectSchedule(baseVisualState.config.id)
     }
-    val personalizationConfig = personalizationDraftConfig ?: personalizationPendingCommitConfig
+    val personalizationConfig = personalizationSession.displayConfig
     val pendingVisualState = baseVisualState.withPersonalizationConfig(personalizationConfig)
     val glassBackendPolicy = remember { GlassBackendPolicy.LargeGlass }
     val glassSceneState = rememberGlassSceneState(
@@ -694,7 +677,7 @@ fun CourseScheduleAppUi(
 
     val personalizationPreviewActive by remember {
         derivedStateOf {
-            personalizationSliderPreviewKey != null || personalizationPreviewProgress > 0.001f
+            personalizationSession.sliderKey != null || personalizationPreviewProgress > 0.001f
         }
     }
     val homeBackgroundOverlayActive =
@@ -815,9 +798,7 @@ fun CourseScheduleAppUi(
         if (screen !is Screen.Home) {
             pendingHomeAnchoredOverlay = null
             homeAnchoredOverlayRequest = null
-            personalizationSliderPreviewKey = null
-            personalizationDraftConfig = null
-            personalizationPreviewState.clearAll()
+            personalizationSession.close()
         }
         if (screen !is Screen.Config) {
             settingsExitInterceptionRequired = false
@@ -826,9 +807,7 @@ fun CourseScheduleAppUi(
     }
     LaunchedEffect(homeAnchoredOverlayRequest) {
         if (homeAnchoredOverlayRequest?.kind != HomeAnchoredOverlayKind.Personalize) {
-            personalizationSliderPreviewKey = null
-            personalizationDraftConfig = null
-            personalizationPreviewState.clearAll()
+            personalizationSession.close()
         }
     }
     var homeContentUnderTopBar by remember { mutableStateOf(false) }
@@ -927,13 +906,9 @@ fun CourseScheduleAppUi(
     }
     LaunchedEffect(aiFinalImportRequest) {
         aiFinalImportRequest?.let { request ->
-            importSourceState = visualState
-            importPreviousCourseIds = state.courses.map { it.id }.toSet()
-            importExpectedCourseCount = request.draft.courses.size
+            importHandoff.retainSource(visualState, state.courses, request.draft.courses.size)
             viewModel.importDraft(request.draft, request.createNewSchedule, onFailure = {
-                importSourceState = null
-                importExpectedCourseCount = null
-                importPreviousCourseIds = emptySet()
+                importHandoff.submissionFailed()
                 homeDialog = HomeDialog.ConfirmImport(request.draft, returnDialog = null,
                     errorMessage = it.message ?: "课表保存失败，请重试")
             }) { scheduleId ->
@@ -943,7 +918,6 @@ fun CourseScheduleAppUi(
             AiEduImportProgressSession.consumeFinalImportRequest()
         }
     }
-    val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(externalIcsUri, state.loaded) {
         val uri = externalIcsUri ?: return@LaunchedEffect
         if (!state.loaded) return@LaunchedEffect
@@ -1060,57 +1034,8 @@ fun CourseScheduleAppUi(
         destinationCollapseHandedOff = false
         homeMenuDestinationRequest = request
     }
-    val currentVersionName = remember(context) {
-        runCatching {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: "1.0"
-        }.getOrDefault("1.0")
-    }
-    var automaticUpdateDialog by remember { mutableStateOf<SettingsUpdateDialog?>(null) }
-    var automaticDownloadedUpdate by remember { mutableStateOf<java.io.File?>(null) }
-    val automaticInstallPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        val apk = automaticDownloadedUpdate
-        if (apk != null && GiteeAppUpdater.canRequestPackageInstalls(context)) {
-            runCatching { GiteeAppUpdater.launchInstaller(context, apk) }
-                .onFailure { automaticUpdateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
-        }
-    }
-    fun downloadAutomaticUpdate(release: GiteeReleaseInfo) {
-        if (release.apkUrl == null) {
-            automaticUpdateDialog = SettingsUpdateDialog.NoApk(release)
-            return
-        }
-        automaticUpdateDialog = SettingsUpdateDialog.Downloading(release)
-        appScope.launch {
-            GiteeAppUpdater.downloadApk(context, release).fold(
-                onSuccess = { apk ->
-                    automaticDownloadedUpdate = apk
-                    if (GiteeAppUpdater.canRequestPackageInstalls(context)) {
-                        runCatching { GiteeAppUpdater.launchInstaller(context, apk) }
-                            .onSuccess { automaticUpdateDialog = null }
-                            .onFailure { automaticUpdateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
-                    } else {
-                        automaticUpdateDialog = SettingsUpdateDialog.InstallPermissionRequired
-                    }
-                },
-                onFailure = { automaticUpdateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
-            )
-        }
-    }
-    LaunchedEffect(state.loaded, state.config.autoCheckUpdates, currentVersionName) {
-        if (!state.loaded) return@LaunchedEffect
-        if (!AppDistribution.supportsSelfUpdate) return@LaunchedEffect
-        GiteeAppUpdater.restoreCachedStatus(context, currentVersionName)
-        if (!state.config.autoCheckUpdates || !GiteeAppUpdater.shouldRunDailyCheck(context)) return@LaunchedEffect
-        GiteeAppUpdater.markDailyCheckStarted(context)
-        GiteeAppUpdater.checkForUpdate(context, currentVersionName).onSuccess { result ->
-            GiteeAppUpdater.recordCheckResult(context, result)
-            if (result is GiteeUpdateCheckResult.UpdateAvailable) {
-                automaticUpdateDialog = SettingsUpdateDialog.Available(result.release)
-            }
-        }
-    }
+    val automaticUpdates = rememberAppUpdateSession()
+    AutomaticAppUpdateCheck(automaticUpdates, state.loaded, state.config.autoCheckUpdates)
     val wallpaperImages by rememberHomeWallpaperImages(visualState.config)
     val colorOsOverflowActions = remember { mutableStateOf<List<AddMenuAction>>(emptyList()) }
     val homeWallpaperRecordKey = remember { mutableStateOf<Any?>(null) }
@@ -1210,7 +1135,7 @@ fun CourseScheduleAppUi(
         startupPhase,
         screen,
         homeDialogVisible,
-        automaticUpdateDialog,
+        automaticUpdates.dialog,
         courseEditorRequest,
         remoteConfigState.bootstrap?.ai?.configVersion,
         remoteConfigState.bootstrap?.ai?.enabled,
@@ -1221,7 +1146,7 @@ fun CourseScheduleAppUi(
             startupPhase == StartupPhase.FullQuality &&
             screen is Screen.Home &&
             !homeDialogVisible &&
-            automaticUpdateDialog == null &&
+            automaticUpdates.dialog == null &&
             courseEditorRequest == null &&
             remoteExperience.agreement == null &&
             remoteExperience.notice == null &&
@@ -1244,7 +1169,7 @@ fun CourseScheduleAppUi(
         null -> "Unknown"
     }
     val startupAnimation = when {
-        personalizationSliderPreviewKey != null -> "PersonalizeSliderDrag"
+        personalizationSession.sliderKey != null -> "PersonalizeSliderDrag"
         homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle -> when (homeMenuDestinationMotionState.phase) {
             HomeAnchoredOverlayPhase.Preparing -> "HomeMenuDestinationPrepare:$homeMenuDestinationKindLabel"
             HomeAnchoredOverlayPhase.Opening -> "HomeMenuDestinationOpen:$homeMenuDestinationKindLabel"
@@ -1297,7 +1222,7 @@ fun CourseScheduleAppUi(
         } else {
             "Idle"
         },
-        personalizeSlider = when (personalizationSliderPreviewKey) {
+        personalizeSlider = when (personalizationSession.sliderKey) {
             PersonalizeWallpaperBlurSlider -> "WallpaperBlur"
             PersonalizeWallpaperBrightnessSlider -> "WallpaperBrightness"
             PersonalizeWeekHeightSlider -> "WeekHeight"
@@ -1559,8 +1484,8 @@ fun CourseScheduleAppUi(
             homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing ||
             courseEditorOverlayPhase == CourseEditorOverlayPhase.Closing
     val legacyHomeOverlayBackgroundBlurProgress: () -> Float = {
-        val legacyDepth = homeOverlayDepthProgress(homeOverlayBackgroundZoom())
-        val previewActive = personalizationSliderPreviewKey != null ||
+        val legacyDepth = homeOverlayDepthProgress(homeOverlayBackgroundZoom(), CourseEditorMotion.BackgroundZoomOpenScale)
+        val previewActive = personalizationSession.sliderKey != null ||
             personalizationPreviewProgress > 0.001f
         val substantialOverlayActive = substantialCourseEditorCoverage ||
             substantialMenuDestinationCoverage || substantialHomeAnchoredCoverage
@@ -1847,7 +1772,7 @@ fun CourseScheduleAppUi(
         closeHomeMenuDestination()
         // Keep the source timetable unchanged until both the entry and preview really unmount.
         snapshotFlow {
-            !importPreviewMounted && renderedHomeDialog == null &&
+            !importHandoff.previewMounted && renderedHomeDialog == null &&
                 homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Idle
         }.first { it }
         homeAssistant.reset()
@@ -1856,23 +1781,16 @@ fun CourseScheduleAppUi(
         screen = Screen.Home
         homeMode = HomeMode.Week
         importHomeReveal.snapTo(0f)
-        importSourceState = null
+        importHandoff.releaseSource()
         snapshotFlow {
-            val latest = latestAllSchedulesState.value
-            val rendered = latestVisualState.value
-            !importPreviewMounted && renderedHomeDialog == null && rendered.loaded &&
-                latest.schedules.any { it.id == scheduleId } &&
-                latest.allConfigs.any { it.id == scheduleId } &&
-                rendered.config.id == scheduleId &&
-                (importExpectedCourseCount == null || (rendered.courses.size == importExpectedCourseCount &&
-                    rendered.courses.none { it.id in importPreviousCourseIds }))
+            renderedHomeDialog == null && importHandoff.isTargetReady(
+                scheduleId, latestAllSchedulesState.value, latestVisualState.value
+            )
         }.first { it }
         withFrameNanos { }
         importHomeReveal.animateTo(1f, tween(300, easing = CubicBezierEasing(0.22f, 0.72f, 0.20f, 1f)))
         // Open setup only after the root preview has really gone and live data is ready.
-        importSubmitting = false
-        importExpectedCourseCount = null
-        importPreviousCourseIds = emptySet()
+        importHandoff.complete()
         quickScheduleReturnToManager = false
         quickScheduleDraft = quickDraftFor(scheduleId)
         pendingImportedSetupId = null
@@ -1984,40 +1902,29 @@ fun CourseScheduleAppUi(
         hideFromRecentsEnabled = state.config.hideFromRecents
     }
 
-    var initialLifecycleStartSeen by remember {
-        mutableStateOf(lifecycleOwner.lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED))
-    }
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_START) {
-                PendingImportSetupStore.consume(context)?.let { pendingImportedSetupId = it }
-                if (initialLifecycleStartSeen) {
-                    viewModel.refreshNotifications()
-                    pendingPickerEditorScheduleId?.let { scheduleId ->
-                        pendingPickerEditorScheduleId = null
-                        val generation = ++snapshotGeneration
-                        appScope.launch {
-                            pickerState.phase = CustomizeUiState.ExitingEditor
-                            val snap = captureRenderedSchedule(scheduleId)
-                            if (generation == snapshotGeneration && pickerState.selectedScheduleId == scheduleId) {
-                                if (snap != null) {
-                                    pickerState.snapshots[scheduleId] = snap
-                                    pickerState.currentSnapshot = snap
-                                    pickerState.currentSnapshotScheduleId = scheduleId
-                                }
-                                pickerState.phase = CustomizeUiState.Picker
-                                hydratePersistedSnapshots(generation)
-                            }
+    HomeResumeEffect(
+        onStart = { PendingImportSetupStore.consume(context)?.let { pendingImportedSetupId = it } },
+        onReturn = {
+            viewModel.refreshNotifications()
+            pendingPickerEditorScheduleId?.let { scheduleId ->
+                pendingPickerEditorScheduleId = null
+                val generation = ++snapshotGeneration
+                appScope.launch {
+                    pickerState.phase = CustomizeUiState.ExitingEditor
+                    val snap = captureRenderedSchedule(scheduleId)
+                    if (generation == snapshotGeneration && pickerState.selectedScheduleId == scheduleId) {
+                        if (snap != null) {
+                            pickerState.snapshots[scheduleId] = snap
+                            pickerState.currentSnapshot = snap
+                            pickerState.currentSnapshotScheduleId = scheduleId
                         }
+                        pickerState.phase = CustomizeUiState.Picker
+                        hydratePersistedSnapshots(generation)
                     }
-                } else {
-                    initialLifecycleStartSeen = true
                 }
             }
         }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
-    }
+    )
 
     LaunchedEffect(Unit) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -2532,10 +2439,7 @@ fun CourseScheduleAppUi(
                     val detailState = allSchedulesState.forSchedule(request.scheduleId)
                     DetailScheduleMorphOverlay(
                         request = request,
-                        detailState = detailState,
                         onMorphStateChange = { detailMorphState = it },
-                        onSave = { _, _ -> viewModel.refreshNotificationsAfterSave() },
-                        onPreviewLiveUpdate = viewModel::previewLiveUpdate,
                         onFinished = {
                             detailMorphRequest = null
                             detailCaptureCoverBitmap = null
@@ -2544,7 +2448,23 @@ fun CourseScheduleAppUi(
                             detailMorphState = DetailMorphState.Idle
                         },
                         modifier = Modifier.zIndex(260f)
-                    )
+                    ) { exitCommitRequest, requestToolbarBack, onExitCommitFinished ->
+                        DetailActivityScaffold(
+                            title = "课表详细设置",
+                            config = detailState.config,
+                            onBack = requestToolbarBack
+                        ) { backdrop ->
+                            ScheduleConfigScreen(
+                                state = detailState,
+                                backdrop = backdrop,
+                                section = SettingsSection.Schedule,
+                                onSave = { _, _ -> viewModel.refreshNotificationsAfterSave() },
+                                onPreviewLiveUpdate = viewModel::previewLiveUpdate,
+                                exitCommitRequest = exitCommitRequest,
+                                onExitCommitFinished = onExitCommitFinished
+                            )
+                        }
+                    }
                 }
                 HomeCountdownCinematicOverlay(
                     effect = dayAgentCountdownCinematic,
@@ -3436,7 +3356,6 @@ fun CourseScheduleAppUi(
                         // Activity launch. Ask the public ColorOS API to alpha the source Activity
                         // leash when its native animation starts, preventing a stationary menu
                         // from remaining below the moving system bitmap.
-                        nativeSourceLeashAlphaOutOnOpen = true,
                         // Source onResume happens before ColorOS finishes its CLOSE spring. Let
                         // the session-scoped backend release the hidden menu/button only after the
                         // matching native end callback (or Legacy completion/watchdog).
@@ -3732,17 +3651,16 @@ fun CourseScheduleAppUi(
                 weekCardHeightScaleFloor = weekCardHeightScaleFloor,
                 onWeekCardHeightScale = {
                     val safeScale = normalizedWeekCardHeightScale(it, weekCardHeightScaleFloor)
-                    val committedConfig = mergePersonalizationCandidate(
-                        current = personalizationDraftConfig ?: visualState.config,
+                    val committedConfig = personalizationSession.commit(
+                        current = visualState.config,
                         candidate = visualState.config.copy(
                             weekCardHeightDp = null,
                             weekCardHeightScale = safeScale
                         ),
-                        changeKey = PersonalizeWeekHeightSlider
+                        changeKey = PersonalizeWeekHeightSlider,
+                        clearPreview = false
                     )
                     weekCardHeightScale = safeScale
-                    personalizationDraftConfig = committedConfig
-                    personalizationPendingCommitConfig = committedConfig
                     viewModel.savePersonalization(committedConfig)
                 },
                 onWeekCardHeightScalePreview = {
@@ -3752,29 +3670,20 @@ fun CourseScheduleAppUi(
                     wallpaperLauncher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 },
                 onUpdateConfig = { changeKey, candidate ->
-                    val merged = mergePersonalizationCandidate(
-                        current = personalizationDraftConfig ?: visualState.config,
+                    val merged = personalizationSession.commit(
+                        current = visualState.config,
                         candidate = candidate,
                         changeKey = changeKey
                     )
-                    personalizationDraftConfig = merged
-                    personalizationPendingCommitConfig = merged
-                    if (changeKey != PersonalizeWallpaperBlurSlider) {
-                        personalizationPreviewState.clear(changeKey)
-                    }
                     viewModel.savePersonalization(merged)
                 },
                 onPreviewConfig = { sliderKey, candidate ->
                     personalizationPreviewState.update(sliderKey, candidate)
                 },
-                previewSliderKey = personalizationSliderPreviewKey,
+                previewSliderKey = personalizationSession.sliderKey,
                 previewProgress = personalizationPreviewProgress,
                 onSliderPreviewActiveChange = { key, active ->
-                    personalizationSliderPreviewKey = resolveActivePersonalizationSlider(
-                        currentKey = personalizationSliderPreviewKey,
-                        eventKey = key,
-                        active = active
-                    )
+                    personalizationSession.setSliderActive(key, active)
                 }
             )
         }
@@ -4140,26 +4049,18 @@ fun CourseScheduleAppUi(
         if (dialog !is HomeDialog.EditWallpaper && (dialog !is HomeDialog.EditCourse || dialog.course == null)) {
         if (dialog is HomeDialog.ConfirmImport) {
             ImportPreviewPage(draft = dialog.draft, config = state.config, visible = homeDialogVisible,
-                submitting = importSubmitting, errorMessage = dialog.errorMessage,
-                onContentMountedChanged = { importPreviewMounted = it },
+                submitting = importHandoff.submitting, errorMessage = dialog.errorMessage,
+                onContentMountedChanged = importHandoff::onPreviewMountedChanged,
                 onBack = {
-                    importExpectedCourseCount = null
-                    importPreviousCourseIds = emptySet()
+                    importHandoff.clearExpectedCourses()
                     homeDialog = dialog.returnDialog
                 },
                 onDraftChanged = { homeDialog = dialog.copy(draft = it, errorMessage = null) },
                 onConfirm = { createNew ->
-                    if (!importSubmitting) {
-                        importSubmitting = true
-                        importSourceState = visualState
-                        importPreviousCourseIds = state.courses.map { it.id }.toSet()
-                        importExpectedCourseCount = dialog.draft.courses.size
+                    if (importHandoff.beginSubmission(visualState, state.courses, dialog.draft.courses.size)) {
                         homeDialog = dialog.copy(errorMessage = null)
                         viewModel.importDraft(dialog.draft, createNew, onFailure = {
-                            importSubmitting = false
-                            importSourceState = null
-                            importExpectedCourseCount = null
-                            importPreviousCourseIds = emptySet()
+                            importHandoff.submissionFailed()
                             homeDialog = dialog.copy(errorMessage = it.message ?: "保存失败，请重试")
                         }) { scheduleId -> pendingImportedSetupId = scheduleId }
                     }
@@ -4270,7 +4171,7 @@ fun CourseScheduleAppUi(
                         val conflictWeek = dialog.conflictWeeks.first()
                         if (editorWasOpen) {
                             appScope.launch {
-                                delay(CourseEditorCloseDurationMillis.toLong() + 32L)
+                                delay(CourseEditorMotion.CloseDurationMillis.toLong() + 32L)
                                 homeDisplayWeek = conflictWeek
                                 homeMode = HomeMode.Week
                             }
@@ -4332,7 +4233,7 @@ fun CourseScheduleAppUi(
                     val conflictWeek = dialog.conflictWeeks.first()
                     if (editorWasOpen) {
                         appScope.launch {
-                            delay(CourseEditorCloseDurationMillis.toLong() + 32L)
+                            delay(CourseEditorMotion.CloseDurationMillis.toLong() + 32L)
                             homeDisplayWeek = conflictWeek
                             homeMode = HomeMode.Week
                         }
@@ -4483,36 +4384,17 @@ fun CourseScheduleAppUi(
         }
         }
 
-        SettingsUpdateDialogHost(
-            dialog = automaticUpdateDialog,
+        AppUpdateDialogHost(
+            session = automaticUpdates,
             backdrop = chromeBackdrop,
             config = state.config,
-            onDismiss = { automaticUpdateDialog = null },
-            onRetry = {
-                automaticUpdateDialog = SettingsUpdateDialog.Checking
-                appScope.launch {
-                    automaticUpdateDialog = GiteeAppUpdater.checkForUpdate(context, currentVersionName).fold(
-                        onSuccess = { result ->
-                            GiteeAppUpdater.recordCheckResult(context, result)
-                            when (result) {
-                                is GiteeUpdateCheckResult.UpdateAvailable -> SettingsUpdateDialog.Available(result.release)
-                                is GiteeUpdateCheckResult.UpToDate -> SettingsUpdateDialog.UpToDate(result.release.tagName)
-                            }
-                        },
-                        onFailure = { SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
-                    )
-                }
-            },
-            onDownload = ::downloadAutomaticUpdate,
+            onRetry = { automaticUpdates.checkForUpdate(markDailyCheck = false) },
             onOpenRelease = { release ->
                 context.startActivity(Intent(Intent.ACTION_VIEW, release.releaseUrl.toUri()))
             },
             onOpenBackup = {
-                automaticUpdateDialog = null
+                automaticUpdates.dismiss()
                 screen = Screen.Config
-            },
-            onRequestInstallPermission = {
-                automaticInstallPermissionLauncher.launch(GiteeAppUpdater.unknownSourcesSettingsIntent(context))
             }
         )
 

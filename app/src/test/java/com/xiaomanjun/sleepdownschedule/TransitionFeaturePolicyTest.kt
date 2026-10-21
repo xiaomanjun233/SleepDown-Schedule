@@ -15,11 +15,11 @@ class TransitionFeaturePolicyTest {
 
     @Test
     fun missingOrDisabledConfigurationAlwaysUsesLegacy() {
-        assertFalse(TransitionFeaturePolicy.allowsOplus(nativeRoute, null))
+        assertFalse(TransitionFeaturePolicy.allowsSharedViewKit(nativeRoute, null))
         assertFalse(
-            TransitionFeaturePolicy.allowsOplus(
+            TransitionFeaturePolicy.allowsSharedViewKit(
                 nativeRoute,
-                RemoteTransitionConfig(oplusViewSeamlessEnabled = false)
+                RemoteTransitionConfig(sharedViewKitEnabled = false)
             )
         )
     }
@@ -27,17 +27,17 @@ class TransitionFeaturePolicyTest {
     @Test
     fun globalAndExactRouteSwitchesAreBothRequired() {
         assertFalse(
-            TransitionFeaturePolicy.allowsOplus(
+            TransitionFeaturePolicy.allowsSharedViewKit(
                 nativeRoute,
-                RemoteTransitionConfig(oplusViewSeamlessEnabled = true)
+                RemoteTransitionConfig(sharedViewKitEnabled = true)
             )
         )
         assertTrue(
-            TransitionFeaturePolicy.allowsOplus(
+            TransitionFeaturePolicy.allowsSharedViewKit(
                 nativeRoute,
                 RemoteTransitionConfig(
-                    oplusViewSeamlessEnabled = true,
-                    oplusRouteAllowlist = setOf(nativeRoute.id.wireName)
+                    sharedViewKitEnabled = true,
+                    sharedViewKitRouteAllowlist = setOf(nativeRoute.id.wireName)
                 )
             )
         )
@@ -46,11 +46,11 @@ class TransitionFeaturePolicyTest {
     @Test
     fun aLegacyOnlyRouteCannotBeEnabledByRemoteConfiguration() {
         assertFalse(
-            TransitionFeaturePolicy.allowsOplus(
+            TransitionFeaturePolicy.allowsSharedViewKit(
                 legacyOnlyRoute,
                 RemoteTransitionConfig(
-                    oplusViewSeamlessEnabled = true,
-                    oplusRouteAllowlist = setOf(legacyOnlyRoute.id.wireName)
+                    sharedViewKitEnabled = true,
+                    sharedViewKitRouteAllowlist = setOf(legacyOnlyRoute.id.wireName)
                 )
             )
         )

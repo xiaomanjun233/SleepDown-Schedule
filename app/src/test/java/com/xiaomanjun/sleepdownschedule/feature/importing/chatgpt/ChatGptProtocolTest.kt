@@ -12,7 +12,7 @@ class ChatGptProtocolTest {
     @Test fun standardModelsResponseUsesServerIdsWithoutInventingCapabilities() {
         val models = ChatGptProtocol.models(JSONObject("""{"data":[{"id":"account-model"},{"id":"second-model"}]}"""))
         assertEquals(listOf("account-model", "second-model"), models.map { it.slug })
-        assertTrue(models.none { it.supportsImages })
+        assertTrue(models.all { it.supportsImages == null })
         assertThrows(ChatGptAuthException::class.java) { ChatGptProtocol.models(JSONObject("{}")) }
     }
     private val attempt = AuthAttempt(null, "http://127.0.0.1:49152/auth/callback", "test-state", "test-nonce", "test-verifier")
@@ -110,8 +110,8 @@ class ChatGptProtocolTest {
             {"slug":"unknown-visibility"}]}"""))
         assertEquals(listOf("second-alphabetically", "another"), catalog.map { it.slug })
         assertEquals(listOf("First choice", "Second choice"), catalog.map { it.displayName })
-        assertFalse(catalog[0].supportsImages)
-        assertTrue(catalog[1].supportsImages)
+        assertNull(catalog[0].supportsImages)
+        assertEquals(true, catalog[1].supportsImages)
     }
 
     private fun rejectsCallback(target: String) { assertThrows(ChatGptAuthException::class.java) { ChatGptProtocol.callback(target, attempt) } }

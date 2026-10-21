@@ -45,7 +45,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsValueRow
 import com.xiaomanjun.sleepdownschedule.core.web.openSleepDownCustomTab
 import com.xiaomanjun.sleepdownschedule.core.web.resolveSleepDownCustomTabsPackage
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
 @Composable
 fun ChangelogSettingsScreen(

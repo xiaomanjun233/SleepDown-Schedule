@@ -20,8 +20,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.CourseScheduleTheme
-import com.xiaomanjun.sleepdownschedule.app.state.ScheduleViewModel
-import com.xiaomanjun.sleepdownschedule.app.state.ScheduleViewModelFactory
+import com.xiaomanjun.sleepdownschedule.feature.schedule.ScheduleScreenViewModel
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduBridgeInteractionDialog
@@ -43,7 +42,7 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             val app = application as CourseScheduleApp
-            val viewModel: ScheduleViewModel = viewModel(factory = ScheduleViewModelFactory(app, app.repository))
+            val viewModel: ScheduleScreenViewModel = viewModel(factory = ScheduleScreenViewModel.Factory(app, app.repository, app.applicationScope))
             val state by viewModel.state.collectAsStateWithLifecycle()
             val requested = remember { eduAdapterFromIntentKey(intent.getStringExtra(AdapterExtra)) }
             var adapter by remember { mutableStateOf<EduAdapter?>(null) }

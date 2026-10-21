@@ -11,7 +11,9 @@ internal data class CourseQuietRuntime(
     val requestedRingerMode: Int? = null,
     val ownsDoNotDisturb: Boolean = false,
     val originalInterruptionFilter: Int? = null,
-    val appliedInterruptionFilter: Int? = null
+    val appliedInterruptionFilter: Int? = null,
+    val originalMediaVolume: Int? = null,
+    val appliedMediaVolume: Int? = null
 )
 
 internal interface CourseQuietDevice {
@@ -20,7 +22,9 @@ internal interface CourseQuietDevice {
     val canRestoreGlobalFilter: Boolean
     val ringerMode: Int
     val interruptionFilter: Int
+    val mediaVolume: Int
     fun setRingerMode(mode: Int)
+    fun setMediaVolume(volume: Int)
     fun setDoNotDisturb(enabled: Boolean, originalFilter: Int?)
     fun restoreInterruptionFilter(filter: Int)
 }
@@ -42,6 +46,7 @@ internal fun reconcileCourseQuietState(
         if (settings.soundMode == CourseQuietSoundMode.SILENT) 0 else 1
     } else null
     val originalSound = if (desiredSound != null && state.appliedRingerMode == null) device.ringerMode else null
+    val originalMedia = if (desiredSound != null && state.appliedMediaVolume == null) device.mediaVolume else null
     // Capture both baselines before either operation; silent mode can itself change legacy DND.
     if (active && device.canRestoreGlobalFilter && state.originalInterruptionFilter == null) attempt {
         save(state.copy(originalInterruptionFilter = device.interruptionFilter))
@@ -75,9 +80,37 @@ internal fun reconcileCourseQuietState(
             throw error
         }
     }
+    if (desiredSound != null && state.appliedMediaVolume == null) attempt {
+        val original = originalMedia ?: device.mediaVolume
+        save(state.copy(originalMediaVolume = original, appliedMediaVolume = 0))
+        try {
+            device.setMediaVolume(0)
+            check(device.mediaVolume == 0) { "系统未允许降低媒体音量" }
+        } catch (error: Exception) {
+            // Keep recovery ownership if the operation changed volume before reporting failure.
+            val applied = device.mediaVolume
+            if (applied == original) {
+                save(state.copy(originalMediaVolume = null, appliedMediaVolume = null))
+            } else {
+                save(state.copy(appliedMediaVolume = applied))
+            }
+            throw error
+        }
+    }
     if (state.ownsDoNotDisturb && (!active || !settings.doNotDisturbEnabled)) attempt {
         device.setDoNotDisturb(false, state.originalInterruptionFilter)
         save(state.copy(ownsDoNotDisturb = false))
+    }
+    if (state.appliedMediaVolume != null && desiredSound == null) attempt {
+        // Release our DND rule first so it cannot mask the restored media-volume readback.
+        // A volume-key change during class belongs to the user, including after a restart.
+        if (device.mediaVolume == state.appliedMediaVolume) {
+            state.originalMediaVolume?.let { volume ->
+                device.setMediaVolume(volume)
+                check(device.mediaVolume == volume) { "系统未能恢复媒体音量" }
+            }
+        }
+        save(state.copy(originalMediaVolume = null, appliedMediaVolume = null))
     }
     if (!active && !state.ownsDoNotDisturb && state.appliedRingerMode == null &&
         (state.originalInterruptionFilter != null || state.appliedInterruptionFilter != null)) attempt {

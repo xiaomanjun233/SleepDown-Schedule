@@ -36,13 +36,15 @@ fun buildWeekConflictGroups(
 ): List<WeekConflictGroup> {
     if (periodIndexes.isEmpty()) return emptyList()
     val positionByPeriod = periodIndexes.withIndex().associate { it.value to it.index }
-    val segments = courses.flatMap { courseAlignmentFragments(it, periodDefinitions) }.flatMap { course ->
+    val segments = courses.flatMap { courseWeekDisplayFragments(it, periodDefinitions) }.flatMap { course ->
         val positions = course.periods
             .mapNotNull(positionByPeriod::get)
             .distinct()
             .sorted()
         if (positions.isEmpty()) {
             emptyList()
+        } else if (periodDefinitions.isNotEmpty() && course.customTimeRangeOrNull() != null) {
+            listOf(course.toWeekSegment(positions.first(), positions.last(), periodIndexes))
         } else {
             buildList {
                 var start = positions.first()

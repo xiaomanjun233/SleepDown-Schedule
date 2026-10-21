@@ -55,6 +55,16 @@ if (localMiuixBuild != null) {
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
+        exclusiveContent {
+            forRepository {
+                maven {
+                    name = "ITGSASharedViewKit"
+                    url = uri("http://nexus.itgsa.com:5566/repository/sharedViewKit/")
+                    isAllowInsecureProtocol = true
+                }
+            }
+            filter { includeGroup("gsai.sdk") }
+        }
         providers.gradleProperty("sleepdown.localMavenPath").orNull
             ?.let(::file)
             ?.takeIf { it.isDirectory }

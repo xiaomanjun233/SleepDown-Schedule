@@ -16,7 +16,7 @@ internal fun nonCurrentWeekCards(
     renderedActualBounds: List<Pair<Float, Float>>? = null
 ): List<NonCurrentWeekCard> {
     fun cards(course: CourseEntity): List<NonCurrentWeekCard> =
-        courseAlignmentFragments(course, periods).flatMap { fragment ->
+        courseWeekDisplayFragments(course, periods).flatMap { fragment ->
             if (courseNeedsSupplementaryWeekRow(fragment, periods)) emptyList() else {
                 val segments = buildWeekConflictGroups(listOf(fragment), periods.map { it.periodIndex }, periods)
                     .flatMap { it.segments }
@@ -70,7 +70,7 @@ internal fun nonCurrentSupplementaryCourses(
     return buildList {
         courses.filter { it.weekday == day && !it.isHiddenByPeriodAlignment() &&
             !(week in it.weeks && parityMatches(it.weekParity, week)) }
-            .flatMap { courseAlignmentFragments(it, periods) }
+            .flatMap { courseWeekDisplayFragments(it, periods) }
             .filter { courseNeedsSupplementaryWeekRow(it, periods) }
             .sortedWith(compareBy<CourseEntity> { it.customStartTime }.thenBy { it.id }).forEach { course ->
                 val intervals = course.occupiedTimeIntervals(periods)

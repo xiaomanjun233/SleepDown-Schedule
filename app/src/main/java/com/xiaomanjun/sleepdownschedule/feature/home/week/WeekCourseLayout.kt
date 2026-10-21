@@ -56,7 +56,7 @@ import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.domain.course.WeekConflictGroup
 import com.xiaomanjun.sleepdownschedule.domain.course.WeekCourseSegment
 import com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups
-import com.xiaomanjun.sleepdownschedule.domain.schedule.courseAlignmentFragments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseWeekDisplayFragments
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseNeedsSupplementaryWeekRow
 import com.xiaomanjun.sleepdownschedule.exactTimeWeekPlacement
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorWeekGrid
@@ -98,6 +98,8 @@ internal data class WeekCustomTimeLabels(
     val showRangeBelow: Boolean
 )
 
+internal const val WeekCustomTimeLabelGap = 1f
+
 internal fun weekCustomTimeLabels(
     top: Float,
     bottom: Float,
@@ -110,13 +112,35 @@ internal fun weekCustomTimeLabels(
             cardBottom > labelTop - 1f && cardTop < labelBottom + 1f
         }
 
-    val startFits = hasSpace(top - 10f, top - 10f + textHeight)
-    val endFits = hasSpace(bottom + 10f - textHeight, bottom + 10f)
+    val startFits = hasSpace(top - textHeight - WeekCustomTimeLabelGap, top - WeekCustomTimeLabelGap)
+    val endFits = hasSpace(bottom + WeekCustomTimeLabelGap, bottom + textHeight + WeekCustomTimeLabelGap)
     return when {
         startFits && endFits -> WeekCustomTimeLabels(true, true, false)
         endFits -> WeekCustomTimeLabels(false, false, true)
         else -> WeekCustomTimeLabels(startFits, false, false)
     }
+}
+
+/** Reserve labels in visual order, including other fragments of the same course and reference cards. */
+internal fun weekColumnCustomTimeLabels(
+    cardBounds: List<Pair<Float, Float>>, customCardIndexes: Set<Int>,
+    gridBottom: Float, textHeight: Float, referenceBounds: List<Pair<Float, Float>> = emptyList()
+): List<WeekCustomTimeLabels?> {
+    val result = MutableList<WeekCustomTimeLabels?>(cardBounds.size) { null }
+    val reservedLabels = mutableListOf<Pair<Float, Float>>()
+    cardBounds.indices.sortedBy { cardBounds[it].first }.forEach { index ->
+        if (index !in customCardIndexes) return@forEach
+        val (top, bottom) = cardBounds[index]
+        val labels = weekCustomTimeLabels(top, bottom,
+            cardBounds.filterIndexed { other, _ -> other != index } + referenceBounds + reservedLabels,
+            gridBottom, textHeight)
+        result[index] = labels
+        if (labels.showStart) reservedLabels += top - textHeight - WeekCustomTimeLabelGap to top - WeekCustomTimeLabelGap
+        if (labels.showEnd || labels.showRangeBelow) {
+            reservedLabels += bottom + WeekCustomTimeLabelGap to bottom + textHeight + WeekCustomTimeLabelGap
+        }
+    }
+    return result
 }
 
 internal fun weekCardVerticalBounds(
@@ -230,9 +254,22 @@ private fun WeekDayColumn(
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
     val courseGlassRestorePlan = LocalCourseGlassRestorePlan.current
     val visibleCardBounds = remember(renderedSegments, periods, cardHeight) {
-        renderedSegments.map { it.segment.course.id to weekCardVerticalBounds(it.segment, periods, cardHeight) }
+        renderedSegments.map { weekCardVerticalBounds(it.segment, periods, cardHeight) }
     }
-    val timeLabelHeight = with(density) { 9.sp.toDp().value } + 2f
+    val timeLabelStyle = weekCourseTimeLabelStyle()
+    val timeLabelMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val timeLabelHeight = with(density) {
+        remember(timeLabelStyle, timeLabelMeasurer) {
+            timeLabelMeasurer.measure("00:00", style = timeLabelStyle, softWrap = false, maxLines = 1).size.height
+        }.toDp().value
+    }
+    val timeLabelsByIndex = remember(renderedSegments, periods, cardHeight, timeLabelHeight, referenceCards) {
+        weekColumnCustomTimeLabels(
+            visibleCardBounds,
+            renderedSegments.indices.filter { exactTimeWeekPlacement(renderedSegments[it].segment.course, periods) != null }.toSet(),
+            cardHeight.value * periods.size, timeLabelHeight, referenceCards.map { it.top to it.bottom }
+        )
+    }
 
     BoxWithConstraints(
         modifier = Modifier
@@ -270,7 +307,7 @@ private fun WeekDayColumn(
                 }
             }
         }
-        renderedSegments.forEach { rendered ->
+        renderedSegments.forEachIndexed { renderedIndex, rendered ->
             val groupIndex = rendered.groupIndex
             val group = rendered.group
             val segment = rendered.segment
@@ -297,15 +334,7 @@ private fun WeekDayColumn(
                 (cardHeight * segmentHeightRows - 4.dp).coerceAtLeast(18.dp)
             }
             val segmentTopInset = if (exactPlacement != null) 0.dp else 2.dp
-            val timeLabels = exactPlacement?.let {
-                weekCustomTimeLabels(
-                    top = cardHeight.value * segmentTopRows,
-                    bottom = cardHeight.value * segmentTopRows + segmentHeight.value,
-                    occupied = visibleCardBounds.filter { it.first != segment.course.id }.map { it.second },
-                    gridBottom = cardHeight.value * periods.size,
-                    textHeight = timeLabelHeight
-                )
-            }
+            val timeLabels = timeLabelsByIndex[renderedIndex]
             Box(
                 modifier = Modifier
                     .offset(y = cardHeight * segmentTopRows + segmentTopInset)
@@ -377,7 +406,7 @@ private fun WeekDayColumn(
                                 text = segment.course.customStartTime.orEmpty(),
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
-                                    .offset(y = (-10).dp)
+                                    .offset(y = -(timeLabelHeight + WeekCustomTimeLabelGap).dp)
                                     .zIndex(12f),
                                 color = labelColor,
                                 fontSize = 8.sp,
@@ -387,7 +416,7 @@ private fun WeekDayColumn(
                                 text = segment.course.customEndTime.orEmpty(),
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
-                                    .offset(y = 10.dp)
+                                    .offset(y = (timeLabelHeight + WeekCustomTimeLabelGap).dp)
                                     .zIndex(12f),
                                 color = labelColor,
                                 fontSize = 8.sp,
@@ -395,7 +424,7 @@ private fun WeekDayColumn(
                     )
                     if (labels.showRangeBelow) WeekCourseTimeLabel(
                         text = "${segment.course.customStartTime.orEmpty()}–${segment.course.customEndTime.orEmpty()}",
-                        modifier = Modifier.align(Alignment.BottomCenter).offset(y = 10.dp).zIndex(12f),
+                        modifier = Modifier.align(Alignment.BottomCenter).offset(y = (timeLabelHeight + WeekCustomTimeLabelGap).dp).zIndex(12f),
                         color = labelColor,
                         fontSize = 7.sp,
                         lineHeight = 9.sp,
@@ -473,11 +502,11 @@ fun WeekCourseColumnsLayer(
         onDispose { flightRegistry?.remove(editWeek) }
     }
     val supplementaryCoursesByDay = remember(courses, periods) {
-        courses.flatMap { courseAlignmentFragments(it, periods) }.filter { courseNeedsSupplementaryWeekRow(it, periods) }
+        courses.flatMap { courseWeekDisplayFragments(it, periods) }.filter { courseNeedsSupplementaryWeekRow(it, periods) }
             .sortedBy { it.customStartTime }.groupBy { it.weekday }
     }
     val coursesByWeekday = remember(courses, periods) {
-        courses.flatMap { courseAlignmentFragments(it, periods) }.filterNot { courseNeedsSupplementaryWeekRow(it, periods) }.groupBy { it.weekday }
+        courses.flatMap { courseWeekDisplayFragments(it, periods) }.filterNot { courseNeedsSupplementaryWeekRow(it, periods) }.groupBy { it.weekday }
     }
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
     val renderedSegmentsByDay = remember(

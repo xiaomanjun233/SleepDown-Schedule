@@ -61,7 +61,6 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeHeaderGlassBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColor
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
@@ -72,8 +71,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMenuSurfaceRe
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.homeMaterialNeutralTint
 import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.home.week.*
 import com.xiaomanjun.sleepdownschedule.glass.premultipliedGlassTint
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownDropletGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.*

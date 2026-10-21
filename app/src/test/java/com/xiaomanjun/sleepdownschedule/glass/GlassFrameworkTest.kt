@@ -8,12 +8,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.LiquidCourseCardBlurMax
-import com.xiaomanjun.sleepdownschedule.feature.home.overlay.homeMenuDestinationTrajectoryGeometry
+import com.xiaomanjun.sleepdownschedule.transition.legacy.homeMenuDestinationTrajectoryGeometry
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.homePersonalizationTrajectoryGeometry
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.homeThreeDotMenuTrajectoryGeometry
-import com.xiaomanjun.sleepdownschedule.transition.legacy.legacyHomeMenuDestinationMorphSpec
-import com.xiaomanjun.sleepdownschedule.transition.legacy.legacyPersonalizationMorphSpec
-import com.xiaomanjun.sleepdownschedule.transition.legacy.legacyThreeDotMenuMorphSpec
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.legacyHomeMenuDestinationMorphSpec
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.legacyPersonalizationMorphSpec
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.legacyThreeDotMenuMorphSpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue

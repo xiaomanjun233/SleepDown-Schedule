@@ -2,7 +2,9 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import com.xiaomanjun.sleepdownschedule.*
 
-import com.xiaomanjun.sleepdownschedule.feature.backup.*
+import com.xiaomanjun.sleepdownschedule.model.backup.BackupAiImportHistoryEntry
+import com.xiaomanjun.sleepdownschedule.model.backup.DefaultAiImportHistoryRetentionDays
+import com.xiaomanjun.sleepdownschedule.model.backup.AiImportHistoryRetentionOptions
 
 import android.content.Context
 import org.json.JSONArray
@@ -26,8 +28,8 @@ object AiImportHistoryStore {
     private const val KeyEntries = "entries"
     private const val KeyRetentionDays = "retention_days"
     private const val ContextDirectory = "ai_import_history"
-    const val DefaultRetentionDays = BackupFormatV1.DEFAULT_AI_IMPORT_HISTORY_RETENTION_DAYS
-    val retentionOptions = BackupFormatV1.AI_IMPORT_HISTORY_RETENTION_OPTIONS
+    const val DefaultRetentionDays = DefaultAiImportHistoryRetentionDays
+    val retentionOptions = AiImportHistoryRetentionOptions
 
     fun retentionDays(context: Context): Int =
         context.getSharedPreferences(PrefsName, Context.MODE_PRIVATE)

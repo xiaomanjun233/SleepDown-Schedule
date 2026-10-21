@@ -68,7 +68,7 @@ import com.xiaomanjun.sleepdownschedule.feature.agent.TodayAgentHost
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeDayPageDrawingScope
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePagerStartOverflow
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePaneVisible
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSidebarOverflowViewport

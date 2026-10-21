@@ -55,7 +55,7 @@ internal object CourseQuietScheduler {
                 }, onError = { errors += it; Log.w(Tag, "System quiet-mode operation failed", it) })
             prefs.edit().apply {
                 if (errors.isEmpty()) remove("last_error")
-                else putString("last_error", "系统未能完成声音或勿扰切换，请检查勿扰访问权限。")
+                else putString("last_error", "系统未能完成声音或勿扰切换，请检查勿扰访问权限及设备音量限制。")
             }.apply()
             val nextBoundary = windows.flatMap { listOf(it.start, it.end) }.filter { it > now }.minOrNull()
             // Daily rollover is a meaningful calendar event, including days without any lessons.
@@ -91,7 +91,9 @@ internal object CourseQuietScheduler {
         override val canRestoreGlobalFilter get() = Build.VERSION.SDK_INT < Build.VERSION_CODES.VANILLA_ICE_CREAM
         override val ringerMode get() = audio.ringerMode
         override val interruptionFilter get() = manager.currentInterruptionFilter
+        override val mediaVolume get() = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
         override fun setRingerMode(mode: Int) { audio.ringerMode = mode }
+        override fun setMediaVolume(volume: Int) { audio.setStreamVolume(AudioManager.STREAM_MUSIC, volume, 0) }
         override fun restoreInterruptionFilter(filter: Int) { manager.setInterruptionFilter(filter) }
 
         override fun setDoNotDisturb(enabled: Boolean, originalFilter: Int?) {

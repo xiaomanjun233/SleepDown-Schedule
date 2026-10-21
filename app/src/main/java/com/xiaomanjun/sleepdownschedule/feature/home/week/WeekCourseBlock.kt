@@ -88,8 +88,8 @@ import com.xiaomanjun.sleepdownschedule.domain.course.nearestAvailableCourseMove
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
 import com.xiaomanjun.sleepdownschedule.feature.home.CourseAdjustmentBadge
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalAdjustedCourseEditor
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalPersonalizationPreview
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalPersonalizationPreview
 import com.xiaomanjun.sleepdownschedule.feature.home.adaptiveWeekCardCornerRadius
 import com.xiaomanjun.sleepdownschedule.feature.home.courseAdjustmentBadgeHeight
 import com.xiaomanjun.sleepdownschedule.feature.home.courseBadgeContentInset
@@ -298,7 +298,7 @@ fun WeekCourseBlock(
     // Only the edit jiggle needs this composition-time flag. Observing hidden-page state
     // while not editing restarted every WeekCourseBlock when Day/Settings revealed Week.
     val backgroundFrozen = editMode &&
-        com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen.current.value
+        com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen.current.value
     val editJitterMotion = remember { Animatable(0f) }
     LaunchedEffect(editMode, backgroundFrozen) {
         if (backgroundFrozen) return@LaunchedEffect

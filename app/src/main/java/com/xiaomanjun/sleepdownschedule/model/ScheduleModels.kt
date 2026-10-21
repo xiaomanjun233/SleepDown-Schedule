@@ -5,7 +5,6 @@ import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.Ignore
 import androidx.room.PrimaryKey
-import com.xiaomanjun.sleepdownschedule.domain.schedule.EffectiveCourseArrangement
 
 enum class WeekParity { ALL, ODD, EVEN }
 enum class NotificationMode { STANDARD, LIVE_UPDATE }

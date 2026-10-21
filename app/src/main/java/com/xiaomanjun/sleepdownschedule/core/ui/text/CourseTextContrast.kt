@@ -7,6 +7,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import kotlin.math.roundToInt
 
+private val HomeNotFrozen = object : State<Boolean> { override val value = false }
+internal val LocalHomeBackgroundFrozen = compositionLocalOf<State<Boolean>> { HomeNotFrozen }
+
+/** Pause CPU wallpaper/foreground decisions during page motion without freezing live glass. */
+internal val LocalHomeTextContrastFrozen = compositionLocalOf<State<Boolean>> { HomeNotFrozen }
+
 internal class CourseTextBackground(
     private val isFrozen: () -> Boolean,
     val flatLuminance: Float? = null,

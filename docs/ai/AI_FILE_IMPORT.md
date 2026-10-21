@@ -57,6 +57,7 @@ Office/ODS 解包只读取与正文有关的 XML，并限制 ZIP 条目数、单
 | 服务 | 图片 | 通用文档直传 | SleepDown 路线 |
 | --- | --- | --- | --- |
 | OpenAI Responses | 支持 | 支持 `input_file` | 可本地提取的格式优先只发文字；其余已知文档格式可走原生文件输入 |
+| ChatGPT 账号套餐调用 | 模型明确不支持时禁用；目录未说明时由接口校验 | 不使用 Files 上传 API | 文字优先；图片走 Responses 内联输入，账号目录保留未知/支持/不支持三态 |
 | DeepSeek V4.1 Flash (`deepseek-flash`) | 支持图片 | Responses 不支持通用文件输入 | 文档本地转文字；PDF 文字不足后转图，旧 Flash 别名迁移到此模型 |
 | DeepSeek V4 Pro · 0813 | 不支持图片 | Responses 不支持通用文件输入 | 文档本地转文字；扫描 PDF 提示切换视觉模型 |
 | MiMo / 每日免费 AI | 按具体视觉模型 | 当前接入协议不假设通用文件输入 | 文档本地转文字；图片按模型能力发送 |
@@ -72,3 +73,5 @@ Office/ODS 解包只读取与正文有关的 XML，并限制 ZIP 条目数、单
 - 阿里云百炼文件上传：<https://help.aliyun.com/zh/model-studio/upload-file-api>
 
 DeepSeek 模型预设按 2026-10-15 官方模型页更新，图片能力按所选模型判断。自定义端点不自动改写其模型名称。
+
+MiMo 与 DeepSeek 的预置官方地址可通过各自已填写的 API Key 请求 `/models`，模型选择器使用官方列表和离线缓存；失败保留原列表，当前选中 ID 不被自动改写。自定义地址仍使用手填模型。2026-10-20 接入和协议依据见[架构收口与 AI 修复](../reports/2026-10-20-architecture-completion-and-ai-fixes.md)。

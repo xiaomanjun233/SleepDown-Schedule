@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,9 +42,9 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogSceneBackdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.sleepDownPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
+import kotlinx.coroutines.CancellationException
 
 @Stable
 internal class AiRuntimePickerState(initialSettings: AiImportSettings) {
@@ -104,13 +106,24 @@ internal fun AiRuntimePicker(
     }
     val lightGlass = glassUsesLightStyle(config)
     val auth by ChatGptAuthManager.state.collectAsStateWithLifecycle()
-    LaunchedEffect(auth.account, auth.models, state.settings.profile.id) {
-        if (AiProviderPresets.isChatGptId(state.settings.profile.id)) {
-            val refreshed = AiImportSettingsStore.loadProvider(context, state.settings.profile.id)
-            if (refreshed != state.settings) {
-                state.commit(refreshed)
-                onSettingsChanged(refreshed)
-            }
+    val settingsChanges by AiImportSettingsStore.changes.collectAsStateWithLifecycle()
+    LaunchedEffect(auth.account, auth.models, settingsChanges, state.settings.profile.id) {
+        val refreshed = AiImportSettingsStore.loadProvider(context, state.settings.profile.id)
+        if (refreshed != state.settings) {
+            state.commit(refreshed)
+            onSettingsChanged(refreshed)
+        }
+    }
+    LaunchedEffect(state.expanded, state.settings.profile.id) {
+        if (!state.expanded) return@LaunchedEffect
+        val selected = state.settings
+        if (AiProviderModelCatalog.endpoint(selected.profile) == null || selected.apiKey.isBlank()) return@LaunchedEffect
+        try {
+            AiProviderModelCatalog.refresh(context, selected)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // A failed discovery keeps the last usable list; it must not block model selection.
         }
     }
     val profiles = remember(state.revision, auth.account) {
