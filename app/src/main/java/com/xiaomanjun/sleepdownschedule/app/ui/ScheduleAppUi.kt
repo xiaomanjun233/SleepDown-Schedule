@@ -268,7 +268,6 @@ import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeStatusBarWallpaperLuminance
 import com.xiaomanjun.sleepdownschedule.feature.home.day.luminance
 import com.xiaomanjun.sleepdownschedule.feature.home.day.occurrenceOverrideKey
-import com.xiaomanjun.sleepdownschedule.core.wallpaper.sampleVisibleWallpaperColors
 import com.xiaomanjun.sleepdownschedule.feature.home.day.visibleWeekdaysForBuckets
 import com.xiaomanjun.sleepdownschedule.feature.home.day.weekCourseBuckets
 import com.xiaomanjun.sleepdownschedule.feature.home.homeOverlayDepthProgress
@@ -1057,26 +1056,17 @@ fun CourseScheduleAppUi(
     }
     val appDarkTheme = appUsesDarkTheme(visualState.config)
     val nativeVisuals = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesNativeControls
-    val colorOsAccentBackground = remember(nativeVisuals, homeReadabilityContext, appDarkTheme) {
-        if (!nativeVisuals) return@remember 0
-        val root = homeReadabilityContext.rootSize
-        val colors = sampleVisibleWallpaperColors(homeReadabilityContext,
-            Rect(0f, root.height * 0.80f, root.width.toFloat(), root.height.toFloat()), columns = 9, rows = 3)
-        if (colors.isNullOrEmpty()) (if (appDarkTheme) ComposeColor.Black else ComposeColor.White).toArgb()
-        else ComposeColor(colors.map { it.red }.average().toFloat(), colors.map { it.green }.average().toFloat(),
-            colors.map { it.blue }.average().toFloat()).toArgb()
-    }
+    val adaptiveGlassState = rememberFallbackAdaptiveGlassState(visualState.config)
+    val homeChromeHasWallpaper = visualState.config.hasAnyWallpaper()
+    val homeChromeForeground = adaptiveGlassState.contentColor.toArgb().takeIf { homeChromeHasWallpaper }
+    val homeChromeDark = if (homeChromeHasWallpaper) !adaptiveGlassState.lightGlass else appDarkTheme
     val colorOsHomeAccents = com.xiaomanjun.sleepdownschedule.platform.coloros
-        .rememberColorOsHomeAccents(visualState.config, appDarkTheme, colorOsAccentBackground)
+        .rememberColorOsHomeAccents(visualState.config, wallpaperDark = appDarkTheme, dockDark = homeChromeDark)
     val colorOsActiveDockAccent = if (screen is Screen.Home) colorOsHomeAccents?.dock
         else colorOsHomeAccents?.button?.let {
             com.xiaomanjun.sleepdownschedule.platform.coloros.colorOsContrastingAccent(
                 it, MaterialTheme.colorScheme.background.toArgb())
         }
-    val adaptiveGlassState = rememberFallbackAdaptiveGlassState(visualState.config)
-    val homeChromeHasWallpaper = visualState.config.hasAnyWallpaper()
-    val homeChromeForeground = adaptiveGlassState.contentColor.toArgb().takeIf { homeChromeHasWallpaper }
-    val homeChromeDark = if (homeChromeHasWallpaper) !adaptiveGlassState.lightGlass else appDarkTheme
     val homeNeutralChromeStyle = remember(nativeVisuals, homeChromeDark, homeChromeHasWallpaper, homeChromeForeground) {
         if (!nativeVisuals) null else com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialStyle(
             homeChromeDark, homeChromeHasWallpaper && !homeChromeDark, homeChromeForeground)
