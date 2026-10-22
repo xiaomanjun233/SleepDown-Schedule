@@ -87,6 +87,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
@@ -187,6 +188,10 @@ fun NormalizedAiManualImportScreen(
     var selectedMode by remember { mutableIntStateOf(0) }
     var aiSettings by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
     var historySourceHidden by remember { mutableStateOf(false) }
+    var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
+    DisposableEffect(Unit) {
+        onDispose { historyButtonBounds = Rect.Zero }
+    }
     var historyEntries by remember { mutableStateOf(AiImportHistoryStore.load(context)) }
     val taskProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     LaunchedEffect(taskProgress?.taskId, taskProgress?.finished) {
@@ -555,6 +560,7 @@ fun NormalizedAiManualImportScreen(
         aiParsing = aiParsing,
         historyEntries = historyEntries,
         historySourceHidden = historySourceHidden,
+        onHistoryButtonBoundsChanged = { historyButtonBounds = it },
         onOpenHistory = { sourceBounds ->
             scope.launch {
                 val captured = captureHistoryBackground()
@@ -589,7 +595,10 @@ fun NormalizedAiManualImportScreen(
                     intent = intent,
                     payload = TransitionPayload(
                         openingAnchor = anchor,
-                        returnAnchorProvider = StaticTransitionAnchorProvider(anchor),
+                        returnAnchorProvider = TransitionAnchorProvider {
+                            historyButtonBounds.takeIf { it.width > 1f && it.height > 1f }
+                                ?.let { anchor.copy(boundsInWindow = it) }
+                        },
                         backgroundBitmap = backgroundSnapshot,
                         onOpeningSourceHandoff = releaseOpeningSource,
                         onSourceReleased = { historySourceHidden = false }
@@ -714,6 +723,7 @@ private fun AiManualImportDialogContent(
     aiParsing: Boolean,
     historyEntries: List<AiImportHistoryEntry>,
     historySourceHidden: Boolean,
+    onHistoryButtonBoundsChanged: (Rect) -> Unit,
     onOpenHistory: (Rect) -> Unit,
     onOpenHistoryEntry: (AiImportHistoryEntry, Rect) -> Unit,
     onPrimaryAction: () -> Unit
@@ -933,14 +943,15 @@ private fun AiManualImportDialogContent(
         LiquidDialogFooter {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
-                if (historySourceHidden) {
-                    Spacer(Modifier.weight(1f).height(40.dp))
-                } else {
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .onGloballyPositioned { historyButtonBounds = it.boundsInWindow() }
-                    ) {
+                Box(
+                    Modifier.weight(1f).onGloballyPositioned {
+                        historyButtonBounds = it.boundsInWindow()
+                        onHistoryButtonBoundsChanged(historyButtonBounds)
+                    }
+                ) {
+                    if (historySourceHidden) {
+                        Spacer(Modifier.fillMaxWidth().height(40.dp))
+                    } else {
                         DialogLiquidButton(
                             backdrop = backdrop,
                             label = "导入历史",

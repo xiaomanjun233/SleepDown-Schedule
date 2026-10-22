@@ -123,6 +123,9 @@ object TransitionRouteCatalog {
                 profileId = AnchoredLegacyProfileId.Parabolic,
                 sourceCornerRadiusDp = 21f
             ),
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName = "$PackageName.NativeAiImportHistoryActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),

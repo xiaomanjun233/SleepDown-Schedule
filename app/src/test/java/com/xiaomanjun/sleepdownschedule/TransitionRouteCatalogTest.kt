@@ -37,6 +37,7 @@ class TransitionRouteCatalogTest {
             setOf(
                 TransitionRouteId.CourseManagementToDetail,
                 TransitionRouteId.AiHistoryToDetail,
+                TransitionRouteId.ManualImportToHistory,
                 TransitionRouteId.AiProgressToHistory
             ),
             nativeCandidates.map { it.id }.toSet()
@@ -55,6 +56,7 @@ class TransitionRouteCatalogTest {
         val adapted = setOf(
             TransitionRouteId.CourseManagementToDetail,
             TransitionRouteId.AiHistoryToDetail,
+            TransitionRouteId.ManualImportToHistory,
             TransitionRouteId.AiProgressToHistory
         )
         assertEquals(
@@ -71,6 +73,10 @@ class TransitionRouteCatalogTest {
             "com.xiaomanjun.sleepdownschedule.NativeAiImportHistoryActivity",
             TransitionRouteCatalog.get(TransitionRouteId.AiProgressToHistory)
                 .nativeDestinationClassName
+        )
+        assertEquals(
+            TransitionRouteCatalog.get(TransitionRouteId.AiProgressToHistory).nativeDestinationClassName,
+            TransitionRouteCatalog.get(TransitionRouteId.ManualImportToHistory).nativeDestinationClassName
         )
         assertTrue(TransitionRouteCatalog.all().filter { it.id !in adapted }
             .all { it.nativePolicy == TransitionNativePolicy.Never && it.nativeDestinationClassName == null })

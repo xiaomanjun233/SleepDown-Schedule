@@ -8,6 +8,8 @@
 
 ## 本次首页凝光修复
 
+2026-10-22 本会话用户明确要求上线后端、按文档继续无缝动画并打包安装。后端已在主目录的私有部署流程上线，备份与细节仅留在私有目录。本工作树接续 `501cb1a8`，新增第四条手动导入→历史 Kit 候选及实时按钮返回锚点，并把主目录模型策略适配到本分支的 `ManagedAiRemoteConfig` 架构。完整签名 Release 与七类 41 项测试成功（8m59s，0 失败/错误/跳过）。新包 `tmp/review-apks/SleepDown-sharedviewkit-policy-20261022.apk` 已于 20:16:07 通过 SDK 客户端、现有 5037 USB 服务覆盖安装到 PLJ110（Android 17），设备 APK 哈希一致，未清数据或主动启动。用户明确允许本次 5037，随后要求 AGENTS.md 自动寻找所有可用通道，两处指南已同步。源码与验证见[本批集成记录](reports/2026-10-22-manual-history-and-managed-policy.md)。未合并、推送、发布或完成实机视觉验收；以下既有任务记录保留。
+
 2026-10-22 新增独立任务收尾：用户要求接续另一助手的 AI 历史 SharedViewKit 扩展。实际工作树为 `tmp/sharedviewkit-ai-history`，分支 `codex/sharedviewkit-ai-history`，基线 `5b62be48`。三条候选路线、软件快照、页面底色、实时返回锚点和重复导航保护已完成；完整签名 Release 与 4 类 26 项定向回归通过。APK 在主目录 `tmp/review-apks/SleepDown-sharedviewkit-ai-history-20261022.apk`，版本仍为 `1.2.7.1` / 35，本地候选启用金标试点，尚未实机验收。没有安装、推送、合并或发布。详见[独立收尾记录](reports/2026-10-22-sharedviewkit-ai-history-handoff.md)。以下原有凝光任务记录保留。
 
 2026-10-22 用户纠正：卡片的光应保留，只修复布局裁切黑边，表单在动画中途叠化。`94b552d2` 恢复卡片/移动副本的焦散，`2a470290` 修正资源作用域，`2a52e402` 将裁切放在完整外扩容器上；去掉普通暗色投影，大编辑器继续不带课程焦散。`acbeb9d1` 保留预载，在原始时钟 35%～70% 互补叠化两类表单，参数集中在既有 `glass/LiquidMorph.kt`，路径和总时长未改。最终源码 `2a52e402` 完整签名 Release 与 4 类 80 项定向回归成功（8m42s，0 失败/错误/跳过），567 文件架构扫描/14 项检查器回归/文档链接及 diff 检查通过。新包 `tmp/review-apks/SleepDown-course-glow-crossfade-2a52e402-20261022.apk`，SHA-256 `55b00126418162d49159938cb8b72b1f99a09fffd67243f00c3051efd0529715`；版本仍为 `1.2.7.1` / 35，v2 签名及证书匹配通过。金标未生效确认为课程管理→详情，但用户随后明确“手机不在，先不修这里”；本轮不再动金标，也没有设备安装或视觉验收。旧安装包不是本次候选，不把之前安装或构建当作本轮实机证据。详见[本轮记录](reports/2026-10-22-course-glow-and-midway-content.md)。

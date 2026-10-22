@@ -14,6 +14,7 @@ class TransitionFeaturePolicyTest {
         val pilot = setOf(
             TransitionRouteId.CourseManagementToDetail,
             TransitionRouteId.AiHistoryToDetail,
+            TransitionRouteId.ManualImportToHistory,
             TransitionRouteId.AiProgressToHistory
         )
         for (id in TransitionRouteId.entries) {
