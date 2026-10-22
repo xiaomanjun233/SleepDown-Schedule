@@ -19,6 +19,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -29,6 +30,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xiaomanjun.sleepdownschedule.app.state.*
 import com.xiaomanjun.sleepdownschedule.core.performance.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
 import com.xiaomanjun.sleepdownschedule.domain.course.*
@@ -75,6 +77,8 @@ open class CourseManagementActivity : ComponentActivity() {
                                     )
                                 }
                             ) { requestClose ->
+                                val pageConfig = settingsVisualConfig(state.config)
+                                val pageBackgroundArgb = settingsPageBackground(pageConfig).toArgb()
                                 val pageSnapshotLayer = rememberGraphicsLayer()
                                 val pageSnapshotRequested = remember { AtomicBoolean(false) }
                                 var pageSnapshotRequestVersion by remember { mutableStateOf(0) }
@@ -147,6 +151,7 @@ open class CourseManagementActivity : ComponentActivity() {
                                                                 }
                                                             },
                                                         backgroundBitmap = snapshots?.background,
+                                                        backgroundColor = pageBackgroundArgb,
                                                         onOpeningSourceHandoff = onOpeningSourceHandoff,
                                                         onSourceReleased = onSourceReleased
                                                     )

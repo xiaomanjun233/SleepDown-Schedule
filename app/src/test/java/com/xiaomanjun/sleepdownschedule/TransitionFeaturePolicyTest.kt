@@ -11,10 +11,17 @@ import org.junit.Test
 
 class TransitionFeaturePolicyTest {
     @Test fun explicitLocalPilotKeepsUnadaptedRoutesOnLegacy() {
+        val pilot = setOf(
+            TransitionRouteId.CourseManagementToDetail,
+            TransitionRouteId.AiHistoryToDetail,
+            TransitionRouteId.AiProgressToHistory
+        )
         for (id in TransitionRouteId.entries) {
             val route = TransitionRouteCatalog.get(id)
-            assertTrue((id == TransitionRouteId.CourseManagementToDetail) ==
-                TransitionFeaturePolicy.allowsSharedViewKit(route, null, localPilot = true))
+            assertTrue(
+                (id in pilot) ==
+                    TransitionFeaturePolicy.allowsSharedViewKit(route, null, localPilot = true)
+            )
         }
     }
 

@@ -48,6 +48,33 @@ class SharedViewKitBackendTest {
         assertEquals(TransitionSessionState.SourceReady, request.session.currentState)
     }
 
+    @Test fun vendorRecyclingRejectedInputCannotInvalidateLegacySnapshot() = runBlocking {
+        api.provideOptions = false
+        api.recycleRejectedInput = true
+        assertTrue(backend.open(request()) is TransitionBackendOpenResult.Rejected)
+        assertNotSame(anchor.bitmap, api.inputBitmap)
+        assertTrue(api.inputBitmap!!.isRecycled)
+        assertFalse(anchor.bitmap!!.isRecycled)
+    }
+
+    @Test fun concurrentOpenIsRejectedWithoutLaunchingAnotherDestination() = runBlocking {
+        backend.open(request())
+        val second = request()
+        val result = backend.open(second) as TransitionBackendOpenResult.Rejected
+        assertEquals(SharedViewKitBackend.AnimationInProgressReason, result.reason)
+        assertEquals(1, api.optionsCalls)
+        assertNotNull(shadowOf(source).nextStartedActivity)
+        assertNull(shadowOf(source).nextStartedActivity)
+    }
+
+    @Test fun invalidSessionReleasesItsPrivateBitmapBeforeSdkOptions() = runBlocking {
+        val request = request()
+        request.session.moveTo(TransitionSessionState.Cancelled)
+        assertTrue(backend.open(request) is TransitionBackendOpenResult.Rejected)
+        assertEquals(0, api.optionsCalls)
+        assertFalse(anchor.bitmap!!.isRecycled)
+    }
+
     @Test fun nullOptionsLeaveLegacyAFreeSourceAndDoNotCancelOtherAnimations() = runBlocking {
         api.provideOptions = false
         val request = request()
@@ -200,12 +227,16 @@ class SharedViewKitBackendTest {
         var cancels = 0
         var returnBundle: Bundle? = null
         var returnActivity: Activity? = null
+        var inputBitmap: Bitmap? = null
+        var recycleRejectedInput = false
         override fun supportedProtocol() = protocol
         override fun extras() = mapOf(SharedViewKitContract.Bounds to "rect|WINDOW|bounds",
             SharedViewKitContract.BackType to "int|VIEW_ANIM_FOLLOW_SYSTEM,VIEW_ANIM_FADE_OUT|back")
         override fun options(bitmap: Bitmap, bounds: Rect, radiusPx: Float, extras: Bundle,
             callbacks: SharedViewKitCallbacks): ActivityOptions? {
             optionsCalls++
+            inputBitmap = bitmap
+            if (!provideOptions && recycleRejectedInput) bitmap.recycle()
             this.callbacks = callbacks
             return if (provideOptions) ActivityOptions.makeBasic() else null
         }

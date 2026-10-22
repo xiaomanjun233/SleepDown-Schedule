@@ -99,6 +99,12 @@ object ActivityTransitionCoordinator {
                 }
                 is TransitionBackendOpenResult.Rejected -> {
                     log(session, nativeBackend.name, "fallback", native.reason)
+                    // Never start Legacy while another native leash is moving: that would open a
+                    // second destination on top of the in-flight system animation.
+                    if (native.reason == SharedViewKitBackend.AnimationInProgressReason) {
+                        TransitionPayloadStore.remove(session.id)
+                        return@withContext TransitionLaunchResult.Failed(session.id, native.reason)
+                    }
                 }
             }
         }

@@ -133,6 +133,9 @@ object TransitionRouteCatalog {
                 profileId = AnchoredLegacyProfileId.Liquid,
                 sourceCornerRadiusDp = 21f
             ),
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName = "$PackageName.NativeAiImportHistoryActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),
@@ -143,7 +146,10 @@ object TransitionRouteCatalog {
                 profileId = AnchoredLegacyProfileId.DetailSettings,
                 sourceCornerRadiusDp = 18f
             ),
-            nativePolicy = TransitionNativePolicy.Never,
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName =
+                "$PackageName.NativeAiImportHistoryDetailActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),

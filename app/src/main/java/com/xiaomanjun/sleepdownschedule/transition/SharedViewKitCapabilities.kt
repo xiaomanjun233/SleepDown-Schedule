@@ -5,6 +5,7 @@ internal object SharedViewKitContract {
     const val Bounds = "sharedView.bounds"
     const val BackType = "sharedView.backAnimType"
     const val FallbackType = "sharedView.fallbackAnimType"
+    const val Color = "sharedView.color"
     const val Open = 0
     const val Back = 1
 }

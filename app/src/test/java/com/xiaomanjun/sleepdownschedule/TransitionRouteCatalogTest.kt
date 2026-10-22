@@ -35,7 +35,9 @@ class TransitionRouteCatalogTest {
         }
         assertEquals(
             setOf(
-                TransitionRouteId.CourseManagementToDetail
+                TransitionRouteId.CourseManagementToDetail,
+                TransitionRouteId.AiHistoryToDetail,
+                TransitionRouteId.AiProgressToHistory
             ),
             nativeCandidates.map { it.id }.toSet()
         )
@@ -49,13 +51,28 @@ class TransitionRouteCatalogTest {
     }
 
     @Test
-    fun retiredVendorRoutesKeepLegacyAndThePilotUsesAConcreteOpaqueHost() {
-        val detail = TransitionRouteCatalog.get(TransitionRouteId.CourseManagementToDetail)
+    fun adaptedRoutesUseConcreteOpaqueHostsAndOthersStayLegacy() {
+        val adapted = setOf(
+            TransitionRouteId.CourseManagementToDetail,
+            TransitionRouteId.AiHistoryToDetail,
+            TransitionRouteId.AiProgressToHistory
+        )
         assertEquals(
             "com.xiaomanjun.sleepdownschedule.NativeCourseManagementDetailActivity",
-            detail.nativeDestinationClassName
+            TransitionRouteCatalog.get(TransitionRouteId.CourseManagementToDetail)
+                .nativeDestinationClassName
         )
-        assertTrue(TransitionRouteCatalog.all().filter { it.id != detail.id }
+        assertEquals(
+            "com.xiaomanjun.sleepdownschedule.NativeAiImportHistoryDetailActivity",
+            TransitionRouteCatalog.get(TransitionRouteId.AiHistoryToDetail)
+                .nativeDestinationClassName
+        )
+        assertEquals(
+            "com.xiaomanjun.sleepdownschedule.NativeAiImportHistoryActivity",
+            TransitionRouteCatalog.get(TransitionRouteId.AiProgressToHistory)
+                .nativeDestinationClassName
+        )
+        assertTrue(TransitionRouteCatalog.all().filter { it.id !in adapted }
             .all { it.nativePolicy == TransitionNativePolicy.Never && it.nativeDestinationClassName == null })
     }
 

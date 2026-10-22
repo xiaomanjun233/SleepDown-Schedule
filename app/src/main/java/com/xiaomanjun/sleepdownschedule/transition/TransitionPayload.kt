@@ -72,6 +72,11 @@ data class TransitionPayload(
     val returnAnchorProvider: TransitionAnchorProvider? =
         openingAnchor?.let(::StaticTransitionAnchorProvider),
     val backgroundBitmap: Bitmap? = null,
+    /**
+     * Solid underlay color of the source page. SharedViewKit uses it as the mask fill around the
+     * moving card; deriving it from the card bitmap yields a light frame in dark mode.
+     */
+    val backgroundColor: Int? = null,
     val backgroundDialog: com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot? = null,
     val parentSessionId: TransitionSessionId? = null,
     /**

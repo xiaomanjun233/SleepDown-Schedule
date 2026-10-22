@@ -264,9 +264,19 @@
             android:targetActivity=".AiImportHistoryActivity"
             android:exported="false" />
         <activity
+            android:name=".NativeAiImportHistoryActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NativeDetail"
+            android:parentActivityName=".AiEduImportProgressActivity" />
+        <activity
             android:name=".AiImportHistoryDetailActivity"
             android:exported="false"
             android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".AiImportHistoryActivity" />
+        <activity
+            android:name=".NativeAiImportHistoryDetailActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NativeDetail"
             android:parentActivityName=".AiImportHistoryActivity" />
         <provider
             android:name="androidx.core.content.FileProvider"

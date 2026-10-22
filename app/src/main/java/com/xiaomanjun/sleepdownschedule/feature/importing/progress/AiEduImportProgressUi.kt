@@ -80,6 +80,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -472,6 +473,7 @@ internal fun AiEduImportProgressPage(
                                              returnAnchorProvider =
                                                  StaticTransitionAnchorProvider(anchor),
                                              backgroundBitmap = backgroundSnapshot,
+                                             backgroundColor = conversationPageColor.toArgb(),
                                              onOpeningSourceHandoff = releaseOpeningSource,
                                              onSourceReleased = {
                                                  historySourceHidden = false
@@ -891,7 +893,8 @@ internal fun AiEduHistorySwipeRow(
     textColor: Color = Color.White,
     showSource: Boolean = true,
     onDelete: () -> Unit,
-    onOpen: (Rect) -> Unit
+    onOpen: (Rect) -> Unit,
+    onBoundsChanged: (Rect) -> Unit = {}
 ) {
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -1037,7 +1040,13 @@ internal fun AiEduHistorySwipeRow(
                         .padding(horizontal = 16.dp)
                         .clip(RoundedRectangle(18.dp))
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.42f))
-                        .onGloballyPositioned { cardBounds = it.boundsInWindow() }
+                        .onGloballyPositioned {
+                            val bounds = it.boundsInWindow()
+                            if (bounds != cardBounds) {
+                                cardBounds = bounds
+                                onBoundsChanged(bounds)
+                            }
+                        }
                 ) {
                     AiImportHistoryRowContent(
                          entry = entry,

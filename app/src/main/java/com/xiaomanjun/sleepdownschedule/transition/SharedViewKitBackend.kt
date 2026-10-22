@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.transition
 
 import android.app.Activity
+import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
@@ -24,9 +25,19 @@ internal class SharedViewKitBackend(
         val source: WeakReference<Activity>,
         val capabilities: SharedViewKitCapabilities,
         val generation: Long,
+        val kitBitmap: Bitmap,
         var closing: Boolean = false,
         var watchdog: Runnable? = null
-    )
+    ) {
+        /**
+         * The vendor path may return the same Bitmap instance from its own copy step and recycle it
+         * when the request is rejected. Only this app-owned software copy is ever handed over, so a
+         * failed handshake can never invalidate the payload bitmap that Legacy still needs.
+         */
+        fun recycleKitBitmap() {
+            if (!kitBitmap.isRecycled) kitBitmap.recycle()
+        }
+    }
 
     override suspend fun open(request: TransitionOpenRequest): TransitionBackendOpenResult {
         val anchor = request.payload?.openingAnchor
@@ -35,7 +46,7 @@ internal class SharedViewKitBackend(
         if (request.activity.isDestroyed || request.activity.isFinishing ||
             request.activity.isInMultiWindowMode || request.activity.isInPictureInPictureMode)
             return rejected("unsupportedWindow")
-        if (movingSession != null) return rejected("animationInProgress")
+        if (movingSession != null) return rejected(AnimationInProgressReason)
         val capabilities = sdk("capability") {
             val protocol = api.supportedProtocol()
             if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST)
@@ -45,12 +56,24 @@ internal class SharedViewKitBackend(
             ?: return rejected("unsupportedProtocol")
         // Pilot routes must be able to return safely when their business source was removed.
         if (capabilities.missingTargetBackType == null) return rejected("safeReturnUnavailable")
+        // Compose GraphicsLayer snapshots are Config#HARDWARE. The vendor implementation reads
+        // pixels for the return mask color and rejects hardware bitmaps, so hand it an app-owned
+        // software copy; the payload bitmap stays untouched for the Legacy fallback.
+        val kitBitmap = anchor.bitmap?.softwareCopyForKit()
+            ?: return rejected("softwareBitmapUnavailable")
+        if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST)
+            Log.i("SharedViewKit", "bitmap=${anchor.bitmap.config}->${kitBitmap.config} ${kitBitmap.width}x${kitBitmap.height}")
         val session = request.session
-        if (!session.moveTo(TransitionSessionState.NativeRegistered)) return rejected("invalidSessionState")
-        val resource = Resource(session, WeakReference(request.activity), capabilities, session.nextCallbackGeneration())
+        if (!session.moveTo(TransitionSessionState.NativeRegistered)) {
+            kitBitmap.recycle()
+            return rejected("invalidSessionState")
+        }
+        val resource = Resource(session, WeakReference(request.activity), capabilities, session.nextCallbackGeneration(), kitBitmap)
         resources[session.id] = resource
-        if (!TransitionPayloadStore.registerCleanup(session.id) { dispatch { release(session.id) } })
+        if (!TransitionPayloadStore.registerCleanup(session.id) { dispatch { release(session.id) } }) {
+            release(session.id)
             return rejected("sessionReleased")
+        }
         val callbacks = SharedViewKitCallbacks(
             onStart = { mode -> handler.post { onStart(resource, mode) } },
             onEnd = { mode -> handler.post { onEnd(resource, mode) } },
@@ -65,8 +88,9 @@ internal class SharedViewKitBackend(
         )
         val extras = Bundle().apply {
             capabilities.fallbackType?.let { putInt(SharedViewKitContract.FallbackType, it) }
+            request.payload?.backgroundColor?.let { putInt(SharedViewKitContract.Color, it) }
         }
-        val options = sdk("options") { api.options(checkNotNull(anchor.bitmap),
+        val options = sdk("options") { api.options(kitBitmap,
             boundsForKit(request.activity.window.decorView, anchor, capabilities),
             anchor.cornerRadiusPx, extras, callbacks) }
         if (options == null) {
@@ -94,12 +118,16 @@ internal class SharedViewKitBackend(
             return false
         }
         val source = resource.source.get()?.takeUnless { it.isDestroyed || it.isFinishing }
-        val anchor = TransitionPayloadStore.payload(session.id)?.returnAnchorProvider?.resolve()
+        val anchor = runCatching {
+            TransitionPayloadStore.payload(session.id)?.returnAnchorProvider?.resolve()
+        }.getOrNull()
         val bundle = Bundle().apply {
             if (source != null && anchor?.isValid == true) {
                 putParcelable(SharedViewKitContract.Bounds, boundsForKit(source.window.decorView, anchor, resource.capabilities))
                 putFloat("sharedView.radius", anchor.cornerRadiusPx)
             } else putInt(SharedViewKitContract.BackType, checkNotNull(resource.capabilities.missingTargetBackType))
+            TransitionPayloadStore.payload(session.id)?.backgroundColor
+                ?.let { putInt(SharedViewKitContract.Color, it) }
         }
         val updated = sdk("return") { api.updateReturn(activity, bundle); true } == true
         if (!updated || !session.moveTo(TransitionSessionState.Closing)) {
@@ -185,11 +213,13 @@ internal class SharedViewKitBackend(
         resource.session.isCurrentCallback(resource.generation)
 
     private fun release(id: TransitionSessionId) {
-        resources.remove(id)?.let(::disarm)
+        val resource = resources.remove(id)
+        resource?.let(::disarm)
         if (movingSession == id) {
             movingSession = null
             sdk("cancel") { api.cancel() }
         }
+        resource?.recycleKitBitmap()
     }
 
     private fun dispatch(block: () -> Unit) {
@@ -202,7 +232,11 @@ internal class SharedViewKitBackend(
 
     private fun rejected(reason: String) = TransitionBackendOpenResult.Rejected(reason)
 
-    companion object { internal const val CallbackTimeoutMillis = 3_000L }
+    companion object {
+        internal const val CallbackTimeoutMillis = 3_000L
+        /** A native leash is already moving; starting Legacy here would stack a second page. */
+        internal const val AnimationInProgressReason = "animationInProgress"
+    }
 }
 
 /** Compose anchors are always in window coordinates; only the SDK metadata chooses the output. */
@@ -219,3 +253,12 @@ internal fun boundsForKit(root: View, anchor: TransitionAnchorFrame, capabilitie
     return Rect(bounds.left.roundToInt() + offset[0], bounds.top.roundToInt() + offset[1],
         bounds.right.roundToInt() + offset[0], bounds.bottom.roundToInt() + offset[1])
 }
+
+/**
+ * Compose GraphicsLayer snapshots are Config#HARDWARE, which the vendor handshake rejects while
+ * reading the return mask color. Always hand the Kit an independent ARGB_8888 copy: the payload
+ * bitmap then stays valid for Legacy fallback even if the vendor recycles its own input.
+ */
+private fun Bitmap.softwareCopyForKit(): Bitmap? = runCatching {
+    if (isRecycled) null else copy(Bitmap.Config.ARGB_8888, false)
+}.getOrNull()
