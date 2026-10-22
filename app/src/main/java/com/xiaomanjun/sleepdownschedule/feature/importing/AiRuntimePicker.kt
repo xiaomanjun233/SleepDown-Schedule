@@ -142,6 +142,10 @@ internal fun AiRuntimePicker(
         AiProviderPresets.reasoningEfforts(state.settings.profile)
     }
     val responsesEnabled = AiProviderPresets.shouldUseResponses(state.settings.profile)
+    val reasoningAvailable = responsesEnabled || (
+        AiProviderPresets.isManagedFreeId(state.settings.profile.id) &&
+            state.settings.profile.managedReasoningOptions != null
+        )
 
     fun commit(next: AiImportSettings) {
         AiImportSettingsStore.save(context, next)
@@ -173,7 +177,7 @@ internal fun AiRuntimePicker(
             children = modelOptions.mapIndexed { index, option ->
                 SleepDownLiquidMenuItem(
                     key = "model-$index-${option.model}",
-                    text = option.model,
+                    text = if (AiProviderPresets.isManagedFreeId(state.settings.profile.id)) option.label else option.model,
                     selected = option.model.equals(
                         state.settings.profile.defaultModel,
                         ignoreCase = true
@@ -195,9 +199,9 @@ internal fun AiRuntimePicker(
         SleepDownLiquidMenuItem(
             key = "reasoning",
             text = "思考强度",
-            enabled = responsesEnabled && efforts.isNotEmpty(),
-            summary = if (responsesEnabled) null else "需启用 Responses",
-            children = if (responsesEnabled) {
+            enabled = reasoningAvailable && efforts.isNotEmpty(),
+            summary = if (reasoningAvailable) null else "需启用 Responses",
+            children = if (reasoningAvailable) {
                 efforts.map { effort ->
                     SleepDownLiquidMenuItem(
                         key = "reasoning-${effort.name}",
@@ -217,6 +221,9 @@ internal fun AiRuntimePicker(
             }
         )
     )
+    val visibleMenuItems = menuItems.filterNot {
+        it.key == "reasoning" && state.settings.profile.managedReasoningLocked
+    }
     var anchorBounds by remember { mutableStateOf(Rect.Zero) }
     var triggerTransferred by remember { mutableStateOf(false) }
     LaunchedEffect(state.expanded) {
@@ -234,7 +241,7 @@ internal fun AiRuntimePicker(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = state.settings.profile.defaultModel.ifBlank {
+                    text = state.settings.profile.managedModelDisplayName ?: state.settings.profile.defaultModel.ifBlank {
                         state.settings.profile.displayName
                     },
                     color = foreground.copy(alpha = 0.92f),
@@ -291,7 +298,7 @@ internal fun AiRuntimePicker(
         SleepDownLiquidCascadingPopup(
             show = state.expanded,
             anchorBounds = anchorBounds,
-            items = menuItems,
+            items = visibleMenuItems,
             onDismissRequest = state::dismiss,
             backdrop = popupBackdrop,
             config = config,

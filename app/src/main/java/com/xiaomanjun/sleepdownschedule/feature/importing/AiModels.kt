@@ -115,6 +115,9 @@ data class AiProviderProfile(
     val supportsPdfDirect: Boolean = capabilities.supportsPdfFileInput,
     val availableModels: List<String> = emptyList(),
     val reasoningEffort: AiReasoningEffort = AiReasoningEffort.MEDIUM,
+    val managedReasoningOptions: List<AiReasoningEffort>? = null,
+    val managedReasoningLocked: Boolean = false,
+    val managedModelDisplayName: String? = null,
     @kotlinx.serialization.Transient val modelCatalog: List<AiModelOption> = emptyList()
 )
 
@@ -144,7 +147,8 @@ data class AiProviderConfig(
     val reasoningEffort: AiReasoningEffort,
     val authType: AiAuthType = AiAuthType.ApiKeyBearer,
     val responsesPath: String = "/responses",
-    val chatCompletionsPath: String = "/chat/completions"
+    val chatCompletionsPath: String = "/chat/completions",
+    val managedReasoningControlled: Boolean = false
 ) {
     /**
      * 解析实际请求端点。仅当显式配置了非空路径时才追加；路径为空时直接使用 baseUrl，

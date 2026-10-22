@@ -184,7 +184,7 @@ fun AiImportSettingsSection(
         AiProviderModelCatalog.cached(context, selectedPreset.copy(baseUrl = baseUrl))
     }
     val configuredModelIds = parseAiModelIdList(availableModelsText, model)
-    val modelProfile = (if (isManagedFreeProvider) AiProviderPresets.dailyFree else selectedPreset).copy(
+    val modelProfile = selectedPreset.copy(
         defaultModel = model.trim(),
         capabilities = selectedPreset.capabilities.copy(supportsImageInput = supportsVision),
         supportsVision = supportsVision,
@@ -243,7 +243,7 @@ fun AiImportSettingsSection(
     val effectiveReasoningEffort = reasoningEffort.takeIf { it in reasoningOptions }
         ?: AiReasoningEffort.MEDIUM.takeIf { isChatGptProvider }
         ?: reasoningOptions.firstOrNull()
-        ?: AiReasoningEffort.MEDIUM
+        ?: selectedPreset.reasoningEffort
     val endpointStyle = if (responsesEnabled && modelSupportsResponses) {
         AiEndpointStyle.RESPONSES
     } else AiEndpointStyle.CHAT_COMPLETIONS
@@ -526,6 +526,7 @@ fun AiImportSettingsSection(
 				backdrop = backdrop,
 				onClick = { SleepDownRemoteConfig.refresh(scope, force = true) }
 			)
+			if (reasoningOptions.isNotEmpty()) {
 			SettingsDivider()
             SleepDownLiquidDropdownPreference(
                 items = reasoningOptions.map(AiReasoningEffort::label),
@@ -541,6 +542,7 @@ fun AiImportSettingsSection(
                     reasoningEffort = reasoningOptions[index.coerceIn(reasoningOptions.indices)]
                 }
             )
+            }
                 }
             }
         }

@@ -23,6 +23,7 @@ internal object ManagedAiRemoteConfig {
         return SleepDownRemoteConfig.state.value.bootstrap?.managedAiConfigs().orEmpty()
             .filter { it.availability(now) == RemoteAiAvailability.AVAILABLE }
             .mapNotNull { ai ->
+                if (ai.policy != null && ai.policy.resolveManagedReasoning(effort) == null) return@mapNotNull null
                 val key = runCatching {
                     RemoteSecretCrypto.decrypt(BuildConfig.SLEEPDOWN_REMOTE_CONFIG_SECRET, certificate, ai, context.packageName)
                 }.getOrNull()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
@@ -62,6 +63,7 @@ internal object ManagedAiRemoteConfig {
     }
 
     private fun managedProfile(ai: RemoteAiConfig?, effort: AiReasoningEffort): AiProviderProfile {
+        val policy = ai?.policy?.resolveManagedReasoning(effort)
         val endpoint = if (ai?.endpointStyle == "chat_completions") AiEndpointStyle.CHAT_COMPLETIONS else AiEndpointStyle.RESPONSES
         val supportsResponses = endpoint == AiEndpointStyle.RESPONSES
         return AiProviderPresets.dailyFree.copy(
@@ -75,7 +77,10 @@ internal object ManagedAiRemoteConfig {
             endpointStyle = endpoint,
             supportsVision = ai?.supportsVision == true,
             availableModels = listOfNotNull(ai?.model?.takeIf(String::isNotBlank)),
-            reasoningEffort = effort
+            reasoningEffort = policy?.effort ?: effort,
+            managedReasoningOptions = policy?.options,
+            managedReasoningLocked = policy?.locked == true,
+            managedModelDisplayName = ai?.policy?.displayName?.takeIf(String::isNotBlank)
         )
     }
 }

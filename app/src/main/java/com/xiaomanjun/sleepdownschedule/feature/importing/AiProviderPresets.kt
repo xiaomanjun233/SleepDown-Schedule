@@ -404,6 +404,16 @@ object AiProviderPresets {
     }
 
     fun modelOptions(profile: AiProviderProfile): List<AiModelOption> {
+        if (isManagedFreeId(profile.id)) {
+            return profile.availableModels.filter(String::isNotBlank).distinct().map { model ->
+                AiModelOption(
+                    label = profile.managedModelDisplayName ?: model,
+                    model = model,
+                    supportsImageInput = profile.supportsVision,
+                    supportsResponses = profile.capabilities.supportsResponses
+                )
+            }
+        }
         if (profile.modelCatalog.isNotEmpty()) {
             val selected = profile.defaultModel.trim()
             val current = profile.modelCatalog
@@ -460,6 +470,10 @@ object AiProviderPresets {
         profile.endpointStyle == AiEndpointStyle.RESPONSES && supportsResponses(profile)
 
     fun reasoningEfforts(profile: AiProviderProfile): List<AiReasoningEffort> {
+        if (isManagedFreeId(profile.id)) {
+            if (profile.managedReasoningLocked) return emptyList()
+            profile.managedReasoningOptions?.let { return it }
+        }
         if (isChatGptId(profile.id)) return chatGptReasoningEfforts(profile.defaultModel)
         if (!supportsResponses(profile)) return emptyList()
         val model = profile.defaultModel.trim().lowercase()

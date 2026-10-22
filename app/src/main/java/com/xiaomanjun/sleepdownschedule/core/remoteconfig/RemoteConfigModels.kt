@@ -92,13 +92,14 @@ data class RemoteAiConfig(
     val expiresAt: Long,
     val message: String = "",
     val providerName: String = "每日免费 AI",
-    val priority: Int = 0
+    val priority: Int = 0,
+    val policy: RemoteAiPolicy? = null
 )
 
 internal enum class RemoteAiAvailability { AVAILABLE, DISABLED, EXPIRED, UNSUPPORTED }
 
 internal fun RemoteAiConfig.availability(nowSeconds: Long): RemoteAiAvailability = when {
-    !enabled -> RemoteAiAvailability.DISABLED
+    !enabled || policy?.hidden == true -> RemoteAiAvailability.DISABLED
     expiresAt <= nowSeconds -> RemoteAiAvailability.EXPIRED
     cipher != "AES-256-GCM" || cipherVersion != 1 || kdfVersion != 1 -> RemoteAiAvailability.UNSUPPORTED
     else -> RemoteAiAvailability.AVAILABLE

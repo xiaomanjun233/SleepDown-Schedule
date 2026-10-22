@@ -95,6 +95,10 @@ internal interface AiScheduleImportProvider {
 }
 
 internal fun JsonObjectBuilder.putChatSamplingAndReasoning(config: AiProviderConfig) {
+    if (config.providerId == AiProviderPresets.dailyFree.id && config.managedReasoningControlled) {
+        put("reasoning_effort", JsonPrimitive(config.reasoningEffort.apiValue))
+        return
+    }
     if (config.providerId != AiProviderPresets.deepSeek.id) {
         put("temperature", JsonPrimitive(0.1))
         return

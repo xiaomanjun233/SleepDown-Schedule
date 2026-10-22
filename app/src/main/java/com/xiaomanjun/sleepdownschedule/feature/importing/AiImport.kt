@@ -413,7 +413,9 @@ internal fun AiImportSettings.toProviderConfig(): AiProviderConfig {
         reasoningEffort = profile.reasoningEffort,
         authType = profile.authType,
         responsesPath = profile.responsesPath,
-        chatCompletionsPath = profile.chatCompletionsPath
+        chatCompletionsPath = profile.chatCompletionsPath,
+        managedReasoningControlled = AiProviderPresets.isManagedFreeId(profile.id) &&
+            profile.managedReasoningOptions != null
     )
 }
 
