@@ -49,9 +49,23 @@ internal data class CourseEditorClickedSource(
 )
 
 internal class CourseEditorFlightRegistry {
+    val tapGate = com.xiaomanjun.sleepdownschedule.core.ui.interaction.SinglePointerTapGate()
     var frozen = false
     private val grids = mutableMapOf<Int, CourseEditorWeekGrid>()
     private var clickedSource: CourseEditorClickedSource? = null
+    private data class Target(val week: Int?, val day: Boolean, val bounds: () -> Rect?, val open: () -> Unit)
+    private val targets = linkedMapOf<Any, Target>()
+    fun registerTarget(owner: Any, week: Int?, day: Boolean, bounds: () -> Rect?, open: () -> Unit) {
+        targets[owner] = Target(week, day, bounds, open)
+    }
+    fun removeTarget(owner: Any) { targets.remove(owner) }
+    fun openTargetAt(position: Offset, week: Int, day: Boolean): Boolean {
+        val target = targets.values.lastOrNull {
+            it.day == day && (day || it.week == week) && it.bounds()?.contains(position) == true
+        } ?: return false
+        target.open()
+        return true
+    }
     fun captureSource(bounds: Rect, visibleBounds: Rect, appearance: CourseEditorDayAppearance) {
         clickedSource = CourseEditorClickedSource(bounds, visibleBounds, appearance)
     }
@@ -74,8 +88,21 @@ data class CourseEditorWeekGrid(
     val periodIndexes: List<Int>,
     val scroll: ScrollState?,
     val scrollAtCapture: Int,
-    val rightToLeft: Boolean
+    val rightToLeft: Boolean,
+    val rowTops: List<Float> = emptyList()
 ) {
+    val contentHeight: Float get() = rowBottom(periodIndexes.size.toFloat())
+    fun rowTop(row: Float): Float {
+        val index = kotlin.math.floor(row).toInt()
+        if (index < 0) return (rowTops.firstOrNull() ?: 0f) + row * rowHeight
+        val start = rowTops.getOrNull(index) ?: if (rowTops.isNotEmpty() && index >= rowTops.size)
+            rowTops.last() + (index - rowTops.lastIndex) * rowHeight else index * rowHeight
+        return start + (row - index) * rowHeight
+    }
+    fun rowBottom(row: Float): Float = if (row > 0 && row == kotlin.math.floor(row))
+        rowTop(row - 1) + rowHeight else rowTop(row)
+    fun isLessonY(y: Float): Boolean = periodIndexes.indices.any { y >= rowTop(it.toFloat()) && y < rowTop(it.toFloat()) + rowHeight }
+
     suspend fun reveal(course: CourseEntity, weekdays: List<Int>): Rect? {
         val column = weekdays.indexOf(course.weekday).takeIf { it >= 0 } ?: return null
         val positions = course.periods.map(periodIndexes::indexOf).filter { it >= 0 }.distinct().sorted()
@@ -87,11 +114,11 @@ data class CourseEditorWeekGrid(
         // Bring the selected period near the viewport center while preserving the grid's
         // configured header offset. scrollTo clamps against the actual measured scroll range.
         if (scroll != null && scroll.viewportSize > 0) {
-            val rowCenter = rowHeight * (first + firstRun / 2f)
+            val rowCenter = (rowTop(first.toFloat()) + rowBottom((first + firstRun).toFloat())) / 2f
             scroll.scrollTo((rowCenter - scroll.viewportSize * 0.45f).roundToInt().coerceAtLeast(0))
         }
-        val top = origin.y + rowHeight * first + gap / 2f - ((scroll?.value ?: scrollAtCapture) - scrollAtCapture)
-        return Rect(left, top, left + cellWidth - gap, top + (rowHeight * firstRun - gap).coerceAtLeast(1f))
+        val top = origin.y + rowTop(first.toFloat()) + gap / 2f - ((scroll?.value ?: scrollAtCapture) - scrollAtCapture)
+        return Rect(left, top, left + cellWidth - gap, top + (rowBottom((first + firstRun).toFloat()) - rowTop(first.toFloat()) - gap).coerceAtLeast(1f))
     }
 }
 

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -34,6 +35,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.ChatGptAuthManager
 import com.kyant.backdrop.Backdrop
@@ -55,7 +59,9 @@ internal class AiRuntimePickerState(initialSettings: AiImportSettings) {
     internal var revision by mutableIntStateOf(0)
 
     fun open() {
-        expanded = true
+        // Toggle instead of "set true": if a host ever dropped the popup without resetting the
+        // state, a plain tap must still recover the picker instead of being swallowed.
+        expanded = !expanded
     }
 
     fun dismiss() {
@@ -226,8 +232,21 @@ internal fun AiRuntimePicker(
     }
     var anchorBounds by remember { mutableStateOf(Rect.Zero) }
     var triggerTransferred by remember { mutableStateOf(false) }
+    // Follow the state both ways: the popup host can disappear (another Activity on top, window
+    // detach) without ever delivering onDismissFinished, which used to leave the pill invisible
+    // and unresponsive because `expanded` stayed true.
     LaunchedEffect(state.expanded) {
-        if (state.expanded) triggerTransferred = true
+        triggerTransferred = state.expanded
+    }
+    // A popup cannot survive its host Activity being paused; reset the state so the trigger is
+    // usable again when the page resumes.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, state) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) state.dismiss()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     Box(
         modifier = Modifier

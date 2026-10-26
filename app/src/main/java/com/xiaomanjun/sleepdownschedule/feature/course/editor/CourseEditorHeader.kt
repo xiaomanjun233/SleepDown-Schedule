@@ -66,35 +66,30 @@ internal fun CourseEditorFixedHeader(
     onCancel: () -> Unit,
     onSave: () -> Unit,
     modifier: Modifier = Modifier,
-    contentModifier: Modifier = Modifier
+    contentModifier: Modifier = Modifier,
+    gradientBackdrop: Backdrop? = backdrop
 ) {
-    val dark = appUsesDarkTheme(config)
-    val tint = if (dark) {
-        ComposeColor(0xFF111318).copy(alpha = 0.48f)
-    } else {
-        ComposeColor.White.copy(alpha = 0.42f)
-    }
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(70.dp)
+            .height(82.dp)
     ) {
         // Fade the header's backdrop into the form rather than drawing a hard horizontal strip.
         ProgressiveBackdropBlur(
-            backdrop = backdrop,
+            backdrop = gradientBackdrop,
             modifier = Modifier.fillMaxSize(),
-            tintColor = tint,
-            height = 70.dp,
-            blurRadius = 12.dp,
-            tintIntensity = 0.16f,
+            tintColor = ComposeColor.Transparent,
+            height = 82.dp,
+            blurRadius = 26.dp,
+            tintIntensity = 0f,
             direction = ProgressiveBlurDirection.TopToBottom,
-            topMaskFadeStart = 0.56f,
+            topMaskFadeStart = 0.30f,
             topMaskFadeEnd = 1f,
-            topTintFadeStart = 0.50f,
+            topTintFadeStart = 0.30f,
             topTintFadeEnd = 1f,
+            radiusFadeStart = 0.42f,
             fallbackTintStops = listOf(
-                0f to tint,
-                0.60f to tint.copy(alpha = tint.alpha * 0.78f),
+                0f to ComposeColor.Transparent,
                 1f to ComposeColor.Transparent
             )
         )
@@ -103,7 +98,7 @@ internal fun CourseEditorFixedHeader(
             onDismiss = onCancel,
             backdrop = backdrop,
             config = config,
-            modifier = Modifier.fillMaxSize().then(contentModifier),
+            modifier = Modifier.fillMaxWidth().height(70.dp).then(contentModifier),
             buttonBlurRadius = 4.dp,
             onConfirm = onSave
         )

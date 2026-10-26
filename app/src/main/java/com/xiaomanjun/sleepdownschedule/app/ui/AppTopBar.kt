@@ -93,7 +93,9 @@ internal fun AppTopBar(
     onPersonalizeButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
     onToggleAddMenu: (Float) -> Unit,
     onTogglePersonalize: (Float) -> Unit,
-    onBackHome: () -> Unit
+    onBackHome: () -> Unit,
+    addButtonReturnLayer: androidx.compose.ui.graphics.layer.GraphicsLayer? = null,
+    homeOverlayReturning: Boolean = false
 ) {
     val adaptiveTopBarColor = LocalAdaptiveGlass.current.contentColor
     val topBarMetrics = rememberHomeAdaptiveMetrics()
@@ -158,6 +160,7 @@ internal fun AppTopBar(
                     contentDescription = "benchmark_personalize_button",
                     selected = false,
                     visible = activeHomeOverlay != HomeAnchoredOverlayKind.Personalize,
+                    enabled = homeOverlayReturning || activeHomeOverlay != HomeAnchoredOverlayKind.Personalize,
                     onClick = onTogglePersonalize,
                     onButtonPositioned = onPersonalizeButtonPositioned
                 )
@@ -168,8 +171,10 @@ internal fun AppTopBar(
                     contentDescription = "添加菜单",
                     selected = false,
                     visible = !addButtonHidden,
+                    enabled = homeOverlayReturning || !addButtonHidden,
                     onClick = onToggleAddMenu,
-                    onButtonPositioned = onAddButtonPositioned
+                    onButtonPositioned = onAddButtonPositioned,
+                    returnLayer = addButtonReturnLayer
                 )
             }
         }
@@ -201,6 +206,7 @@ internal fun AppTopBar(
                         SettingsPage.DayAgent -> "AI 助理"
                         SettingsPage.Schedule -> "课表详细设置"
                         SettingsPage.PeriodSchemes -> "作息管理"
+                        SettingsPage.SpecialCourses -> "特殊课程"
                         SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
                         SettingsPage.Notifications -> "通知设置"
                         SettingsPage.ScheduleManager -> "课表设置"

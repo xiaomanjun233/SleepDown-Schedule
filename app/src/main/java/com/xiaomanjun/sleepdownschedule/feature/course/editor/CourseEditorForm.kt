@@ -41,7 +41,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSu
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialForeground
 import com.xiaomanjun.sleepdownschedule.courseAnchorPeriodsForTimeRange
 import com.xiaomanjun.sleepdownschedule.courseTimeLabel
-import com.xiaomanjun.sleepdownschedule.feature.home.day.readableOn
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
@@ -95,23 +94,17 @@ internal fun CourseEditorFormPage(
     } else {
         glassForegroundColor(config)
     }
-    val editorFieldSurface = if (materialForeground != ComposeColor.Unspecified) {
-        materialForeground.copy(alpha = 0.10f)
-    } else if (appUsesDarkTheme(config)) {
-        ComposeColor(0xFF2C2C2E).copy(alpha = 0.54f)
-    } else {
-        ComposeColor.White.copy(alpha = 0.70f)
-    }
-    val editorFieldTextColor = if (materialForeground != ComposeColor.Unspecified) materialForeground else readableOn(editorFieldSurface)
+    // The field resolves its fill from this same foreground, never from the unrelated app theme.
+    val editorFieldTextColor = editorContentColor
     val formBodyBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Content,
         providerId = "course-editor-form-body"
     )
+    val headerBackdrop = backdrop?.let {
+        com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop(it, formBodyBackdrop)
+    } ?: formBodyBackdrop
     // Only the scrolling fields produce this layer. The fixed header consumes it as a
     // later sibling, composited over the actual dialog shell, never the home timetable.
-    val headerBackdrop = if (backdrop != null) {
-        rememberGlassCombinedBackdrop(backdrop, formBodyBackdrop)
-    } else formBodyBackdrop
     // Row timing/easing is owned by the overlay; apply it once as an upward popup.
     // Other callers default to 1f and remain stationary.
     val rowEntranceDensity = LocalDensity.current
@@ -231,6 +224,7 @@ internal fun CourseEditorFormPage(
                     selectedPeriodIndices = if (draft.customLessonTimesEdited) {
                         parseCoursePeriodTimes(draft.customPeriodTimes).map { it.index }
                     } else course?.periods?.takeIf {
+                        !draft.periodRangeEdited &&
                         it.minOrNull() == draft.periodStart && it.maxOrNull() == draft.periodEnd
                     } ?: periodValues.filter { it in draft.periodStart..draft.periodEnd },
                     onRangeSelected = { start, end ->
@@ -241,7 +235,8 @@ internal fun CourseEditorFormPage(
                                 customStartTime = null,
                                 customEndTime = null,
                                 customPeriodTimes = null,
-                                customLessonTimesEdited = false
+                                customLessonTimesEdited = false,
+                                periodRangeEdited = true
                             )
                         )
                     },
@@ -372,7 +367,8 @@ internal fun CourseEditorFormPage(
     }
     CourseEditorFixedHeader(
         title = title,
-        backdrop = headerBackdrop,
+        backdrop = backdrop,
+        gradientBackdrop = headerBackdrop,
         config = config,
         onCancel = onCancel,
         onSave = onSave,

@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.core.ui.settings
 import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -18,6 +19,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -420,7 +422,7 @@ internal fun GlassMiuixDetailActivityScaffold(
                                         centerTitle = centerCompactTitle,
                                         useMiuixCollapsedTitleStyle = compactTitleMatchesSettings,
                                         statusTopOverride = stableStatusBarTop.takeIf { preserveStatusBarSpace },
-                                        actions = { topBarActions(topBarBackdrop) }
+                                        showBackButton = false
                                     )
                                 } else {
                                     TopAppBar(
@@ -430,16 +432,9 @@ internal fun GlassMiuixDetailActivityScaffold(
                                         scrollBehavior = scrollBehavior,
                                         navigationIconPadding = 16.dp,
                                         clipContent = false,
-                                        actions = { topBarActions(topBarBackdrop) },
+                                        actions = {},
                                         navigationIcon = {
-                                            TopBackButton(
-                                                backdrop = topBarBackdrop,
-                                                config = pageConfig,
-                                                onClick = onBack,
-                                                modifier = Modifier.size(
-                                                    SleepDownDesignTokens.SecondaryPage.BackButtonSize
-                                                )
-                                            )
+                                            Box(Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize))
                                         }
                                     )
                                 }
@@ -465,6 +460,32 @@ internal fun GlassMiuixDetailActivityScaffold(
                             content(backgroundBackdrop)
                         }
                     }
+                }
+            }
+            if (topBarVisible) {
+                // A sibling of the gradient/TopAppBar: material, highlights and touch expansion
+                // never enter the toolbar's clipped shader buffer. The activity morph still owns
+                // this entire page, so the controls follow its geometry throughout the transition.
+                Row(
+                    Modifier.fillMaxWidth().padding(top = stableStatusBarTop, start = 16.dp, end = 16.dp)
+                        .height(SleepDownDesignTokens.SecondaryPage.CompactTopBarHeight)
+                        .layout { measurable, constraints ->
+                            val placeable = measurable.measure(constraints)
+                            layout(placeable.width, placeable.height) {
+                                if (editorProgress.floatValue < 1f) placeable.placeRelative(0, 0)
+                            }
+                        }
+                        .zIndex(3f).graphicsLayer {
+                            clip = false
+                            translationY = 28.dp.toPx() * editorProgress.floatValue
+                            alpha = 1f - editorProgress.floatValue
+                        },
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    TopBackButton(topBarBackdrop, pageConfig, onBack,
+                        modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize))
+                    Box(Modifier.weight(1f))
+                    topBarActions(topBarBackdrop)
                 }
             }
             if (inheritedFloatingOverlayHost == null) {

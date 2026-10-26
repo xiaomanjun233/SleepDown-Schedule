@@ -162,12 +162,16 @@ internal fun legacyCourseEditorMorphSpec(
     sourceBlurMaxPx: Float,
     destinationBlurMaxPx: Float,
     hasSourceTransform: Boolean,
-    preloadedContent: Boolean = false
+    preloadedContent: Boolean = false,
+    earlyContentHandoff: Boolean = false,
+    earlyOpeningContentHandoff: Boolean = earlyContentHandoff
 ): LiquidMorphSpec = object : LiquidMorphSpec {
     override val routeKey: String = "course-editor"
 
     override fun frame(input: LiquidMorphInput): LiquidMorphFrame {
         val closing = input.direction == LiquidMorphDirection.Closing
+        // Preloading is a content policy. It must not replace the independent return curve.
+        // The host joins curves only when a moving flight is actually interrupted.
         val phase = if (closing) CourseEditorOverlayPhase.Closing else CourseEditorOverlayPhase.Opening
         val visualProgress = courseEditorVisualProgress(input.rawProgress, phase)
         val pulseScale = courseEditorSettleScale(input.rawProgress, phase)
@@ -188,19 +192,15 @@ internal fun legacyCourseEditorMorphSpec(
         val openingHandoff = courseEditorSmoothStep(0.12f, 0.50f, visualProgress.position)
         val closingHandoff = courseEditorSmoothStep(0.04f, 0.18f, visualProgress.position)
         val destinationAlpha = if (preloadedContent) {
-            com.xiaomanjun.sleepdownschedule.glass.liquidPreloadedContentAlpha(input.rawProgress)
+            com.xiaomanjun.sleepdownschedule.glass.liquidPreloadedContentAlpha(
+                input.rawProgress, if (closing) earlyContentHandoff else earlyOpeningContentHandoff, visualProgress.size)
         } else if (closing) closingHandoff else openingHandoff
         val sourceAlpha = if (hasSourceTransform) 1f - destinationAlpha else 0f
-        val sourceBlurProgress = if (closing) {
-            courseEditorSmoothStep(0f, 0.12f, visualProgress.position)
-        } else {
-            courseEditorSmoothStep(0f, 0.24f, visualProgress.position)
-        }
-        val destinationBlur = if (closing) {
-            destinationBlurMaxPx
-        } else {
-            destinationBlurMaxPx * (1f - courseEditorSmoothStep(0.90f, 1f, visualProgress.position))
-        }
+        val sourceBlurProgress = if (preloadedContent) destinationAlpha else
+            courseEditorSmoothStep(0f, if (closing) 0.12f else 0.24f, visualProgress.position)
+        val destinationBlur = if (preloadedContent) destinationBlurMaxPx * (1f - destinationAlpha)
+            else if (closing) destinationBlurMaxPx
+            else destinationBlurMaxPx * (1f - courseEditorSmoothStep(0.90f, 1f, visualProgress.position))
         val trajectory = LiquidProgressKinematics(visualProgress.position, 0f, 0f)
         val shape = LiquidProgressKinematics(visualProgress.size, 0f, 0f)
         val moving = closing || input.rawProgress < 0.999f

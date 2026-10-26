@@ -104,8 +104,8 @@ internal fun WeekEditOverlayHost(
     val target = when (req.mode) {
         WeekEditOverlayMode.Move -> weekCourseEditTarget(
             periodIndexes = req.periodIndexes,
-            weekday = req.dayIndex + (offsetX / req.gridColumnWidthPx).roundToInt(),
-            startPeriod = req.periodIndex + (gridOffsetY / req.periodRowHeightPx).roundToInt(),
+            weekday = req.weekdayAfterMove(offsetX),
+            startPeriod = req.startPeriodAfterMove(gridOffsetY),
             span = req.currentSpan,
             weekdayCount = req.weekdayCount
         )
@@ -113,7 +113,7 @@ internal fun WeekEditOverlayHost(
             periodIndexes = req.periodIndexes,
             weekday = req.dayIndex,
             startPeriod = req.periodIndex,
-            span = (heightPx / req.periodRowHeightPx).roundToInt().coerceIn(1, req.maxSpan),
+            span = req.spanForHeight(heightPx),
             weekdayCount = req.weekdayCount
         )
     }
@@ -124,10 +124,10 @@ internal fun WeekEditOverlayHost(
     val conflict = !target.valid ||
         hasWeekCourseEditConflict(if (req.destinationWeek != req.editWeek) req.course.copy(id = -1) else req.course,
             previewCourse, req.weekCourses, req.destinationWeek)
-    val previewLeft = req.sourceBounds.left - host.left + (target.weekday - req.dayIndex) * req.gridColumnWidthPx
+    val previewLeft = req.sourceBounds.left - host.left + req.columnDeltaTo(target.weekday) * req.gridColumnWidthPx
     val previewTop = req.sourceBounds.top - host.top - gridScrollCompensationY +
-        ((target.periods.firstOrNull() ?: req.periodIndex) - req.periodIndex) * req.periodRowHeightPx
-    val previewHeight = (req.periodRowHeightPx * target.periods.size.coerceAtLeast(1) - with(density) { 4.dp.toPx() }).coerceAtLeast(with(density) { 18.dp.toPx() })
+        req.rowTopFor(target.periods.firstOrNull() ?: req.periodIndex) - req.rowTopFor(req.periodIndex)
+    val previewHeight = (req.heightForSpan(target.periods.size.coerceAtLeast(1), target.periods.firstOrNull() ?: req.periodIndex, with(density) { 4.dp.toPx() })).coerceAtLeast(with(density) { 18.dp.toPx() })
     val animatedPreviewLeft by animateFloatAsState(
         targetValue = previewLeft,
         animationSpec = spring(dampingRatio = 0.78f, stiffness = 620f),

@@ -383,17 +383,26 @@ internal fun HomeMenuDestinationOverlayHost(
             )
             val shape = RoundedRectangle(32.dp)
             val lightGlass = glassUsesLightStyle(state.config)
-            val nativeSurface = shown.kind == HomeMenuDestinationKind.AddCourse &&
+            val nativeSurface = shown.kind != HomeMenuDestinationKind.EduImport &&
                 com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer.current?.invoke(
                     com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest(
                         modifier = Modifier.fillMaxSize().glassBackdropProducer(surfaceBackdrop),
-                        shape = shape, dark = appUsesDarkTheme(state.config),
-                        role = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.HomeDock,
+                        shape = shape, dark = !lightGlass,
+                        role = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Form,
+                        onDrawTint = { drawRect(if (lightGlass) Color.White.copy(alpha = 0.18f)
+                            else Color(0xFF121212).copy(alpha = 0.30f)) },
                         edgeEffects = true, followTouch = true
                     )
                 ) {} == true
             if (nativeSurface) {
                 // Same form and transition shell; only the missing material is supplied here.
+            } else if (!com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()) {
+                com.xiaomanjun.sleepdownschedule.glass.ui.MorphDialogSurface(
+                    surfaceColor = if (lightGlass) Color.White.copy(alpha = 0.18f)
+                        else Color(0xFF121212).copy(alpha = 0.30f),
+                    shape = shape, modifier = Modifier.fillMaxSize(),
+                    surfaceBackdrop = surfaceBackdrop, backdrop = dialogBackdrop, blurRadius = 22.dp
+                )
             } else if (dialogBackdrop != null) {
                 LiquidPanel(
                     backdrop = dialogBackdrop,
@@ -410,15 +419,15 @@ internal fun HomeMenuDestinationOverlayHost(
             }
             Box(Modifier.fillMaxSize().clip(shape)) {
             when (shown.kind) {
-                HomeMenuDestinationKind.AddCourse -> AddCourseDockContent(state.config) { NormalizedCourseEditorScreen(
+                HomeMenuDestinationKind.AddCourse -> HomeFormMaterialContent(state.config) { NormalizedCourseEditorScreen(
                     state = state, initialCourse = null, backdrop = surfaceBackdrop,
                     onCancel = onDismissRequest, onSave = {}, onSaveCourses = onAddCourses, onDelete = {},
                     onDismissHandlerChange = { dismissHandler = it }, pickerRenderInRootScaffold = false
                 ) }
-                HomeMenuDestinationKind.ManualImport -> NormalizedAiManualImportScreen(
+                HomeMenuDestinationKind.ManualImport -> HomeFormMaterialContent(state.config) { NormalizedAiManualImportScreen(
                     state = state, backdrop = dialogBackdrop, onCancel = onDismissRequest,
                     captureHistoryBackground = captureHistoryBackground, onParsed = onManualImportParsed
-                )
+                ) }
                 HomeMenuDestinationKind.EduImport -> DetailActivityScaffold(
                     title = "选择学校", config = state.config, onBack = onDismissRequest
                 ) { schoolBackdrop ->
@@ -856,18 +865,29 @@ internal fun HomeMenuDestinationOverlayHost(
             val lightGlass = glassUsesLightStyle(state.config)
             // Keep the material composed throughout Preparing and Opening. Mounting drawBackdrop
             // at the same frame the cached form hands off can flash text fields on some GPUs.
-            val nativeSurface = shown.kind == HomeMenuDestinationKind.AddCourse &&
+            val nativeSurface = !isFullScreen &&
                 com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer.current?.invoke(
                     com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest(
                         modifier = Modifier.fillMaxSize().glassBackdropProducer(destinationSurfaceBackdrop),
-                        shape = destinationShape, dark = appUsesDarkTheme(state.config),
+                        shape = destinationShape, dark = !lightGlass,
                         surfaceAlpha = { frame.value.destinationSurfaceAlpha },
-                        role = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.HomeDock,
+                        role = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Form,
+                        onDrawTint = { drawRect(if (lightGlass) Color.White.copy(alpha = 0.18f)
+                            else Color(0xFF121212).copy(alpha = 0.30f)) },
                         edgeEffects = true, followTouch = true
                     )
                 ) {} == true
             if (nativeSurface) {
                 // Remains mounted through source handoff, just like the fallback panel below.
+            } else if (!isFullScreen &&
+                !com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()) {
+                com.xiaomanjun.sleepdownschedule.glass.ui.MorphDialogSurface(
+                    surfaceColor = if (lightGlass) Color.White.copy(alpha = 0.18f)
+                        else Color(0xFF121212).copy(alpha = 0.30f),
+                    shape = destinationShape,
+                    modifier = Modifier.fillMaxSize(), surfaceAlpha = { frame.value.destinationSurfaceAlpha },
+                    surfaceBackdrop = destinationSurfaceBackdrop, backdrop = backdrop, blurRadius = 22.dp
+                )
             } else if (backdrop != null) {
                 LiquidPanel(
                     backdrop = backdrop,
@@ -997,7 +1017,7 @@ internal fun HomeMenuDestinationOverlayHost(
                         com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey provides { shown }
                     ) {
                         when (shown.kind) {
-                            HomeMenuDestinationKind.AddCourse -> AddCourseDockContent(state.config) { top.yukonga.miuix.kmp.basic.Scaffold(
+                            HomeMenuDestinationKind.AddCourse -> HomeFormMaterialContent(state.config) { top.yukonga.miuix.kmp.basic.Scaffold(
                                 modifier = Modifier.fillMaxSize(),
                                 containerColor = Color.Transparent,
                                 contentWindowInsets = WindowInsets(0, 0, 0, 0)
@@ -1019,13 +1039,14 @@ internal fun HomeMenuDestinationOverlayHost(
                                     pickerRenderInRootScaffold = true
                                 )
                             } }
-                            HomeMenuDestinationKind.ManualImport -> NormalizedAiManualImportScreen(
+                            HomeMenuDestinationKind.ManualImport -> HomeFormMaterialContent(state.config) { NormalizedAiManualImportScreen(
                                 state = state,
                                 backdrop = backdrop,
+                                transitionActive = motionState.phase != HomeAnchoredOverlayPhase.Open,
                                 onCancel = { latestDismiss() },
                                 captureHistoryBackground = captureHistoryBackground,
                                 onParsed = onManualImportParsed
-                            )
+                            ) }
                             HomeMenuDestinationKind.EduImport -> DetailActivityScaffold(
                                 title = "选择学校",
                                 config = state.config,
@@ -1129,13 +1150,10 @@ internal fun HomeMenuDestinationOverlayHost(
     }
 }
 
-/** Share the Dock's wallpaper contrast decision, including input values. */
+/** All wallpaper-backed home forms share one contrast decision, including input values. */
 @Composable
-private fun AddCourseDockContent(config: ScheduleConfigEntity, content: @Composable () -> Unit) {
-    val style = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle.current
-    val native = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer.current != null
-    val foreground = if (!native) Color.Unspecified else style?.foreground?.let { Color(it) }
-        ?: if (style?.dark ?: appUsesDarkTheme(config)) Color.White else Color.Black
+private fun HomeFormMaterialContent(config: ScheduleConfigEntity, content: @Composable () -> Unit) {
+    val foreground = com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor(config)
     CompositionLocalProvider(
         com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialForeground provides foreground,
         content = content

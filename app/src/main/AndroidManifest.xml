@@ -190,9 +190,26 @@
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".MainActivity" />
         <activity
+            android:name=".NativeQuickSheetSettingsDetailActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NativeDetail"
+            android:parentActivityName=".MainActivity" />
+        <activity
             android:name=".feature.settings.ScheduleAdjustmentsActivity"
             android:exported="false"
             android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".SettingsDetailActivity" />
+        <activity
+            android:name=".feature.settings.SpecialCourseEditorActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.SettingsSlide"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".SettingsDetailActivity" />
+        <activity
+            android:name=".feature.settings.NativeSpecialCourseEditorActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NativeDetail.SettingsSlide"
             android:windowSoftInputMode="adjustResize"
             android:parentActivityName=".SettingsDetailActivity" />
         <activity
@@ -204,6 +221,11 @@
             android:name=".CourseManagementActivity"
             android:exported="false"
             android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".MainActivity" />
+        <activity
+            android:name=".NativeCourseManagementActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NativeDetail"
             android:parentActivityName=".MainActivity" />
         <activity-alias
             android:name=".OplusCourseManagementActivity"
@@ -232,6 +254,11 @@
             android:name=".EduSchoolSelectActivity"
             android:exported="false"
             android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".MainActivity" />
+        <activity
+            android:name=".NativeEduSchoolSelectActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NativeDetail"
             android:parentActivityName=".MainActivity" />
         <activity-alias
             android:name=".OplusEduSchoolSelectActivity"

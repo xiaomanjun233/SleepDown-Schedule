@@ -42,7 +42,11 @@ internal data class HomeAnchoredOverlayRequest(
 @Stable
 internal class HomeAnchoredMorphState {
     val progress = Animatable(0f)
+    val curveContinuity = com.xiaomanjun.sleepdownschedule.core.ui.interaction.MorphCurveContinuity()
+    val retarget = com.xiaomanjun.sleepdownschedule.core.ui.interaction.MorphRetargetState()
     val backgroundZoom = Animatable(1f)
+    val backgroundRetarget = com.xiaomanjun.sleepdownschedule.core.ui.interaction.MorphRetargetState(
+        1f..com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredMorphBackgroundScale)
     var renderedKind by mutableStateOf<HomeAnchoredOverlayKind?>(null)
         internal set
     private val controllerBridge = LiquidMorphControllerBridge {
@@ -58,6 +62,18 @@ internal class HomeAnchoredMorphState {
         get() = currentPhase
         internal set(value) {
             if (currentPhase == value) return
+            when (value) {
+                HomeAnchoredOverlayPhase.Preparing, HomeAnchoredOverlayPhase.Idle -> curveContinuity.reset()
+                HomeAnchoredOverlayPhase.Opening, HomeAnchoredOverlayPhase.Closing ->
+                    curveContinuity.redirect(progress.value, value == HomeAnchoredOverlayPhase.Closing,
+                        when (renderedKind) {
+                            HomeAnchoredOverlayKind.Personalize -> if (value == HomeAnchoredOverlayPhase.Closing)
+                                HomePersonalizeMorphCloseDurationMillis else HomePersonalizeMorphOpenDurationMillis
+                            else -> if (value == HomeAnchoredOverlayPhase.Closing)
+                                HomeAddMenuMorphCloseDurationMillis else HomeAddMenuMorphOpenDurationMillis
+                        })
+                else -> Unit
+            }
             currentPhase = value
             controllerBridge.synchronize(
                 when (value) {

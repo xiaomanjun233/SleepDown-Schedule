@@ -11,6 +11,19 @@
 
     <style name="AppTheme" parent="@style/AppThemeBase" />
 
+    <style name="AppTheme.SettingsSlide" parent="@style/AppTheme">
+        <item name="android:windowAnimationStyle">@style/Animation.SettingsSlide</item>
+    </style>
+    <style name="Animation.SettingsSlide" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/settings_slide_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/settings_slide_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/settings_slide_pop_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/settings_slide_pop_exit</item>
+    </style>
+    <style name="AppTheme.NativeDetail.SettingsSlide" parent="@style/AppTheme.NativeDetail">
+        <item name="android:windowAnimationStyle">@style/Animation.SettingsSlide</item>
+    </style>
+
     <style name="AppTheme.TranslucentMorph" parent="@style/AppTheme">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>

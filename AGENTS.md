@@ -77,12 +77,11 @@
 | 时间规则、解析、迁移、状态机 | 对应定向测试或真实场景验证 |
 | 纯文档 | 检查内容与 diff，无需构建 |
 
-默认环境及正式构建：
+默认环境及正式构建（入口将 Gradle 用户缓存放在 D 盘 `tmp/build-cache/gradle`，TEMP/TMP 使用短路径 `D:/sd-tmp`）：
 
 ```powershell
 $env:JAVA_HOME='D:\Android studio\JDK'
-$env:GRADLE_USER_HOME='C:\Users\23085\.gradle'
-.\gradlew.bat assembleGithubRelease --console=plain --no-parallel --max-workers=2
+.\scripts\Invoke-AndroidBuild.ps1 assembleGithubRelease --console=plain --no-parallel --max-workers=2
 ```
 
 按机器内存减少 worker；避免同时运行多个高内存构建。开发可使用 `-Psleepdown.skipReleaseResourceShrink=true`，正式候选保留资源压缩、R8、lintVital、打包与签名。Release 签名位于仓库外。

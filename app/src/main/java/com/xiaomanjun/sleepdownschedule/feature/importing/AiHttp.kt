@@ -633,6 +633,7 @@ internal class ResponsesSseAccumulator(private val requireCompleted: Boolean = f
     val courseOutput: String get() = functionCalls.values.firstNotNullOfOrNull { it.importArguments() } ?: outputText.toString()
     private var completedResponse: JsonObject? = null
     private val outputItems = linkedMapOf<String, JsonObject>()
+    private val finishedOutputKeys = mutableSetOf<String>()
     private val functionCalls = linkedMapOf<String, ResponsesFunctionCallAccumulator>()
     private val itemKeysByIndex = mutableMapOf<Int, String>()
     private val outputText = StringBuilder()
@@ -697,6 +698,9 @@ internal class ResponsesSseAccumulator(private val requireCompleted: Boolean = f
                 val item = event["item"]?.jsonObject ?: return
                 val key = itemKey(event, item)
                 outputItems[key] = item
+                if (event["type"]?.jsonPrimitive?.contentOrNull == "response.output_item.done") {
+                    finishedOutputKeys += key
+                }
                 if (item["type"]?.jsonPrimitive?.contentOrNull == "function_call") {
                     functionCalls.getOrPut(key, ::ResponsesFunctionCallAccumulator).seed(item)
                     activity = AiImportActivity("正在接收工具调用", AiImportActivitySource.STATUS)
@@ -766,7 +770,36 @@ internal class ResponsesSseAccumulator(private val requireCompleted: Boolean = f
         }
         if (requireCompleted) ChatGptUsageStatus.completed()
         if (!completed) throw AiServiceResponseException("AI Responses 流式响应未收到完成事件，未采用未完成的课程或工具数据，请重试。", "")
-        completedResponse?.let { return it.toString() }
+        completedResponse?.let { response ->
+            // Some streaming endpoints omit finished items from the final envelope. Only a
+            // completed response AND output_item.done may restore such an item; an added item
+            // or argument delta alone must never become an executable call.
+            val items = response.optionalArray("output").mapNotNull { it as? JsonObject }.toMutableList()
+            outputItems.entries.filter { it.key in finishedOutputKeys }
+                .sortedBy { entry -> itemKeysByIndex.entries.firstOrNull { it.value == entry.key }?.key ?: Int.MAX_VALUE }
+                .forEach { (key, item) ->
+                    val finished = functionCalls[key]?.let { JsonObject(item + it.toJson()) } ?: item
+                    val id = finished["id"]?.jsonPrimitive?.contentOrNull
+                    val callId = finished["call_id"]?.jsonPrimitive?.contentOrNull
+                    val existing = items.indexOfFirst { candidate ->
+                        candidate["type"] == finished["type"] &&
+                            (id != null && candidate["id"]?.jsonPrimitive?.contentOrNull == id ||
+                                callId != null && candidate["call_id"]?.jsonPrimitive?.contentOrNull == callId)
+                    }
+                    if (existing >= 0) {
+                        // The final nonempty values remain authoritative. Retain a namespace or
+                        // completed arguments if the terminal envelope omitted those fields.
+                        val finalFields = items[existing].filter { (field, value) ->
+                            value != JsonNull && !(field == "arguments" && (value as? JsonPrimitive)?.contentOrNull == "")
+                        }
+                        items[existing] = JsonObject(finished + finalFields)
+                    } else {
+                        val index = itemKeysByIndex.entries.firstOrNull { it.value == key }?.key ?: items.size
+                        items.add(index.coerceIn(0, items.size), finished)
+                    }
+                }
+            return JsonObject(response + ("output" to JsonArray(items))).toString()
+        }
         if (!sawEvent) throw AiServiceResponseException("AI Responses 流式响应里没有收到任何事件。", "")
         val functionKeys = functionCalls.keys
         val items = outputItems.filterKeys { it !in functionKeys }.values.toMutableList()
@@ -814,12 +847,14 @@ private class ResponsesFunctionCallAccumulator {
     private var id = ""
     private var callId = ""
     private var name = ""
+    private var namespace: String? = null
     private val arguments = StringBuilder()
 
     fun seed(item: JsonObject) {
         item["id"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let { id = it }
         item["call_id"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let { callId = it }
         item["name"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let { name = it }
+        item["namespace"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let { namespace = it }
         item["arguments"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotEmpty)?.let {
             arguments.clear()
             arguments.append(it)
@@ -842,6 +877,7 @@ private class ResponsesFunctionCallAccumulator {
         if (id.isNotBlank()) put("id", JsonPrimitive(id))
         put("call_id", JsonPrimitive(callId.ifBlank { id.ifBlank { "call_sleepdown" } }))
         put("name", JsonPrimitive(name))
+        namespace?.let { put("namespace", JsonPrimitive(it)) }
         put("arguments", JsonPrimitive(arguments.toString()))
     }
 }

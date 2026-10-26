@@ -161,6 +161,7 @@ object BackupRoomRestoreMapper {
                     config.weekCardTextAlignment, "weekCardTextAlignment"
                 ),
                 showNonCurrentWeekCourses = config.showNonCurrentWeekCourses,
+                weekStartsOnSunday = config.weekStartsOnSunday,
                 weekCardContentLayout = strictBackupEnum<com.xiaomanjun.sleepdownschedule.model.WeekCardContentLayout>(
                     config.weekCardContentLayout, "weekCardContentLayout"
                 ),
@@ -175,6 +176,7 @@ object BackupRoomRestoreMapper {
                 ),
                 hideEmptyWeekends = config.hideEmptyWeekends,
                 scheduleAdjustmentsJson = config.scheduleAdjustmentsJson,
+                timeSlotCoursesJson = config.timeSlotCoursesJson,
                 periodAlignmentMode = strictBackupEnum<com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode>(
                     config.periodAlignmentMode, "periodAlignmentMode"),
                 dockAlignment = strictBackupEnum<DockAlignment>(config.dockAlignment, "dockAlignment"),

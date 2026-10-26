@@ -67,6 +67,7 @@ import com.kyant.shapes.RoundedCornerStyle
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.glass.*
+import com.xiaomanjun.sleepdownschedule.glass.ui.morphDialogMaterial
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import kotlin.math.max
 import top.yukonga.miuix.kmp.utils.MiuixPopupBackdropCapture
@@ -548,6 +549,16 @@ internal fun Modifier.quickSheetBackdropModifier(
         centered -> SleepDownDesignTokens.CenteredDialog.MaxBlur
         inner -> blurRadius.coerceAtMost(6.dp)
         else -> blurRadius.coerceAtMost(12.dp)
+    }
+    if (!inner && !usesNativeMaterialMotion()) {
+        // Plain Gaussian material over the preceding scene, without lens or vibrancy.
+        val tint = when {
+            centered && dark -> Color(0xFF1A1A1A).copy(alpha = SleepDownDesignTokens.CenteredDialog.DarkSurfaceAlpha)
+            dark -> Color(0xFF111318).copy(alpha = 0.74f)
+            else -> Color(0xFFF8FAFD).copy(alpha = 0.72f)
+        }
+        return this.morphDialogMaterial(backdrop, shape, tint, blurRadius = effectiveBlurRadius,
+            domain = GlassBackdropDomain.DialogBridge)
     }
     if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
         val fallback = this

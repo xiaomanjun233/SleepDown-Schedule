@@ -252,7 +252,7 @@ internal object WeekScheduleWidgetRenderer {
         // A cancelled day keeps its cards in the app as a greyed reminder, but the widget only
         // shows classes that actually take place.
         val widgetCourses = weekBuckets.visibleCourses.filter { it.weekday !in weekBuckets.cancelledWeekdays }
-        val weekdays = visibleWeekdaysForBuckets(weekBuckets, state.config.hideEmptyWeekends)
+        val weekdays = visibleWeekdaysForBuckets(weekBuckets, state.config.hideEmptyWeekends, state.config.weekStartsOnSunday)
         val dark = MiuixTodayWidgetRenderer.usesDarkTheme(context, state.config)
         val surface = createExpandedWidgetSurface(
             context,
@@ -394,7 +394,7 @@ internal object WeekScheduleWidgetRenderer {
             val visible = weekday in visibleDays
             setViewVisibility(dayContainer, if (visible) View.VISIBLE else View.GONE)
             if (visible) {
-                val date = weekStart.plusDays((weekday - 1).toLong())
+                val date = weekStart.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(state.config, weekday))
                 setTextViewText(dayName, arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")[weekday - 1])
                 setTextViewText(dayDate, date.dayOfMonth.toString())
                 setWidgetTextSize(dayName, (12.5f * metrics.textScale).coerceAtLeast(9.7f))
@@ -583,7 +583,7 @@ internal object WeekScheduleWidgetRenderer {
             val visible = weekday in visibleDays
             setViewVisibility(dayName, if (visible) View.VISIBLE else View.GONE)
             if (visible) {
-                val isToday = weekStart.plusDays((weekday - 1).toLong()) == today
+                val isToday = weekStart.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(state.config, weekday)) == today
                 setTextViewText(
                     dayName,
                     arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")[weekday - 1]
@@ -871,7 +871,7 @@ internal object WeekScheduleWidgetRenderer {
             if (pillRect.width() <= u(6f) || pillRect.height() <= u(8f)) {
                 return@forEachIndexed
             }
-            val isToday = weekStart.plusDays((weekday - 1).toLong()) == today
+            val isToday = weekStart.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(state.config, weekday)) == today
             val pillColor = if (isToday) {
                 surface.accent
             } else {
@@ -1064,7 +1064,7 @@ internal object WeekScheduleWidgetRenderer {
         weekdays.forEachIndexed { index, weekday ->
             val leftDp = gridLeftDp + index * (columnWidthDp + metrics.columnGapDp)
             val rightDp = leftDp + columnWidthDp
-            val date = weekStart.plusDays((weekday - 1).toLong())
+            val date = weekStart.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(state.config, weekday))
             val dayHeaderRect = RectF(
                 x(leftDp + 0.5f),
                 y(weekdayTopDp + 1f),

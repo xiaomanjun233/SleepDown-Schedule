@@ -37,17 +37,20 @@ class HomeMorphPreloadTest {
     @Test fun nativeControlsMountBeforeMotionAndRetainUntilReturnCompletes() = verifyPreload(cardOnly = false)
     @Test fun independentlyEnabledCourseMaterialAlsoPreloads() = verifyPreload(cardOnly = true)
     @Test fun cancelWhilePreparingDoesNotReopenAReleasedForm() = verifyPreload(cardOnly = false, cancelPreparing = true)
+    @Test fun interruptedPersonalizationJoinsBothDirectionsWithoutRemounting() = verifyPreload(cardOnly = false, interruptOpening = true)
 
     private fun frames(count: Int) { repeat(count) { compose.mainClock.advanceTimeByFrame(); compose.waitForIdle() } }
 
-    private fun verifyPreload(cardOnly: Boolean, cancelPreparing: Boolean = false) {
+    private fun verifyPreload(cardOnly: Boolean, cancelPreparing: Boolean = false, interruptOpening: Boolean = false) {
         compose.mainClock.autoAdvance = false
         val request = mutableStateOf<HomeAnchoredOverlayRequest?>(HomeAnchoredOverlayRequest(
             HomeAnchoredOverlayKind.Personalize, Rect(240f, 40f, 288f, 88f)))
+        val initialRequest = request.value
         val motion = HomeAnchoredMorphState()
         val gate = CompletableDeferred<Unit>()
         if (!cancelPreparing) gate.complete(Unit)
         var mounted = 0
+        var mountCount = 0
         var mountedAt: HomeAnchoredOverlayPhase? = null
         val courseMode = NativeCourseCardMode(mutableStateOf(true), {}, mutableFloatStateOf(0.5f),
             mutableFloatStateOf(1f), 24f, { _, _ -> }, { _, _ -> }, {})
@@ -65,6 +68,7 @@ class HomeMorphPreloadTest {
                     personalizeContent = { modifier ->
                         DisposableEffect(Unit) {
                             mounted++
+                            mountCount++
                             mountedAt = motion.phase
                             onDispose { mounted-- }
                         }
@@ -79,6 +83,18 @@ class HomeMorphPreloadTest {
             assertEquals(HomeAnchoredOverlayPhase.Preparing, mountedAt)
             assertEquals(if (cancelPreparing) HomeAnchoredOverlayPhase.Preparing else HomeAnchoredOverlayPhase.Opening, motion.phase)
         }
+        if (interruptOpening) {
+            repeat(6) { turn ->
+                compose.runOnIdle { request.value = if (turn % 2 == 0) null else initialRequest }
+                frames(2)
+                compose.runOnIdle {
+                    assertEquals(if (turn % 2 == 0) HomeAnchoredOverlayPhase.Closing else HomeAnchoredOverlayPhase.Opening, motion.phase)
+                    assertEquals(true, motion.curveContinuity.isActive)
+                    assertEquals(1, mounted)
+                    assertEquals(1, mountCount)
+                }
+            }
+        }
         if (!cancelPreparing) {
             compose.mainClock.advanceTimeBy(1500)
             compose.waitForIdle()
@@ -87,8 +103,12 @@ class HomeMorphPreloadTest {
         compose.runOnIdle { request.value = null }
         frames(2)
         compose.runOnIdle {
-            assertEquals(HomeAnchoredOverlayPhase.Closing, motion.phase)
-            assertEquals(1, mounted)
+            // Cancelling Preparing has no visible travel to retain. A zero clock returns to
+            // Idle immediately; releasing the opening gate later must still never reopen it.
+            assertEquals(if (cancelPreparing) HomeAnchoredOverlayPhase.Idle else HomeAnchoredOverlayPhase.Closing, motion.phase)
+            // Disposal is observed after the pending composition below; visible returns must
+            // keep their form while moving, whereas a cancelled zero clock has no such tail.
+            if (!cancelPreparing) assertEquals(1, mounted)
         }
         compose.mainClock.advanceTimeBy(1500)
         compose.waitForIdle()

@@ -47,7 +47,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import java.lang.reflect.Method
 
 private const val CourseMaterialPreference = "coloros_course_material"
-private const val CourseMaterialEnabled = "enabled"
 private const val CourseTintStrength = "tint_strength"
 private const val CourseBlurScale = "blur_radius_scale"
 private const val MaterialEffect = "com.coui.appcompat.COUIMaterialEffect"
@@ -61,7 +60,7 @@ private const val StrokeType = "com.coui.appcompat.COUIMaterialStrokeEffect\$Str
 private const val LightDrawable = "com.coui.appcompat.spotlight.COUISpotLightEffectDrawable"
 private const val LightType = "com.coui.appcompat.spotlight.COUISpotLightEffect\$SpotLightType"
 
-/** Opt-in edition preference; no Room schema or upstream backup format changes. */
+/** The edition follows the global visual mode; tint/blur remain local preferences. */
 @Composable
 internal fun rememberColorOsCourseCardMode(): NativeCourseCardMode? {
     val host = LocalContext.current.applicationContext
@@ -76,7 +75,9 @@ internal fun rememberColorOsCourseCardMode(): NativeCourseCardMode? {
     }
     if (!available) return null
     val preferences = remember(host) { host.getSharedPreferences(CourseMaterialPreference, Context.MODE_PRIVATE) }
-    val enabled = remember(preferences) { mutableStateOf(preferences.getBoolean(CourseMaterialEnabled, false)) }
+    // The global visual mode owns all course cards. The historical per-card opt-in is retained
+    // on disk for older builds, but cannot mix liquid cards into the native edition.
+    val enabled = remember { mutableStateOf(true) }
     val tint = remember(preferences) { mutableFloatStateOf(preferences.getFloat(CourseTintStrength, 0.5f).coerceIn(0f, 1f)) }
     val blurScale = remember(preferences) { mutableFloatStateOf(preferences.getFloat(CourseBlurScale, 1f).coerceIn(0f, 2f)) }
     val blurRadius = remember(source) {
@@ -89,7 +90,6 @@ internal fun rememberColorOsCourseCardMode(): NativeCourseCardMode? {
     }
     DisposableEffect(preferences) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
-            if (key == CourseMaterialEnabled) enabled.value = prefs.getBoolean(key, false)
             if (key == CourseTintStrength) tint.floatValue = prefs.getFloat(key, 0.5f).coerceIn(0f, 1f)
             if (key == CourseBlurScale) blurScale.floatValue = prefs.getFloat(key, 1f).coerceIn(0f, 2f)
         }
@@ -97,7 +97,7 @@ internal fun rememberColorOsCourseCardMode(): NativeCourseCardMode? {
         onDispose { preferences.unregisterOnSharedPreferenceChangeListener(listener) }
     }
     return remember(preferences, blurRadius) { NativeCourseCardMode(enabled,
-        onEnabledChange = { preferences.edit().putBoolean(CourseMaterialEnabled, it).apply() },
+        onEnabledChange = {},
         tintState = tint,
         blurScaleState = blurScale,
         defaultBlurRadiusPx = blurRadius,
@@ -130,6 +130,7 @@ internal fun ColorOsCourseCard(request: NativeCourseCardRequest, content: @Compo
 internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, content: @Composable () -> Unit): Boolean {
     val style = when (request.role) {
         com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Dialog -> ColorOsSurfaceStyle.Dialog
+        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Form -> ColorOsSurfaceStyle.Form
         com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.HomeNavigation -> ColorOsSurfaceStyle.Navigation
         com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.HomeDock ->
             if (LocalHomeMaterialStyle.current?.weatherMaterial == true) ColorOsSurfaceStyle.NeutralDock else ColorOsSurfaceStyle.Dock
@@ -140,7 +141,7 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, conte
     return ColorOsMaterialSurface(themedRequest, style, null, content = content)
 }
 
-internal enum class ColorOsSurfaceStyle { Content, CourseCard, Menu, NeutralMenu, Dialog, Dock, NeutralDock, Navigation }
+internal enum class ColorOsSurfaceStyle { Content, CourseCard, Menu, NeutralMenu, Dialog, Form, Dock, NeutralDock, Navigation }
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -431,11 +432,12 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
         // Match COUIButton's native order: geometry first, then the system material presets.
         updateMaterialCorners()
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        if (blur && (isMenu || style == ColorOsSurfaceStyle.Dialog || style == ColorOsSurfaceStyle.Dock ||
+        if (blur && (isMenu || style == ColorOsSurfaceStyle.Form || style == ColorOsSurfaceStyle.Dialog || style == ColorOsSurfaceStyle.Dock ||
                 style == ColorOsSurfaceStyle.NeutralDock || value.blurRadiusScale != 1f || value.tintAlphaScale != 1f)) {
             effect.getMethod("setViewBlurEffect", View::class.java,
                 source.load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams"))
                 .invoke(null, this, if (isMenu) source.menuBlurParams(context, style == ColorOsSurfaceStyle.NeutralMenu)
+                    else if (style == ColorOsSurfaceStyle.Form) source.weatherButtonBlurParams(context, value.blurRadiusScale, 0f)
                     else if (style == ColorOsSurfaceStyle.Dialog) source.dialogBlurParams(context)
                     else if (style == ColorOsSurfaceStyle.Dock || style == ColorOsSurfaceStyle.NeutralDock)
                         source.dockBlurParams(context, style == ColorOsSurfaceStyle.NeutralDock)

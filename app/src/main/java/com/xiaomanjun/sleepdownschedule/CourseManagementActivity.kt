@@ -12,12 +12,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.boundsInWindow
@@ -79,6 +81,10 @@ open class CourseManagementActivity : ComponentActivity() {
                             ) { requestClose ->
                                 val pageConfig = settingsVisualConfig(state.config)
                                 val pageBackgroundArgb = settingsPageBackground(pageConfig).toArgb()
+                                val cardSurfaceArgb by rememberUpdatedState(
+                                    managedCourseCardSurfaceColor(androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh)
+                                        .compositeOver(settingsPageBackground(pageConfig)).toArgb()
+                                )
                                 val pageSnapshotLayer = rememberGraphicsLayer()
                                 val pageSnapshotRequested = remember { AtomicBoolean(false) }
                                 var pageSnapshotRequestVersion by remember { mutableStateOf(0) }
@@ -136,7 +142,8 @@ open class CourseManagementActivity : ComponentActivity() {
                                                     bitmap = snapshots?.source,
                                                     cornerRadiusPx = with(transitionDensity) {
                                                         20.dp.toPx()
-                                                    }
+                                                    },
+                                                    surfaceColor = cardSurfaceArgb
                                                 )
                                                 val launchResult = ActivityTransitionCoordinator.open(
                                                     activity = this@CourseManagementActivity,
@@ -147,7 +154,7 @@ open class CourseManagementActivity : ComponentActivity() {
                                                         returnAnchorProvider =
                                                             TransitionAnchorProvider {
                                                                 currentReturnBounds()?.let {
-                                                                    anchor.copy(boundsInWindow = it)
+                                                                    anchor.copy(boundsInWindow = it, surfaceColor = cardSurfaceArgb)
                                                                 }
                                                             },
                                                         backgroundBitmap = snapshots?.background,

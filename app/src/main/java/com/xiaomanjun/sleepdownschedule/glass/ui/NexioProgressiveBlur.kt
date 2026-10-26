@@ -94,7 +94,9 @@ half4 main(float2 coord) {
     float edge = softerstep(0.88, 1.0, t);
     color *= (1.0 - edge);
     if (tintIntensity > 0.0) {
-        color = mix(color, tint * (1.0 - edge), tintIntensity * u);
+        half4 tintPremul = half4(tint.rgb * tint.a, tint.a);
+        float amount = tintIntensity * u;
+        color = tintPremul * (amount * (1.0 - edge)) + color * (1.0 - tint.a * amount);
     }
     return color;
 }

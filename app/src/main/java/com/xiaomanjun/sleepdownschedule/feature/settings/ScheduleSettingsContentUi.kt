@@ -119,6 +119,7 @@ fun ScheduleSettingsContent(
     scheduleAdjustmentsJson: String = state.config.scheduleAdjustmentsJson,
     onScheduleAdjustmentsChange: (String) -> Unit = {},
     onOpenPeriodSchemes: () -> Unit = {},
+    onOpenSpecialCourses: () -> Unit = {},
     periodSchemeLibrary: List<SavedPeriodScheme> = emptyList(),
     onSelectPeriodScheme: (SavedPeriodScheme) -> Unit = {},
     periodEditorExit: PeriodEditorExitCoordinator? = null
@@ -170,6 +171,7 @@ fun ScheduleSettingsContent(
             scheduleAdjustmentsJson = scheduleAdjustmentsJson,
             onScheduleAdjustmentsChange = onScheduleAdjustmentsChange,
             onOpenPeriodSchemes = onOpenPeriodSchemes,
+            onOpenSpecialCourses = onOpenSpecialCourses,
             periodSchemeLibrary = periodSchemeLibrary,
             onSelectPeriodScheme = onSelectPeriodScheme,
             periodEditorExit = periodEditorExit
@@ -488,6 +490,7 @@ fun ScheduleSettingsContentFixed(
     scheduleAdjustmentsJson: String = state.config.scheduleAdjustmentsJson,
     onScheduleAdjustmentsChange: (String) -> Unit = {},
     onOpenPeriodSchemes: () -> Unit = {},
+    onOpenSpecialCourses: () -> Unit = {},
     periodSchemeLibrary: List<SavedPeriodScheme> = emptyList(),
     onSelectPeriodScheme: (SavedPeriodScheme) -> Unit = {},
     periodEditorExit: PeriodEditorExitCoordinator? = null
@@ -552,6 +555,7 @@ fun ScheduleSettingsContentFixed(
                 SettingsInfoRow("注意", "在这里下方直接编辑修改作息，仅对当前课表生效，如需修改共用的作息，请进入作息管理页面")
             }
         }
+        TimeSlotCoursesSettings(config = state.config, backdrop = backdrop, onOpen = onOpenSpecialCourses)
         ScheduleAdjustmentsSettings(state.copy(config = draftConfig), backdrop, scheduleAdjustmentsJson, onScheduleAdjustmentsChange)
     }
     if (schemeDraft != null) {

@@ -401,6 +401,9 @@ private fun SettingsPageContent(
             onExitInterceptionChange = onExitInterceptionChange,
             onOpenScheduleSettings = onOpenScheduleSettings ?: { onPageChange(SettingsPage.Schedule) }
         )
+        SettingsPage.SpecialCourses -> TimeSlotCourseManagementScreen(
+            state, backdrop, exitCommitRequest, onExitCommitFinished, onExitInterceptionChange
+        )
         SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
             state = state,
             backdrop = backdrop,

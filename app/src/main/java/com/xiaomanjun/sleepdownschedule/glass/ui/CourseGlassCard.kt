@@ -66,6 +66,9 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 
 internal const val FlatCourseCardMinimumAlpha = 0.35f
+internal const val LiquidCourseCardSurfaceDimAlpha = 0.16f
+// Compress bright wallpaper towards neutral grey without the soot of a black scrim.
+internal val LiquidCourseCardSurfaceTone = Color(0xFF626A6D)
 
 internal fun courseGlassTintAlpha(cardAlpha: Float, quality: Float, hasWallpaper: Boolean): Float {
     val maximum = if (hasWallpaper) 0.68f else 0.16f
@@ -237,6 +240,19 @@ fun CourseGlassCard(
                 CompositionLocalProvider(LocalCourseTextBackground provides background) { content() }
             } == true) return
     }
+    // A native edition must not silently render the liquid recipe when a vendor surface
+    // is unavailable. Keep the course tint and interaction in the existing flat material.
+    if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardRenderer.current != null) {
+        val base = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
+        val opacity = nativeMode?.tintStrength ?: 0.5f
+        val background = rememberCourseTextBackground(base, opacity, false, 0f, false, false,
+            flatBackground = homeFlatBackgroundColor(appUsesDarkTheme(config)), ready = true, cardBounds = { null })
+        Box(statusModifier.clip(shape).then(if (renderSurface) Modifier.background(base.copy(alpha = opacity)) else Modifier)
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
+            CompositionLocalProvider(LocalCourseTextBackground provides background) { content() }
+        }
+        return
+    }
     val glassBackdrop = if (
         config.courseCardGlassEnabled &&
         config.hasAnyWallpaper() &&
@@ -309,7 +325,8 @@ fun CourseGlassCard(
         },
         outline = useGlass && outlineLightEnabled, expanded = expandedOutlineLight,
         flatBackground = if (!hasWallpaper) homeFlatBackgroundColor(appUsesDarkTheme(config)) else null,
-        ready = textCardReady, cardBounds = textCardBounds
+        ready = textCardReady, cardBounds = textCardBounds,
+        surfaceDimAlpha = if (useGlass) LiquidCourseCardSurfaceDimAlpha else 0f
     )
     val simpleMaterial = GlassMaterialSpec.simpleBlur(simpleBlurValue.dp)
     val simpleDescriptor = rememberGlassSurfaceDescriptor(
@@ -383,6 +400,9 @@ fun CourseGlassCard(
         } else {
             drawRect(courseGlassSurfaceColor(tint, lightGlass))
         }
+        // Darken the sampled surface and its tint together, before foreground and rim.
+        // This stays in the existing draw callback: no readback, filter or offscreen layer.
+        drawRect(LiquidCourseCardSurfaceTone.copy(alpha = LiquidCourseCardSurfaceDimAlpha))
         }
         draw
     }

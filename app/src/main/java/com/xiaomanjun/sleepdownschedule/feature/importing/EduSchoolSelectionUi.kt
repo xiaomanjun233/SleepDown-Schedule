@@ -94,6 +94,10 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -1301,7 +1305,10 @@ internal fun EduBridgeInteractionDialog(
                 }
             )
         }
-        is EduBridgeInteractionRequest.Prompt -> {
+        is EduBridgeInteractionRequest.Prompt -> key(request.requestId) {
+            val credentialType = remember(request.title, request.message) {
+                eduPromptCredentialType(request.title, request.message)
+            }
             var value by remember(request.requestId) { mutableStateOf(request.defaultValue) }
             var validationError by remember(request.requestId) { mutableStateOf<String?>(null) }
             fun cancel() {
@@ -1353,7 +1360,14 @@ internal fun EduBridgeInteractionDialog(
                             },
                             placeholder = request.message.ifBlank { "请输入" },
                             config = state.config,
-                            modifier = Modifier.fillMaxWidth()
+                            keyboardType = if (credentialType == EduPromptCredentialType.Password) KeyboardType.Password else KeyboardType.Text,
+                            modifier = Modifier.fillMaxWidth().semantics {
+                                when (credentialType) {
+                                    EduPromptCredentialType.Username -> contentType = ContentType.Username
+                                    EduPromptCredentialType.Password -> contentType = ContentType.Password
+                                    null -> Unit
+                                }
+                            }
                         )
                         validationError?.let {
                             Text(

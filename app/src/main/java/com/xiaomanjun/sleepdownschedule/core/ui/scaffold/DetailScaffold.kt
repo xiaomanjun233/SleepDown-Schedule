@@ -174,6 +174,9 @@ fun DetailTopBar(
                     onClick = onBack,
                     modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize)
                 )
+            } else {
+                // A root-level floating back button still owns this leading slot.
+                Box(Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize))
             }
             Box(
                 modifier = Modifier

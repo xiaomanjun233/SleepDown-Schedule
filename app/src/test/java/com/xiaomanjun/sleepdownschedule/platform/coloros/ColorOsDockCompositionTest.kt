@@ -19,7 +19,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
-import com.xiaomanjun.sleepdownschedule.DockAlignment
 import com.xiaomanjun.sleepdownschedule.core.performance.StartupPhase
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCourseCardMode
@@ -61,8 +60,8 @@ class ColorOsDockCompositionTest {
             val fallback = rememberUpdatedState<@Composable () -> Unit> { Box(Modifier.size(64.dp)) }
             CompositionLocalProvider(LocalNativeCourseCardMode provides mode) {
                 NativeCoursePreviewConsumer(receive)
-                NativeHomeDockChrome(true, true, 1, false, DockAlignment.CENTER, false,
-                    select, home, menu, fallback, StartupPhase.FullQuality)
+                NativeHomeDockChrome(true, 1, false, false,
+                    select, menu, fallback, StartupPhase.FullQuality)
             }
         }
         compose.waitForIdle()
@@ -92,8 +91,8 @@ class ColorOsDockCompositionTest {
                 Box(Modifier.size(64.dp))
                 SideEffect { renderedFallbackRevision = revision }
             }
-            NativeHomeDockChrome(true, true, 1, false, DockAlignment.CENTER, false,
-                select, home, menu, fallback, StartupPhase.FullQuality)
+            NativeHomeDockChrome(true, 1, false, false,
+                select, menu, fallback, StartupPhase.FullQuality)
         }
         compose.waitForIdle()
         fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Native dock commit:") }
@@ -122,8 +121,8 @@ class ColorOsDockCompositionTest {
             val fallback = rememberUpdatedState<@Composable () -> Unit> { Box(Modifier.size(64.dp)) }
             CompositionLocalProvider(LocalSharedCourseBackdrop provides shared) {
                 CourseSamplerConsumer(receive)
-                NativeHomeDockChrome(true, true, 1, false, DockAlignment.CENTER, false,
-                    select, home, menu, fallback, StartupPhase.FullQuality)
+                NativeHomeDockChrome(true, 1, false, false,
+                    select, menu, fallback, StartupPhase.FullQuality)
             }
         }
         compose.waitForIdle()

@@ -137,7 +137,9 @@ internal fun legacyPersonalizationMorphSpec(
     verticalReboundAmplitudePx: Float,
     closingSinkOffsetPx: Float,
     closingControlDropPx: Float,
-    preloadedContent: Boolean = false
+    preloadedContent: Boolean = false,
+    earlyContentHandoff: Boolean = false,
+    earlyOpeningContentHandoff: Boolean = earlyContentHandoff
 ): LegacyHomeLiquidMorphSpec = LegacyHomeLiquidMorphSpec("home-personalization") { input ->
     val geometry = homePersonalizationTrajectoryGeometry(
         source = source,
@@ -155,7 +157,10 @@ internal fun legacyPersonalizationMorphSpec(
         closingControlDropPx = closingControlDropPx
     )
     if (preloadedContent) {
-        val alpha = com.xiaomanjun.sleepdownschedule.glass.liquidPreloadedContentAlpha(input.rawProgress)
+        val alpha = com.xiaomanjun.sleepdownschedule.glass.liquidPreloadedContentAlpha(
+            input.rawProgress,
+            if (input.direction == LiquidMorphDirection.Closing) earlyContentHandoff else earlyOpeningContentHandoff,
+            geometry.expansionProgress)
         geometry.copy(sourceAlpha = 1f - alpha, contentAlpha = alpha)
     } else geometry
 }

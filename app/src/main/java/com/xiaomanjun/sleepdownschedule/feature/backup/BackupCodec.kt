@@ -702,6 +702,10 @@ object BackupCodec {
         try {
             com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(config.scheduleAdjustmentsJson)
         } catch (invalid: Exception) { fail("调休课表数据无效") }
+        if (config.timeSlotCoursesJson.length > 64 * 1024) fail("时段课程数据过长")
+        try {
+            com.xiaomanjun.sleepdownschedule.domain.schedule.decodeTimeSlotCourses(config.timeSlotCoursesJson)
+        } catch (invalid: Exception) { fail("时段课程数据无效") }
         if (config.totalWeeks < 0 || config.currentWeek < 0 || config.notificationLeadMinutes < 0) {
             fail("课表周次/提醒参数非法")
         }

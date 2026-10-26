@@ -146,6 +146,28 @@ fun matchingPeriodIndicesForTimeRange(start: LocalTime, end: LocalTime,
         CoursePeriodTime(it.periodIndex, LocalTime.parse(it.startTime), LocalTime.parse(it.endTime))
     }.filter { it.end > it.start }).map { it.index }
 
+/** A legacy per-lesson clock is ordinary only when every lesson exactly fits the current grid. */
+fun matchingPeriodIndicesForCourseClock(start: String?, end: String?, clock: String?,
+    selectedIndices: List<Int>, periods: List<PeriodEntity>): List<Int> {
+    val lessons = parseCoursePeriodTimes(clock)
+    if (!clock.isNullOrBlank() && lessons.isEmpty()) return emptyList()
+    if (lessons.isNotEmpty()) {
+        if (lessons.map { it.index }.sorted() != selectedIndices.distinct().sorted()) return emptyList()
+        val mapped = lessons.sortedBy { it.start }.map { lesson ->
+            matchingPeriodIndicesForTimeRange(lesson.start, lesson.end, periods)
+                .takeIf { it.isNotEmpty() } ?: return emptyList()
+        }.flatten()
+        val order = periods.sortedBy { it.periodIndex }.map { it.periodIndex }
+        val positions = mapped.map(order::indexOf)
+        if (positions.distinct().size != positions.size ||
+            positions.zipWithNext().any { (a, b) -> b != a + 1 }) return emptyList()
+        return mapped
+    }
+    val from = start?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: return emptyList()
+    val to = end?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: return emptyList()
+    return matchingPeriodIndicesForTimeRange(from, to, periods)
+}
+
 private fun matchingPeriodSpan(start: LocalTime, end: LocalTime,
     targets: List<CoursePeriodTime>): List<CoursePeriodTime> {
     val touched = targets.withIndex().filter { it.value.start < end && it.value.end > start }

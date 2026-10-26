@@ -220,7 +220,9 @@ data class BackupScheduleConfig(
     val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale,
     val scheduleAdjustmentsJson: String = "",
     val showNonCurrentWeekCourses: Boolean = false,
-    val periodAlignmentMode: String = "INDEX"
+    val weekStartsOnSunday: Boolean = false,
+    val periodAlignmentMode: String = "INDEX",
+    val timeSlotCoursesJson: String = ""
 )
 
 @Serializable

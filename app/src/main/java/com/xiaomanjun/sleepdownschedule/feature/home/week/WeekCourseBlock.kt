@@ -265,6 +265,9 @@ fun WeekCourseBlock(
         label = "week-edit-controls-handoff-${course.id}"
     )
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
+    val timeGrid = LocalWeekTimeSlotGrid.current
+    val gridDensity = LocalDensity.current
+    val rowTopsPx = remember(timeGrid, gridDensity.density) { timeGrid?.rowTops.orEmpty().map { with(gridDensity) { it.dp.toPx() } } }
     val customTimeLocked = !courseAllowsWeekPeriodDrag(course)
     val currentSpan = remember(course.periods, periodIndex, periodIndexes) {
         continuousSpanFrom(course, periodIndex, periodIndexes)
@@ -384,7 +387,9 @@ fun WeekCourseBlock(
             weekCourses = allWeekCourses,
             editWeek = editWeek,
             weekdayCount = weekdayCount,
-            initialPointerPosition = bounds.topLeft + pointerInSource
+            initialPointerPosition = bounds.topLeft + pointerInSource,
+            rowTopsPx = rowTopsPx,
+            weekdays = timeGrid?.weekdays.orEmpty()
         )
     }
     val liftedVisualActive = bodyDragging || handleDragging || conflictActionResolving
@@ -412,7 +417,7 @@ fun WeekCourseBlock(
     val currentEditMode by rememberUpdatedState(editMode)
     val adjustedEditor = LocalAdjustedCourseEditor.current
     val adjustedOccurrenceDate = if (editingAllowed) null else
-        scheduleWeekStartDate(config, editWeek).plusDays((dayIndex - 1).toLong())
+        scheduleWeekStartDate(config, editWeek).plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, dayIndex))
     val openShortcut by rememberUpdatedState<() -> Unit> {
         if (editingAllowed) refreshOwnBounds()?.let { bounds ->
             shortcuts?.open(CourseShortcutRequest(course, editWeek, bounds,
@@ -438,6 +443,14 @@ fun WeekCourseBlock(
             if (editingAllowed) onCourseClick(course, bounds)
             else adjustedOccurrenceDate?.let { adjustedEditor?.invoke(course.id, it, bounds) }
         }
+    }
+    val editorTapRegistry = com.xiaomanjun.sleepdownschedule.feature.course.editor.LocalCourseEditorFlightRegistry.current
+    val editorTapOwner = remember(course.id, editWeek, periodIndex) { Any() }
+    androidx.compose.runtime.DisposableEffect(editorTapRegistry, editorTapOwner) {
+        editorTapRegistry?.registerTarget(editorTapOwner, editWeek, day = false,
+            bounds = { ownCoordinatesRef[0]?.takeIf { it.isAttached }?.boundsInRoot() },
+            open = { clickBody() })
+        onDispose { editorTapRegistry?.removeTarget(editorTapOwner) }
     }
     // Editing is read through updated state, never a pointerInput key: switching into edit
     // mode must not cancel the finger that is about to move the course.
@@ -605,7 +618,8 @@ fun WeekCourseBlock(
     } else Modifier
     CourseBoundsSource(
         courseId = course.id,
-        visible = editingId != course.id,
+        visible = editingId != course.id && course.id !in
+            com.xiaomanjun.sleepdownschedule.core.ui.chrome.LocalEditingCourseIds.current,
         sharedScope = sharedScope,
         modifier = baseModifier,
         shape = cardShape
@@ -634,7 +648,8 @@ fun WeekCourseBlock(
                         ?.takeIf { it >= 0 }
                         ?: sourcePosition
                     val underlyingHeight = (
-                        periodRowHeight * conflictUnderlyingSpan.toFloat() - 4.dp
+                        (timeGrid?.let { it.bottom((underlyingPosition + conflictUnderlyingSpan).toFloat()) - it.top(underlyingPosition.toFloat()) }?.dp
+                            ?: (periodRowHeight * conflictUnderlyingSpan.toFloat())) - 4.dp
                         ).coerceAtLeast(18.dp)
                     val ownerReveal =
                         (conflictCardFlight.value / 0.14f).coerceIn(0f, 1f)
@@ -642,8 +657,8 @@ fun WeekCourseBlock(
                         modifier = Modifier
                             .fillMaxWidth()
                             .offset(
-                                y = periodRowHeight *
-                                    (underlyingPosition - sourcePosition).toFloat()
+                                y = timeGrid?.let { it.top(underlyingPosition.toFloat()) - it.top(sourcePosition.toFloat()) }?.dp
+                                    ?: (periodRowHeight * (underlyingPosition - sourcePosition).toFloat())
                             )
                             .height(underlyingHeight)
                             .graphicsLayer { alpha = ownerReveal }
@@ -679,8 +694,11 @@ fun WeekCourseBlock(
                 val targetPosition = periodIndexes.indexOf(targetPeriod)
                     .takeIf { it >= 0 }
                     ?: sourcePosition
-                val targetOffsetX = (target.weekday - dayIndex) * gridColumnWidthPx
-                val targetOffsetY = (targetPosition - sourcePosition) * periodRowHeightPx
+                val visibleDays = timeGrid?.weekdays.orEmpty()
+                val targetOffsetX = (if (visibleDays.isEmpty()) target.weekday - dayIndex else
+                    visibleDays.indexOf(target.weekday) - visibleDays.indexOf(dayIndex)) * gridColumnWidthPx
+                val targetOffsetY = (rowTopsPx.getOrNull(targetPosition) ?: targetPosition * periodRowHeightPx) -
+                    (rowTopsPx.getOrNull(sourcePosition) ?: sourcePosition * periodRowHeightPx)
                 val flightArcPx = with(density) { 10.dp.toPx() }
                 val flightElevationPx = with(density) { 14.dp.toPx() }
                 Box(

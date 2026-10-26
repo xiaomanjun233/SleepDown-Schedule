@@ -24,11 +24,13 @@ class BackupSettingsCompletenessTest {
         val serialized = json.encodeToJsonElement(BackupScheduleConfig.serializer(), archive.data.schedules.single().config)
             as kotlinx.serialization.json.JsonObject
         val oldFields = kotlinx.serialization.json.JsonObject(serialized.filterKeys {
-            it != "courseCardColoredTextEnabled" && it != "weekCardContentLayout"
+            it != "courseCardColoredTextEnabled" && it != "weekCardContentLayout" && it != "weekStartsOnSunday" && it != "timeSlotCoursesJson"
         })
         val restored = json.decodeFromJsonElement(BackupScheduleConfig.serializer(), oldFields)
         assertEquals(false, restored.courseCardColoredTextEnabled)
         assertEquals("CURRENT", restored.weekCardContentLayout)
+        assertEquals(false, restored.weekStartsOnSunday)
+        assertEquals("", restored.timeSlotCoursesJson)
     }
 
     @Test

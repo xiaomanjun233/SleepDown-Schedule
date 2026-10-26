@@ -326,7 +326,7 @@ private fun AutoRefreshDashboardContent(
                                     } else if (!refreshing) scope.launch {
                                         refreshing = true
                                         try {
-                                            message = AutoRefreshScheduleCoordinator.refreshSaved(context).message
+                                            message = AutoRefreshScheduleCoordinator.refreshSaved(context, manual = true).message
                                             if (AutoRefreshReviewStore.load(context) == null) refreshResultMessage = message
                                             else reviewOpenRequest++
                                         } finally {

@@ -39,6 +39,31 @@ class SharedViewKitBackendTest {
 
     @After fun cleanup() { TransitionPayloadStore.clearForTests(); shadowOf(Looper.getMainLooper()).idle() }
 
+    @Test fun surfaceColorUsesTheCardRatherThanTheBlackActivityBackground() {
+        val pixels = Bitmap.createBitmap(80, 100, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.rgb(54, 59, 63))
+        }
+        assertEquals(android.graphics.Color.rgb(54, 59, 63), transitionSurfaceColor(pixels, android.graphics.Color.BLACK))
+        pixels.eraseColor(android.graphics.Color.TRANSPARENT)
+        assertEquals(android.graphics.Color.BLACK, transitionSurfaceColor(pixels, android.graphics.Color.BLACK))
+        pixels.recycle()
+    }
+
+    @Test fun explicitCardFillWinsOverColoredCapsulePixelsOnOpenAndReturn() = runBlocking {
+        anchor.bitmap!!.eraseColor(android.graphics.Color.GREEN)
+        val cardFill = android.graphics.Color.rgb(43, 44, 46)
+        val base = request()
+        val opening = base.copy(payload = base.payload!!.copy(openingAnchor = anchor.copy(surfaceColor = cardFill)))
+        assertEquals(TransitionBackendOpenResult.Started, backend.open(opening))
+        assertEquals(cardFill, api.openBundle!!.getInt(SharedViewKitContract.Color))
+        api.callbacks!!.onEnd(SharedViewKitContract.Open)
+        shadowOf(Looper.getMainLooper()).idle()
+        val changedThemeFill = android.graphics.Color.rgb(240, 241, 243)
+        returning = anchor.copy(surfaceColor = changedThemeFill)
+        assertTrue(backend.requestClose(source, base.session))
+        assertEquals(changedThemeFill, api.returnBundle!!.getInt(SharedViewKitContract.Color))
+    }
+
     @Test fun unsupportedDevicesDoNotRegisterOrLaunch() = runBlocking {
         api.protocol = 0
         val request = request()
@@ -46,6 +71,26 @@ class SharedViewKitBackendTest {
         assertEquals(0, api.optionsCalls)
         assertNull(shadowOf(source).nextStartedActivity)
         assertEquals(TransitionSessionState.SourceReady, request.session.currentState)
+    }
+
+    @Test fun specialCourseRouteUsesNativeReturnAndSafelyHandlesADeletedSource() = runBlocking {
+        val request = request(routeId = TransitionRouteId.SpecialCourseToEditor)
+        assertTrue(request.route.legacyProfile is LegacyTransitionProfile.Depth)
+        assertEquals(TransitionBackendOpenResult.Started, backend.open(request))
+        api.callbacks!!.onEnd(SharedViewKitContract.Open)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(TransitionSessionState.Open, request.session.currentState)
+        returning = null
+        val destination = Robolectric.buildActivity(Activity::class.java).setup().get()
+        assertTrue(backend.requestClose(destination, request.session))
+        assertFalse(api.returnBundle!!.containsKey(SharedViewKitContract.Bounds))
+        assertEquals(2, api.returnBundle!!.getInt(SharedViewKitContract.BackType))
+        assertEquals(0, releases.get())
+        api.callbacks!!.onEnd(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(1, handoffs.get())
+        assertEquals(1, releases.get())
+        assertNull(TransitionPayloadStore.session(request.session.id))
     }
 
     @Test fun vendorRecyclingRejectedInputCannotInvalidateLegacySnapshot() = runBlocking {
@@ -100,8 +145,11 @@ class SharedViewKitBackendTest {
         assertTrue(backend.requestClose(destination, request.session))
         @Suppress("DEPRECATION")
         assertEquals(Rect(30, 40, 130, 180), api.returnBundle!!.getParcelable<Rect>(SharedViewKitContract.Bounds))
+        assertFalse(api.returnBundle!!.containsKey(SharedViewKitContract.Bitmap))
         assertSame(destination, api.returnActivity)
-        assertEquals(1, releases.get())
+        // The real source stays hidden for the whole return animation; restoring it here would
+        // show the business button underneath the card the ROM is still flying back.
+        assertEquals(0, releases.get())
         // A delayed OPEN completion cannot finish or reopen a closing session.
         callbacks.onEnd(SharedViewKitContract.Open)
         shadowOf(Looper.getMainLooper()).idle()
@@ -114,6 +162,33 @@ class SharedViewKitBackendTest {
         assertEquals(0, api.cancels)
         assertNotNull(shadowOf(source).nextStartedActivity)
         assertNull(shadowOf(source).nextStartedActivity)
+    }
+
+    @Test fun declaredReturnBitmapReplacesOpeningPixelsAndStaysAliveUntilBackCompletes() = runBlocking {
+        api.supportsReturnBitmap = true
+        val request = request()
+        assertEquals(TransitionBackendOpenResult.Started, backend.open(request))
+        val callbacks = api.callbacks!!
+        callbacks.onEnd(SharedViewKitContract.Open)
+        shadowOf(Looper.getMainLooper()).idle()
+        val button = Bitmap.createBitmap(64, 64, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.CYAN)
+        }
+        returning = TransitionAnchorFrame(ComposeRect(30f, 40f, 94f, 104f), 32f, button)
+        val destination = Robolectric.buildActivity(Activity::class.java).setup().get()
+        assertTrue(backend.requestClose(destination, request.session))
+        @Suppress("DEPRECATION")
+        val passed = api.returnBundle!!.getParcelable<Bitmap>(SharedViewKitContract.Bitmap)!!
+        assertNotSame(button, passed)
+        assertNotSame(api.inputBitmap, passed)
+        assertEquals(64, passed.width)
+        assertEquals(android.graphics.Color.CYAN, passed.getPixel(32, 32))
+        assertFalse(passed.isRecycled)
+        callbacks.onEnd(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(passed.isRecycled)
+        assertFalse(button.isRecycled)
+        assertFalse(anchor.bitmap!!.isRecycled)
     }
 
     @Test fun deletedReturnTargetUsesTheDeclaredSafeReturn() = runBlocking {
@@ -210,16 +285,17 @@ class SharedViewKitBackendTest {
         shadowOf(Looper.getMainLooper()).idle()
     }
 
-    private fun request(activity: Activity = source): TransitionOpenRequest {
+    private fun request(activity: Activity = source, routeId: TransitionRouteId = TransitionRouteId.CourseManagementToDetail): TransitionOpenRequest {
         val payload = TransitionPayload(anchor, TransitionAnchorProvider { returning },
             onOpeningSourceHandoff = { handoffs.incrementAndGet() }, onSourceReleased = { releases.incrementAndGet() })
-        val session = TransitionPayloadStore.create(TransitionRouteId.CourseManagementToDetail, payload)
+        val session = TransitionPayloadStore.create(routeId, payload)
         session.moveTo(TransitionSessionState.SourceReady)
         return TransitionOpenRequest(activity, Intent(activity, Activity::class.java).putTransitionIdentity(session),
             TransitionRouteCatalog.get(session.routeId), session, payload)
     }
 
     private class FakeApi : SharedViewKitApi {
+        var supportsReturnBitmap = false
         var protocol = 100
         var provideOptions = true
         var optionsCalls = 0
@@ -228,14 +304,17 @@ class SharedViewKitBackendTest {
         var returnBundle: Bundle? = null
         var returnActivity: Activity? = null
         var inputBitmap: Bitmap? = null
+        var openBundle: Bundle? = null
         var recycleRejectedInput = false
         override fun supportedProtocol() = protocol
         override fun extras() = mapOf(SharedViewKitContract.Bounds to "rect|WINDOW|bounds",
-            SharedViewKitContract.BackType to "int|VIEW_ANIM_FOLLOW_SYSTEM,VIEW_ANIM_FADE_OUT|back")
+            SharedViewKitContract.BackType to "int|VIEW_ANIM_FOLLOW_SYSTEM,VIEW_ANIM_FADE_OUT|back") +
+            if (supportsReturnBitmap) mapOf(SharedViewKitContract.Bitmap to "Bitmap||return pixels") else emptyMap()
         override fun options(bitmap: Bitmap, bounds: Rect, radiusPx: Float, extras: Bundle,
             callbacks: SharedViewKitCallbacks): ActivityOptions? {
             optionsCalls++
             inputBitmap = bitmap
+            openBundle = Bundle(extras)
             if (!provideOptions && recycleRejectedInput) bitmap.recycle()
             this.callbacks = callbacks
             return if (provideOptions) ActivityOptions.makeBasic() else null

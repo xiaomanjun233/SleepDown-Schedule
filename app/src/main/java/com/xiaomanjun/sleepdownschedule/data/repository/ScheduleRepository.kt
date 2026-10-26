@@ -785,6 +785,35 @@ class ScheduleRepository(private val database: AppDatabase) {
         configDao.upsertConfig(current.copy(scheduleAdjustmentsJson = canonical(updated)))
     }
 
+    suspend fun saveTimeSlotCourse(
+        scheduleId: Int,
+        original: com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotCourse?,
+        updated: com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotCourse?
+    ) = database.withTransaction {
+        val current = requireNotNull(configDao.getConfig(scheduleId)) { "课表已不存在，请重新打开" }
+        val periods = configDao.getPeriods(scheduleId)
+        val resolved = updated?.let {
+            if (it.periodIndices.isNotEmpty() && it.customPeriodTimes.isNullOrBlank()) {
+                require(periods.map { period -> period.periodIndex }.containsAll(it.periodIndices)) {
+                    "所选节次已变化，请重新选择时间段"
+                }
+            }
+            com.xiaomanjun.sleepdownschedule.domain.schedule.resolvedTimeSlotCourse(it, periods)
+        }
+        val courses = com.xiaomanjun.sleepdownschedule.domain.schedule.editTimeSlotCourse(
+            com.xiaomanjun.sleepdownschedule.domain.schedule.decodeTimeSlotCourses(current.timeSlotCoursesJson),
+            original, resolved
+        )
+        if (resolved != null) {
+            require(resolved.afterPeriod in com.xiaomanjun.sleepdownschedule.domain.schedule.allowedTimeSlotAnchors(
+                resolved.startTime, resolved.endTime, periods
+            )) { "所选时间段与作息位置不匹配，请重新选择时间段" }
+        }
+        configDao.upsertConfig(current.copy(
+            timeSlotCoursesJson = com.xiaomanjun.sleepdownschedule.domain.schedule.encodeTimeSlotCourses(courses)
+        ))
+    }
+
     suspend fun saveConfigChanges(original: ScheduleConfigEntity, updated: ScheduleConfigEntity) {
         val scheduleId = updated.id
         database.withTransaction {

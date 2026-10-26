@@ -53,9 +53,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -84,6 +89,7 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
+import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
@@ -161,6 +167,7 @@ fun NormalizedAiManualImportScreen(
     onInitialFileConsumed: () -> Unit = {},
     initialText: String? = null,
     onInitialTextConsumed: () -> Unit = {},
+    transitionActive: Boolean = false,
     onParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
@@ -189,10 +196,44 @@ fun NormalizedAiManualImportScreen(
     var aiSettings by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
     var historySourceHidden by remember { mutableStateOf(false) }
     var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
+    // The dialog is a sibling of the home content layer, so cropping the page frame at the
+    // button bounds only returns the wallpaper behind the sheet. Record the real footer button
+    // itself, like the home add button's return layer, and hand that surface to the system.
+    val historyButtonLayer = rememberGraphicsLayer()
+    val historyButtonCaptureRequested = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
+    var cleanHistoryButtonBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    // Capture the page while the footer button is idle. Taking the frame from onClick would
+    // include the native button's pressed/deformation state and hand the system a warped source.
+    var cleanHistoryCapture by remember { mutableStateOf<AiImportHistoryBackgroundCapture?>(null) }
+    LaunchedEffect(historyButtonBounds, historySourceHidden, transitionActive) {
+        if (!transitionActive && !historySourceHidden &&
+            historyButtonBounds.width > 1f && historyButtonBounds.height > 1f
+        ) {
+            historyButtonCaptureRequested.set(true)
+            cleanHistoryCapture = captureHistoryBackground()
+            cleanHistoryButtonBitmap = runCatching {
+                historyButtonLayer.toImageBitmap().asAndroidBitmap()
+            }.getOrNull()?.takeIf { it.width > 1 && it.height > 1 }
+        }
+    }
     DisposableEffect(Unit) {
         onDispose { historyButtonBounds = Rect.Zero }
     }
-    var historyEntries by remember { mutableStateOf(AiImportHistoryStore.load(context)) }
+    // Records the footer button on request instead of re-recording a live liquid surface every
+    // frame. The alpha used to hide the source stays outside this draw node, so the recorded
+    // pixels are always the opaque button.
+    val historyButtonRecordModifier = Modifier.drawWithContent {
+        if (historyButtonCaptureRequested.compareAndSet(true, false)) {
+            historyButtonLayer.record {
+                withRecordingDensity(transitionDensity) { this@drawWithContent.drawContent() }
+            }
+        }
+        drawContent()
+    }
+    var historyEntries by remember { mutableStateOf(emptyList<AiImportHistoryEntry>()) }
+    LaunchedEffect(context) {
+        historyEntries = withContext(Dispatchers.IO) { AiImportHistoryStore.load(context) }
+    }
     val taskProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     LaunchedEffect(taskProgress?.taskId, taskProgress?.finished) {
         val completed = taskProgress?.takeIf { it.taskId.isNotBlank() && it.finished } ?: return@LaunchedEffect
@@ -204,7 +245,9 @@ fun NormalizedAiManualImportScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                historyEntries = AiImportHistoryStore.load(context)
+                scope.launch {
+                    historyEntries = withContext(Dispatchers.IO) { AiImportHistoryStore.load(context) }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -560,11 +603,17 @@ fun NormalizedAiManualImportScreen(
         aiParsing = aiParsing,
         historyEntries = historyEntries,
         historySourceHidden = historySourceHidden,
+        historyButtonModifier = historyButtonRecordModifier,
         onHistoryButtonBoundsChanged = { historyButtonBounds = it },
         onOpenHistory = { sourceBounds ->
             scope.launch {
-                val captured = captureHistoryBackground()
-                val sourceSnapshot = captured?.cropToAiHistorySource(sourceBounds)
+                // The idle recording of the button itself is the source. A page crop cannot see
+                // this sheet's footer and would animate the wallpaper behind it into the system.
+                val sourceSnapshot = cleanHistoryButtonBitmap
+                    ?: runCatching { historyButtonLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                        ?.takeIf { it.width > 1 && it.height > 1 }
+                    ?: (cleanHistoryCapture ?: captureHistoryBackground())
+                        ?.cropToAiHistorySource(sourceBounds)
                 // A malformed crop cannot represent the real source button. Keeping the source
                 // mounted is preferable to hiding it and exposing a black/uncurved Activity shell.
                 if (sourceSnapshot == null) return@launch
@@ -723,15 +772,20 @@ private fun AiManualImportDialogContent(
     aiParsing: Boolean,
     historyEntries: List<AiImportHistoryEntry>,
     historySourceHidden: Boolean,
+    historyButtonModifier: Modifier = Modifier,
     onHistoryButtonBoundsChanged: (Rect) -> Unit,
     onOpenHistory: (Rect) -> Unit,
     onOpenHistoryEntry: (AiImportHistoryEntry, Rect) -> Unit,
     onPrimaryAction: () -> Unit
 ) {
     val nativeSurface = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSurface.current
-    // Native centered surfaces follow the app theme; wallpaper glass keeps its existing contrast.
-    val textColor = if (nativeSurface) appPanelForegroundColor(state.config) else glassForegroundColor(state.config)
-    val dialogLightStyle = if (nativeSurface) !appUsesDarkTheme(state.config) else glassUsesLightStyle(state.config)
+    val materialForeground = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialForeground.current
+        .takeUnless { it == ComposeColor.Unspecified }
+    // A home morph owns wallpaper contrast; standalone native dialogs follow the app theme.
+    val textColor = materialForeground
+        ?: if (nativeSurface) appPanelForegroundColor(state.config) else glassForegroundColor(state.config)
+    val dialogLightStyle = materialForeground?.let { it.luminance() < 0.5f }
+        ?: if (nativeSurface) !appUsesDarkTheme(state.config) else glassUsesLightStyle(state.config)
     val windowSize = currentWindowSizeDp()
     val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
     val safeHeight = (
@@ -949,21 +1003,22 @@ private fun AiManualImportDialogContent(
                         onHistoryButtonBoundsChanged(historyButtonBounds)
                     }
                 ) {
-                    if (historySourceHidden) {
-                        Spacer(Modifier.fillMaxWidth().height(40.dp))
-                    } else {
-                        DialogLiquidButton(
-                            backdrop = backdrop,
-                            label = "导入历史",
-                            role = DialogButtonRole.Cancel,
-                            iconRes = R.drawable.ic_history,
-                            modifier = Modifier.fillMaxWidth(),
-                            destructiveFilled = true,
-                            onClick = {
-                                if (historyButtonBounds.width > 1f) onOpenHistory(historyButtonBounds)
-                            }
-                        )
-                    }
+                    // Keep the real button in the layout while the native transition owns it: a
+                    // placeholder of a different height would move the measured return bounds.
+                    DialogLiquidButton(
+                        backdrop = backdrop,
+                        label = "导入历史",
+                        role = DialogButtonRole.Cancel,
+                        iconRes = R.drawable.ic_history,
+                        modifier = Modifier.fillMaxWidth()
+                            .alpha(if (historySourceHidden) 0f else 1f)
+                            .then(historyButtonModifier),
+                        destructiveFilled = true,
+                        onClick = {
+                            if (!historySourceHidden && historyButtonBounds.width > 1f)
+                                onOpenHistory(historyButtonBounds)
+                        }
+                    )
                 }
                 DialogLiquidButton(
                     backdrop = backdrop,

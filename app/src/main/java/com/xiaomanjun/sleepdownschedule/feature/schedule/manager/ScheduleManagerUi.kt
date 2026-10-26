@@ -898,18 +898,17 @@ fun StaticWeekSnapshotGrid(
 ) {
     val rowHeaderWidth = 40.dp
     val today = LocalDate.now()
-    val weekStart = today
-        .minusDays((today.dayOfWeek.toChineseWeekday() - 1).toLong())
-        .plusWeeks((displayWeek - effectiveCurrentWeek(state.config)).toLong())
+    val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
     val visibleCourses = remember(state.courses, displayWeek) {
         state.courses.filter { course ->
             displayWeek in course.weeks && parityMatches(course.weekParity, displayWeek)
         }
     }
     val coursesByWeekday = remember(visibleCourses) { visibleCourses.groupBy { it.weekday } }
-    val weekdays = remember(visibleCourses, state.config.hideEmptyWeekends) {
+    val weekdays = remember(visibleCourses, state.config.hideEmptyWeekends, state.config.weekStartsOnSunday) {
         val weekendHasCourse = visibleCourses.any { it.weekday == 6 || it.weekday == 7 }
-        if (state.config.hideEmptyWeekends && !weekendHasCourse) SnapshotSchoolWeekdays else SnapshotFullWeekdays
+        if (state.config.hideEmptyWeekends && !weekendHasCourse) SnapshotSchoolWeekdays
+        else if (state.config.weekStartsOnSunday) listOf(7, 1, 2, 3, 4, 5, 6) else SnapshotFullWeekdays
     }
     val periods = remember(state.periods, state.config.id) {
         state.periods.take(10).ifEmpty { defaultPeriods(state.config.id).take(10) }
@@ -960,7 +959,7 @@ fun StaticWeekSnapshotGrid(
                 )
                 weekdays.forEach { day ->
                     val isToday = day == today.dayOfWeek.toChineseWeekday()
-                    val date = weekStart.plusDays((day - 1).toLong())
+                    val date = weekStart.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(state.config, day))
                     Column(
                         modifier = Modifier.weight(1f),
                         horizontalAlignment = Alignment.CenterHorizontally,

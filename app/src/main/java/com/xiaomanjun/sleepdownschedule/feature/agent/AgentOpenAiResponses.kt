@@ -33,7 +33,8 @@ internal data class AgentResponsesTurn(
  */
 internal class OpenAiResponsesAgentRunner(
     private val interaction: AiImportInteraction? = null,
-    private val onReasoning: ((String) -> Unit)? = null
+    private val onReasoning: ((String) -> Unit)? = null,
+    private val request: ((AiImportSettings, JsonObject) -> String)? = null
 ) {
     fun readOnlyAnswer(settings: AiImportSettings, instructions: String, input: String): AgentResponsesTurn =
         parseAgentResponsesTurn(post(settings, responsesBody(
@@ -69,11 +70,15 @@ internal class OpenAiResponsesAgentRunner(
         val turnTools = AgentTurnToolSession(cachedResults, executeTool)
         var outputRetryRequested = false
         var toolAvailabilityRetryRequested = false
+        val initialReadRequired = settings.profile.id == AiProviderPresets.chatGpt.id &&
+            !importWorkspace && agentNeedsScheduleRead(chatMessages)
 
         toolRounds@ for (round in 0 until MaxAgentToolRounds) {
             interaction?.checkActive()
             onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在思考"))
             telemetry.requestStarted()
+            val requireRead = (initialReadRequired && round == 0) ||
+                (toolAvailabilityRetryRequested && round == 1)
             val decision = parseAgentResponsesTurn(
                 post(
                     settings,
@@ -91,7 +96,8 @@ internal class OpenAiResponsesAgentRunner(
                         includeMemoryTool = includeMemoryTool,
                         excludedTools = completedOneShotTools,
                         reasoningEffort = settings.profile.reasoningEffort,
-                        importWorkspace = importWorkspace
+                        importWorkspace = importWorkspace,
+                        requireRead = requireRead
                     )
                 )
             )
@@ -113,14 +119,21 @@ internal class OpenAiResponsesAgentRunner(
             if (decision.calls.isEmpty()) {
                 val toolFeedback = if (settings.profile.id == AiProviderPresets.chatGpt.id && round <= 1)
                     agentLocalToolAvailabilityFeedback(decision.content) else null
-                if (toolFeedback != null && round == 0) {
+                if ((toolFeedback != null || requireRead) && round == 0) {
                     toolAvailabilityRetryRequested = true
-                    input += buildJsonObject { put("role", "user"); put("content", toolFeedback) }
+                    input += buildJsonObject {
+                        put("role", "user")
+                        put("content", toolFeedback ?: "本轮是读取应用课表的请求。请先调用已提供的只读课表函数，再根据返回的真实数据回答。")
+                    }
                     onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "重新核对应用工具"))
                     continue@toolRounds
                 }
-                if (toolFeedback != null && toolAvailabilityRetryRequested) {
-                    val diagnostic = "模型未使用本轮已提供的课表工具，请重试或切换模型。本次没有修改课程。"
+                if ((toolFeedback != null || requireRead) && toolAvailabilityRetryRequested) {
+                    val outputTypes = decision.outputItems.mapNotNull {
+                        it["type"]?.jsonPrimitive?.contentOrNull?.takeIf { type -> type.matches(Regex("[a-z_]{1,40}")) }
+                    }.distinct().take(6).joinToString(",").ifBlank { "empty" }
+                    ChatGptUsageStatus.failed(diagnostic = "local_tools_not_returned; output_types=$outputTypes")
+                    val diagnostic = "ChatGPT 本次未返回可执行的课表工具调用，本次没有修改课程。可在 AI 设置查看调用诊断。"
                     onDelta(diagnostic)
                     return diagnostic
                 }
@@ -259,7 +272,8 @@ internal class OpenAiResponsesAgentRunner(
         includeMemoryTool: Boolean,
         excludedTools: Set<AgentToolName>,
         reasoningEffort: AiReasoningEffort,
-        importWorkspace: Boolean = false
+        importWorkspace: Boolean = false,
+        requireRead: Boolean = false
     ): JsonObject = buildJsonObject {
         put("model", settings.profile.defaultModel)
         put("store", false)
@@ -276,12 +290,15 @@ internal class OpenAiResponsesAgentRunner(
             }
         })
         if (includeTools) {
-            put("tools", agentResponsesToolDefinitions(includeMemoryTool, excludedTools, importWorkspace = importWorkspace))
-            put("tool_choice", "auto")
+            val tools = agentResponsesToolDefinitions(includeMemoryTool,
+                if (requireRead) emptySet() else excludedTools, importWorkspace = importWorkspace)
+            put("tools", if (requireRead) agentReadRecoveryTools(tools) else tools)
+            put("tool_choice", if (requireRead) "required" else "auto")
         }
     }
 
     private fun post(settings: AiImportSettings, body: JsonObject): String {
+        request?.let { return it(settings, body) }
         if (interaction != null) {
             val path = settings.profile.responsesPath.trim('/')
             val base = if (path.isEmpty()) settings.profile.baseUrl.trim().trimEnd('/')
@@ -491,10 +508,12 @@ internal fun parseAgentResponsesTurn(response: String): AgentResponsesTurn {
     val calls = mutableListOf<AgentToolCall>()
     val outputItems = rawOutputItems.mapIndexed { index, item ->
         if (item["type"]?.jsonPrimitive?.contentOrNull != "function_call") return@mapIndexed item
+        val namespace = item["namespace"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)
+        val rawName = item["name"]?.jsonPrimitive?.contentOrNull.orEmpty()
         val call = decodeAgentToolCall(
             item["call_id"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }
                 ?: "local-${response.hashCode().toUInt()}-$index",
-            item["name"]?.jsonPrimitive?.contentOrNull.orEmpty(), item["arguments"]
+            if (namespace == null) rawName else "$namespace.$rawName", item["arguments"]
         )
         calls += call
         val rawArguments = item["arguments"]

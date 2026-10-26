@@ -8,6 +8,13 @@ import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 
+/** Stored weekdays remain ISO 1..7; this only maps them into a schedule's week. */
+fun scheduleWeekdayOffset(config: ScheduleConfigEntity, weekday: Int): Long =
+    (if (config.weekStartsOnSunday) weekday % 7 else weekday - 1).toLong()
+
+fun scheduleCalendarWeekStart(config: ScheduleConfigEntity, date: LocalDate): LocalDate =
+    date.minusDays(scheduleWeekdayOffset(config, date.dayOfWeek.value))
+
 fun todayCourses(state: AppState): List<CourseEntity> {
     return coursesForDate(state, LocalDate.now())
 }
@@ -63,7 +70,7 @@ fun derivedScheduleTermState(
     if (!config.autoCurrentWeek) return ScheduleTermState.MANUAL
     val startDate = parseScheduleDate(config.termStartDate) ?: return ScheduleTermState.INVALID
     if (today.isBefore(startDate)) return ScheduleTermState.UPCOMING
-    val firstWeekMonday = startDate.minusDays((startDate.dayOfWeek.toChineseWeekday() - 1).toLong())
+    val firstWeekMonday = scheduleCalendarWeekStart(config, startDate)
     val endDate = firstWeekMonday.plusWeeks(config.totalWeeks.coerceAtLeast(1).toLong()).minusDays(1)
     return if (today.isAfter(endDate)) ScheduleTermState.ENDED else ScheduleTermState.ACTIVE
 }
@@ -77,7 +84,7 @@ internal fun ScheduleConfigEntity.withDerivedScheduleTermState(
 fun effectiveCurrentWeek(config: ScheduleConfigEntity, today: LocalDate = LocalDate.now()): Int {
     if (!config.autoCurrentWeek || config.termStartDate.isNullOrBlank()) return config.currentWeek.coerceIn(1, config.totalWeeks)
     val startDate = parseScheduleDate(config.termStartDate) ?: return config.currentWeek.coerceIn(1, config.totalWeeks)
-    val start = startDate.minusDays((startDate.dayOfWeek.toChineseWeekday() - 1).toLong())
+    val start = scheduleCalendarWeekStart(config, startDate)
     val days = ChronoUnit.DAYS.between(start, today)
     val calculated = (Math.floorDiv(days, 7) + 1).toInt()
     return calculated.coerceIn(1, config.totalWeeks)
@@ -119,7 +126,7 @@ fun isBeforeScheduleTerm(config: ScheduleConfigEntity, today: LocalDate = LocalD
 fun scheduleTermEndDate(config: ScheduleConfigEntity): LocalDate? {
     if (!config.autoCurrentWeek || config.termStartDate.isNullOrBlank()) return null
     val startDate = parseScheduleDate(config.termStartDate) ?: return null
-    val firstWeekMonday = startDate.minusDays((startDate.dayOfWeek.toChineseWeekday() - 1).toLong())
+    val firstWeekMonday = scheduleCalendarWeekStart(config, startDate)
     return firstWeekMonday.plusWeeks(config.totalWeeks.coerceAtLeast(1).toLong()).minusDays(1)
 }
 
@@ -152,7 +159,7 @@ fun scheduleWeekForDateOrNull(config: ScheduleConfigEntity, date: LocalDate): In
     val startDate = parseScheduleDate(config.termStartDate) ?: return effectiveCurrentWeek(config, date)
     val endDate = scheduleTermEndDate(config) ?: return effectiveCurrentWeek(config, date)
     if (date.isBefore(startDate) || date.isAfter(endDate)) return null
-    val firstWeekMonday = startDate.minusDays((startDate.dayOfWeek.toChineseWeekday() - 1).toLong())
+    val firstWeekMonday = scheduleCalendarWeekStart(config, startDate)
     return (ChronoUnit.DAYS.between(firstWeekMonday, date) / 7L + 1L).toInt()
         .takeIf { it in 1..config.totalWeeks.coerceAtLeast(1) }
 }
@@ -177,12 +184,11 @@ fun scheduleWeekStartDate(
     val safeWeek = displayWeek.coerceAtLeast(1)
     val termStart = if (config.autoCurrentWeek) parseScheduleDate(config.termStartDate) else null
     if (termStart != null) {
-        val termWeekStart = termStart.minusDays((termStart.dayOfWeek.toChineseWeekday() - 1).toLong())
+        val termWeekStart = scheduleCalendarWeekStart(config, termStart)
         return termWeekStart.plusWeeks((safeWeek - 1).toLong())
     }
     val currentWeek = effectiveCurrentWeek(config, today)
-    return today
-        .minusDays((today.dayOfWeek.toChineseWeekday() - 1).toLong())
+    return scheduleCalendarWeekStart(config, today)
         .plusWeeks((safeWeek - currentWeek).toLong())
 }
 

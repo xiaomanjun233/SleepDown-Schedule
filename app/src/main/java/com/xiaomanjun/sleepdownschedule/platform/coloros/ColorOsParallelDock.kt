@@ -19,13 +19,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -35,6 +42,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
@@ -47,6 +55,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.launch
 
 private class NativeFab(val root: ViewGroup, val main: View, val icon: ImageView, val setClick: Method,
     private val source: ColorOsNativeUi.Source, private var accent: Int, private var neutral: Boolean,
@@ -171,6 +180,7 @@ internal fun ColorOsParallelHomeDock(
     val host = LocalContext.current
     val composeRoot = LocalView.current
     val density = LocalDensity.current
+    val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
     val select = rememberUpdatedState(onSelect)
     val open = rememberUpdatedState(onOpenMenu)
     val canOpen = rememberUpdatedState(selectedIndex < 2 && !buttonHidden)
@@ -178,6 +188,30 @@ internal fun ColorOsParallelHomeDock(
     val accent = dockAccent(source, context, LocalHomeDockAccent.current)
     val fabColor = dockAccent(source, context, LocalHomeButtonAccent.current)
     val returnRecorded = remember(native, effectiveDark, fabColor, style, density.density) { AtomicBoolean(false) }
+    val readyReturnSnapshot = rememberUpdatedState(returnRecorded)
+    val scope = rememberCoroutineScope()
+    val opening = remember { AtomicBoolean(false) }
+    val captureReturn = rememberUpdatedState<suspend (NativeFab) -> Boolean>({ fab ->
+        val main = fab.main
+        val activity = host.findActivityOrNull()
+        if (activity == null || !main.isAttachedToWindow || main.width <= 0 || main.height <= 0) {
+            false
+        } else {
+            val position = IntArray(2).also(main::getLocationInWindow)
+            val bitmap = com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion(
+                activity.window, Rect(position[0].toFloat(), position[1].toFloat(),
+                    (position[0] + main.width).toFloat(), (position[1] + main.height).toFloat())
+            )
+            if (bitmap == null) false else {
+                returnLayer.record(density, layoutDirection, IntSize(bitmap.width, bitmap.height)) {
+                    val outline = Path().apply { addOval(Rect(0f, 0f, size.width, size.height)) }
+                    clipPath(outline) { drawImage(bitmap.asImageBitmap()) }
+                }
+                readyReturnSnapshot.value.set(true)
+                true
+            }
+        }
+    })
     val group = remember(native, host, composeRoot) {
         ColorOsNativeUi.prepare("create the native 3+1 dock") {
             val tabs = listOf(R.drawable.ic_day_view to "今日", R.drawable.ic_week_view to "课程表",
@@ -187,14 +221,25 @@ internal fun ColorOsParallelHomeDock(
             lateinit var fab: NativeFab
             fab = createNativeFab(source, context, host, fabColor, style?.weatherMaterial == true, style?.foreground) {
                 // A moving/partially merged source cannot also become the menu's fixed anchor.
-                if (canOpen.value && !dock.expansionMoving() && !dock.view.isLayoutRequested) {
-                    val location = IntArray(2)
-                    val rootLocation = IntArray(2)
-                    fab.main.getLocationOnScreen(location)
-                    composeRoot.getLocationOnScreen(rootLocation)
-                    val left = (location[0] - rootLocation[0]).toFloat()
-                    val top = (location[1] - rootLocation[1]).toFloat()
-                    open.value(Rect(left, top, left + fab.main.width, top + fab.main.height), returnLayer)
+                if (canOpen.value &&
+                    !dock.expansionMoving() && !dock.view.isLayoutRequested) {
+                    if (opening.compareAndSet(false, true)) scope.launch {
+                        try {
+                            // Retry a missed initial copy on demand, so a not-yet-attached View
+                            // cannot leave the FAB permanently disabled.
+                            if (!readyReturnSnapshot.value.get() && !captureReturn.value(fab)) return@launch
+                            if (!canOpen.value) return@launch
+                            val location = IntArray(2)
+                            val rootLocation = IntArray(2)
+                            fab.main.getLocationOnScreen(location)
+                            composeRoot.getLocationOnScreen(rootLocation)
+                            val left = (location[0] - rootLocation[0]).toFloat()
+                            val top = (location[1] - rootLocation[1]).toFloat()
+                            open.value(Rect(left, top, left + fab.main.width, top + fab.main.height), returnLayer)
+                        } finally {
+                            opening.set(false)
+                        }
+                    }
                 }
             }
             val frame = FrameLayout(context).apply { clipChildren = false; clipToPadding = false }
@@ -215,9 +260,6 @@ internal fun ColorOsParallelHomeDock(
     val height = with(density) {
         context.resources.getDimensionPixelSize(source.resource("coui_bottom_floating_navigation_bar_height", "dimen")).toDp()
     }
-    val fabSize = with(density) {
-        context.resources.getDimensionPixelSize(source.resource("coui_floating_button_size", "dimen")).toDp()
-    }
     val systemBottom = WindowInsets.navigationBarsIgnoringVisibility.getBottom(density)
     val bottomInset = with(density) { systemBottom.toDp() }
     val compensation = dockImeCompensationPx(WindowInsets.ime.getBottom(density), systemBottom)
@@ -225,15 +267,20 @@ internal fun ColorOsParallelHomeDock(
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
             .padding(start = 18.dp, end = 18.dp, bottom = bottomInset + 8.dp)
             .graphicsLayer { translationY = compensation.toFloat() }) {
-            // Record only the resting native FAB for the existing menu handoff; do not paint this copy.
-            Box(Modifier.size(fabSize).clearAndSetSemantics {}.drawWithContent {
-                if (!returnRecorded.get()) {
-                    returnLayer.record {
-                        withRecordingDensity(density) { this@drawWithContent.drawContent() }
-                    }
-                    returnRecorded.set(true)
+            // Copy the actual unpressed native pixels. Software drawing and configured accent
+            // colors both omit COUI's blur/color layers and used to produce a darker, smaller FAB.
+            LaunchedEffect(group, returnRecorded, buttonHidden, selectedIndex) {
+                if (buttonHidden || selectedIndex >= 2) return@LaunchedEffect
+                withFrameNanos { }
+                withFrameNanos { }
+                // Settings-to-home also runs COUI's expansion spring. Wait a bounded number
+                // of frames for its final size before saving a return endpoint.
+                for (frame in 0 until 40) {
+                    if (!group.dock.expansionMoving() && !group.fab.main.isLayoutRequested) break
+                    withFrameNanos { }
                 }
-            }) { ColorOsHomeFloatingButtonVisual(dark, Modifier.fillMaxSize()) }
+                if (!group.dock.expansionMoving()) captureReturn.value(group.fab)
+            }
             key(group) {
                 AndroidView(factory = { group.frame },
                     modifier = Modifier.fillMaxWidth().height(height).excludeParentPullGesture()
@@ -257,4 +304,11 @@ internal fun ColorOsParallelHomeDock(
     }
     DisposableEffect(group) { onDispose { group.dispose() } }
     return true
+}
+
+/** Resolves the hosting Activity through arbitrary context wrappers. */
+private tailrec fun android.content.Context.findActivityOrNull(): android.app.Activity? = when (this) {
+    is android.app.Activity -> this
+    is android.content.ContextWrapper -> baseContext.findActivityOrNull()
+    else -> null
 }

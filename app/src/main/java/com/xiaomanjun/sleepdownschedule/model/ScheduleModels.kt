@@ -135,6 +135,7 @@ data class ScheduleConfigEntity(
     val defaultWallpaperStyle: DefaultWallpaperStyle = DefaultWallpaperStyle.NONE,
     val hideEmptyWeekends: Boolean = false,
     @ColumnInfo(defaultValue = "0") val showNonCurrentWeekCourses: Boolean = false,
+    @ColumnInfo(defaultValue = "0") val weekStartsOnSunday: Boolean = false,
     @ColumnInfo(defaultValue = "''") val scheduleAdjustmentsJson: String = "",
     val dockAlignment: DockAlignment = DockAlignment.CENTER,
     val defaultHomeMode: HomeStartMode = HomeStartMode.WEEK,
@@ -149,7 +150,9 @@ data class ScheduleConfigEntity(
     val hideFromRecents: Boolean = false,
     val autoCheckUpdates: Boolean = true,
     @ColumnInfo(defaultValue = "NULL") val activePeriodSchemeId: Long? = null,
-    @ColumnInfo(defaultValue = "'INDEX'") val periodAlignmentMode: PeriodAlignmentMode = PeriodAlignmentMode.INDEX
+    @ColumnInfo(defaultValue = "'INDEX'") val periodAlignmentMode: PeriodAlignmentMode = PeriodAlignmentMode.INDEX,
+    /** Named, unnumbered timetable bands such as morning reading and evening study. */
+    @ColumnInfo(defaultValue = "''") val timeSlotCoursesJson: String = ""
 )
 
 @Entity(tableName = "periods", primaryKeys = ["scheduleId", "periodIndex"])

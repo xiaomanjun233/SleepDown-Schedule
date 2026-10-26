@@ -141,8 +141,23 @@ data class QuickScheduleDraft(
     val autoCurrentWeek: Boolean,
     val hideEmptyWeekends: Boolean,
     val termStartDate: String,
-    val showNonCurrentWeekCourses: Boolean = false
+    val showNonCurrentWeekCourses: Boolean = false,
+    val weekStartsOnSunday: Boolean = false
 )
+
+/** Rebase only fields still equal to the saved baseline, preserving edits in the open sheet. */
+internal fun rebaseQuickScheduleDraft(local: QuickScheduleDraft, before: QuickScheduleDraft, saved: QuickScheduleDraft): QuickScheduleDraft {
+    require(local.scheduleId == before.scheduleId && local.scheduleId == saved.scheduleId)
+    return local.copy(
+        totalWeeks = if (local.totalWeeks == before.totalWeeks) saved.totalWeeks else local.totalWeeks,
+        currentWeek = if (local.currentWeek == before.currentWeek) saved.currentWeek else local.currentWeek,
+        autoCurrentWeek = if (local.autoCurrentWeek == before.autoCurrentWeek) saved.autoCurrentWeek else local.autoCurrentWeek,
+        hideEmptyWeekends = if (local.hideEmptyWeekends == before.hideEmptyWeekends) saved.hideEmptyWeekends else local.hideEmptyWeekends,
+        termStartDate = if (local.termStartDate == before.termStartDate) saved.termStartDate else local.termStartDate,
+        showNonCurrentWeekCourses = if (local.showNonCurrentWeekCourses == before.showNonCurrentWeekCourses) saved.showNonCurrentWeekCourses else local.showNonCurrentWeekCourses,
+        weekStartsOnSunday = if (local.weekStartsOnSunday == before.weekStartsOnSunday) saved.weekStartsOnSunday else local.weekStartsOnSunday
+    )
+}
 
 private fun daysInMonth(year: Int, month: Int): Int =
     LocalDate.of(year, month, 1).lengthOfMonth()
@@ -210,7 +225,8 @@ fun QuickScheduleSettingsSheets(
     onDismissFinished: () -> Unit,
     onSave: (QuickScheduleDraft, () -> Unit) -> Unit,
     suppressDetailedButton: Boolean = false,
-    onDetailedSettings: (Int, () -> Rect?, android.view.Window?, ((() -> Unit) -> Unit)) -> Unit
+    onDetailedSettings: (Int, () -> Rect?, android.view.Window?, ((() -> Unit) -> Unit)) -> Unit,
+    savedDraft: QuickScheduleDraft? = draft
 ) {
     // One composition lifetime per opening, including the full exit. Keeping the sheet's
     // Animatables and gesture state mounted in the home page would carry them into a reopen;
@@ -224,6 +240,7 @@ fun QuickScheduleSettingsSheets(
         QuickScheduleSettingsSheetSession(
             initialDraft = opening,
             draft = draft,
+            savedDraft = savedDraft,
             config = config,
             backdrop = backdrop,
             onDraftChange = onDraftChange,
@@ -243,6 +260,7 @@ fun QuickScheduleSettingsSheets(
 private fun QuickScheduleSettingsSheetSession(
     initialDraft: QuickScheduleDraft,
     draft: QuickScheduleDraft?,
+    savedDraft: QuickScheduleDraft?,
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     onDraftChange: (QuickScheduleDraft) -> Unit,
@@ -260,6 +278,17 @@ private fun QuickScheduleSettingsSheetSession(
     var dateDay by remember { mutableIntStateOf(LocalDate.now().dayOfMonth) }
     var totalWeeksText by remember { mutableStateOf(initialDraft.totalWeeks.toString()) }
     var currentWeekText by remember { mutableStateOf(initialDraft.currentWeek.toString()) }
+    var savedBaseline by remember { mutableStateOf(savedDraft ?: initialDraft) }
+    LaunchedEffect(savedDraft) {
+        val saved = savedDraft?.takeIf { it.scheduleId == initialDraft.scheduleId } ?: return@LaunchedEffect
+        val before = retainedDraft
+        val next = rebaseQuickScheduleDraft(before, savedBaseline, saved)
+        if (totalWeeksText == before.totalWeeks.toString()) totalWeeksText = next.totalWeeks.toString()
+        if (currentWeekText == before.currentWeek.toString()) currentWeekText = next.currentWeek.toString()
+        savedBaseline = saved
+        retainedDraft = next
+        if (next != before) onDraftChange(next)
+    }
     var detailButtonAnchor by remember { mutableStateOf<QuickSheetDetailAnchor?>(null) }
     var detailLaunching by remember { mutableStateOf(false) }
     val homeView = androidx.compose.ui.platform.LocalView.current
@@ -296,7 +325,7 @@ private fun QuickScheduleSettingsSheetSession(
         if (saving) return
         val total = totalWeeksText.toIntOrNull()?.coerceIn(1, 60) ?: raw.totalWeeks
         val manual = currentWeekText.toIntOrNull()?.coerceIn(1, total) ?: raw.currentWeek.coerceIn(1, total)
-        val current = resolveScheduleCurrentWeek(config, total, manual, raw.termStartDate, raw.autoCurrentWeek)
+        val current = resolveScheduleCurrentWeek(config.copy(weekStartsOnSunday = raw.weekStartsOnSunday), total, manual, raw.termStartDate, raw.autoCurrentWeek)
         val value = raw.copy(totalWeeks = total, currentWeek = current, autoCurrentWeek = true)
         saving = true
         onSave(value) {
@@ -370,7 +399,7 @@ private fun QuickScheduleSettingsSheetSession(
                             totalWeeksText.toIntOrNull()?.coerceIn(1, 60)?.let { total ->
                                 val latest = latestDraft() ?: return@let
                                 val nextWeek = resolveScheduleCurrentWeek(
-                                    config,
+                                    config.copy(weekStartsOnSunday = latest.weekStartsOnSunday),
                                     total,
                                     latest.currentWeek.coerceAtMost(total),
                                     latest.termStartDate,
@@ -382,35 +411,33 @@ private fun QuickScheduleSettingsSheetSession(
                         },
                         keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
                     )
-                    SettingsTextFieldRow(
-                        title = "当前周",
-                        compact = true,
-                        value = currentWeekText,
-                        onValueChange = { input ->
-                            currentWeekText = input.filter(Char::isDigit).take(2)
-                            latestDraft()?.let { latest ->
-                                currentWeekText.toIntOrNull()
-                                    ?.coerceIn(1, latest.totalWeeks.coerceAtLeast(1))
-                                    ?.let { week -> commitDraft(latest.copy(currentWeek = week)) }
-                            }
-                        },
-                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number,
-                        enabled = false
-                    )
                     SettingsValueRow(
-                        "学期状态", scheduleTermStatusDescription(
+                        "当前周", scheduleTermStatusDescription(
                             config.copy(
                                 totalWeeks = value.totalWeeks,
                                 currentWeek = value.currentWeek,
                                 autoCurrentWeek = true,
+                                weekStartsOnSunday = value.weekStartsOnSunday,
                                 termStartDate = value.termStartDate.ifBlank { null }
                             ), LocalDate.now()
-                        ), compact = true
+                        ), compact = true, valueOnRight = true
+                    )
+                    SettingsToggleRow(
+                        title = "周日作为周首日",
+                        subtitle = "",
+                        compact = true,
+                        checked = value.weekStartsOnSunday,
+                        backdrop = backdrop,
+                        onCheckedChange = { checked ->
+                            latestDraft()?.let { latest ->
+                                commitDraft(latest.copy(weekStartsOnSunday = checked))
+                            }
+                        }
                     )
                     SettingsToggleRow(
                         title = "隐藏空周末",
                         compact = true,
-                        subtitle = "周六、周日无课时自动收起",
+                        subtitle = "",
                         checked = value.hideEmptyWeekends,
                         backdrop = backdrop,
                         onCheckedChange = { checked ->
@@ -422,7 +449,7 @@ private fun QuickScheduleSettingsSheetSession(
                     SettingsToggleRow(
                         title = "显示非本周课程",
                         compact = true,
-                        subtitle = "以灰色显示，与本周课程重叠时隐藏",
+                        subtitle = "",
                         checked = value.showNonCurrentWeekCourses,
                         backdrop = backdrop,
                         onCheckedChange = { checked ->
@@ -545,7 +572,7 @@ private fun QuickScheduleSettingsSheetSession(
                     latestDraft()?.let {
                         val nextDate = "%04d-%02d-%02d".format(dateYear, dateMonth, safeDay)
                         val nextWeek = resolveScheduleCurrentWeek(
-                            config,
+                            config.copy(weekStartsOnSunday = it.weekStartsOnSunday),
                             it.totalWeeks,
                             it.currentWeek,
                             nextDate,
@@ -624,7 +651,7 @@ private fun QuickScheduleSettingsGroup(
             modifier = Modifier.fillMaxWidth(),
             surfaceModifier = Modifier.quickSheetBackdropModifier(backdrop, config, 16.dp, inner = true),
             surfaceColorOverride = Color.Transparent,
-            content = content
+            content = { Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), content = content) }
         )
     }
 }

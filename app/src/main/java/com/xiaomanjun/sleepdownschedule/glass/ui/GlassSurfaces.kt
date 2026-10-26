@@ -315,6 +315,14 @@ fun GlassDialogSurface(
     shape: Shape = RoundedRectangle(26.dp),
     content: @Composable () -> Unit
 ) {
+    if (!com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()) {
+        val base = if (glassUsesLightStyle(config)) Color.White else Color(0xFF050505)
+        MorphDialogSurface(
+            surfaceColor = base.copy(alpha = GlassTokens.dialog().surfaceAlpha * LocalGlassQuality.current),
+            shape = shape, modifier = modifier
+        ) { content() }
+        return
+    }
     GlassSurface(
         backdrop = backdrop,
         config = config,

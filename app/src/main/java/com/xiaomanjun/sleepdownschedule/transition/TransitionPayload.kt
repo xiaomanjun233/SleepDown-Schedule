@@ -13,7 +13,9 @@ import kotlin.math.roundToInt
 data class TransitionAnchorFrame(
     val boundsInWindow: Rect,
     val cornerRadiusPx: Float,
-    val bitmap: Bitmap?
+    val bitmap: Bitmap?,
+    /** Fill of the moving surface, independent of the source Activity's page background. */
+    val surfaceColor: Int? = null
 ) {
     val isValid: Boolean
         get() = boundsInWindow.width > 1f && boundsInWindow.height > 1f &&
@@ -73,8 +75,7 @@ data class TransitionPayload(
         openingAnchor?.let(::StaticTransitionAnchorProvider),
     val backgroundBitmap: Bitmap? = null,
     /**
-     * Solid underlay color of the source page. SharedViewKit uses it as the mask fill around the
-     * moving card; deriving it from the card bitmap yields a light frame in dark mode.
+     * Solid underlay color of the source Activity. The moving surface has its own anchor color.
      */
     val backgroundColor: Int? = null,
     val backgroundDialog: com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot? = null,

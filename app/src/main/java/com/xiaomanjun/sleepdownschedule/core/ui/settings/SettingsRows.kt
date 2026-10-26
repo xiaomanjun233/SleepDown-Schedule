@@ -42,6 +42,8 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
@@ -299,13 +301,13 @@ fun SettingsActionRow(
 }
 
 @Composable
-fun SettingsValueRow(title: String, value: String, compact: Boolean = false) {
-    if (compact && LocalGlassMiuixEnabled.current) {
+fun SettingsValueRow(title: String, value: String, compact: Boolean = false, valueOnRight: Boolean = false) {
+    if (compact && !valueOnRight && LocalGlassMiuixEnabled.current) {
         MiuixBasicComponent(title = title, summary = value, modifier = Modifier.fillMaxWidth(),
             insideMargin = PaddingValues(horizontal = 4.dp, vertical = 8.dp))
         return
     }
-    if (compact) {
+    if (compact && !valueOnRight) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp)) {
             Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Medium)
@@ -318,7 +320,7 @@ fun SettingsValueRow(title: String, value: String, compact: Boolean = false) {
         MiuixBasicComponent(
             title = title,
             modifier = Modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            insideMargin = PaddingValues(horizontal = if (compact) 4.dp else 14.dp, vertical = if (compact) 8.dp else 12.dp),
             endActions = {
                 Text(
                     value,
@@ -334,8 +336,8 @@ fun SettingsValueRow(title: String, value: String, compact: Boolean = false) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(58.dp)
-            .padding(horizontal = 20.dp),
+            .heightIn(min = if (compact) 52.dp else 58.dp)
+            .padding(horizontal = if (compact) 4.dp else 20.dp, vertical = if (compact) 8.dp else 0.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
@@ -346,7 +348,10 @@ fun SettingsValueRow(title: String, value: String, compact: Boolean = false) {
                 .weight(1f)
                 .offset(y = 1.dp)
         )
-        Text(value, modifier = Modifier.offset(y = 1.dp), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, modifier = Modifier.then(if (valueOnRight) Modifier.weight(2f) else Modifier).offset(y = 1.dp),
+            textAlign = TextAlign.End,
+            style = if (valueOnRight) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -528,8 +533,10 @@ fun SettingsActionButton(
     destructive: Boolean = false,
     monochrome: Boolean = false,
     glowing: Boolean = false,
-    badgeText: String? = null
+    badgeText: String? = null,
+    enabled: Boolean = true
 ) {
+    val actionModifier = if (enabled) modifier else modifier.graphicsLayer { alpha = 0.45f }.semantics { disabled() }
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val monochromeSurface = if (darkTheme) ComposeColor.Black else ComposeColor.White
     val tint = when {
@@ -544,9 +551,10 @@ fun SettingsActionButton(
     }
     if (backdrop != null) {
         LiquidButton(
-            onClick = onClick,
+            onClick = { if (enabled) onClick() },
+            enabled = enabled,
             backdrop = backdrop,
-            modifier = if (badgeText == null) modifier else modifier.heightIn(min = 42.dp),
+            modifier = if (badgeText == null) actionModifier else actionModifier.heightIn(min = 42.dp),
             height = if (badgeText == null) 42.dp else Dp.Unspecified,
             tint = tint,
             surfaceColor = tint.copy(
@@ -570,7 +578,7 @@ fun SettingsActionButton(
         }
     } else {
         Box(
-            modifier = modifier
+            modifier = actionModifier
                 .clip(Capsule())
                 .background(
                     tint.copy(
@@ -582,7 +590,7 @@ fun SettingsActionButton(
                         }
                     )
                 )
-                .clickable(onClick = onClick)
+                .clickable(enabled = enabled, onClick = onClick)
                 .padding(horizontal = 16.dp, vertical = 11.dp),
             contentAlignment = Alignment.Center
         ) {

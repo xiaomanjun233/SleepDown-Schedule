@@ -63,7 +63,7 @@ private val SwitchPlainSlide = spring<Float>(dampingRatio = 1f, stiffness = 320f
 
 internal enum class HomeSwitchClip { None, Page, TopBar }
 
-/** ColorOS retains every follow track; legacy dense glass can use its existing page slide. */
+/** Every portrait page retains the same six shared follow tracks, independent of card count. */
 @Stable
 internal class HomeSwitchMotion(
     initialSecondary: Boolean,
@@ -87,7 +87,7 @@ internal class HomeSwitchMotion(
     val plainSlide: Boolean by derivedStateOf(structuralEqualityPolicy()) {
         if (running) latchedPlainSlide else shouldUsePlainSlide()
     }
-    private fun shouldUsePlainSlide() = !fullMotion && renderedCardCount() > 10
+    private fun shouldUsePlainSlide() = false
     val progress: State<Float> = page.asState()
     val moving: Boolean get() = running || settledSecondary != target.value
 

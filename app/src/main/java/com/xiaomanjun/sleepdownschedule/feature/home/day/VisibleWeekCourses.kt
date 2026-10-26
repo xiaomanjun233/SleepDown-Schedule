@@ -66,7 +66,7 @@ internal fun weekCourseBuckets(
     val cancelled = mutableSetOf<Int>()
     val makeup = mutableSetOf<Int>()
     val visible = (1..7).flatMap { weekday ->
-        val adjustment = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config, start.plusDays((weekday - 1).toLong()))
+        val adjustment = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config, start.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, weekday)))
         if (adjustment == null) {
             regular[weekday].orEmpty()
         } else if (adjustment.sourceDate == null) {
@@ -95,11 +95,12 @@ internal fun weekCourseBuckets(
 
 internal fun visibleWeekdaysForBuckets(
     buckets: WeekCourseBuckets,
-    hideEmptyWeekends: Boolean
+    hideEmptyWeekends: Boolean,
+    weekStartsOnSunday: Boolean = false
 ): List<Int> = if (hideEmptyWeekends && !buckets.weekendHasCourse) {
     SchoolWeekdays
 } else {
-    FullWeekdays
+    if (weekStartsOnSunday) listOf(7, 1, 2, 3, 4, 5, 6) else FullWeekdays
 }
 
 internal fun CourseEntity.occurrenceOverrideKey(): String {

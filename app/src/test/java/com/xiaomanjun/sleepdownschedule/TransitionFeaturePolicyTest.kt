@@ -15,7 +15,11 @@ class TransitionFeaturePolicyTest {
             TransitionRouteId.CourseManagementToDetail,
             TransitionRouteId.AiHistoryToDetail,
             TransitionRouteId.ManualImportToHistory,
-            TransitionRouteId.AiProgressToHistory
+            TransitionRouteId.AiProgressToHistory,
+            TransitionRouteId.HomeToEduImport,
+            TransitionRouteId.HomeToCourseManagement,
+            TransitionRouteId.QuickSheetToSettingsDetail,
+            TransitionRouteId.SpecialCourseToEditor
         )
         for (id in TransitionRouteId.entries) {
             val route = TransitionRouteCatalog.get(id)

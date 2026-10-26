@@ -70,6 +70,14 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.AutoRefreshScheduleSett
 import com.xiaomanjun.sleepdownschedule.feature.settings.DayAgentSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.GeneralSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.PeriodSchemeManagementScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.TimeSlotCourseManagementScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.TimeSlotCourseEditorScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.TimeSlotCourseStateHandoff
+import com.xiaomanjun.sleepdownschedule.feature.settings.TimeSlotCourseOriginalExtra
+import com.xiaomanjun.sleepdownschedule.feature.settings.TimeSlotCourseStateTokenExtra
+import com.xiaomanjun.sleepdownschedule.feature.settings.SpecialCourseEditorActivity
+import com.xiaomanjun.sleepdownschedule.feature.settings.NativeSpecialCourseEditorActivity
+import com.xiaomanjun.sleepdownschedule.feature.settings.stableTimeSlotEditorState
 import com.xiaomanjun.sleepdownschedule.feature.settings.PrivacyPolicySettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.ScheduleConfigScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
@@ -92,6 +100,7 @@ import com.xiaomanjun.sleepdownschedule.transition.transitionRouteIdOrNull
 import kotlinx.coroutines.flow.first
 
 open class SettingsDetailActivityHost : ComponentActivity() {
+    private var timeSlotHandoffToken = 0L
     override fun onCreate(savedInstanceState: Bundle?) {
         // The coordinator selects a translucent destination for snapshot-free anchored routes
         // before super.onCreate. The QuickSheet route also declares this policy in the manifest so
@@ -105,6 +114,9 @@ open class SettingsDetailActivityHost : ComponentActivity() {
             intent.action == Intent.ACTION_VIEW
         }
         val customizeScheduleId = intent.getIntExtra(ScheduleCustomizeIdExtra, -1).takeIf { it > 0 }
+        val isTimeSlotEditor = this is SpecialCourseEditorActivity || this is NativeSpecialCourseEditorActivity
+        if (isTimeSlotEditor) timeSlotHandoffToken = intent.getLongExtra(TimeSlotCourseStateTokenExtra, 0L)
+        val timeSlotInitialState = TimeSlotCourseStateHandoff.get(timeSlotHandoffToken)?.state
         if (intent.getStringExtra(SettingsDetailPageExtra) == SettingsPage.AutoRefreshSchedule.name) {
             // Match the education picker before the first window layout, not after composition.
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
@@ -129,7 +141,12 @@ open class SettingsDetailActivityHost : ComponentActivity() {
             } else {
                 viewModel.state
             }
-            val state by stateFlow.collectAsStateWithLifecycle()
+            val liveState by stateFlow.collectAsStateWithLifecycle()
+            val state = if (isTimeSlotEditor && customizeScheduleId != null)
+                stableTimeSlotEditorState(liveState, timeSlotInitialState, customizeScheduleId) else liveState
+            val isTimeSlotEditorTransition = remember {
+                intent.transitionRouteIdOrNull() == TransitionRouteId.SpecialCourseToEditor
+            }
             // Anchored entries keep the destination window transparent during the Morph. The
             // special QuickSheet route supplies its root-composited underlay to the shared
             // snapshot blur chain instead of relying on OEM cross-window blur.
@@ -192,7 +209,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                 val closeSettings: () -> Unit = { (transitionRequestClose ?: { finish() })() }
                 val requestExit: () -> Unit = {
                     when (section) {
-                        SettingsPage.Schedule, SettingsPage.PeriodSchemes -> scheduleExitRequest++
+                        SettingsPage.Schedule, SettingsPage.PeriodSchemes, SettingsPage.SpecialCourses -> scheduleExitRequest++
                         else -> closeSettings()
                     }
                 }
@@ -208,7 +225,9 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                 Box(Modifier.fillMaxSize()) {
                 val settingsDetailContent: @Composable () -> Unit = {
                 DetailActivityScaffold(
-                    title = section.title(),
+                    title = if (isTimeSlotEditor) {
+                        if (intent.getStringExtra(TimeSlotCourseOriginalExtra).isNullOrEmpty()) "添加特殊课程" else "编辑特殊课程"
+                    } else section.title(),
                     config = state.config,
                     compactTopBar = section.usesPersistentCenteredSettingsTitle(),
                     centerCompactTitle = section.usesPersistentCenteredSettingsTitle(),
@@ -284,6 +303,20 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 onExitCommitFinished = { saved -> if (saved) closeSettings() },
                                 onExitInterceptionChange = { interceptSystemBack = it },
                                 onOpenScheduleSettings = if (customizeScheduleId != null) closeSettings else null
+                            )
+                        }
+                        SettingsPage.SpecialCourses -> if (scheduleEditReady) {
+                            if (isTimeSlotEditor) TimeSlotCourseEditorScreen(
+                                state = scheduleEditState, backdrop = backdrop,
+                                originalJson = intent.getStringExtra(TimeSlotCourseOriginalExtra).orEmpty(),
+                                handoffToken = timeSlotHandoffToken, exitCommitRequest = scheduleExitRequest,
+                                onExitCommitFinished = { saved -> if (saved) closeSettings() },
+                                onExitInterceptionChange = { interceptSystemBack = it }
+                            ) else
+                            TimeSlotCourseManagementScreen(
+                                state = scheduleEditState, backdrop = backdrop, exitCommitRequest = scheduleExitRequest,
+                                onExitCommitFinished = { saved -> if (saved) closeSettings() },
+                                onExitInterceptionChange = { interceptSystemBack = it }
                             )
                         }
                         SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
@@ -391,7 +424,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                     }
                 }
                 }
-                if (isAnchoredSettingsEntry) {
+                if (isAnchoredSettingsEntry || isTimeSlotEditorTransition) {
                     CrossActivityTransitionHost(
                         activity = this@SettingsDetailActivityHost,
                         // A new Activity-local ViewModel starts from AppState(). Starting the
@@ -399,7 +432,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                         // before the selected schedule arrives, which looks like a skipped
                         // transition. Precompose the real page, then release the existing motion.
                         openingReady = !isQuickSheetSettingsEntry || scheduleEditReady,
-                        handleSystemBack = section != SettingsPage.Schedule,
+                        handleSystemBack = section != SettingsPage.Schedule && !isTimeSlotEditor,
                         sourceContent = {
                             // The QuickSheet route already supplies the exact composed button and
                             // full background frame. Painting a synthetic source card here would
@@ -455,6 +488,10 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                 }
             }
         }
+    }
+    override fun onDestroy() {
+        if (isFinishing) TimeSlotCourseStateHandoff.remove(timeSlotHandoffToken)
+        super.onDestroy()
     }
 }
 

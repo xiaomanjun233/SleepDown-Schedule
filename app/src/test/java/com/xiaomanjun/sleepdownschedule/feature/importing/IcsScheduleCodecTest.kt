@@ -9,6 +9,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IcsScheduleCodecTest {
+    @Test fun sundayFirstCalendarRoundTripRetainsSundayWeeksAndActualDates() {
+        val config = defaultConfig().copy(totalWeeks = 3, termStartDate = "2026-10-05",
+            autoCurrentWeek = true, weekStartsOnSunday = true)
+        val course = CourseEntity(name = "周日课程", teacher = null, location = null, weekday = 7,
+            periods = listOf(1), weeks = listOf(2, 3), weekParity = WeekParity.ALL, note = null)
+        val text = IcsScheduleCodec.export("测试", config, defaultPeriods(), listOf(course), LocalDate.parse("2026-10-05"))
+        assertTrue(Regex("DTSTART(?:;[^:]*)?:20261011T080000").containsMatchIn(text))
+        val restored = IcsScheduleCodec.parse(text.toByteArray(), defaultConfig()).getOrThrow()
+        assertTrue(restored.config.weekStartsOnSunday)
+        assertEquals(listOf(2, 3), restored.courses.single().weeks)
+        assertEquals(7, restored.courses.single().weekday)
+    }
+
     @Test fun aiCalendarFallbackKeepsCompleteTextAndRejectsOversizedInputBeforeUpload() {
         val text = "BEGIN:VCALENDAR\nEND:VCALENDAR"
         assertEquals(text, icsTextForAi(text.toByteArray()))

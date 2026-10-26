@@ -61,6 +61,7 @@ fun CrossActivityTransitionHost(
 
     val openingAnchor = payload?.openingAnchor
     var returnAnchor by remember(payload) { mutableStateOf(payload?.returnAnchorProvider?.resolve()) }
+    var nativeCloseAccepted by remember(sessionId) { mutableStateOf(false) }
     val floatingOverlayHost = remember { DetailActivityFloatingOverlayHost() }
     val floatingOverlayVisible = session == null || state == null || state == TransitionSessionState.Open
     CompositionLocalProvider(LocalDetailActivityFloatingOverlayHost provides floatingOverlayHost) {
@@ -77,11 +78,22 @@ fun CrossActivityTransitionHost(
                 routeId == TransitionRouteId.TabletHomeToEduImport
             ) {
                 val requestClose: () -> Unit = {
-                    latestOnFinished()
-                    ActivityTransitionCoordinator.finishAfterLegacy(activity, sessionId)
+                    if (!nativeCloseAccepted) {
+                        if (ActivityTransitionCoordinator.requestNativeClose(activity, sessionId)) {
+                            nativeCloseAccepted = true
+                            activity.finish()
+                        } else {
+                            latestOnFinished()
+                            ActivityTransitionCoordinator.finishAfterLegacy(activity, sessionId)
+                        }
+                    }
                 }
-                LaunchedEffect(sessionId) {
-                    ActivityTransitionCoordinator.markOpen(sessionId)
+                LaunchedEffect(sessionId, state) {
+                    // Native callbacks own NativeRegistered -> Running -> Open. A plain slide
+                    // reaches Open here; it must never advance a registered native session early.
+                    if (session?.currentState == TransitionSessionState.LegacyRunning) {
+                        ActivityTransitionCoordinator.markOpen(sessionId)
+                    }
                 }
                 BackHandler(enabled = handleSystemBack, onBack = requestClose)
                 content(requestClose)
@@ -111,9 +123,16 @@ fun CrossActivityTransitionHost(
                         ActivityTransitionCoordinator.markOpen(sessionId)
                     }
                 },
-                onCloseRequested = {
+                onCloseRequested = close@{
+                    if (nativeCloseAccepted) {
+                        // A fast second back after the system close was accepted must not replay
+                        // the cached return frame through the Legacy renderer.
+                        returnAnchor = null
+                        return@close true
+                    }
                     returnAnchor = payload?.returnAnchorProvider?.resolve()
                     if (ActivityTransitionCoordinator.requestNativeClose(activity, sessionId)) {
+                        nativeCloseAccepted = true
                         activity.finish()
                         true
                     } else {
@@ -122,6 +141,7 @@ fun CrossActivityTransitionHost(
                     }
                 },
                 onFinished = {
+                    returnAnchor = null
                     latestOnFinished()
                     ActivityTransitionCoordinator.finishAfterLegacy(activity, sessionId)
                 },

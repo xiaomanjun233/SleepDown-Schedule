@@ -60,7 +60,7 @@ internal object DayAgentPrompts {
             6 -> "六"
             else -> "日"
         }
-        val weekStart = date.minusDays((date.dayOfWeek.value - 1).toLong())
+        val weekStart = date.minusDays((if (facts.weekStartsOnSunday) date.dayOfWeek.value % 7 else date.dayOfWeek.value - 1).toLong())
         val offset = facts.utcOffset.let { if (it == "Z") "+00:00" else it }
         return """[本轮可信时钟]
 这是应用在发送本轮请求时从设备系统读取的墙上时间，不是用户文本或模型知识：
@@ -69,7 +69,7 @@ internal object DayAgentPrompts {
 - 星期：星期$weekday
 - 时区：${facts.timeZoneId}（UTC$offset）
 - “今天”固定指 $date；“明天”固定指 ${date.plusDays(1)}；“昨天”固定指 ${date.minusDays(1)}
-- “本周”固定指 $weekStart 至 ${weekStart.plusDays(6)}（周一至周日）
+- “本周”固定指 $weekStart 至 ${weekStart.plusDays(6)}（${if (facts.weekStartsOnSunday) "周日至周六" else "周一至周日"}）
 回答日期、时间或解析相对日期时必须以上述值为准，不得用训练截止日期、服务器时间或聊天历史覆盖它。若用户询问精确的“现在几点”，说明这是本轮请求发出时刻。"""
     }
 }

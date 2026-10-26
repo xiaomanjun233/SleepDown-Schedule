@@ -68,7 +68,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import java.time.LocalTime
 import com.xiaomanjun.sleepdownschedule.domain.schedule.CoursePeriodTime
 import com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes
-import com.xiaomanjun.sleepdownschedule.domain.schedule.matchingPeriodIndicesForTimeRange
+import com.xiaomanjun.sleepdownschedule.domain.schedule.matchingPeriodIndicesForCourseClock
 import kotlin.math.max
 import kotlinx.coroutines.flow.map
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
@@ -206,19 +206,16 @@ internal fun DialogPeriodSelector(
     }
     // Imported exact clocks remain the saved source. Use the same display classification
     // as the timetable for every provider, including rows saved before this upgrade.
-    val matchingIndices = remember(customRange, customPeriodTimes, periods, safeValues) {
-        customRange?.takeIf { customPeriodTimes.isNullOrBlank() }?.let { (from, to) ->
-            matchingPeriodIndicesForTimeRange(from, to, periods).takeIf { indices ->
-                indices.isNotEmpty() && indices.all { it in safeValues }
-            }
-        }.orEmpty()
+    val matchingIndices = remember(customStartTime, customEndTime, customPeriodTimes, selectedPeriodIndices, periods, safeValues) {
+        matchingPeriodIndicesForCourseClock(customStartTime, customEndTime, customPeriodTimes,
+            selectedPeriodIndices, periods).takeIf { indices -> indices.all { it in safeValues } }.orEmpty()
     }
     val displayStartIndex = matchingIndices.firstOrNull()?.let(safeValues::indexOf) ?: startIndex
     val displayEndIndex = matchingIndices.lastOrNull()?.let(safeValues::indexOf) ?: endIndex
     CourseEditorPickerValue(
         title = title,
         value = customRange?.takeIf { matchingIndices.isEmpty() }?.let { (customStart, customEnd) -> "$customStart - $customEnd" }
-            ?: if (start !in safeValues || end !in safeValues) "请选择时间"
+            ?: if (matchingIndices.isEmpty() && (start !in safeValues || end !in safeValues)) "请选择时间"
             else "${label(safeValues[displayStartIndex])} - ${label(safeValues[displayEndIndex])}",
         backdrop = backdrop,
         config = config,
@@ -459,9 +456,9 @@ internal fun CourseEditorPickerOverlay(
     }
     var timeMode by remember(request) {
         mutableStateOf(when {
+            periodRequest?.customTimeMatchesPeriods == true -> CourseEditorTimeMode.Periods
             !periodRequest?.customPeriodTimes.isNullOrBlank() &&
                 parseCoursePeriodTimes(periodRequest.customPeriodTimes).map { it.index } == periodRequest.periodIndices -> CourseEditorTimeMode.Lessons
-            periodRequest?.customTimeMatchesPeriods == true -> CourseEditorTimeMode.Periods
             periodRequest?.customStartTime != null && periodRequest.customEndTime != null -> CourseEditorTimeMode.Range
             else -> CourseEditorTimeMode.Periods
         })

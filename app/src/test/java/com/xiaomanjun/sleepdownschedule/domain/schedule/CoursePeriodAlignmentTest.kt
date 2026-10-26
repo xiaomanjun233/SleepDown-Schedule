@@ -17,6 +17,17 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 class CoursePeriodAlignmentTest {
+    @Test fun legacyLessonClocksMapByActualTimeAndOnlyCompleteConsecutiveMatchesBecomePeriods() {
+        assertEquals(listOf(1, 2), matchingPeriodIndicesForCourseClock("08:00", "09:40",
+            "7,08:00-08:45;8,08:55-09:40", listOf(7, 8), bells))
+        assertTrue(matchingPeriodIndicesForCourseClock("08:00", "09:40",
+            "1,08:00-08:46;2,08:55-09:40", listOf(1, 2), bells).isEmpty())
+        assertTrue(matchingPeriodIndicesForCourseClock("08:00", "10:45",
+            "1,08:00-08:45;3,10:00-10:45", listOf(1, 3), bells).isEmpty())
+        assertTrue(matchingPeriodIndicesForCourseClock(null, null,
+            "1,08:00-08:45", listOf(1, 2), bells).isEmpty())
+    }
+
     private val config = defaultConfig().copy(currentWeek = 1, autoCurrentWeek = false)
     private val bells = listOf(PeriodEntity(1, "08:00", "08:45"), PeriodEntity(2, "08:55", "09:40"),
         PeriodEntity(3, "10:00", "10:45"), PeriodEntity(4, "10:55", "11:40"))

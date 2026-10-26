@@ -7,11 +7,43 @@ import kotlinx.serialization.json.*
 
 /** Both transports use exactly the same names, argument validation and call identity rules. */
 internal fun normalizeAgentToolName(raw: String): AgentToolName? {
-    val name = raw.trim().removePrefix("functions.").removePrefix("tools.").removePrefix("sleepdown.")
+    val parts = raw.trim().split('.')
+    if (parts.dropLast(1).any { it !in setOf("functions", "tools", "sleepdown") }) return null
+    val name = parts.last()
         .replace(Regex("([a-z0-9])([A-Z])"), "$1_$2")
         .replace('-', '_').uppercase(Locale.ROOT)
     return AgentToolName.entries.firstOrNull { it != AgentToolName.UNKNOWN && it.name == name }
 }
+
+/** Capability-denial recovery may require a read, but must never force a write or memory update. */
+internal fun agentReadRecoveryTools(tools: JsonArray): JsonArray = JsonArray(tools.filter {
+    val name = (it as? JsonObject)?.get("name")?.jsonPrimitive?.contentOrNull
+    normalizeAgentToolName(name.orEmpty()) in setOf(AgentToolName.GET_CURRENT_OVERVIEW,
+        AgentToolName.SEARCH_COURSES, AgentToolName.GET_WEEK_SCHEDULE,
+        AgentToolName.GET_SEMESTER_SCHEDULE, AgentToolName.GET_PERIODS,
+        AgentToolName.GET_SETTINGS, AgentToolName.GET_SCHEDULE_ADJUSTMENTS, AgentToolName.GET_SCHEDULES,
+        AgentToolName.READ_IMPORT_JSON)
+})
+
+/** Explicit schedule requests must use local facts, even after an older capability denial. */
+internal fun agentNeedsScheduleRead(messages: List<JsonObject>): Boolean {
+    val lastUser = messages.lastOrNull { it["role"]?.jsonPrimitive?.contentOrNull == "user" }
+        ?: return false
+    val text = when (val content = lastUser["content"]) {
+        is JsonPrimitive -> content.contentOrNull.orEmpty()
+        is JsonArray -> content.mapNotNull { part ->
+            (part as? JsonObject)?.get("text")?.jsonPrimitive?.contentOrNull
+        }.joinToString("\n")
+        else -> ""
+    }
+    return ScheduleReadRequest.containsMatchIn(text)
+}
+
+private val ScheduleReadRequest = Regex(
+    "课表|课程|有课|上课|下课|教学周|作息|调课|停课|补课|第[0-9一二三四五六七八九十]+节|" +
+        "(?:今天|明天|后天|本周|下周|这周).{0,12}(?:课|安排)|\\b(?:schedule|timetable|classes|courses)\\b",
+    RegexOption.IGNORE_CASE
+)
 
 internal fun normalizedAgentArguments(name: AgentToolName, arguments: Map<String, String>): Map<String, String> =
     arguments.mapValues { (key, value) ->
@@ -124,7 +156,7 @@ internal fun agentAnswerValidationFeedback(answer: String, facts: DayAgentFacts)
 
 /** Only recover a first-turn capability denial while native local tools are actually available. */
 internal fun agentLocalToolAvailabilityFeedback(answer: String): String? {
-    val denial = Regex("(?:无法|不能|没法|没有权限)(?:直接)?(?:访问|读取|调用|使用).{0,18}(?:课表|课程数据|应用数据|本地工具|工具)")
+    val denial = Regex("(?:无法|不能|没法|没有权限)[^。！？\\n]{0,24}(?:访问|读取|调用|使用)[^。！？\\n]{0,24}(?:课表|课程数据|应用数据|本地工具|工具)")
         .containsMatchIn(answer) ||
         listOf("没有可用工具", "未提供工具", "没有工具", "cannot access your schedule",
             "can't access your schedule", "don't have access to your schedule", "no tools available")

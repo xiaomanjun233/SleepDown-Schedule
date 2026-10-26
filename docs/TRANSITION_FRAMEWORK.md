@@ -18,7 +18,7 @@
 | `src/store/.../transition/PlatformSharedViewKitApi.kt` | 不含 SDK 的不可用实现 |
 | `transition/LegacyTransitionBackend.kt`、`transition/legacy/` | 既有应用内轨迹、快照和绘制 |
 
-原 Oplus 私有 ViewSeamless 后端、反射/回调适配、版本门槛、源 View 桥、leash 参数、调试入口及旧 keep 规则已删除。系统原生路径统一查询金标能力，不按厂商品牌分叉。四个旧 Oplus Activity 名在 Manifest 中仅作为不导出的恢复 alias，指向实际页面；不包含旧类或旧动画。四条候选路线复用三种真实 opaque 目的页： `NativeCourseManagementDetailActivity`、`NativeAiImportHistoryActivity` 和 `NativeAiImportHistoryDetailActivity`，不使用 alias 改变窗口分类。
+原 Oplus 私有 ViewSeamless 后端、反射/回调适配、版本门槛、源 View 桥、leash 参数、调试入口及旧 keep 规则已删除。系统原生路径统一查询金标能力，不按厂商品牌分叉。四个旧 Oplus Activity 名在 Manifest 中仅作为不导出的恢复 alias，指向实际页面；不包含旧类或旧动画。候选路线与真实 opaque 目的页以 `TransitionRouteCatalog` 为准，不使用 alias 改变窗口分类。特殊课程 `special_course_to_editor` 使用 `feature.settings.NativeSpecialCourseEditorActivity`，不具备金标能力时进入普通 `SpecialCourseEditorActivity`，按设置页资源滑入／滑出；该路线的 Legacy profile 为资源动画，其他成熟锚点路线保持原 Morph。
 
 首页编辑器、液滴、个性化、AI 会话、周视图交互和横屏页面切换仍由原功能管理。参数、播放及释放入口见[动效维护入口](architecture/MOTION_MAINTENANCE.md)。共享 Legacy 几何仍在 `LegacySharedObjectGeometry.kt` / `LegacyMenuDestinationGeometry.kt`，首页专属适配在 `feature/home/overlay/HomeLiquidMorphSpecs.kt`。
 
@@ -41,9 +41,11 @@ Intent 只承载 route/session 身份；Bitmap、返回解析器与临时资源�
 
 课程管理按当前组身份和已附着布局重新解析返回位置。删除、改组、回收或裁切的卡片不作为可靠返回目标。Legacy host 也在关闭请求时刷新落点，不缓存第一次 Compose 时的位置。
 
+已知实体表面优先显式传 `TransitionAnchorFrame.surfaceColor`，与实际绘制共用颜色函数并合成页面衬底；不要从卡片内部的课程色、文字或胶囊推断外壳底色。课程管理开场和动态返回共用这一契约。只有没有实体底色的来源才使用通用快照估色。
+
 ## 路线门控
 
-当前 Kit 候选为 `course_management_to_detail`、`ai_history_to_detail`、`ai_progress_to_history` 与 `manual_import_to_history`。GitHub 版具备 SDK，商店版不依赖/打包 SDK。普通发布默认使用 Legacy；全局开关与逐路线白名单都满足才尝试 Kit，例如只开放首条：
+当前 Kit 候选为 `course_management_to_detail`、`ai_history_to_detail`、`ai_progress_to_history`、`manual_import_to_history`、`home_to_edu_import`、`home_to_course_management`、`quick_sheet_to_settings_detail` 与 `special_course_to_editor`。快速设置保留真实按钮及动态返回位置，详细设置仍先保存、后退出。特殊课程只捕获点击卡片，返回重新解析实时位置，源被删除则使用 SDK 安全返回类型；编辑页保留保存／放弃确认。GitHub 版具备 SDK，商店版不依赖/打包 SDK。普通发布默认使用 Legacy；全局开关与逐路线白名单都满足才尝试 Kit，例如只开放首条：
 
 ```json
 {
@@ -56,7 +58,7 @@ Intent 只承载 route/session 身份；Bitmap、返回解析器与临时资源�
 
 旧 Oplus 远程字段不再生效；远程解析器继续忽略未知字段，兼容旧 bootstrap/cache。配置不能把非候选路线升级为原生路线。
 
-本地可用 `-Psleepdown.sharedViewKitTest=true` 在 Debug 或签名 Release 中测试四条已适配候选，不依赖后台配置。普通构建默认仍关闭；商店版继续受 `SLEEPDOWN_EXPERIMENTAL_FEATURES=false` 排除，不打包 SDK，不增加产品设置项。签名 Release 用于相同包名/签名的实机验证，日志保留该试点的系统协议查询与回退原因。打开本地开关不等于 ROM 已接受：仍需能力、真实锚点、安全返回和 SDK options 均通过。其他路线必须先完成自身截图、源交接和真实返回验证，再调整路由候选及白名单。
+本地可用 `-Psleepdown.sharedViewKitTest=true` 在 Debug 或签名 Release 中测试七条已适配候选，不依赖后台配置。普通构建默认仍关闭；商店版继续受 `SLEEPDOWN_EXPERIMENTAL_FEATURES=false` 排除，不打包 SDK，不增加产品设置项。签名 Release 用于相同包名/签名的实机验证，日志保留该试点的系统协议查询与回退原因。打开本地开关不等于 ROM 已接受：仍需能力、真实锚点、安全返回和 SDK options 均通过。其他路线必须先完成自身截图、源交接和真实返回验证，再调整路由候选及白名单。
 
 ## SDK 与绘制契约
 
@@ -74,6 +76,8 @@ Intent 只承载 route/session 身份；Bitmap、返回解析器与临时资源�
 SDK 回调进入主线程，以既有 generation 和资源身份过滤旧事件。一个会话的延迟 OPEN 事件不能重新打开正在关闭的目的页。全局 `cancelCurrentViewAnimation` 仅由当前运动的所属会话调用，旧源 Activity 销毁不能取消另一条路线。
 
 打开/返回各有一次 3 秒回调 watchdog，正常完成即移除。未启动前拒绝交给原 Legacy；目的页已经启动后取消或缺少 OPEN 回调，只在该目的 host 切回 Legacy，不能再次 startActivity。BACK 结束、取消或 watchdog 完成后幂等清理，Activity 销毁亦走同一资源入口，不依赖早到的 onResume 猜测结束。
+
+BACK 结束时先恢复业务源，再由来源窗口的下一次 pre-draw 撤下短暂桥接。桥接不与已恢复的半透明源控件重叠额外帧；窗口分离或后台未重绘会有界释放。桥接副本不在可能仍被 RenderNode 使用时手动 recycle，Kit 自己的资源仍按原会话清理。
 
 横屏沿用既有局部切页策略，协调器不保留源锚点/背景快照；首批 Kit 排除多窗/PiP。此为项目试接范围，不是联盟 SDK 的全部能力声明。原表单、Popup 与保存语义维持自己的入口。
 

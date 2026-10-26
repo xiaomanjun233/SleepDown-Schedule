@@ -479,6 +479,20 @@ fun ScheduleConfigScreen(
         }
     }
 
+    fun openSpecialCourseManagement() {
+        if (!draftReady || saving) return
+        if (computeDirty()) {
+            error = "请先保存或放弃当前课表设置修改，再打开特殊课程"
+            return
+        }
+        draftReady = false
+        periodManagementLauncher.launch(
+            Intent(context, SettingsDetailActivity::class.java)
+                .putExtra("settings_page", SettingsPage.SpecialCourses.name)
+                .putExtra(ScheduleCustomizeIdExtra, state.config.id)
+        )
+    }
+
     fun selectPeriodScheme(saved: SavedPeriodScheme) {
         val draft = schemeDraft ?: return
         if (!draftReady || saving) return
@@ -641,6 +655,7 @@ fun ScheduleConfigScreen(
             lastSavedConfig = lastSavedConfig.copy(scheduleAdjustmentsJson = it)
         },
         onOpenPeriodSchemes = ::openPeriodSchemeManagement,
+        onOpenSpecialCourses = ::openSpecialCourseManagement,
         periodSchemeLibrary = periodSchemeLibrary,
         onSelectPeriodScheme = ::selectPeriodScheme
     )

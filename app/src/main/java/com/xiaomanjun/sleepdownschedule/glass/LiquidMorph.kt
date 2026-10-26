@@ -84,7 +84,7 @@ class LiquidMorphController {
     }
 
     fun startOpening(token: LiquidMorphSessionToken): Boolean =
-        move(token, setOf(LiquidMorphPhase.Preparing), LiquidMorphPhase.Opening)
+        move(token, setOf(LiquidMorphPhase.Preparing, LiquidMorphPhase.Closing), LiquidMorphPhase.Opening)
 
     fun finishOpening(token: LiquidMorphSessionToken): Boolean {
         if (!move(token, setOf(LiquidMorphPhase.Opening), LiquidMorphPhase.Open)) return false
@@ -236,11 +236,17 @@ data class LiquidContentHandoffFrame(
 )
 
 /** Preloaded forms crossfade on the raw clock, independently of the fast geometry easing.
- * The same progress on return preserves alpha when an opening is interrupted. */
-internal fun liquidPreloadedContentAlpha(rawProgress: Float): Float {
-    val start = 0.35f
-    val end = 0.70f
-    val t = ((rawProgress - start) / (end - start)).coerceIn(0f, 1f)
+ * The same progress on return preserves alpha when an opening is interrupted, which is also what
+ * keeps a mid-flight reversal continuous. The liquid window sits earlier than the native one. */
+internal fun liquidPreloadedContentAlpha(
+    rawProgress: Float, earlyContentHandoff: Boolean = false, expansionProgress: Float = rawProgress
+): Float {
+    // Liquid content changes with the space available in the shell, rather than elapsed time.
+    // The very small source keeps its own text; the form is readable by 62% expansion.
+    val start = if (earlyContentHandoff) 0.24f else 0.35f
+    val end = if (earlyContentHandoff) 0.62f else 0.70f
+    val progress = if (earlyContentHandoff) expansionProgress else rawProgress
+    val t = ((progress - start) / (end - start)).coerceIn(0f, 1f)
     return t * t * (3f - 2f * t)
 }
 

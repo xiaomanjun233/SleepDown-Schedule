@@ -142,6 +142,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.squircle.squircleSurface
+import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost
 
 open class AiEduImportProgressActivityHost : ComponentActivity() {
     private var displayedTaskId by mutableStateOf<String?>(null)
@@ -310,6 +311,23 @@ internal fun AiEduImportProgressPage(
     var composerHeightPx by remember { mutableStateOf(0) }
     val runtimePickerState = rememberAiRuntimePickerState()
     var historySourceHidden by remember { mutableStateOf(false) }
+    var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
+    // Cache the top-bar frame while the history button is idle; onClick captures would include
+    // the native press/deformation state and produce a warped source for the system animation.
+    var cleanHistoryFrame by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(historyButtonBounds, historySourceHidden) {
+        if (!historySourceHidden &&
+            historyButtonBounds.width > 1f && historyButtonBounds.height > 1f
+        ) {
+            historySnapshotRequested.set(true)
+            historySnapshotRequestVersion += 1
+            withFrameNanos { }
+            withFrameNanos { }
+            cleanHistoryFrame = runCatching {
+                historySnapshotLayer.toImageBitmap().asAndroidBitmap()
+            }.getOrNull()
+        }
+    }
     val density = LocalDensity.current
     val inputInsets = rememberFloatingInputInsets()
     val conversationScope = rememberCoroutineScope()
@@ -428,16 +446,22 @@ internal fun AiEduImportProgressPage(
                         AiEduHistoryButton(
                             config = config,
                             backdrop = topBarBackdrop,
+                            onBoundsChanged = { historyButtonBounds = it },
                              onClick = { sourceBounds ->
                                  conversationScope.launch {
-                                     // Capture the real button before hiding it, then record a
-                                     // second frame for the clean page background used by Morph.
-                                     historySnapshotRequested.set(true)
-                                     historySnapshotRequestVersion += 1
-                                     withFrameNanos { }
-                                     val sourceSnapshot = runCatching {
-                                         historySnapshotLayer.toImageBitmap().asAndroidBitmap()
-                                     }.getOrNull()?.cropToWindowBounds(
+                                     // Use the idle frame cached before press-down; capturing here
+                                     // would bake the native button's press/deformation into the
+                                     // system source bitmap.
+                                     val sourceFrame = cleanHistoryFrame ?: run {
+                                         historySnapshotRequested.set(true)
+                                         historySnapshotRequestVersion += 1
+                                         withFrameNanos { }
+                                         withFrameNanos { }
+                                         runCatching {
+                                             historySnapshotLayer.toImageBitmap().asAndroidBitmap()
+                                         }.getOrNull()
+                                     }
+                                     val sourceSnapshot = sourceFrame?.cropToWindowBounds(
                                          sourceBounds,
                                          rootPositionInWindow
                                      ) ?: return@launch
@@ -689,6 +713,10 @@ internal fun AiEduImportProgressPage(
                         }
                     }
                 )
+                // The composer is a full-page sibling of the scaffold, so its cascading menus fall
+                // back to the process-wide popup registry. Without a root host in this Activity the
+                // model picker toggles `expanded` but nothing ever renders the popup.
+                MiuixPopupHost()
             }
         }
         previewAttachment?.let { request ->
@@ -867,7 +895,8 @@ private fun AiEduHistoryButton(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     onClick: (Rect) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onBoundsChanged: (Rect) -> Unit = {}
 ) {
     var bounds by remember { mutableStateOf(Rect.Zero) }
     TopGlassIconButton(
@@ -878,7 +907,13 @@ private fun AiEduHistoryButton(
         onClick = { if (bounds.width > 0f) onClick(bounds) },
         modifier = modifier
             .size(42.dp)
-            .onGloballyPositioned { bounds = it.boundsInWindow() },
+            .onGloballyPositioned {
+                val next = it.boundsInWindow()
+                if (next != bounds) {
+                    bounds = next
+                    onBoundsChanged(next)
+                }
+            },
         surfaceColorOverride = if (appUsesDarkTheme(config)) {
             Color.White.copy(alpha = 0.10f)
         } else {

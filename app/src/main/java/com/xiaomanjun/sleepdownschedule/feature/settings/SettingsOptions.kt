@@ -67,33 +67,6 @@ fun SettingsAppIconModeRow(
 }
 
 @Composable
-fun SettingsDockAlignmentRow(
-    selected: DockAlignment,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    onSelected: (DockAlignment) -> Unit
-) {
-    val options = DockAlignment.entries
-    val labels = mapOf(
-        DockAlignment.LEFT to "左侧",
-        DockAlignment.CENTER to "居中",
-        DockAlignment.RIGHT to "右侧"
-    )
-    SleepDownLiquidDropdownPreference(
-        items = options.map { labels.getValue(it) },
-        selectedIndex = options.indexOf(selected).coerceAtLeast(0),
-        title = "Dock 栏位置",
-        backdrop = backdrop,
-        config = config,
-        modifier = Modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-        maxHeight = 260.dp,
-        onExpandedChange = {},
-        onSelectedIndexChange = { index -> options.getOrNull(index)?.let(onSelected) }
-    )
-}
-
-@Composable
 fun SettingsHomeStartModeRow(
     selected: HomeStartMode,
     backdrop: Backdrop?,

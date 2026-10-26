@@ -13,7 +13,8 @@ internal data class NonCurrentWeekCard(val course: CourseEntity, val top: Float,
 internal fun nonCurrentWeekCards(
     courses: List<CourseEntity>, actual: List<CourseEntity>, week: Int, day: Int,
     periods: List<PeriodEntity>, rowHeight: Float,
-    renderedActualBounds: List<Pair<Float, Float>>? = null
+    renderedActualBounds: List<Pair<Float, Float>>? = null,
+    timeGrid: WeekTimeSlotGrid? = null
 ): List<NonCurrentWeekCard> {
     fun cards(course: CourseEntity): List<NonCurrentWeekCard> =
         courseWeekDisplayFragments(course, periods).flatMap { fragment ->
@@ -23,7 +24,7 @@ internal fun nonCurrentWeekCards(
                 val rendered = if (fragment.hasCustomTime() && fragment.arrangementProjection == null)
                     segments.take(1) else segments
                 rendered.map { segment ->
-                    val (top, bottom) = weekCardVerticalBounds(segment, periods, rowHeight.dp)
+                    val (top, bottom) = weekCardVerticalBounds(segment, periods, rowHeight.dp, timeGrid)
                     NonCurrentWeekCard(segment.course, top, bottom)
                 }
             }
@@ -50,16 +51,18 @@ internal fun weekPresentationWeekdays(
 ): List<Int> {
     val start = scheduleWeekStartDate(config, week)
     val hasWeekendPlaceholder = (6..7).any { day ->
-        scheduleAdjustmentForDate(config, start.plusDays((day - 1).toLong()))?.let {
+        scheduleAdjustmentForDate(config, start.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, day)))?.let {
             it.sourceDate == null && it.allDayPlaceholder
         } == true
     }
+    val hasWeekendSlots = runCatching { decodeTimeSlotCourses(config.timeSlotCoursesJson) }.getOrDefault(emptyList())
+        .any { slot -> slot.weekdays.any { it >= 6 } }
     val hasWeekendReference = config.showNonCurrentWeekCourses && courses.any {
         it.weekday >= 6 && !it.isHiddenByPeriodAlignment() &&
             !(week in it.weeks && parityMatches(it.weekParity, week))
     }
     return visibleWeekdaysForBuckets(buckets,
-        config.hideEmptyWeekends && !hasWeekendPlaceholder && !hasWeekendReference)
+        config.hideEmptyWeekends && !hasWeekendPlaceholder && !hasWeekendReference && !hasWeekendSlots, config.weekStartsOnSunday)
 }
 
 internal fun nonCurrentSupplementaryCourses(

@@ -29,6 +29,8 @@ internal class SharedViewKitBackend(
         var closing: Boolean = false,
         var watchdog: Runnable? = null
     ) {
+        var kitReturnBitmap: Bitmap? = null
+        var returnAnchor: TransitionAnchorFrame? = null
         /**
          * The vendor path may return the same Bitmap instance from its own copy step and recycle it
          * when the request is rejected. Only this app-owned software copy is ever handed over, so a
@@ -36,6 +38,8 @@ internal class SharedViewKitBackend(
          */
         fun recycleKitBitmap() {
             if (!kitBitmap.isRecycled) kitBitmap.recycle()
+            kitReturnBitmap?.let { if (!it.isRecycled) it.recycle() }
+            kitReturnBitmap = null
         }
     }
 
@@ -88,7 +92,8 @@ internal class SharedViewKitBackend(
         )
         val extras = Bundle().apply {
             capabilities.fallbackType?.let { putInt(SharedViewKitContract.FallbackType, it) }
-            request.payload?.backgroundColor?.let { putInt(SharedViewKitContract.Color, it) }
+            putInt(SharedViewKitContract.Color, anchor.surfaceColor ?: transitionSurfaceColor(kitBitmap,
+                request.payload?.backgroundColor ?: android.graphics.Color.TRANSPARENT))
         }
         val options = sdk("options") { api.options(kitBitmap,
             boundsForKit(request.activity.window.decorView, anchor, capabilities),
@@ -123,11 +128,22 @@ internal class SharedViewKitBackend(
         }.getOrNull()
         val bundle = Bundle().apply {
             if (source != null && anchor?.isValid == true) {
+                resource.returnAnchor = anchor
                 putParcelable(SharedViewKitContract.Bounds, boundsForKit(source.window.decorView, anchor, resource.capabilities))
                 putFloat("sharedView.radius", anchor.cornerRadiusPx)
+                if (resource.capabilities.returnBitmap) {
+                    anchor.bitmap?.softwareCopyForKit()?.let { bitmap ->
+                        // The opening menu and the return FAB are different surfaces. Updating
+                        // bounds alone leaves the SDK animating the opening menu's old pixels.
+                        resource.kitReturnBitmap = bitmap
+                        putParcelable(SharedViewKitContract.Bitmap, bitmap)
+                    }
+                }
             } else putInt(SharedViewKitContract.BackType, checkNotNull(resource.capabilities.missingTargetBackType))
-            TransitionPayloadStore.payload(session.id)?.backgroundColor
-                ?.let { putInt(SharedViewKitContract.Color, it) }
+            val pixels = resource.kitReturnBitmap ?: anchor?.bitmap
+            putInt(SharedViewKitContract.Color, anchor?.surfaceColor ?: pixels?.let {
+                transitionSurfaceColor(it, android.graphics.Color.TRANSPARENT)
+            } ?: android.graphics.Color.TRANSPARENT)
         }
         val updated = sdk("return") { api.updateReturn(activity, bundle); true } == true
         if (!updated || !session.moveTo(TransitionSessionState.Closing)) {
@@ -136,7 +152,9 @@ internal class SharedViewKitBackend(
         }
         resource.closing = true
         movingSession = session.id
-        TransitionPayloadStore.releaseSource(session.id)
+        // The source stays hidden for the whole return animation: the ROM flies the card back into
+        // those bounds, so restoring it here would show the real button underneath the moving card.
+        // `complete()` restores it once the BACK callback (or watchdog) ends the session.
         watch(resource)
         return true
     }
@@ -173,6 +191,21 @@ internal class SharedViewKitBackend(
 
     private fun complete(resource: Resource) {
         if (!current(resource)) return
+        // Cover the state handoff only until the first restored source draw. Holding a translucent
+        // button snapshot for extra frames composites it twice and causes a visible brightness pulse.
+        val source = resource.source.get()?.takeUnless { it.isDestroyed || it.isFinishing }
+        val anchor = resource.returnAnchor
+        var releaseReturnCover: (() -> Unit)? = null
+        if (source != null && anchor?.isValid == true) {
+            val coverBitmap = (resource.kitReturnBitmap ?: anchor.bitmap)?.softwareCopyForKit()
+            if (coverBitmap != null) {
+                releaseReturnCover = source.attachOpeningSourceSnapshotHandoff(anchor.copy(bitmap = coverBitmap))
+                // Do not recycle a bitmap that may still be referenced by a submitted RenderNode.
+                // Removing the cover releases ownership; the renderer/GC retires its pixel storage.
+            }
+        }
+        TransitionPayloadStore.releaseSource(resource.session.id)
+        releaseReturnCover?.let { ReturnCoverHandoff(checkNotNull(source).window.decorView, it).start() }
         resource.session.invalidateCallbacks()
         if (movingSession == resource.session.id) movingSession = null
         resource.session.moveTo(TransitionSessionState.Finished)
@@ -237,6 +270,21 @@ internal class SharedViewKitBackend(
         /** A native leash is already moving; starting Legacy here would stack a second page. */
         internal const val AnimationInProgressReason = "animationInProgress"
     }
+}
+
+/** Read a few interior edge pixels once, never a GPU readback or a per-frame bitmap scan. */
+internal fun transitionSurfaceColor(bitmap: Bitmap, fallback: Int): Int {
+    if (bitmap.isRecycled || bitmap.config == Bitmap.Config.HARDWARE) return fallback
+    val pixels = buildList {
+        for (y in listOf(0.12f, 0.88f)) for (x in listOf(0.25f, 0.5f, 0.75f)) {
+            val pixel = bitmap.getPixel((x * (bitmap.width - 1)).roundToInt(), (y * (bitmap.height - 1)).roundToInt())
+            if (android.graphics.Color.alpha(pixel) >= 192) add(pixel)
+        }
+    }
+    if (pixels.isEmpty()) return fallback
+    fun median(component: (Int) -> Int) = pixels.map(component).sorted()[pixels.size / 2]
+    return android.graphics.Color.rgb(median(android.graphics.Color::red), median(android.graphics.Color::green),
+        median(android.graphics.Color::blue))
 }
 
 /** Compose anchors are always in window coordinates; only the SDK metadata chooses the output. */

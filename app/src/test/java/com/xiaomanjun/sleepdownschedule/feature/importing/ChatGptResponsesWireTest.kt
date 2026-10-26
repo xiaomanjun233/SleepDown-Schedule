@@ -79,18 +79,22 @@ class ChatGptResponsesWireTest {
         }
     }
 
-    @Test fun localToolsAreNamespacedAndSystemMessagesBecomeDeveloper() {
+    @Test fun localToolsAreEagerInputDeclarationsAndSystemMessagesBecomeDeveloper() {
         val request = chatGptResponsesBody(Json.parseToJsonElement("""{
           "model":"account-model","input":[{"type":"message","role":"system","content":"safe rules"}],
           "tools":[{"type":"function","name":"IMPORT_SCHEDULE","parameters":{"type":"object"}}],
           "tool_choice":{"type":"function","name":"IMPORT_SCHEDULE"}
         }""").jsonObject)
-        val namespace = request["tools"]!!.jsonArray.single().jsonObject
-        assertEquals("namespace", namespace["type"]!!.jsonPrimitive.content)
-        assertEquals("sleepdown", namespace["name"]!!.jsonPrimitive.content)
-        assertEquals("IMPORT_SCHEDULE", namespace["tools"]!!.jsonArray.single().jsonObject["name"]!!.jsonPrimitive.content)
-        assertEquals("required", request["tool_choice"]!!.jsonPrimitive.content)
-        assertEquals("developer", request["input"]!!.jsonArray.single().jsonObject["role"]!!.jsonPrimitive.content)
+        assertFalse(request.containsKey("tools"))
+        val declaration = request["input"]!!.jsonArray[0].jsonObject
+        assertEquals("additional_tools", declaration["type"]!!.jsonPrimitive.content)
+        assertEquals("developer", declaration["role"]!!.jsonPrimitive.content)
+        val function = declaration["tools"]!!.jsonArray.single().jsonObject
+        assertEquals("IMPORT_SCHEDULE", function["name"]!!.jsonPrimitive.content)
+        assertEquals(JsonPrimitive(false), function["defer_loading"])
+        assertEquals("IMPORT_SCHEDULE", request["tool_choice"]!!.jsonObject["name"]!!.jsonPrimitive.content)
+        assertEquals("developer", request["input"]!!.jsonArray[1].jsonObject["role"]!!.jsonPrimitive.content)
+        assertEquals(request, chatGptResponsesBody(request))
     }
 
     @Test fun unsupportedHostedToolsAreRejected() {
