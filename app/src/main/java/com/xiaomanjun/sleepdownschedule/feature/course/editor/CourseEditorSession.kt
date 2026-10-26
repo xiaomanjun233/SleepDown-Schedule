@@ -82,4 +82,3 @@ internal class CourseEditorSessions {
         if (session !== active) sessions.remove(session)
     }
 }
-

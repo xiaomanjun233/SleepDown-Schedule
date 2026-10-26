@@ -1,8 +1,7 @@
 param([Parameter(ValueFromRemainingArguments = $true)][string[]]$BuildArguments)
 $ErrorActionPreference = 'Stop'
 $buildRoot = Split-Path $PSScriptRoot -Parent
-$buildCacheRoot = 'D:\Android studio\CourseSchedule\tmp\build-cache'
-$env:GRADLE_USER_HOME = Join-Path $buildCacheRoot 'gradle'
+$env:GRADLE_USER_HOME = 'D:\gradle-home'
 # Keep native test/JNI paths short on Windows; test names add their own nested directories.
 $env:TEMP = 'D:\sd-tmp'
 $env:TMP = $env:TEMP
