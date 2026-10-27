@@ -2,7 +2,11 @@
 
 ## 2026-10-27 课程时间模型重构已提交
 
-现状已由 [#86](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/86) 保全，head `a13199bb`。本聊天用户确认方案并要求执行，随后要求一并解决 [Issue #85](https://github.com/xiaomanjun233/SleepDown-Schedule/issues/85)。实现已提交 [PR #87](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/87)，目标 main，依赖 #86；核心代码 `8296564d`、Issue #85 独立提交 `95340850`。工作树为 `tmp/course-time-model-room50` / `codex/course-time-model-room50`。39 类 296 项回归、正式 Release（9m44s）、V2 签名、架构及脚本检查通过，详细模型、APK 摘要与验证见[本轮报告](reports/2026-10-26-course-time-model-refactor.md)和[课程时间模型](architecture/COURSE_TIME_MODEL.md)。保持 Draft 等待真实教务/WakeUp 网络和真机视觉验收，未安装、合并或发布；其他活动任务记录保留。授权包含本任务提交、推送、PR，不包含合并、安装或发布。
+用户后续要求以后打包默认启用金标动画、按节次选中态为胶囊，以及详细设置重排。GitHub 渠道默认金标已开启（保留显式 false 对照），商店渠道关闭，提交 `b2c17770`；“学期与显示 → 特殊课程 → 调休 → 本课表作息（含选择、日期规则、节次编辑）→ 作息管理”的界面调整及滚轮胶囊在 `0aeedd59`。Release Kotlin 编译（2m51s）、两渠道生成配置核对及正式 Release（2m43s，R8/资源压缩/lintVital/V2 签名）通过。新 APK 位于本树 `app/build/outputs/apk/github/release/app-github-release.apk`，SHA-256 `13284189a6d91e129aaf3dd691d173fbd4f348718094777d4c80f25d2e4fb84d`，7,725,403 字节，1.2.7.1 / 35。用户确认单课弹窗只是新增行影响视觉重心，无需改变尺寸。安装目标仍为 OPPO PLJ110，用户表示稍后重连，新金标包尚未覆盖安装；另一台无线 25053RP5CC 不属于本次安装目标，未安装。
+
+用户后续要求安装并修改 AGENTS.md。已通过现有 5037 USB 通道向 OPPO PLJ110（Android 17 / SDK 37）执行覆盖安装，返回 Success，手机 base.apk SHA-256 与本轮 `b20668c9…7db8de5` 一致；未主动启动。两处 AGENTS.md 均明确同时检查 USB、无线、现有 ADB 进程和监听端口，首选 5038 无设备时继续查询可用服务；不抢占 USB、不重启 OPPO 服务。此前“未安装”属于提交时状态，后续安装事实以本段和报告为准；真实导入、迁移和界面尚未手动实机验收。
+
+现状已由 [#86](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/86) 保全，head `a13199bb`。本聊天用户确认方案并要求执行，随后要求一并解决 [Issue #85](https://github.com/xiaomanjun233/SleepDown-Schedule/issues/85)。实现已提交 [PR #87](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/87)，目标 main，依赖 #86；核心代码 `8296564d`、Issue #85 独立提交 `95340850`。工作树为 `tmp/course-time-model-room50` / `codex/course-time-model-room50`。39 类 296 项回归、正式 Release（9m44s）、V2 签名、架构及脚本检查通过，详细模型、APK 摘要与验证见[本轮报告](reports/2026-10-26-course-time-model-refactor.md)和[课程时间模型](architecture/COURSE_TIME_MODEL.md)。保持 Draft 等待真实教务/WakeUp 网络和真机视觉验收，未合并或发布；其他活动任务记录保留。授权包含本任务提交、推送、PR 及用户后来明确要求的打包安装，不包含合并或发布。
 
 更新：2026-10-24，Asia/Shanghai。此页保存首页凝光修复任务的当前交接，保留依赖的架构任务历史；不代表主目录或其他 worktree 的任务已结束。接手前完整阅读 [AGENTS.md](../AGENTS.md)，再核对实际 Git、PR、用户新指令与本页是否一致。流程和交接字段见 [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md)。
 

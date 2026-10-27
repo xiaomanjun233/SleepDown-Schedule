@@ -86,11 +86,15 @@ $env:JAVA_HOME='D:\Android studio\JDK'
 
 按机器内存减少 worker；避免同时运行多个高内存构建。开发可使用 `-Psleepdown.skipReleaseResourceShrink=true`，正式候选保留资源压缩、R8、lintVital、打包与签名。Release 签名位于仓库外。
 
+GitHub 渠道打包默认启用金标 SharedViewKit 动画，仍按设备能力和现有路线门控；商店渠道保持关闭。需要对照诊断时可显式传 `-Psleepdown.sharedViewKitTest=false`，普通交付不附加关闭参数。
+
 本机 Android SDK 的 ADB 路径为 `D:\Android studio\AndroidSDK\platform-tools\adb.exe`。安装前主动寻找一切可用通道：优先项目 `5038`，同时检查现有 USB、`5037` 及其他正在运行的 ADB 服务、已配对无线调试和 mDNS 当前端点。默认 `5038` 无设备时继续查找，不因端口限制要求用户重复插线或重复授权；用户要求安装即包含使用已可用通道的授权。先核对目标型号、序列号、系统和服务端来源，多设备时确认目标，不把其他已配对设备当作待安装手机。项目命令显式指定实际 `-P <端口>` 与 `-s <设备>`，避免环境变量混用。
+
+有线 USB 与无线调试都必须检查。`5037`、`5038` 是本机 ADB 服务端口，USB 不需要手机 IP 或无线端口；手机无线端点另行实时发现。不能把“已连接”默认理解为无线连接，也不能只查一个服务后就要求用户提供无线地址。
 
 复用 `scripts/Invoke-Adb.ps1` 可固定 SDK 来源与 `5038` 通道；本机 PowerShell 7 / Windows PowerShell 5 的 `adb` 命令也转到该入口。入口通过 `server-status` 核对实际服务端程序和当前用户配对密钥目录；5038 被其他来源占用时，仅重启这条通道，确认 SDK 接管后才发送项目命令。只固定客户端路径或端口不能保证服务端来源正确。用户环境同时设置 `ANDROID_ADB_SERVER_PORT=5038`，供 Android Studio / DDMLib 识别同一端口；修改前已运行的程序需重启才会继承用户环境。连接结果以 `connected to` / `already connected to` 及后续设备状态为准，不能只凭原生 ADB 的退出码判断成功；该脚本将打印连接失败却返回 `0` 的情况修正为失败退出码。无线端口可能变化，优先使用已配对设备的 mDNS 服务发现当前端点，不固化旧手机端口。
 
-复用 `scripts/Invoke-Adb.ps1` 检查首选 `5038` 通道；其他现有通道使用已核对的 SDK 客户端显式指定端口。不要为抢占 USB 随意停止 OPPO 互联或其他服务；仅在现有通道均不可用、确需新配对或目标不明确时向用户索取必要信息。无线端点以实时 mDNS/设备状态为准，不固化历史端口。
+查找顺序：用 `scripts/Invoke-Adb.ps1` 枚举首选 `5038` 的设备和 mDNS；无设备时，检查本机 `adb.exe` 进程及监听端口，用 SDK 客户端逐一查询现有服务的 `devices -l`、`server-status`，核对 USB 与已配对无线设备。不要为抢占 USB 停止 OPPO 互联或其他服务，不盲扫局域网或反复试历史无线端口；仅在可用通道均已检查、需要新授权/配对或目标不明确时询问用户。
 
 用户要求安装时先枚举可用通道及设备，确认目标后使用 `adb -P <实际端口> -s <设备地址> install -r app/build/outputs/apk/github/release/app-github-release.apk` 覆盖安装签名 Release。默认不自动启动，除非用户要求。交接记录实际客户端、服务端、端口与目标，不把历史通道当作下轮的硬性要求。
 

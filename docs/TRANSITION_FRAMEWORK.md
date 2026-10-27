@@ -58,7 +58,7 @@ Intent 只承载 route/session 身份；Bitmap、返回解析器与临时资源�
 
 旧 Oplus 远程字段不再生效；远程解析器继续忽略未知字段，兼容旧 bootstrap/cache。配置不能把非候选路线升级为原生路线。
 
-本地可用 `-Psleepdown.sharedViewKitTest=true` 在 Debug 或签名 Release 中测试七条已适配候选，不依赖后台配置。普通构建默认仍关闭；商店版继续受 `SLEEPDOWN_EXPERIMENTAL_FEATURES=false` 排除，不打包 SDK，不增加产品设置项。签名 Release 用于相同包名/签名的实机验证，日志保留该试点的系统协议查询与回退原因。打开本地开关不等于 ROM 已接受：仍需能力、真实锚点、安全返回和 SDK options 均通过。其他路线必须先完成自身截图、源交接和真实返回验证，再调整路由候选及白名单。
+GitHub 渠道的 Debug 和签名 Release 默认启用已适配路线的金标动画，不依赖后台配置；对照诊断可显式使用 `-Psleepdown.sharedViewKitTest=false`。商店版的金标开关固定关闭，继续受 `SLEEPDOWN_EXPERIMENTAL_FEATURES=false` 排除，不打包 SDK，不增加产品设置项。签名 Release 用于相同包名/签名的实机验证，日志保留系统协议查询与回退原因。开启构建开关不等于 ROM 已接受：仍需能力、真实锚点、安全返回和 SDK options 均通过。其他路线必须先完成自身截图、源交接和真实返回验证，再调整路由候选及白名单。
 
 ## SDK 与绘制契约
 
@@ -85,6 +85,6 @@ BACK 结束时先恢复业务源，再由来源窗口的下一次 pre-draw 撤�
 
 `SharedViewKitBackendTest` 覆盖不支持、空 options、晚回调、快速返回、动态/删除落点、打开/关闭超时、会话隔离、坐标差及旧组件 alias。`SharedViewKitCapabilitiesTest` 覆盖 metadata。`Transition*Test` 继续保护路由、状态及载荷，CI 同时执行新握手回归。资源、Manifest 和依赖变更按 [AGENTS.md](../AGENTS.md) 完整打包，核对 R8 后的公开 API、delegate/回调、SDK 渠道隔离与旧私有 SDK 移除。
 
-SDK POM 标明 ITGSA 专有授权；Demo MIT 不替代 SDK 协议。GitHub 产物包含 SDK，默认关闭不改变许可要求，发布前仍需确认使用资格。当前官方 Nexus 是 HTTP，固定版本并记录已核验产物，不能用动态 `+` 作为正式候选。
+SDK POM 标明 ITGSA 专有授权；Demo MIT 不替代 SDK 协议。GitHub 产物包含 SDK，构建开关不改变许可要求，发布前仍需确认使用资格。当前官方 Nexus 是 HTTP，固定版本并记录已核验产物，不能用动态 `+` 作为正式候选。
 
 首次调查与官方链接见[接入调查](reports/2026-10-21-sharedviewkit-integration-audit.md)。构建/回归不等于目标设备支持、实机视觉或金标认证通过；扩大路线前先验证真实开合、取消、窗口、主题与数据保存。

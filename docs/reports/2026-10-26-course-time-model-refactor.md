@@ -51,3 +51,21 @@
 构建与测试通过 `scripts/Invoke-AndroidBuild.ps1` 运行，使用 `--console=plain --no-parallel --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx4096m -Dfile.encoding=UTF-8'`。定向测试选择：`CourseTimingMigrationTest`、`CourseTimeResolverTest`、`CoursePeriodAlignmentTest`、`CoursePeriodTimesTest`、`WeekPresentationTest`、`WeekTimeSlotGridTest`、`CanonicalScheduleJsonTest`、`ShiguangImportSessionCustomTimeTest`、`SharedPeriodScheme*Test`、`Backup*Test`、`IcsScheduleCodecTest`、`DatabaseMigrationCoverageTest`、`PeriodSchemeEditorSaveTest`、`AutoRefresh*Test`、`ScheduleRefresh*Test`、`ScheduleImport*Test`、`AgentImportWorkspaceTest`、`CourseEditor*Test`、`AiImportRepairManagerTest`、`TransitionRouteCatalogTest`。
 
 PR 相对 main 包含保全 PR 的祖先；审阅重构增量以 `a13199bb` 为基准。已核对 main 是祖先、没有合并冲突；Draft 的远端检查未作为通过证据。没有执行安装、真实教务/WakeUp 网络导入、真机视觉或性能验收；没有合并或发布。
+
+## 后续覆盖安装
+
+2026-10-27 用户追加“安装”，随后要求 AGENTS.md 同时主动查找有线、无线及现有 ADB 服务。5038 无设备、mDNS 无服务后，在现有 5037 找到唯一 USB 手机 OPPO PLJ110（Android 17 / SDK 37）。核对服务端为 `D:\Oppo Connect\daemon\bin\adb.exe`，使用 Android SDK 客户端显式指定 5037 和目标序列号执行 `install -r`，返回 `Success`；未停止或重启 OPPO 服务。
+
+手机已安装 `base.apk` 的 SHA-256 与本轮产物完全相同（`b20668c9…7db8de5`），版本仍为 1.2.7.1 / 35，设备更新时间 2026-10-27 11:53:38。覆盖安装保留应用数据，未主动启动应用；数据库升级、真实导入和界面效果尚未进行手动实机验收。主目录及本工作树的 AGENTS.md 已同步补充通道查找规则。
+
+## 安装后的界面与构建反馈
+
+用户要求后续默认金标动画，以及详细设置把特殊课程、调休移到作息之前，把当前作息与本课表节次编辑放在一起，公共作息管理移到下方。对应实现将选择器、日期规则、编辑范围说明和节次合到“本课表作息”卡片；公共库独立放在它之后。按节次的两列数字滚轮以圆角胶囊标记中央选中行，滚动、范围和确认语义保持原样。
+
+GitHub flavor 的 `SLEEPDOWN_SHARED_VIEW_KIT_TEST` 默认改为 true，仍保留设备能力与逐路线门控；显式 false 可用于对照。Store flavor 固定 false，并保留原实验功能关闭。AGENTS.md 同步长期构建偏好。
+
+单课编辑弹窗的固定外壳尺寸与保全版及 main 均一致，新增内容仍在内部 LazyColumn 中滚动。用户随后确认只是新增行造成视觉重心变化，无需调整外壳。再次准备安装时，现有 5037 USB 服务与 5038 均无原 OPPO 手机，5038 mDNS 发现并连接另一台无线 25053RP5CC；用户明确仍安装 OPPO PLJ110、稍后重新连接，未安装到另一台设备。
+
+本轮生产代码提交为 `b2c17770`（默认金标）和 `0aeedd59`（排版/选中态）。`compileGithubReleaseKotlin generateStoreReleaseBuildConfig` 通过（2m51s），生成配置核对 GitHub 金标与实验功能均 true、Store 均 false；架构检查 599 文件及 diff 检查通过。此次未改数据/时间规则，未机械重跑此前 296 项数据回归。
+
+不附加任何金标开关运行正式 `assembleGithubRelease` 通过（2m43s，R8、资源压缩、lintVital 和签名齐全），日志在本机 `tmp/verify-room50-ui-gold-release.log`。新 APK 为 `app/build/outputs/apk/github/release/app-github-release.apk`，7,725,403 字节，包名 `com.xiaomanjun.sleepdownschedule`，1.2.7.1 / 35；SHA-256 `13284189a6d91e129aaf3dd691d173fbd4f348718094777d4c80f25d2e4fb84d`。V2 签名证书 SHA-256 仍为 `0f2b50dfb7e10c6f5981ab966f1f4ebd76af81a7ad9ba31663284eaa88c0181a`。新金标包等待指定 OPPO 重新连接后覆盖安装；未进行本轮手动视觉验收，未合并或发布。
