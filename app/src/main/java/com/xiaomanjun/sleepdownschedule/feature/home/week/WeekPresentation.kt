@@ -10,6 +10,11 @@ import com.xiaomanjun.sleepdownschedule.model.*
 /** Only the timetable renderer consumes these; they never enter calendar/Widget course buckets. */
 internal data class NonCurrentWeekCard(val course: CourseEntity, val top: Float, val bottom: Float)
 
+/** References preview a future occurrence relative to the browsed week, including parity gaps. */
+internal fun CourseEntity.isUpcomingWeekReference(week: Int): Boolean =
+    !(week in weeks && parityMatches(weekParity, week)) &&
+        weeks.any { it > week && parityMatches(weekParity, it) }
+
 internal fun nonCurrentWeekCards(
     courses: List<CourseEntity>, actual: List<CourseEntity>, week: Int, day: Int,
     periods: List<PeriodEntity>, rowHeight: Float,
@@ -32,7 +37,7 @@ internal fun nonCurrentWeekCards(
     val occupied = (renderedActualBounds ?: actual.filter { it.weekday == day }.flatMap(::cards)
         .map { it.top to it.bottom }).toMutableList()
     val candidates = courses.filter { it.weekday == day && !it.isHiddenByPeriodAlignment() &&
-        !(week in it.weeks && parityMatches(it.weekParity, week)) }
+        it.isUpcomingWeekReference(week) }
         .flatMap(::cards)
         .sortedWith(compareBy<NonCurrentWeekCard> { it.top }.thenBy { it.bottom }
             .thenBy { it.course.id }.thenBy { it.course.name })
@@ -59,7 +64,7 @@ internal fun weekPresentationWeekdays(
         .any { slot -> slot.weekdays.any { it >= 6 } }
     val hasWeekendReference = config.showNonCurrentWeekCourses && courses.any {
         it.weekday >= 6 && !it.isHiddenByPeriodAlignment() &&
-            !(week in it.weeks && parityMatches(it.weekParity, week))
+            it.isUpcomingWeekReference(week)
     }
     return visibleWeekdaysForBuckets(buckets,
         config.hideEmptyWeekends && !hasWeekendPlaceholder && !hasWeekendReference && !hasWeekendSlots, config.weekStartsOnSunday)
@@ -72,7 +77,7 @@ internal fun nonCurrentSupplementaryCourses(
     val occupied = actual.filter { it.weekday == day }.flatMap { it.occupiedTimeIntervals(periods) }.toMutableList()
     return buildList {
         courses.filter { it.weekday == day && !it.isHiddenByPeriodAlignment() &&
-            !(week in it.weeks && parityMatches(it.weekParity, week)) }
+            it.isUpcomingWeekReference(week) }
             .flatMap { courseWeekDisplayFragments(it, periods) }
             .filter { courseNeedsSupplementaryWeekRow(it, periods) }
             .sortedWith(compareBy<CourseEntity> { it.customStartTime }.thenBy { it.id }).forEach { course ->

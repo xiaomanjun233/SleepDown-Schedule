@@ -112,4 +112,20 @@ class WeekPresentationTest {
             }
         }
     }
+
+    @Test fun issue85PreviewsFutureClassesAndHidesCompletedClassesInTheBrowsedWeek() {
+        val english = course(85, listOf(1), (5..12).toList())
+        for (week in 1..4) assertTrue(english.isUpcomingWeekReference(week))
+        for (week in 5..20) assertFalse(english.isUpcomingWeekReference(week))
+        val odd = english.copy(weeks = (1..8).toList(), weekParity = WeekParity.ODD)
+        assertTrue(odd.isUpcomingWeekReference(6))
+        assertFalse(odd.isUpcomingWeekReference(8))
+        assertTrue(nonCurrentWeekCards(listOf(english), emptyList(), 13, 1, periods, 60f).isEmpty())
+        val evening = english.copy(periods = emptyList(), customStartTime = "19:00", customEndTime = "20:00")
+        assertTrue(nonCurrentSupplementaryCourses(listOf(evening), emptyList(), 13, 1, periods).isEmpty())
+        val config = defaultConfig().copy(showNonCurrentWeekCourses = true, hideEmptyWeekends = true)
+        val weekend = english.copy(weekday = 7)
+        assertEquals((1..7).toList(), weekPresentationWeekdays(weekCourseBuckets(emptyList(), 4), listOf(weekend), config, 4))
+        assertEquals((1..5).toList(), weekPresentationWeekdays(weekCourseBuckets(emptyList(), 13), listOf(weekend), config, 13))
+    }
 }

@@ -519,7 +519,7 @@ fun ScheduleSettingsContentFixed(
                 SettingsDivider()
                 SettingsToggleRow("隐藏空周末", "", hideEmptyWeekends, backdrop, onCheckedChange = onHideEmptyWeekendsChange)
                 SettingsDivider()
-                SettingsToggleRow("显示非本周课程", "以浏览周为准，灰色展示且优先显示当周课程",
+                SettingsToggleRow("显示非本周课程", "灰色预告后续课程，结课后自动隐藏；当周课程优先",
                     showNonCurrentWeekCourses, backdrop, onCheckedChange = onShowNonCurrentWeekCoursesChange)
                 SettingsDivider()
                 SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
