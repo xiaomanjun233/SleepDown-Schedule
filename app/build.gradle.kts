@@ -108,10 +108,6 @@ android {
             .getOrElse("legacy")
         require(glassOcclusionMode in setOf("legacy", "retained", "live"))
         all {
-            // Explicit local pilot also supports signed Release builds used on real devices.
-            // Ordinary builds remain off; store is still excluded by EXPERIMENTAL_FEATURES.
-            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST",
-                providers.gradleProperty("sleepdown.sharedViewKitTest").map(String::toBoolean).getOrElse(false).toString())
             buildConfigField("boolean", "SLEEPDOWN_LOCAL_EDU_TEST", "false")
             buildConfigField("String", "GLASS_OCCLUSION_MODE", "\"legacy\"")
             buildConfigField("boolean", "GLASS_FIXED_MORPH", "false")
@@ -155,11 +151,15 @@ android {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"github\"")
             buildConfigField("boolean", "SLEEPDOWN_EXPERIMENTAL_FEATURES", "true")
+            // GitHub builds use gold transitions by default; keep an explicit comparison override.
+            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST",
+                providers.gradleProperty("sleepdown.sharedViewKitTest").map(String::toBoolean).getOrElse(true).toString())
         }
         create("store") {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"store\"")
             buildConfigField("boolean", "SLEEPDOWN_EXPERIMENTAL_FEATURES", "false")
+            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST", "false")
         }
     }
 
