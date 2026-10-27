@@ -40,7 +40,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -608,6 +611,15 @@ internal fun CourseEditorPickerOverlay(
                             }
                         }
                     } else {
+                        val selectedWheelModifier = Modifier.drawBehind {
+                            val bandHeight = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.ItemHeight.toPx()
+                            drawRoundRect(
+                                color = pickerContentColor.copy(alpha = 0.10f),
+                                topLeft = Offset(0f, (size.height - bandHeight) / 2f),
+                                size = Size(size.width, bandHeight),
+                                cornerRadius = CornerRadius(bandHeight / 2f)
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)
@@ -623,7 +635,7 @@ internal fun CourseEditorPickerOverlay(
                                 label = { periodRequest.labels[it] },
                                 colors = pickerColors,
                                 textStyle = pickerTextStyle,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f).then(selectedWheelModifier)
                             )
                             top.yukonga.miuix.kmp.basic.NumberPicker(
                                 value = endIndex,
@@ -634,7 +646,7 @@ internal fun CourseEditorPickerOverlay(
                                 label = { periodRequest.labels[it] },
                                 colors = pickerColors,
                                 textStyle = pickerTextStyle,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f).then(selectedWheelModifier)
                             )
                         }
                     }

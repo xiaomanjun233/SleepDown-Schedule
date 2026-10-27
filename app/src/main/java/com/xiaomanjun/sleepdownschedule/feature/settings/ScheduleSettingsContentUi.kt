@@ -526,49 +526,50 @@ fun ScheduleSettingsContentFixed(
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        GlassPreferenceSection("作息") {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                if (schemeDraft != null) {
-                    val active = schemeDraft.schemes.first { it.scheme.id == schemeDraft.activeSchemeId }
-                    val currentIndex = periodSchemeLibrary.indexOfFirst { it.id == active.scheme.publicId }
-                    val labels = periodSchemeLibrary.map { scheme ->
-                        if (periodSchemeLibrary.count { it.name == scheme.name } > 1) {
-                            val source = scheme.sources.firstOrNull()?.scheduleName ?: "公共作息"
-                            "${scheme.name}（$source · #${scheme.roomId}）"
-                        } else scheme.name
-                    }
-                    SleepDownLiquidDropdownPreference(
-                        items = labels,
-                        selectedIndex = currentIndex,
-                        title = "当前作息", backdrop = backdrop, config = state.config,
-                        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                        maxHeight = 318.dp, onExpandedChange = {},
-                        onSelectedIndexChange = { index ->
-                            periodSchemeLibrary.getOrNull(index)?.let(onSelectPeriodScheme)
-                        }
-                    )
-                    SettingsDivider()
-                }
-                SettingsNavigationRow(
-                    "作息管理",
-                    "新建、复制、编辑和删除公共作息",
-                    onClick = onOpenPeriodSchemes
-                )
-                SettingsDivider()
-                SettingsInfoRow("注意", "在这里下方直接编辑修改作息，仅对当前课表生效，如需修改共用的作息，请进入作息管理页面")
-                SettingsDivider()
-                SettingsNavigationRow("日期作息", "设置夏冬季等日期规则；固定网格保持基准作息", onClick=onOpenDateTimetables)
-            }
-        }
         TimeSlotCoursesSettings(config = state.config, backdrop = backdrop, onOpen = onOpenSpecialCourses)
         ScheduleAdjustmentsSettings(state.copy(config = draftConfig), backdrop, scheduleAdjustmentsJson, onScheduleAdjustmentsChange)
+    }
+    val timetableSettings: @Composable () -> Unit = {
+        if (schemeDraft != null) {
+            val active = schemeDraft.schemes.first { it.scheme.id == schemeDraft.activeSchemeId }
+            val currentIndex = periodSchemeLibrary.indexOfFirst { it.id == active.scheme.publicId }
+            val labels = periodSchemeLibrary.map { scheme ->
+                if (periodSchemeLibrary.count { it.name == scheme.name } > 1) {
+                    val source = scheme.sources.firstOrNull()?.scheduleName ?: "公共作息"
+                    "${scheme.name}（$source · #${scheme.roomId}）"
+                } else scheme.name
+            }
+            SleepDownLiquidDropdownPreference(
+                items = labels,
+                selectedIndex = currentIndex,
+                title = "当前作息", backdrop = backdrop, config = state.config,
+                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                maxHeight = 318.dp, onExpandedChange = {},
+                onSelectedIndexChange = { index ->
+                    periodSchemeLibrary.getOrNull(index)?.let(onSelectPeriodScheme)
+                }
+            )
+            SettingsDivider()
+        }
+        SettingsNavigationRow("日期作息", "设置夏冬季等日期规则；固定网格保持基准作息", onClick = onOpenDateTimetables)
+        SettingsDivider()
+        SettingsInfoRow("编辑范围", "这里修改作息仅对本课表生效；共用作息请在下方“作息管理”中编辑")
+    }
+    val publicTimetableSettings: @Composable () -> Unit = {
+        GlassPreferenceSection("作息管理") {
+            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsNavigationRow("公共作息库", "新建、复制、编辑和删除公共作息", onClick = onOpenPeriodSchemes)
+            }
+        }
     }
     if (schemeDraft != null) {
         PeriodSchemeEditor(
             state, backdrop, draftConfig, schemeDraft,
             onSchemeDraftChange, onPeriodCountsChange, topPadding,
             leadingContent = termSettings,
-            exitCoordinator = periodEditorExit
+            exitCoordinator = periodEditorExit,
+            timetableContent = timetableSettings,
+            trailingContent = publicTimetableSettings
         )
     } else {
         LazyColumn(
@@ -577,6 +578,7 @@ fun ScheduleSettingsContentFixed(
         ) {
             item { termSettings() }
             item { Text("正在读取作息…", modifier = Modifier.padding(20.dp)) }
+            item { publicTimetableSettings() }
         }
     }
 }

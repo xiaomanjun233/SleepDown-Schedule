@@ -189,7 +189,9 @@ internal fun PeriodSchemeEditor(
     onSaveSession: (suspend (PeriodTimelineSession) -> Unit)? = null,
     onEditorFinished: () -> Unit = {},
     exitCommitRequest: Int = 0,
-    exitCoordinator: PeriodEditorExitCoordinator? = null
+    exitCoordinator: PeriodEditorExitCoordinator? = null,
+    timetableContent: (@Composable () -> Unit)? = null,
+    trailingContent: @Composable () -> Unit = {}
 ) {
     val active = draft.schemes.firstOrNull { it.scheme.id == draft.activeSchemeId } ?: return
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
@@ -406,7 +408,7 @@ internal fun PeriodSchemeEditor(
             leadingContent()
             Column(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    GlassPreferenceCategory("详细节次", modifier = Modifier.weight(1f))
+                    GlassPreferenceCategory("本课表作息", modifier = Modifier.weight(1f))
                     DialogLiquidButton(backdrop, "编辑", {
                         enter(PeriodTimelineSession(config, draft).updateActive(active.materializeForTimeline(config)))
                     }, role = DialogButtonRole.Confirm,
@@ -426,6 +428,10 @@ internal fun PeriodSchemeEditor(
                 }
                 Spacer(Modifier.height(8.dp))
                 SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
+                    timetableContent?.let {
+                        it()
+                        SettingsDivider()
+                    }
                     val lessons = summary.filterNot { it.isBreak }
                     lessons.forEachIndexed { position, block ->
                         key(block.key) {
@@ -450,6 +456,7 @@ internal fun PeriodSchemeEditor(
                     }
                 }
             }
+            trailingContent()
         }
         }
         session?.let { edit ->
