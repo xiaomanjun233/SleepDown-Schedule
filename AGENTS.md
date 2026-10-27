@@ -59,6 +59,7 @@
 - 代码在独立分支完成，默认 `codex/` 前缀。围绕用户目标组织 PR；同轮追加的问题保留可独立回退的提交边界，避免混入无关整理。
 - `main` 是唯一持续开发基线；新普通功能从当前 `main` 派生短期分支，PR 目标为 `main`。历史 `develop`、`exp` 和 `-expN` 不再作为开发或发布入口，保留可追溯历史。厂商实验功能集中在隔离目录，GitHub 版启用，商店版由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 关闭。分支收尾、版本、组件和发布规则见 [开发工作流](docs/DEVELOPMENT_WORKFLOW.md)及[版本基线](docs/RELEASE_MODEL.md)。
 - 使用 Codex 时，GitHub 元数据操作使用自带 GitHub plugin，不使用 GitHub CLI；其他助手使用其环境可用且已获授权的 GitHub 集成或界面，如实说明能力缺口。Git 本身用于本地版本管理与已授权的 fetch/push。远端推送、PR、标签、发布和部署须在用户授权范围内；PR 授权不包含合并或 Release，不因更换助手重复索取已有授权。
+- 用户已明确发布渠道偏好：GitHub 插件没有 Release 写入、二进制上传等所需能力时，直接使用本地 Git credential helper 中已有的 GitHub 凭据及既有发布脚本/官方 API，不使用浏览器登录或上传，不使用 GitHub CLI，也不重复询问是否允许复用本地凭据。Gitee 沿用本机已有凭据与发布链路。凭据只在内存中使用，不打印、不写入仓库、日志或交接；每次远端操作仍限于用户已授权的任务。
 - 每次 Beta 发布同步更新应用内日志与发布页，保留本轮各 Beta 的独立日志；正式版发布时再归并本轮 Beta 内容，去重并移除已撤回的改动。日志使用产品语言，用户指定的文案优先。
 - 不提交 `.gradle-user-home/`、`tmp/`、`sleepdown-promo/`、`ui.xml`、设备截图和临时验收图，除非用户明确指定。
 - 删除或移动前确认精确目标；破坏性操作必须有授权，不删除任务外文件。
