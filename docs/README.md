@@ -31,6 +31,7 @@
 | 1.2.7.1 兼容补发与 r1 下架 | [更新识别修复、发布与核验记录](reports/2026-10-20-update-revision-compatibility.md) |
 | 按用户任务查功能与实现入口 | [FEATURE_MAP.md](FEATURE_MAP.md) |
 | 目录、依赖与结构调整 | [PROJECT_STRUCTURE.md](architecture/PROJECT_STRUCTURE.md)、[CODE_ORGANIZATION.md](architecture/CODE_ORGANIZATION.md) |
+| 课程时间、独立与日期作息、Room 50、拾光 JSON 和备份兼容 | [COURSE_TIME_MODEL.md](architecture/COURSE_TIME_MODEL.md) |
 | 全项目架构审查、首批重构与后续顺序 | [2026-10-20 架构审查](reports/2026-10-20-architecture-review.md) |
 | 首页导入状态、通知编解码、自定义课时显示与自动静音续作 | [2026-10-20 续作与课程修复](reports/2026-10-20-architecture-followup-and-course-fixes.md) |
 | 个性化、共享值、事务准备、教务/通知/材质边界及 ChatGPT/模型列表修复 | [2026-10-20 架构收口与 AI 修复](reports/2026-10-20-architecture-completion-and-ai-fixes.md) |

@@ -1,5 +1,9 @@
 # 当前工作交接
 
+## 2026-10-27 课程时间模型重构已提交
+
+现状已由 [#86](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/86) 保全，head `a13199bb`。本聊天用户确认方案并要求执行，随后要求一并解决 [Issue #85](https://github.com/xiaomanjun233/SleepDown-Schedule/issues/85)。实现已提交 [PR #87](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/87)，目标 main，依赖 #86；核心代码 `8296564d`、Issue #85 独立提交 `95340850`。工作树为 `tmp/course-time-model-room50` / `codex/course-time-model-room50`。39 类 296 项回归、正式 Release（9m44s）、V2 签名、架构及脚本检查通过，详细模型、APK 摘要与验证见[本轮报告](reports/2026-10-26-course-time-model-refactor.md)和[课程时间模型](architecture/COURSE_TIME_MODEL.md)。保持 Draft 等待真实教务/WakeUp 网络和真机视觉验收，未安装、合并或发布；其他活动任务记录保留。授权包含本任务提交、推送、PR，不包含合并、安装或发布。
+
 更新：2026-10-24，Asia/Shanghai。此页保存首页凝光修复任务的当前交接，保留依赖的架构任务历史；不代表主目录或其他 worktree 的任务已结束。接手前完整阅读 [AGENTS.md](../AGENTS.md)，再核对实际 Git、PR、用户新指令与本页是否一致。流程和交接字段见 [DEVELOPMENT_WORKFLOW.md](DEVELOPMENT_WORKFLOW.md)。
 
 给下一位助手的简短入口：
