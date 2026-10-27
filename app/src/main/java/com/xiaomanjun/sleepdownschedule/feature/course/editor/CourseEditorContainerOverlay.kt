@@ -345,7 +345,7 @@ internal fun CourseEditorContainerOverlayHost(
                 surfaceBackdrop = editorSurface, modifier = Modifier.fillMaxSize()
             ) {
             NormalizedCourseEditorScreen(
-                formData = CourseEditorFormData(state.config, state.periods, state.courses),
+                formData = CourseEditorFormData(state.config, state.periods, state.courses, state.timetableCatalog),
                 initialCourse = shown.course.takeIf { shown.copyDraft == null },
                 copyDraft = shown.copyDraft, contextMessage = shown.contextMessage,
                 onCancel = { if (!copySaving) onDismissRequest() },
@@ -468,11 +468,12 @@ internal fun CourseEditorContainerOverlayHost(
     val overlayPhase = motionState.phase
     val isOverlayActive = overlayPhase != CourseEditorOverlayPhase.Idle
     val shownRequest = request ?: renderedRequest ?: return
-    val formData = remember(state.config, state.periods, state.courses) {
+    val formData = remember(state.config, state.periods, state.courses, state.timetableCatalog) {
         CourseEditorFormData(
             config = state.config,
             periods = state.periods,
-            courses = state.courses
+            courses = state.courses,
+            timetableCatalog = state.timetableCatalog
         )
     }
     var contentDismissHandler by remember(shownRequest) { mutableStateOf<(() -> Unit)?>(null) }

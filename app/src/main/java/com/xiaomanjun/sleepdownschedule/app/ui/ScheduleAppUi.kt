@@ -3164,15 +3164,14 @@ fun CourseScheduleAppUi(
                 val courses = allSchedulesState.allCourses.filter { it.scheduleId == scheduleId }
                 val scheduleName = profile?.name ?: "课表"
                 when (shareType) {
-                    ScheduleShareType.TOKEN -> shareScheduleToken(
-                        context,
-                        scheduleName,
-                        buildSleepDownScheduleToken(config, periods, courses)
-                    )
+                    ScheduleShareType.TOKEN -> runCatching {
+                        buildSleepDownScheduleToken(config, periods, courses, allSchedulesState.timetableCatalog)
+                    }.onSuccess { shareScheduleToken(context,scheduleName,it) }
+                        .onFailure { Toast.makeText(context,it.message ?: "课表分享失败",Toast.LENGTH_SHORT).show() }
                     ScheduleShareType.ICS -> appScope.launch {
                         runCatching {
                             withContext(Dispatchers.IO) {
-                                IcsScheduleCodec.writeShareFile(context, scheduleName, config, periods, courses)
+                                IcsScheduleCodec.writeShareFile(context, scheduleName, config, periods, courses, allSchedulesState.timetableCatalog)
                             }
                         }.onSuccess { shareScheduleIcs(context, scheduleName, it) }
                             .onFailure { Toast.makeText(context, it.message ?: "ICS 文件生成失败", Toast.LENGTH_SHORT).show() }

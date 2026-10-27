@@ -18,7 +18,9 @@ data class BackupRoomRestoreRows(
     val agentMessages: List<AgentMessageEntity>,
     val widgetAppearances: List<WidgetAppearanceEntity>,
     val restoreOperationId: String = "",
-    val deduplicateLegacySchemes: Boolean = true
+    val deduplicateLegacySchemes: Boolean = true,
+    val timetableCombos: List<com.xiaomanjun.sleepdownschedule.model.TimetableComboEntity> = emptyList(),
+    val timetableRules: List<com.xiaomanjun.sleepdownschedule.model.TimetableDateRuleEntity> = emptyList()
 )
 
 /**
@@ -37,6 +39,7 @@ object BackupRoomRestoreMapper {
         // A restore journal created by an older app mapped only its local scheme rows. Extend
         // that immutable plan deterministically for legacy library/visible-timeline additions.
         val schemeIds = completeBackupSchemeIds(plan.schemeIds, schemeGraph.schemes.map { it.id })
+        val comboIds = archive.data.timetableCombos.mapIndexed { index, combo -> combo.id to (index + 1).toLong() }.toMap()
         require(plan.scheduleIds.keys == schedules.mapTo(linkedSetOf()) { it.id }) {
             "ImportPlan schedule 映射与 archive 不一致"
         }
@@ -90,6 +93,7 @@ object BackupRoomRestoreMapper {
             ScheduleConfigEntity(
                 id = targetScheduleId,
                 activePeriodSchemeId = schemeGraph.activeIds[schedule.id]?.let(schemeIds::getValue),
+                activeTimetableComboId = schedule.activeTimetableComboId?.let(comboIds::getValue),
                 totalWeeks = config.totalWeeks,
                 currentWeek = config.currentWeek,
                 notificationLeadMinutes = config.notificationLeadMinutes,
@@ -177,8 +181,7 @@ object BackupRoomRestoreMapper {
                 hideEmptyWeekends = config.hideEmptyWeekends,
                 scheduleAdjustmentsJson = config.scheduleAdjustmentsJson,
                 timeSlotCoursesJson = config.timeSlotCoursesJson,
-                periodAlignmentMode = strictBackupEnum<com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode>(
-                    config.periodAlignmentMode, "periodAlignmentMode"),
+                periodAlignmentMode = com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode.INDEX,
                 dockAlignment = strictBackupEnum<DockAlignment>(config.dockAlignment, "dockAlignment"),
                 defaultHomeMode = strictBackupEnum<HomeStartMode>(config.defaultHomeMode, "defaultHomeMode"),
                 liveUpdateActionsEnabled = config.liveUpdateActionsEnabled,
@@ -208,14 +211,15 @@ object BackupRoomRestoreMapper {
         val periodRows = schedules.flatMap { schedule ->
             val targetScheduleId = plan.scheduleIds.getValue(schedule.id)
             val active = schemeGraph.schemes.firstOrNull { it.id == schemeGraph.activeIds[schedule.id] }
-            val periods = active?.times?.map { BackupPeriod(it.periodIndex, it.startTime, it.endTime) }
+            val periods = active?.times?.map { BackupPeriod(it.periodIndex, it.startTime, it.endTime, it.alias) }
                 ?: schedule.periods
             periods.map { period ->
                 PeriodEntity(
                     periodIndex = period.periodIndex,
                     startTime = period.startTime,
                     endTime = period.endTime,
-                    scheduleId = targetScheduleId
+                    scheduleId = targetScheduleId,
+                    alias = period.alias
                 )
             }
         }
@@ -223,7 +227,7 @@ object BackupRoomRestoreMapper {
         val courseRows = schedules.flatMap { schedule ->
             val targetScheduleId = plan.scheduleIds.getValue(schedule.id)
             schedule.courses.map { course ->
-                com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes(CourseEntity(
+                val source = CourseEntity(
                     id = plan.courseIds.getValue(course.id),
                     name = course.name,
                     teacher = course.teacher,
@@ -238,8 +242,17 @@ object BackupRoomRestoreMapper {
                     customColorArgb = course.customColorArgb,
                     customPeriodTimes = course.customPeriodTimes,
                     originalPeriodTimes = course.originalPeriodTimes,
-                    scheduleId = targetScheduleId
-                ), schedule.periods.map { PeriodEntity(it.periodIndex, it.startTime, it.endTime, targetScheduleId) })
+                    scheduleId = targetScheduleId,
+                    independentPeriodSchemeId = course.independentPeriodSchemeId?.let(schemeIds::getValue),
+                    credit = course.credit, timingReviewReason = course.timingReviewReason,
+                    legacyTimingSourceJson = course.legacyTimingSourceJson,
+                    sourcePaletteIndex = course.sourcePaletteIndex
+                )
+                val converted = if (archive.data.dataVersion < 2 && schedule.config.periodAlignmentMode == "TIME")
+                    com.xiaomanjun.sleepdownschedule.domain.schedule.freezeLegacyTimeAlignment(source) else source
+                if (converted.timingReviewReason != null) converted else
+                    com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes(converted,
+                        schedule.periods.map { PeriodEntity(it.periodIndex, it.startTime, it.endTime, targetScheduleId, it.alias) })
             }
         }
 
@@ -274,7 +287,8 @@ object BackupRoomRestoreMapper {
                         schemeId = targetSchemeId,
                         periodIndex = time.periodIndex,
                         startTime = time.startTime,
-                        endTime = time.endTime
+                        endTime = time.endTime,
+                        alias = time.alias
                     )
                 }
         }
@@ -378,7 +392,14 @@ object BackupRoomRestoreMapper {
             agentMessages = messageRows,
             widgetAppearances = widgetRows,
             restoreOperationId = plan.operationId,
-            deduplicateLegacySchemes = archive.data.sharedPeriodSchemes == null
+            deduplicateLegacySchemes = archive.data.sharedPeriodSchemes == null,
+            timetableCombos = archive.data.timetableCombos.map { combo ->
+                com.xiaomanjun.sleepdownschedule.model.TimetableComboEntity(comboIds.getValue(combo.id),combo.name,schemeIds.getValue(combo.baseSchemeId))
+            },
+            timetableRules = archive.data.timetableCombos.flatMap { combo -> combo.rules.mapIndexed { index, rule ->
+                com.xiaomanjun.sleepdownschedule.model.TimetableDateRuleEntity(comboIds.getValue(combo.id),index,
+                    schemeIds.getValue(rule.schemeId),rule.startDate,rule.endDate)
+            } }
         )
     }
 }
@@ -391,20 +412,26 @@ class BackupRoomReplaceTransaction(private val database: AppDatabase) {
                 rows.periodSchemes, rows.periodSchemeTimes, rows.restoreOperationId, rows.deduplicateLegacySchemes)
             if (merge.additions.isNotEmpty()) schemeDao.upsertSchemes(merge.additions)
             if (merge.times.isNotEmpty()) schemeDao.upsertTimes(merge.times)
+            database.timetableDao().deleteAllCombos()
             database.agentDao().deleteAllMessages()
             database.agentDao().deleteAllDailySessions()
             database.widgetAppearanceDao().deleteAll()
             database.courseDao().deleteAllRows()
-            database.configDao().deleteAllPeriods()
             database.configDao().deleteAllConfigs()
             database.scheduleProfileDao().deleteAllProfiles()
 
             if (rows.schedules.isNotEmpty()) database.scheduleProfileDao().upsertProfiles(rows.schedules)
+            val comboIds = rows.timetableCombos.associate { combo -> combo.id to database.timetableDao().putCombo(
+                combo.copy(id = 0, baseSchemeId = merge.ids.getValue(combo.baseSchemeId))) }
+            database.timetableDao().putRules(rows.timetableRules.map { it.copy(comboId = comboIds.getValue(it.comboId),schemeId = merge.ids.getValue(it.schemeId)) })
             if (rows.configs.isNotEmpty()) database.configDao().upsertConfigs(rows.configs.map {
-                it.copy(activePeriodSchemeId = it.activePeriodSchemeId?.let(merge.ids::getValue))
+                it.copy(activePeriodSchemeId = it.activePeriodSchemeId?.let(merge.ids::getValue),
+                    activeTimetableComboId = it.activeTimetableComboId?.let(comboIds::getValue))
             })
             if (rows.periods.isNotEmpty()) database.configDao().upsertPeriods(rows.periods)
-            if (rows.courses.isNotEmpty()) database.courseDao().insertCourses(rows.courses)
+            if (rows.courses.isNotEmpty()) database.courseDao().insertCourses(rows.courses.map {
+                it.copy(independentPeriodSchemeId = it.independentPeriodSchemeId?.let(merge.ids::getValue))
+            })
             if (rows.agentDailySessions.isNotEmpty()) database.agentDao().upsertDailySessions(rows.agentDailySessions)
             if (rows.agentMessages.isNotEmpty()) database.agentDao().upsertMessages(rows.agentMessages)
             rows.widgetAppearances.forEach { database.widgetAppearanceDao().upsert(it) }

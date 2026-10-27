@@ -314,7 +314,7 @@ internal fun <T> DialogSingleWheelSelector(
 }
 
 @Composable
-private fun CourseEditorPickerValue(
+internal fun CourseEditorPickerValue(
     title: String,
     value: String,
     backdrop: Backdrop?,

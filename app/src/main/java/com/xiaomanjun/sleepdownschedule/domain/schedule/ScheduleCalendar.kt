@@ -40,7 +40,9 @@ fun coursesForDate(state: AppState, date: LocalDate): List<CourseEntity> {
     // notifications and the live activity all consume this shared query.
     val currentWeek = (if (teachingDate != date) adjustedTeachingWeekForDate(state.config, teachingDate)
         else scheduleWeekForDateOrNull(state.config, teachingDate)) ?: return emptyList()
-    return state.courses.filter { !it.isHiddenByPeriodAlignment() && it.weekday == weekday && it.weeks.contains(currentWeek) && parityMatches(it.weekParity, currentWeek) }
+    return state.courses.filter { it.weekday == weekday && it.weeks.contains(currentWeek) && parityMatches(it.weekParity, currentWeek) }
+        .map { projectCourseArrangement(it, state.config, state.periods, state.timetableCatalog, date) }
+        .filterNot { it.isHiddenByPeriodAlignment() }
         .sortedBy { courseStartTime(it, state.periods) ?: LocalTime.MAX }
 }
 
@@ -234,17 +236,25 @@ fun courseTimeLabel(course: CourseEntity, periods: List<PeriodEntity>): String {
 }
 
 fun CourseEntity.customTimeRangeOrNull(): Pair<LocalTime, LocalTime>? {
+    effectiveArrangementOrNull()?.let { display ->
+        val start = display.displayStart?.let(LocalTime::parse) ?: return null
+        val end = display.displayEnd?.let(LocalTime::parse) ?: return null
+        return (start to end).takeIf { end > start }
+    }
     val start = customStartTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: return null
     val end = customEndTime?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: return null
     return (start to end).takeIf { end.isAfter(start) }
 }
 
-fun CourseEntity.hasCustomTime(): Boolean = customTimeRangeOrNull() != null ||
-    effectiveArrangementOrNull()?.times?.any { it.exact } == true ||
-    !customPeriodTimes.isNullOrBlank()
+fun CourseEntity.hasCustomTime(): Boolean = effectiveArrangementOrNull()?.let { it.times.any { time -> time.exact } }
+    ?: (customTimeRangeOrNull() != null || !customPeriodTimes.isNullOrBlank())
 
-internal fun courseAllowsWeekPeriodDrag(course: CourseEntity): Boolean = !course.hasCustomTime() &&
-    course.effectiveArrangementOrNull()?.hiddenPeriods?.isNotEmpty() != true
+internal fun courseAllowsWeekPeriodDrag(course: CourseEntity): Boolean {
+    val source = course.originalArrangement()
+    return source.independentPeriodSchemeId == null && source.customStartTime == null &&
+        source.customPeriodTimes.isNullOrBlank() && !course.hasCustomTime() &&
+        course.effectiveArrangementOrNull()?.hiddenPeriods?.isNotEmpty() != true
+}
 
 /** Split only missing scheduled periods; ordinary breaks within consecutive periods stay together. */
 internal fun courseReminderSessions(course: CourseEntity, periods: List<PeriodEntity>): List<CourseEntity> {

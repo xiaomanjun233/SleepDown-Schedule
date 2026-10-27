@@ -19,7 +19,11 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class SharedPeriodSchemeMigrationTest {
-    private val context: Context get() = RuntimeEnvironment.getApplication()
+    // SQLite journal names otherwise exceed Windows MAX_PATH in long Robolectric test names.
+    private val backupDirectory by lazy { File(System.getProperty("java.io.tmpdir"),"db-upgrade-${java.util.UUID.randomUUID().toString().take(8)}").apply { mkdirs() } }
+    private val context: Context by lazy { object : android.content.ContextWrapper(RuntimeEnvironment.getApplication()) {
+        override fun getNoBackupFilesDir() = backupDirectory
+    } }
     private val databaseName = "migration.db"
     private var opened: AppDatabase? = null
 
@@ -27,6 +31,8 @@ class SharedPeriodSchemeMigrationTest {
     fun tearDown() {
         opened?.close()
         context.deleteDatabase(databaseName)
+        File(backupDirectory,"database-upgrades").also { directory -> directory.listFiles()?.forEach { it.delete() };directory.delete() }
+        backupDirectory.delete()
     }
 
     @Test
@@ -154,7 +160,7 @@ class SharedPeriodSchemeMigrationTest {
         assertTrue(db.configDao().getConfig(7)!!.weekStartsOnSunday)
         assertEquals("", db.configDao().getConfig(7)!!.timeSlotCoursesJson)
         assertEquals("原课程", db.courseDao().getCourses(7).single().name)
-        assertEquals(49, db.openHelper.writableDatabase.version)
+        assertEquals(APP_DATABASE_VERSION, db.openHelper.writableDatabase.version)
     }
 
     @Test fun timeSlotsOnlyVersion48PreservesSavedBandsAndCanReopenWithSundayEnabled() = runBlocking {

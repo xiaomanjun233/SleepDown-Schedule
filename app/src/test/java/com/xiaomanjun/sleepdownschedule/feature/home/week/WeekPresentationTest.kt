@@ -13,7 +13,7 @@ import java.time.LocalDate
 class WeekPresentationTest {
     @Test fun consecutiveCustomLessonsRenderOneCardWithoutChangingReminderBoundariesOrSavedClocks() {
         val bells = listOf(PeriodEntity(3, "10:20", "11:00"), PeriodEntity(4, "11:15", "11:55"))
-        val source = course(1, listOf(3, 4)).copy(customStartTime = "10:30", customEndTime = "11:45",
+        val source = course(1, listOf(3, 4), listOf(3)).copy(customStartTime = "10:30", customEndTime = "11:45",
             customPeriodTimes = "3,10:30-10:50;4,11:30-11:45")
         PeriodAlignmentMode.entries.forEach { mode ->
             val projected = projectCourseArrangement(source, defaultConfig().copy(periodAlignmentMode = mode), bells)
@@ -35,8 +35,8 @@ class WeekPresentationTest {
         val projected = projectCourseArrangement(source, defaultConfig(), periods)
         val card = buildWeekConflictGroups(listOf(projected), periods.map { it.periodIndex }, periods)
             .single().segments.single().course
-        assertEquals("08:00", card.customStartTime)
-        assertEquals("09:40", card.customEndTime)
+        assertEquals("08:00", card.customTimeRangeOrNull()!!.first.toString())
+        assertEquals("09:40", card.customTimeRangeOrNull()!!.second.toString())
         assertEquals(courseTimeSegments(projected, periods), courseTimeSegments(card, periods))
         assertEquals(2, courseReminderSessions(projected, periods).size)
         assertEquals(source, card.arrangementForWrite())
@@ -59,15 +59,15 @@ class WeekPresentationTest {
 
     @Test fun stableReferencesNeverOverlapActualOrEachOther() {
         val actual = course(10, listOf(2, 3), listOf(2))
-        val inputs = listOf(actual, course(4, listOf(3, 4)), course(3, listOf(1)), course(2, listOf(1)))
+        val inputs = listOf(actual, course(4, listOf(3, 4), listOf(3)), course(3, listOf(1), listOf(3)), course(2, listOf(1), listOf(3)))
         val cards = nonCurrentWeekCards(inputs, listOf(actual), 2, 1, periods, 60f)
         assertEquals(listOf(2L), cards.map { it.course.id })
         assertEquals(cards, nonCurrentWeekCards(inputs.reversed(), listOf(actual), 2, 1, periods, 60f))
-        assertTrue(nonCurrentWeekCards(inputs, listOf(actual), 1, 1, periods, 60f).isEmpty())
+        assertTrue(nonCurrentWeekCards(inputs, listOf(actual), 3, 1, periods, 60f).isEmpty())
     }
 
     @Test fun usesFinalVisibleBoundsAndCustomTimeRatherThanOnlyPeriodIndices() {
-        val reference = course(1, listOf(1)).copy(customStartTime = "08:30", customEndTime = "09:10")
+        val reference = course(1, listOf(1), listOf(3)).copy(customStartTime = "08:30", customEndTime = "09:10")
         assertTrue(nonCurrentWeekCards(listOf(reference), emptyList(), 2, 1, periods, 60f,
             listOf(55f to 85f)).isEmpty())
         assertEquals(1, nonCurrentWeekCards(listOf(reference), emptyList(), 2, 1, periods, 60f,
@@ -81,7 +81,7 @@ class WeekPresentationTest {
     }
 
     @Test fun supplementaryTimesKeepAllCurrentCoursesAndPickStableNonOverlappingReferences() {
-        val first = course(1, emptyList()).copy(customStartTime = "19:00", customEndTime = "20:00")
+        val first = course(1, emptyList(), listOf(3)).copy(customStartTime = "19:00", customEndTime = "20:00")
         val overlap = first.copy(id = 2, customStartTime = "19:30", customEndTime = "20:30")
         val actual = first.copy(id = 3, weeks = listOf(2), customStartTime = "20:15", customEndTime = "21:00")
         assertEquals(listOf(first), nonCurrentSupplementaryCourses(listOf(overlap, first), listOf(actual), 2, 1, periods))
@@ -99,7 +99,7 @@ class WeekPresentationTest {
         assertEquals(plainBuckets, decoratedBuckets)
         assertEquals((1..7).toList(), weekPresentationWeekdays(decoratedBuckets, listOf(actual), decorated, 3))
         assertTrue(coursesForDate(AppState(config = decorated, courses = listOf(actual)), date).isEmpty())
-        assertEquals(listOf(actual), coursesForDate(AppState(config = decorated, courses = listOf(actual)), date.minusDays(5)))
+        assertEquals(listOf(actual), coursesForDate(AppState(config = decorated, courses = listOf(actual)), date.minusDays(5)).map { it.arrangementForWrite() })
     }
 
     @Test fun legacyLayoutRetainsAlignmentWhileNewAxesAreIndependent() {

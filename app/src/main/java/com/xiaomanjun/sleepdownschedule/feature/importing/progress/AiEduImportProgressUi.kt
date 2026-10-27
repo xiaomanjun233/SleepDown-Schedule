@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing.progress
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.resolvedCoursesForPreview
+
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
 import android.content.Intent
@@ -1499,7 +1501,7 @@ private fun AiEduInlineImportPreview(
             color = textColor.copy(alpha = 0.58f),
             style = MaterialTheme.typography.bodySmall
         )
-        draft.courses.forEach { course ->
+        remember(draft) { draft.resolvedCoursesForPreview() }.forEach { course ->
             ImportPreviewCourseCard(course, draft.periods, draft.config)
         }
         remember(draft) { importConflictNotice(draft) }?.let {

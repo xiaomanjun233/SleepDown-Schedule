@@ -32,6 +32,10 @@ object IcsScheduleCodec {
     fun parse(bytes: ByteArray, baseConfig: ScheduleConfigEntity): Result<ImportDraft> = runCatching {
         val text = bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF")
         require(text.contains("BEGIN:VCALENDAR", ignoreCase = true)) { "所选文件不是有效的 ICS 日历" }
+        unfoldLines(text).firstOrNull { it.startsWith("X-SLEEPDOWN-JSON:") }?.let { line ->
+            val document=java.util.Base64.getDecoder().decode(line.substringAfter(':')).toString(Charsets.UTF_8)
+            return@runCatching CanonicalScheduleJson.decode(document,baseConfig)
+        }
         val metadata = parseSleepDownMetadata(text)
         val calendarConfig = baseConfig.copy(weekStartsOnSunday = metadata.weekStartsOnSunday
             ?: if (isSleepDown(bytes)) false else baseConfig.weekStartsOnSunday)
@@ -188,7 +192,8 @@ object IcsScheduleCodec {
         config: ScheduleConfigEntity,
         periods: List<PeriodEntity>,
         courses: List<CourseEntity>,
-        today: LocalDate = LocalDate.now()
+        today: LocalDate = LocalDate.now(),
+        catalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog = com.xiaomanjun.sleepdownschedule.model.TimetableCatalog()
     ): String {
         val timeZoneId = ZoneId.systemDefault().id
         val periodsByIndex = periods.associateBy { it.periodIndex }
@@ -203,6 +208,9 @@ object IcsScheduleCodec {
             appendLine("METHOD:PUBLISH")
             appendLine("X-WR-CALNAME:${escapeText(calendarName)}")
             appendLine("X-SLEEPDOWN-SCHEMA:2")
+            val native = "X-SLEEPDOWN-JSON:" + java.util.Base64.getEncoder().encodeToString(
+                buildCanonicalScheduleJson(config,periods,courses,catalog).toByteArray(Charsets.UTF_8))
+            native.chunked(74).forEachIndexed { index,line -> appendLine(if(index==0) line else " $line") }
             appendLine("X-SLEEPDOWN-TOTAL-WEEKS:${config.totalWeeks}")
             appendLine("X-SLEEPDOWN-WEEK-START:${if (config.weekStartsOnSunday) "SUNDAY" else "MONDAY"}")
             config.termStartDate?.let { appendLine("X-SLEEPDOWN-TERM-START:$it") }
@@ -211,17 +219,17 @@ object IcsScheduleCodec {
                 appendLine("X-SLEEPDOWN-PERIOD:${period.periodIndex},${period.startTime},${period.endTime}")
             }
             courses.sortedWith(compareBy<CourseEntity> { it.weekday }.thenBy { it.name }).forEach { course ->
-                val ranges = if (course.arrangementProjection != null) courseReminderSessions(course, periods).mapNotNull { session ->
-                    val start = courseStartTime(session, periods) ?: return@mapNotNull null
-                    val end = courseEndTime(session, periods) ?: return@mapNotNull null
-                    IcsPeriodRange(session.periods, start, end)
-                } else course.customTimeRangeOrNull()?.let { (start, end) ->
-                    listOf(IcsPeriodRange(course.periods.distinct().sorted(), start, end))
-                } ?: contiguousPeriodRanges(course.periods, periodsByIndex)
                 course.weeks.distinct().sorted()
                     .filter { it in 1..config.totalWeeks && parityMatches(course.weekParity, it) }
                     .forEach { week ->
                         val date = scheduleWeekStartDate(config, week, today).plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, course.weekday))
+                        val occurrence = com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(course,config,periods,catalog,date)
+                        val ranges = courseReminderSessions(occurrence,periods).mapNotNull { session ->
+                            val start = courseStartTime(session,periods) ?: return@mapNotNull null
+                            val end = courseEndTime(session,periods) ?: return@mapNotNull null
+                            IcsPeriodRange(com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments(session,periods)
+                                .map { it.index }.filter { it > 0 },start,end)
+                        }
                         ranges.forEachIndexed { rangeIndex, range ->
                             val start = date.atTime(range.start)
                             val end = date.atTime(range.end)
@@ -240,8 +248,9 @@ object IcsScheduleCodec {
                             if (description.isNotBlank()) appendLine("DESCRIPTION:${escapeText(description)}")
                             appendLine("X-SLEEPDOWN-WEEK:$week")
                             appendLine("X-SLEEPDOWN-PERIODS:${range.indices.joinToString(",")}")
-                            course.customPeriodTimes?.takeIf { course.arrangementProjection == null }
-                                ?.let { appendLine("X-SLEEPDOWN-PERIOD-TIMES:$it") }
+                            com.xiaomanjun.sleepdownschedule.domain.schedule.encodeCoursePeriodTimes(
+                                com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes(course.customPeriodTimes)
+                                    .filter { it.index in range.indices })?.let { appendLine("X-SLEEPDOWN-PERIOD-TIMES:$it") }
                             appendLine("END:VEVENT")
                         }
                     }
@@ -255,12 +264,13 @@ object IcsScheduleCodec {
         calendarName: String,
         config: ScheduleConfigEntity,
         periods: List<PeriodEntity>,
-        courses: List<CourseEntity>
+        courses: List<CourseEntity>,
+        catalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog = com.xiaomanjun.sleepdownschedule.model.TimetableCatalog()
     ): File {
         val directory = File(context.cacheDir, "shared_schedules").apply { mkdirs() }
         val safeName = calendarName.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "SleepDown课表" }
         return File(directory, "$safeName.ics").apply {
-            writeText(export(calendarName, config, periods, courses), Charsets.UTF_8)
+            writeText(export(calendarName, config, periods, courses, catalog = catalog), Charsets.UTF_8)
         }
     }
 

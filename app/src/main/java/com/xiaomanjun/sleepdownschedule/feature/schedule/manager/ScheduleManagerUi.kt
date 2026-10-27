@@ -573,8 +573,9 @@ fun ScheduleManagerScreen(
             actions = listOf(
                 LiquidAlertAction("分享课表口令", LiquidAlertActionStyle.Primary) {
                     showShareOptions = false
-                    val token = buildSleepDownScheduleToken(centeredConfig, centeredPeriods, centeredCourses)
-                    shareScheduleToken(context, centeredProfile.name, token)
+                    runCatching { buildSleepDownScheduleToken(centeredConfig, centeredPeriods, centeredCourses, state.timetableCatalog) }
+                        .onSuccess { shareScheduleToken(context,centeredProfile.name,it) }
+                        .onFailure { Toast.makeText(context,it.message ?: "课表分享失败",Toast.LENGTH_SHORT).show() }
                 },
                 LiquidAlertAction("分享 ICS 文件", LiquidAlertActionStyle.Secondary) {
                     showShareOptions = false
@@ -586,7 +587,8 @@ fun ScheduleManagerScreen(
                                     calendarName = centeredProfile.name,
                                     config = centeredConfig,
                                     periods = centeredPeriods,
-                                    courses = centeredCourses
+                                    courses = centeredCourses,
+                                    catalog = state.timetableCatalog
                                 )
                             }
                         }.onSuccess { file ->

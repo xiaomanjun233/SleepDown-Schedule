@@ -65,33 +65,24 @@ enum class WeekParityPayload {
 
 object SchedulePromptBuilder {
     fun build(): String = """
-请把我的课程表整理成严格 JSON，不要输出解释文字。
-JSON 协议如下：
+请把课程表整理为拾光兼容的严格 JSON，只返回完整 JSON 对象，不要解释或 Markdown。
 {
-  "schemaVersion": 1,
-  "scheduleConfig": {
-    "totalWeeks": 20,
-    "periods": [
-      {"index": 1, "startTime": "08:00", "endTime": "08:45"},
-      {"index": 2, "startTime": "08:55", "endTime": "09:40"}
-    ]
-  },
   "courses": [
-    {
-      "name": "高等数学",
-      "teacher": "张老师",
-      "location": "A101",
-      "weekday": 1,
-      "periods": [1, 2],
-      "weeks": [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16],
-      "weekParity": "ALL",
-      "note": "",
-      "customStartTime": null,
-      "customEndTime": null
-    }
-  ]
+    {"name":"高等数学","teacher":"张老师","position":"A101","day":1,
+     "startSection":1,"endSection":2,"weeks":[1,2,3,4,5,6,7,8],"isCustomTime":false},
+    {"name":"实验","teacher":"","position":"B楼","day":2,"weeks":[1,2,3,4],
+     "isCustomTime":true,"customStartTime":"08:20","customEndTime":"09:50"}
+  ],
+  "timeSlots":[{"number":1,"startTime":"08:00","endTime":"08:45"},
+               {"number":2,"startTime":"08:55","endTime":"09:40"}],
+  "config":{"semesterStartDate":null,"semesterTotalWeeks":20,
+            "defaultClassDuration":45,"defaultBreakDuration":10,"firstDayOfWeek":1}
 }
-要求：weekday 使用 1-7 表示周一到周日；periods 必须引用 scheduleConfig.periods 里的 index；weeks 必须在 1 到 totalWeeks 内；weekParity 只能是 ALL、ODD、EVEN；时间必须是 HH:mm。P 中只写一套默认作息。若课程有独立真实起止时间，填写 customStartTime 和 customEndTime；不能被默认作息覆盖，也不要根据另一教学区域的课间推算。逐节铃声仅由真实教务导入获取，此协议不生成。只返回一个完整 JSON 对象。JSON 可以正常换行和缩进，但不要在字符串值中为了排版擅自插入换行，不要使用 Markdown 代码块。
+day 使用 1-7 表示周一至周日，weeks 是实际有效周次，单双周直接展开到 weeks。
+timeSlots 只写一套明确的基准作息。其他教学楼或校区给出了独立真实时间时，用 isCustomTime=true 和 customStartTime/customEndTime 保留原时刻，节次字段省略。
+普通节次课使用 isCustomTime=false，startSection/endSection 引用 timeSlots 的 number。课程时间模式互斥，不把网格位置当真实节次。
+已知学分使用 credit，备注使用 remark，未知字段不猜测。时间必须为 HH:mm，不根据另一教学区的课间推算逐节铃声。
+如原文明确提供按日期切换的作息，可加 comboSchedule：name 和 publicSchedules 数组，每项包含 name/startDate/endDate/timeSlots/defaultClassDuration/defaultBreakDuration。未知日期不编造。
 """.trimIndent()
 
     fun buildTokenPrompt(): String = """
@@ -125,27 +116,20 @@ C=大学英语|-|B203|3|3-4|2-18|O|-|10:10|11:45|-
 object ScheduleImportParser {
     internal fun parseAiResponse(input: String, baseConfig: ScheduleConfigEntity): Result<ImportDraft> =
         parse(input, baseConfig).mapCatching { draft ->
-            normalizeAiImportTimes(draft).also { validateEditedDraft(it) }
+            (if(CanonicalScheduleJson.isCanonical(cleanMarkdown(input))) draft else normalizeAiImportTimes(draft))
+                .also { validateEditedDraft(it) }
         }
 
     /** Locally serialized artifacts can retain bells already accepted from an official adapter. */
     internal fun parseStoredDraft(input: String, baseConfig: ScheduleConfigEntity): Result<ImportDraft> = runCatching {
+        if (CanonicalScheduleJson.isCanonical(input)) return@runCatching CanonicalScheduleJson.decode(input, baseConfig)
         validatePayload(json.decodeFromString<ScheduleImportPayload>(input), baseConfig, allowImportedBellTimes = true)
     }
 
     /** Local AI revisions reuse validation while retaining trusted source snapshots and custom bells. */
-    internal fun validateEditedDraft(draft: ImportDraft): ImportDraft = validatePayload(ScheduleImportPayload(
-        1, ScheduleConfigPayload(draft.config.totalWeeks, draft.periods.map {
-            PeriodPayload(it.periodIndex, it.startTime, it.endTime)
-        }, draft.config.periodAlignmentMode.name), draft.courses.map { course ->
-            ScheduleImportCourse(course.name, course.teacher, course.location, course.weekday, course.periods,
-                course.weeks, WeekParityPayload.valueOf(course.weekParity.name), course.note, course.customStartTime,
-                course.customEndTime, course.customColorArgb, course.customPeriodTimes, course.originalPeriodTimes)
-        }), draft.config, allowImportedBellTimes = true).copy(source = draft.source).also { validated ->
-            validateResolvedPeriodTimes(validated.periods.map {
-                PeriodSchemeTimeEntity(0, it.periodIndex, it.startTime, it.endTime)
-            })?.let { throw IllegalArgumentException(it) }
-        }
+    internal fun validateEditedDraft(draft: ImportDraft): ImportDraft =
+        CanonicalScheduleJson.decode(CanonicalScheduleJson.encode(draft), draft.config)
+            .copy(source = draft.source, notices = draft.notices)
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
     private val timeFormatter = DateTimeFormatter.ofPattern("HH:mm")
 
@@ -168,8 +152,9 @@ object ScheduleImportParser {
         return trimmed
     }
 
-    fun parse(input: String, baseConfig: ScheduleConfigEntity): Result<ImportDraft> = runCatching {
+    fun parse(input: String, baseConfig: ScheduleConfigEntity, basePeriods: List<PeriodEntity> = emptyList()): Result<ImportDraft> = runCatching {
         val cleaned = cleanMarkdown(input)
+        if (CanonicalScheduleJson.isCanonical(cleaned)) return@runCatching CanonicalScheduleJson.decode(cleaned, baseConfig, basePeriods)
         val payload = if (containsSleepDownToken(cleaned)) {
             parseSleepDownToken(cleaned)
         } else {
@@ -353,7 +338,7 @@ object ScheduleImportParser {
             val row = "第 ${position + 1} 门课程"
             require(course.name.isNotBlank()) { "$row name 不能为空" }
             require(course.weekday in 1..7) { "$row weekday 必须在 1 到 7 之间" }
-            require(course.periods.isNotEmpty()) { "$row periods 不能为空" }
+            require(course.periods.isNotEmpty() || (course.customStartTime != null && course.customEndTime != null)) { "$row 需要节次或真实时间" }
             require(course.periods.all { it > 0 } && (course.periods.all { it in validPeriodIndexes } ||
                 (allowImportedBellTimes && course.originalPeriodTimes != null) ||
                 (course.customStartTime != null && course.customEndTime != null) ||
@@ -403,14 +388,12 @@ object ScheduleImportParser {
             periodAlignmentMode = PeriodAlignmentMode.valueOf(payload.scheduleConfig.periodAlignmentMode),
             currentWeek = effectiveCurrentWeek(baseConfig).coerceIn(1, payload.scheduleConfig.totalWeeks)
         )
-        // Validate a detached display calculation before confirmation; keep the import source intact.
-        if (config.periodAlignmentMode == PeriodAlignmentMode.TIME) {
-            projectCourseArrangements(courses.map { captureOriginalPeriodTimes(it, periods) }, config, periods)
-        }
+        val converted = if (config.periodAlignmentMode == PeriodAlignmentMode.TIME)
+            courses.map { com.xiaomanjun.sleepdownschedule.domain.schedule.freezeLegacyTimeAlignment(it) } else courses
         return ImportDraft(
-            config = config,
+            config = config.copy(periodAlignmentMode=PeriodAlignmentMode.INDEX),
             periods = periods,
-            courses = courses
+            courses = converted
         ).withCompatiblePeriodGrid()
     }
 
@@ -545,8 +528,10 @@ internal fun normalizeImportedWeekSelection(
 fun buildSleepDownScheduleToken(
     config: ScheduleConfigEntity,
     periods: List<PeriodEntity>,
-    courses: List<CourseEntity>
+    courses: List<CourseEntity>,
+    catalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog? = null
 ): String {
+    if (catalog != null) return buildCanonicalScheduleJson(config, periods, courses, catalog)
     val periodLine = periods
         .filter { it.periodIndex > 0 }
         .distinctBy { it.periodIndex }

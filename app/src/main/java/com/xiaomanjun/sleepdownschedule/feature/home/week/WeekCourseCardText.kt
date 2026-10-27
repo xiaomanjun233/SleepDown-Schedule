@@ -30,6 +30,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalPersonalizationPre
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeCourseTextColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.model.effectiveWeekCardTextAlignment
+import com.xiaomanjun.sleepdownschedule.domain.schedule.customTimeRangeOrNull
 import kotlin.math.ceil
 
 @Composable
@@ -67,7 +68,9 @@ internal fun WeekCourseCardTextContent(
     val teacherFont = scaledCourseWeekText(8.4.sp)
     val teacherLineHeight = (teacherFont.value * 1.15f).sp
     val contentWidthPx = with(density) { (cardLayoutWidth - horizontalPadding * 2f).coerceAtLeast(24.dp).toPx() }
-    val availableTextPx = with(density) { (textHeight - verticalPadding * 2f).coerceAtLeast(0.dp).toPx() }
+    val clock = course.customTimeRangeOrNull()?.takeIf { heightDp >= 34f }
+    val clockReserve = if(clock == null) 0.dp else 19.dp
+    val availableTextPx = with(density) { (textHeight - verticalPadding * 2f - clockReserve).coerceAtLeast(0.dp).toPx() }
 
     fun estimatedLines(text: String, fontSize: TextUnit): Int {
         if (text.isBlank()) return 0
@@ -139,7 +142,8 @@ internal fun WeekCourseCardTextContent(
         0.dp
     }
     val centerReserve = maxOf(locationReserve, teacherReserve) + 1.dp
-    WeekCardTextBody(
+    Column(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxWidth().weight(1f)) { WeekCardTextBody(
         course = course, locationText = locationText, locationLines = locationLines,
         nameLines = nameLines, showTeacher = canShowTeacher,
         nameFont = nameFont, nameLineHeight = nameLineHeight,
@@ -149,7 +153,13 @@ internal fun WeekCourseCardTextContent(
         currentTextAlign = cardTextAlign, layout = config.weekCardContentLayout,
         horizontalPadding = horizontalPadding, verticalPadding = verticalPadding,
         centerReserve = centerReserve, adaptiveContrast = adaptiveContrast
-    )
+    ) }
+    clock?.let { (start,end) ->
+        CourseCardText("$start\n$end",modifier=Modifier.fillMaxWidth().padding(horizontal=horizontalPadding),
+            color=courseTextColor,coloredText=coloredText,fontSize=scaledCourseWeekText(7.sp),lineHeight=9.sp,
+            textAlign=cardTextAlign,maxLines=2,adaptiveContrast=adaptiveContrast)
+    }
+    }
 }
 
 internal fun ScheduleConfigEntity.weekCardTextAlign(): TextAlign = when (effectiveWeekCardTextAlignment()) {

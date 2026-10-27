@@ -12,7 +12,6 @@ import android.view.PixelCopy
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.runtime.withFrameNanos
 import com.xiaomanjun.sleepdownschedule.AppState
-import com.xiaomanjun.sleepdownschedule.app.ui.SettingsDetailActivityHost
 import com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotCourse
 import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeTimeSlotCourses
 import com.xiaomanjun.sleepdownschedule.transition.*
@@ -24,10 +23,6 @@ import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.suspendCancellableCoroutine
-
-/** Real opaque windows let the system own the gold transition; Legacy uses its normal slide. */
-class SpecialCourseEditorActivity : SettingsDetailActivityHost()
-class NativeSpecialCourseEditorActivity : SettingsDetailActivityHost()
 
 internal const val TimeSlotCourseOriginalExtra = "special_course_original"
 internal const val TimeSlotCourseStateTokenExtra = "special_course_state_token"
@@ -73,7 +68,7 @@ internal suspend fun openTimeSlotCourseEditor(
 ): TransitionLaunchResult {
     val token = TimeSlotCourseStateHandoff.put(state)
     val handoff = checkNotNull(TimeSlotCourseStateHandoff.get(token))
-    val intent = Intent(activity, SpecialCourseEditorActivity::class.java)
+    val intent = Intent().setClassName(activity.packageName,"com.xiaomanjun.sleepdownschedule.feature.settings.SpecialCourseEditorActivity")
         .putExtra(SettingsDetailPageExtra, SettingsPage.SpecialCourses.name)
         .putExtra(ScheduleCustomizeIdExtra, state.config.id)
         .putExtra(TimeSlotCourseOriginalExtra, original?.let { encodeTimeSlotCourses(listOf(it)) }.orEmpty())

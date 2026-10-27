@@ -90,7 +90,7 @@ class BackupRoomSnapshotReaderTest {
         assertEquals(2, decoded.data.schedules.sumOf { it.periods.size })
         assertEquals(2, decoded.data.schedules.sumOf { it.agentDailySessions.size })
         assertEquals(2, decoded.data.schedules.sumOf { it.agentMessages.size })
-        assertEquals(setOf("scheme-11", "scheme-12"), decoded.data.sharedPeriodSchemes!!.map { it.publicId }.toSet())
+        assertEquals(before.periodSchemes.map { it.publicId }.toSet(), decoded.data.sharedPeriodSchemes!!.map { it.publicId }.toSet())
         assertEquals(1, decoded.data.widgetAppearances.size)
         assertNotNull(decoded.preferences.aiImport)
         assertEquals(archive.preferences, decoded.preferences)
@@ -108,7 +108,7 @@ class BackupRoomSnapshotReaderTest {
         assertTrue(snapshot.courses.isEmpty())
         assertTrue(snapshot.agentDailySessions.isEmpty())
         assertTrue(snapshot.agentMessages.isEmpty())
-        assertEquals(2, snapshot.periodSchemes.size)
+        assertEquals(before.periodSchemes, snapshot.periodSchemes)
         assertEquals(before, rawSnapshot())
     }
 

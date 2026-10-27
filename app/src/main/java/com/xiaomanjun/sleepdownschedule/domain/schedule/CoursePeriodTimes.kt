@@ -9,6 +9,7 @@ typealias CoursePeriodTime = com.xiaomanjun.sleepdownschedule.model.CoursePeriod
 
 /** The same lesson boundaries drive the live activity and the home assistant. */
 fun courseTimeSegments(course: CourseEntity, periods: List<PeriodEntity>): List<CoursePeriodTime> {
+    if (course.timingReviewReason != null) return emptyList()
     course.effectiveArrangementOrNull()?.let { return it.times.map(AlignedCourseTime::time) }
     val custom = runCatching { parseCoursePeriodTimes(course.customPeriodTimes) }.getOrDefault(emptyList())
     if (custom.isNotEmpty() && custom.map(CoursePeriodTime::index) == course.periods.distinct().sorted()) {

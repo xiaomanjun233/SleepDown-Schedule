@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.widget.providers
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.displayPeriodIndices
+
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.content.Context
@@ -248,7 +250,7 @@ internal object WeekScheduleWidgetRenderer {
         val displayWeek = scheduleWeekForDateOrNull(state.config, today)
             ?: effectiveCurrentWeek(state.config, today)
         val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-        val weekBuckets = weekCourseBuckets(state.courses, displayWeek, state.config, today)
+        val weekBuckets = weekCourseBuckets(state.courses, displayWeek, state.config, today, state.timetableCatalog, state.periods)
         // A cancelled day keeps its cards in the app as a greyed reminder, but the widget only
         // shows classes that actually take place.
         val widgetCourses = weekBuckets.visibleCourses.filter { it.weekday !in weekBuckets.cancelledWeekdays }
@@ -414,7 +416,7 @@ internal object WeekScheduleWidgetRenderer {
         }
 
         val visiblePositionsByCourse = visibleCourses.associateWith { course ->
-            course.periods
+            course.displayPeriodIndices()
                 .mapNotNull(periodIndexes::indexOf)
                 .filter { it in periodWindow.firstPosition until periodWindow.lastExclusive }
                 .distinct()
@@ -467,7 +469,7 @@ internal object WeekScheduleWidgetRenderer {
                 setWidgetHeight(cell, rowHeightDp.roundToInt())
                 val starting = visibleCourses.filter { course ->
                     course.weekday == weekday &&
-                        periodIndex in course.periods &&
+                        periodIndex in course.displayPeriodIndices() &&
                         visiblePositionsByCourse[course]?.firstOrNull() == absolutePosition
                 }
                 if (starting.isEmpty()) {

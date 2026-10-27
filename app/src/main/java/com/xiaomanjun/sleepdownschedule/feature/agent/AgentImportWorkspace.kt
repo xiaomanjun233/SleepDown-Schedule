@@ -5,7 +5,7 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.parityMatches
 import com.xiaomanjun.sleepdownschedule.domain.schedule.validateResolvedPeriodTimes
 import com.xiaomanjun.sleepdownschedule.feature.importing.ScheduleImportParser
 import com.xiaomanjun.sleepdownschedule.feature.importing.ScheduleConfigPayload
-import com.xiaomanjun.sleepdownschedule.feature.importing.draftToPayload
+import com.xiaomanjun.sleepdownschedule.feature.importing.draftToLegacyPayload
 import com.xiaomanjun.sleepdownschedule.feature.importing.normalizeAiImportTimes
 import com.xiaomanjun.sleepdownschedule.model.CourseEntity
 import com.xiaomanjun.sleepdownschedule.model.ImportDraft
@@ -70,7 +70,7 @@ class AgentImportWorkspace internal constructor(
     }.toString()
 
     private fun document(): JsonObject {
-        val payload = Json.parseToJsonElement(draftToPayload(draft).toString()).jsonObject
+        val payload = Json.parseToJsonElement(draftToLegacyPayload(draft).toString()).jsonObject
         return JsonObject(payload + ("courses" to JsonArray(payload.getValue("courses").jsonArray.mapIndexed { index, course ->
             JsonObject(course.jsonObject + ("_courseId" to JsonPrimitive(draft.courses[index].id)))
         })))
@@ -129,7 +129,7 @@ class AgentImportWorkspace internal constructor(
         })))
         val parsed = ScheduleImportParser.parseStoredDraft(normalizedDocument.toString(), draft.config).getOrThrow()
         var nextId = lastAssignedCourseId
-        return parsed.copy(source = draft.source,
+        return parsed.copy(source = draft.source, timetablePlan = draft.timetablePlan,
             config = draft.config.copy(totalWeeks = parsed.config.totalWeeks,
                 currentWeek = draft.config.currentWeek.coerceIn(1, parsed.config.totalWeeks),
                 periodAlignmentMode = parsed.config.periodAlignmentMode),
@@ -148,7 +148,12 @@ class AgentImportWorkspace internal constructor(
                             weeks = if (unchanged("weeks") && unchanged("weekParity")) previous.weeks else parsedCourse.weeks,
                             weekParity = if (unchanged("weeks") && unchanged("weekParity")) previous.weekParity else parsedCourse.weekParity,
                             customPeriodTimes = if (timingChanged[index]) parsedCourse.customPeriodTimes else previous.customPeriodTimes,
-                            originalPeriodTimes = if (timingChanged[index]) parsedCourse.originalPeriodTimes else previous.originalPeriodTimes
+                            originalPeriodTimes = if (timingChanged[index]) parsedCourse.originalPeriodTimes else previous.originalPeriodTimes,
+                            independentPeriodSchemeId = previous.independentPeriodSchemeId,
+                            credit = previous.credit,
+                            legacyTimingSourceJson = previous.legacyTimingSourceJson,
+                            timingReviewReason = previous.timingReviewReason.takeUnless { timingChanged[index] },
+                            sourcePaletteIndex = previous.sourcePaletteIndex
                         )
                     }
                 }

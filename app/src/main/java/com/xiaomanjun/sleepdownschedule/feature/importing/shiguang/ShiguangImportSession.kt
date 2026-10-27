@@ -11,6 +11,11 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.builtins.ListSerializer
 import java.time.LocalTime
+import com.xiaomanjun.sleepdownschedule.feature.importing.NativeCourseTimingJson
+import com.xiaomanjun.sleepdownschedule.feature.importing.CanonicalScheduleJson
+import com.xiaomanjun.sleepdownschedule.feature.importing.CanonicalScheduleDocument
+import com.xiaomanjun.sleepdownschedule.feature.importing.ComboScheduleJson
+import kotlinx.serialization.encodeToString
 
 @Serializable
 internal data class ShiguangCoursePayload(
@@ -27,7 +32,9 @@ internal data class ShiguangCoursePayload(
     val customEndTime: String? = null,
     val color: Int? = null,
     val remark: String? = null,
-    val customPeriodTimes: String? = null
+    val customPeriodTimes: String? = null,
+    val credit: Float? = null,
+    val sleepdown: NativeCourseTimingJson? = null
 )
 
 @Serializable
@@ -59,6 +66,7 @@ internal class ShiguangImportSession {
     private var allowImportedBellTimes = false
     private var sectionMapping: Map<Int, Int>? = null
     private var originalConflictingSlots: List<ShiguangTimeSlotPayload>? = null
+    private var comboSchedule: ComboScheduleJson? = null
 
     fun begin(
         config: ScheduleConfigEntity,
@@ -77,6 +85,7 @@ internal class ShiguangImportSession {
             this.allowImportedBellTimes = allowImportedBellTimes
             sectionMapping = null
             originalConflictingSlots = null
+            comboSchedule = null
         }
     }
 
@@ -128,29 +137,30 @@ internal class ShiguangImportSession {
         }
         synchronized(lock) {
             require(active) { "当前没有正在执行的拾光导入任务" }
-            if (mergeOverlappingTimeSlots) {
-                val normalized = mergeWakeUpTimeSlots(sorted)
-                timeSlots = normalized.slots
-                sectionMapping = normalized.sectionMapping
-                originalConflictingSlots = sorted.takeIf { source -> source.any { slot ->
-                    val target = normalized.slots[normalized.sectionMapping.getValue(slot.number) - 1]
-                    slot.number != target.number || slot.startTime != target.startTime || slot.endTime != target.endTime
-                } }
-            } else if (allowImportedBellTimes && (sorted.map { it.number } != (1..sorted.size).toList() || sorted.zipWithNext().any { (previous, next) ->
-                parseTime(next.startTime, "startTime") < parseTime(previous.endTime, "endTime")
-            })) {
-                // The shared grid is only a display reference. Each course keeps its source
-                // period numbers and exact clocks, including periods absent from this grid.
+            require(comboSchedule == null) { "组合作息已提交，不能再覆盖基准作息" }
+            val overlapping = sorted.zipWithNext().any { (previous, next) ->
+                LocalTime.parse(next.startTime) < LocalTime.parse(previous.endTime)
+            }
+            if (overlapping) {
+                // Keep exact source clocks; the existing base is only the display reference.
+                // No source period is merged, invented, or renumbered.
                 originalConflictingSlots = sorted
-                timeSlots = mergeWakeUpTimeSlots(sorted).slots
+                timeSlots = basePeriods.map { ShiguangTimeSlotPayload(it.periodIndex, it.startTime, it.endTime, it.alias) }
             } else {
-                sorted.zipWithNext().forEach { (previous, next) ->
-                    require(parseTime(next.startTime, "startTime") >= parseTime(previous.endTime, "endTime")) {
-                        "时间段配置存在重叠"
-                    }
-                }
+                originalConflictingSlots = null
                 timeSlots = sorted
             }
+            sectionMapping = null
+        }
+    }
+
+    fun stageComboSchedule(json: String) {
+        val parsed = ShiguangPayloadJson.decodeFromString<ComboScheduleJson>(json)
+        synchronized(lock) {
+            require(active) { "当前没有正在执行的拾光导入任务" }
+            require(timeSlots != null) { "saveComboSchedule 必须在 savePresetTimeSlots 成功后调用" }
+            require(comboSchedule == null) { "组合作息已经提交" }
+            comboSchedule = parsed
         }
     }
 
@@ -165,7 +175,8 @@ internal class ShiguangImportSession {
                 courseConfig = courseConfig,
                 timeSlots = timeSlots,
                 sectionMapping = sectionMapping,
-                originalConflictingSlots = originalConflictingSlots
+                originalConflictingSlots = originalConflictingSlots,
+                comboSchedule = comboSchedule
             )
         }
         return snapshot.toDraft()
@@ -177,12 +188,13 @@ internal class ShiguangImportSession {
         require(course.day in 1..7) { "$label day 必须在 1 到 7 之间" }
         require(course.weeks.isNotEmpty()) { "$label weeks 不能为空" }
         require(course.weeks.all { it > 0 }) { "$label weeks 必须为正整数" }
+        require(course.credit == null || (course.credit.isFinite() && course.credit >= 0f)) { "$label 学分无效" }
         val startSection = course.startSection
         val endSection = course.endSection
         val hasStartSection = startSection != null
         val hasEndSection = endSection != null
-        require(hasStartSection == hasEndSection) { "$label startSection 与 endSection 必须同时提供" }
-        if (startSection != null && endSection != null) {
+        require(course.isCustomTime || hasStartSection == hasEndSection) { "$label startSection 与 endSection 必须同时提供" }
+        if (!course.isCustomTime && startSection != null && endSection != null) {
             require(startSection > 0 && endSection >= startSection) {
                 "$label 节次范围无效"
             }
@@ -212,17 +224,20 @@ internal class ShiguangImportSession {
         val courseConfig: ShiguangCourseConfigPayload?,
         val timeSlots: List<ShiguangTimeSlotPayload>?,
         val sectionMapping: Map<Int, Int>?,
-        val originalConflictingSlots: List<ShiguangTimeSlotPayload>?
+        val originalConflictingSlots: List<ShiguangTimeSlotPayload>?,
+        val comboSchedule: ComboScheduleJson?
     ) {
         fun toDraft(): ImportDraft {
+            if (comboSchedule != null) return CanonicalScheduleJson.decode(ShiguangPayloadJson.encodeToString(
+                CanonicalScheduleDocument(courses, timeSlots, courseConfig, comboSchedule)), baseConfig, basePeriods)
             val mappedPeriods = timeSlots?.map { slot ->
-                PeriodEntity(slot.number, slot.startTime, slot.endTime, baseConfig.id)
+                PeriodEntity(slot.number, slot.startTime, slot.endTime, baseConfig.id, slot.alias)
             } ?: basePeriods
             require(mappedPeriods.isNotEmpty()) { "目标课表没有可用于预览的节次" }
             val periodIndexSet = mappedPeriods.mapTo(hashSetOf(), PeriodEntity::periodIndex)
             val sourceSlots = originalConflictingSlots?.associateBy { it.number }
             val mappedCourses = courses.mapIndexed { index, course ->
-                val periods = course.sectionRangeOrNull()?.map { originalSection ->
+                val periods = if (course.isCustomTime && course.customPeriodTimes.isNullOrBlank()) emptyList() else course.sectionRangeOrNull()?.map { originalSection ->
                     if (sectionMapping == null || sourceSlots != null) originalSection
                     else requireNotNull(sectionMapping[originalSection]) {
                         "第 ${index + 1} 门课程引用了不存在的节次"
@@ -230,7 +245,7 @@ internal class ShiguangImportSession {
                 }?.distinct()?.sorted()
                     ?: parseCoursePeriodTimes(course.customPeriodTimes).map { it.index }
                         .takeIf { it.isNotEmpty() }
-                    ?: course.customTimePeriodIndexes(mappedPeriods)
+                    ?: emptyList()
                 if (!course.hasExactTime()) {
                     require(periods.isNotEmpty()) { "第 ${index + 1} 门课程缺少节次范围" }
                 }
@@ -270,7 +285,9 @@ internal class ShiguangImportSession {
                     originalPeriodTimes = originalClock,
                     // Shiguang color is a palette index, not ARGB. SleepDown keeps automatic color assignment.
                     customColorArgb = null,
-                    scheduleId = baseConfig.id
+                    scheduleId = baseConfig.id,
+                    credit = course.credit,
+                    sourcePaletteIndex = course.color
                 )
             }
             val mappedConfig = courseConfig?.let { imported ->
@@ -280,13 +297,19 @@ internal class ShiguangImportSession {
                     termStartDate = imported.semesterStartDate,
                     autoCurrentWeek = imported.semesterStartDate != null,
                     classDurationMinutes = imported.defaultClassDuration,
-                    breakDurationMinutes = imported.defaultBreakDuration
+                    breakDurationMinutes = imported.defaultBreakDuration,
+                    weekStartsOnSunday = imported.firstDayOfWeek == 7
                 )
             } ?: baseConfig
+            require(mappedCourses.all { course -> course.weeks.all { it in 1..mappedConfig.totalWeeks } }) { "课程周次超出学期范围" }
             return ImportDraft(
-                config = mappedConfig,
+                config = com.xiaomanjun.sleepdownschedule.domain.schedule.inferPeriodCounts(mappedPeriods).let { counts ->
+                    mappedConfig.copy(morningPeriodCount=counts.morning,noonPeriodCount=counts.noon,
+                        afternoonPeriodCount=counts.afternoon,eveningPeriodCount=counts.evening)
+                },
                 periods = mappedPeriods,
-                courses = mappedCourses
+                courses = mappedCourses,
+                notices = if (originalConflictingSlots != null) listOf("原作息含重叠时段，课程真实时间与原始编号已保留；网格继续使用当前基准作息。") else emptyList()
             )
         }
     }

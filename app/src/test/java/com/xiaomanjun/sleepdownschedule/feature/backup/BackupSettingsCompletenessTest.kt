@@ -34,14 +34,14 @@ class BackupSettingsCompletenessTest {
     }
 
     @Test
-    fun everyPortableRoomFieldAcrossAllNineTablesHasAProtocolCounterpart() {
+    fun everyPortableScheduleAndTimetableFieldHasAProtocolCounterpart() {
         assertPortableFields(
             ScheduleProfileEntity::class.java,
             BackupSchedule::class.java,
             roomOnly = setOf("id"),
             protocolOnly = setOf(
                 "id", "config", "courses", "periods", "periodSchemes",
-                "agentDailySessions", "agentMessages", "activePeriodSchemeId"
+                "agentDailySessions", "agentMessages", "activePeriodSchemeId", "activeTimetableComboId"
             )
         )
         assertPortableFields(
@@ -66,6 +66,10 @@ class BackupSettingsCompletenessTest {
             BackupPeriodSchemeTime::class.java,
             roomOnly = setOf("schemeId")
         )
+        assertPortableFields(com.xiaomanjun.sleepdownschedule.model.TimetableComboEntity::class.java,
+            BackupTimetableCombo::class.java,roomOnly=setOf("id"),protocolOnly=setOf("id","rules"))
+        assertPortableFields(com.xiaomanjun.sleepdownschedule.model.TimetableDateRuleEntity::class.java,
+            BackupTimetableDateRule::class.java,roomOnly=setOf("comboId","position"))
         assertPortableFields(
             AgentDailySessionEntity::class.java,
             BackupAgentDailySession::class.java,
@@ -83,7 +87,7 @@ class BackupSettingsCompletenessTest {
     @Test
     fun everyScheduleConfigFieldHasAnExplicitBackupCounterpart() {
         // The shared scheme relationship belongs to BackupSchedule and uses an archive-local ID.
-        val roomFields = instanceFieldNames(ScheduleConfigEntity::class.java) - setOf("id", "wallpaperUri", "activePeriodSchemeId")
+        val roomFields = instanceFieldNames(ScheduleConfigEntity::class.java) - setOf("id", "wallpaperUri", "activePeriodSchemeId", "activeTimetableComboId")
         val protocolFields = instanceFieldNames(BackupScheduleConfig::class.java) - "wallpaperAssetId"
 
         assertEquals(

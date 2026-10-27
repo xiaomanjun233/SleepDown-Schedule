@@ -19,7 +19,8 @@ import kotlinx.coroutines.flow.map
 data class CourseEditorFormData(
     val config: ScheduleConfigEntity,
     val periods: List<PeriodEntity>,
-    val courses: List<CourseEntity> = emptyList()
+    val courses: List<CourseEntity> = emptyList(),
+    val timetableCatalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog = com.xiaomanjun.sleepdownschedule.model.TimetableCatalog()
 )
 
 internal data class CourseEditorDraft(
@@ -37,7 +38,10 @@ internal data class CourseEditorDraft(
     val note: String,
     val customPeriodTimes: String? = null,
     val customLessonTimesEdited: Boolean = false,
-    val periodRangeEdited: Boolean = false
+    val periodRangeEdited: Boolean = false,
+    val independentPeriodSchemeId: Long? = null,
+    val credit: String = "",
+    val timingSelectionEdited: Boolean = false
 )
 
 internal enum class CourseWeekSelectionMode {
@@ -109,7 +113,9 @@ internal data class CourseEditorGroupingKey(
     val originalPeriodTimes: String?,
     val customColorArgb: Long?,
     val parity: WeekParity,
-    val note: String
+    val note: String,
+    val independentPeriodSchemeId: Long?,
+    val credit: Float?
 )
 
 private fun CourseEntity.editorGroupingKey() = CourseEditorGroupingKey(
@@ -125,7 +131,9 @@ private fun CourseEntity.editorGroupingKey() = CourseEditorGroupingKey(
     originalPeriodTimes = originalPeriodTimes,
     customColorArgb = customColorArgb,
     parity = weekParity,
-    note = note.orEmpty().trim()
+    note = note.orEmpty().trim(),
+    independentPeriodSchemeId = independentPeriodSchemeId,
+    credit = credit
 )
 
 internal fun buildCourseEditorGroups(
@@ -319,7 +327,9 @@ internal fun courseEditorDraft(
         customColorArgb = course?.customColorArgb,
         weeks = activeWeeks,
         parity = selectionMode.toWeekParity(),
-        note = course?.note.orEmpty()
+        note = course?.note.orEmpty(),
+        independentPeriodSchemeId = course?.independentPeriodSchemeId,
+        credit = course?.credit?.toString().orEmpty()
     )
 }
 
@@ -356,13 +366,13 @@ internal fun CourseEditorDraft.toCourses(
     return weekdays.sorted().mapNotNull { weekday ->
         val weekdayOriginals = originalsByWeekday[weekday].orEmpty()
         val original = courseEditorOriginalForWeekday(originals, weekday, weekdays.size)
-        val periods = original?.periods?.takeIf {
+        val periods = if (customStartTime != null && customPeriodTimes.isNullOrBlank()) original?.periods.orEmpty() else original?.periods?.takeIf {
             !customLessonTimesEdited && !periodRangeEdited &&
             it.minOrNull() == periodStart && it.maxOrNull() == periodEnd
         } ?: selectedPeriods
         val timingUnchanged = original != null && original.periods == periods &&
             original.customStartTime == customStartTime && original.customEndTime == customEndTime &&
-            original.customPeriodTimes == customPeriodTimes
+            original.customPeriodTimes == customPeriodTimes && original.independentPeriodSchemeId == independentPeriodSchemeId
         val targetWeeks = if (keepOriginalDistribution && originals.isNotEmpty()) {
             weekdayOriginals.flatMap(CourseEntity::weeks).distinct().sorted()
         } else {
@@ -391,7 +401,12 @@ internal fun CourseEditorDraft.toCourses(
             } else {
                 original?.customColorArgb ?: originals.firstOrNull()?.customColorArgb
             },
-            scheduleId = original?.scheduleId ?: originals.firstOrNull()?.scheduleId ?: 0
+            scheduleId = original?.scheduleId ?: originals.firstOrNull()?.scheduleId ?: 0,
+            independentPeriodSchemeId = independentPeriodSchemeId,
+            credit = credit.toFloatOrNull(),
+            timingReviewReason = original?.timingReviewReason?.takeIf { timingUnchanged && !timingSelectionEdited },
+            legacyTimingSourceJson = original?.legacyTimingSourceJson,
+            sourcePaletteIndex = original?.sourcePaletteIndex
         )
     }
 }

@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.resolvedCoursesForPreview
+
 import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -102,6 +104,7 @@ fun ConfirmScheduleScreen(
         )
         return
     }
+    val previewCourses = remember(previewDraft) { previewDraft.resolvedCoursesForPreview() }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -122,7 +125,7 @@ fun ConfirmScheduleScreen(
             item { Text("没有解析到课程", color = MaterialTheme.colorScheme.error) }
         } else {
             itemsIndexed(
-                previewDraft.courses,
+                previewCourses,
                 key = { index, course ->
                     "preview_${index}_${course.name}_${course.weekday}_${course.periods.joinToString("_")}_${course.weeks.take(3).joinToString("_")}"
                 }
@@ -198,6 +201,7 @@ private fun AiImportChatPreview(
         revising = false
         ownedRevisionTaskId = null
     }
+    val previewCourses = remember(draft) { draft.resolvedCoursesForPreview() }
     Column(Modifier.fillMaxSize()) {
         errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
         if (submitting) Text("正在保存课表…", modifier = Modifier.padding(16.dp))
@@ -267,7 +271,7 @@ private fun AiImportChatPreview(
                 item { Text("没有解析到课程", color = MaterialTheme.colorScheme.error) }
             } else {
                 itemsIndexed(
-                    draft.courses,
+                    previewCourses,
                     key = { index, course ->
                         "ai_preview_${index}_${course.name}_${course.weekday}_${course.periods.joinToString("_")}"
                     }

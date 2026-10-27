@@ -59,6 +59,7 @@ import com.xiaomanjun.sleepdownschedule.domain.course.WeekConflictGroup
 import com.xiaomanjun.sleepdownschedule.domain.course.WeekCourseSegment
 import com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseWeekDisplayFragments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.customTimeRangeOrNull
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseNeedsSupplementaryWeekRow
 import com.xiaomanjun.sleepdownschedule.exactTimeWeekPlacement
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorWeekGrid
@@ -154,6 +155,11 @@ internal fun weekCardVerticalBounds(
     cardHeight: Dp,
     timeGrid: WeekTimeSlotGrid? = null
 ): Pair<Float, Float> {
+    segment.course.customTimeRangeOrNull()?.let { (start, end) ->
+        val top = timeGrid?.clockPosition(start)
+        val bottom = timeGrid?.clockPosition(end)
+        if (top != null && bottom != null && bottom > top) return top to bottom
+    }
     val exact = exactTimeWeekPlacement(segment.course, periods)
     val startRow = exact?.topRows ?: segment.startPosition.toFloat()
     val endRow = startRow + (exact?.heightRows ?: segment.span.toFloat())
@@ -285,8 +291,8 @@ private fun WeekDayColumn(
     ) {
         val measuredCardLayoutWidth = (maxWidth - 4.dp).coerceAtLeast(1.dp)
         if (emptyBackground.alpha > 0f) {
-            Column(Modifier.fillMaxSize()) {
-                periods.forEach { EmptyWeekCell(cardHeight, emptyBackground) }
+            Box(Modifier.fillMaxSize()) {
+                periods.forEachIndexed { index, _ -> Box(Modifier.offset(y = timeGrid.rowTops[index].dp)) { EmptyWeekCell(cardHeight, emptyBackground) } }
             }
         }
         if (holidayLabel != null) {
@@ -404,7 +410,7 @@ private fun WeekDayColumn(
                 timeLabels?.let { labels ->
                     val labelColor = glassForegroundColor(config)
                     if (labels.showStart) WeekCourseTimeLabel(
-                                text = segment.course.customStartTime.orEmpty(),
+                                text = segment.course.customTimeRangeOrNull()?.first?.toString().orEmpty(),
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
                                     .offset(y = -(timeLabelHeight + WeekCustomTimeLabelGap).dp)
@@ -414,7 +420,7 @@ private fun WeekDayColumn(
                                 lineHeight = 9.sp,
                     )
                     if (labels.showEnd) WeekCourseTimeLabel(
-                                text = segment.course.customEndTime.orEmpty(),
+                                text = segment.course.customTimeRangeOrNull()?.second?.toString().orEmpty(),
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .offset(y = (timeLabelHeight + WeekCustomTimeLabelGap).dp)
@@ -424,7 +430,7 @@ private fun WeekDayColumn(
                                 lineHeight = 9.sp,
                     )
                     if (labels.showRangeBelow) WeekCourseTimeLabel(
-                        text = "${segment.course.customStartTime.orEmpty()}–${segment.course.customEndTime.orEmpty()}",
+                        text = segment.course.customTimeRangeOrNull()?.let { "${it.first}–${it.second}" }.orEmpty(),
                         modifier = Modifier.align(Alignment.BottomCenter).offset(y = (timeLabelHeight + WeekCustomTimeLabelGap).dp).zIndex(12f),
                         color = labelColor,
                         fontSize = 7.sp,
@@ -504,18 +510,18 @@ fun WeekCourseColumnsLayer(
         onDispose { flightRegistry?.remove(editWeek) }
     }
     val supplementaryCoursesByDay = remember(courses, periods) {
-        courses.flatMap { courseWeekDisplayFragments(it, periods) }.filter { courseNeedsSupplementaryWeekRow(it, periods) }
-            .sortedBy { it.customStartTime }.groupBy { it.weekday }
+        emptyMap<Int,List<CourseEntity>>()
     }
     val coursesByWeekday = remember(courses, periods) {
-        courses.flatMap { courseWeekDisplayFragments(it, periods) }.filterNot { courseNeedsSupplementaryWeekRow(it, periods) }.groupBy { it.weekday }
+        courses.flatMap { courseWeekDisplayFragments(it, periods) }.groupBy { it.weekday }
     }
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
     val inheritedTimeGrid = LocalWeekTimeSlotGrid.current
-    val timeGrid = remember(inheritedTimeGrid, config.timeSlotCoursesJson, weekdays, periods, cardHeight) {
+    val timeGrid = remember(inheritedTimeGrid, config.timeSlotCoursesJson, weekdays, periods, cardHeight, courses, referenceCourses) {
         inheritedTimeGrid ?: weekTimeSlotGrid(
             runCatching { com.xiaomanjun.sleepdownschedule.domain.schedule.resolvedTimeSlotCourses(config.timeSlotCoursesJson, periods) }.getOrDefault(emptyList()),
-            periods.size, cardHeight.value, visibleWeekdays = weekdays)
+            periods.size, cardHeight.value, visibleWeekdays = weekdays, periods = periods,
+            clockIntervals = (courses + referenceCourses).flatMap { com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments(it,periods) }.map { it.start to it.end })
     }
     val renderedSegmentsByDay = remember(
         coursesByWeekday,
@@ -569,7 +575,7 @@ fun WeekCourseColumnsLayer(
         editWeek, weekdays, adjustmentsByDay, periods) {
         weekdays.associateWith { day ->
             if (config.showNonCurrentWeekCourses && adjustmentsByDay[day]?.let { it.sourceDate == null } != true)
-                nonCurrentSupplementaryCourses(referenceCourses, courses, editWeek, day, periods)
+                emptyList<CourseEntity>()
             else emptyList()
         }
     }

@@ -18,12 +18,13 @@ internal fun PeriodSchemeSwitchDialog(
     name: String, courses: List<CourseEntity>, currentConfig: ScheduleConfigEntity,
     currentPeriods: List<PeriodEntity>, targetConfig: ScheduleConfigEntity, targetPeriods: List<PeriodEntity>,
     backdrop: Backdrop?, config: ScheduleConfigEntity, onDismiss: () -> Unit,
-    onConfirm: (PeriodAlignmentMode) -> Unit
+    onConfirm: (PeriodAlignmentMode) -> Unit,
+    catalog: TimetableCatalog = TimetableCatalog()
 ) {
-    var mode by remember(name, targetPeriods) { mutableStateOf(PeriodAlignmentMode.INDEX) }
-    val preview = remember(courses, currentConfig, currentPeriods, targetConfig, targetPeriods, mode) {
+    val mode = PeriodAlignmentMode.INDEX
+    val preview = remember(courses, currentConfig, currentPeriods, targetConfig, targetPeriods, mode, catalog) {
         runCatching { previewCourseAlignment(courses, currentConfig, currentPeriods,
-            targetConfig.copy(periodAlignmentMode = mode), targetPeriods) }
+            targetConfig.copy(periodAlignmentMode = mode,activeTimetableComboId=null), targetPeriods,catalog) }
     }
     val impact = preview.getOrNull()
     LiquidAlertDialog(
@@ -32,7 +33,7 @@ internal fun PeriodSchemeSwitchDialog(
         actions = listOf(
             LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismiss),
             LiquidAlertAction("确认切换", LiquidAlertActionStyle.Primary,
-                enabled = impact != null && impact.conflicts.isEmpty(), onClick = { onConfirm(mode) })
+                enabled = impact != null, onClick = { onConfirm(mode) })
         ),
         backdrop = backdrop,
         config = config,
@@ -45,21 +46,7 @@ internal fun PeriodSchemeSwitchDialog(
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(name, style = MaterialTheme.typography.bodySmall,
                     color = foreground.copy(alpha = 0.62f))
-                Column(modifier = Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    listOf(
-                        PeriodAlignmentMode.INDEX to ("按原节次对齐" to "使用相同编号的整节时间"),
-                        PeriodAlignmentMode.TIME to ("按实际时间对齐" to "使用与原始时间重叠的整节时间")
-                    ).forEach { (value, labels) ->
-                        LiquidDialogChoiceCard(
-                            title = labels.first,
-                            selected = mode == value,
-                            config = config,
-                            onClick = { mode = value },
-                            description = labels.second
-                        )
-                    }
-                }
-                Text("自定义时间保持不变", style = MaterialTheme.typography.bodySmall,
+                Text("普通课程使用新作息的同编号节次。独立作息与自定义时间保持原安排，在固定网格中显示真实时间。", style = MaterialTheme.typography.bodySmall,
                     color = foreground.copy(alpha = 0.62f))
                 Text(impact?.summary() ?: (preview.exceptionOrNull()?.message ?: "无法预览切换"),
                     style = MaterialTheme.typography.bodyMedium, color = foreground.copy(alpha = 0.68f))

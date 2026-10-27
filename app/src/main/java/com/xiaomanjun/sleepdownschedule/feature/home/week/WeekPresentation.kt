@@ -18,7 +18,7 @@ internal fun nonCurrentWeekCards(
 ): List<NonCurrentWeekCard> {
     fun cards(course: CourseEntity): List<NonCurrentWeekCard> =
         courseWeekDisplayFragments(course, periods).flatMap { fragment ->
-            if (courseNeedsSupplementaryWeekRow(fragment, periods)) emptyList() else {
+            if (courseNeedsSupplementaryWeekRow(fragment, periods) && timeGrid?.clockRows.isNullOrEmpty()) emptyList() else {
                 val segments = buildWeekConflictGroups(listOf(fragment), periods.map { it.periodIndex }, periods)
                     .flatMap { it.segments }
                 val rendered = if (fragment.hasCustomTime() && fragment.arrangementProjection == null)

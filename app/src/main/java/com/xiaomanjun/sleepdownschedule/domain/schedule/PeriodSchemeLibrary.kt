@@ -5,7 +5,7 @@ import kotlinx.serialization.Serializable
 import java.util.UUID
 
 @Serializable
-data class SavedPeriodTime(val periodIndex: Int, val startTime: String, val endTime: String)
+data class SavedPeriodTime(val periodIndex: Int, val startTime: String, val endTime: String, val alias: String? = null)
 
 @Serializable
 data class PeriodSchemeSource(val scheduleName: String, val schemeName: String)
@@ -50,7 +50,7 @@ data class SavedPeriodScheme(
         require(listOf(morningStartTime, noonStartTime, afternoonStartTime, eveningStartTime)
             .all { parseMinuteOfDay(it) != null }) { "作息库分段时间无效" }
         validateResolvedPeriodTimes(times.map {
-            PeriodSchemeTimeEntity(0, it.periodIndex, it.startTime, it.endTime)
+            PeriodSchemeTimeEntity(0, it.periodIndex, it.startTime, it.endTime, it.alias)
         })?.let { throw IllegalArgumentException(it) }
     }
 }
@@ -62,7 +62,7 @@ fun SavedPeriodScheme.hasSameContent(other: SavedPeriodScheme): Boolean {
         classDurationMinutes, breakDurationMinutes, mode,
         decodeSpecialBreaks(specialBreaksJson), decodeOverrides(overridesJson),
         listOf(morningStartTime, noonStartTime, afternoonStartTime, eveningStartTime),
-        times.sortedBy { it.periodIndex }.map { listOf(it.periodIndex, it.startTime, it.endTime) }
+        times.sortedBy { it.periodIndex }.map { listOf(it.periodIndex, it.startTime, it.endTime, it.alias) }
     )
     return content() == other.content()
 }
@@ -130,7 +130,7 @@ fun savePeriodSchemeSnapshot(
     breakDurationMinutes = draft.scheme.breakDurationMinutes,
     morningStartTime = draft.scheme.morningStartTime, noonStartTime = draft.scheme.noonStartTime,
     afternoonStartTime = draft.scheme.afternoonStartTime, eveningStartTime = draft.scheme.eveningStartTime,
-    times = librarySchemeTimes(config, draft).map { SavedPeriodTime(it.periodIndex, it.startTime, it.endTime) },
+    times = librarySchemeTimes(config, draft).map { SavedPeriodTime(it.periodIndex, it.startTime, it.endTime, it.alias) },
     mode = draft.scheme.mode, specialBreaksJson = encodeSpecialBreaks(draft.specialBreaks),
     overridesJson = encodeOverrides(draft.overriddenPeriods), roomId = draft.scheme.id
 ).also { it.validate() }
@@ -152,7 +152,7 @@ internal fun savedPeriodSchemeSession(saved: SavedPeriodScheme, base: ScheduleCo
         morningStartTime = saved.morningStartTime, noonStartTime = saved.noonStartTime,
         afternoonStartTime = saved.afternoonStartTime, eveningStartTime = saved.eveningStartTime)
     val item = saved.storedDraft ?: PeriodSchemeDraft(scheme,
-        saved.times.map { PeriodSchemeTimeEntity(scheme.id, it.periodIndex, it.startTime, it.endTime) },
+        saved.times.map { PeriodSchemeTimeEntity(scheme.id, it.periodIndex, it.startTime, it.endTime, it.alias) },
         decodeSpecialBreaks(saved.specialBreaksJson), decodeOverrides(saved.overridesJson))
     return PeriodTimelineSession(config, SchedulePeriodSchemesDraft(listOf(item), scheme.id,
         originalSchemes = listOf(item), expectedUsages = saved.usages))

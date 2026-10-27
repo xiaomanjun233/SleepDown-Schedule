@@ -51,6 +51,7 @@ import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
 import com.xiaomanjun.sleepdownschedule.domain.schedule.isHiddenByPeriodAlignment
 import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
+import com.xiaomanjun.sleepdownschedule.domain.schedule.effectiveArrangementOrNull
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorDayAppearance
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.LocalCourseEditorFlightRegistry
@@ -294,7 +295,7 @@ fun ImportPreviewCourseCard(
     config: ScheduleConfigEntity = defaultConfig()
 ) {
     val effective = remember(course, periods, config.periodAlignmentMode) {
-        projectCourseArrangement(captureOriginalPeriodTimes(course, periods), config, periods)
+        if (course.effectiveArrangementOrNull() != null) course else projectCourseArrangement(captureOriginalPeriodTimes(course, periods), config, periods)
     }
     // Preview lives on the settings page, without the timetable's wallpaper. Resolve one
     // page ink, just like the live cards; individual seed colors must not invert labels.

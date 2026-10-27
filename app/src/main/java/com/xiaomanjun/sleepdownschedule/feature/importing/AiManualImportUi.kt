@@ -490,7 +490,7 @@ fun NormalizedAiManualImportScreen(
         }
     }
     fun parseDraft() {
-        val result = ScheduleImportParser.parse(jsonText, state.config)
+        val result = ScheduleImportParser.parse(jsonText, state.config, state.periods)
         result.onSuccess {
             error = null
             onParsed(it)

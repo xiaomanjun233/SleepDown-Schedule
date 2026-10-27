@@ -258,7 +258,7 @@ fun PeriodSchemeManagementScreen(
                         error = failure.message ?: "作息切换失败"
                     } finally { busy = false }
                 }
-            })
+            },catalog=state.timetableCatalog)
     }
 }
 

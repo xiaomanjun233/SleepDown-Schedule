@@ -54,11 +54,12 @@ fun NormalizedCourseEditorScreen(
     contextMessage: String? = null,
     onDismissHandlerChange: (((() -> Unit)?) -> Unit)? = null
 ) {
-    val formData = remember(state.config, state.periods, state.courses) {
+    val formData = remember(state.config, state.periods, state.courses, state.timetableCatalog) {
         CourseEditorFormData(
             config = state.config,
             periods = state.periods,
-            courses = state.courses
+            courses = state.courses,
+            timetableCatalog = state.timetableCatalog
         )
     }
     NormalizedCourseEditorScreen(
@@ -142,14 +143,15 @@ fun NormalizedCourseEditorScreen(
         val currentDraft = drafts.getValue(page)
         val edited = currentDraft.toCourses(
             originals = group.courses,
-            periodValues = periodValues,
+            periodValues = currentDraft.independentPeriodSchemeId?.let { id -> formData.timetableCatalog.times.filter { it.schemeId == id }.map { it.periodIndex } } ?: periodValues,
             allowCustomColorOverride = courseCardAllowsCustomOverrides(config)
         )
         when {
             currentDraft.name.isBlank() -> error = "课程名称不能为空"
             currentDraft.weekdays.isEmpty() -> error = "请选择星期"
             currentDraft.weeks.isEmpty() -> error = "请选择周次"
-            edited.firstOrNull()?.periods.isNullOrEmpty() -> error = "请选择节次"
+            currentDraft.credit.isNotBlank() && (currentDraft.credit.toFloatOrNull()?.let { !it.isFinite() || it < 0f } != false) -> error = "请输入有效学分"
+            edited.firstOrNull()?.periods.isNullOrEmpty() && currentDraft.customStartTime == null -> error = "请选择节次或自定义时间"
             group.courses.isNotEmpty() && onSaveGroup != null -> onSaveGroup(group.courses, edited)
             course != null && edited.size == 1 && onSaveWithOriginal != null -> onSaveWithOriginal(course, edited.single())
             onSaveCourses != null -> onSaveCourses(edited)
@@ -223,6 +225,7 @@ fun NormalizedCourseEditorScreen(
                 periodValues = periodValues,
                 periods = formData.periods,
                 totalWeeks = config.totalWeeks.coerceAtLeast(1),
+                timetableCatalog = formData.timetableCatalog,
                 config = config,
                 backdrop = backdrop,
                 error = error.takeIf { page == currentPage },

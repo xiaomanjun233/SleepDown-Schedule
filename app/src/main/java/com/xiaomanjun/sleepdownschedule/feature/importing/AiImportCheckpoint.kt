@@ -3,6 +3,8 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 import com.xiaomanjun.sleepdownschedule.*
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonArray
 import org.json.JSONObject
 import java.util.Collections
 import java.util.UUID
@@ -77,8 +79,8 @@ private val checkpointJson = Json { ignoreUnknownKeys = true }
 /** Never run the AI normalization/placeholder fallback on manually edited or persisted JSON. */
 internal fun parseCheckpointDraft(input: String, baseConfig: ScheduleConfigEntity): Result<ImportDraft> = runCatching {
     require(input.toByteArray(Charsets.UTF_8).size <= AiImportCheckpoint.MaxPayloadBytes) { "阶段 JSON 超过 256 KiB" }
-    val payload = checkpointJson.decodeFromString<ScheduleImportPayload>(input)
-    require(payload.courses.isNotEmpty()) { "课表没有完整课程，不能保存为阶段" }
+    val payload = checkpointJson.parseToJsonElement(input).jsonObject
+    require(payload["courses"]?.jsonArray?.isNotEmpty() == true) { "课表没有完整课程，不能保存为阶段" }
     ScheduleImportParser.parseStoredDraft(input, baseConfig).getOrThrow().copy(source = ImportDraftSource.AI_EDU)
 }
 

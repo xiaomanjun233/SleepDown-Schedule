@@ -501,7 +501,10 @@ internal fun progressFromJson(root: JSONObject): AiEduImportProgress {
     ))
 }
 
-internal fun draftToPayload(draft: ImportDraft): JSONObject = JSONObject()
+internal fun draftToPayload(draft: ImportDraft): JSONObject = JSONObject(CanonicalScheduleJson.encode(draft))
+
+/** Old patch paths remain an internal compatibility adapter, never the new public JSON. */
+internal fun draftToLegacyPayload(draft: ImportDraft): JSONObject = JSONObject()
     .put("schemaVersion", 1)
     .put(
         "scheduleConfig",

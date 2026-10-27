@@ -54,7 +54,7 @@ import kotlinx.coroutines.launch
 /** Selecting or reloading a public record projects its saved bells without regenerating rules. */
 internal fun storedPeriodSchemePeriods(scheduleId: Int, draft: PeriodSchemeDraft): List<PeriodEntity> =
     draft.times.sortedBy { it.periodIndex }.map {
-        PeriodEntity(it.periodIndex, it.startTime, it.endTime, scheduleId)
+        PeriodEntity(it.periodIndex, it.startTime, it.endTime, scheduleId, it.alias)
     }
 
 /** A reference change and unrelated table settings are not edits to the selected public record. */
@@ -134,6 +134,9 @@ fun ScheduleConfigScreen(
     }
     val latestState by rememberUpdatedState(state)
     var schemeReloadRequest by remember(state.config.id) { mutableIntStateOf(0) }
+    var showDateTimetables by remember { mutableStateOf(false) }
+    var dateTimetablesSaving by remember { mutableStateOf(false) }
+    var dateTimetablesError by remember { mutableStateOf<String?>(null) }
     val periodManagementLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         schemeReloadRequest++
     }
@@ -370,7 +373,7 @@ fun ScheduleConfigScreen(
                     storedConfig = previousActiveConfig,
                     storedDraft = previousActive
                 ).map {
-                    PeriodEntity(it.periodIndex, it.startTime, it.endTime, nextConfig.id)
+                    PeriodEntity(it.periodIndex, it.startTime, it.endTime, nextConfig.id, it.alias)
                 }
                 currentSchemes.schemes.forEach { item ->
                     val previous = currentSchemes.originalSchemes.firstOrNull { it.scheme.id == item.scheme.id }
@@ -412,11 +415,10 @@ fun ScheduleConfigScreen(
                     runCatching {
                         repository.saveScheduleDetail(nextConfig, currentSchemes,
                             expectedCourses = mappingApproval.courses, expectedPeriods = mappingApproval.originalPeriods)
-                        repository.loadPeriodSchemes(nextConfig.id) to repository.loadPeriodSchemeLibrary(
-                            context, state.allConfigs + nextConfig, state.schedules.associate { it.id to it.name })
-                    }.onSuccess { (savedDraft, library) ->
+                        Triple(repository.loadPeriodSchemes(nextConfig.id), repository.loadPeriodSchemeLibrary(
+                            context, state.allConfigs + nextConfig, state.schedules.associate { it.id to it.name }), repository.scheduleSnapshot(nextConfig.id).config)
+                    }.onSuccess { (savedDraft, library, savedConfig) ->
                         val savedActive = savedDraft.schemes.first { it.scheme.id == savedDraft.activeSchemeId }
-                        val savedConfig = schemeConfig(nextConfig, savedActive.scheme)
                         val savedPeriods = storedPeriodSchemePeriods(savedConfig.id, savedActive)
                         periods = savedPeriods
                         onSave(savedConfig, savedPeriods)
@@ -537,7 +539,7 @@ fun ScheduleConfigScreen(
             popupBackdrop, visualState.config, onDismiss = { pendingSchemeSwitch = null }, onConfirm = { mode ->
                 pendingSchemeSwitch = null
                 applyPeriodSchemeSelection(selected, mode)
-            })
+            },catalog=state.timetableCatalog)
     }
 
     LaunchedEffect(exitCommitRequest) {
@@ -634,7 +636,7 @@ fun ScheduleConfigScreen(
                     ?: lastSavedSchemeDraft?.schemes?.firstOrNull { it.scheme.id == active.scheme.id }
                 periods = resolveSchemeTimesForSave(draftConfig, active,
                     previous?.let { schemeConfig(lastSavedConfig, it.scheme) } ?: lastSavedConfig, previous).map {
-                    PeriodEntity(it.periodIndex, it.startTime, it.endTime, state.config.id)
+                    PeriodEntity(it.periodIndex, it.startTime, it.endTime, state.config.id, it.alias)
                 }
             }
         },
@@ -656,9 +658,32 @@ fun ScheduleConfigScreen(
         },
         onOpenPeriodSchemes = ::openPeriodSchemeManagement,
         onOpenSpecialCourses = ::openSpecialCourseManagement,
+        onOpenDateTimetables = {
+            if (computeDirty()) error="请先保存或放弃当前课表设置，再编辑日期作息"
+            else { dateTimetablesError=null;showDateTimetables=true }
+        },
         periodSchemeLibrary = periodSchemeLibrary,
         onSelectPeriodScheme = ::selectPeriodScheme
     )
+
+    if (showDateTimetables) {
+        TimetableDateRulesDialog(state,popupBackdrop,dateTimetablesSaving,dateTimetablesError,
+            onDismiss={showDateTimetables=false},onSave={ rules ->
+                dateTimetablesSaving=true
+                saveScope.launch {
+                    runCatching {
+                        repository.saveDateTimetableRules(state.config.id,state.config.activeTimetableComboId,
+                            state.timetableCatalog.rules.filter { it.comboId==state.config.activeTimetableComboId },rules)
+                        repository.scheduleSnapshot(state.config.id)
+                    }.onSuccess { saved ->
+                        resetConfigDraftFromState(saved)
+                        showDateTimetables=false
+                        onSave(saved.config,saved.periods)
+                    }.onFailure { dateTimetablesError=it.message ?: "日期作息保存失败" }
+                    dateTimetablesSaving=false
+                }
+            })
+    }
 
     if (showExitSaveConfirm) {
         LiquidAlertDialog(

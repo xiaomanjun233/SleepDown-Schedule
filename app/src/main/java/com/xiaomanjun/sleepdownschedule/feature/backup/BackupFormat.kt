@@ -41,7 +41,7 @@ object BackupAssetPurpose {
 object BackupFormatV1 {
     const val FORMAT_VERSION = 1
     const val PRODUCT = "SleepDown Backup"
-    const val DATA_VERSION = 1
+    const val DATA_VERSION = 2
     const val PREFERENCES_VERSION = 1
     const val CHECKSUM_VERSION = 1
     const val CHECKSUM_ALGORITHM = "SHA-256"
@@ -136,7 +136,8 @@ data class BackupData(
     val schedules: List<BackupSchedule> = emptyList(),
     val widgetAppearances: List<BackupWidgetAppearance> = emptyList(),
     /** Null identifies older archives whose schemes belonged to individual schedules. */
-    val sharedPeriodSchemes: List<BackupPeriodScheme>? = null
+    val sharedPeriodSchemes: List<BackupPeriodScheme>? = null,
+    val timetableCombos: List<BackupTimetableCombo> = emptyList()
 )
 
 @Serializable
@@ -150,7 +151,8 @@ data class BackupSchedule(
     val periodSchemes: List<BackupPeriodScheme> = emptyList(),
     val agentDailySessions: List<BackupAgentDailySession> = emptyList(),
     val agentMessages: List<BackupAgentMessage> = emptyList(),
-    val activePeriodSchemeId: String? = null
+    val activePeriodSchemeId: String? = null,
+    val activeTimetableComboId: String? = null
 )
 
 /** Protocol DTO for ScheduleConfigEntity. It intentionally has no database id or URI field. */
@@ -240,14 +242,20 @@ data class BackupCourse(
     val customEndTime: String? = null,
     val customColorArgb: Long? = null,
     val customPeriodTimes: String? = null,
-    val originalPeriodTimes: String? = null
+    val originalPeriodTimes: String? = null,
+    val independentPeriodSchemeId: String? = null,
+    val credit: Float? = null,
+    val timingReviewReason: String? = null,
+    val legacyTimingSourceJson: String? = null,
+    val sourcePaletteIndex: Int? = null
 )
 
 @Serializable
 data class BackupPeriod(
     val periodIndex: Int,
     val startTime: String,
-    val endTime: String
+    val endTime: String,
+    val alias: String? = null
 )
 
 @Serializable
@@ -277,8 +285,15 @@ data class BackupPeriodScheme(
 data class BackupPeriodSchemeTime(
     val periodIndex: Int,
     val startTime: String,
-    val endTime: String
+    val endTime: String,
+    val alias: String? = null
 )
+
+@Serializable
+data class BackupTimetableCombo(val id: String, val name: String, val baseSchemeId: String, val rules: List<BackupTimetableDateRule>)
+
+@Serializable
+data class BackupTimetableDateRule(val schemeId: String, val startDate: String, val endDate: String)
 
 @Serializable
 data class BackupAgentDailySession(

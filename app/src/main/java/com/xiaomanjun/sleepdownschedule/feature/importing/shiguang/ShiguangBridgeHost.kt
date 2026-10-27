@@ -170,6 +170,11 @@ internal class ShiguangBridgeHost(
                     resolve(requireCallbackId(message), "true")
                 }
 
+                "saveComboSchedule" -> parsePayload<ShiguangSaveComboSchedulePayload>(message).let { payload ->
+                    requireNotNull(currentTask) { "当前没有正在执行的拾光导入任务" }.session.stageComboSchedule(payload.comboScheduleJsonString)
+                    resolve(requireCallbackId(message), "true", expectedGeneration)
+                }
+
                 "notifyTaskCompletion" -> {
                     val draft = requireNotNull(currentTask) { "当前没有正在执行的拾光导入任务" }.session.complete()
                     postForTask(expectedGeneration) {

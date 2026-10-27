@@ -973,7 +973,8 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_45_46,
     MIGRATION_46_47,
     MIGRATION_47_48,
-    MIGRATION_48_49
+    MIGRATION_48_49,
+    MIGRATION_49_50
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -991,6 +992,7 @@ internal fun createAppDatabase(
     context: Context,
     databaseName: String = "course_schedule.db"
 ): AppDatabase {
+    backupBeforeTimingUpgrade(context, context.getDatabasePath(databaseName))
     repairDatabaseFileBeforeRoomOpen(context.getDatabasePath(databaseName))
     return Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
         .addMigrations(*APP_DATABASE_MIGRATIONS.toTypedArray())
@@ -1001,6 +1003,8 @@ private fun repairDatabaseFileBeforeRoomOpen(path: File) {
     if (!path.exists()) return
     runCatching {
         SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+            // Version 50 uses normalized timing tables. Never run legacy table reconstruction on it.
+            if (db.version >= 50) return@use
             val needsStructuralRepair = db.version < 26 ||
                 !sqliteTableExists(db, "schedule_profiles") ||
                 !sqliteTableExists(db, "schedule_config") ||

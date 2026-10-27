@@ -16,9 +16,10 @@ data class EffectiveCourseArrangement(
     val mode: PeriodAlignmentMode,
     val displayStart: String? = source.customStartTime,
     val displayEnd: String? = source.customEndTime,
-    val displayPeriodTimes: String? = source.customPeriodTimes
+    val displayPeriodTimes: String? = source.customPeriodTimes,
+    val reviewReason: String? = null
 ) {
-    fun matches(course: CourseEntity): Boolean = course.periods == periods &&
-        course.customStartTime == displayStart && course.customEndTime == displayEnd &&
-        course.customPeriodTimes == displayPeriodTimes
+    fun matches(course: CourseEntity): Boolean = course.periods == source.periods &&
+        course.customStartTime == source.customStartTime && course.customEndTime == source.customEndTime &&
+        course.customPeriodTimes == source.customPeriodTimes && course.independentPeriodSchemeId == source.independentPeriodSchemeId
 }

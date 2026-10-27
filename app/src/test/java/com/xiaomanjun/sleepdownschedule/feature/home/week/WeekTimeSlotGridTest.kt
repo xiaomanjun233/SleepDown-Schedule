@@ -12,6 +12,30 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WeekTimeSlotGridTest {
+    @Test fun realClockBandsKeepLunchAndLateCoursesVisibleWithoutAddingLessonNumbers() {
+        val start = java.time.LocalTime.parse("12:00")
+        val end = java.time.LocalTime.parse("13:00")
+        val grid = weekTimeSlotGrid(emptyList(),periods.size,100f,periods=periods,clockIntervals=listOf(start to end))
+        assertEquals(3,grid.rowTops.size)
+        assertEquals(1,grid.clockBands.size)
+        val source = course.copy(periods=emptyList(),customStartTime="12:00",customEndTime="13:00")
+        val projected = com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(source,defaultConfig(),periods)
+        val segment = com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups(listOf(projected),periods.map { it.periodIndex },periods).single().segments.single()
+        val bounds = weekCardVerticalBounds(segment,periods,100.dp,grid)
+        assertTrue(bounds.first >= 300f)
+        assertTrue(bounds.second > bounds.first)
+        assertEquals(grid.totalHeight,bounds.second,0.01f)
+        assertEquals(emptyList<Int>(),projected.periods)
+    }
+
+    @Test fun anIndependentClockUsesTheFixedGridWithPreciseOffsets() {
+        val start = java.time.LocalTime.parse("08:20")
+        val end = java.time.LocalTime.parse("09:05")
+        val grid = weekTimeSlotGrid(emptyList(),periods.size,100f,periods=periods,clockIntervals=listOf(start to end))
+        assertEquals(100f * 20/45,grid.clockPosition(start)!!,0.01f)
+        assertTrue(grid.clockPosition(end)!! > grid.rowTops[1])
+        assertEquals(listOf(1,2,3),periods.map { it.periodIndex })
+    }
     private val course = CourseEntity(name = "课程", teacher = null, location = null, weekday = 1,
         periods = listOf(1), weeks = listOf(1), weekParity = WeekParity.ALL, note = null)
     private val periods = listOf(PeriodEntity(1, "08:00", "08:45"), PeriodEntity(2, "08:55", "09:40"),

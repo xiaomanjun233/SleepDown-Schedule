@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.model
 
 import androidx.compose.runtime.Immutable
 import androidx.room.ColumnInfo
+import androidx.room.DatabaseView
 import androidx.room.Entity
 import androidx.room.Ignore
 import androidx.room.PrimaryKey
@@ -42,7 +43,6 @@ internal fun normalizedHomeChromeBlurScale(value: Float): Float =
         ?.coerceIn(MinHomeChromeBlurScale, MaxHomeChromeBlurScale)
         ?: DefaultHomeChromeBlurScale
 
-@Entity(tableName = "courses")
 @Immutable
 data class CourseEntity @Ignore constructor(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -61,7 +61,12 @@ data class CourseEntity @Ignore constructor(
     val scheduleId: Int = 1,
     val customPeriodTimes: String? = null,
     val originalPeriodTimes: String? = null,
-    @Ignore val arrangementProjection: EffectiveCourseArrangement? = null
+    @Ignore val arrangementProjection: EffectiveCourseArrangement? = null,
+    val independentPeriodSchemeId: Long? = null,
+    val credit: Float? = null,
+    val timingReviewReason: String? = null,
+    val legacyTimingSourceJson: String? = null,
+    val sourcePaletteIndex: Int? = null
 ) {
     // Room constructs stored arrangements without the transient display projection.
     constructor(id: Long, name: String, teacher: String?, location: String?, weekday: Int,
@@ -150,18 +155,20 @@ data class ScheduleConfigEntity(
     val hideFromRecents: Boolean = false,
     val autoCheckUpdates: Boolean = true,
     @ColumnInfo(defaultValue = "NULL") val activePeriodSchemeId: Long? = null,
+    @ColumnInfo(defaultValue = "NULL") val activeTimetableComboId: Long? = null,
     @ColumnInfo(defaultValue = "'INDEX'") val periodAlignmentMode: PeriodAlignmentMode = PeriodAlignmentMode.INDEX,
     /** Named, unnumbered timetable bands such as morning reading and evening study. */
     @ColumnInfo(defaultValue = "''") val timeSlotCoursesJson: String = ""
 )
 
-@Entity(tableName = "periods", primaryKeys = ["scheduleId", "periodIndex"])
+@DatabaseView(viewName = "periods", value = "SELECT t.periodIndex, t.startTime, t.endTime, c.id AS scheduleId, t.alias FROM schedule_config c JOIN period_scheme_times t ON t.schemeId = c.activePeriodSchemeId")
 @Immutable
 data class PeriodEntity(
     val periodIndex: Int,
     val startTime: String,
     val endTime: String,
-    val scheduleId: Int = 1
+    val scheduleId: Int = 1,
+    val alias: String? = null
 )
 
 @Entity(tableName = "period_schemes")
@@ -199,7 +206,8 @@ data class PeriodSchemeTimeEntity(
     val schemeId: Long,
     val periodIndex: Int,
     val startTime: String,
-    val endTime: String
+    val endTime: String,
+    @ColumnInfo(defaultValue = "NULL") val alias: String? = null
 )
 
 @Entity(tableName = "agent_daily_sessions", primaryKeys = ["scheduleId", "date"])
@@ -237,7 +245,8 @@ data class AppState(
     val allPeriods: List<PeriodEntity> = emptyList(),
     val config: ScheduleConfigEntity = defaultConfig(),
     val periods: List<PeriodEntity> = defaultPeriods(),
-    val loaded: Boolean = false
+    val loaded: Boolean = false,
+    val timetableCatalog: TimetableCatalog = TimetableCatalog()
 )
 
 @Immutable
@@ -252,7 +261,8 @@ data class ImportDraft(
     val periods: List<PeriodEntity>,
     val courses: List<CourseEntity>,
     val source: ImportDraftSource = ImportDraftSource.STANDARD,
-    val notices: List<String> = emptyList()
+    val notices: List<String> = emptyList(),
+    val timetablePlan: ImportedTimetablePlan = ImportedTimetablePlan()
 )
 
 fun defaultConfig(id: Int = 1) = ScheduleConfigEntity(id = id, totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10, termStartDate = null, autoCurrentWeek = true, notificationsEnabled = true, notificationMode = NotificationMode.STANDARD, wallpaperUri = null, wallpaperBlur = 0f, wallpaperBrightness = 1f, wallpaperPortraitCenterX = 0.5f, wallpaperPortraitCenterY = 0.5f, wallpaperPortraitScale = 1f, wallpaperLandscapeCenterX = 0.5f, wallpaperLandscapeCenterY = 0.5f, wallpaperLandscapeScale = 1f, wallpaperSourceWidth = null, wallpaperSourceHeight = null, cardColorArgb = 0xFFD6E9FF, cardAlpha = 1f, courseCardBlur = 18f, courseCardGlassEnabled = true, courseCardFontScale = 1f, courseCardColorMode = CourseCardColorMode.SOLID, courseCardPalette = "", weekCardHeightDp = null, weekCardHeightScale = 1f, weekCardCornerProgress = 0.5f, homeTextLight = false, homeChromeBlurScale = DefaultHomeChromeBlurScale, homeChromeSamplingScale = DefaultHomeChromeSamplingScale, followSystemDarkMode = true, darkMode = false, defaultWallpaperStyle = DefaultWallpaperStyle.NONE, hideEmptyWeekends = false, dockAlignment = DockAlignment.CENTER, defaultHomeMode = HomeStartMode.WEEK, liveUpdateActionsEnabled = true, liveUpdateChipTextMode = LiveUpdateChipTextMode.LOCATION, classDurationMinutes = 45, breakDurationMinutes = 10, hideFromRecents = false, autoCheckUpdates = true)
