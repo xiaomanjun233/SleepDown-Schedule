@@ -60,7 +60,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownTimeSectio
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 import com.xiaomanjun.sleepdownschedule.courseEndTime
 import com.xiaomanjun.sleepdownschedule.courseStartTime
-import com.xiaomanjun.sleepdownschedule.currentTimelinePeriod
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentActionHandler
 import com.xiaomanjun.sleepdownschedule.effectiveCurrentWeek
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentBackgroundMotionState
@@ -73,8 +72,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePagerStartOverflow
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePaneVisible
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSidebarOverflowViewport
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSwitchGroup
-import com.xiaomanjun.sleepdownschedule.feature.home.week.activeWeekCourseBell
-import com.xiaomanjun.sleepdownschedule.feature.home.week.specialCourseCoversTime
+import com.xiaomanjun.sleepdownschedule.feature.home.week.weekDayTimeline
 import com.xiaomanjun.sleepdownschedule.glass.ui.BlueStatusGlassPill
 import com.xiaomanjun.sleepdownschedule.periodRange
 import com.xiaomanjun.sleepdownschedule.scheduleDayNavigationRange
@@ -278,17 +276,12 @@ internal fun DayScheduleScreen(
                 }
             }
             val isToday = targetDate == minuteClock.toLocalDate()
-            val specialBell = if (isToday && targetWeekOrNull != null && !targetCancelled) {
-                activeWeekCourseBell(dayCourses, targetWeekday, minuteClock.toLocalTime())
-            } else null
-            val specialCourseInProgress = specialBell != null ||
-                (isToday && targetWeekOrNull != null && !targetCancelled &&
-                    specialCourseCoversTime(dayCourses, targetWeekday, minuteClock.toLocalTime()))
-            val currentPeriod = if (isToday && targetWeekOrNull != null && !targetCancelled && !specialCourseInProgress) {
-                currentTimelinePeriod(state.periods, minuteClock.toLocalTime())
-            } else null
+            val todayTimeline = remember(state, targetDate, minuteClock, targetCancelled, targetWeekOrNull) {
+                if (isToday && targetWeekOrNull != null && !targetCancelled)
+                    weekDayTimeline(state, targetDate, minuteClock.toLocalTime()) else null
+            }
             val headerContent: @Composable () -> Unit = {
-                (specialBell?.index ?: currentPeriod?.periodIndex)?.let { periodIndex ->
+                todayTimeline?.activePeriodIndex?.let { periodIndex ->
                     Box(
                         modifier = Modifier
                             .fillMaxWidth().homeSwitchGroup(),
@@ -298,7 +291,7 @@ internal fun DayScheduleScreen(
                             text = "第${periodIndex}节",
                             backdrop = backdrop,
                             config = state.config,
-                            special = specialBell != null
+                            special = todayTimeline.exceptionalActivePeriod
                         )
                     }
                 }

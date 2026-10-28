@@ -136,11 +136,9 @@ internal fun SinglePillWeekScheduleScreen(
     val today = clock.toLocalDate()
     val now = clock.toLocalTime()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-    val todaysPeriods = remember(state.config, state.periods, state.timetableCatalog, today) {
-        com.xiaomanjun.sleepdownschedule.domain.schedule.resolveTimetable(
-            state.config, state.periods, state.timetableCatalog, today).periods
+    val todayTimeline = remember(state.config, state.periods, state.courses, state.timetableCatalog, today, now) {
+        weekDayTimeline(state, today, now)
     }
-    val currentPeriod = currentTimelinePeriod(todaysPeriods, now)
     // Keep one computed bucket per visited week, shared by the rail, supplements and Pager.
     // Data replacement invalidates the cache; swiping back reuses the same immutable lists.
     val weekBucketCache = remember(state.courses, state.config.id, state.config.totalWeeks,
@@ -161,11 +159,8 @@ internal fun SinglePillWeekScheduleScreen(
     var weekJump by remember { mutableStateOf<AdjacentWeekJump?>(null) }
     val visibleCourses = weekBuckets.visibleCourses
     val showingCurrentWeek = !today.isBefore(weekStart) && today.isBefore(weekStart.plusWeeks(1))
-    val specialBell = if (showingCurrentWeek) {
-        activeWeekCourseBell(visibleCourses, today.dayOfWeek.value, now)
-    } else null
-    val specialCourseInProgress = showingCurrentWeek &&
-        specialCourseCoversTime(visibleCourses, today.dayOfWeek.value, now)
+    val activePeriodIndex = if (showingCurrentWeek) todayTimeline.activePeriodIndex
+        else currentTimelinePeriod(state.periods, now)?.periodIndex
     val hasAdjustmentBadges = remember(state.config.scheduleAdjustmentsJson) {
         com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(state.config.scheduleAdjustmentsJson).isNotEmpty()
     }
@@ -544,7 +539,7 @@ internal fun SinglePillWeekScheduleScreen(
                             cardHeight.value >= minimumWeekTimelineRowHeightDp(density.fontScale)
                         state.periods.forEachIndexed { rowIndex, period ->
                             if (rowIndex in timeGrid.collapsedRows) return@forEachIndexed
-                            val displayedPeriod = if (showingCurrentWeek) todaysPeriods.firstOrNull { it.periodIndex == period.periodIndex } ?: period else period
+                            val displayedPeriod = if (showingCurrentWeek) todayTimeline.periods.firstOrNull { it.periodIndex == period.periodIndex } ?: period else period
                             Box(
                                 modifier = Modifier
                                     .offset(y = timeGrid.rowTops[rowIndex].dp)
@@ -554,9 +549,8 @@ internal fun SinglePillWeekScheduleScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                    val isSpecialCurrent = specialBell?.index == period.periodIndex
-                                    val isCurrent = if (specialCourseInProgress) isSpecialCurrent
-                                        else currentPeriod?.periodIndex == period.periodIndex
+                                    val isCurrent = activePeriodIndex == period.periodIndex
+                                    val isSpecialCurrent = showingCurrentWeek && isCurrent && todayTimeline.exceptionalActivePeriod
                                     Box(
                                         modifier = if (isCurrent) Modifier
                                             .background(
