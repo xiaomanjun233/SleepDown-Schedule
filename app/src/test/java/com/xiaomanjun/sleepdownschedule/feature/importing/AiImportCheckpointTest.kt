@@ -70,7 +70,7 @@ class AiImportCheckpointTest {
         start()
         val first = session.publishCheckpoint("task", draft()).getOrThrow()
         val malformed = listOf("{", first.payload.dropLast(1), "说明：${first.payload}",
-            first.payload.replace("\"weekday\":1", "\"weekday\":9"),
+            first.payload.replace("\"day\":1", "\"day\":9"),
             first.payload.replace("\"weeks\":[1,2]", "\"weeks\":[]"),
             first.payload.replace("\"courses\":[", "\"courses\":[] ,\"ignored\":["),
             """{schemaVersion:1,scheduleConfig:{totalWeeks:20,periods:[]},courses:[]}""")

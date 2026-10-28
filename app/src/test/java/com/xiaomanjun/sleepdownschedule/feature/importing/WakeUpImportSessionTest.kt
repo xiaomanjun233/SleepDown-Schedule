@@ -21,14 +21,14 @@ class WakeUpImportSessionTest {
         ]""")
         session.stageCourses(course(3, 4))
         val draft = session.complete()
-        assertEquals(listOf(1, 2, 3), draft.periods.map { it.periodIndex })
+        assertEquals(listOf(3, 4, 7), draft.periods.map { it.periodIndex })
         org.junit.Assert.assertNull(validateResolvedPeriodTimes(draft.periods.map {
             PeriodSchemeTimeEntity(0, it.periodIndex, it.startTime, it.endTime)
         }))
         assertEquals(listOf(3, 4), draft.courses.single().periods)
-        assertEquals("3,10:00-10:45;4,10:55-11:40", draft.courses.single().originalPeriodTimes)
+        org.junit.Assert.assertNull(draft.courses.single().originalPeriodTimes)
         val displayed = projectCourseArrangements(draft.courses, draft.config, draft.periods).single()
-        assertEquals(listOf(1, 2), displayed.periods)
+        assertEquals(listOf(3, 4), displayed.periods)
         assertEquals("10:00 - 11:40", courseTimeLabel(displayed, draft.periods))
         val restored = ScheduleImportParser.parseStoredDraft(draftToPayload(draft).toString(), draft.config).getOrThrow()
         assertEquals(draft.courses, restored.courses)
@@ -71,11 +71,10 @@ class WakeUpImportSessionTest {
              "startSection":5,"endSection":5,"weeks":[1,2]}
         ]""")
         val draft = session.complete()
-        assertEquals(listOf("08:00", "10:00", "14:00"), draft.periods.map { it.startTime })
-        assertEquals(listOf("10:00", "10:45", "14:45"), draft.periods.map { it.endTime })
+        assertEquals(defaultPeriods(), draft.periods)
         assertEquals(listOf(listOf(1, 2), listOf(3, 4), listOf(5)), draft.courses.map { it.periods })
         val displayed = projectCourseArrangements(draft.courses, draft.config, draft.periods)
-        assertEquals(listOf(listOf(1), listOf(1, 2), listOf(3)), displayed.map { it.periods })
+        assertEquals(draft.courses.map { it.periods }, displayed.map { it.periods })
         assertEquals("08:00 - 09:30", courseTimeLabel(displayed[0], draft.periods))
         assertEquals("09:20 - 10:45", courseTimeLabel(displayed[1], draft.periods))
         assertEquals(listOf(1, 3, 5), draft.courses[0].weeks)
@@ -94,10 +93,10 @@ class WakeUpImportSessionTest {
         ]""")
         session.stageCourses(course(1, 3))
         val draft = session.complete()
-        assertEquals("08:00", draft.periods.single().startTime)
-        assertEquals("09:30", draft.periods.single().endTime)
+        assertEquals(defaultPeriods(), draft.periods)
         assertEquals(listOf(1, 2, 3), draft.courses.single().periods)
-        assertEquals(listOf(1), projectCourseArrangements(draft.courses, draft.config, draft.periods).single().periods)
+        assertEquals("08:00", draft.courses.single().customStartTime)
+        assertEquals("09:30", draft.courses.single().customEndTime)
     }
 
     @Test
@@ -111,7 +110,7 @@ class WakeUpImportSessionTest {
         val customCourse = session.complete().courses.single()
         assertEquals("08:25", customCourse.customStartTime)
         assertEquals("08:55", customCourse.customEndTime)
-        assertEquals(listOf(1), customCourse.periods)
+        assertEquals(emptyList<Int>(), customCourse.periods)
 
         session.begin(defaultConfig(), defaultPeriods(), mergeOverlappingTimeSlots = true)
         session.stageTimeSlots(overlappingSlots)
@@ -128,7 +127,9 @@ class WakeUpImportSessionTest {
         session.stageTimeSlots(overlappingSlots)
         // A new task must not inherit WakeUp's normalization policy or section mapping.
         session.begin(defaultConfig(), defaultPeriods())
-        assertThrows(IllegalArgumentException::class.java) { session.stageTimeSlots(overlappingSlots) }
+        session.stageTimeSlots(overlappingSlots)
+        session.stageCourses(course(1, 2))
+        assertEquals("08:00", session.complete().courses.single().customStartTime)
     }
 
     private fun wakeUpSession() = ShiguangImportSession().apply {

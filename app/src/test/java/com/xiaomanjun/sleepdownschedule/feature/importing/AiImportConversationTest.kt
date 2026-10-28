@@ -4,14 +4,19 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AiImportConversationTest {
-    @Test fun storedDraftRetainsTimeAlignment() {
+    @Test fun storedDraftRetainsExplicitCourseClock() {
         val draft = com.xiaomanjun.sleepdownschedule.model.ImportDraft(
             com.xiaomanjun.sleepdownschedule.defaultConfig().copy(
                 periodAlignmentMode = com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode.TIME),
-            listOf(com.xiaomanjun.sleepdownschedule.model.PeriodEntity(1, "08:00", "08:45")), emptyList())
+            listOf(com.xiaomanjun.sleepdownschedule.model.PeriodEntity(1, "08:00", "08:45")),
+            listOf(com.xiaomanjun.sleepdownschedule.model.CourseEntity(name = "课程", teacher = null, location = null,
+                weekday = 1, periods = listOf(1), weeks = listOf(1),
+                weekParity = com.xiaomanjun.sleepdownschedule.model.WeekParity.ALL, note = null,
+                customStartTime = "08:10", customEndTime = "08:55")))
         val restored = ScheduleImportParser.parseStoredDraft(draftToPayload(draft).toString(),
             com.xiaomanjun.sleepdownschedule.defaultConfig()).getOrThrow()
-        assertEquals(draft.config.periodAlignmentMode, restored.config.periodAlignmentMode)
+        assertEquals("08:10", restored.courses.single().customStartTime)
+        assertEquals("08:55", restored.courses.single().customEndTime)
     }
 
     @Test fun cancelledConfirmationCannotSendAndCanBePreparedAgain() {
