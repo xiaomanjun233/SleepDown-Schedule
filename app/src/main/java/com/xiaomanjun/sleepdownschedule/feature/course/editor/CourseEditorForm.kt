@@ -202,23 +202,6 @@ internal fun CourseEditorFormPage(
                 placeholder = "学分（可选）", config = config,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), fieldTextColor = editorFieldTextColor)
         }
-        item(key = "timing-mode", contentType = "selector") {
-            val labels = listOf("跟随课表作息", "自定义时间")
-            val selected = if (draft.customStartTime != null || !draft.customPeriodTimes.isNullOrBlank() || draft.independentPeriodSchemeId != null) 1 else 0
-            CourseEditorPickerValue("时间方式", labels[selected], backdrop, config) {
-                onOpenPicker(CourseEditorPickerRequest.Wheel("时间方式", labels, selected, onConfirm = { index, _ ->
-                    val custom = index == 1
-                    if (index != selected || draft.independentPeriodSchemeId != null) onDraftChange(draft.copy(independentPeriodSchemeId = null,
-                        customStartTime = if (custom) draft.customStartTime ?: selectedBells.firstOrNull { it.periodIndex == draft.periodStart }?.startTime else null,
-                        customEndTime = if (custom) draft.customEndTime ?: selectedBells.firstOrNull { it.periodIndex == draft.periodEnd }?.endTime else null,
-                        customPeriodTimes = null, customLessonTimesEdited = false, timingSelectionEdited = true))
-                }))
-            }
-        }
-        item(key = "timing-help", contentType = "description") {
-            Text("跟随课表时，日期安排会自动生效。自定义时间仅对本课程生效，可在下方编辑。",
-                modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
-        }
         if (course?.timingReviewReason != null || course?.arrangementProjection?.reviewReason != null) {
             item(key = "timing-review") { Text(course.timingReviewReason ?: course.arrangementProjection!!.reviewReason.orEmpty(),
                 modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall) }

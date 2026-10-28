@@ -380,12 +380,9 @@ private fun TimeSlotCourseEditor(
             GlassPreferenceSection("显示方式") {
                 SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
                     val modeLabels = listOf("独立显示", "占位显示", "智能显示")
-                    SettingsPickerValueRow("显示模式", modeLabels[displayMode.ordinal], enabled = !saving, onClick = {
-                        picker = CourseEditorPickerRequest.Wheel("显示模式", modeLabels, displayMode.ordinal) { index, _ ->
-                            modeName = TimeSlotDisplayMode.entries[index].name
-                        }
-                        pickerVisible = true
-                    })
+                    SleepDownLiquidDropdownPreference(items = modeLabels, selectedIndex = displayMode.ordinal,
+                        title = "显示模式", backdrop = popupBackdrop, config = config, enabled = !saving,
+                        onSelectedIndexChange = { modeName = TimeSlotDisplayMode.entries[it].name })
                     SettingsInfoRow("显示说明", when (displayMode) {
                         TimeSlotDisplayMode.INDEPENDENT -> "沿用原方案，在节次边界独立显示。"
                         TimeSlotDisplayMode.GRID -> "占用所选时间段的格子，相邻显示日合成一张卡片；有正式课程的当天优先显示正式课程。"

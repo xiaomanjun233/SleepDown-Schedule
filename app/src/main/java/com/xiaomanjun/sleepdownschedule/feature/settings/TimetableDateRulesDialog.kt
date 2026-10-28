@@ -7,6 +7,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
@@ -50,11 +51,16 @@ internal fun TimetableDateRulesDialog(state: AppState, backdrop: Backdrop?, savi
                             style = MiuixTheme.textStyles.footnote1, color = foreground.copy(alpha = 0.65f))
                         SettingsPickerValueRow("使用作息",
                             schemes.firstOrNull { it.id == rule.schemeId }?.name ?: "请选择作息",
+                            modifier = Modifier.clip(Capsule()),
                             enabled = !saving, valueBelowTitle = true, onClick = { selectingRule = index })
                         SettingsDivider()
-                        SettingsDatePickerRow("开始日期", rule.startDate, { update(index, rule.copy(startDate = it)) }, backdrop, config, enabled = !saving, highlightSelection = true)
+                        Box(Modifier.fillMaxWidth().clip(Capsule())) {
+                            SettingsDatePickerRow("开始日期", rule.startDate, { update(index, rule.copy(startDate = it)) }, backdrop, config, enabled = !saving)
+                        }
                         SettingsDivider()
-                        SettingsDatePickerRow("结束日期", rule.endDate, { update(index, rule.copy(endDate = it)) }, backdrop, config, enabled = !saving, highlightSelection = true)
+                        Box(Modifier.fillMaxWidth().clip(Capsule())) {
+                            SettingsDatePickerRow("结束日期", rule.endDate, { update(index, rule.copy(endDate = it)) }, backdrop, config, enabled = !saving)
+                        }
                     }
                     }
                 }

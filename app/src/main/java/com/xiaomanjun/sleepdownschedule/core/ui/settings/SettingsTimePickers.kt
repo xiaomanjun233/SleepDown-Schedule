@@ -25,7 +25,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
@@ -81,8 +80,7 @@ fun SettingsDatePickerRow(
     onValueChange: (String) -> Unit,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
-    enabled: Boolean = true,
-    highlightSelection: Boolean = false
+    enabled: Boolean = true
 ) {
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     var showPicker by remember { mutableStateOf(false) }
@@ -107,8 +105,7 @@ fun SettingsDatePickerRow(
         SettingsDatePickerContent(
             year = pickerYear, month = pickerMonth, day = pickerDay,
             onYearChange = { pickerYear = it }, onMonthChange = { pickerMonth = it },
-            onDayChange = { pickerDay = it },
-            highlightSelection = highlightSelection
+            onDayChange = { pickerDay = it }
         )
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)) {
             QuickSheetLiquidAction(
@@ -139,10 +136,8 @@ internal fun SettingsDatePickerContent(
     onYearChange: (Int) -> Unit,
     onMonthChange: (Int) -> Unit,
     onDayChange: (Int) -> Unit,
-    modifier: Modifier = Modifier,
-    highlightSelection: Boolean = false
+    modifier: Modifier = Modifier
 ) {
-    val selectionColor = LocalContentColor.current.copy(alpha = 0.10f)
     val maxDay = java.time.YearMonth.of(year, month).lengthOfMonth()
     LaunchedEffect(maxDay) {
         if (day > maxDay) onDayChange(maxDay)
@@ -161,17 +156,8 @@ internal fun SettingsDatePickerContent(
                 else -> 28.sp
             }
         )
-        val selectionModifier = if (highlightSelection) Modifier.drawBehind {
-            val bandHeight = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.ItemHeight.toPx()
-            drawRoundRect(
-                color = selectionColor,
-                topLeft = androidx.compose.ui.geometry.Offset(0f, (size.height - bandHeight) / 2f),
-                size = androidx.compose.ui.geometry.Size(size.width, bandHeight),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(bandHeight / 2f)
-            )
-        } else Modifier
         Row(
-            modifier = Modifier.fillMaxWidth().then(selectionModifier),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(if (compactPicker) 4.dp else 8.dp)
         ) {
             top.yukonga.miuix.kmp.basic.NumberPicker(
