@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import androidx.compose.foundation.basicMarquee
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.foundation.ScrollState
@@ -653,14 +655,22 @@ fun WeekCourseColumnsLayer(
                     nativeMaterial = nativeBands, nativeBlurRadiusScale = 1.4f) {
                     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 2.dp),
                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                        Text(band.slot.name + if (band.slot.location.isNotBlank()) " · ${band.slot.location}" else "",
+                        val heading = listOf(band.slot.name, band.slot.location).filter(String::isNotBlank).joinToString(" · ")
+                        val time = "${band.slot.startTime}–${band.slot.endTime}"
+                        val compact = !band.inGrid || band.collapsed || band.height.dp < 76.dp * density.fontScale
+                        val scrollingText = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE)
+                        Text(if (compact) listOf(heading, time, band.slot.note).filter(String::isNotBlank).joinToString(" · ") else heading,
                             color = glassForegroundColor(config), style = MaterialTheme.typography.labelMedium,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (band.inGrid) Text("${band.slot.startTime}–${band.slot.endTime}",
-                            color = glassForegroundColor(config), style = MaterialTheme.typography.labelSmall, maxLines = 1)
-                        if (band.inGrid && !band.collapsed && band.slot.note.isNotBlank()) Text(band.slot.note,
-                            color = glassForegroundColor(config), style = MaterialTheme.typography.bodySmall,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            modifier = scrollingText, textAlign = TextAlign.Center,
+                            maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+                        if (!compact) {
+                            Text(time, color = glassForegroundColor(config), style = MaterialTheme.typography.labelSmall,
+                                modifier = scrollingText, textAlign = TextAlign.Center, maxLines = 1, softWrap = false)
+                            if (band.slot.note.isNotBlank()) Text(band.slot.note,
+                                color = glassForegroundColor(config), style = MaterialTheme.typography.bodySmall,
+                                modifier = scrollingText, textAlign = TextAlign.Center,
+                                maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+                        }
                     }
                 }
             }

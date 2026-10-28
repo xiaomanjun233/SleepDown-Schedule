@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -39,10 +40,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
@@ -64,6 +63,7 @@ import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.util.UUID
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** The schedule page contains only the same navigation row used by other settings. */
 @Composable
@@ -176,9 +176,9 @@ private fun TimeSlotCourseNavigationCard(
                     if (slot == null) Icon(Icons.Outlined.Add, contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.38f),
                         modifier = Modifier.size(18.dp))
-                    Text(title, color = foreground, fontSize = 17.sp, lineHeight = 22.sp,
-                        fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f))
+                    Text(title, color = foreground, style = MiuixTheme.textStyles.main,
+                        maxLines = 1, softWrap = false,
+                        modifier = Modifier.weight(1f).basicMarquee(iterations = Int.MAX_VALUE))
                     if (slot != null) Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = null,
                         tint = foreground.copy(alpha = 0.62f), modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = 180f })
                 }
@@ -188,7 +188,7 @@ private fun TimeSlotCourseNavigationCard(
                     TimeSlotCourseCardInfo(Icons.Outlined.ViewAgenda, timeSlotAnchorLabel(slot.afterPeriod), foreground)
                 } else {
                     Text(subtitle, color = foreground.copy(alpha = if (enabled) 0.72f else foreground.alpha),
-                        style = MaterialTheme.typography.bodySmall, lineHeight = 19.sp)
+                        style = MiuixTheme.textStyles.footnote1)
                 }
             }
         }
@@ -199,8 +199,9 @@ private fun TimeSlotCourseNavigationCard(
 private fun TimeSlotCourseCardInfo(icon: ImageVector, label: String, foreground: androidx.compose.ui.graphics.Color) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, contentDescription = null, tint = foreground.copy(alpha = 0.52f), modifier = Modifier.size(14.dp))
-        Text(label, color = foreground.copy(alpha = 0.78f), fontSize = 12.sp, lineHeight = 18.sp,
-            modifier = Modifier.weight(1f))
+        Text(label, color = foreground.copy(alpha = 0.78f), style = MiuixTheme.textStyles.footnote1,
+            maxLines = 1, softWrap = false,
+            modifier = Modifier.weight(1f).basicMarquee(iterations = Int.MAX_VALUE))
     }
 }
 
@@ -221,6 +222,13 @@ fun TimeSlotCourseEditorScreen(
     DisposableEffect(Unit) { onDispose { onExitInterceptionChange(false) } }
     val padding = PaddingValues(start = 16.dp, end = 16.dp, top = detailContentTopPadding() + 12.dp,
         bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 32.dp)
+    MaterialTheme(typography = MaterialTheme.typography.copy(
+        titleMedium = MiuixTheme.textStyles.main,
+        bodyMedium = MiuixTheme.textStyles.body1,
+        bodySmall = MiuixTheme.textStyles.footnote1,
+        labelLarge = MiuixTheme.textStyles.button,
+        labelMedium = MiuixTheme.textStyles.footnote1
+    )) {
     TimeSlotCourseEditor(original, state.periods, config, backdrop, LocalSettingsPopupBackdrop.current ?: backdrop,
         padding, saving, error, exitCommitRequest, onClose = { if (!saving) onExitCommitFinished(true) },
         onSave = { updated ->
@@ -238,6 +246,7 @@ fun TimeSlotCourseEditorScreen(
                 }
             }
         })
+    }
 }
 
 @Composable
@@ -399,18 +408,13 @@ private fun TimeSlotCourseEditor(
                         pickerVisible = true
                     })
                     SettingsDivider()
-                    SettingsPickerValueRow("开始周", "第${startWeek}周", enabled = !saving, onClick = {
-                        picker = CourseEditorPickerRequest.Wheel("开始周", (1..config.totalWeeks).map { "第${it}周" },
-                            (startWeek - 1).coerceIn(0, config.totalWeeks - 1)) { index, _ ->
-                            startWeek = index + 1
-                            if (endWeek < startWeek) endWeek = startWeek
+                    SettingsPickerValueRow("有效周次", "第${startWeek}周至第${endWeek}周", enabled = !saving, onClick = {
+                        val lastWeek = maxOf(config.totalWeeks, startWeek, endWeek)
+                        picker = CourseEditorPickerRequest.Wheel("选择有效周次", (1..lastWeek).map { "第${it}周" },
+                            startIndex = startWeek - 1, endIndex = endWeek - 1) { from, to ->
+                            startWeek = from + 1
+                            endWeek = (to ?: from) + 1
                         }
-                        pickerVisible = true
-                    })
-                    SettingsDivider()
-                    SettingsPickerValueRow("结束周", "第${endWeek}周", enabled = !saving, onClick = {
-                        picker = CourseEditorPickerRequest.Wheel("结束周", (startWeek..maxOf(config.totalWeeks, endWeek)).map { "第${it}周" },
-                            (endWeek - startWeek).coerceAtLeast(0)) { index, _ -> endWeek = startWeek + index }
                         pickerVisible = true
                     })
                 }

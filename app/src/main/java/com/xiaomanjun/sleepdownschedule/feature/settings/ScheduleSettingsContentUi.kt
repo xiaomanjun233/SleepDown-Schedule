@@ -551,7 +551,7 @@ fun ScheduleSettingsContentFixed(
             )
             SettingsDivider()
         }
-        SettingsNavigationRow("日期作息", "指定日期替换基准作息，当天时间轴同步显示；课程可单独选择作息", onClick = onOpenDateTimetables)
+        SettingsNavigationRow("日期作息", "在不同时间应用不同的作息", onClick = onOpenDateTimetables)
         SettingsDivider()
         SettingsInfoRow("编辑范围", "这里修改作息仅对本课表生效；共用作息请在下方“作息管理”中编辑")
     }
