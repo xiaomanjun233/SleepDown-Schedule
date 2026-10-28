@@ -205,7 +205,7 @@ internal fun CourseEditorFormPage(
         }
         item(key = "timing-mode", contentType = "selector") {
             val templates = timetableCatalog.schemes.filter { scheme -> timetableCatalog.times.any { it.schemeId == scheme.id } }
-            val labels = listOf("跟随课表作息") + templates.map { "指定：${it.name}" } + "自定义时间"
+            val labels = listOf("跟随课表作息") + templates.map { "单独使用：${it.name}" } + "自定义时间"
             val selected = if (draft.customStartTime != null) labels.lastIndex
                 else draft.independentPeriodSchemeId?.let { id -> templates.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.plus(1) } ?: 0
             CourseEditorPickerValue("时间方式", labels[selected], backdrop, config) {
@@ -217,6 +217,10 @@ internal fun CourseEditorFormPage(
                         customPeriodTimes = null, customLessonTimesEdited = false, timingSelectionEdited = true))
                 }))
             }
+        }
+        item(key = "timing-help", contentType = "description") {
+            Text("跟随课表时，日期安排会自动生效。单独使用的作息可在作息管理中编辑；自定义时间在本课程内修改。",
+                modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
         }
         if (course?.timingReviewReason != null || course?.arrangementProjection?.reviewReason != null) {
             item(key = "timing-review") { Text(course.timingReviewReason ?: course.arrangementProjection!!.reviewReason.orEmpty(),

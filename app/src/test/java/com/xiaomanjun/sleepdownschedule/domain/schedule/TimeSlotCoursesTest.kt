@@ -8,6 +8,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TimeSlotCoursesTest {
+    @Test fun displayOptionsRoundTripAndOldEntriesRetainIndependentMode() {
+        val original = slot().copy(displayMode = TimeSlotDisplayMode.SMART, location = "图书馆", note = "自主复习",
+            startWeek = 3, endWeek = 8)
+        assertEquals(original, decodeTimeSlotCourses(encodeTimeSlotCourses(listOf(original))).single())
+        val old = """[{"id":"old","name":"晚自习","startTime":"18:00","endTime":"21:00"}]"""
+        assertEquals(TimeSlotDisplayMode.INDEPENDENT, decodeTimeSlotCourses(old).single().displayMode)
+        assertThrows(IllegalArgumentException::class.java) { encodeTimeSlotCourses(listOf(original.copy(endWeek = 2))) }
+    }
+
     @Test
     fun editingOneSlotPreservesConcurrentAdditionsAndDeletingOnlyRemovesItsTarget() {
         val original = slot()

@@ -12,19 +12,45 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WeekTimeSlotGridTest {
-    @Test fun realClockBandsKeepLunchAndLateCoursesVisibleWithoutAddingLessonNumbers() {
+    @Test fun smartCollapseChecksTheWholeWeekAndOnlyTheSelectedWeeks() {
+        val slot = TimeSlotCourse("study", "晚自习", "08:00", "09:40",
+            weekdays = listOf(1, 2, 3), displayMode = com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotDisplayMode.SMART,
+            startWeek = 2, endWeek = 4)
+        fun grid(week: Int, busy: Boolean) = weekTimeSlotGrid(listOf(slot), 3, 100f,
+            periods = periods, week = week, clockIntervals = if (busy) listOf(java.time.LocalTime.parse("08:00") to java.time.LocalTime.parse("08:45")) else emptyList())
+        assertTrue(grid(1, false).bands.isEmpty())
+        assertEquals(300f, grid(2, true).totalHeight, 0f)
+        assertFalse(grid(2, true).bands.single().collapsed)
+        assertEquals(132f, grid(2, false).totalHeight, 0f)
+        assertTrue(grid(2, false).bands.single().collapsed)
+        assertEquals(setOf(0, 1), grid(2, false).collapsedRows)
+        assertTrue(grid(5, false).bands.isEmpty())
+    }
+
+    @Test fun gridModeUsesTheExistingRowsAndAnAdjacentWeekdayRun() {
+        val slot = TimeSlotCourse("study", "晚自习", "08:00", "09:40", weekdays = listOf(1, 2, 3),
+            displayMode = com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotDisplayMode.GRID)
+        val grid = weekTimeSlotGrid(listOf(slot), 3, 100f, periods = periods)
+        assertEquals(300f, grid.totalHeight, 0f)
+        assertEquals(200f, grid.bands.single().height, 0f)
+        assertTrue(grid.bands.single().inGrid)
+        assertEquals(listOf(0..2), timeSlotColumnRuns((1..7).toList(), slot.weekdays.toSet()))
+    }
+
+    @Test fun clocksOutsideTheBellsNeverAddBlankAxisRows() {
         val start = java.time.LocalTime.parse("12:00")
         val end = java.time.LocalTime.parse("13:00")
         val grid = weekTimeSlotGrid(emptyList(),periods.size,100f,periods=periods,clockIntervals=listOf(start to end))
         assertEquals(3,grid.rowTops.size)
-        assertEquals(1,grid.clockBands.size)
+        assertEquals(0,grid.clockBands.size)
+        assertEquals(300f, grid.totalHeight, 0f)
         val source = course.copy(periods=emptyList(),customStartTime="12:00",customEndTime="13:00")
         val projected = com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(source,defaultConfig(),periods)
         val segment = com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups(listOf(projected),periods.map { it.periodIndex },periods).single().segments.single()
         val bounds = weekCardVerticalBounds(segment,periods,100.dp,grid)
-        assertTrue(bounds.first >= 300f)
+        assertTrue(bounds.first >= 200f)
         assertTrue(bounds.second > bounds.first)
-        assertEquals(grid.totalHeight,bounds.second,0.01f)
+        assertTrue(bounds.second <= grid.totalHeight)
         assertEquals(emptyList<Int>(),projected.periods)
     }
 

@@ -136,7 +136,7 @@ fun TimeSlotCourseManagementScreen(
     LazyVerticalStaggeredGrid(columns = StaggeredGridCells.Fixed(2), modifier = Modifier.fillMaxSize(),
         contentPadding = padding, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalItemSpacing = 8.dp) {
             item(span = StaggeredGridItemSpan.FullLine) {
-                Text("在周视图中显示为独立占位，不参与课程提醒。", Modifier.padding(horizontal = 6.dp),
+                Text("可独立显示、在课表中占位，或按整周空闲情况智能合并；不参与课程提醒。", Modifier.padding(horizontal = 6.dp),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             decoded.exceptionOrNull()?.let { failure -> item(span = StaggeredGridItemSpan.FullLine) {
@@ -260,6 +260,13 @@ private fun TimeSlotCourseEditor(
     val initialDays = (original?.weekdays ?: DefaultTimeSlotWeekdays).fold(0) { mask, day -> mask or (1 shl (day - 1)) }
     val id = rememberSaveable { original?.id ?: UUID.randomUUID().toString() }
     var name by rememberSaveable { mutableStateOf(original?.name.orEmpty()) }
+    var location by rememberSaveable { mutableStateOf(original?.location.orEmpty()) }
+    var note by rememberSaveable { mutableStateOf(original?.note.orEmpty()) }
+    var modeName by rememberSaveable { mutableStateOf((original?.displayMode ?: TimeSlotDisplayMode.INDEPENDENT).name) }
+    val displayMode = TimeSlotDisplayMode.valueOf(modeName)
+    var startWeek by rememberSaveable { mutableIntStateOf(original?.startWeek ?: 1) }
+    val initialEndWeek = original?.endWeek ?: config.totalWeeks
+    var endWeek by rememberSaveable { mutableIntStateOf(initialEndWeek) }
     var start by rememberSaveable { mutableStateOf(initialStart) }
     var end by rememberSaveable { mutableStateOf(initialEnd) }
     var indicesText by rememberSaveable { mutableStateOf(initialIndices) }
@@ -283,7 +290,10 @@ private fun TimeSlotCourseEditor(
     }
     val dirty = name != original?.name.orEmpty() || start != initialStart || end != initialEnd ||
         anchor != (original?.afterPeriod ?: 0) || daysMask != initialDays ||
-        indicesText != initialIndices || lessonTimes != initialLessonTimes
+        indicesText != initialIndices || lessonTimes != initialLessonTimes ||
+        location != original?.location.orEmpty() || note != original?.note.orEmpty() ||
+        displayMode != (original?.displayMode ?: TimeSlotDisplayMode.INDEPENDENT) ||
+        startWeek != (original?.startWeek ?: 1) || endWeek != initialEndWeek
     fun requestClose() { if (!saving) { if (dirty) showExit = true else onClose() } }
     // Do not replay an exit request that belonged to the list or previous editor.
     var handledExit by remember { mutableIntStateOf(exitRequest) }
@@ -293,7 +303,8 @@ private fun TimeSlotCourseEditor(
     fun submit() {
         if (anchor !in positions) { error = positionError ?: "请重新选择显示位置"; return }
         val updated = TimeSlotCourse(id, name.trim(), start, end, anchor, weekdays, selectedPeriods,
-            lessonTimes.takeIf(String::isNotBlank))
+            lessonTimes.takeIf(String::isNotBlank), displayMode, location.trim(), note.trim(), startWeek,
+            endWeek.takeUnless { original?.endWeek == null && it == config.totalWeeks })
         val failure = runCatching { validateTimeSlotCourses(listOf(updated)) }.exceptionOrNull()
         if (failure != null) error = failure.message else { error = null; showExit = false; onSave(updated) }
     }
@@ -315,6 +326,10 @@ private fun TimeSlotCourseEditor(
                 SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
                     SettingsTextFieldRow("名称", name, { name = it.take(MaxTimeSlotNameLength); error = null },
                         enabled = !saving, placeholder = "如晚自修")
+                    SettingsDivider()
+                    SettingsTextFieldRow("地点", location, { location = it.take(200) }, enabled = !saving, placeholder = "可选")
+                    SettingsDivider()
+                    SettingsTextFieldRow("备注", note, { note = it.take(2000) }, enabled = !saving, placeholder = "可选")
                     SettingsDivider()
                     SettingsPickerValueRow("时间段", timeLabel, enabled = !saving && availablePeriods.isNotEmpty(),
                         valueBelowTitle = true, onClick = {
@@ -355,6 +370,19 @@ private fun TimeSlotCourseEditor(
         item {
             GlassPreferenceSection("显示方式") {
                 SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
+                    val modeLabels = listOf("独立显示", "占位显示", "智能显示")
+                    SettingsPickerValueRow("显示模式", modeLabels[displayMode.ordinal], enabled = !saving, onClick = {
+                        picker = CourseEditorPickerRequest.Wheel("显示模式", modeLabels, displayMode.ordinal) { index, _ ->
+                            modeName = TimeSlotDisplayMode.entries[index].name
+                        }
+                        pickerVisible = true
+                    })
+                    SettingsInfoRow("显示说明", when (displayMode) {
+                        TimeSlotDisplayMode.INDEPENDENT -> "沿用原方案，在节次边界独立显示。"
+                        TimeSlotDisplayMode.GRID -> "占用所选时间段的格子，相邻显示日合成一张卡片；有正式课程的当天优先显示正式课程。"
+                        TimeSlotDisplayMode.SMART -> "对应时段整周都没有正式课程时，合并成带起止时间的胶囊；其他情况按占位显示。"
+                    })
+                    SettingsDivider()
                     SettingsPickerValueRow("显示星期", timeSlotWeekdaySummary(weekdays), enabled = !saving, onClick = {
                         val days = if (config.weekStartsOnSunday) listOf(7, 1, 2, 3, 4, 5, 6) else (1..7).toList()
                         picker = CourseEditorPickerRequest.Grid("选择显示星期", days.map { "周${WeekdayLabels[it - 1]}" },
@@ -364,10 +392,25 @@ private fun TimeSlotCourseEditor(
                         pickerVisible = true
                     })
                     SettingsDivider()
-                    SettingsPickerValueRow("显示位置", if (positions.isEmpty()) "请调整时间段" else timeSlotAnchorLabel(anchor),
+                    if (displayMode == TimeSlotDisplayMode.INDEPENDENT) SettingsPickerValueRow("显示位置", if (positions.isEmpty()) "请调整时间段" else timeSlotAnchorLabel(anchor),
                         enabled = !saving && positions.isNotEmpty(), onClick = {
                         picker = CourseEditorPickerRequest.Wheel("选择显示位置", positions.map(::timeSlotAnchorLabel),
                             positions.indexOf(anchor).coerceAtLeast(0)) { index, _ -> anchor = positions[index] }
+                        pickerVisible = true
+                    })
+                    SettingsDivider()
+                    SettingsPickerValueRow("开始周", "第${startWeek}周", enabled = !saving, onClick = {
+                        picker = CourseEditorPickerRequest.Wheel("开始周", (1..config.totalWeeks).map { "第${it}周" },
+                            (startWeek - 1).coerceIn(0, config.totalWeeks - 1)) { index, _ ->
+                            startWeek = index + 1
+                            if (endWeek < startWeek) endWeek = startWeek
+                        }
+                        pickerVisible = true
+                    })
+                    SettingsDivider()
+                    SettingsPickerValueRow("结束周", "第${endWeek}周", enabled = !saving, onClick = {
+                        picker = CourseEditorPickerRequest.Wheel("结束周", (startWeek..maxOf(config.totalWeeks, endWeek)).map { "第${it}周" },
+                            (endWeek - startWeek).coerceAtLeast(0)) { index, _ -> endWeek = startWeek + index }
                         pickerVisible = true
                     })
                 }

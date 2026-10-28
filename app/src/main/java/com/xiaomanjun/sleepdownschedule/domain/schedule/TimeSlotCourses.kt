@@ -14,6 +14,9 @@ import java.time.format.DateTimeFormatter
  * 0 表示第一节之前，N 表示第 N 节之后。
  */
 @Serializable
+enum class TimeSlotDisplayMode { INDEPENDENT, GRID, SMART }
+
+@Serializable
 data class TimeSlotCourse(
     val id: String,
     val name: String,
@@ -24,7 +27,12 @@ data class TimeSlotCourse(
     /** Empty means an exact range; selected periods follow the active timetable's bells. */
     val periodIndices: List<Int> = emptyList(),
     /** Same per-lesson clock protocol as ordinary courses; present only for lesson mode. */
-    val customPeriodTimes: String? = null
+    val customPeriodTimes: String? = null,
+    val displayMode: TimeSlotDisplayMode = TimeSlotDisplayMode.INDEPENDENT,
+    val location: String = "",
+    val note: String = "",
+    val startWeek: Int = 1,
+    val endWeek: Int? = null
 )
 
 internal val DefaultTimeSlotWeekdays = listOf(1, 2, 3, 4, 5)
@@ -68,6 +76,8 @@ fun validateTimeSlotCourses(values: List<TimeSlotCourse>) {
         require(start != null && end != null) { "时段课程时间格式必须为 HH:mm" }
         require(start < end) { "时段课程结束时间必须晚于开始时间" }
         require(slot.afterPeriod in 0..MaxTimeSlotAnchor) { "时段课程位置无效" }
+        require(slot.startWeek >= 1 && (slot.endWeek == null || slot.endWeek >= slot.startWeek)) { "结束周不能早于开始周" }
+        require(slot.location.length <= 200 && slot.note.length <= 2000) { "地点或备注过长" }
         require(slot.weekdays.isNotEmpty()) { "请至少选择一个星期" }
         require(slot.weekdays.all { it in 1..7 }) { "时段课程星期无效" }
         require(slot.periodIndices.size <= 40 && slot.periodIndices.all { it > 0 } &&
