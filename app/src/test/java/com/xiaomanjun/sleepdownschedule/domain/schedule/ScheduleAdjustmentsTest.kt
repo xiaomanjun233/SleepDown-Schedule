@@ -73,7 +73,7 @@ class ScheduleAdjustmentsTest {
 
     @Test fun restDayIsEmptyAndMakeupUsesOriginalWeekAndParity() {
         assertTrue(coursesForDate(state, source).isEmpty())
-        assertEquals(listOf(regular), coursesForDate(state, target))
+        assertEquals(listOf(regular), coursesForDate(state, target).map { it.arrangementForWrite() })
         assertTrue(coursesForDate(state, target.minusDays(1)).isEmpty())
     }
 
@@ -140,7 +140,7 @@ class ScheduleAdjustmentsTest {
             ScheduleAdjustment(source.toString(), "2026-09-08"), ScheduleAdjustment(target.toString(), source.toString())
         )))
         assertEquals(source, teachingDateForSchedule(chained, target))
-        assertEquals(listOf(regular), coursesForDate(state.copy(config = chained), target))
+        assertEquals(listOf(regular), coursesForDate(state.copy(config = chained), target).map { it.arrangementForWrite() })
     }
 
     @Test fun outsideTermCannotExposeMakeupCourses() {
@@ -151,7 +151,7 @@ class ScheduleAdjustmentsTest {
 
     @Test fun olderConfigAndEmptyBackupValueKeepRegularSchedule() {
         assertTrue(decodeScheduleAdjustments("").isEmpty())
-        assertEquals(listOf(regular), coursesForDate(state.copy(config = config.copy(scheduleAdjustmentsJson = "")), source))
+        assertEquals(listOf(regular), coursesForDate(state.copy(config = config.copy(scheduleAdjustmentsJson = "")), source).map { it.arrangementForWrite() })
     }
 
     @Test fun adjustmentRoundTripPreservesDatesAndLabels() {

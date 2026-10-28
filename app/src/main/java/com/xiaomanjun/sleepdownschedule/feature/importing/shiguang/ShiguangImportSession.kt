@@ -249,12 +249,14 @@ internal class ShiguangImportSession {
                 if (!course.hasExactTime()) {
                     require(periods.isNotEmpty()) { "第 ${index + 1} 门课程缺少节次范围" }
                 }
-                val sourceTimes = sourceSlots?.takeIf { course.sectionRangeOrNull() != null }
+                val clockSlots = sourceSlots ?: timeSlots?.associateBy { it.number }
+                    ?.takeIf { periods.any { number -> number !in periodIndexSet } }
+                val sourceTimes = clockSlots?.takeIf { course.sectionRangeOrNull() != null }
                     ?.let { slots -> periods.mapNotNull(slots::get) }
                 if (sourceTimes != null && !course.hasExactTime()) {
                     // WakeUp may hide unused intermediate nodes. Keep known endpoint clocks;
                     // no missing lesson or break time is invented inside that range.
-                    val knownSlots = requireNotNull(sourceSlots)
+                    val knownSlots = requireNotNull(clockSlots)
                     require(periods.first() in knownSlots && periods.last() in knownSlots) {
                         "第 ${index + 1} 门课程缺少起止节次的真实时间，请补充时间后再导入"
                     }
