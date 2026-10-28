@@ -19,3 +19,9 @@
 命令使用 `compileGithubReleaseKotlin compileStoreReleaseKotlin testGithubDebugUnitTest`，过滤上述三类，单 worker、3GB 堆；最后仅更新文档记录，不重复未变化代码的验证。
 
 本轮没有安装、发布或设备视觉验收；PR 保持 Draft，不能把 Kotlin/单元测试通过写成 ROM 动画圆角观感已验收。版本、Room、路线 wire id、能力门控及商店无 SDK 边界保持原样。
+
+## 2026-10-29 实机反馈后续修正
+
+用户反馈 View 源仍未正确裁圆角。`e51ff0df` 在 View 握手 Bundle 中显式提供 `sharedView.radius`，与本地官方 HomePresenter 示例的 `ViewAnimationConfig.setRadius(px)` 一致；同时先把开场、返回和交接用软件位图本身裁成透明圆角，避免采样器忽略 View Outline 时仍读到矩形像素。原 payload 保持原样，资源生命周期不变。
+
+Release Kotlin 编译、原生图形像素及会话定向回归通过，27 项、0 失败/错误/跳过，1m32s。覆盖源位图四角透明、边缘和中心像素保留、原图不被改写，以及 View attach/Outline、显式半径、返回图生命周期和失败释放。旧握手测试也改用 Robolectric 原生图形执行，避免其默认模拟 Canvas 不绘制导致错误的全透明结果。已同步 main 的收束文档。联合构建和设备安装记录由 #88 分支维护，实际 ROM 动画观感仍须实机确认。
