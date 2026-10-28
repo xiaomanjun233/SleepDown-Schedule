@@ -39,6 +39,26 @@ class SharedViewKitBackendTest {
 
     @After fun cleanup() { TransitionPayloadStore.clearForTests(); shadowOf(Looper.getMainLooper()).idle() }
 
+    @Test fun sourceViewHasFullBoundsAndOutlineAndLivesUntilSessionRelease() = runBlocking {
+        val request = request()
+        assertEquals(TransitionBackendOpenResult.Started, backend.open(request))
+        val view = checkNotNull(api.inputView)
+        assertEquals(100, view.width)
+        assertEquals(140, view.height)
+        assertEquals(10, view.left)
+        assertEquals(20, view.top)
+        api.callbacks!!.onStart(SharedViewKitContract.Open)
+        api.callbacks!!.onEnd(SharedViewKitContract.Open)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(view.isAttachedToWindow)
+        assertEquals(View.INVISIBLE, view.visibility)
+        assertTrue(backend.requestClose(source, request.session))
+        api.callbacks!!.onEnd(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(view.isAttachedToWindow)
+        assertFalse(anchor.bitmap!!.isRecycled)
+    }
+
     @Test fun surfaceColorUsesTheCardRatherThanTheBlackActivityBackground() {
         val pixels = Bitmap.createBitmap(80, 100, Bitmap.Config.ARGB_8888).apply {
             eraseColor(android.graphics.Color.rgb(54, 59, 63))
@@ -304,14 +324,22 @@ class SharedViewKitBackendTest {
         var returnBundle: Bundle? = null
         var returnActivity: Activity? = null
         var inputBitmap: Bitmap? = null
+        var inputView: SharedViewKitSourceView? = null
         var openBundle: Bundle? = null
         var recycleRejectedInput = false
         override fun supportedProtocol() = protocol
         override fun extras() = mapOf(SharedViewKitContract.Bounds to "rect|WINDOW|bounds",
             SharedViewKitContract.BackType to "int|VIEW_ANIM_FOLLOW_SYSTEM,VIEW_ANIM_FADE_OUT|back") +
             if (supportsReturnBitmap) mapOf(SharedViewKitContract.Bitmap to "Bitmap||return pixels") else emptyMap()
-        override fun options(bitmap: Bitmap, bounds: Rect, radiusPx: Float, extras: Bundle,
+        override fun options(source: View, extras: Bundle,
             callbacks: SharedViewKitCallbacks): ActivityOptions? {
+            val view = source as SharedViewKitSourceView
+            inputView = view
+            val bitmap = view.bitmap
+            assertTrue(view.isAttachedToWindow)
+            assertTrue(view.clipToOutline)
+            val outline = android.graphics.Outline().also { view.outlineProvider.getOutline(view, it) }
+            assertEquals(view.radiusPx, outline.radius, 0f)
             optionsCalls++
             inputBitmap = bitmap
             openBundle = Bundle(extras)

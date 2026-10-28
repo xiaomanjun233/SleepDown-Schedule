@@ -26,6 +26,7 @@ internal class SharedViewKitBackend(
         val capabilities: SharedViewKitCapabilities,
         val generation: Long,
         val kitBitmap: Bitmap,
+        val sourceView: SharedViewKitSourceView,
         var closing: Boolean = false,
         var watchdog: Runnable? = null
     ) {
@@ -37,6 +38,7 @@ internal class SharedViewKitBackend(
          * failed handshake can never invalidate the payload bitmap that Legacy still needs.
          */
         fun recycleKitBitmap() {
+            sourceView.release()
             if (!kitBitmap.isRecycled) kitBitmap.recycle()
             kitReturnBitmap?.let { if (!it.isRecycled) it.recycle() }
             kitReturnBitmap = null
@@ -68,11 +70,17 @@ internal class SharedViewKitBackend(
         if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST)
             Log.i("SharedViewKit", "bitmap=${anchor.bitmap.config}->${kitBitmap.config} ${kitBitmap.width}x${kitBitmap.height}")
         val session = request.session
+        val sourceView = SharedViewKitSourceView.attach(request.activity, anchor, kitBitmap)
+        if (sourceView == null) {
+            kitBitmap.recycle()
+            return rejected("sourceViewUnavailable")
+        }
         if (!session.moveTo(TransitionSessionState.NativeRegistered)) {
+            sourceView.release()
             kitBitmap.recycle()
             return rejected("invalidSessionState")
         }
-        val resource = Resource(session, WeakReference(request.activity), capabilities, session.nextCallbackGeneration(), kitBitmap)
+        val resource = Resource(session, WeakReference(request.activity), capabilities, session.nextCallbackGeneration(), kitBitmap, sourceView)
         resources[session.id] = resource
         if (!TransitionPayloadStore.registerCleanup(session.id) { dispatch { release(session.id) } }) {
             release(session.id)
@@ -95,9 +103,7 @@ internal class SharedViewKitBackend(
             putInt(SharedViewKitContract.Color, anchor.surfaceColor ?: transitionSurfaceColor(kitBitmap,
                 request.payload?.backgroundColor ?: android.graphics.Color.TRANSPARENT))
         }
-        val options = sdk("options") { api.options(kitBitmap,
-            boundsForKit(request.activity.window.decorView, anchor, capabilities),
-            anchor.cornerRadiusPx, extras, callbacks) }
+        val options = sdk("options") { api.options(sourceView, extras, callbacks) }
         if (options == null) {
             session.invalidateCallbacks()
             release(session.id)
@@ -164,6 +170,7 @@ internal class SharedViewKitBackend(
         if (mode == SharedViewKitContract.Open && !resource.closing &&
             resource.session.moveFrom(TransitionSessionState.NativeRegistered, TransitionSessionState.NativeRunning)) {
             TransitionPayloadStore.handoffOpeningSource(resource.session.id)
+            resource.sourceView.visibility = View.INVISIBLE
         }
     }
 

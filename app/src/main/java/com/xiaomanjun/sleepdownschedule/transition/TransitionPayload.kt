@@ -35,7 +35,18 @@ internal fun Activity.attachOpeningSourceSnapshotHandoff(
     val decor = window.decorView
     val overlay = decor.overlay
     val bounds = anchor.boundsInWindow
-    val drawable = BitmapDrawable(resources, bitmap).apply {
+    val drawable = object : BitmapDrawable(resources, bitmap) {
+        private val path = android.graphics.Path()
+        override fun draw(canvas: android.graphics.Canvas) {
+            val count = canvas.save()
+            val radius = anchor.cornerRadiusPx.coerceIn(0f, minOf(this.bounds.width(), this.bounds.height()) / 2f)
+            path.reset()
+            path.addRoundRect(android.graphics.RectF(this.bounds), radius, radius, android.graphics.Path.Direction.CW)
+            canvas.clipPath(path)
+            super.draw(canvas)
+            canvas.restoreToCount(count)
+        }
+    }.apply {
         setBounds(
             bounds.left.roundToInt(),
             bounds.top.roundToInt(),
