@@ -22,10 +22,12 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class SharedViewKitBackendTest {
     private val api = FakeApi()
@@ -47,6 +49,7 @@ class SharedViewKitBackendTest {
         assertEquals(140, view.height)
         assertEquals(10, view.left)
         assertEquals(20, view.top)
+        assertEquals(20f, api.openBundle!!.getFloat(SharedViewKitContract.Radius), 0f)
         api.callbacks!!.onStart(SharedViewKitContract.Open)
         api.callbacks!!.onEnd(SharedViewKitContract.Open)
         shadowOf(Looper.getMainLooper()).idle()
