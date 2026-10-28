@@ -1,14 +1,72 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWallpaperBlurSlider
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardColorChange
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardAlphaSlider
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.withChangesFrom
 import com.xiaomanjun.sleepdownschedule.domain.schedule.withPersonalizationFrom
-import com.xiaomanjun.sleepdownschedule.feature.home.personalization.PersonalizeCardColoredTextChange
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeCardColoredTextChange
 import com.xiaomanjun.sleepdownschedule.feature.home.personalization.mergePersonalizationCandidate
+import com.xiaomanjun.sleepdownschedule.feature.home.personalization.*
 import org.junit.Assert.*
 import org.junit.Test
 
 class PersonalizationLiveStateTest {
+    @Test fun closeKeepsPendingCommitUntilExactStorageAcknowledgement() {
+        val session = PersonalizationSession()
+        val initial = defaultConfig(7)
+        val committed = session.commit(initial, initial.copy(cardColorArgb = 0xFF123456), PersonalizeCardColorChange)
+        session.setSliderActive(PersonalizeCardAlphaSlider, true)
+        session.preview.update(PersonalizeCardAlphaSlider, initial.copy(cardAlpha = 0.4f))
+        session.close()
+        assertNull(session.draft)
+        assertNull(session.sliderKey)
+        assertNull(session.preview.cardAlpha)
+        assertEquals(committed, session.displayConfig)
+        session.acknowledge(initial)
+        assertEquals(committed, session.displayConfig)
+        session.acknowledge(committed)
+        assertNull(session.displayConfig)
+    }
+
+    @Test fun rapidSessionCommitsMergeOnlyTheChangedProperty() {
+        val session = PersonalizationSession()
+        val initial = defaultConfig(7)
+        session.commit(initial, initial.copy(cardColorArgb = 0xFF123456), PersonalizeCardColorChange)
+        val committed = session.commit(initial, initial.copy(courseCardColoredTextEnabled = true), PersonalizeCardColoredTextChange)
+        assertEquals(0xFF123456, committed.cardColorArgb)
+        assertTrue(committed.courseCardColoredTextEnabled)
+        assertEquals(committed, session.pendingCommit)
+        session.acknowledge(committed)
+        assertEquals(committed, session.displayConfig)
+    }
+
+    @Test fun switchingSchedulesDropsOnlyConfigsForThePreviousSchedule() {
+        val session = PersonalizationSession()
+        val initial = defaultConfig(7)
+        session.commit(initial, initial.copy(cardAlpha = 0.6f), PersonalizeCardAlphaSlider)
+        session.selectSchedule(7)
+        assertNotNull(session.displayConfig)
+        session.selectSchedule(8)
+        assertNull(session.draft)
+        assertNull(session.pendingCommit)
+    }
+
+    @Test fun lateSliderEndDoesNotEndTheNewSliderAndBlurPreviewSurvivesCommit() {
+        val session = PersonalizationSession()
+        val initial = defaultConfig()
+        session.setSliderActive(PersonalizeCardAlphaSlider, true)
+        session.setSliderActive(PersonalizeWallpaperBlurSlider, true)
+        session.setSliderActive(PersonalizeCardAlphaSlider, false)
+        assertEquals(PersonalizeWallpaperBlurSlider, session.sliderKey)
+        session.preview.update(PersonalizeWallpaperBlurSlider, initial.copy(wallpaperBlur = 12f))
+        session.commit(initial, initial.copy(wallpaperBlur = 12f), PersonalizeWallpaperBlurSlider)
+        assertEquals(12f, session.preview.wallpaperBlur)
+        session.preview.clear(PersonalizeWallpaperBlurSlider)
+        assertNull(session.preview.wallpaperBlur)
+    }
+
     @Test fun colorEditsRefreshFrozenConfigWhileCourseInputsStayFrozen() {
         val original = AppState(config = defaultConfig(7))
         val retained = RetainedHomeValue(original)

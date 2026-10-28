@@ -42,19 +42,18 @@ import com.xiaomanjun.sleepdownschedule.DefaultWallpaperStyle
 import com.xiaomanjun.sleepdownschedule.DockAlignment
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.app.ui.Screen
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidControlSlider
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
-import com.xiaomanjun.sleepdownschedule.feature.home.FloatingDock
+import com.xiaomanjun.sleepdownschedule.feature.home.ParallelHomeDock
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.adaptiveGlassStateFromLuminance
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.normalizedHomeChromeBlurScale
 import kotlin.math.abs
 import kotlin.math.pow
@@ -299,14 +298,13 @@ private fun LiquidGlassDockPreview(
                 )
             }
             CompositionLocalProvider(LocalAdaptiveGlass provides adaptiveGlass) {
-                FloatingDock(
-                    selected = Screen.Home,
-                    backdrop = previewBackdrop,
+                ParallelHomeDock(
+                    selectedIndex = 0,
                     config = config,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    previewMode = true,
-                    onHome = {},
-                    onConfig = {}
+                    backdrop = previewBackdrop,
+                    onSelect = {},
+                    onOpenMenu = { _, _ -> },
+                    modifier = Modifier.align(Alignment.BottomCenter)
                 )
             }
         }

@@ -452,6 +452,36 @@ class SharedPeriodSchemeRepositoryTest {
         assertEquals(1, repository.publicPeriodSchemes().size)
     }
 
+    @Test fun publicEditUpdatesIndependentReferencesWithoutRebindingTheirOwnerTable() = runBlocking {
+        val other=database.periodSchemeDao().getScheme(11)!!.copy(id=22,publicId="other",name="A楼")
+        database.periodSchemeDao().upsertScheme(other)
+        database.periodSchemeDao().upsertTimes(standardTimes(22))
+        database.configDao().upsertConfig(database.configDao().getConfig(2)!!.copy(activePeriodSchemeId=22))
+        database.courseDao().insertCourse(course(2,listOf(1)).copy(independentPeriodSchemeId=11))
+        val saved=repository.publicPeriodSchemes().single { it.roomId==11L }
+        val session=savedPeriodSchemeSession(saved,defaultConfig())
+        repository.savePublicPeriodScheme(saved,session.updateActive(changeFirstBell(session.active)),saved.id)
+        assertEquals(22L,database.configDao().getConfig(2)!!.activePeriodSchemeId)
+        val state=repository.scheduleSnapshot(2)
+        assertEquals("08:05 - 08:50",courseTimeLabel(state.courses.single(),state.periods))
+        assertEquals(11L,state.courses.single().independentPeriodSchemeId)
+    }
+
+    @Test fun orderedDateRulesPersistAndOrdinaryAndCustomCoursesResolveDifferently() = runBlocking {
+        val other=database.periodSchemeDao().getScheme(11)!!.copy(id=22,publicId="summer",name="夏季")
+        database.periodSchemeDao().upsertScheme(other)
+        database.periodSchemeDao().upsertTimes(standardTimes(22).map { if(it.periodIndex==1) it.copy(startTime="08:20",endTime="09:05") else it.copy(startTime=if(it.periodIndex==2) "09:15" else it.startTime) })
+        database.configDao().upsertConfig(database.configDao().getConfig(1)!!.copy(termStartDate="2026-08-31"))
+        database.courseDao().insertCourses(listOf(course(1,listOf(1)),course(1,listOf(1)).copy(name="固定实验",customStartTime="08:10",customEndTime="09:00")))
+        repository.saveDateTimetableRules(1,null,emptyList(),listOf(TimetableDateRuleEntity(0,0,22,"2026-09-01","2026-09-30")))
+        val state=repository.scheduleSnapshot(1)
+        val day=coursesForDate(state,java.time.LocalDate.parse("2026-09-07")).associateBy { it.name }
+        assertEquals("08:20 - 09:05",courseTimeLabel(day.getValue("课程1"),state.periods))
+        assertEquals("08:10 - 09:00",courseTimeLabel(day.getValue("固定实验"),state.periods))
+        assertEquals("08:00",state.periods.first().startTime)
+        rejected { repository.saveDateTimetableRules(1,null,emptyList(),emptyList()) }
+    }
+
     private fun standardTimes(id: Long) = listOf(PeriodSchemeTimeEntity(id, 1, "08:00", "08:45"),
         PeriodSchemeTimeEntity(id, 2, "09:00", "09:45"), PeriodSchemeTimeEntity(id, 3, "14:00", "14:45"))
 

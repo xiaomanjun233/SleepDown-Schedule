@@ -149,7 +149,9 @@ internal class DayAgentChatTransport(
     ): String = buildJsonObject {
         put("model", settings.profile.defaultModel)
         put("stream", stream)
-        put("temperature", 0.55)
+        if (AiProviderPresets.isManagedFreeId(settings.profile.id) && settings.profile.managedReasoningOptions != null) {
+            put("reasoning_effort", settings.profile.reasoningEffort.apiValue)
+        } else put("temperature", 0.55)
         put("messages", buildJsonArray {
             messages.forEach { (role, content) ->
                 add(buildJsonObject {
@@ -175,7 +177,9 @@ internal class DayAgentChatTransport(
     ): String = buildJsonObject {
         put("model", settings.profile.defaultModel)
         put("stream", stream)
-        put("temperature", 0.35)
+        if (AiProviderPresets.isManagedFreeId(settings.profile.id) && settings.profile.managedReasoningOptions != null) {
+            put("reasoning_effort", settings.profile.reasoningEffort.apiValue)
+        } else put("temperature", 0.35)
         if (settings.usesOfficialOpenAiEndpoint()) put("store", false)
         put("messages", buildJsonArray { messages.forEach(::add) })
         if (includeTools) {

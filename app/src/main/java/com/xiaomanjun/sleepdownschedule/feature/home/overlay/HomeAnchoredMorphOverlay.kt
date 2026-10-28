@@ -3,8 +3,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.overlay
 
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -18,9 +16,11 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,6 +47,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.unit.Constraints
@@ -61,7 +63,6 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeHeaderGlassBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColor
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
@@ -72,8 +73,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMenuSurfaceRe
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.homeMaterialNeutralTint
 import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.home.week.*
 import com.xiaomanjun.sleepdownschedule.glass.premultipliedGlassTint
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownDropletGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
@@ -86,6 +85,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.morphDismissSwipe
 
 @Composable
 internal fun HomeAnchoredMorphOverlayHost(
@@ -109,79 +109,78 @@ internal fun HomeAnchoredMorphOverlayHost(
     sourceContent: @Composable BoxScope.(HomeAnchoredOverlayKind, Modifier) -> Unit,
     personalizeContent: @Composable (Modifier) -> Unit
 ) {
+    val preloadContent = true
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
     var renderedRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
-    var reverseAddOpening by remember { mutableStateOf(false) }
     var panelContentPrepared by remember { mutableStateOf(false) }
+    var panelContentLaidOut by remember { mutableStateOf(false) }
     val addMenuSurfacePrepared = remember { AtomicBoolean(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val latestOnDismissRequest by rememberUpdatedState(onDismissRequest)
     val latestOnAddMenuBoundsChanged by rememberUpdatedState(onAddMenuBoundsChanged)
-    val latestOnSourceFollowThrough by rememberUpdatedState(onSourceFollowThrough)
     val latestOnSilentDisposed by rememberUpdatedState(onSilentDisposed)
     val latestAwaitOpeningGate by rememberUpdatedState(awaitOpeningGate)
 
     LaunchedEffect(request, adaptiveMetrics.profile) {
         if (request != null) {
-            reverseAddOpening = false
-            renderedRequest = request
-            addMenuSurfacePrepared.set(false)
-            panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize
-            motionState.renderedKind = request.kind
-            motionState.phase = HomeAnchoredOverlayPhase.Preparing
-            motionState.progress.snapTo(0f)
-            motionState.backgroundZoom.snapTo(1f)
-            var waitedFrames = 0
-            while (waitedFrames < 12 && (rootSize.width <= 0 || rootSize.height <= 0)) {
-                withFrameNanos { }
-                waitedFrames++
-            }
-            // Personalization opens only its shell; form layout cannot gate this animation.
-            latestAwaitOpeningGate()
-            if (request.kind == HomeAnchoredOverlayKind.Add) {
-                // Prepare the actual retained panel in the existing gate. Do not mount its
-                // text/blur/lens tree at the first non-zero alpha in the moving animation.
-                var surfaceFrames = 0
-                while (!addMenuSurfacePrepared.get() && surfaceFrames < 3) {
+            val resuming = renderedRequest?.kind == request.kind &&
+                motionState.phase == HomeAnchoredOverlayPhase.Closing
+            if (!resuming) {
+                motionState.retarget.reset()
+                motionState.backgroundRetarget.reset()
+                renderedRequest = request
+                addMenuSurfacePrepared.set(false)
+                panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize || preloadContent
+                panelContentLaidOut = false
+                motionState.renderedKind = request.kind
+                motionState.phase = HomeAnchoredOverlayPhase.Preparing
+                motionState.progress.snapTo(0f)
+                motionState.backgroundZoom.snapTo(1f)
+                var waitedFrames = 0
+                while (waitedFrames < 12 && (rootSize.width <= 0 || rootSize.height <= 0)) {
                     withFrameNanos { }
-                    surfaceFrames++
+                    waitedFrames++
+                }
+                latestAwaitOpeningGate()
+                if (request.kind == HomeAnchoredOverlayKind.Personalize && preloadContent) {
+                    snapshotFlow { panelContentLaidOut }.first { it }
+                }
+                if (request.kind == HomeAnchoredOverlayKind.Add) {
+                    // Prepare the retained panel before the first visible motion frame.
+                    var surfaceFrames = 0
+                    while (!addMenuSurfacePrepared.get() && surfaceFrames < 3) {
+                        withFrameNanos { }
+                        surfaceFrames++
+                    }
                 }
             }
             motionState.phase = HomeAnchoredOverlayPhase.Opening
             coroutineScope {
                 launch {
-                    motionState.progress.animateTo(
-                        1f,
-                        tween(
-                            durationMillis = if (
-                                request.kind == HomeAnchoredOverlayKind.Personalize
-                            ) {
-                                HomePersonalizeMorphOpenDurationMillis
-                            } else {
-                                HomeAddMenuMorphOpenDurationMillis
-                            },
-                            easing = LinearEasing
-                        )
-                    )
+                    motionState.retarget.animate(motionState.progress, 1f,
+                        if (request.kind == HomeAnchoredOverlayKind.Personalize) HomePersonalizeMorphOpenDurationMillis
+                        else HomeAddMenuMorphOpenDurationMillis, continuation = motionState.curveContinuity)
                 }
                 if (request.kind == HomeAnchoredOverlayKind.Personalize && !adaptiveMetrics.isLargeScreen) {
                     launch {
-                        motionState.backgroundZoom.animateTo(
-                            HomeAnchoredMorphBackgroundScale,
-                            tween(
-                                durationMillis = HomePersonalizeMorphOpenDurationMillis,
-                                delayMillis = HomeAnchoredMorphBackgroundDelayMillis,
-                                easing = HomeAnchoredBackgroundEasing
-                            )
-                        )
+                        motionState.backgroundRetarget.animate(motionState.backgroundZoom, HomeAnchoredMorphBackgroundScale,
+                            HomePersonalizeMorphOpenDurationMillis, HomeAnchoredBackgroundEasing,
+                            if (resuming) 0 else HomeAnchoredMorphBackgroundDelayMillis)
                     }
                 }
             }
             motionState.phase = HomeAnchoredOverlayPhase.Open
-            // Present the settled shell before building the personalization controls.
-            if (request.kind == HomeAnchoredOverlayKind.Personalize) withFrameNanos { }
+            if (request.kind == HomeAnchoredOverlayKind.Personalize && !preloadContent) withFrameNanos { }
             panelContentPrepared = true
         } else if (renderedRequest != null) {
+            if (preloadContent && renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize) {
+                focusManager.clearFocus(force = true)
+                keyboard?.hide()
+            }
             if (suppressClose) {
+                motionState.retarget.reset()
+                motionState.backgroundRetarget.reset()
                 // Silent cleanup: the destination owns the button return. Dispose this hidden
                 // first-level menu without playing a second visible Close or follow-through.
                 motionState.progress.snapTo(0f)
@@ -193,45 +192,20 @@ internal fun HomeAnchoredMorphOverlayHost(
                 motionState.phase = HomeAnchoredOverlayPhase.Idle
                 latestOnSilentDisposed()
             } else {
-                if (renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize) {
+                if (renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize && !preloadContent) {
                     panelContentPrepared = false
                 }
-                reverseAddOpening = renderedRequest?.kind == HomeAnchoredOverlayKind.Add &&
-                    motionState.phase != HomeAnchoredOverlayPhase.Open
                 motionState.phase = HomeAnchoredOverlayPhase.Closing
-                if (renderedRequest?.kind == HomeAnchoredOverlayKind.Add && !reverseAddOpening) {
-                    // The retained native panel covers these stationary frames while the moving
-                    // SDF consumer acquires coordinates and records its first backdrop sample.
-                    withFrameNanos { }
-                    withFrameNanos { }
-                }
                 coroutineScope {
                     launch {
-                        motionState.progress.animateTo(
-                            0f,
-                            tween(
-                                durationMillis = if (
-                                    renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize
-                                ) {
-                                    HomePersonalizeMorphCloseDurationMillis
-                                } else {
-                                    if (reverseAddOpening) {
-                                        (HomeAddMenuMorphOpenDurationMillis * motionState.progress.value).roundToInt()
-                                    } else HomeAddMenuMorphCloseDurationMillis
-                                },
-                                easing = LinearEasing
-                            )
-                        )
+                        motionState.retarget.animate(motionState.progress, 0f,
+                            if (renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize) HomePersonalizeMorphCloseDurationMillis
+                            else HomeAddMenuMorphCloseDurationMillis, continuation = motionState.curveContinuity)
                     }
                     if (motionState.backgroundZoom.value > 1.0001f) {
                         launch {
-                            motionState.backgroundZoom.animateTo(
-                                1f,
-                                tween(
-                                    durationMillis = HomePersonalizeMorphCloseDurationMillis,
-                                    easing = HomeAnchoredBackgroundEasing
-                                )
-                            )
+                            motionState.backgroundRetarget.animate(motionState.backgroundZoom, 1f,
+                                HomePersonalizeMorphCloseDurationMillis, HomeAnchoredBackgroundEasing)
                         }
                     }
                 }
@@ -250,8 +224,8 @@ internal fun HomeAnchoredMorphOverlayHost(
         }
     }
 
-    val shownRequest = request ?: renderedRequest
-    BackHandler(enabled = shownRequest != null) {
+    val shownRequest = renderedRequest ?: request
+    BackHandler(enabled = request != null) {
         latestOnDismissRequest()
     }
 
@@ -259,6 +233,9 @@ internal fun HomeAnchoredMorphOverlayHost(
         modifier = modifier
             .fillMaxSize()
             .onSizeChanged { rootSize = it }
+            .morphDismissSwipe(request != null && motionState.phase != HomeAnchoredOverlayPhase.Open) {
+                latestOnDismissRequest()
+            }
     ) {
         val shown = shownRequest ?: return@Box
         if (rootSize.width <= 0 || rootSize.height <= 0) return@Box
@@ -302,37 +279,57 @@ internal fun HomeAnchoredMorphOverlayHost(
             }
         }
         if (shown.kind == HomeAnchoredOverlayKind.Personalize) {
-            HomePersonalizationAnimatedOverlay(
-                sourceBounds = shown.sourceBoundsInRoot,
-                sourcePressedScale = shown.sourcePressedScale,
-                targetRect = targetRect,
-                rootSize = rootSize,
-                motionState = motionState,
-                backdrop = backdrop,
-                config = config,
-                adaptiveMetrics = adaptiveMetrics,
-                previewProgress = personalizePreviewProgress,
-                contentMounted = panelContentPrepared,
-                onContentLaidOut = {},
-                onDismissRequest = { latestOnDismissRequest() },
-                sourceContent = { sourceModifier ->
-                    sourceContent(HomeAnchoredOverlayKind.Personalize, sourceModifier)
-                },
-                content = personalizeContent
-            )
+            key(shown, adaptiveMetrics.profile) {
+                HomePersonalizationAnimatedOverlay(
+                    sourceBounds = shown.sourceBoundsInRoot,
+                    sourcePressedScale = shown.sourcePressedScale,
+                    targetRect = targetRect,
+                    rootSize = rootSize,
+                    motionState = motionState,
+                    backdrop = backdrop,
+                    config = config,
+                    adaptiveMetrics = adaptiveMetrics,
+                    previewProgress = personalizePreviewProgress,
+                    contentMounted = panelContentPrepared,
+                    contentDuringMotion = preloadContent,
+                    onContentLaidOut = { panelContentLaidOut = true },
+                    onDismissRequest = { latestOnDismissRequest() },
+                    sourceContent = { sourceModifier ->
+                        sourceContent(HomeAnchoredOverlayKind.Personalize, sourceModifier)
+                    },
+                    content = personalizeContent
+                )
+            }
             return@Box
         }
         // Personalize is handled above, so this branch is the Add menu. Keep all animation-tick
         // reads inside derived state and deferred modifier lambdas instead of recomposing the host.
-        val dropFrame = remember(shown.sourceBoundsInRoot, targetRect, motionState, density, reverseAddOpening, targetCorner) {
+        DisposableEffect(shown.sourceBoundsInRoot, targetRect, motionState, density, targetCorner) {
+            val sampler: (Float, Boolean) -> FloatArray = { p, closing ->
+                homeDropletFrame(shown.sourceBoundsInRoot, targetRect, p, closing,
+                    density.density, targetCorner).curveValues()
+            }
+            motionState.curveContinuity.bind(sampler) { current, closing ->
+                val captured = Rect(current[0], current[1], current[2], current[3])
+                val from = if (closing) shown.sourceBoundsInRoot else captured
+                val to = if (closing) captured else targetRect
+                val frames: (Float) -> FloatArray = { p ->
+                    homeDropletFrame(from, to, p, closing, density.density,
+                        if (closing) current[4] else targetCorner).curveValues()
+                }
+                frames
+            }
+            onDispose { motionState.curveContinuity.unbind(sampler) }
+        }
+        val dropFrame = remember(shown.sourceBoundsInRoot, targetRect, motionState, density, targetCorner) {
             derivedStateOf {
                 homeDropletFrame(
                     source = shown.sourceBoundsInRoot,
                     target = targetRect,
                     progress = motionState.progress.value,
-                    closing = motionState.phase == HomeAnchoredOverlayPhase.Closing && !reverseAddOpening,
+                    closing = motionState.phase == HomeAnchoredOverlayPhase.Closing,
                     density = density.density, targetCorner = targetCorner
-                )
+                ).withCurveContinuity(motionState.curveContinuity, motionState.progress.value)
             }
         }
         val geometry = remember(dropFrame) { derivedStateOf {
@@ -346,19 +343,9 @@ internal fun HomeAnchoredMorphOverlayHost(
                 expansionProgress = motionState.progress.value, pathProgress = motionState.progress.value
             )
         } }
-        var sourceHandedOff by remember(shown.kind) { mutableStateOf(false) }
-        LaunchedEffect(shown.kind, motionState.phase) {
-            if (shown.kind != HomeAnchoredOverlayKind.Add) return@LaunchedEffect
-            if (shown.fromDock) return@LaunchedEffect
-            if (suppressClose) return@LaunchedEffect
-            if (motionState.phase != HomeAnchoredOverlayPhase.Closing) return@LaunchedEffect
-            // Hand the collapsing shell over to the follow-through button while the droplet is
-            // still at the source anchor, so the real button never pops in at rest.
-            snapshotFlow { motionState.progress.value }.first { it <= 0.02f }
-            if (motionState.phase != HomeAnchoredOverlayPhase.Closing) return@LaunchedEffect
-            sourceHandedOff = true
-            latestOnSourceFollowThrough(geometry.value.rect)
-        }
+        // The reversible clock owns the full return, including its final pixels. Handing a
+        // partial tail to another spring would leave that spring running after a re-open.
+        val sourceHandedOff = false
         val shape = remember(dropFrame) {
             com.xiaomanjun.sleepdownschedule.glass.GlassDropletContentShape { dropFrame.value.glass }
         }

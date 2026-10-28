@@ -18,6 +18,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScheduleConfigChangeMergeTest {
+    @Test fun timeSlotEditsAndDeletionSurviveConcurrentSundaySettingsSave() {
+        val original = defaultConfig()
+        val slots = """[{"id":"night","name":"晚自修","startTime":"19:00","endTime":"20:30","afterPeriod":8}]"""
+        val latest = original.copy(weekStartsOnSunday = true)
+        val saved = latest.withChangesFrom(original, original.copy(timeSlotCoursesJson = slots))
+        assertEquals(slots, saved.timeSlotCoursesJson)
+        assertTrue(saved.weekStartsOnSunday)
+        val cleared = saved.copy(darkMode = true).withChangesFrom(saved, saved.copy(timeSlotCoursesJson = ""))
+        assertEquals("", cleared.timeSlotCoursesJson)
+        assertTrue(cleared.weekStartsOnSunday)
+        assertTrue(cleared.darkMode)
+    }
+
     @Test
     fun concurrentSettingsSavesPreserveAdjustmentDraftAndOtherChanges() {
         val original = defaultConfig()

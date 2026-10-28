@@ -8,10 +8,10 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.luminance
 import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseTextBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeTextContrastFrozen
-import com.xiaomanjun.sleepdownschedule.feature.home.day.LocalHomeReadability
-import com.xiaomanjun.sleepdownschedule.feature.home.day.sampleVisibleWallpaperColors
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.LocalHomeReadability
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.sampleVisibleWallpaperColors
 
 /** Estimate the tinted, blurred surface from the cached wallpaper; never read back the GPU. */
 @Composable
@@ -24,7 +24,8 @@ internal fun rememberCourseTextBackground(
     expanded: Boolean,
     flatBackground: Color? = null,
     ready: Boolean,
-    cardBounds: () -> Rect?
+    cardBounds: () -> Rect?,
+    surfaceDimAlpha: Float = 0f
 ): CourseTextBackground {
     val wallpaper = LocalHomeReadability.current
     val backgroundFrozen = LocalHomeBackgroundFrozen.current
@@ -34,9 +35,11 @@ internal fun rememberCourseTextBackground(
     // background identity and label caches across freeze/resume instead of recomposing
     // all course text twice per switch and resampling unchanged resting bounds.
     return remember(wallpaper, base, tintAlpha, blurred, blurPx, outline, expanded, ready,
-        flatBackground, backgroundFrozen, cardMotionFrozen, textContrastFrozen) {
+        flatBackground, surfaceDimAlpha, backgroundFrozen, cardMotionFrozen, textContrastFrozen) {
+        val surfaceDim = LiquidCourseCardSurfaceTone.copy(alpha = surfaceDimAlpha.coerceIn(0f, 1f))
+        fun surfaceLuminance(color: Color) = surfaceDim.compositeOver(color).luminance()
         val flatLuminance = flatBackground?.let {
-            base.copy(alpha = tintAlpha.coerceIn(0f, 1f)).compositeOver(it).luminance()
+            surfaceLuminance(base.copy(alpha = tintAlpha.coerceIn(0f, 1f)).compositeOver(it))
         }
         CourseTextBackground({ backgroundFrozen.value || cardMotionFrozen.value || textContrastFrozen.value }, flatLuminance) { windowBounds ->
             // Flat cards have an exact composite; no wallpaper/position read is needed, even
@@ -46,7 +49,7 @@ internal fun rememberCourseTextBackground(
             val bounds = windowBounds.translate(-wallpaper.rootOffsetInWindow)
             val colors = sampleVisibleWallpaperColors(wallpaper,
                 if (blurred) bounds.inflate(blurPx * 0.5f) else bounds)
-                ?: return@CourseTextBackground if (tintAlpha >= 0.85f) floatArrayOf(base.luminance()) else null
+                ?: return@CourseTextBackground if (tintAlpha >= 0.85f) floatArrayOf(surfaceLuminance(base)) else null
             val mean = Color(colors.map { it.red }.average().toFloat(),
                 colors.map { it.green }.average().toFloat(), colors.map { it.blue }.average().toFloat())
             val card = cardBounds()
@@ -69,7 +72,7 @@ internal fun rememberCourseTextBackground(
                     source.green * 0.3f + mean.green * 0.7f,
                     source.blue * 0.3f + mean.blue * 0.7f
                 ) else source
-                tint.compositeOver(softened).luminance()
+                surfaceLuminance(tint.compositeOver(softened))
             }.toFloatArray()
         }
     }

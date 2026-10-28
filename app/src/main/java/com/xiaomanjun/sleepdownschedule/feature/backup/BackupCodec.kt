@@ -459,7 +459,7 @@ object BackupCodec {
     }
 
     private fun validateData(data: BackupData, assetIds: Set<String>) {
-        if (data.dataVersion != BackupFormatV1.DATA_VERSION) fail("未知 dataVersion=${data.dataVersion}")
+        if (data.dataVersion !in 1..BackupFormatV1.DATA_VERSION) fail("未知 dataVersion=${data.dataVersion}")
         if (data.schedules.size > BackupCodecLimits.MAX_ENTRY_COUNT) fail("schedule 数量超过限制")
         val scheduleIds = HashSet<String>()
         var activeCount = 0
@@ -492,7 +492,20 @@ object BackupCodec {
                 validateText("shared scheme overrides", scheme.overridesJson)
             }
         }
+        validateUniqueIds(data.timetableCombos.map { it.id }, "combo", "timetable combo")
+        val comboIds = data.timetableCombos.mapTo(hashSetOf()) { it.id }
+        data.timetableCombos.forEach { combo ->
+            validateText("combo name",combo.name)
+            if (combo.baseSchemeId !in sharedIds) fail("组合作息引用不存在的基准作息")
+            combo.rules.forEach { rule ->
+                if (rule.schemeId !in sharedIds) fail("日期规则引用不存在的作息")
+                val start = runCatching { java.time.LocalDate.parse(rule.startDate) }.getOrNull() ?: fail("日期规则开始日期无效")
+                val end = runCatching { java.time.LocalDate.parse(rule.endDate) }.getOrNull() ?: fail("日期规则结束日期无效")
+                if (end < start) fail("日期规则范围无效")
+            }
+        }
         data.schedules.forEach { schedule ->
+            schedule.activeTimetableComboId?.let { if (it !in comboIds) fail("课表引用不存在的组合作息") }
             schedule.activePeriodSchemeId?.let { if (it !in sharedIds) fail("课表引用了不存在的共享作息") }
             BackupStableId.requireValid(schedule.id, BackupStableId.SCHEDULE_PREFIX)
             if (!scheduleIds.add(schedule.id)) fail("重复 schedule stable ID")
@@ -511,6 +524,10 @@ object BackupCodec {
                 ?: periodIndexes
             validateUniqueIds(schedule.courses.map { it.id }, BackupStableId.COURSE_PREFIX, "course")
             schedule.courses.forEach { course ->
+                course.independentPeriodSchemeId?.let { if (it !in sharedIds) fail("课程引用不存在的独立作息") }
+                course.credit?.let { if (!it.isFinite() || it < 0f) fail("课程学分无效") }
+                course.timingReviewReason?.let { validateText("course review reason",it) }
+                course.legacyTimingSourceJson?.let { validateText("legacy timing source",it) }
                 validateText("course name", course.name)
                 course.teacher?.let { validateText("course teacher", it) }
                 course.location?.let { validateText("course location", it) }
@@ -542,10 +559,12 @@ object BackupCodec {
                 }.getOrElse { fail("课程逐节时间非法: ${it.message}") }
                 if (course.weekday !in 1..7) fail("课程 weekday 非法")
                 if (course.periods.any { it < 0 } || course.weeks.any { it < 0 }) fail("课程 periods/weeks 非法")
-                if (course.originalPeriodTimes == null && course.customStartTime == null) {
+                if (course.originalPeriodTimes == null && course.customStartTime == null && course.timingReviewReason == null) {
                     val customIndexes = com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes(course.customPeriodTimes)
                         .mapTo(hashSetOf()) { it.index }
-                    if (course.periods.any { it !in effectivePeriodIndexes && it !in customIndexes }) {
+                    val referenced = course.independentPeriodSchemeId?.let(sharedById::getValue)?.times?.mapTo(hashSetOf()) { it.periodIndex }
+                        ?: effectivePeriodIndexes
+                    if (course.periods.any { it !in referenced && it !in customIndexes }) {
                         fail("课程引用了所选作息中不存在的 periodIndex，且缺少原始安排")
                     }
                 }
@@ -702,6 +721,10 @@ object BackupCodec {
         try {
             com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(config.scheduleAdjustmentsJson)
         } catch (invalid: Exception) { fail("调休课表数据无效") }
+        if (config.timeSlotCoursesJson.length > 64 * 1024) fail("时段课程数据过长")
+        try {
+            com.xiaomanjun.sleepdownschedule.domain.schedule.decodeTimeSlotCourses(config.timeSlotCoursesJson)
+        } catch (invalid: Exception) { fail("时段课程数据无效") }
         if (config.totalWeeks < 0 || config.currentWeek < 0 || config.notificationLeadMinutes < 0) {
             fail("课表周次/提醒参数非法")
         }

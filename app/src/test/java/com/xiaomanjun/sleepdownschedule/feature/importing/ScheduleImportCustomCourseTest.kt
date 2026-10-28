@@ -11,14 +11,16 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 class ScheduleImportCustomCourseTest {
-    @Test fun malformedTimeAlignedSourceFailsBeforeImport() {
+    @Test fun malformedLegacySourceIsRetainedForReviewWithoutInventingAClock() {
         val config = defaultConfig().copy(periodAlignmentMode = com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode.TIME)
         val token = buildSleepDownScheduleToken(config, listOf(PeriodEntity(1, "08:00", "08:45")),
             listOf(CourseEntity(name = "课程", teacher = null, location = null, weekday = 1,
                 periods = listOf(13), weeks = listOf(1), weekParity = WeekParity.ALL, note = null, originalPeriodTimes = "")))
         val result = ScheduleImportParser.parse(token, defaultConfig())
-        assertTrue(result.isFailure)
-        assertTrue(result.exceptionOrNull()!!.message!!.contains("不完整"))
+        val course=result.getOrThrow().courses.single()
+        assertTrue(course.timingReviewReason != null)
+        assertEquals(listOf(13),course.periods)
+        assertTrue(com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments(course,defaultPeriods()).isEmpty())
     }
 
     @Test fun exactCustomImportDoesNotRequireAnExistingAnchorNumber() {
@@ -37,7 +39,8 @@ class ScheduleImportCustomCourseTest {
         val imported = ScheduleImportParser.parse(token, defaultConfig()).getOrThrow()
         assertEquals(raw.periods, imported.courses.single().periods)
         assertEquals(raw.originalPeriodTimes, imported.courses.single().originalPeriodTimes)
-        assertEquals(config.periodAlignmentMode, imported.config.periodAlignmentMode)
+        assertEquals(com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode.INDEX, imported.config.periodAlignmentMode)
+        assertEquals(raw.originalPeriodTimes,imported.courses.single().customPeriodTimes)
     }
     @Test
     fun aiToolExposesPerCourseExactTimeFields() {
@@ -52,6 +55,8 @@ class ScheduleImportCustomCourseTest {
         assertTrue("customEndTime" in properties)
         assertFalse("customPeriodTimes" in required)
         assertFalse("customPeriodTimes" in properties)
+        assertTrue("position" in properties && "day" in properties && "isCustomTime" in properties && "credit" in properties)
+        assertFalse("location" in properties || "weekday" in properties || "weekParity" in properties)
     }
 
     @Test

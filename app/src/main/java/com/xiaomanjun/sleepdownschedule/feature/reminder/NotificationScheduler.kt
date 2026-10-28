@@ -48,7 +48,7 @@ import java.time.format.DateTimeFormatter
 
 object NotificationScheduler {
     private const val TAG = "SleepDownLiveUpdate"
-    private const val CHANNEL_ID = "course_reminders"
+    private const val CHANNEL_ID = LiveUpdateNotificationRenderer.CHANNEL_ID
     private const val PREFS = "course_alarm_prefs"
     private const val KEY_REQUEST_CODES = "request_codes"
     private const val KEY_SCHEDULE_SIGNATURE = "schedule_signature"
@@ -66,8 +66,8 @@ object NotificationScheduler {
     private const val LIVE_UPDATE_ALTERNATE_ID = 20260523
     private const val SUPER_ISLAND_ID = 20260524
     private const val SUPER_ISLAND_ALTERNATE_ID = 20260525
-    private const val EXTRA_LIVE_UPDATE_IDENTITY = "sleepdown.live_update_identity"
-    private const val EXTRA_ISLAND_PREVIEW = "sleepdown.island_preview"
+    private const val EXTRA_LIVE_UPDATE_IDENTITY = LiveUpdateNotificationRenderer.EXTRA_LIVE_UPDATE_IDENTITY
+    private const val EXTRA_ISLAND_PREVIEW = LiveUpdateNotificationRenderer.EXTRA_ISLAND_PREVIEW
     private const val SUPER_ISLAND_TEST_ID = 20261008
     private const val SUPER_ISLAND_TEST_ALTERNATE_ID = 20261009
     private val liveUpdatePostLock = Any()
@@ -82,19 +82,19 @@ object NotificationScheduler {
     val ACTION_COURSE_REMINDER = "${BuildConfig.APPLICATION_ID}.action.COURSE_REMINDER"
     val ACTION_REFRESH_COURSE_ALARMS = "${BuildConfig.APPLICATION_ID}.action.REFRESH_COURSE_ALARMS"
     private const val EXTRA_LIVE_UPDATE_NOTIFICATION = "live_update_notification"
-    const val EXTRA_LIVE_UPDATE_NAME = "live_update_name"
-    const val EXTRA_LIVE_UPDATE_TIME = "live_update_time"
-    const val EXTRA_LIVE_UPDATE_LOCATION = "live_update_location"
-    const val EXTRA_LIVE_UPDATE_ACTIONS = "live_update_actions"
-    const val EXTRA_LIVE_UPDATE_MUTE_KEY = "live_update_mute_key"
-    const val EXTRA_LIVE_UPDATE_MUTE_UNTIL = "live_update_mute_until"
-    const val EXTRA_LIVE_UPDATE_CHIP_MODE = "live_update_chip_mode"
-    const val EXTRA_LIVE_UPDATE_KIND = "live_update_kind"
-    const val EXTRA_LIVE_UPDATE_SEGMENTS = "live_update_segments"
-    const val EXTRA_LIVE_UPDATE_DURING_CLASS = "live_update_during_class"
-    const val EXTRA_LIVE_UPDATE_BREAK_STATUS = "live_update_break_status"
-    const val EXTRA_LIVE_UPDATE_EXPIRES_AT = "live_update_expires_at"
-    const val EXTRA_LIVE_UPDATE_TOMORROW_COUNT = "live_update_tomorrow_count"
+    const val EXTRA_LIVE_UPDATE_NAME = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_NAME
+    const val EXTRA_LIVE_UPDATE_TIME = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_TIME
+    const val EXTRA_LIVE_UPDATE_LOCATION = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_LOCATION
+    const val EXTRA_LIVE_UPDATE_ACTIONS = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_ACTIONS
+    const val EXTRA_LIVE_UPDATE_MUTE_KEY = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_MUTE_KEY
+    const val EXTRA_LIVE_UPDATE_MUTE_UNTIL = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_MUTE_UNTIL
+    const val EXTRA_LIVE_UPDATE_CHIP_MODE = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_CHIP_MODE
+    const val EXTRA_LIVE_UPDATE_KIND = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_KIND
+    const val EXTRA_LIVE_UPDATE_SEGMENTS = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_SEGMENTS
+    const val EXTRA_LIVE_UPDATE_DURING_CLASS = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_DURING_CLASS
+    const val EXTRA_LIVE_UPDATE_BREAK_STATUS = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_BREAK_STATUS
+    const val EXTRA_LIVE_UPDATE_EXPIRES_AT = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_EXPIRES_AT
+    const val EXTRA_LIVE_UPDATE_TOMORROW_COUNT = LiveUpdatePayloadCodec.EXTRA_LIVE_UPDATE_TOMORROW_COUNT
     const val EXTRA_REMINDER_EVENT = "reminder_event"
 
     inline fun withShortWakeLock(context: Context, tagSuffix: String, block: () -> Unit) {
@@ -483,7 +483,7 @@ object NotificationScheduler {
             .setAction(ACTION_COURSE_REMINDER)
             .putExtra(EXTRA_REMINDER_EVENT, event)
             .putExtra("notificationMode", config.notificationMode.name)
-            .putLiveUpdatePayload(payload)
+            .let { putPayload(it, payload) }
         val pendingIntent = PendingIntent.getBroadcast(
             context,
             requestCode,
@@ -508,65 +508,9 @@ object NotificationScheduler {
     private fun eventRequestCode(date: LocalDate, courseId: Long, eventIndex: Int, event: String): Int =
         listOf(date.toEpochDay(), courseId, eventIndex, event).hashCode() and Int.MAX_VALUE
 
-    internal fun putPayload(intent: Intent, payload: LiveUpdatePayload): Intent = intent.putLiveUpdatePayload(payload)
+    internal fun putPayload(intent: Intent, payload: LiveUpdatePayload): Intent = LiveUpdatePayloadCodec.putPayload(intent, payload)
 
-    internal fun payloadFromIntent(intent: Intent): LiveUpdatePayload? = intent.liveUpdatePayloadOrNull()
-
-    private fun Intent.putLiveUpdatePayload(payload: LiveUpdatePayload): Intent =
-        putExtra(EXTRA_LIVE_UPDATE_KIND, payload.kind.name)
-            .putExtra(EXTRA_LIVE_UPDATE_NAME, payload.name)
-            .putExtra(EXTRA_LIVE_UPDATE_TIME, payload.timeText)
-            .putExtra(EXTRA_LIVE_UPDATE_LOCATION, payload.location)
-            .putExtra(EXTRA_LIVE_UPDATE_ACTIONS, payload.showActions)
-            .putExtra(EXTRA_LIVE_UPDATE_MUTE_KEY, payload.muteKey)
-            .putExtra(EXTRA_LIVE_UPDATE_MUTE_UNTIL, payload.muteUntil)
-            .putExtra(EXTRA_LIVE_UPDATE_CHIP_MODE, payload.chipTextMode.name)
-            .putExtra(EXTRA_LIVE_UPDATE_SEGMENTS, encodeSegments(payload.segments))
-            .putExtra(EXTRA_LIVE_UPDATE_DURING_CLASS, payload.duringClassEnabled)
-            .putExtra(EXTRA_LIVE_UPDATE_BREAK_STATUS, payload.breakStatusEnabled)
-            .putExtra(EXTRA_LIVE_UPDATE_EXPIRES_AT, payload.expiresAtMillis)
-            .putExtra(EXTRA_LIVE_UPDATE_TOMORROW_COUNT, payload.tomorrowCourseCount)
-
-    private fun Intent.liveUpdatePayloadOrNull(): LiveUpdatePayload? {
-        val name = getStringExtra(EXTRA_LIVE_UPDATE_NAME)
-            ?: getStringExtra("courseName")
-            ?: return null
-        val timeText = getStringExtra(EXTRA_LIVE_UPDATE_TIME)
-            ?: getStringExtra("timeText")
-            ?: return null
-        return LiveUpdatePayload(
-            kind = runCatching {
-                LiveUpdateKind.valueOf(getStringExtra(EXTRA_LIVE_UPDATE_KIND) ?: LiveUpdateKind.COURSE.name)
-            }.getOrDefault(LiveUpdateKind.COURSE),
-            name = name,
-            timeText = timeText,
-            location = getStringExtra(EXTRA_LIVE_UPDATE_LOCATION)
-                ?: getStringExtra("location")
-                ?: "",
-            showActions = getBooleanExtra(
-                EXTRA_LIVE_UPDATE_ACTIONS,
-                getBooleanExtra("liveUpdateActionsEnabled", true)
-            ),
-            muteKey = getStringExtra(EXTRA_LIVE_UPDATE_MUTE_KEY)
-                ?: getStringExtra("muteKey")
-                ?: "",
-            muteUntil = getStringExtra(EXTRA_LIVE_UPDATE_MUTE_UNTIL)
-                ?: getStringExtra("muteUntil")
-                ?: "",
-            chipTextMode = runCatching {
-                LiveUpdateChipTextMode.valueOf(
-                    getStringExtra(EXTRA_LIVE_UPDATE_CHIP_MODE)
-                        ?: getStringExtra("liveUpdateChipTextMode")
-                        ?: LiveUpdateChipTextMode.LOCATION.name
-                )
-            }.getOrDefault(LiveUpdateChipTextMode.LOCATION),
-            segments = decodeSegments(getStringExtra(EXTRA_LIVE_UPDATE_SEGMENTS).orEmpty()),
-            duringClassEnabled = getBooleanExtra(EXTRA_LIVE_UPDATE_DURING_CLASS, false),
-            breakStatusEnabled = getBooleanExtra(EXTRA_LIVE_UPDATE_BREAK_STATUS, true),
-            expiresAtMillis = getLongExtra(EXTRA_LIVE_UPDATE_EXPIRES_AT, 0L),
-            tomorrowCourseCount = getIntExtra(EXTRA_LIVE_UPDATE_TOMORROW_COUNT, 0)
-        )
-    }
+    internal fun payloadFromIntent(intent: Intent): LiveUpdatePayload? = LiveUpdatePayloadCodec.payloadFromIntent(intent)
 
     internal fun coursePayload(
         date: LocalDate,
@@ -680,16 +624,6 @@ object NotificationScheduler {
         return payload.takeIf { nowMillis >= trigger && !it.shouldStop(nowMillis) }
     }
 
-    private fun encodeSegments(segments: List<LiveUpdateSegment>): String = segments.joinToString(";") {
-        "${it.startAtMillis}:${it.endAtMillis}"
-    }
-
-    private fun decodeSegments(value: String): List<LiveUpdateSegment> = value.split(';').mapNotNull { encoded ->
-        val start = encoded.substringBefore(':').toLongOrNull() ?: return@mapNotNull null
-        val end = encoded.substringAfter(':', "").toLongOrNull() ?: return@mapNotNull null
-        LiveUpdateSegment(start, end).takeIf { end > start }
-    }
-
     fun createChannel(context: Context) {
         val channel = NotificationChannel(CHANNEL_ID, "课程提醒", NotificationManager.IMPORTANCE_DEFAULT)
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
@@ -779,259 +713,8 @@ object NotificationScheduler {
         )
     }
 
-    internal fun liveUpdateNotification(context: Context, payload: LiveUpdatePayload): android.app.Notification {
-        val nowMillis = System.currentTimeMillis()
-        val status = payload.statusAt(nowMillis)
-        val superIslandSelected = XiaomiSuperIsland.isEnabled(context)
-        val notificationIdentity = payload.notificationIdentityAt(nowMillis)
-        val placeText = payload.location.ifBlank { "未设置地点" }
-        val shortText = when {
-            payload.kind == LiveUpdateKind.TOMORROW -> "明日${payload.tomorrowCourseCount}门"
-            status.phase == LiveUpdatePhase.BEFORE_CLASS -> liveUpdateChipText(
-                payload.chipTextMode,
-                payload.name,
-                placeText,
-                status.minutesToTransition
-            )
-            status.phase == LiveUpdatePhase.FINISHED -> "已下课"
-            else -> liveUpdateCountdownChipText(status.minutesToTransition)
-        }
-        // Chip text is strictly a compact/island presentation choice. The
-        // expanded notification always keeps the same complete course content.
-        val titleText = payload.name
-        val bodyText = if (payload.kind == LiveUpdateKind.TOMORROW) {
-            status.detailText
-        } else {
-            "${courseCardStatusText(status)} · ${payload.timeText}"
-        }
-        val expandedText = if (payload.kind == LiveUpdateKind.TOMORROW || payload.location.isBlank()) {
-            bodyText
-        } else {
-            "$bodyText\n$placeText"
-        }
-        val openAppIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)
-            ?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        val contentIntent = PendingIntent.getActivity(
-            context,
-            20260522,
-            openAppIntent ?: Intent(context, MainActivity::class.java),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-        if (superIslandSelected) {
-            XiaomiSuperIsland.ensureChannel(context)
-            val expiresAt = when {
-                payload.expiresAtMillis > nowMillis -> payload.expiresAtMillis
-                payload.isPreview() -> payload.startAtMillis()
-                payload.duringClassEnabled -> payload.endAtMillis()
-                else -> payload.startAtMillis()
-            }
-            return Notification.Builder(context, XiaomiSuperIsland.ChannelId)
-                .applyAppNotificationIcon(context)
-                .setContentTitle(titleText)
-                .setContentText(bodyText)
-                .setContentIntent(contentIntent)
-                .setAutoCancel(false)
-                .apply {
-                    expiresAt?.takeIf { it > nowMillis }?.let { setTimeoutAfter(it - nowMillis) }
-                }
-                .build().also { notification ->
-                    notification.extras.putString(EXTRA_LIVE_UPDATE_IDENTITY, notificationIdentity)
-                    notification.extras.putBoolean(EXTRA_ISLAND_PREVIEW, payload.isPreview())
-                    val dndTitle = dndActionTitle(context)
-                    notification.extras.putBundle("miui.focus.actions", Bundle().apply {
-                        putParcelable(XiaomiSuperIsland.DndActionKey,
-                            Notification.Action.Builder(
-                                Icon.createWithResource(context, R.drawable.ic_moon_light),
-                                dndTitle,
-                                dndActionPendingIntent(context, payload.muteKey, payload.muteUntil)
-                            ).build())
-                    })
-                    XiaomiSuperIsland.decorate(
-                        context, notification, payload, status, shortText.toString(), dndTitle
-                    )
-                }
-        }
-        val builder = android.app.Notification.Builder(context, CHANNEL_ID)
-        builder
-            .applyAppNotificationIcon(context)
-            .setContentTitle(titleText)
-            .setContentText(bodyText)
-            .setStyle(android.app.Notification.BigTextStyle().bigText(expandedText))
-            .setContentIntent(contentIntent)
-            .setDeleteIntent(
-                actionPendingIntent(
-                    context,
-                    ACTION_CANCEL_LIVE_UPDATE,
-                    3,
-                    payload.muteKey,
-                    payload.muteUntil
-                )
-            )
-            .setOngoing(true)
-            .setOnlyAlertOnce(true)
-            // User-confirmed ColorOS behavior: the native timer is swallowed by the promoted
-            // notification renderer. Keep both the chip and card on explicit minute text.
-            .setShowWhen(false)
-            .setUsesChronometer(false)
-            .setChronometerCountDown(false)
-            .setCategory(android.app.Notification.CATEGORY_EVENT)
-            .setColor(Notification.COLOR_DEFAULT)
-        status.progressPercent?.takeUnless { superIslandSelected }?.let { progress ->
-            val countdownLine = if (status.phase == LiveUpdatePhase.BREAK) {
-                "还有${status.minutesToTransition}分钟上课"
-            } else {
-                "还有${status.minutesToTransition}分钟下课"
-            }
-            val infoLine = "${status.detailText.substringBefore(" · 还有")} · ${payload.timeText}"
-            builder
-                .setCategory(Notification.CATEGORY_PROGRESS)
-                .setContentText("$infoLine\n$countdownLine")
-            if (Build.VERSION.SDK_INT >= 36) {
-                builder.setStyle(
-                    Notification.ProgressStyle()
-                        // 参照 llpower 的写法：用单个白色小圆点作为 tracker 图标，
-                        // 不再叠加 Point，避免进度条上出现两个重叠的进度图示。
-                        .setProgressTrackerIcon(
-                            Icon.createWithResource(context, R.drawable.ic_live_dot)
-                        )
-                        .setProgressSegments(listOf(
-                            Notification.ProgressStyle.Segment(100)
-                        ))
-                        .setProgress(progress)
-                )
-            } else {
-                builder.setStyle(null).setProgress(100, progress, false)
-            }
-        }
-        if (payload.kind == LiveUpdateKind.TOMORROW) {
-            builder
-                .addAction(android.app.Notification.Action.Builder(
-                    Icon.createWithResource(context, R.drawable.ic_close_light),
-                    "取消提醒",
-                    actionPendingIntent(
-                        context,
-                        ACTION_CANCEL_LIVE_UPDATE,
-                        1,
-                        payload.muteKey,
-                        payload.muteUntil
-                    )
-                ).build())
-        } else if (payload.showActions && (superIslandSelected || status.progressPercent == null)) {
-            val dndTitle = dndActionTitle(context)
-            builder
-                .addAction(android.app.Notification.Action.Builder(
-                    Icon.createWithResource(context, R.drawable.ic_close_light),
-                    "取消本次提醒",
-                    actionPendingIntent(context, ACTION_CANCEL_LIVE_UPDATE, 1, payload.muteKey, payload.muteUntil)
-                ).build())
-                .addAction(android.app.Notification.Action.Builder(
-                    Icon.createWithResource(context, R.drawable.ic_moon_light),
-                    dndTitle,
-                    dndActionPendingIntent(context, payload.muteKey, payload.muteUntil)
-                ).build())
-        }
-        if (!superIslandSelected) {
-            runCatching {
-                builder.javaClass
-                    .getMethod("setRequestPromotedOngoing", java.lang.Boolean.TYPE)
-                    .invoke(builder, true)
-                Log.d(TAG, "setRequestPromotedOngoing called")
-            }.onFailure {
-                Log.w(TAG, "setRequestPromotedOngoing unavailable: ${it.javaClass.simpleName}")
-            }
-            builder.extras.putBoolean("android.requestPromotedOngoing", true)
-            // Plain short text remains visible on ColorOS; never delegate the chip to a chronometer.
-            runCatching {
-                builder.javaClass
-                    .getMethod("setShortCriticalText", CharSequence::class.java)
-                    .invoke(builder, shortText)
-            }.recoverCatching {
-                builder.javaClass
-                    .getMethod("setShortCriticalText", String::class.java)
-                    .invoke(builder, shortText.toString())
-            }
-            builder.extras.putCharSequence("android.shortCriticalText", shortText)
-        }
-        builder.extras.putString(EXTRA_LIVE_UPDATE_IDENTITY, notificationIdentity)
-        return builder.build().also { notification ->
-            XiaomiSuperIsland.decorate(context, notification, payload, status, shortText.toString())
-            val promotable = runCatching {
-                notification.javaClass
-                    .getMethod("hasPromotableCharacteristics")
-                    .invoke(notification) as? Boolean
-            }.getOrNull()
-            val requested = notification.extras.getBoolean("android.requestPromotedOngoing", false)
-            val promotionAllowed = canPostPromotedLiveUpdates(context)
-            Log.d(
-                TAG,
-                "live update built: promotable=$promotable, requested=$requested, " +
-                    "promotionAllowed=$promotionAllowed, flags=${notification.flags}, " +
-                    "style=${notification.extras.getString("android.template")}"
-            )
-        }
-    }
-
-    private fun courseCardStatusText(status: LiveUpdateStatus): String = when (status.phase) {
-        LiveUpdatePhase.BEFORE_CLASS -> if (status.minutesToTransition <= 0) {
-            "准备上课"
-        } else {
-            "还剩${status.minutesToTransition}分钟"
-        }
-        LiveUpdatePhase.IN_CLASS,
-        LiveUpdatePhase.BREAK -> status.detailText
-        LiveUpdatePhase.FINISHED -> "已下课"
-        LiveUpdatePhase.TOMORROW -> status.statusText
-    }
-
-    private fun liveUpdateChipText(
-        mode: LiveUpdateChipTextMode,
-        courseName: String,
-        placeText: String,
-        minutesLeft: Int
-    ): CharSequence = when (mode) {
-        LiveUpdateChipTextMode.COUNTDOWN -> liveUpdateCountdownChipText(minutesLeft)
-        LiveUpdateChipTextMode.LOCATION -> placeText
-        LiveUpdateChipTextMode.SHORT,
-        LiveUpdateChipTextMode.NORMAL -> courseName
-    }
-
-    private fun liveUpdateCountdownChipText(minutesLeft: Int): String =
-        "${minutesLeft.coerceAtLeast(0)}分钟"
-
-    private fun actionPendingIntent(context: Context, action: String, requestCode: Int, muteKey: String, muteUntil: String): PendingIntent {
-        val intent = Intent(context, LiveUpdateActionReceiver::class.java)
-            .setAction(action)
-            .putExtra("muteKey", muteKey)
-            .putExtra("muteUntil", muteUntil)
-            .addFlags(Intent.FLAG_RECEIVER_FOREGROUND)
-        return PendingIntent.getBroadcast(context, requestCode, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    }
-
-    private fun dndActionPendingIntent(context: Context, muteKey: String, muteUntil: String): PendingIntent {
-        val manager = context.getSystemService(NotificationManager::class.java)
-        if (manager?.isNotificationPolicyAccessGranted == true) {
-            return actionPendingIntent(context, ACTION_TOGGLE_DND, 2, muteKey, muteUntil)
-        }
-        // A notification action must open Settings directly. Routing through a BroadcastReceiver
-        // is a notification trampoline and is blocked on modern Android releases.
-        val settingsIntent = Intent(Settings.ACTION_NOTIFICATION_POLICY_ACCESS_SETTINGS)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-        return PendingIntent.getActivity(
-            context,
-            20260825,
-            settingsIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-    }
-
-    private fun dndActionTitle(context: Context): String {
-        val manager = context.getSystemService(NotificationManager::class.java)
-        return when {
-            manager?.isNotificationPolicyAccessGranted != true -> "授权勿扰"
-            isDoNotDisturbEnabledByApp(context) -> "关闭勿扰"
-            else -> "开启勿扰"
-        }
-    }
+    internal fun liveUpdateNotification(context: Context, payload: LiveUpdatePayload): Notification =
+        LiveUpdateNotificationRenderer.build(context, payload) { isDoNotDisturbEnabledByApp(context) }
 
     private fun CourseEntity.muteKey(date: LocalDate): String =
         "$id:$date:$name:${weekday}:${periods.joinToString(",")}:${weeks.joinToString(",")}"
@@ -1417,12 +1100,8 @@ object NotificationScheduler {
             .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-    fun canPostPromotedLiveUpdates(context: Context): Boolean? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) return null
-        return context.getSystemService(NotificationManager::class.java)
-            ?.canPostPromotedNotifications()
-            ?: false
-    }
+    fun canPostPromotedLiveUpdates(context: Context): Boolean? =
+        LiveUpdateNotificationRenderer.canPostPromotedLiveUpdates(context)
 
     fun promotedNotificationSettingsIntent(context: Context): Intent? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.BAKLAVA) return null

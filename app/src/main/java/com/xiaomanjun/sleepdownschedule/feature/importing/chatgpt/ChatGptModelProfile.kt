@@ -8,11 +8,14 @@ internal fun resolveChatGptModelProfile(
     models: List<ChatGptModel>
 ): AiProviderProfile {
     val selected = models.firstOrNull { it.slug == profile.defaultModel.trim() }
+    // The catalog primarily advertises account access and may omit capability metadata.
+    // Let the official Responses endpoint validate an image attempt unless it explicitly says no.
+    val allowImageInput = selected != null && selected.supportsImages != false
     return AiProviderPresets.normalizeChatGptProfile(profile).copy(
         availableModels = models.map { it.slug },
-        supportsVision = selected?.supportsImages == true,
+        supportsVision = allowImageInput,
         capabilities = AiProviderPresets.chatGpt.capabilities.copy(
-            supportsImageInput = selected?.supportsImages == true
+            supportsImageInput = allowImageInput
         )
     )
 }

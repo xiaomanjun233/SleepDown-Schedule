@@ -30,7 +30,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentPreferences
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentWeatherRepository
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentWeatherStore
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeReadableText
 import kotlinx.coroutines.delay
 import kotlin.math.cos

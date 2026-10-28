@@ -17,7 +17,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseEntity
-import com.xiaomanjun.sleepdownschedule.feature.home.LandscapePageTransition
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.LandscapePageTransition
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 
 /** Selection keeps the original group snapshot until its draft has been saved or discarded. */

@@ -36,13 +36,15 @@ fun buildWeekConflictGroups(
 ): List<WeekConflictGroup> {
     if (periodIndexes.isEmpty()) return emptyList()
     val positionByPeriod = periodIndexes.withIndex().associate { it.value to it.index }
-    val segments = courses.flatMap { courseAlignmentFragments(it, periodDefinitions) }.flatMap { course ->
-        val positions = course.periods
+    val segments = courses.flatMap { courseWeekDisplayFragments(it, periodDefinitions) }.flatMap { course ->
+        val positions = course.displayPeriodIndices()
             .mapNotNull(positionByPeriod::get)
             .distinct()
             .sorted()
         if (positions.isEmpty()) {
             emptyList()
+        } else if (periodDefinitions.isNotEmpty() && course.customTimeRangeOrNull() != null) {
+            listOf(course.toWeekSegment(positions.first(), positions.last(), periodIndexes))
         } else {
             buildList {
                 var start = positions.first()
@@ -71,10 +73,8 @@ fun buildWeekConflictGroups(
         if (periodDefinitions.isEmpty() ||
             (!first.course.hasCustomTime() && !second.course.hasCustomTime())
         ) return true
-        val firstIntervals = first.course.copy(periods = first.periods)
-            .occupiedTimeIntervals(periodDefinitions)
-        val secondIntervals = second.course.copy(periods = second.periods)
-            .occupiedTimeIntervals(periodDefinitions)
+        val firstIntervals = first.course.occupiedTimeIntervals(periodDefinitions)
+        val secondIntervals = second.course.occupiedTimeIntervals(periodDefinitions)
         if (firstIntervals.isEmpty() || secondIntervals.isEmpty()) return true
         return firstIntervals.any { (firstStart, firstEnd) ->
             secondIntervals.any { (secondStart, secondEnd) ->

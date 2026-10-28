@@ -19,7 +19,9 @@ data class BackupRoomSnapshot(
     val periodSchemeTimes: List<PeriodSchemeTimeEntity> = emptyList(),
     val agentDailySessions: List<AgentDailySessionEntity> = emptyList(),
     val agentMessages: List<AgentMessageEntity> = emptyList(),
-    val widgetAppearances: List<WidgetAppearanceEntity> = emptyList()
+    val widgetAppearances: List<WidgetAppearanceEntity> = emptyList(),
+    val timetableCombos: List<com.xiaomanjun.sleepdownschedule.model.TimetableComboEntity> = emptyList(),
+    val timetableRules: List<com.xiaomanjun.sleepdownschedule.model.TimetableDateRuleEntity> = emptyList()
 )
 
 /** Reads all current profiles and their owned rows atomically, plus the independent global library. */
@@ -40,7 +42,9 @@ class BackupRoomSnapshotReader(private val database: AppDatabase) {
             periodSchemeTimes = database.periodSchemeDao().getAllTimes(),
             agentDailySessions = database.agentDao().getAllDailySessions().filter { it.scheduleId in scheduleIds },
             agentMessages = database.agentDao().getAllMessages().filter { it.scheduleId in scheduleIds },
-            widgetAppearances = database.widgetAppearanceDao().getAll()
+            widgetAppearances = database.widgetAppearanceDao().getAll(),
+            timetableCombos = database.timetableDao().getCombos(),
+            timetableRules = database.timetableDao().getRules()
         )
     }
 }
@@ -168,6 +172,13 @@ object BackupExportMapper {
         require(snapshot.configs.all { it.activePeriodSchemeId == null || it.activePeriodSchemeId in schemeRoomIds }) {
             "课表引用了不存在的共享作息"
         }
+        val comboIds = snapshot.timetableCombos.associate { it.id to BackupStableId.new("combo") }
+        val backupCombos = snapshot.timetableCombos.map { combo ->
+            BackupTimetableCombo(comboIds.getValue(combo.id), combo.name, schemeIds.getValue(combo.baseSchemeId),
+                snapshot.timetableRules.filter { it.comboId == combo.id }.sortedBy { it.position }.map {
+                    BackupTimetableDateRule(schemeIds.getValue(it.schemeId), it.startDate, it.endDate)
+                })
+        }
         val sharedSchemes = snapshot.periodSchemes.map { scheme ->
             val times = schemeTimesByScheme[scheme.id].orEmpty().sortedBy { it.periodIndex }
             val ownCounts = listOf(scheme.morningPeriodCount, scheme.noonPeriodCount,
@@ -187,7 +198,7 @@ object BackupExportMapper {
                 eveningStartTime = scheme.eveningStartTime, specialBreaksJson = scheme.specialBreaksJson,
                 overridesJson = scheme.overridesJson, morningPeriodCount = counts[0], noonPeriodCount = counts[1],
                 afternoonPeriodCount = counts[2], eveningPeriodCount = counts[3],
-                times = times.map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime) })
+                times = times.map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime, it.alias) })
         }
 
         val sessionsByKey = snapshot.agentDailySessions.associateBy { AgentSessionRoomKey(it.scheduleId, it.date) }
@@ -279,12 +290,14 @@ object BackupExportMapper {
                 weekCardTextAlignment = config.weekCardTextAlignment.name,
                 weekCardContentLayout = config.weekCardContentLayout.name,
                 showNonCurrentWeekCourses = config.showNonCurrentWeekCourses,
+                weekStartsOnSunday = config.weekStartsOnSunday,
                 homeTextLight = config.homeTextLight,
                 followSystemDarkMode = config.followSystemDarkMode,
                 darkMode = config.darkMode,
                 defaultWallpaperStyle = config.defaultWallpaperStyle.name,
                 hideEmptyWeekends = config.hideEmptyWeekends,
                 scheduleAdjustmentsJson = config.scheduleAdjustmentsJson,
+                timeSlotCoursesJson = config.timeSlotCoursesJson,
                 periodAlignmentMode = config.periodAlignmentMode.name,
                 dockAlignment = config.dockAlignment.name,
                 defaultHomeMode = config.defaultHomeMode.name,
@@ -309,7 +322,7 @@ object BackupExportMapper {
                 ?: error("schedule ${profile.id} 缺少 config；导出不能伪造默认配置")
             val periodIndexes = periodsBySchedule[profile.id].orEmpty()
                 .sortedBy { it.periodIndex }
-                .map { BackupPeriod(it.periodIndex, it.startTime, it.endTime) }
+                .map { BackupPeriod(it.periodIndex, it.startTime, it.endTime, it.alias) }
             val activeScheme = config.activePeriodSchemeId?.let(schemesById::get)
                 ?: snapshot.periodSchemes.firstOrNull { it.scheduleId == profile.id && it.isActive }
             // Older clients still receive a local active snapshot. Its ID must be distinct from
@@ -330,7 +343,7 @@ object BackupExportMapper {
                     overridesJson = scheme.overridesJson,
                     times = schemeTimesByScheme[scheme.id].orEmpty()
                         .sortedBy { it.periodIndex }
-                        .map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime) }
+                        .map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime, it.alias) }
                 )
             }
             val backupCourses = coursesBySchedule[profile.id].orEmpty().map { displayed ->
@@ -349,7 +362,11 @@ object BackupExportMapper {
                     customEndTime = course.customEndTime,
                     customColorArgb = course.customColorArgb,
                     customPeriodTimes = course.customPeriodTimes,
-                    originalPeriodTimes = course.originalPeriodTimes
+                    originalPeriodTimes = course.originalPeriodTimes,
+                    independentPeriodSchemeId = course.independentPeriodSchemeId?.let(schemeIds::getValue),
+                    credit = course.credit, timingReviewReason = course.timingReviewReason,
+                    legacyTimingSourceJson = course.legacyTimingSourceJson,
+                    sourcePaletteIndex = course.sourcePaletteIndex
                 )
             }
             val backupSessions = snapshot.agentDailySessions
@@ -407,7 +424,8 @@ object BackupExportMapper {
                 periodSchemes = backupSchemes,
                 agentDailySessions = backupSessions,
                 agentMessages = backupMessages,
-                activePeriodSchemeId = activeScheme?.let { schemeIds.getValue(it.id) }
+                activePeriodSchemeId = activeScheme?.let { schemeIds.getValue(it.id) },
+                activeTimetableComboId = config.activeTimetableComboId?.let(comboIds::getValue)
             )
         }
 
@@ -446,7 +464,8 @@ object BackupExportMapper {
                 dataVersion = BackupFormatV1.DATA_VERSION,
                 schedules = backupSchedules,
                 widgetAppearances = backupWidgets,
-                sharedPeriodSchemes = sharedSchemes
+                sharedPeriodSchemes = sharedSchemes,
+                timetableCombos = backupCombos
             ),
             preferences = preferences.copy(savedPeriodSchemes = sharedSchemes.map { scheme ->
                 com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme(

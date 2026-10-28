@@ -62,13 +62,13 @@ class AgentImportWorkspaceTest {
         assertEquals(1, checkpoints.size)
     }
 
-    @Test fun overlappingAndGappedPeriodsAreRejectedBeforePublishingAStage() {
+    @Test fun overlappingAndDuplicatePeriodsAreRejectedBeforePublishingAStage() {
         val checkpoints = mutableListOf<ImportDraft>()
         val workspace = AgentImportWorkspace(source()) { draft, _ -> checkpoints += draft }
         val original = workspace.draft
         val invalidPatches = listOf(
             """[{"op":"replace","path":"/scheduleConfig/periods/1/startTime","value":"08:40"}]""",
-            """[{"op":"replace","path":"/scheduleConfig/periods/${original.periods.lastIndex}/index","value":${original.periods.last().periodIndex + 2}}]"""
+            """[{"op":"replace","path":"/scheduleConfig/periods/${original.periods.lastIndex}/index","value":${original.periods.first().periodIndex}}]"""
         )
         invalidPatches.forEach { operations ->
             assertFalse(patch(workspace, operations).success)

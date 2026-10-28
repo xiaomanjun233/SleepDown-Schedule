@@ -7,6 +7,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class CourseEditorDataSafetyTest {
+    @Test fun explicitPeriodRangeReplacesTheGapsAndSurvivesReopening() {
+        val source = course.copy(periods = listOf(1, 3), customStartTime = "08:00", customEndTime = "10:45")
+        val draft = courseEditorDraft(listOf(source), listOf(1, 2, 3), 20).copy(
+            customStartTime = null, customEndTime = null, customPeriodTimes = null,
+            periodRangeEdited = true)
+        val saved = draft.toCourses(listOf(source), listOf(1, 2, 3), true).single()
+        assertEquals(listOf(1, 2, 3), saved.periods)
+        val reopened = courseEditorDraft(listOf(saved), listOf(1, 2, 3), 20)
+        assertEquals(1, reopened.periodStart)
+        assertEquals(3, reopened.periodEnd)
+        assertNull(reopened.customStartTime)
+        assertNull(reopened.customPeriodTimes)
+    }
+
     private val periods = listOf(3, 4)
     private val course = CourseEntity(
         id = 12, name = "高等数学", teacher = "林老师", location = "A101", weekday = 1,

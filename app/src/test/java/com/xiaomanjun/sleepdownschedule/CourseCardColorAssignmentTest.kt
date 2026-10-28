@@ -1,5 +1,11 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.model.courseCardPerceptualDistance
+
+import com.xiaomanjun.sleepdownschedule.model.decodeCourseCardPalette
+
+import com.xiaomanjun.sleepdownschedule.model.encodeCourseCardPalette
+
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

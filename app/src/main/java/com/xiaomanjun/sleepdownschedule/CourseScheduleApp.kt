@@ -1,11 +1,13 @@
 package com.xiaomanjun.sleepdownschedule
 
+import com.xiaomanjun.sleepdownschedule.feature.importing.ManagedAiRemoteConfig
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettingsStore
 import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleWorker
 
-import com.xiaomanjun.sleepdownschedule.app.config.SleepDownRemoteConfig
+import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.performance.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
@@ -69,7 +71,9 @@ class CourseScheduleApp : Application() {
         AppIconManager.applyStoredMode(this)
         AutoRefreshScheduleWorker.ensureSchedule(this, AutoRefreshScheduleStore.load(this))
         com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavAutomation.schedule(this)
-        SleepDownRemoteConfig.initialize(this, applicationScope)
+        SleepDownRemoteConfig.initialize(this, applicationScope,
+            onBootstrapLoaded = ManagedAiRemoteConfig::activateResolvedProvider,
+            onBootstrapUpdated = AiImportSettingsStore::notifyRemoteConfigChanged)
         ActivityTransitionCoordinator.install(this)
         if (BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES) ColorOSCourseBridge.install(this, database)
         if (BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES) {

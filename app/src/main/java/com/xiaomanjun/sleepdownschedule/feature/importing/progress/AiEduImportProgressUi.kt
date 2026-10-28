@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing.progress
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.resolvedCoursesForPreview
+
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -78,6 +82,7 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -106,7 +111,6 @@ import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.UnevenRoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.TopGlassIconButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.material.controlAccentColor
@@ -117,7 +121,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.text.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
@@ -141,6 +144,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.squircle.squircleSurface
+import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost
 
 open class AiEduImportProgressActivityHost : ComponentActivity() {
     private var displayedTaskId by mutableStateOf<String?>(null)
@@ -309,6 +313,23 @@ internal fun AiEduImportProgressPage(
     var composerHeightPx by remember { mutableStateOf(0) }
     val runtimePickerState = rememberAiRuntimePickerState()
     var historySourceHidden by remember { mutableStateOf(false) }
+    var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
+    // Cache the top-bar frame while the history button is idle; onClick captures would include
+    // the native press/deformation state and produce a warped source for the system animation.
+    var cleanHistoryFrame by remember { mutableStateOf<Bitmap?>(null) }
+    LaunchedEffect(historyButtonBounds, historySourceHidden) {
+        if (!historySourceHidden &&
+            historyButtonBounds.width > 1f && historyButtonBounds.height > 1f
+        ) {
+            historySnapshotRequested.set(true)
+            historySnapshotRequestVersion += 1
+            withFrameNanos { }
+            withFrameNanos { }
+            cleanHistoryFrame = runCatching {
+                historySnapshotLayer.toImageBitmap().asAndroidBitmap()
+            }.getOrNull()
+        }
+    }
     val density = LocalDensity.current
     val inputInsets = rememberFloatingInputInsets()
     val conversationScope = rememberCoroutineScope()
@@ -427,19 +448,22 @@ internal fun AiEduImportProgressPage(
                         AiEduHistoryButton(
                             config = config,
                             backdrop = topBarBackdrop,
+                            onBoundsChanged = { historyButtonBounds = it },
                              onClick = { sourceBounds ->
                                  conversationScope.launch {
-                                     // TODO(OPLUS_DEFERRED_20260823): Exact source-overlay handoff
-                                     // remains unverified; PLJ110 still showed an AI-history OPEN
-                                     // blank frame in the signed acceptance build.
-                                     // Capture the real button before hiding it, then record a
-                                     // second frame for the clean page background used by Morph.
-                                     historySnapshotRequested.set(true)
-                                     historySnapshotRequestVersion += 1
-                                     withFrameNanos { }
-                                     val sourceSnapshot = runCatching {
-                                         historySnapshotLayer.toImageBitmap().asAndroidBitmap()
-                                     }.getOrNull()?.cropToWindowBounds(
+                                     // Use the idle frame cached before press-down; capturing here
+                                     // would bake the native button's press/deformation into the
+                                     // system source bitmap.
+                                     val sourceFrame = cleanHistoryFrame ?: run {
+                                         historySnapshotRequested.set(true)
+                                         historySnapshotRequestVersion += 1
+                                         withFrameNanos { }
+                                         withFrameNanos { }
+                                         runCatching {
+                                             historySnapshotLayer.toImageBitmap().asAndroidBitmap()
+                                         }.getOrNull()
+                                     }
+                                     val sourceSnapshot = sourceFrame?.cropToWindowBounds(
                                          sourceBounds,
                                          rootPositionInWindow
                                      ) ?: return@launch
@@ -475,8 +499,8 @@ internal fun AiEduImportProgressPage(
                                              returnAnchorProvider =
                                                  StaticTransitionAnchorProvider(anchor),
                                              backgroundBitmap = backgroundSnapshot,
+                                             backgroundColor = conversationPageColor.toArgb(),
                                              onOpeningSourceHandoff = releaseOpeningSource,
-                                             nativeSourceLeashAlphaOutOnOpen = true,
                                              onSourceReleased = {
                                                  historySourceHidden = false
                                              }
@@ -691,6 +715,10 @@ internal fun AiEduImportProgressPage(
                         }
                     }
                 )
+                // The composer is a full-page sibling of the scaffold, so its cascading menus fall
+                // back to the process-wide popup registry. Without a root host in this Activity the
+                // model picker toggles `expanded` but nothing ever renders the popup.
+                MiuixPopupHost()
             }
         }
         previewAttachment?.let { request ->
@@ -869,7 +897,8 @@ private fun AiEduHistoryButton(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     onClick: (Rect) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onBoundsChanged: (Rect) -> Unit = {}
 ) {
     var bounds by remember { mutableStateOf(Rect.Zero) }
     TopGlassIconButton(
@@ -880,7 +909,13 @@ private fun AiEduHistoryButton(
         onClick = { if (bounds.width > 0f) onClick(bounds) },
         modifier = modifier
             .size(42.dp)
-            .onGloballyPositioned { bounds = it.boundsInWindow() },
+            .onGloballyPositioned {
+                val next = it.boundsInWindow()
+                if (next != bounds) {
+                    bounds = next
+                    onBoundsChanged(next)
+                }
+            },
         surfaceColorOverride = if (appUsesDarkTheme(config)) {
             Color.White.copy(alpha = 0.10f)
         } else {
@@ -895,7 +930,8 @@ internal fun AiEduHistorySwipeRow(
     textColor: Color = Color.White,
     showSource: Boolean = true,
     onDelete: () -> Unit,
-    onOpen: (Rect) -> Unit
+    onOpen: (Rect) -> Unit,
+    onBoundsChanged: (Rect) -> Unit = {}
 ) {
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -1041,7 +1077,13 @@ internal fun AiEduHistorySwipeRow(
                         .padding(horizontal = 16.dp)
                         .clip(RoundedRectangle(18.dp))
                         .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.42f))
-                        .onGloballyPositioned { cardBounds = it.boundsInWindow() }
+                        .onGloballyPositioned {
+                            val bounds = it.boundsInWindow()
+                            if (bounds != cardBounds) {
+                                cardBounds = bounds
+                                onBoundsChanged(bounds)
+                            }
+                        }
                 ) {
                     AiImportHistoryRowContent(
                          entry = entry,
@@ -1459,7 +1501,7 @@ private fun AiEduInlineImportPreview(
             color = textColor.copy(alpha = 0.58f),
             style = MaterialTheme.typography.bodySmall
         )
-        draft.courses.forEach { course ->
+        remember(draft) { draft.resolvedCoursesForPreview() }.forEach { course ->
             ImportPreviewCourseCard(course, draft.periods, draft.config)
         }
         remember(draft) { importConflictNotice(draft) }?.let {

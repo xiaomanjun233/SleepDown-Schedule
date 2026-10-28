@@ -15,8 +15,9 @@ AI 设置中的 ChatGPT 使用官方 Sign in with ChatGPT（SIWC）个人、本�
 
 - 模型来自当前账户的 `GET https://api.openai.com/v1/models`，使用 `models[]` 中 `visibility=list` 的顺序、`display_name` 与 `slug`。不使用 API Key 模型目录，也不硬编码账户权益。
 - 每次请求在发送前解析有效 OAuth token，固定发送到 `POST https://api.openai.com/v1/responses`，禁止 HTTP 重定向。OAuth token 不存入供应商配置。
-- HTTP 请求固定 `stream=true`、`store=false`，重放所需上下文，函数工具分组到本地 namespace；不发送不支持的预算、采样、持久会话字段，也不访问 Files upload API。
-- 只有 `response.completed` 成功终态可以交给后续执行/导入校验。截断、失败、退出后的流和仅有 delta 的断连都不算完成。
+- HTTP 请求固定 `stream=true`、`store=false`，重放所需上下文；函数工具通过位于输入起点的 developer `additional_tools` 项提供，明确不延迟加载。该路径属于账号预览支持的工具输入方式，不发送不支持的预算、采样、持久会话字段，也不访问 Files upload API。
+- 明确询问应用课表时，首轮只提供本地只读函数并要求先调用，再把带 call_id 的结果回传给模型；不强制写入或记忆。普通问候和导入工作区不套用该规则。忽略工具的能力拒绝最多纠正一次，连续未调用则显示诊断，不能伪称读到数据。AI 设置仅记录安全的输出类型与协议诊断，不保存正文或课表。
+- 只有 `response.completed` 成功终态可以交给后续执行/导入校验。完成对象省略输出项时，合并流中已收到 `output_item.done` 的项目，保留函数调用身份、namespace、参数和推理顺序，不重复执行；最终非空字段优先。截断、失败、退出后的流和只有 added/delta 的调用都不能恢复成已完成调用。
 - ChatGPT 选中后，未登录、模型不可用、权限不足或用量受限均明确失败；不会自动换到另外的 API Key、付费或免费线路。
 - 目前公开 SIWC 模型说明未给出稳定的图像能力字段。仅在目录明确提供能力时启用图像；未声明时保守使用文本，不承诺截图/PDF 图像可用。
 

@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.util.lerp
 import com.xiaomanjun.sleepdownschedule.glass.GlassDropletGeometry
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.MorphCurveContinuity
 import kotlin.math.PI
 import kotlin.math.pow
 import kotlin.math.sin
@@ -35,6 +36,23 @@ internal data class HomeDropletFrame(
     val motionBlur: Float,
     val menuBlend: Float
 )
+
+internal fun HomeDropletFrame.curveValues(): FloatArray = floatArrayOf(
+    glass.drop.left, glass.drop.top, glass.drop.right, glass.drop.bottom,
+    glass.dropRadius, glass.dropTaper, contentAlpha, sourceAlpha, motionBlur, menuBlend
+)
+
+internal fun HomeDropletFrame.withCurveContinuity(curve: MorphCurveContinuity, p: Float): HomeDropletFrame {
+    if (!curve.isActive) return this
+    fun v(i: Int, original: Float) = curve.value(i, p, original)
+    val left = v(0, glass.drop.left)
+    val top = v(1, glass.drop.top)
+    return copy(glass = glass.copy(
+        drop = Rect(left, top, v(2, glass.drop.right).coerceAtLeast(left + 1f), v(3, glass.drop.bottom).coerceAtLeast(top + 1f)),
+        dropRadius = v(4, glass.dropRadius).coerceAtLeast(0f), dropTaper = v(5, glass.dropTaper)
+    ), contentAlpha = v(6, contentAlpha).coerceIn(0f, 1f), sourceAlpha = v(7, sourceAlpha).coerceIn(0f, 1f),
+        motionBlur = v(8, motionBlur).coerceAtLeast(0f), menuBlend = v(9, menuBlend).coerceIn(0f, 1f))
+}
 
 /** One continuous volume: contraction overlaps travel, then height leads the lateral opening. */
 internal fun homeDropletFrame(

@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
@@ -92,6 +94,10 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.semantics.contentType
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -108,7 +114,6 @@ import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
@@ -118,12 +123,8 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceCategory
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
@@ -1304,7 +1305,10 @@ internal fun EduBridgeInteractionDialog(
                 }
             )
         }
-        is EduBridgeInteractionRequest.Prompt -> {
+        is EduBridgeInteractionRequest.Prompt -> key(request.requestId) {
+            val credentialType = remember(request.title, request.message) {
+                eduPromptCredentialType(request.title, request.message)
+            }
             var value by remember(request.requestId) { mutableStateOf(request.defaultValue) }
             var validationError by remember(request.requestId) { mutableStateOf<String?>(null) }
             fun cancel() {
@@ -1356,7 +1360,14 @@ internal fun EduBridgeInteractionDialog(
                             },
                             placeholder = request.message.ifBlank { "请输入" },
                             config = state.config,
-                            modifier = Modifier.fillMaxWidth()
+                            keyboardType = if (credentialType == EduPromptCredentialType.Password) KeyboardType.Password else KeyboardType.Text,
+                            modifier = Modifier.fillMaxWidth().semantics {
+                                when (credentialType) {
+                                    EduPromptCredentialType.Username -> contentType = ContentType.Username
+                                    EduPromptCredentialType.Password -> contentType = ContentType.Password
+                                    null -> Unit
+                                }
+                            }
                         )
                         validationError?.let {
                             Text(

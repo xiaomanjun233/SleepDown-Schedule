@@ -1,47 +1,16 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
-import androidx.compose.animation.core.Easing
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.runtime.setValue
-import kotlin.math.PI
-import kotlin.math.cos
-import kotlin.math.exp
-import kotlin.math.sin
-import kotlin.math.sqrt
 import kotlinx.coroutines.flow.map
 
+internal const val SettingsDetailPageExtra = "settings_page"
+
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, PeriodSchemes, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, WebDav, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
-
-/** Matches the navigation motion used by the bundled Miuix system-style navigator. */
-private class MiuixSettingsNavigationEasing(
-    response: Float = 0.8f,
-    damping: Float = 0.95f
-) : Easing {
-    private val decay: Float
-    private val frequency: Float
-    private val phase: Float
-
-    init {
-        val omega = 2.0 * PI / response
-        val stiffness = omega * omega
-        val friction = damping * 4.0 * PI / response
-        frequency = (sqrt(4.0 * stiffness - friction * friction) / 2.0).toFloat()
-        decay = (-friction / 2.0).toFloat()
-        phase = decay / frequency
-    }
-
-    override fun transform(fraction: Float): Float {
-        val time = fraction.toDouble()
-        val attenuation = exp(decay * time)
-        return (attenuation * (-cos(frequency * time) + phase * sin(frequency * time)) + 1.0).toFloat()
-    }
-}
-
-internal val MiuixSettingsNavigationMotion: Easing = MiuixSettingsNavigationEasing()
+enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, PeriodSchemes, SpecialCourses, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, WebDav, BackupPreview, About, Changelog, Donate, PrivacyPolicy }
 
 internal fun SettingsPage.title(): String = when (this) {
     SettingsPage.Root -> "设置"
@@ -52,6 +21,7 @@ internal fun SettingsPage.title(): String = when (this) {
     SettingsPage.DayAgent -> "AI 助理"
     SettingsPage.Schedule -> "课表详细设置"
     SettingsPage.PeriodSchemes -> "作息管理"
+    SettingsPage.SpecialCourses -> "特殊课程"
     SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
     SettingsPage.Notifications -> "通知设置"
     SettingsPage.ScheduleManager -> "课表设置"
@@ -68,6 +38,7 @@ internal fun SettingsPage.usesPersistentCenteredSettingsTitle(): Boolean = when 
     SettingsPage.LiquidGlass,
     SettingsPage.Widgets,
     SettingsPage.PeriodSchemes,
+    SettingsPage.SpecialCourses,
     SettingsPage.AutoRefreshSchedule,
     SettingsPage.About,
 	SettingsPage.Changelog,

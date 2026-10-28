@@ -1,7 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.model.agent
 
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustment
+import com.xiaomanjun.sleepdownschedule.model.ScheduleAdjustment
 import kotlinx.serialization.Serializable
 
 @Serializable

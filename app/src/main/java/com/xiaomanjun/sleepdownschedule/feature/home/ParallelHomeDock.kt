@@ -19,6 +19,8 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -32,7 +34,6 @@ import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlpha
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownFloatingAddButton
@@ -42,7 +43,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import kotlin.math.PI
 import kotlin.math.roundToInt
@@ -66,8 +67,19 @@ internal fun homeDockImportButtonGlassColor(light: Boolean): Color {
 /** The return endpoint is the resting button, without the captured press deformation. */
 @Composable
 internal fun HomeImportButtonReturnVisual(
-    backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier
+    backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier,
+    sourceLayer: GraphicsLayer? = null
 ) {
+    if (sourceLayer != null && LocalHomeMaterialStyle.current != null) {
+        Box(modifier.drawWithContent {
+            if (sourceLayer.size.width > 0 && sourceLayer.size.height > 0) {
+                scale(size.width / sourceLayer.size.width, size.height / sourceLayer.size.height, pivot = Offset.Zero) {
+                    drawLayer(sourceLayer)
+                }
+            }
+        })
+        return
+    }
     if (LocalHomeMaterialControls.current.FloatingButtonVisual(dark = !LocalAdaptiveGlass.current.lightGlass, modifier = modifier)) return
     SleepDownFloatingAddButton(
         backdrop = backdrop,

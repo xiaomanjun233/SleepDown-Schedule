@@ -17,6 +17,17 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 class CoursePeriodAlignmentTest {
+    @Test fun legacyLessonClocksMapByActualTimeAndOnlyCompleteConsecutiveMatchesBecomePeriods() {
+        assertEquals(listOf(1, 2), matchingPeriodIndicesForCourseClock("08:00", "09:40",
+            "7,08:00-08:45;8,08:55-09:40", listOf(7, 8), bells))
+        assertTrue(matchingPeriodIndicesForCourseClock("08:00", "09:40",
+            "1,08:00-08:46;2,08:55-09:40", listOf(1, 2), bells).isEmpty())
+        assertTrue(matchingPeriodIndicesForCourseClock("08:00", "10:45",
+            "1,08:00-08:45;3,10:00-10:45", listOf(1, 3), bells).isEmpty())
+        assertTrue(matchingPeriodIndicesForCourseClock(null, null,
+            "1,08:00-08:45", listOf(1, 2), bells).isEmpty())
+    }
+
     private val config = defaultConfig().copy(currentWeek = 1, autoCurrentWeek = false)
     private val bells = listOf(PeriodEntity(1, "08:00", "08:45"), PeriodEntity(2, "08:55", "09:40"),
         PeriodEntity(3, "10:00", "10:45"), PeriodEntity(4, "10:55", "11:40"))
@@ -42,7 +53,7 @@ class CoursePeriodAlignmentTest {
             assertTrue(reopened.courses[1].hasCustomTime())
             assertEquals("10:30 - 11:55", courseTimeLabel(reopened.courses[1], grid))
             assertFalse(reopened.courses[2].hasCustomTime())
-            assertEquals(listOf(5, 6), reopened.courses[2].periods)
+            assertEquals(listOf(5, 6), reopened.courses[2].displayPeriodIndices())
             assertEquals(stored, reopened.courses.map { it.arrangementForWrite() })
             assertEquals(reopened.courses, reopened.allCourses)
         }
@@ -54,7 +65,7 @@ class CoursePeriodAlignmentTest {
         val source = course()
         val target = listOf(PeriodEntity(3, "13:00", "14:00"))
         val displayed = projectCourseArrangement(source, config, target)
-        assertEquals(listOf(3), displayed.periods)
+        assertEquals(listOf(3), displayed.displayPeriodIndices())
         assertEquals(listOf(4), displayed.arrangementProjection!!.hiddenPeriods)
         assertEquals(LocalTime.parse("13:00"), courseStartTime(displayed, target))
         assertEquals(LocalTime.parse("14:00"), courseEndTime(displayed, target))
@@ -63,24 +74,25 @@ class CoursePeriodAlignmentTest {
         assertEquals(listOf(3, 4), projectCourseArrangement(displayed, config, bells).periods)
     }
 
-    @Test fun timeUsesTheCompleteOriginalIntervalAndExtendsToFullLessons() {
+    @Test fun sourceAuditDoesNotOverrideTheSelectedTimeBinding() {
         val source = course().copy(originalPeriodTimes = "3,08:30-08:40;4,09:00-09:10")
         val displayed = time(source, bells)
-        assertEquals(listOf(1, 2), displayed.periods)
-        assertEquals(listOf("08:00-08:45", "08:55-09:40"),
+        assertEquals(listOf(3, 4), displayed.periods)
+        assertEquals(listOf("10:00-10:45", "10:55-11:40"),
             courseTimeSegments(displayed, bells).map { "${it.start}-${it.end}" })
         assertEquals(source.originalPeriodTimes, displayed.originalArrangement().originalPeriodTimes)
     }
 
     @Test fun onlyPositiveOverlapMatchesAndBreaksNeverSnapToTheLastLesson() {
         listOf("08:45-08:55", "06:00-07:00", "12:00-13:00", "09:40-10:00").forEach { range ->
-            val displayed = time(course(listOf(3)).copy(originalPeriodTimes = "3,$range"), bells)
-            assertTrue(range, displayed.isHiddenByPeriodAlignment())
-            assertTrue(displayed.periods.isEmpty())
-            assertNull(courseStartTime(displayed, bells))
-            assertTrue(courseReminderSessions(displayed, bells).isEmpty())
+            val source = freezeLegacyTimeAlignment(course(listOf(3)).copy(originalPeriodTimes = "3,$range"))
+            val displayed = time(source,bells)
+            assertFalse(range, displayed.isHiddenByPeriodAlignment())
+            assertEquals(listOf(3),displayed.periods)
+            assertEquals(range.substringBefore('-'),courseStartTime(displayed,bells).toString())
+            assertEquals(1,courseReminderSessions(displayed,bells).size)
         }
-        assertEquals(listOf(1), time(course(listOf(3)).copy(originalPeriodTimes = "3,08:44-08:55"), bells).periods)
+        assertEquals(listOf(1), time(freezeLegacyTimeAlignment(course(listOf(3)).copy(originalPeriodTimes = "3,08:44-08:55")), bells).displayPeriodIndices())
     }
 
     @Test fun partialCustomOverrideDoesNotFillAnUnmatchedMiddleLesson() {
@@ -94,7 +106,7 @@ class CoursePeriodAlignmentTest {
         val fragments = courseAlignmentFragments(displayed, bells)
         assertEquals(3, fragments.size)
         assertTrue(fragments.any { courseNeedsSupplementaryWeekRow(it, bells) })
-        assertFalse(fragments.filterNot { it.hasCustomTime() }.any { 2 in it.periods })
+        assertFalse(fragments.filterNot { it.hasCustomTime() }.any { courseTimeSegments(it,bells).any { time -> time.index==2 } })
     }
 
     @Test fun wholeCustomTimeRemainsVisibleEvenWithoutItsOriginalNumber() {
@@ -114,8 +126,8 @@ class CoursePeriodAlignmentTest {
             val displayed = projectCourseArrangement(source, config.copy(periodAlignmentMode = mode), bells)
             assertFalse(displayed.hasCustomTime())
             assertTrue(displayed.arrangementProjection!!.times.none { it.exact })
-            assertNull(displayed.customStartTime)
-            assertTrue(courseAllowsWeekPeriodDrag(displayed))
+            assertEquals("08:00",displayed.customStartTime)
+            assertFalse(courseAllowsWeekPeriodDrag(displayed))
             assertEquals(listOf(1, 2), courseAlignmentFragments(displayed, bells).single().periods)
             assertEquals(source.copy(name = "改名"), displayed.copy(name = "改名").arrangementForWrite())
         }
@@ -124,9 +136,9 @@ class CoursePeriodAlignmentTest {
     @Test fun matchingLessonClocksUseActualTargetNumbersWithoutLosingOriginalNumbers() {
         val source = course(listOf(13, 14), "08:00", "09:40", "13,08:00-08:45;14,08:55-09:40")
         val displayed = time(source, bells)
-        assertEquals(listOf(1, 2), displayed.periods)
+        assertEquals(listOf(1, 2), displayed.displayPeriodIndices())
         assertFalse(displayed.hasCustomTime())
-        assertNull(displayed.customPeriodTimes)
+        assertEquals(source.customPeriodTimes,displayed.customPeriodTimes)
         assertEquals(source, displayed.arrangementForWrite())
     }
 
@@ -197,7 +209,7 @@ class CoursePeriodAlignmentTest {
         val state = AppState(courses = listOf(raw), config = config.copy(periodAlignmentMode = PeriodAlignmentMode.TIME),
             periods = target).withEffectiveCourseArrangements()
         val renamed = state.previewCourseEdits(listOf(raw.copy(name = "改名"))).single()
-        assertEquals(listOf(1, 2), renamed.periods)
+        assertEquals(listOf(2), renamed.periods)
         assertEquals(raw.originalPeriodTimes, renamed.originalArrangement().originalPeriodTimes)
         val edited = state.previewCourseEdits(listOf(raw.copy(periods = listOf(1), originalPeriodTimes = null))).single()
         assertEquals(listOf(1), edited.periods)
@@ -251,10 +263,10 @@ class CoursePeriodAlignmentTest {
     }
 
     @Test fun newConflictsAreVisibleInPreviewWithoutChangingEitherSource() {
-        val first = course(listOf(1)).copy(originalPeriodTimes = "1,08:05-08:20")
-        val second = course(listOf(2)).copy(id = 8, name = "第二门", originalPeriodTimes = "2,08:25-08:40")
+        val first = course(listOf(1))
+        val second = course(listOf(2)).copy(id = 8, name = "第二门",customStartTime="08:50",customEndTime="09:10")
         val impact = previewCourseAlignment(listOf(first, second), config, bells,
-            config.copy(periodAlignmentMode = PeriodAlignmentMode.TIME), bells)
+            config,bells.map { if(it.periodIndex==1) it.copy(endTime="09:00") else it })
         assertEquals(1, impact.conflicts.size)
         assertEquals(first, impact.courses.first().originalArrangement())
         assertTrue(impact.summary().contains("新增 1 处时间冲突"))

@@ -14,6 +14,7 @@ enum class TransitionRouteId(val wireName: String) {
     AiHistoryToDetail("ai_history_to_detail"),
     HomeToSettingsDetail("home_to_settings_detail"),
     QuickSheetToSettingsDetail("quick_sheet_to_settings_detail"),
+    SpecialCourseToEditor("special_course_to_editor"),
     SettingsToSettingsDetail("settings_to_settings_detail"),
     SettingsToScheduleAdjustments("settings_to_schedule_adjustments"),
     ScheduleManagerToSettingsDetail("schedule_manager_to_settings_detail"),
@@ -57,9 +58,7 @@ sealed interface LegacyTransitionProfile {
     data object TaskReturn : LegacyTransitionProfile
 }
 
-enum class TransitionNativePolicy { Never, OplusAllowlisted }
-
-enum class TransitionNativeClosePolicy { MatchOpen, LegacyOnly }
+enum class TransitionNativePolicy { Never, SharedViewKitAllowlisted }
 
 enum class TransitionDestinationWindowPolicy { Existing, OpaqueNativeCandidate }
 
@@ -68,12 +67,10 @@ data class TransitionRouteSpec(
     val destinationClassName: String,
     val legacyProfile: LegacyTransitionProfile,
     val nativePolicy: TransitionNativePolicy = TransitionNativePolicy.Never,
-    val nativeClosePolicy: TransitionNativeClosePolicy =
-        TransitionNativeClosePolicy.MatchOpen,
     val destinationWindowPolicy: TransitionDestinationWindowPolicy =
         TransitionDestinationWindowPolicy.Existing,
     /**
-     * A real opaque Activity component used only after ViewSeamless accepts this route. Activity
+     * A real opaque Activity component used only after the native backend accepts this route. Activity
      * aliases cannot change WindowManager's translucency classification for their target and must
      * never be used here.
      */
@@ -103,10 +100,8 @@ object TransitionRouteCatalog {
                 sourceCornerRadiusDp = 30f,
                 returnCornerRadiusDp = 21f
             ),
-            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
-            nativeClosePolicy = TransitionNativeClosePolicy.LegacyOnly,
-            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
-            nativeDestinationClassName = "$PackageName.OplusCourseManagementActivity",
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
+            nativeDestinationClassName = "$PackageName.NativeCourseManagementActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),
@@ -117,10 +112,10 @@ object TransitionRouteCatalog {
                 profileId = AnchoredLegacyProfileId.CourseManagementDetail,
                 sourceCornerRadiusDp = 20f
             ),
-            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
             destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
             nativeDestinationClassName =
-                "$PackageName.OplusCourseManagementDetailActivity",
+                "$PackageName.NativeCourseManagementDetailActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),
@@ -131,9 +126,9 @@ object TransitionRouteCatalog {
                 profileId = AnchoredLegacyProfileId.Parabolic,
                 sourceCornerRadiusDp = 21f
             ),
-            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
             destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
-            nativeDestinationClassName = "$PackageName.OplusAiImportHistoryActivity",
+            nativeDestinationClassName = "$PackageName.NativeAiImportHistoryActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),
@@ -144,9 +139,9 @@ object TransitionRouteCatalog {
                 profileId = AnchoredLegacyProfileId.Liquid,
                 sourceCornerRadiusDp = 21f
             ),
-            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
             destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
-            nativeDestinationClassName = "$PackageName.OplusAiImportHistoryActivity",
+            nativeDestinationClassName = "$PackageName.NativeAiImportHistoryActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),
@@ -157,7 +152,10 @@ object TransitionRouteCatalog {
                 profileId = AnchoredLegacyProfileId.DetailSettings,
                 sourceCornerRadiusDp = 18f
             ),
-            nativePolicy = TransitionNativePolicy.Never,
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName =
+                "$PackageName.NativeAiImportHistoryDetailActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),
@@ -166,9 +164,8 @@ object TransitionRouteCatalog {
             "$PackageName.SettingsDetailActivity",
             LegacyTransitionProfile.PlatformDefault
         ),
-        // 多课表快速设置的"详细设置"按钮：走非 Oplus 锚定 Morph 链路。
-        // 使用 Manifest 原生透明的真实 Activity 保留首页 Surface；页面仍复用同一个
-        // SettingsDetailActivityHost，不能用运行时 setTheme 或 Activity alias 代替。
+        // QuickSheet uses an opaque system-animation host and keeps its translucent Legacy
+        // host. Both reuse SettingsDetailActivityHost and its original save/close handshake.
         TransitionRouteSpec(
             id = TransitionRouteId.QuickSheetToSettingsDetail,
             destinationClassName = "$PackageName.QuickSheetSettingsDetailActivity",
@@ -176,6 +173,22 @@ object TransitionRouteCatalog {
                 profileId = AnchoredLegacyProfileId.DetailSettings,
                 sourceCornerRadiusDp = 18f
             ),
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName = "$PackageName.NativeQuickSheetSettingsDetailActivity",
+            requiresOpeningAnchor = true,
+            requiresReturnAnchor = true
+        ),
+        TransitionRouteSpec(
+            id = TransitionRouteId.SpecialCourseToEditor,
+            destinationClassName = "$PackageName.feature.settings.SpecialCourseEditorActivity",
+            legacyProfile = LegacyTransitionProfile.Depth(
+                R.anim.settings_slide_enter, R.anim.settings_slide_exit,
+                R.anim.settings_slide_pop_enter, R.anim.settings_slide_pop_exit
+            ),
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName = "$PackageName.feature.settings.NativeSpecialCourseEditorActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),
@@ -207,10 +220,8 @@ object TransitionRouteCatalog {
                 sourceCornerRadiusDp = 30f,
                 returnCornerRadiusDp = 21f
             ),
-            nativePolicy = TransitionNativePolicy.OplusAllowlisted,
-            nativeClosePolicy = TransitionNativeClosePolicy.LegacyOnly,
-            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
-            nativeDestinationClassName = "$PackageName.OplusEduSchoolSelectActivity",
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
+            nativeDestinationClassName = "$PackageName.NativeEduSchoolSelectActivity",
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true
         ),

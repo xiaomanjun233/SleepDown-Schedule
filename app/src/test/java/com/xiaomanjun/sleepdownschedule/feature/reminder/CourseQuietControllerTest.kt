@@ -17,10 +17,21 @@ class CourseQuietControllerTest {
         var ruleEnabled = false
         var soundAlsoChangesDnd = false
         var zenMasksRingerMode = false
+        var zenMasksMediaVolume = false
         var failRestore = false
+        var media = 7
+        var failMediaRestore = false
+        var ignoreMediaChanges = false
+        var coercedMediaVolume: Int? = null
         val operations = mutableListOf<String>()
         override val ringerMode get() = if (zenMasksRingerMode && ruleEnabled) 0 else sound
         override val interruptionFilter get() = if (manualFilter != 1) manualFilter else if (ruleEnabled) 2 else 1
+        override val mediaVolume get() = if (zenMasksMediaVolume && ruleEnabled) 0 else media
+        override fun setMediaVolume(volume: Int) {
+            if (!hasPolicyAccess || (failMediaRestore && volume > 0)) throw SecurityException("revoked")
+            operations += "media:$volume"
+            if (!ignoreMediaChanges) media = coercedMediaVolume ?: volume
+        }
         override fun setRingerMode(mode: Int) {
             if (!hasPolicyAccess || (failRestore && mode == 2)) throw SecurityException("revoked")
             operations += "sound:$mode"
@@ -36,6 +47,117 @@ class CourseQuietControllerTest {
         }
         override fun restoreInterruptionFilter(filter: Int) { operations += "filter:$filter"; manualFilter = filter }
     }
+    @Test fun automaticSoundMutesMediaAndRestoresTheOriginalVolumeAfterRestart() {
+        val device = Device()
+        refresh(device)
+        assertEquals(0, device.sound)
+        assertEquals(0, device.media)
+        assertEquals(7, state.originalMediaVolume)
+        state = Json.decodeFromString<CourseQuietRuntime>(Json.encodeToString(state))
+        refresh(device, active = false)
+        assertEquals(7, device.media)
+        assertEquals(CourseQuietRuntime(), state)
+    }
+
+    @Test fun mediaVolumeKeysDuringClassArePreservedAndNotRepeatedlyOverridden() {
+        val device = Device()
+        refresh(device)
+        device.media = 4
+        repeat(3) { refresh(device) }
+        assertEquals(4, device.media)
+        refresh(device, active = false)
+        assertEquals(4, device.media)
+        assertEquals(1, device.operations.count { it.startsWith("media:") })
+    }
+
+    @Test fun dndAloneLeavesMediaAloneAndDisablingSoundRestoresItDuringClass() {
+        val device = Device()
+        refresh(device, CourseQuietSettings(doNotDisturbEnabled = true))
+        assertEquals(7, device.media)
+        refresh(device)
+        assertEquals(0, device.media)
+        refresh(device, CourseQuietSettings(doNotDisturbEnabled = true))
+        assertEquals(7, device.media)
+        assertTrue(device.ruleEnabled)
+    }
+
+    @Test fun vibrationMutesMediaAndSwitchingSoundModeRetainsTheSameVolumeBaseline() {
+        val device = Device()
+        refresh(device, both.copy(soundMode = CourseQuietSoundMode.VIBRATE))
+        assertEquals(1, device.sound)
+        assertEquals(0, device.media)
+        refresh(device)
+        assertEquals(7, state.originalMediaVolume)
+        assertEquals(1, device.operations.count { it.startsWith("media:") })
+        refresh(device, settings = CourseQuietSettings())
+        assertEquals(7, device.media)
+    }
+
+    @Test fun failedMediaRestoreKeepsItsBaselineForTheNextAttempt() {
+        val device = Device()
+        refresh(device)
+        device.failMediaRestore = true
+        refresh(device, active = false)
+        assertEquals(7, state.originalMediaVolume)
+        assertEquals(0, state.appliedMediaVolume)
+        device.failMediaRestore = false
+        refresh(device, active = false)
+        assertEquals(7, device.media)
+        assertEquals(CourseQuietRuntime(), state)
+    }
+
+    @Test fun rejectedMediaAdjustmentIsReportedInsteadOfClaimingTheVolumeWasMuted() {
+        val device = Device().apply { ignoreMediaChanges = true }
+        refresh(device)
+        assertEquals(7, device.media)
+        assertNull(state.originalMediaVolume)
+        assertNull(state.appliedMediaVolume)
+        assertEquals("系统未允许降低媒体音量", errors.single().message)
+    }
+
+    @Test fun oldRecoverySnapshotsDecodeWithoutInventingAMediaRestoreValue() {
+        val old = Json.decodeFromString<CourseQuietRuntime>(
+            """{"originalRingerMode":2,"appliedRingerMode":0,"ownsDoNotDisturb":true}"""
+        )
+        assertNull(old.originalMediaVolume)
+        assertNull(old.appliedMediaVolume)
+    }
+
+    @Test fun silentlyRejectedMediaRestoreKeepsItsBaselineUntilTheVolumeIsVerified() {
+        val device = Device()
+        refresh(device)
+        device.ignoreMediaChanges = true
+        refresh(device, active = false)
+        assertEquals(7, state.originalMediaVolume)
+        assertEquals(0, state.appliedMediaVolume)
+        assertEquals("系统未能恢复媒体音量", errors.single().message)
+        device.ignoreMediaChanges = false
+        refresh(device, active = false)
+        assertEquals(7, device.media)
+        assertEquals(CourseQuietRuntime(), state)
+    }
+
+    @Test fun partialMediaAdjustmentRetainsTheObservedVolumeForSafeRestoration() {
+        val device = Device().apply { coercedMediaVolume = 3 }
+        refresh(device)
+        assertEquals(3, device.media)
+        assertEquals(7, state.originalMediaVolume)
+        assertEquals(3, state.appliedMediaVolume)
+        assertEquals("系统未允许降低媒体音量", errors.single().message)
+        device.coercedMediaVolume = null
+        refresh(device, active = false)
+        assertEquals(7, device.media)
+        assertEquals(CourseQuietRuntime(), state)
+    }
+
+    @Test fun originalMediaVolumeIsCapturedBeforeAnAppDndRuleCanMaskIt() {
+        val device = Device().apply { zenMasksMediaVolume = true }
+        refresh(device)
+        assertEquals(7, state.originalMediaVolume)
+        refresh(device, active = false)
+        assertEquals(7, device.media)
+    }
+
     private val both = CourseQuietSettings(doNotDisturbEnabled = true, soundEnabled = true)
     private var state = CourseQuietRuntime()
     private val errors = mutableListOf<Exception>()
@@ -124,7 +246,7 @@ class CourseQuietControllerTest {
         refresh(device, active = false)
         assertEquals(2, state.originalRingerMode)
         assertTrue(state.ownsDoNotDisturb)
-        assertEquals(2, errors.size)
+        assertEquals(3, errors.size)
         device.hasPolicyAccess = true
         refresh(device, active = false)
         assertEquals(2, device.sound)

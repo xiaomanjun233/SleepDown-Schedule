@@ -96,7 +96,7 @@ internal object AutoRefreshScheduleCoordinator {
         }
     }
 
-    suspend fun refreshSaved(context: Context): AutoRefreshOutcome = refreshMutex.withLock {
+    suspend fun refreshSaved(context: Context, manual: Boolean = false): AutoRefreshOutcome = refreshMutex.withLock {
         val profile = AutoRefreshScheduleStore.load(context)
             ?: return@withLock AutoRefreshOutcome(false, "请先登录教务系统")
         AutoRefreshReviewStore.load(context)?.let { pending ->
@@ -111,7 +111,7 @@ internal object AutoRefreshScheduleCoordinator {
         val adapters = ShiguangApiAdapterCatalog.loadLoginAdapters(context)
         val adapter = ShiguangApiAdapterCatalog.find(adapters, profile.schoolId, profile.adapterId)
             ?: return@withLock recordFailure(context, profile, "该教务入口已更新，请重新选择学校并登录")
-        execute(context, adapter, profile)
+        execute(context, adapter, profile, manual)
     }
 
     /** Retain browser state for entrances that need a visible preview and confirmation. */
@@ -135,7 +135,8 @@ internal object AutoRefreshScheduleCoordinator {
     private suspend fun execute(
         context: Context,
         adapter: EduAdapter,
-        profile: AutoRefreshScheduleProfile
+        profile: AutoRefreshScheduleProfile,
+        manual: Boolean
     ): AutoRefreshOutcome {
         val app = context.applicationContext as CourseScheduleApp
         return runCatching {
@@ -143,7 +144,7 @@ internal object AutoRefreshScheduleCoordinator {
             val fetched = AutoRefreshShiguangRunner.fetch(app, adapter, profile, targetState)
             val prepared = preserveTimingForAutoRefresh(targetState.config, targetState.periods, fetched.draft)
             val pending = PendingScheduleRefresh.create(profile, targetState, prepared.courses, prepared.config)
-            val needsReview = pending.count > 0 && !AutoRefreshReviewStore.wasReviewed(app, pending)
+            val needsReview = pending.count > 0 && (manual || !AutoRefreshReviewStore.wasReviewed(app, pending))
             if (needsReview) AutoRefreshReviewStore.save(app, pending)
             val now = System.currentTimeMillis()
             val updated = profile.copy(

@@ -2,7 +2,6 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.backup.*
 import android.app.ActivityManager
 import android.content.Context
 import android.os.Process
@@ -414,7 +413,9 @@ internal fun AiImportSettings.toProviderConfig(): AiProviderConfig {
         reasoningEffort = profile.reasoningEffort,
         authType = profile.authType,
         responsesPath = profile.responsesPath,
-        chatCompletionsPath = profile.chatCompletionsPath
+        chatCompletionsPath = profile.chatCompletionsPath,
+        managedReasoningControlled = AiProviderPresets.isManagedFreeId(profile.id) &&
+            profile.managedReasoningOptions != null
     )
 }
 

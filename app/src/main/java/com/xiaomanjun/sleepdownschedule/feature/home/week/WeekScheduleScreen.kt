@@ -59,19 +59,18 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseEntity
-import com.xiaomanjun.sleepdownschedule.app.ui.AppTopBar
 import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.WeekDockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 import com.xiaomanjun.sleepdownschedule.currentTimelinePeriod
-import com.xiaomanjun.sleepdownschedule.domain.schedule.courseAlignmentFragments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseWeekDisplayFragments
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseNeedsSupplementaryWeekRow
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePagerStartOverflow
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeTextContrastFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeReadableText
 import com.xiaomanjun.sleepdownschedule.feature.home.day.WeekCourseBuckets
-import com.xiaomanjun.sleepdownschedule.feature.home.day.hasAnyWallpaper
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.home.day.weekCourseBuckets
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSidebarOverflowClip
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSidebarOverflowViewport
@@ -142,13 +141,13 @@ internal fun SinglePillWeekScheduleScreen(
     // Data replacement invalidates the cache; swiping back reuses the same immutable lists.
     val weekBucketCache = remember(state.courses, state.config.id, state.config.totalWeeks,
         state.config.currentWeek, state.config.autoCurrentWeek, state.config.termStartDate,
-        state.config.scheduleAdjustmentsJson, today) { mutableMapOf<Int, WeekCourseBuckets>() }
+        state.config.scheduleAdjustmentsJson, state.config.weekStartsOnSunday, state.timetableCatalog, today) { mutableMapOf<Int, WeekCourseBuckets>() }
     fun bucketsForWeek(week: Int) = weekBucketCache.getOrPut(week) {
-        weekCourseBuckets(state.courses, week, state.config, today)
+        weekCourseBuckets(state.courses, week, state.config, today, state.timetableCatalog, state.periods)
     }
     fun openOccurrence(course: CourseEntity, week: Int, bounds: Rect?) {
         val original = state.courses.firstOrNull { it.id == course.id } ?: course
-        val date = scheduleWeekStartDate(state.config, week, today).plusDays((course.weekday - 1).toLong())
+        val date = scheduleWeekStartDate(state.config, week, today).plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(state.config, course.weekday))
         val source = com.xiaomanjun.sleepdownschedule.domain.schedule.teachingDateForSchedule(state.config, date)
         val sourceWeek = source?.let { com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate(state.config, it, today) } ?: week
         onCourseClick(original, sourceWeek, bounds)
@@ -166,21 +165,8 @@ internal fun SinglePillWeekScheduleScreen(
     val hasAdjustmentBadges = remember(state.config.scheduleAdjustmentsJson) {
         com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(state.config.scheduleAdjustmentsJson).isNotEmpty()
     }
-    val supplementaryRowCount = remember(weekBucketCache, state.periods, displayWeek, weekJump, state.config.showNonCurrentWeekCourses) {
-        val renderedWeeks = (displayWeek - 1..displayWeek + 1).toList() +
-            listOfNotNull(weekJump?.sourcePage?.plus(1), weekJump?.targetPage?.plus(1))
-        renderedWeeks.maxOf { week ->
-            val actual = bucketsForWeek(week).visibleCourses
-            val counts = actual.flatMap { courseAlignmentFragments(it, state.periods) }
-                .filter { courseNeedsSupplementaryWeekRow(it, state.periods) }
-                .groupingBy { it.weekday }.eachCount()
-            (1..7).maxOf { day -> counts.getOrDefault(day, 0) +
-                if (state.config.showNonCurrentWeekCourses)
-                    nonCurrentSupplementaryCourses(state.courses, actual, week, day, state.periods).size else 0 }
-        }
-    }
-    val supplementaryHeight = if (supplementaryRowCount > 0) 24.dp + 88.dp * supplementaryRowCount else 0.dp
-    val weekdays = weekEditOverlay.request?.let { (1..it.weekdayCount).toList() } ?: remember(weekBuckets, state.courses, state.config, displayWeek) {
+    val supplementaryHeight = 0.dp
+    val weekdays = weekEditOverlay.request?.let { it.weekdays.ifEmpty { (1..it.weekdayCount).toList() } } ?: remember(weekBuckets, state.courses, state.config, displayWeek) {
         weekPresentationWeekdays(weekBuckets, state.courses, state.config, displayWeek)
     }
     val periodIndexes = remember(state.periods) {
@@ -188,6 +174,14 @@ internal fun SinglePillWeekScheduleScreen(
     }
     var programmaticPage by remember { mutableIntStateOf(-1) }
     val density = LocalDensity.current
+    val clockIntervals = remember(state.courses, state.config, state.periods, state.timetableCatalog, today) {
+        com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleTimeAxisIntervals(state, today)
+    }
+    val timeGrid = remember(state.config.timeSlotCoursesJson, state.periods, clockIntervals, cardHeight, density.fontScale, weekdays) {
+        weekTimeSlotGrid(runCatching { com.xiaomanjun.sleepdownschedule.domain.schedule.resolvedTimeSlotCourses(state.config.timeSlotCoursesJson, state.periods) }.getOrDefault(emptyList()),
+            state.periods.size, cardHeight.value, 32f * density.fontScale.coerceIn(1f, 1.5f), weekdays,
+            state.periods, clockIntervals)
+    }
     val screenWidth = adaptiveMetrics.contentWidth
     val topSpacerHeight = adaptiveMetrics.weekTopSpacerHeight
     val horizontalContentStartPadding = if (adaptiveMetrics.isLargeScreen) {
@@ -228,8 +222,7 @@ internal fun SinglePillWeekScheduleScreen(
     val weekTail = rememberWeekPageTailMotion(pagerState,
         com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.policy.courseSamples(
             state.config.courseCardGlassEnabled, state.config.courseCardGaussianBlurEnabled, state.config.hasAnyWallpaper()),
-        tailEnabled = !com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance ||
-            com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer.current != null)
+        tailEnabled = true)
     val homeSwitching = LocalHomeTextContrastFrozen.current
     LaunchedEffect(pagerState, boundless) {
         try {
@@ -341,7 +334,7 @@ internal fun SinglePillWeekScheduleScreen(
                 request.mode != WeekEditOverlayMode.Move ||
                 abs(weekEditOverlay.offsetX) + abs(weekEditOverlay.offsetY) < pageDragThresholdPx) 0
             else {
-                val left = request.sourceBounds.left - (request.dayIndex - 1) * request.gridColumnWidthPx
+                val left = request.sourceBounds.left - request.columnFor(request.dayIndex) * request.gridColumnWidthPx
                 weekDragEdgeDirection(weekEditOverlay.pointerPosition.x, left,
                     left + request.weekdayCount * request.gridColumnWidthPx, pageEdgePx,
                     request.destinationWeek, latestState.config.totalWeeks)
@@ -416,6 +409,7 @@ internal fun SinglePillWeekScheduleScreen(
         derivedStateOf { homeSwitching.value || scrollState.isScrollInProgress || weekTail.moving }
     }
     CompositionLocalProvider(
+        LocalWeekTimeSlotGrid provides timeGrid,
         LocalWeekEditMotionState provides weekEditOverlay,
         LocalWeekPageTail provides weekTail,
         LocalHomeTextContrastFrozen provides pageTextFrozen,
@@ -434,7 +428,7 @@ internal fun SinglePillWeekScheduleScreen(
                         canMoveToWeekday = { day ->
                             com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(state.config,
                                 scheduleWeekStartDate(state.config, request?.destinationWeek ?: displayWeek)
-                                    .plusDays((day - 1).toLong())) == null
+                                    .plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(state.config, day))) == null
                         }, onUpdateCourseSingleWeek = onUpdateCourseSingleWeek)
                     if (!saved && request != null && request.destinationWeek != request.editWeek) {
                         latestSwipeWeek(request.editWeek - latestDisplayWeek)
@@ -528,10 +522,10 @@ internal fun SinglePillWeekScheduleScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(cardHeight * state.periods.size + supplementaryHeight + editControlBottomOverflow)
+                        .height(timeGrid.totalHeight.dp + supplementaryHeight + editControlBottomOverflow)
                         .then(if (retainEditControlOverflow || hasAdjustmentBadges) Modifier else Modifier.homeSidebarOverflowClip())
                 ) {
-                    Column(
+                    Box(
                         modifier = Modifier
                             .width(rowHeaderWidth)
                             .fillMaxHeight()
@@ -541,9 +535,10 @@ internal fun SinglePillWeekScheduleScreen(
                         // two-time-line stack without clipping, keep only the period number.
                         val showTimeColumn =
                             cardHeight.value >= minimumWeekTimelineRowHeightDp(density.fontScale)
-                        state.periods.forEach { period ->
+                        state.periods.forEachIndexed { rowIndex, period ->
                             Box(
                                 modifier = Modifier
+                                    .offset(y = timeGrid.rowTops[rowIndex].dp)
                                     .height(cardHeight)
                                     .fillMaxWidth()
                                     .homeSwitchGroup(),
@@ -585,7 +580,7 @@ internal fun SinglePillWeekScheduleScreen(
                                     }
                                     if (showTimeColumn) {
                                         HomeReadableText(
-                                            specialBell?.takeIf { isSpecialCurrent }?.start?.toString() ?: period.startTime,
+                                            period.startTime,
                                             fontSize = 10.sp,
                                             lineHeight = 11.sp,
                                             fontWeight = FontWeight.Normal,
@@ -593,7 +588,7 @@ internal fun SinglePillWeekScheduleScreen(
                                             color = textColor.copy(alpha = 0.86f)
                                         )
                                         HomeReadableText(
-                                            specialBell?.takeIf { isSpecialCurrent }?.end?.toString() ?: period.endTime,
+                                            period.endTime,
                                             fontSize = 10.sp,
                                             lineHeight = 11.sp,
                                             fontWeight = FontWeight.Normal,
@@ -602,6 +597,20 @@ internal fun SinglePillWeekScheduleScreen(
                                         )
                                     }
                                 }
+                            }
+                        }
+                        if (showTimeColumn) timeGrid.clockBands.forEach { band ->
+                            Column(Modifier.offset(y = band.top.dp).height(band.height.dp).fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                HomeReadableText(band.start.toString(), fontSize = 9.sp, lineHeight = 11.sp, color = textColor)
+                                HomeReadableText(band.end.toString(), fontSize = 9.sp, lineHeight = 11.sp, color = textColor.copy(alpha = 0.86f))
+                            }
+                        }
+                        timeGrid.bands.forEach { band ->
+                            Column(Modifier.offset(y = band.top.dp).height(band.height.dp).fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                                HomeReadableText(band.slot.startTime, fontSize = 10.sp, lineHeight = 12.sp, color = textColor)
+                                HomeReadableText(band.slot.endTime, fontSize = 10.sp, lineHeight = 12.sp, color = textColor.copy(alpha = 0.86f))
                             }
                         }
                     }
@@ -628,7 +637,7 @@ internal fun SinglePillWeekScheduleScreen(
                                 // The parent reserves the bottom gutter. Allow the pager's extra
                                 // top gutter to extend above it without compressing the last row.
                                 .wrapContentHeight(align = Alignment.Top, unbounded = true)
-                                .height(cardHeight * state.periods.size + supplementaryHeight + courseTopOverflow + editControlBottomOverflow),
+                                .height(timeGrid.totalHeight.dp + supplementaryHeight + courseTopOverflow + editControlBottomOverflow),
                             userScrollEnabled = !weekEditMode && programmaticPage < 0,
                             // Keep the pager topology stable while a home overlay opens/closes.
                             // Disposing the adjacent week at the exact frame Personalization
@@ -640,7 +649,7 @@ internal fun SinglePillWeekScheduleScreen(
                             val pageWeek = (weekJump?.logicalPage(page) ?: page) + 1
                             val pageBuckets = bucketsForWeek(pageWeek)
                             val pageCourses = pageBuckets.visibleCourses
-                            val pageWeekdays = weekEditOverlay.request?.let { (1..it.weekdayCount).toList() } ?: remember(pageBuckets, state.courses, state.config, pageWeek) {
+                            val pageWeekdays = weekEditOverlay.request?.let { it.weekdays.ifEmpty { (1..it.weekdayCount).toList() } } ?: remember(pageBuckets, state.courses, state.config, pageWeek) {
                                 weekPresentationWeekdays(pageBuckets, state.courses, state.config, pageWeek)
                             }
                             val isActivePage = programmaticPage < 0 && pageWeek == displayWeek && pagerState.settledPage == page
@@ -664,7 +673,7 @@ internal fun SinglePillWeekScheduleScreen(
                                     pageCardCount.intValue = count
                                     if (pageWeek == displayWeek) onRenderedCardCountChanged(count)
                                 },
-                                showSupplementaryRows = supplementaryRowCount > 0,
+                                showSupplementaryRows = false,
                                 weekdays = pageWeekdays,
                                 periods = state.periods,
                                 cardHeight = cardHeight,
@@ -705,7 +714,7 @@ internal fun SinglePillWeekScheduleScreen(
                                         velocity = velocity,
                                         canMoveToWeekday = { day ->
                                             com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(state.config,
-                                                scheduleWeekStartDate(state.config, pageWeek).plusDays((day - 1).toLong())) == null
+                                                scheduleWeekStartDate(state.config, pageWeek).plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(state.config, day))) == null
                                         },
                                         onUpdateCourseSingleWeek = onUpdateCourseSingleWeek
                                     )

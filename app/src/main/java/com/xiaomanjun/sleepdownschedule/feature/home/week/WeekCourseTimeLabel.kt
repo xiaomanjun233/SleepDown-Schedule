@@ -8,6 +8,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -16,14 +17,18 @@ import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeReadableText
 
+@Composable
+internal fun weekCourseTimeLabelStyle(fontSize: TextUnit = 8.sp, lineHeight: TextUnit = 9.sp): TextStyle =
+    MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold, fontSize = fontSize, lineHeight = lineHeight, letterSpacing = 0.sp)
+
 /** A complete clock interval must fit even in seven narrow columns and with custom fonts. */
 @Composable
 internal fun WeekCourseTimeLabel(text: String, color: Color, modifier: Modifier = Modifier,
     fontSize: TextUnit = 8.sp, lineHeight: TextUnit = 9.sp) {
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
-    val style = MaterialTheme.typography.labelSmall.copy(fontFamily = FontFamily.Monospace,
-        fontWeight = FontWeight.Bold, fontSize = fontSize, lineHeight = lineHeight, letterSpacing = 0.sp)
+    val style = weekCourseTimeLabelStyle(fontSize, lineHeight)
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val widthPx = with(density) { maxWidth.toPx() }
         val naturalWidth = remember(text, style, measurer) {

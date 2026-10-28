@@ -54,8 +54,11 @@ open class EduImportActivityHost : ComponentActivity() {
             )
             val state by viewModel.state.collectAsStateWithLifecycle()
             val adapter = remember { eduAdapterFromIntentKey(intent.getStringExtra(EduAdapterExtra)) }
+            val refreshRequest = remember {
+                intent.getBooleanExtra(AutoRefreshWebSession.RestoreSessionExtra, false)
+            }
             val retainedSession = remember(adapter) {
-                if (adapter != null && intent.getBooleanExtra(AutoRefreshWebSession.RestoreSessionExtra, false)) {
+                if (adapter != null && refreshRequest) {
                     AutoRefreshScheduleStore.load(app)?.takeIf {
                         it.schoolId == adapter.school.id && it.adapterId == adapter.adapterId
                     }
@@ -146,7 +149,12 @@ open class EduImportActivityHost : ComponentActivity() {
                                     if (submitting) return@ConfirmScheduleScreen
                                     submitting = true
                                     saveError = null
-                                    if (retainedSession != null && !createNewSchedule) {
+                                    if (refreshRequest && !createNewSchedule) {
+                                        if (retainedSession == null) {
+                                            submitting = false
+                                            saveError = "教务绑定已改变，请返回自动刷新设置重新登录后核对课表"
+                                            return@ConfirmScheduleScreen
+                                        }
                                         scope.launch {
                                             try {
                                                 com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleCoordinator

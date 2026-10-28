@@ -97,7 +97,8 @@ data class DayAgentFacts(
     val schedules: List<AgentScheduleSummary> = emptyList(),
     /** Device wall-clock zone captured with [now] for deterministic relative-date answers. */
     val timeZoneId: String = ZoneId.systemDefault().id,
-    val utcOffset: String = now.atZone(ZoneId.systemDefault()).offset.id
+    val utcOffset: String = now.atZone(ZoneId.systemDefault()).offset.id,
+    val weekStartsOnSunday: Boolean = false
 )
 
 /** Minimal schedule descriptor exposed to the agent for multi-schedule actions. */
@@ -280,7 +281,7 @@ fun buildDayAgentFacts(
 
     val today = slotsFor(date)
     val tomorrow = slotsFor(date.plusDays(1))
-    val weekStart = date.minusDays((date.dayOfWeek.value - 1).toLong())
+    val weekStart = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleCalendarWeekStart(config, date)
     val week = (0L..6L).flatMap { offset -> slotsFor(weekStart.plusDays(offset)) }
     val settingsSnapshot = AgentSettingRegistry.snapshot(config, scheduleName, settingContext, date)
     val source = buildString {
@@ -305,6 +306,7 @@ fun buildDayAgentFacts(
         sourceHash = source.sha256(),
         periodDefinitions = schedulePeriods.sortedBy { it.periodIndex },
         totalWeeks = config.totalWeeks,
+        weekStartsOnSunday = config.weekStartsOnSunday,
         scheduleId = config.id,
         currentWeek = currentWeek,
         currentTeachingDate = currentTeachingDate,

@@ -3,7 +3,6 @@ package com.xiaomanjun.sleepdownschedule
 import androidx.compose.ui.geometry.Rect
 import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
-import com.xiaomanjun.sleepdownschedule.transition.TransitionNativeSourceViewProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayloadStore
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
@@ -86,8 +85,7 @@ class TransitionPayloadStoreTest {
             TransitionRouteId.HomeToCourseManagement,
             TransitionPayload(
                 openingAnchor = null,
-                onOpeningSourceHandoff = { handoff.incrementAndGet() },
-                nativeSourceLeashAlphaOutOnOpen = true
+                onOpeningSourceHandoff = { handoff.incrementAndGet() }
             )
         )
 
@@ -164,29 +162,6 @@ class TransitionPayloadStoreTest {
         assertSame(opening, payload.openingAnchor)
         assertSame(returning, payload.returnAnchorProvider?.resolve())
         assertFalse(opening.boundsInWindow == returning.boundsInWindow)
-    }
-
-    @Test
-    fun nativeSourceViewProviderRemainsSessionScopedAndLive() {
-        val resolutions = AtomicInteger()
-        val provider = TransitionNativeSourceViewProvider {
-            resolutions.incrementAndGet()
-            null
-        }
-        val payload = TransitionPayload(
-            openingAnchor = null,
-            nativeSourceViewProvider = provider
-        )
-        val session = TransitionPayloadStore.create(
-            TransitionRouteId.CourseManagementToDetail,
-            payload
-        )
-
-        val stored = TransitionPayloadStore.payload(session.id)
-        assertSame(provider, stored?.nativeSourceViewProvider)
-        assertNull(stored?.nativeSourceViewProvider?.resolve())
-        assertNull(stored?.nativeSourceViewProvider?.resolve())
-        assertEquals(2, resolutions.get())
     }
 
     @Test

@@ -5,10 +5,11 @@ import com.xiaomanjun.sleepdownschedule.model.PeriodEntity
 import java.time.LocalTime
 
 /** A course can have its own bell times even when its period numbers match the default scheme. */
-data class CoursePeriodTime(val index: Int, val start: LocalTime, val end: LocalTime)
+typealias CoursePeriodTime = com.xiaomanjun.sleepdownschedule.model.CoursePeriodTime
 
 /** The same lesson boundaries drive the live activity and the home assistant. */
 fun courseTimeSegments(course: CourseEntity, periods: List<PeriodEntity>): List<CoursePeriodTime> {
+    if (course.timingReviewReason != null) return emptyList()
     course.effectiveArrangementOrNull()?.let { return it.times.map(AlignedCourseTime::time) }
     val custom = runCatching { parseCoursePeriodTimes(course.customPeriodTimes) }.getOrDefault(emptyList())
     if (custom.isNotEmpty() && custom.map(CoursePeriodTime::index) == course.periods.distinct().sorted()) {

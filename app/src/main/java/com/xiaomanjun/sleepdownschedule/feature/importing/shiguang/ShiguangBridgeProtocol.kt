@@ -56,6 +56,9 @@ internal data class ShiguangSaveConfigPayload(val configJsonString: String)
 @Serializable
 internal data class ShiguangSaveTimeSlotsPayload(val timeSlotsJsonString: String)
 
+@Serializable
+internal data class ShiguangSaveComboSchedulePayload(val comboScheduleJsonString: String)
+
 internal fun buildShiguangJsCallbackScript(
     callbackId: String,
     success: Boolean,
@@ -180,6 +183,13 @@ internal val ShiguangBridgeInitScript = """
                 var id = 'cb_' + (++callbackCounter) + '_' + Date.now();
                 callbacks[id] = { resolve: resolve, reject: reject };
                 postMessageToNative('saveCourseConfig', { configJsonString: configJsonString }, id);
+            });
+        },
+        saveComboSchedule: function(comboScheduleJsonString) {
+            return new Promise(function(resolve, reject) {
+                var id = 'cb_' + (++callbackCounter) + '_' + Date.now();
+                callbacks[id] = { resolve: resolve, reject: reject };
+                postMessageToNative('saveComboSchedule', { comboScheduleJsonString: comboScheduleJsonString }, id);
             });
         },
         savePresetTimeSlots: function(timeSlotsJsonString) {

@@ -6,7 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
 
-internal enum class NativeMaterialSurfaceRole { Content, Dialog, HomeDock, HomeNavigation }
+internal enum class NativeMaterialSurfaceRole { Content, Dialog, Form, HomeDock, HomeNavigation }
 
 /** A passive material background. Geometry stays with its owner; content stays in Compose. */
 internal data class NativeMaterialSurfaceRequest(

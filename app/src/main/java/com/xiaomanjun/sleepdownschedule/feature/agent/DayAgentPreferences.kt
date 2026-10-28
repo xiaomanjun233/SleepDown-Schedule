@@ -2,8 +2,8 @@ package com.xiaomanjun.sleepdownschedule.feature.agent
 
 import com.xiaomanjun.sleepdownschedule.*
 
-import com.xiaomanjun.sleepdownschedule.feature.backup.BackupDayAgentPreferences
-import com.xiaomanjun.sleepdownschedule.feature.backup.BackupStableId
+import com.xiaomanjun.sleepdownschedule.model.backup.BackupDayAgentPreferences
+import com.xiaomanjun.sleepdownschedule.model.backup.BackupStableId
 
 import android.content.Context
 import androidx.core.content.edit

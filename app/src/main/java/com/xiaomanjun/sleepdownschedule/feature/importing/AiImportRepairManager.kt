@@ -94,7 +94,7 @@ internal object AiImportRepairManager {
             appendLine("原始 AI 输出摘要：${outputSummary(cleaned)}")
             appendLine()
             appendLine("请仅修正数据格式，不改变课程名称、教师、地点、星期、节次、周次或时间信息。")
-            appendLine("当前 schema：根对象需要 schemaVersion=1、scheduleConfig、courses、changeSummary；scheduleConfig 需要 totalWeeks(1..60) 与 periods(index,startTime,endTime)；courses 每项需要 name、teacher、location、weekday、periods、weeks、weekParity、note；periods/weeks 不得为空，weekday=1..7，weekParity=ALL|ODD|EVEN，时间=HH:mm。")
+            appendLine("当前 schema 使用拾光字段：courses、timeSlots(number,startTime,endTime,alias)、config(semesterStartDate,semesterTotalWeeks,defaultClassDuration,defaultBreakDuration,firstDayOfWeek)、comboSchedule、changeSummary。课程使用 name/teacher/position/day/weeks/remark/credit/color；普通课程 isCustomTime=false 并提供 startSection/endSection，自定义课程 isCustomTime=true 并提供 customStartTime/customEndTime。weeks 展开单双周，day=1..7，总周数=1..60，时间=HH:mm；未知备注与学分为 null，无日期规则时 comboSchedule=null。")
             appendLine("只调用 IMPORT_SCHEDULE 返回符合 schema 的 JSON，不要解释。")
             appendLine()
             appendLine("待修复的上轮 AI 输出：")
@@ -123,6 +123,18 @@ internal object AiImportRepairManager {
 
     private fun findMissingRequiredField(element: JsonElement): String? {
         val root = element as? JsonObject ?: return "\$"
+        if("schemaVersion" !in root && "scheduleConfig" !in root) {
+            listOf("courses","config","timeSlots").firstOrNull { it !in root }?.let { return it }
+            val config=root["config"] as? JsonObject ?: return "config"
+            if("semesterTotalWeeks" !in config) return "config.semesterTotalWeeks"
+            val courses=root["courses"] as? JsonArray ?: return "courses"
+            courses.forEachIndexed { index,value ->
+                val course=value as? JsonObject ?: return "courses[$index]"
+                listOf("name","teacher","position","day","weeks").firstOrNull { it !in course }
+                    ?.let { return "courses[$index].$it" }
+            }
+            return null
+        }
         listOf("schemaVersion", "scheduleConfig", "courses").firstOrNull { it !in root }
             ?.let { return it }
         val config = root["scheduleConfig"] as? JsonObject ?: return "scheduleConfig"

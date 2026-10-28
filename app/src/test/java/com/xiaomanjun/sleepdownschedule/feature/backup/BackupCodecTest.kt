@@ -26,11 +26,35 @@ import java.util.zip.ZipOutputStream
 import java.util.zip.CRC32
 
 class BackupCodecTest {
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    @Test fun sharedAiSnapshotsKeepV1DescriptorsAndDefaults() {
+        val descriptors = listOf(
+            BackupDayAgentPreferences.serializer().descriptor,
+            BackupAiImportPreferences.serializer().descriptor,
+            BackupAiProvider.serializer().descriptor,
+            BackupAiImportHistoryEntry.serializer().descriptor
+        )
+        descriptors.forEach { descriptor ->
+            assertEquals("com.xiaomanjun.sleepdownschedule.feature.backup.${descriptor.serialName.substringAfterLast('.')}", descriptor.serialName)
+        }
+        val oldHistory = """{"id":"history","createdAt":1,"title":"title","prompt":"prompt","sourceSummary":"source","payload":"{}"}"""
+        assertEquals(null, BackupJson.decodeFromString<BackupAiImportHistoryEntry>(oldHistory).contextAssetId)
+        val oldAgent = """{"hasDecision":true,"enabled":true,"dailyAiEnabled":true,"weatherEnabled":true,"memoryEnabled":false,"memory":"","memoryTurnDay":null,"memoryTurnCount":0,"memoryLastAgentUpdateDay":null}"""
+        val agent = BackupJson.decodeFromString<BackupDayAgentPreferences>(oldAgent)
+        assertTrue(agent.weekAssistantEnabled)
+        assertEquals(emptyMap<String, List<String>>(), agent.appliedActionsBySchedule)
+        assertEquals(30, BackupFormatV1.DEFAULT_AI_IMPORT_HISTORY_RETENTION_DAYS)
+        assertEquals(listOf(7, 30, 90, 0), BackupFormatV1.AI_IMPORT_HISTORY_RETENTION_OPTIONS)
+        assertEquals(BackupFormatV1.AI_IMPORT_HISTORY_RETENTION_OPTIONS,
+            com.xiaomanjun.sleepdownschedule.model.backup.AiImportHistoryRetentionOptions)
+    }
+
     @Test fun presentationAndMaterialSettingsRoundTripWithoutCredentials() {
         val original = fixtureArchive()
         val source = original.copy(preferences = original.preferences.copy(materialLevel = "SUPER_PERFORMANCE"),
             data = original.data.copy(schedules = original.data.schedules.map { it.copy(config = it.config.copy(
-                showNonCurrentWeekCourses = true, weekCardContentLayout = "MIDDLE", weekCardTextAlignment = "START",
+                showNonCurrentWeekCourses = true, weekStartsOnSunday = true, weekCardContentLayout = "MIDDLE", weekCardTextAlignment = "START",
+                timeSlotCoursesJson = """[{"id":"night","name":"晚自修","startTime":"19:00","endTime":"20:30","afterPeriod":8,"weekdays":[1,2,3,4,5],"periodIndices":[9,10],"customPeriodTimes":"9,19:00-19:40;10,19:50-20:30"}]""",
                 scheduleAdjustmentsJson = """[{"date":"2026-10-08","allDayPlaceholder":true}]""")) }))
         val restored = BackupCodec.decode(BackupCodec.encode(source))
         assertEquals(source.data, restored.data)

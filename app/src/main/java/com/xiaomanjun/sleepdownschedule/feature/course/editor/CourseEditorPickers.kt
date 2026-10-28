@@ -40,7 +40,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -64,11 +67,11 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CenteredDialogConte
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import java.time.LocalTime
 import com.xiaomanjun.sleepdownschedule.domain.schedule.CoursePeriodTime
 import com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes
-import com.xiaomanjun.sleepdownschedule.domain.schedule.matchingPeriodIndicesForTimeRange
+import com.xiaomanjun.sleepdownschedule.domain.schedule.matchingPeriodIndicesForCourseClock
 import kotlin.math.max
 import kotlinx.coroutines.flow.map
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
@@ -206,19 +209,16 @@ internal fun DialogPeriodSelector(
     }
     // Imported exact clocks remain the saved source. Use the same display classification
     // as the timetable for every provider, including rows saved before this upgrade.
-    val matchingIndices = remember(customRange, customPeriodTimes, periods, safeValues) {
-        customRange?.takeIf { customPeriodTimes.isNullOrBlank() }?.let { (from, to) ->
-            matchingPeriodIndicesForTimeRange(from, to, periods).takeIf { indices ->
-                indices.isNotEmpty() && indices.all { it in safeValues }
-            }
-        }.orEmpty()
+    val matchingIndices = remember(customStartTime, customEndTime, customPeriodTimes, selectedPeriodIndices, periods, safeValues) {
+        matchingPeriodIndicesForCourseClock(customStartTime, customEndTime, customPeriodTimes,
+            selectedPeriodIndices, periods).takeIf { indices -> indices.all { it in safeValues } }.orEmpty()
     }
     val displayStartIndex = matchingIndices.firstOrNull()?.let(safeValues::indexOf) ?: startIndex
     val displayEndIndex = matchingIndices.lastOrNull()?.let(safeValues::indexOf) ?: endIndex
     CourseEditorPickerValue(
         title = title,
         value = customRange?.takeIf { matchingIndices.isEmpty() }?.let { (customStart, customEnd) -> "$customStart - $customEnd" }
-            ?: if (start !in safeValues || end !in safeValues) "请选择时间"
+            ?: if (matchingIndices.isEmpty() && (start !in safeValues || end !in safeValues)) "请选择时间"
             else "${label(safeValues[displayStartIndex])} - ${label(safeValues[displayEndIndex])}",
         backdrop = backdrop,
         config = config,
@@ -317,7 +317,7 @@ internal fun <T> DialogSingleWheelSelector(
 }
 
 @Composable
-private fun CourseEditorPickerValue(
+internal fun CourseEditorPickerValue(
     title: String,
     value: String,
     backdrop: Backdrop?,
@@ -459,9 +459,9 @@ internal fun CourseEditorPickerOverlay(
     }
     var timeMode by remember(request) {
         mutableStateOf(when {
+            periodRequest?.customTimeMatchesPeriods == true -> CourseEditorTimeMode.Periods
             !periodRequest?.customPeriodTimes.isNullOrBlank() &&
                 parseCoursePeriodTimes(periodRequest.customPeriodTimes).map { it.index } == periodRequest.periodIndices -> CourseEditorTimeMode.Lessons
-            periodRequest?.customTimeMatchesPeriods == true -> CourseEditorTimeMode.Periods
             periodRequest?.customStartTime != null && periodRequest.customEndTime != null -> CourseEditorTimeMode.Range
             else -> CourseEditorTimeMode.Periods
         })
@@ -611,6 +611,15 @@ internal fun CourseEditorPickerOverlay(
                             }
                         }
                     } else {
+                        val selectedWheelModifier = Modifier.drawBehind {
+                            val bandHeight = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.ItemHeight.toPx()
+                            drawRoundRect(
+                                color = pickerContentColor.copy(alpha = 0.10f),
+                                topLeft = Offset(0f, (size.height - bandHeight) / 2f),
+                                size = Size(size.width, bandHeight),
+                                cornerRadius = CornerRadius(bandHeight / 2f)
+                            )
+                        }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)
@@ -626,7 +635,7 @@ internal fun CourseEditorPickerOverlay(
                                 label = { periodRequest.labels[it] },
                                 colors = pickerColors,
                                 textStyle = pickerTextStyle,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f).then(selectedWheelModifier)
                             )
                             top.yukonga.miuix.kmp.basic.NumberPicker(
                                 value = endIndex,
@@ -637,7 +646,7 @@ internal fun CourseEditorPickerOverlay(
                                 label = { periodRequest.labels[it] },
                                 colors = pickerColors,
                                 textStyle = pickerTextStyle,
-                                modifier = Modifier.weight(1f)
+                                modifier = Modifier.weight(1f).then(selectedWheelModifier)
                             )
                         }
                     }

@@ -10,6 +10,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeFollowLightRequest
 
@@ -20,7 +22,10 @@ internal fun ColorOsFollowLight(request: NativeFollowLightRequest): Boolean {
     val light = remember(native) {
         ColorOsNativeUi.prepare("create external gesture follow light") { FollowLightView(native.second, native.first) }
     } ?: return false
-    AndroidView(factory = { light }, modifier = request.modifier, update = { it.update(request) })
+    AndroidView(factory = { light }, modifier = request.modifier.graphicsLayer {
+        clip = true
+        compositingStrategy = CompositingStrategy.ModulateAlpha
+    }, update = { it.update(request) })
     DisposableEffect(light) { onDispose { light.release() } }
     return true
 }
@@ -98,6 +103,15 @@ private class FollowLightView(context: Context, private val source: ColorOsNativ
         release()
         super.onDetachedFromWindow()
     }
-    override fun draw(canvas: Canvas) { light.setBounds(0, 0, width, height); super.draw(canvas) }
+    override fun draw(canvas: Canvas) {
+        val saved = canvas.save()
+        try {
+            // RuntimeShader-backed foregrounds must stay inside this finite halo, including
+            // when the Compose host is translated or replayed in the timetable's root layer.
+            canvas.clipRect(0, 0, width, height)
+            light.setBounds(0, 0, width, height)
+            super.draw(canvas)
+        } finally { canvas.restoreToCount(saved) }
+    }
     fun release() { cancel.invoke(light); pressed = false }
 }

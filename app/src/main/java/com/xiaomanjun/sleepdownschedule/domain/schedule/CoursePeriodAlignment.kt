@@ -8,23 +8,9 @@ import com.xiaomanjun.sleepdownschedule.model.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import java.time.LocalTime
 
-/** Only this immutable, non-Room projection contains clipped/rebound period numbers. */
-data class AlignedCourseTime(val time: CoursePeriodTime, val exact: Boolean)
-
-data class EffectiveCourseArrangement(
-    val source: CourseEntity,
-    val periods: List<Int>,
-    val times: List<AlignedCourseTime>,
-    val hiddenPeriods: List<Int>,
-    val mode: PeriodAlignmentMode,
-    val displayStart: String? = source.customStartTime,
-    val displayEnd: String? = source.customEndTime,
-    val displayPeriodTimes: String? = source.customPeriodTimes
-) {
-    fun matches(course: CourseEntity): Boolean = course.periods == periods &&
-        course.customStartTime == displayStart && course.customEndTime == displayEnd &&
-        course.customPeriodTimes == displayPeriodTimes
-}
+// Source-compatible names; the immutable values belong to model, independently of these rules.
+typealias AlignedCourseTime = com.xiaomanjun.sleepdownschedule.model.AlignedCourseTime
+typealias EffectiveCourseArrangement = com.xiaomanjun.sleepdownschedule.model.EffectiveCourseArrangement
 
 /** Metadata edits retain the full source even when the caller came from a grid fragment. */
 fun CourseEntity.originalArrangement(): CourseEntity {
@@ -77,80 +63,10 @@ fun captureOriginalPeriodTimes(course: CourseEntity, periods: List<PeriodEntity>
 }
 
 fun projectCourseArrangement(course: CourseEntity, config: ScheduleConfigEntity,
-    targetPeriods: List<PeriodEntity>): CourseEntity {
-    val source = course.originalArrangement()
-    val indices = source.periods.distinct().sorted()
-    val targets = targetPeriods.sortedBy { it.periodIndex }.map {
-        CoursePeriodTime(it.periodIndex, LocalTime.parse(it.startTime), LocalTime.parse(it.endTime))
-    }.filter { it.end > it.start }
-    val byIndex = targets.associateBy { it.index }
-    val custom = parseCoursePeriodTimes(source.customPeriodTimes).associateBy { it.index }
-    val wholeCustom = source.customTimeRangeOrNull().takeIf { custom.isEmpty() }
-    val original = if (source.originalPeriodTimes != null) parseCoursePeriodTimes(source.originalPeriodTimes)
-        else if (config.periodAlignmentMode == PeriodAlignmentMode.INDEX) targets.filter { it.index in indices } else emptyList()
-    val originalByIndex = original.associateBy { it.index }
-    val aligned = mutableListOf<AlignedCourseTime>()
-    val anchors = mutableSetOf<Int>()
-    val hidden = mutableSetOf<Int>()
-
-    fun exact(index: Int, start: LocalTime, end: LocalTime) {
-        val matching = matchingPeriodSpan(start, end, targets)
-        if (matching.isNotEmpty()) {
-            anchors.addAll(matching.map { it.index })
-            aligned.addAll(matching.map { AlignedCourseTime(it, false) })
-            return
-        }
-        val positions = courseAnchorPeriodsForTimeRange(start, end, targetPeriods)
-        anchors.addAll(positions)
-        aligned += AlignedCourseTime(CoursePeriodTime(positions.firstOrNull() ?: index, start, end), true)
-    }
-    if (wholeCustom != null) {
-        exact(indices.firstOrNull() ?: 0, wholeCustom.first, wholeCustom.second)
-    } else {
-        custom.values.filter { it.index in indices }.forEach { exact(it.index, it.start, it.end) }
-        val ordinary = indices.filter { it !in custom }
-        if (config.periodAlignmentMode == PeriodAlignmentMode.INDEX) {
-            ordinary.forEach { index ->
-                val target = byIndex[index]
-                if (target == null) hidden += index else {
-                    anchors += index
-                    aligned += AlignedCourseTime(target, false)
-                }
-            }
-        } else {
-            require(ordinary.all { it in originalByIndex }) { "${source.name} 的原始上课时间不完整，无法按时间对齐" }
-            // A custom-covered source lesson separates the ordinary time ranges around it.
-            val ranges = mutableListOf<MutableList<Int>>()
-            var group: MutableList<Int>? = null
-            indices.forEach { index ->
-                if (index in custom) group = null else {
-                    if (group == null) { group = mutableListOf(); ranges += group!! }
-                    group!! += index
-                }
-            }
-            val matched = ranges.flatMap { range ->
-                val start = range.minOf { originalByIndex.getValue(it).start }
-                val end = range.maxOf { originalByIndex.getValue(it).end }
-                targets.filter { it.start < end && it.end > start }
-            }.distinctBy { it.index }
-            matched.forEach { anchors += it.index; aligned += AlignedCourseTime(it, false) }
-            ordinary.filterTo(hidden) { index ->
-                val originalTime = originalByIndex.getValue(index)
-                targets.none { it.start < originalTime.end && it.end > originalTime.start }
-            }
-        }
-    }
-    // A matching exact clock is ordinary in this scheme, but its saved source must survive
-    // metadata edits, exports and switching to a different timetable.
-    val ordinaryClock = aligned.isNotEmpty() && aligned.none { it.exact } && hidden.isEmpty()
-    val projection = EffectiveCourseArrangement(source, anchors.sorted(),
-        aligned.distinct().sortedBy { it.time.start }, hidden.sorted(), config.periodAlignmentMode,
-        displayStart = source.customStartTime.takeUnless { ordinaryClock },
-        displayEnd = source.customEndTime.takeUnless { ordinaryClock },
-        displayPeriodTimes = source.customPeriodTimes.takeUnless { ordinaryClock })
-    return source.copy(periods = projection.periods, customStartTime = projection.displayStart,
-        customEndTime = projection.displayEnd, customPeriodTimes = projection.displayPeriodTimes,
-        arrangementProjection = projection)
+    targetPeriods: List<PeriodEntity>, catalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog = com.xiaomanjun.sleepdownschedule.model.TimetableCatalog(),
+    date: java.time.LocalDate = java.time.LocalDate.now()): CourseEntity {
+    val occurrence = resolveCourseOccurrence(course, config, targetPeriods, catalog, date)
+    return occurrence.source.copy(arrangementProjection = projectWeekGrid(occurrence, targetPeriods))
 }
 
 /** Match complete consecutive lessons only; partial overlaps and ambiguous grids stay exact. */
@@ -159,6 +75,28 @@ fun matchingPeriodIndicesForTimeRange(start: LocalTime, end: LocalTime,
     periods.sortedBy { it.periodIndex }.map {
         CoursePeriodTime(it.periodIndex, LocalTime.parse(it.startTime), LocalTime.parse(it.endTime))
     }.filter { it.end > it.start }).map { it.index }
+
+/** A legacy per-lesson clock is ordinary only when every lesson exactly fits the current grid. */
+fun matchingPeriodIndicesForCourseClock(start: String?, end: String?, clock: String?,
+    selectedIndices: List<Int>, periods: List<PeriodEntity>): List<Int> {
+    val lessons = parseCoursePeriodTimes(clock)
+    if (!clock.isNullOrBlank() && lessons.isEmpty()) return emptyList()
+    if (lessons.isNotEmpty()) {
+        if (lessons.map { it.index }.sorted() != selectedIndices.distinct().sorted()) return emptyList()
+        val mapped = lessons.sortedBy { it.start }.map { lesson ->
+            matchingPeriodIndicesForTimeRange(lesson.start, lesson.end, periods)
+                .takeIf { it.isNotEmpty() } ?: return emptyList()
+        }.flatten()
+        val order = periods.sortedBy { it.periodIndex }.map { it.periodIndex }
+        val positions = mapped.map(order::indexOf)
+        if (positions.distinct().size != positions.size ||
+            positions.zipWithNext().any { (a, b) -> b != a + 1 }) return emptyList()
+        return mapped
+    }
+    val from = start?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: return emptyList()
+    val to = end?.let { runCatching { LocalTime.parse(it) }.getOrNull() } ?: return emptyList()
+    return matchingPeriodIndicesForTimeRange(from, to, periods)
+}
 
 private fun matchingPeriodSpan(start: LocalTime, end: LocalTime,
     targets: List<CoursePeriodTime>): List<CoursePeriodTime> {
@@ -172,23 +110,25 @@ private fun matchingPeriodSpan(start: LocalTime, end: LocalTime,
 }
 
 fun projectCourseArrangements(courses: List<CourseEntity>, config: ScheduleConfigEntity,
-    periods: List<PeriodEntity>): List<CourseEntity> = courses.map { projectCourseArrangement(it, config, periods) }
+    periods: List<PeriodEntity>, catalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog = com.xiaomanjun.sleepdownschedule.model.TimetableCatalog(),
+    date: java.time.LocalDate = java.time.LocalDate.now()): List<CourseEntity> =
+    courses.map { projectCourseArrangement(it, config, periods, catalog, date) }
 
 /** Editors keep source rows; conflict previews use the same arrangements as the current grid. */
 fun AppState.previewCourseEdits(edited: List<CourseEntity>): List<CourseEntity> {
     val previous = courses.associateBy { it.id }
     return projectCourseArrangements(edited.map {
         captureOriginalPeriodTimes(it, periods, previous[it.id]?.originalArrangement())
-    }, config, periods)
+    }, config, periods, timetableCatalog)
 }
 
 fun AppState.withEffectiveCourseArrangements(): AppState {
     val configs = (allConfigs + config).associateBy { it.id }
     val definitions = (allPeriods.filter { it.scheduleId != config.id } + periods).groupBy { it.scheduleId }
-    return copy(courses = projectCourseArrangements(courses, config, periods), allCourses = allCourses.map { course ->
+    return copy(courses = projectCourseArrangements(courses, config, periods, timetableCatalog), allCourses = allCourses.map { course ->
         val owner = configs[course.scheduleId]
         val bells = definitions[course.scheduleId]
-        if (owner == null || bells == null) course else projectCourseArrangement(course, owner, bells)
+        if (owner == null || bells == null) course else projectCourseArrangement(course, owner, bells, timetableCatalog)
     })
 }
 
@@ -197,35 +137,36 @@ fun CourseEntity.effectiveArrangementOrNull(): EffectiveCourseArrangement? =
 
 fun CourseEntity.isHiddenByPeriodAlignment(): Boolean = effectiveArrangementOrNull()?.times?.isEmpty() == true
 
-/** Reuse CourseEntity fragments for the grid/reminder code, carrying the complete source with each. */
-fun courseAlignmentFragments(course: CourseEntity, periods: List<PeriodEntity>): List<CourseEntity> {
+/** Reminder fragments keep every exact lesson boundary and carry the complete saved source. */
+fun courseAlignmentFragments(course: CourseEntity, periods: List<PeriodEntity>): List<CourseEntity> =
+    courseArrangementFragments(course, periods, forWeekDisplay = false)
+
+/** A consecutive block remains one card even when individual lessons use different clocks. */
+fun courseWeekDisplayFragments(course: CourseEntity, periods: List<PeriodEntity>): List<CourseEntity> =
+    courseArrangementFragments(course, periods, forWeekDisplay = true)
+
+private fun courseArrangementFragments(
+    course: CourseEntity, periods: List<PeriodEntity>, forWeekDisplay: Boolean
+): List<CourseEntity> {
     val projection = course.effectiveArrangementOrNull() ?: return listOf(course)
     if (projection.times.isEmpty()) return emptyList()
-    val order = periods.sortedBy { it.periodIndex }.map { it.periodIndex }
-    val normal = projection.times.filterNot { it.exact }.associateBy { it.time.index }
     val groups = mutableListOf<MutableList<AlignedCourseTime>>()
-    var group: MutableList<AlignedCourseTime>? = null
-    order.forEach { index ->
-        val time = normal[index]
-        if (time == null) group = null else {
-            if (group == null) { group = mutableListOf(); groups += group!! }
-            group!! += time
-        }
+    projection.times.sortedBy { it.time.start }.forEach { time ->
+        val previous = groups.lastOrNull()?.lastOrNull()
+        val join = previous != null && time.time.index == previous.time.index + 1 &&
+            (forWeekDisplay || (!time.exact && !previous.exact))
+        if (!join) groups += mutableListOf<AlignedCourseTime>()
+        groups.last() += time
     }
-    val exact = projection.times.filter { it.exact }
-    // A wholly custom course keeps its original complete clock interval and lesson boundaries.
-    if (normal.isEmpty() && exact.size == 1 && projection.source.customPeriodTimes.isNullOrBlank()) return listOf(course)
-    return (groups.map { it.toList() } + exact.map { listOf(it) }).map { times ->
-        val exactOnly = times.all { it.exact }
-        val fragmentIndices = if (exactOnly) times.flatMap {
-            courseAnchorPeriodsForTimeRange(it.time.start, it.time.end, periods)
-        }.distinct().sorted() else times.map { it.time.index }.distinct().sorted()
-        val start = if (exactOnly) times.minOf { it.time.start }.toString() else null
-        val end = if (exactOnly) times.maxOf { it.time.end }.toString() else null
-        val bells = if (exactOnly) encodeCoursePeriodTimes(times.map { it.time }) else null
-        course.copy(periods = fragmentIndices, customStartTime = start, customEndTime = end,
-            customPeriodTimes = bells, arrangementProjection = projection.copy(periods = fragmentIndices,
-                times = times, displayStart = start, displayEnd = end, displayPeriodTimes = bells))
+    return groups.map { times ->
+        val gridIndices = times.flatMap {
+            matchingPeriodIndicesForTimeRange(it.time.start, it.time.end, periods)
+                .ifEmpty { courseAnchorPeriodsForTimeRange(it.time.start, it.time.end, periods) }
+        }.distinct().sorted()
+        val exact = times.any { it.exact }
+        course.copy(arrangementProjection = projection.copy(periods = gridIndices, times = times,
+            displayStart = times.minOf { it.time.start }.toString().takeIf { exact },
+            displayEnd = times.maxOf { it.time.end }.toString().takeIf { exact }))
     }
 }
 
@@ -246,16 +187,16 @@ fun CourseAlignmentImpact.summary(): String = buildString {
         }
     }
     if (conflicts.isNotEmpty()) {
-        append("\n新增 ${conflicts.size} 处时间冲突，请先调整课程：")
+        append("\n新增 ${conflicts.size} 处时间冲突，可在课程中调整：")
         conflicts.take(5).forEach { append("\n${it.firstName} / ${it.secondName}") }
     }
 }
 
 fun previewCourseAlignment(courses: List<CourseEntity>, currentConfig: ScheduleConfigEntity,
     currentPeriods: List<PeriodEntity>, targetConfig: ScheduleConfigEntity,
-    targetPeriods: List<PeriodEntity>): CourseAlignmentImpact {
-    val before = projectCourseArrangements(courses, currentConfig, currentPeriods)
-    val after = projectCourseArrangements(courses, targetConfig, targetPeriods)
+    targetPeriods: List<PeriodEntity>, catalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog = com.xiaomanjun.sleepdownschedule.model.TimetableCatalog()): CourseAlignmentImpact {
+    val before = projectCourseArrangements(courses, currentConfig, currentPeriods, catalog)
+    val after = projectCourseArrangements(courses, targetConfig, targetPeriods, catalog)
     val conflicts = buildList {
         after.indices.forEach { i -> (i + 1 until after.size).forEach { j ->
             if (after[i].weeks.any { week ->

@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.resolvedCoursesForPreview
+
 import android.graphics.Bitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -44,16 +46,11 @@ import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.withCompatiblePeriodGrid
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
-import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import kotlin.math.roundToInt
@@ -107,6 +104,7 @@ fun ConfirmScheduleScreen(
         )
         return
     }
+    val previewCourses = remember(previewDraft) { previewDraft.resolvedCoursesForPreview() }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(16.dp),
@@ -127,7 +125,7 @@ fun ConfirmScheduleScreen(
             item { Text("没有解析到课程", color = MaterialTheme.colorScheme.error) }
         } else {
             itemsIndexed(
-                previewDraft.courses,
+                previewCourses,
                 key = { index, course ->
                     "preview_${index}_${course.name}_${course.weekday}_${course.periods.joinToString("_")}_${course.weeks.take(3).joinToString("_")}"
                 }
@@ -203,6 +201,7 @@ private fun AiImportChatPreview(
         revising = false
         ownedRevisionTaskId = null
     }
+    val previewCourses = remember(draft) { draft.resolvedCoursesForPreview() }
     Column(Modifier.fillMaxSize()) {
         errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
         if (submitting) Text("正在保存课表…", modifier = Modifier.padding(16.dp))
@@ -272,7 +271,7 @@ private fun AiImportChatPreview(
                 item { Text("没有解析到课程", color = MaterialTheme.colorScheme.error) }
             } else {
                 itemsIndexed(
-                    draft.courses,
+                    previewCourses,
                     key = { index, course ->
                         "ai_preview_${index}_${course.name}_${course.weekday}_${course.periods.joinToString("_")}"
                     }

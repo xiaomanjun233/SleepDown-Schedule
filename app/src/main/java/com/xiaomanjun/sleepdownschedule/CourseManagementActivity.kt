@@ -12,13 +12,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -27,13 +30,12 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xiaomanjun.sleepdownschedule.app.state.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.performance.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
 import com.xiaomanjun.sleepdownschedule.domain.course.*
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 import com.xiaomanjun.sleepdownschedule.feature.course.management.*
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
@@ -77,6 +79,12 @@ open class CourseManagementActivity : ComponentActivity() {
                                     )
                                 }
                             ) { requestClose ->
+                                val pageConfig = settingsVisualConfig(state.config)
+                                val pageBackgroundArgb = settingsPageBackground(pageConfig).toArgb()
+                                val cardSurfaceArgb by rememberUpdatedState(
+                                    managedCourseCardSurfaceColor(androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh)
+                                        .compositeOver(settingsPageBackground(pageConfig)).toArgb()
+                                )
                                 val pageSnapshotLayer = rememberGraphicsLayer()
                                 val pageSnapshotRequested = remember { AtomicBoolean(false) }
                                 var pageSnapshotRequestVersion by remember { mutableStateOf(0) }
@@ -119,6 +127,7 @@ open class CourseManagementActivity : ComponentActivity() {
                                              onOpenCourse = {
                                                  courseId,
                                                  detailSourceBounds,
+                                                 currentReturnBounds,
                                                 snapshots,
                                                  onOpeningSourceHandoff,
                                                 onSourceReleased ->
@@ -133,7 +142,8 @@ open class CourseManagementActivity : ComponentActivity() {
                                                     bitmap = snapshots?.source,
                                                     cornerRadiusPx = with(transitionDensity) {
                                                         20.dp.toPx()
-                                                    }
+                                                    },
+                                                    surfaceColor = cardSurfaceArgb
                                                 )
                                                 val launchResult = ActivityTransitionCoordinator.open(
                                                     activity = this@CourseManagementActivity,
@@ -141,16 +151,15 @@ open class CourseManagementActivity : ComponentActivity() {
                                                     intent = detailIntent,
                                                     payload = TransitionPayload(
                                                         openingAnchor = anchor,
-                                                        // Course detail closes to the same captured
-                                                        // card frame. The Oplus backend owns a plain
-                                                        // decor snapshot View for the whole session;
-                                                        // business UI no longer exposes a Compose
-                                                        // AndroidView as a vendor source.
                                                         returnAnchorProvider =
-                                                            TransitionAnchorProvider { anchor },
+                                                            TransitionAnchorProvider {
+                                                                currentReturnBounds()?.let {
+                                                                    anchor.copy(boundsInWindow = it, surfaceColor = cardSurfaceArgb)
+                                                                }
+                                                            },
                                                         backgroundBitmap = snapshots?.background,
+                                                        backgroundColor = pageBackgroundArgb,
                                                         onOpeningSourceHandoff = onOpeningSourceHandoff,
-                                                        nativeSourceLeashAlphaOutOnOpen = true,
                                                         onSourceReleased = onSourceReleased
                                                     )
                                                 )

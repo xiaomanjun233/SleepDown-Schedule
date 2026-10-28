@@ -6,49 +6,8 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import kotlinx.coroutines.flow.Flow
-
-@Dao
-interface CourseDao {
-    @Query("SELECT * FROM courses WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
-    fun observeCourses(): Flow<List<CourseEntity>>
-
-    @Query("SELECT * FROM courses WHERE scheduleId = :scheduleId")
-    fun observeCourses(scheduleId: Int): Flow<List<CourseEntity>>
-
-    @Query("SELECT * FROM courses")
-    fun observeAllCourses(): Flow<List<CourseEntity>>
-
-    @Query("SELECT * FROM courses WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
-    suspend fun getCourses(): List<CourseEntity>
-
-    @Query("SELECT * FROM courses WHERE scheduleId = :scheduleId")
-    suspend fun getCourses(scheduleId: Int): List<CourseEntity>
-
-    @Query("SELECT * FROM courses")
-    suspend fun getAllCourses(): List<CourseEntity>
-
-    @Query("DELETE FROM courses")
-    suspend fun deleteAllRows()
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertCourse(course: CourseEntity): Long
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun updateCourse(course: CourseEntity): Long
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertCourses(courses: List<CourseEntity>): List<Long>
-
-    @Query("DELETE FROM courses WHERE id = :courseId")
-    suspend fun deleteCourse(courseId: Long)
-
-    @Query("DELETE FROM courses WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
-    suspend fun deleteAll()
-
-    @Query("DELETE FROM courses WHERE scheduleId = :scheduleId")
-    suspend fun deleteBySchedule(scheduleId: Int)
-}
 
 @Dao
 interface ConfigDao {
@@ -95,13 +54,25 @@ interface ConfigDao {
     suspend fun upsertConfigs(configs: List<ScheduleConfigEntity>)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertPeriods(periods: List<PeriodEntity>)
+    suspend fun insertCompatibilityScheme(scheme: PeriodSchemeEntity): Long
 
-    @Query("DELETE FROM periods WHERE scheduleId = (SELECT id FROM schedule_profiles WHERE isActive = 1 LIMIT 1)")
-    suspend fun deletePeriods()
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCompatibilityTimes(times: List<PeriodSchemeTimeEntity>)
 
-    @Query("DELETE FROM periods WHERE scheduleId = :scheduleId")
-    suspend fun deletePeriods(scheduleId: Int)
+    /** Legacy restore/bootstrap boundary: creates a binding, never a second writable period table. */
+    @Transaction
+    suspend fun upsertPeriods(periods: List<PeriodEntity>) {
+        for ((scheduleId, rows) in periods.groupBy { it.scheduleId }) {
+            val config = requireNotNull(getConfig(scheduleId)) { "课表配置不存在" }
+            if (getPeriods(scheduleId) == rows.sortedBy { it.periodIndex }) continue
+            val id = insertCompatibilityScheme(PeriodSchemeEntity(scheduleId = 0, name = "恢复的作息",
+                publicId = java.util.UUID.randomUUID().toString(), morningPeriodCount = config.morningPeriodCount,
+                noonPeriodCount = config.noonPeriodCount, afternoonPeriodCount = config.afternoonPeriodCount,
+                eveningPeriodCount = config.eveningPeriodCount))
+            insertCompatibilityTimes(rows.map { PeriodSchemeTimeEntity(id, it.periodIndex, it.startTime, it.endTime, it.alias) })
+            upsertConfig(config.copy(activePeriodSchemeId = id))
+        }
+    }
 
     @Query("DELETE FROM schedule_config WHERE id = :scheduleId")
     suspend fun deleteConfig(scheduleId: Int)
@@ -109,8 +80,6 @@ interface ConfigDao {
     @Query("DELETE FROM schedule_config")
     suspend fun deleteAllConfigs()
 
-    @Query("DELETE FROM periods")
-    suspend fun deleteAllPeriods()
 }
 
 @Dao

@@ -168,7 +168,7 @@ internal fun BoundlessWeekdayHeaderRow(
                 text = "第${displayWeek}周",
                 color = textColor,
                 style = MaterialTheme.typography.titleSmall.copy(
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.Medium,
                     textAlign = TextAlign.Center
                 ),
                 modifier = Modifier
@@ -180,7 +180,7 @@ internal fun BoundlessWeekdayHeaderRow(
                     HomeReadableText(
                         text = "第${displayWeek}周", color = textColor,
                         style = MaterialTheme.typography.titleSmall,
-                        fontSize = fittedSize, fontWeight = FontWeight.Bold,
+                        fontSize = fittedSize, fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Center, maxLines = 1, softWrap = false,
                         overflow = TextOverflow.Ellipsis
                     )
@@ -315,7 +315,7 @@ private fun WeekdayHeaderLabels(
         verticalAlignment = Alignment.CenterVertically
     ) {
         weekdays.forEachIndexed { index, day ->
-            val date = weekStart.plusDays((day - 1).toLong())
+            val date = weekStart.plusDays(config?.let { com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(it, day) } ?: (day - 1).toLong())
             val isToday = date == today
             val extendsToHeaderEnd = isToday && index == weekdays.lastIndex
             val adjusted = config != null && com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config, date) != null

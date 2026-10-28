@@ -6,8 +6,8 @@
 
 | 项目 | 当前事实 | 核对入口 |
 | --- | --- | --- |
-| 持续开发入口 | `main`，快照为 `a320f6a8`，实际版本 `1.2.7_beta5` / 34 | 上游 main 与该提交的 `app/build.gradle.kts` |
-| 最新正式版 | `v1.2.7.1`，源码 `bdc380ee`，双平台正式发布；r1 已撤下，旧标签保留。尚未回流 main，main 是发布源码的祖先 | [发布与更新兼容核验](reports/2026-10-20-update-revision-compatibility.md) |
+| 持续开发入口 | `main`，快照为 `9b6acbb2`，实际版本 `1.2.7.1` / 35 | 上游 main 与该提交的 `app/build.gradle.kts` |
+| 最新正式版 | `v1.2.7.1`，源码 `bdc380ee`，双平台正式发布；r1 已撤下，旧标签保留。发布源码已通过 #78 回流 main | [发布与更新兼容核验](reports/2026-10-20-update-revision-compatibility.md)、[架构任务基线](reports/2026-10-20-architecture-review.md) |
 | Android 主应用 | `com.xiaomanjun.sleepdownschedule`，正式版 `1.2.7.1` / `35` | `app/build.gradle.kts` 与发布记录 |
 | 发行渠道 | `github` 与 `store` 两种 flavor；厂商实验入口由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 按渠道控制 | `app/build.gradle.kts`、`app/src/github/`、`app/src/store/` |
 | 课程组件 | 独立包 `com.suda.yzune.wakeupschedule`；构建版本 `6.0.19` / `259` | `coloros-wakeup-proxy/build.gradle.kts` |
@@ -16,7 +16,7 @@
 
 已发布普通应用包含按设备展示的 OPPO/一加/realme 流体云、荣耀 YOYO 建议和小米超级岛课程通知实验入口。这里的“实验功能”是**同一应用中的功能状态**，不是继续发行 `-expN` 独立版本。GitHub flavor 启用入口，商店 flavor 关闭相应实验能力；实际可用性还受设备、系统、授权和组件状态限制。详见[功能地图](FEATURE_MAP.md)和[历史实验线记录](EXP_BRANCH_AND_RELEASES.md)。
 
-`main` 是协作入口，不表示它已经包含所有已发布代码。当前 #78 尚未合并，`1.2.7.1` 发布提交比 main 多 106 个提交，其中包含上一正式版 `1.2.7` 的 64 个已发布提交及其后修复；具体状态见交接页。
+2026-10-20 用户明确要求“先合并”，[#78](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/78) 已通过 merge commit `9b6acbb2` 合入 main，包含此前已发布的 1.2.7 与 1.2.7.1 源码及修复。已核对 `bdc380ee` 是远端 main 的祖先，发布基线回流已收口；本次合并没有创建新版本或 Release。后续独立任务从该更新后的 main 开始，具体状态见交接页。
 
 ## 正式版、Beta 与实验功能
 
@@ -53,3 +53,9 @@
 6. 核对发布源码可从 main 到达；若按已授权例外先发布，记录源码 SHA、差异和回流 PR。回流时保留已发布提交的祖先关系，不能只更新版本字符串便宣称 main 与 Release 对齐。合并与发布的授权分别处理。
 
 构建、安装与专项验收入口见根目录 [AGENTS.md](../AGENTS.md)。Git 工作方式见[开发工作流](DEVELOPMENT_WORKFLOW.md)。具体历史记录在 `release-notes/` 与带日期的 `docs/` 报告中；历史记录不自动定义当前功能状态。
+
+## 1.2.8 Beta1 已发布（2026-10-27）
+
+用户确认更新说明并授权发布当前重构候选：主应用为 `1.2.8_beta1` / `36`，新标签为 `v1.2.8_beta1`，源码 `498d39cc5426fefbe939eca52ce55739923887b2`。GitHub 与 Gitee 均已预发布，不替代最新正式版 `v1.2.7.1`；四份公开附件回读匹配，见[发布记录](2026-10-27-beta1-1.2.8-release.md)。应用内和[独立日志](../release-notes/v1.2.8_beta1.md)保留本次 18 条更新。课程组件保持 `6.0.19` / `259`。
+
+发布来自 `codex/course-time-model-room50`，包含保全 PR #86 与重构 PR #87；本次发布未合并这两个 PR，main 尚未包含本轮源码，回流继续通过对应 PR 处理。后续文档记录提交不移动已发布标签。

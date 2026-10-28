@@ -20,13 +20,21 @@ internal data class RefreshCourse(
     val end: String?,
     val periodTimes: String?,
     val originalTimes: String?,
-    val color: Long?
+    val color: Long?,
+    val independentPeriodSchemeId: Long? = null,
+    val credit: Float? = null,
+    val timingReviewReason: String? = null,
+    val legacyTimingSourceJson: String? = null,
+    val sourcePaletteIndex: Int? = null
 ) {
     fun entity(scheduleId: Int) = CourseEntity(id = id, name = name, teacher = teacher,
         location = location, weekday = weekday, periods = periods, weeks = weeks,
         weekParity = WeekParity.valueOf(parity), note = note, customStartTime = start,
         customEndTime = end, customPeriodTimes = periodTimes, originalPeriodTimes = originalTimes,
-        customColorArgb = color, scheduleId = scheduleId)
+        customColorArgb = color, scheduleId = scheduleId,
+        independentPeriodSchemeId = independentPeriodSchemeId, credit = credit,
+        timingReviewReason = timingReviewReason, legacyTimingSourceJson = legacyTimingSourceJson,
+        sourcePaletteIndex = sourcePaletteIndex)
 
     fun contentKey() = copy(id = 0, color = null, name = name.trim(),
         teacher = teacher.orEmpty().trim(), location = location.orEmpty().trim(), note = note.orEmpty().trim(),
@@ -36,7 +44,8 @@ internal data class RefreshCourse(
         fun from(course: CourseEntity): RefreshCourse = course.originalArrangement().let {
             RefreshCourse(it.id, it.name, it.teacher, it.location, it.weekday, it.periods, it.weeks,
                 it.weekParity.name, it.note, it.customStartTime, it.customEndTime,
-                it.customPeriodTimes, it.originalPeriodTimes, it.customColorArgb)
+                it.customPeriodTimes, it.originalPeriodTimes, it.customColorArgb,
+                it.independentPeriodSchemeId, it.credit, it.timingReviewReason, it.legacyTimingSourceJson, it.sourcePaletteIndex)
         }
     }
 }

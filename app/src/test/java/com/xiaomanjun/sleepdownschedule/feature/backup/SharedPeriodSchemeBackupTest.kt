@@ -12,6 +12,32 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SharedPeriodSchemeBackupTest {
+    @Test fun version2RestoresIndependentAndSeasonalReferencesWithFreshIds() {
+        val configs = listOf(defaultConfig(7).copy(activePeriodSchemeId=1,activeTimetableComboId=10,
+            morningPeriodCount=1,noonPeriodCount=0,afternoonPeriodCount=0,eveningPeriodCount=0))
+        val source = CourseEntity(id=85,name="B楼实验",teacher=null,location="B楼",weekday=1,periods=listOf(1),
+            weeks=listOf(1,3),weekParity=WeekParity.ALL,note="保留备注",scheduleId=7,independentPeriodSchemeId=2,credit=2f,sourcePaletteIndex=4)
+        val modern = BackupExportMapper.toArchive(
+            BackupSourceMetadata("2026-10-27T12:00:00Z","1.2.7.1",35,"com.xiaomanjun.sleepdownschedule",APP_DATABASE_VERSION,"Android"),
+            BackupRoomSnapshot(schedules=listOf(ScheduleProfileEntity(7,"课表",true)),configs=configs,
+                periods=listOf(PeriodEntity(1,"08:00","08:45",7,"早一")),courses=listOf(source),
+                periodSchemes=listOf(scheme(1,"main"),scheme(2,"building")),
+                periodSchemeTimes=listOf(PeriodSchemeTimeEntity(1,1,"08:00","08:45","早一"),PeriodSchemeTimeEntity(2,1,"08:20","09:05","实验")),
+                timetableCombos=listOf(com.xiaomanjun.sleepdownschedule.model.TimetableComboEntity(10,"夏季",1)),
+                timetableRules=listOf(com.xiaomanjun.sleepdownschedule.model.TimetableDateRuleEntity(10,0,2,"2026-09-01","2026-09-30"))),
+            BackupPreferences(BackupFormatV1.PREFERENCES_VERSION))
+        val archive = decode(modern)
+        assertEquals(2,archive.data.dataVersion)
+        val rows = BackupRoomRestoreMapper.map(archive,BackupImportPlanBuilder.build(archive,"timing-v2",BackupImportTargetSnapshot(schemeIds=setOf(1,2))))
+        val building = rows.periodSchemes.single { it.publicId=="building" }.id
+        assertEquals(building,rows.courses.single().independentPeriodSchemeId)
+        assertEquals(building,rows.timetableRules.single().schemeId)
+        assertEquals(rows.timetableCombos.single().id,rows.configs.single().activeTimetableComboId)
+        assertEquals(2f,rows.courses.single().credit)
+        assertEquals(4,rows.courses.single().sourcePaletteIndex)
+        assertEquals("实验",rows.periodSchemeTimes.single { it.schemeId==building }.alias)
+    }
+
     @Test fun globalRoundTripPreservesSharingAndUnreferencedSchemes() {
         val archive = decode(export())
         val shared = requireNotNull(archive.data.sharedPeriodSchemes)
@@ -198,14 +224,16 @@ class SharedPeriodSchemeBackupTest {
         val original = archive.data.schedules.first()
         val dto = BackupCourse(BackupStableId.new(BackupStableId.COURSE_PREFIX), "隐藏课程", null, null,
             1, (11..14).toList(), listOf(1), "ALL", null, originalPeriodTimes = source)
-        val encoded = decode(archive.copy(data = archive.data.copy(schedules = listOf(original.copy(
+        val encoded = decode(archive.copy(data = archive.data.copy(dataVersion=1,schedules = listOf(original.copy(
             courses = listOf(dto), config = original.config.copy(periodAlignmentMode = "TIME"))))))
         val rows = BackupRoomRestoreMapper.map(encoded, BackupImportPlanBuilder.build(encoded, "recoverable-source"))
-        assertEquals(PeriodAlignmentMode.TIME, rows.configs.single().periodAlignmentMode)
+        assertEquals(PeriodAlignmentMode.INDEX, rows.configs.single().periodAlignmentMode)
         assertEquals(source, rows.courses.single().originalPeriodTimes)
         assertEquals((11..14).toList(), rows.courses.single().periods)
         val restored = projectCourseArrangement(rows.courses.single(), rows.configs.single(), rows.periods)
-        assertTrue(restored.periods.isEmpty())
+        assertEquals((11..14).toList(),restored.periods)
+        assertEquals(source,rows.courses.single().customPeriodTimes)
+        assertEquals("10:00 - 13:10",com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeLabel(restored,rows.periods))
         val originalBells = com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes(source)
             .map { PeriodEntity(it.index, it.start.toString(), it.end.toString(), rows.configs.single().id) }
         val recovered = projectCourseArrangement(restored,

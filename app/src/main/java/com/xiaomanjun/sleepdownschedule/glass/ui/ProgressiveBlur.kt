@@ -140,6 +140,7 @@ fun Modifier.progressiveBackdropBlur(
                     "content"
                 ) {
                     setFloatUniform("size", size.width, size.height)
+                    setFloatUniform("contentOrigin", padding, padding)
                     setColorUniform("tint", tintColor)
                     setFloatUniform("tintIntensity", tintIntensity.coerceIn(0f, 1f))
                     setFloatUniform("maskFadeStart", topMaskFadeStart.coerceIn(0f, 1f))
@@ -222,6 +223,7 @@ internal fun progressiveBlurShaderSource(direction: ProgressiveBlurDirection): S
     return """
         uniform shader content;
         uniform float2 size;
+        uniform float2 contentOrigin;
         layout(color) uniform half4 tint;
         uniform float tintIntensity;
         uniform float maskFadeStart;
@@ -230,10 +232,13 @@ internal fun progressiveBlurShaderSource(direction: ProgressiveBlurDirection): S
         uniform float tintFadeEnd;
 
         half4 main(float2 coord) {
-            float x = coord.x / size.x;
-            float y = coord.y / size.y;
+            float x = (coord.x - contentOrigin.x) / size.x;
+            float y = (coord.y - contentOrigin.y) / size.y;
             $maskExpression
-            return mix(content.eval(coord) * mask, tint * tintMask, tintIntensity);
+            half4 tintPremul = half4(tint.rgb * tint.a, tint.a);
+            half4 color = content.eval(coord);
+            color = tintPremul * (tintIntensity * tintMask) + color * (1.0 - tint.a * tintIntensity * tintMask);
+            return color * mask;
         }
     """.trimIndent()
 }

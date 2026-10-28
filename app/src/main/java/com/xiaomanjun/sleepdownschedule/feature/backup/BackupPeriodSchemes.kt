@@ -38,11 +38,11 @@ internal fun backupSchemeGraph(archive: DecodedBackupArchive): BackupSchemeGraph
                     morningStartTime = schedule.periods.first().startTime,
                     noonStartTime = "12:00", afternoonStartTime = "14:00", eveningStartTime = "19:00",
                     specialBreaksJson = "{}", overridesJson = "{}",
-                    times = schedule.periods.map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime) }
+                    times = schedule.periods.map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime, it.alias) }
                 ))
             }
             val originalActive = originalSchemes.firstOrNull { it.isActive } ?: originalSchemes.firstOrNull()
-            val visibleTimes = schedule.periods.map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime) }
+            val visibleTimes = schedule.periods.map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime, it.alias) }
             val visibleSnapshot = originalActive?.takeIf {
                 visibleTimes.isNotEmpty() && it.times.isNotEmpty() && it.times.sortedBy { time -> time.periodIndex } != visibleTimes.sortedBy { time -> time.periodIndex }
             }?.copy(id = backupDerivedSchemeId("legacy-visible:${schedule.id}"), publicId = "",
@@ -53,7 +53,7 @@ internal fun backupSchemeGraph(archive: DecodedBackupArchive): BackupSchemeGraph
             selected?.let { activeIds[schedule.id] = it.id }
             result += schemes.map { scheme ->
                 val times = scheme.times.ifEmpty {
-                    schedule.periods.map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime) }
+                    schedule.periods.map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime, it.alias) }
                 }
                 val counts = listOf(schedule.config.morningPeriodCount, schedule.config.noonPeriodCount,
                     schedule.config.afternoonPeriodCount, schedule.config.eveningPeriodCount)
@@ -80,7 +80,7 @@ internal fun backupSchemeGraph(archive: DecodedBackupArchive): BackupSchemeGraph
             morningStartTime = saved.morningStartTime, noonStartTime = saved.noonStartTime,
             afternoonStartTime = saved.afternoonStartTime, eveningStartTime = saved.eveningStartTime,
             specialBreaksJson = saved.specialBreaksJson, overridesJson = saved.overridesJson,
-            times = saved.times.map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime) }
+            times = saved.times.map { BackupPeriodSchemeTime(it.periodIndex, it.startTime, it.endTime, it.alias) }
         )
     }
     require(result.map { it.id }.distinct().size == result.size) { "共享作息编号重复" }
@@ -99,8 +99,8 @@ internal fun sameBackupSchemeContent(
     first.afternoonStartTime == second.afternoonStartTime && first.eveningStartTime == second.eveningStartTime &&
     decodeSpecialBreaks(first.specialBreaksJson) == decodeSpecialBreaks(second.specialBreaksJson) &&
     decodeOverrides(first.overridesJson) == decodeOverrides(second.overridesJson) &&
-    firstTimes.sortedBy { it.periodIndex }.map { Triple(it.periodIndex, it.startTime, it.endTime) } ==
-    secondTimes.sortedBy { it.periodIndex }.map { Triple(it.periodIndex, it.startTime, it.endTime) }
+    firstTimes.sortedBy { it.periodIndex }.map { it.copy(schemeId = 0) } ==
+    secondTimes.sortedBy { it.periodIndex }.map { it.copy(schemeId = 0) }
 
 internal data class BackupSchemeMerge(
     val additions: List<PeriodSchemeEntity>,

@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt
 
-data class ChatGptModel(val slug: String, val displayName: String, val supportsImages: Boolean = false)
+/** Null means the account catalog did not report image capability, not an explicit refusal. */
+data class ChatGptModel(val slug: String, val displayName: String, val supportsImages: Boolean? = null)
 data class ChatGptAccount(val id: String, val displayName: String, val email: String?, val isSignedIn: Boolean, val planUsageEnabled: Boolean)
 enum class ChatGptLoginStage(val label: String) {
     Preparing("正在准备登录…"),

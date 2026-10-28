@@ -73,7 +73,7 @@ private fun TransitionOpenRequest.attachAnchoredSourcePlaceholder(): LegacySourc
         // Home hides the real three-dot menu before recording a clean one-way backdrop. Its
         // validated Legacy renderer still needs that exact captured menu until the 330ms opening
         // finishes. Keeping this placeholder inside the Legacy backend prevents it from leaking
-        // beneath an Oplus leash when native registration succeeds.
+        // beneath the system transition when native registration succeeds.
         AnchoredLegacyProfileId.HomeMenuDestination ->
             HomeMenuDestinationSourcePlaceholderMillis
         AnchoredLegacyProfileId.CourseManagementDetail ->

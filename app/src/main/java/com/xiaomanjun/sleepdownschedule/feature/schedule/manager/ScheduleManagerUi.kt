@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.manager
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
+import com.xiaomanjun.sleepdownschedule.model.DefaultCourseCardPalette
+
 import android.content.ClipData
 import android.content.Context
 import android.content.Intent
@@ -93,14 +97,12 @@ import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.app.state.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
+import com.xiaomanjun.sleepdownschedule.feature.schedule.ScheduleScreenViewModel
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.home.week.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
@@ -127,8 +129,8 @@ open class ScheduleManagerActivityHost : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         setContent {
             val app = application as CourseScheduleApp
-            val viewModel: ScheduleViewModel = viewModel(
-                factory = ScheduleViewModelFactory(app, app.repository)
+            val viewModel: ScheduleScreenViewModel = viewModel(
+                factory = ScheduleScreenViewModel.Factory(app, app.repository, app.applicationScope)
             )
             val state by viewModel.allSchedulesState.collectAsStateWithLifecycle()
             CourseScheduleTheme(config = state.config) {
@@ -136,7 +138,7 @@ open class ScheduleManagerActivityHost : ComponentActivity() {
                     state = state,
                     onSelect = { id ->
                         Log.d("ScheduleManager", "select schedule id=$id")
-                        viewModel.activateSchedule(id) { finish() }
+                        viewModel.actions.activateSchedule(id) { finish() }
                     },
                     onCustomize = { id ->
                         Log.d("ScheduleManager", "customize schedule id=$id")
@@ -152,15 +154,15 @@ open class ScheduleManagerActivityHost : ComponentActivity() {
                     },
                     onCreate = {
                         Log.d("ScheduleManager", "create schedule")
-                        viewModel.createSchedule()
+                        viewModel.actions.createSchedule()
                     },
                     onRename = { id, name ->
                         Log.d("ScheduleManager", "rename schedule id=$id name=$name")
-                        viewModel.renameSchedule(id, name)
+                        viewModel.actions.renameSchedule(id, name)
                     },
                     onDelete = { id ->
                         Log.d("ScheduleManager", "delete schedule id=$id")
-                        viewModel.deleteSchedule(id)
+                        viewModel.actions.deleteSchedule(id)
                     },
                     onBack = { finish() }
                 )
@@ -571,8 +573,9 @@ fun ScheduleManagerScreen(
             actions = listOf(
                 LiquidAlertAction("分享课表口令", LiquidAlertActionStyle.Primary) {
                     showShareOptions = false
-                    val token = buildSleepDownScheduleToken(centeredConfig, centeredPeriods, centeredCourses)
-                    shareScheduleToken(context, centeredProfile.name, token)
+                    runCatching { buildSleepDownScheduleToken(centeredConfig, centeredPeriods, centeredCourses, state.timetableCatalog) }
+                        .onSuccess { shareScheduleToken(context,centeredProfile.name,it) }
+                        .onFailure { Toast.makeText(context,it.message ?: "课表分享失败",Toast.LENGTH_SHORT).show() }
                 },
                 LiquidAlertAction("分享 ICS 文件", LiquidAlertActionStyle.Secondary) {
                     showShareOptions = false
@@ -584,7 +587,8 @@ fun ScheduleManagerScreen(
                                     calendarName = centeredProfile.name,
                                     config = centeredConfig,
                                     periods = centeredPeriods,
-                                    courses = centeredCourses
+                                    courses = centeredCourses,
+                                    catalog = state.timetableCatalog
                                 )
                             }
                         }.onSuccess { file ->
@@ -896,18 +900,17 @@ fun StaticWeekSnapshotGrid(
 ) {
     val rowHeaderWidth = 40.dp
     val today = LocalDate.now()
-    val weekStart = today
-        .minusDays((today.dayOfWeek.toChineseWeekday() - 1).toLong())
-        .plusWeeks((displayWeek - effectiveCurrentWeek(state.config)).toLong())
+    val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
     val visibleCourses = remember(state.courses, displayWeek) {
         state.courses.filter { course ->
             displayWeek in course.weeks && parityMatches(course.weekParity, displayWeek)
         }
     }
     val coursesByWeekday = remember(visibleCourses) { visibleCourses.groupBy { it.weekday } }
-    val weekdays = remember(visibleCourses, state.config.hideEmptyWeekends) {
+    val weekdays = remember(visibleCourses, state.config.hideEmptyWeekends, state.config.weekStartsOnSunday) {
         val weekendHasCourse = visibleCourses.any { it.weekday == 6 || it.weekday == 7 }
-        if (state.config.hideEmptyWeekends && !weekendHasCourse) SnapshotSchoolWeekdays else SnapshotFullWeekdays
+        if (state.config.hideEmptyWeekends && !weekendHasCourse) SnapshotSchoolWeekdays
+        else if (state.config.weekStartsOnSunday) listOf(7, 1, 2, 3, 4, 5, 6) else SnapshotFullWeekdays
     }
     val periods = remember(state.periods, state.config.id) {
         state.periods.take(10).ifEmpty { defaultPeriods(state.config.id).take(10) }
@@ -958,7 +961,7 @@ fun StaticWeekSnapshotGrid(
                 )
                 weekdays.forEach { day ->
                     val isToday = day == today.dayOfWeek.toChineseWeekday()
-                    val date = weekStart.plusDays((day - 1).toLong())
+                    val date = weekStart.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(state.config, day))
                     Column(
                         modifier = Modifier.weight(1f),
                         horizontalAlignment = Alignment.CenterHorizontally,

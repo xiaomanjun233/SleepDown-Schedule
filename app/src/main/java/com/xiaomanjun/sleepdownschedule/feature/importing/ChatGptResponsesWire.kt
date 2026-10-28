@@ -141,16 +141,25 @@ internal fun chatGptResponsesBody(body: JsonObject): JsonObject {
         require(tools.all { (it as? JsonObject)?.get("type")?.jsonPrimitive?.contentOrNull == "function" }) {
             "ChatGPT 套餐调用仅支持本地函数工具"
         }
-        if (tools.isNotEmpty()) values["tools"] = buildJsonArray {
-            add(buildJsonObject {
-                put("type", "namespace")
-                put("name", "sleepdown")
-                put("description", "SleepDown local schedule tools")
-                put("tools", tools)
-            })
+        if (tools.isNotEmpty()) {
+            val names = tools.mapNotNull { (it as? JsonObject)?.get("name")?.jsonPrimitive?.contentOrNull }
+            val existing = (values["instructions"] as? JsonPrimitive)?.contentOrNull.orEmpty()
+            values["instructions"] = JsonPrimitive(existing + "\n\n" +
+                "本轮 developer additional_tools 项已提供应用内函数工具：" + names.joinToString("、") +
+                "。这些函数由应用在本地执行并返回真实结果，不需要浏览器、终端或额外账号授权。" +
+                "按当前用户任务选择必要工具；读写范围和用户确认要求继续以原指令与工具说明为准。")
+            // SIWC also supports additional_tools. Put eager definitions in the model's input,
+            // before replayed calls and their results, rather than relying on namespace loading.
+            val declaration = buildJsonObject {
+                put("type", "additional_tools")
+                put("role", "developer")
+                put("tools", JsonArray(tools.map { tool ->
+                    JsonObject(tool.jsonObject + ("defer_loading" to JsonPrimitive(false)))
+                }))
+            }
+            values["input"] = JsonArray(listOf(declaration) + values.getValue("input").jsonArray)
         }
-        // Forced function selectors outside namespaces are not valid on this preview route.
-        if (values["tool_choice"] is JsonObject) values["tool_choice"] = JsonPrimitive("required")
+        values.remove("tools")
     }
     return JsonObject(values)
 }

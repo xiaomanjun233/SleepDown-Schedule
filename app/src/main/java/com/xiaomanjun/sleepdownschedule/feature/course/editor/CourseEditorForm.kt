@@ -41,7 +41,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSu
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialForeground
 import com.xiaomanjun.sleepdownschedule.courseAnchorPeriodsForTimeRange
 import com.xiaomanjun.sleepdownschedule.courseTimeLabel
-import com.xiaomanjun.sleepdownschedule.feature.home.day.readableOn
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
@@ -49,7 +48,7 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.CourseGlassCard
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardAllowsCustomOverrides
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardBaseColor
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
@@ -80,8 +79,12 @@ internal fun CourseEditorFormPage(
     onOpenPicker: (CourseEditorPickerRequest) -> Unit,
     onOpenColorPicker: () -> Unit,
     pageCount: Int,
-    rowEntrance: (Int) -> Float = { _ -> 1f }
+    rowEntrance: (Int) -> Float = { _ -> 1f },
+    timetableCatalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog = com.xiaomanjun.sleepdownschedule.model.TimetableCatalog()
 ) {
+    val selectedBells = draft.independentPeriodSchemeId?.let { id -> timetableCatalog.times.filter { it.schemeId == id }
+        .sortedBy { it.periodIndex }.map { PeriodEntity(it.periodIndex,it.startTime,it.endTime,config.id,it.alias) } } ?: periods
+    val selectedValues = selectedBells.map { it.periodIndex }
     // This form lives on the wallpaper-sampling CourseGlassCard. Its complete foreground domain
     // must follow the glass contrast decision; appPanelForegroundColor follows the app theme and
     // produced black row labels on a dark sampled card while values/icons stayed light.
@@ -95,23 +98,17 @@ internal fun CourseEditorFormPage(
     } else {
         glassForegroundColor(config)
     }
-    val editorFieldSurface = if (materialForeground != ComposeColor.Unspecified) {
-        materialForeground.copy(alpha = 0.10f)
-    } else if (appUsesDarkTheme(config)) {
-        ComposeColor(0xFF2C2C2E).copy(alpha = 0.54f)
-    } else {
-        ComposeColor.White.copy(alpha = 0.70f)
-    }
-    val editorFieldTextColor = if (materialForeground != ComposeColor.Unspecified) materialForeground else readableOn(editorFieldSurface)
+    // The field resolves its fill from this same foreground, never from the unrelated app theme.
+    val editorFieldTextColor = editorContentColor
     val formBodyBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Content,
         providerId = "course-editor-form-body"
     )
+    val headerBackdrop = backdrop?.let {
+        com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop(it, formBodyBackdrop)
+    } ?: formBodyBackdrop
     // Only the scrolling fields produce this layer. The fixed header consumes it as a
     // later sibling, composited over the actual dialog shell, never the home timetable.
-    val headerBackdrop = if (backdrop != null) {
-        rememberGlassCombinedBackdrop(backdrop, formBodyBackdrop)
-    } else formBodyBackdrop
     // Row timing/easing is owned by the overlay; apply it once as an upward popup.
     // Other callers default to 1f and remain stationary.
     val rowEntranceDensity = LocalDensity.current
@@ -201,6 +198,30 @@ internal fun CourseEditorFormPage(
                 fieldTextColor = editorFieldTextColor
             )
         }
+        item(key = "credit", contentType = "text-field") {
+            DialogCapsuleField(value = draft.credit, onValueChange = { onDraftChange(draft.copy(credit = it)) },
+                placeholder = "学分（可选）", config = config,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), fieldTextColor = editorFieldTextColor)
+        }
+        item(key = "timing-mode", contentType = "selector") {
+            val templates = timetableCatalog.schemes.filter { scheme -> timetableCatalog.times.any { it.schemeId == scheme.id } }
+            val labels = listOf("跟随课表作息") + templates.map { "指定：${it.name}" } + "自定义时间"
+            val selected = if (draft.customStartTime != null) labels.lastIndex
+                else draft.independentPeriodSchemeId?.let { id -> templates.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.plus(1) } ?: 0
+            CourseEditorPickerValue("时间方式", labels[selected], backdrop, config) {
+                onOpenPicker(CourseEditorPickerRequest.Wheel("时间方式", labels, selected, onConfirm = { index, _ ->
+                    val custom = index == labels.lastIndex
+                    onDraftChange(draft.copy(independentPeriodSchemeId = templates.getOrNull(index-1)?.id.takeUnless { custom },
+                        customStartTime = selectedBells.firstOrNull()?.startTime?.takeIf { custom },
+                        customEndTime = selectedBells.firstOrNull()?.endTime?.takeIf { custom },
+                        customPeriodTimes = null, customLessonTimesEdited = false, timingSelectionEdited = true))
+                }))
+            }
+        }
+        if (course?.timingReviewReason != null || course?.arrangementProjection?.reviewReason != null) {
+            item(key = "timing-review") { Text(course.timingReviewReason ?: course.arrangementProjection!!.reviewReason.orEmpty(),
+                modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall) }
+        }
         item(key = "weekday", contentType = "selector") {
             Box(Modifier.fillMaxWidth().courseEditorFormRowEntrance(5)) {
             DialogMultiGridSelector(
@@ -221,8 +242,8 @@ internal fun CourseEditorFormPage(
             Box(Modifier.fillMaxWidth().courseEditorFormRowEntrance(6)) {
             DialogPeriodSelector(
                 title = "节次",
-                    values = periodValues.ifEmpty { listOf(1) },
-                    periods = periods,
+                    values = selectedValues.ifEmpty { periodValues },
+                    periods = selectedBells,
                     start = draft.periodStart,
                     end = draft.periodEnd,
                     customStartTime = draft.customStartTime,
@@ -231,6 +252,7 @@ internal fun CourseEditorFormPage(
                     selectedPeriodIndices = if (draft.customLessonTimesEdited) {
                         parseCoursePeriodTimes(draft.customPeriodTimes).map { it.index }
                     } else course?.periods?.takeIf {
+                        !draft.periodRangeEdited &&
                         it.minOrNull() == draft.periodStart && it.maxOrNull() == draft.periodEnd
                     } ?: periodValues.filter { it in draft.periodStart..draft.periodEnd },
                     onRangeSelected = { start, end ->
@@ -241,26 +263,21 @@ internal fun CourseEditorFormPage(
                                 customStartTime = null,
                                 customEndTime = null,
                                 customPeriodTimes = null,
-                                customLessonTimesEdited = false
+                                customLessonTimesEdited = false,
+                                periodRangeEdited = true,
+                                timingSelectionEdited = true
                             )
                         )
                     },
                     onCustomTimeSelected = { startTime, endTime ->
-                        val parsedStart = runCatching { LocalTime.parse(startTime) }.getOrNull()
-                        val parsedEnd = runCatching { LocalTime.parse(endTime) }.getOrNull()
-                        val anchors = if (parsedStart != null && parsedEnd != null) {
-                            courseAnchorPeriodsForTimeRange(parsedStart, parsedEnd, periods)
-                        } else {
-                            emptyList()
-                        }
                         onDraftChange(
                             draft.copy(
-                                periodStart = anchors.minOrNull() ?: draft.periodStart,
-                                periodEnd = anchors.maxOrNull() ?: draft.periodEnd,
                                 customStartTime = startTime,
                                 customEndTime = endTime,
                                 customPeriodTimes = null,
-                                customLessonTimesEdited = false
+                                customLessonTimesEdited = false,
+                                independentPeriodSchemeId = null,
+                                timingSelectionEdited = true
                             )
                         )
                     },
@@ -271,7 +288,9 @@ internal fun CourseEditorFormPage(
                             customStartTime = times.first().start.toString(),
                             customEndTime = times.last().end.toString(),
                             customPeriodTimes = encodeCoursePeriodTimes(times),
-                            customLessonTimesEdited = true
+                            customLessonTimesEdited = true,
+                            independentPeriodSchemeId = null,
+                            timingSelectionEdited = true
                         ))
                     },
                     onOpenPicker = onOpenPicker,
@@ -372,7 +391,8 @@ internal fun CourseEditorFormPage(
     }
     CourseEditorFixedHeader(
         title = title,
-        backdrop = headerBackdrop,
+        backdrop = backdrop,
+        gradientBackdrop = headerBackdrop,
         config = config,
         onCancel = onCancel,
         onSave = onSave,

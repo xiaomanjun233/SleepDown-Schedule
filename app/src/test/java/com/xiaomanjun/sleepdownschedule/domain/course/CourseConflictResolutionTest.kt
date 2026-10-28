@@ -8,6 +8,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CourseConflictResolutionTest {
+    @Test fun metadataOnlyWidgetLayoutKeepsLegacyDiscontinuousRows() {
+        val raw = course(1, periods = listOf(1, 4)).copy(
+            customStartTime = "08:01", customEndTime = "11:29",
+            customPeriodTimes = "1,08:01-08:40;4,10:50-11:29"
+        )
+        val groups = buildWeekConflictGroups(listOf(raw), (1..5).toList())
+        assertEquals(listOf(listOf(1), listOf(4)), groups.flatMap { it.segments }.map { it.periods })
+    }
+
     @Test
     fun `conflicting courses display by real start time without rewriting the clocks`() {
         val later = course(1, periods = listOf(1)).copy(customStartTime = "08:30", customEndTime = "09:30")

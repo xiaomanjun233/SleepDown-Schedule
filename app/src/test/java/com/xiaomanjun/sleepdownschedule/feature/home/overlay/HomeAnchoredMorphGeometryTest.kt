@@ -1,5 +1,19 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.overlay
 
+import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredMorphOpenDurationMillis
+import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredOpenSettleStartFraction
+import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredMorphPinchFraction
+import com.xiaomanjun.sleepdownschedule.transition.legacy.homeAnchoredOpenMotionProgress
+import com.xiaomanjun.sleepdownschedule.transition.legacy.homeAnchoredCloseMotionProgress
+import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeMorphEasingStyle
+import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredMorphGeometry
+import com.xiaomanjun.sleepdownschedule.transition.legacy.homeAnchoredMorphGeometry
+import com.xiaomanjun.sleepdownschedule.transition.legacy.lerpHomeMorph
+import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeMenuDestinationLegacyMotion
+import com.xiaomanjun.sleepdownschedule.transition.legacy.homeMenuDestinationContentAlpha
+import com.xiaomanjun.sleepdownschedule.transition.legacy.homeMenuDestinationRenderedCornerRadiusPx
+import com.xiaomanjun.sleepdownschedule.transition.legacy.homeMenuDestinationTrajectoryGeometry
+
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.HomeAddMenuSelectionCornerDp
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*

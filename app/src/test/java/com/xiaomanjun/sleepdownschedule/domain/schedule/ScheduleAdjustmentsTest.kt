@@ -9,6 +9,16 @@ import org.junit.Test
 import java.time.LocalDate
 
 class ScheduleAdjustmentsTest {
+    @Test fun sharedModelRetainsThePublishedSerializationNameAndJson() {
+        assertEquals("com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustment",
+            com.xiaomanjun.sleepdownschedule.model.ScheduleAdjustment.serializer().descriptor.serialName)
+        val oldJson = """[{"date":"2026-10-20","sourceDate":"2026-10-19","label":"补课","allDayPlaceholder":true}]"""
+        val decoded = decodeScheduleAdjustments(oldJson)
+        assertEquals(oldJson, encodeScheduleAdjustments(decoded))
+        assertEquals(com.xiaomanjun.sleepdownschedule.model.ScheduleAdjustment(
+            "2026-10-20", "2026-10-19", "补课", true), decoded.single())
+    }
+
     @Test fun changingAndRestoringAnAdjustmentRefreshesDateLookups() {
         val date = LocalDate.of(2026, 10, 8)
         val stopped = defaultConfig().copy(scheduleAdjustmentsJson = encodeScheduleAdjustments(listOf(ScheduleAdjustment(date.toString()))))
@@ -63,7 +73,7 @@ class ScheduleAdjustmentsTest {
 
     @Test fun restDayIsEmptyAndMakeupUsesOriginalWeekAndParity() {
         assertTrue(coursesForDate(state, source).isEmpty())
-        assertEquals(listOf(regular), coursesForDate(state, target))
+        assertEquals(listOf(regular), coursesForDate(state, target).map { it.arrangementForWrite() })
         assertTrue(coursesForDate(state, target.minusDays(1)).isEmpty())
     }
 
@@ -130,7 +140,7 @@ class ScheduleAdjustmentsTest {
             ScheduleAdjustment(source.toString(), "2026-09-08"), ScheduleAdjustment(target.toString(), source.toString())
         )))
         assertEquals(source, teachingDateForSchedule(chained, target))
-        assertEquals(listOf(regular), coursesForDate(state.copy(config = chained), target))
+        assertEquals(listOf(regular), coursesForDate(state.copy(config = chained), target).map { it.arrangementForWrite() })
     }
 
     @Test fun outsideTermCannotExposeMakeupCourses() {
@@ -141,7 +151,7 @@ class ScheduleAdjustmentsTest {
 
     @Test fun olderConfigAndEmptyBackupValueKeepRegularSchedule() {
         assertTrue(decodeScheduleAdjustments("").isEmpty())
-        assertEquals(listOf(regular), coursesForDate(state.copy(config = config.copy(scheduleAdjustmentsJson = "")), source))
+        assertEquals(listOf(regular), coursesForDate(state.copy(config = config.copy(scheduleAdjustmentsJson = "")), source).map { it.arrangementForWrite() })
     }
 
     @Test fun adjustmentRoundTripPreservesDatesAndLabels() {

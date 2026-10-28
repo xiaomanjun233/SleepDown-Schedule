@@ -19,7 +19,11 @@ import java.io.File
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class SharedPeriodSchemeMigrationTest {
-    private val context: Context get() = RuntimeEnvironment.getApplication()
+    // SQLite journal names otherwise exceed Windows MAX_PATH in long Robolectric test names.
+    private val backupDirectory by lazy { File(System.getProperty("java.io.tmpdir"),"db-upgrade-${java.util.UUID.randomUUID().toString().take(8)}").apply { mkdirs() } }
+    private val context: Context by lazy { object : android.content.ContextWrapper(RuntimeEnvironment.getApplication()) {
+        override fun getNoBackupFilesDir() = backupDirectory
+    } }
     private val databaseName = "migration.db"
     private var opened: AppDatabase? = null
 
@@ -27,6 +31,8 @@ class SharedPeriodSchemeMigrationTest {
     fun tearDown() {
         opened?.close()
         context.deleteDatabase(databaseName)
+        File(backupDirectory,"database-upgrades").also { directory -> directory.listFiles()?.forEach { it.delete() };directory.delete() }
+        backupDirectory.delete()
     }
 
     @Test
@@ -109,7 +115,7 @@ class SharedPeriodSchemeMigrationTest {
         assertEquals(row, opened!!.courseDao().getCourses(7).single())
     }
 
-    private fun createVersion44(seed: (SQLiteDatabase) -> Unit) = createLegacyDatabase(44, seed)
+    private fun createVersion44(seed: (SQLiteDatabase) -> Unit) = createLegacyDatabase(44, seed = seed)
 
     @Test fun version46DefaultsReferenceCardsOffAndPreservesDataAcrossReopen() = runBlocking {
         createLegacyDatabase(46) { db ->
@@ -127,12 +133,60 @@ class SharedPeriodSchemeMigrationTest {
         assertTrue(opened!!.configDao().getConfig(7)!!.showNonCurrentWeekCourses)
     }
 
-    private fun createLegacyDatabase(version: Int, seed: (SQLiteDatabase) -> Unit) {
+    @Test fun version47DefaultsSundayStartOffAndRetainsItsSelectionAcrossReopen() = runBlocking {
+        createLegacyDatabase(47) { db ->
+            insertConfig(db, 7)
+            db.execSQL("INSERT INTO schedule_profiles(id,name,isActive) VALUES(7,'原课表',1)")
+            db.execSQL("INSERT INTO courses(id,name,weekday,periods,weeks,weekParity,scheduleId) VALUES(42,'原课程',7,'[1]','[1,3]','ODD',7)")
+        }
+        val db = createAppDatabase(context, databaseName).also { opened = it }
+        assertFalse(db.configDao().getConfig(7)!!.weekStartsOnSunday)
+        assertEquals(7, db.courseDao().getCourses(7).single().weekday)
+        db.openHelper.writableDatabase.execSQL("UPDATE schedule_config SET weekStartsOnSunday = 1 WHERE id = 7")
+        db.close()
+        opened = createAppDatabase(context, databaseName)
+        assertTrue(opened!!.configDao().getConfig(7)!!.weekStartsOnSunday)
+        assertEquals(listOf(1, 3), opened!!.courseDao().getCourses(7).single().weeks)
+    }
+
+    @Test fun sundayOnlyVersion48UpgradesWithoutLosingCoursesOrWeekPreference() = runBlocking {
+        createLegacyDatabase(48) { db ->
+            insertConfig(db, 7)
+            db.execSQL("INSERT INTO schedule_profiles(id,name,isActive) VALUES(7,'原课表',1)")
+            db.execSQL("UPDATE schedule_config SET weekStartsOnSunday = 1 WHERE id = 7")
+            db.execSQL("INSERT INTO courses(id,name,weekday,periods,weeks,weekParity,scheduleId) VALUES(42,'原课程',7,'[1]','[1,3]','ODD',7)")
+        }
+        val db = createAppDatabase(context, databaseName).also { opened = it }
+        assertTrue(db.configDao().getConfig(7)!!.weekStartsOnSunday)
+        assertEquals("", db.configDao().getConfig(7)!!.timeSlotCoursesJson)
+        assertEquals("原课程", db.courseDao().getCourses(7).single().name)
+        assertEquals(APP_DATABASE_VERSION, db.openHelper.writableDatabase.version)
+    }
+
+    @Test fun timeSlotsOnlyVersion48PreservesSavedBandsAndCanReopenWithSundayEnabled() = runBlocking {
+        val slots = """[{"id":"night","name":"晚自修","startTime":"19:00","endTime":"20:30","afterPeriod":8}]"""
+        createLegacyDatabase(48, schemaVersion = 47) { db ->
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN timeSlotCoursesJson TEXT NOT NULL DEFAULT ''")
+            insertConfig(db, 7)
+            db.execSQL("INSERT INTO schedule_profiles(id,name,isActive) VALUES(7,'原课表',1)")
+            db.execSQL("UPDATE schedule_config SET timeSlotCoursesJson = ? WHERE id = 7", arrayOf(slots))
+        }
+        val db = createAppDatabase(context, databaseName).also { opened = it }
+        assertFalse(db.configDao().getConfig(7)!!.weekStartsOnSunday)
+        assertEquals(slots, db.configDao().getConfig(7)!!.timeSlotCoursesJson)
+        db.openHelper.writableDatabase.execSQL("UPDATE schedule_config SET weekStartsOnSunday = 1 WHERE id = 7")
+        db.close()
+        opened = createAppDatabase(context, databaseName)
+        assertTrue(opened!!.configDao().getConfig(7)!!.weekStartsOnSunday)
+        assertEquals(slots, opened!!.configDao().getConfig(7)!!.timeSlotCoursesJson)
+    }
+
+    private fun createLegacyDatabase(version: Int, schemaVersion: Int = version, seed: (SQLiteDatabase) -> Unit) {
         context.deleteDatabase(databaseName)
         val path = context.getDatabasePath(databaseName)
         path.parentFile?.mkdirs()
-        val schemaFile = listOf(File("schemas/com.xiaomanjun.sleepdownschedule.AppDatabase/$version.json"),
-            File("app/schemas/com.xiaomanjun.sleepdownschedule.AppDatabase/$version.json")).first { it.exists() }
+        val schemaFile = listOf(File("schemas/com.xiaomanjun.sleepdownschedule.AppDatabase/$schemaVersion.json"),
+            File("app/schemas/com.xiaomanjun.sleepdownschedule.AppDatabase/$schemaVersion.json")).first { it.exists() }
         val schema = JSONObject(schemaFile.readText()).getJSONObject("database")
         SQLiteDatabase.openOrCreateDatabase(path, null).use { db ->
             val entities = schema.getJSONArray("entities")

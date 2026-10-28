@@ -58,7 +58,7 @@ import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceActive
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentActionHandler
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlan
-import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassSurface
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
@@ -142,7 +142,7 @@ fun TodayAgentCard(
         }
     }
 
-    val backgroundFrozen = com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeBackgroundFrozen.current.value
+    val backgroundFrozen = com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen.current.value
     val staticFacts = remember(state.courses, state.periods, state.config, scheduleName, date, weather) {
         DayAgentRenderCache.facts(state, date, weather, scheduleName, context)
     }

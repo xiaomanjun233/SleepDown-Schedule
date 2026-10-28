@@ -19,9 +19,8 @@ import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.CourseScheduleTheme
+import com.xiaomanjun.sleepdownschedule.feature.schedule.ScheduleScreenViewModel
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.app.state.ScheduleViewModel
-import com.xiaomanjun.sleepdownschedule.app.state.ScheduleViewModelFactory
 import com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments
 import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
@@ -38,8 +37,8 @@ class ScheduleAdjustmentsActivity : ComponentActivity() {
         val initial = decodeScheduleAdjustments(intent.getStringExtra(ArrangementsExtra).orEmpty())
         setContent {
             val app = application as CourseScheduleApp
-            val viewModel: ScheduleViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
-                factory = ScheduleViewModelFactory(app, app.repository)
+            val viewModel: ScheduleScreenViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
+                factory = ScheduleScreenViewModel.Factory(app, app.repository, app.applicationScope)
             )
             val state by viewModel.allSchedulesState.collectAsStateWithLifecycle()
             val storedConfig = state.allConfigs.firstOrNull { it.id == scheduleId }
@@ -70,7 +69,7 @@ class ScheduleAdjustmentsActivity : ComponentActivity() {
                                 saving = true
                                 saveError = null
                                 val value = encodeScheduleAdjustments(arrangements)
-                                viewModel.saveScheduleAdjustments(scheduleId, originalStored, value,
+                                viewModel.actions.saveScheduleAdjustments(scheduleId, originalStored, value,
                                     onSuccess = {
                                         viewModel.refreshNotificationsAfterSave()
                                         setResult(Activity.RESULT_OK, Intent()

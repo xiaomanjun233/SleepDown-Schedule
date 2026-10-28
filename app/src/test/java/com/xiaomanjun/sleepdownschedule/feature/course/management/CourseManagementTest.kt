@@ -8,8 +8,39 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 
 class CourseManagementTest {
+    @Test fun transitionFillMatchesTheActualTranslucentCardOnBothPageThemes() {
+        listOf(Color(0xFF303238) to Color.Black, Color(0xFFF0F1F5) to Color.White).forEach { (surface, page) ->
+            val expected = surface.copy(alpha = 0.86f).compositeOver(page)
+            assertEquals(expected, managedCourseCardSurfaceColor(surface).compositeOver(page))
+            assertEquals(Color.Black.copy(alpha = 0.08f).compositeOver(surface.copy(alpha = 0.86f)),
+                managedCourseCardSurfaceColor(surface, selected = true))
+        }
+    }
+    @Test
+    fun sameWeekdayKeepsEveryDistinctTimeInsideOneSummary() {
+        val morning = course(1, "数学", 1, "09:00")
+        val afternoon = course(2, "数学", 1, "14:00").copy(customEndTime = "15:30")
+        val anotherWeek = morning.copy(id = 3, weeks = listOf(2))
+        val entries = listOf(morning, afternoon, anotherWeek)
+
+        assertEquals(
+            listOf(ManagedCourseDaySummary(1, listOf("09:00–10:30", "14:00–15:30"))),
+            buildManagedCourseDaySummaries(entries, emptyList(), weekStartsOnSunday = false)
+        )
+        assertEquals(listOf(listOf(1), listOf(1), listOf(2)), entries.map { it.weeks })
+    }
+
+    @Test
+    fun weekdaySummariesFollowTheConfiguredWeekStart() {
+        val entries = listOf(course(1, "数学", 3), course(2, "数学", 7), course(3, "数学", 1))
+        assertEquals(listOf(1, 3, 7), buildManagedCourseDaySummaries(entries, emptyList(), false).map { it.weekday })
+        assertEquals(listOf(7, 1, 3), buildManagedCourseDaySummaries(entries, emptyList(), true).map { it.weekday })
+    }
+
     @Test fun addingArrangementFromSavedOrProjectedCourseCapturesItsOwnClock() {
         val config = ScheduleConfigEntity(totalWeeks = 20, currentWeek = 1, notificationLeadMinutes = 10)
         val periods = listOf(PeriodEntity(1, "08:00", "08:45"), PeriodEntity(2, "09:00", "09:45"))

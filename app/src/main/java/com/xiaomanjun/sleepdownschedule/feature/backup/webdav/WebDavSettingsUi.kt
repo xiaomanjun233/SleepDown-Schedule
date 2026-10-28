@@ -29,7 +29,6 @@ import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
@@ -42,7 +41,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsToggleRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdownPreference
 import com.xiaomanjun.sleepdownschedule.feature.backup.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import java.io.File
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter

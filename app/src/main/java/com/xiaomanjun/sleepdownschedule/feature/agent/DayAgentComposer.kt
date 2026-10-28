@@ -77,7 +77,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.controlAccentColor
 import com.xiaomanjun.sleepdownschedule.core.ui.text.AutoFitSingleLineText
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassSurface
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
 @Composable
 internal fun AgentOperationLiquidButton(

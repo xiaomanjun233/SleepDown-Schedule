@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -51,9 +53,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -72,23 +79,21 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LiquidOptionTabs
 import com.xiaomanjun.sleepdownschedule.core.web.releaseSleepDownWebView
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import com.xiaomanjun.sleepdownschedule.feature.home.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
+import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
@@ -162,6 +167,7 @@ fun NormalizedAiManualImportScreen(
     onInitialFileConsumed: () -> Unit = {},
     initialText: String? = null,
     onInitialTextConsumed: () -> Unit = {},
+    transitionActive: Boolean = false,
     onParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
@@ -189,7 +195,45 @@ fun NormalizedAiManualImportScreen(
     var selectedMode by remember { mutableIntStateOf(0) }
     var aiSettings by remember { mutableStateOf(AiImportSettingsStore.load(context)) }
     var historySourceHidden by remember { mutableStateOf(false) }
-    var historyEntries by remember { mutableStateOf(AiImportHistoryStore.load(context)) }
+    var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
+    // The dialog is a sibling of the home content layer, so cropping the page frame at the
+    // button bounds only returns the wallpaper behind the sheet. Record the real footer button
+    // itself, like the home add button's return layer, and hand that surface to the system.
+    val historyButtonLayer = rememberGraphicsLayer()
+    val historyButtonCaptureRequested = remember { java.util.concurrent.atomic.AtomicBoolean(false) }
+    var cleanHistoryButtonBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    // Capture the page while the footer button is idle. Taking the frame from onClick would
+    // include the native button's pressed/deformation state and hand the system a warped source.
+    var cleanHistoryCapture by remember { mutableStateOf<AiImportHistoryBackgroundCapture?>(null) }
+    LaunchedEffect(historyButtonBounds, historySourceHidden, transitionActive) {
+        if (!transitionActive && !historySourceHidden &&
+            historyButtonBounds.width > 1f && historyButtonBounds.height > 1f
+        ) {
+            historyButtonCaptureRequested.set(true)
+            cleanHistoryCapture = captureHistoryBackground()
+            cleanHistoryButtonBitmap = runCatching {
+                historyButtonLayer.toImageBitmap().asAndroidBitmap()
+            }.getOrNull()?.takeIf { it.width > 1 && it.height > 1 }
+        }
+    }
+    DisposableEffect(Unit) {
+        onDispose { historyButtonBounds = Rect.Zero }
+    }
+    // Records the footer button on request instead of re-recording a live liquid surface every
+    // frame. The alpha used to hide the source stays outside this draw node, so the recorded
+    // pixels are always the opaque button.
+    val historyButtonRecordModifier = Modifier.drawWithContent {
+        if (historyButtonCaptureRequested.compareAndSet(true, false)) {
+            historyButtonLayer.record {
+                withRecordingDensity(transitionDensity) { this@drawWithContent.drawContent() }
+            }
+        }
+        drawContent()
+    }
+    var historyEntries by remember { mutableStateOf(emptyList<AiImportHistoryEntry>()) }
+    LaunchedEffect(context) {
+        historyEntries = withContext(Dispatchers.IO) { AiImportHistoryStore.load(context) }
+    }
     val taskProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     LaunchedEffect(taskProgress?.taskId, taskProgress?.finished) {
         val completed = taskProgress?.takeIf { it.taskId.isNotBlank() && it.finished } ?: return@LaunchedEffect
@@ -201,14 +245,16 @@ fun NormalizedAiManualImportScreen(
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                historyEntries = AiImportHistoryStore.load(context)
+                scope.launch {
+                    historyEntries = withContext(Dispatchers.IO) { AiImportHistoryStore.load(context) }
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     fun releaseManualToolWebView() {
-        manualToolBridge?.bindWebView(null)
+        manualToolBridge?.close()
         manualToolWebView?.let { released ->
             released.uninstallShiguangRuntime()
             released.releaseSleepDownWebView(clearResourceCache = false)
@@ -219,7 +265,7 @@ fun NormalizedAiManualImportScreen(
     }
     DisposableEffect(Unit) {
         onDispose {
-            manualToolBridge?.bindWebView(null)
+            manualToolBridge?.close()
             manualToolWebView?.let { released ->
                 released.uninstallShiguangRuntime()
                 released.releaseSleepDownWebView(clearResourceCache = false)
@@ -247,7 +293,6 @@ fun NormalizedAiManualImportScreen(
             }
         lateinit var target: WebView
         val bridge = ShiguangBridgeHost(
-            context = context,
             onDraft = { draft ->
                 if (manualToolWebView === target) releaseManualToolWebView()
                 manualToolRequest = null
@@ -445,7 +490,7 @@ fun NormalizedAiManualImportScreen(
         }
     }
     fun parseDraft() {
-        val result = ScheduleImportParser.parse(jsonText, state.config)
+        val result = ScheduleImportParser.parse(jsonText, state.config, state.periods)
         result.onSuccess {
             error = null
             onParsed(it)
@@ -558,12 +603,17 @@ fun NormalizedAiManualImportScreen(
         aiParsing = aiParsing,
         historyEntries = historyEntries,
         historySourceHidden = historySourceHidden,
+        historyButtonModifier = historyButtonRecordModifier,
+        onHistoryButtonBoundsChanged = { historyButtonBounds = it },
         onOpenHistory = { sourceBounds ->
             scope.launch {
-                // TODO(OPLUS_DEFERRED_20260823): Retained for investigation only. The signed
-                // PLJ110 acceptance build still flashed blank on this native OPEN path.
-                val captured = captureHistoryBackground()
-                val sourceSnapshot = captured?.cropToAiHistorySource(sourceBounds)
+                // The idle recording of the button itself is the source. A page crop cannot see
+                // this sheet's footer and would animate the wallpaper behind it into the system.
+                val sourceSnapshot = cleanHistoryButtonBitmap
+                    ?: runCatching { historyButtonLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                        ?.takeIf { it.width > 1 && it.height > 1 }
+                    ?: (cleanHistoryCapture ?: captureHistoryBackground())
+                        ?.cropToAiHistorySource(sourceBounds)
                 // A malformed crop cannot represent the real source button. Keeping the source
                 // mounted is preferable to hiding it and exposing a black/uncurved Activity shell.
                 if (sourceSnapshot == null) return@launch
@@ -594,10 +644,12 @@ fun NormalizedAiManualImportScreen(
                     intent = intent,
                     payload = TransitionPayload(
                         openingAnchor = anchor,
-                        returnAnchorProvider = StaticTransitionAnchorProvider(anchor),
+                        returnAnchorProvider = TransitionAnchorProvider {
+                            historyButtonBounds.takeIf { it.width > 1f && it.height > 1f }
+                                ?.let { anchor.copy(boundsInWindow = it) }
+                        },
                         backgroundBitmap = backgroundSnapshot,
                         onOpeningSourceHandoff = releaseOpeningSource,
-                        nativeSourceLeashAlphaOutOnOpen = true,
                         onSourceReleased = { historySourceHidden = false }
                     )
                 )
@@ -720,14 +772,20 @@ private fun AiManualImportDialogContent(
     aiParsing: Boolean,
     historyEntries: List<AiImportHistoryEntry>,
     historySourceHidden: Boolean,
+    historyButtonModifier: Modifier = Modifier,
+    onHistoryButtonBoundsChanged: (Rect) -> Unit,
     onOpenHistory: (Rect) -> Unit,
     onOpenHistoryEntry: (AiImportHistoryEntry, Rect) -> Unit,
     onPrimaryAction: () -> Unit
 ) {
     val nativeSurface = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSurface.current
-    // Native centered surfaces follow the app theme; wallpaper glass keeps its existing contrast.
-    val textColor = if (nativeSurface) appPanelForegroundColor(state.config) else glassForegroundColor(state.config)
-    val dialogLightStyle = if (nativeSurface) !appUsesDarkTheme(state.config) else glassUsesLightStyle(state.config)
+    val materialForeground = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialForeground.current
+        .takeUnless { it == ComposeColor.Unspecified }
+    // A home morph owns wallpaper contrast; standalone native dialogs follow the app theme.
+    val textColor = materialForeground
+        ?: if (nativeSurface) appPanelForegroundColor(state.config) else glassForegroundColor(state.config)
+    val dialogLightStyle = materialForeground?.let { it.luminance() < 0.5f }
+        ?: if (nativeSurface) !appUsesDarkTheme(state.config) else glassUsesLightStyle(state.config)
     val windowSize = currentWindowSizeDp()
     val safeInsets = WindowInsets.safeDrawing.asPaddingValues()
     val safeHeight = (
@@ -939,26 +997,28 @@ private fun AiManualImportDialogContent(
         LiquidDialogFooter {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
-                if (historySourceHidden) {
-                    Spacer(Modifier.weight(1f).height(40.dp))
-                } else {
-                    Box(
-                        Modifier
-                            .weight(1f)
-                            .onGloballyPositioned { historyButtonBounds = it.boundsInWindow() }
-                    ) {
-                        DialogLiquidButton(
-                            backdrop = backdrop,
-                            label = "导入历史",
-                            role = DialogButtonRole.Cancel,
-                            iconRes = R.drawable.ic_history,
-                            modifier = Modifier.fillMaxWidth(),
-                            destructiveFilled = true,
-                            onClick = {
-                                if (historyButtonBounds.width > 1f) onOpenHistory(historyButtonBounds)
-                            }
-                        )
+                Box(
+                    Modifier.weight(1f).onGloballyPositioned {
+                        historyButtonBounds = it.boundsInWindow()
+                        onHistoryButtonBoundsChanged(historyButtonBounds)
                     }
+                ) {
+                    // Keep the real button in the layout while the native transition owns it: a
+                    // placeholder of a different height would move the measured return bounds.
+                    DialogLiquidButton(
+                        backdrop = backdrop,
+                        label = "导入历史",
+                        role = DialogButtonRole.Cancel,
+                        iconRes = R.drawable.ic_history,
+                        modifier = Modifier.fillMaxWidth()
+                            .alpha(if (historySourceHidden) 0f else 1f)
+                            .then(historyButtonModifier),
+                        destructiveFilled = true,
+                        onClick = {
+                            if (!historySourceHidden && historyButtonBounds.width > 1f)
+                                onOpenHistory(historyButtonBounds)
+                        }
+                    )
                 }
                 DialogLiquidButton(
                     backdrop = backdrop,

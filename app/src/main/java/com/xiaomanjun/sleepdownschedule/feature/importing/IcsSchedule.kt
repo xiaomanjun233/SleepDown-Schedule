@@ -32,7 +32,13 @@ object IcsScheduleCodec {
     fun parse(bytes: ByteArray, baseConfig: ScheduleConfigEntity): Result<ImportDraft> = runCatching {
         val text = bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF")
         require(text.contains("BEGIN:VCALENDAR", ignoreCase = true)) { "所选文件不是有效的 ICS 日历" }
+        unfoldLines(text).firstOrNull { it.startsWith("X-SLEEPDOWN-JSON:") }?.let { line ->
+            val document=java.util.Base64.getDecoder().decode(line.substringAfter(':')).toString(Charsets.UTF_8)
+            return@runCatching CanonicalScheduleJson.decode(document,baseConfig)
+        }
         val metadata = parseSleepDownMetadata(text)
+        val calendarConfig = baseConfig.copy(weekStartsOnSunday = metadata.weekStartsOnSunday
+            ?: if (isSleepDown(bytes)) false else baseConfig.weekStartsOnSunday)
         val events = parseEvents(text)
         require(events.isNotEmpty()) { "ICS 中没有找到日历事件" }
         require(events.none { "RECURRENCE-ID" in it.properties }) { "日历包含单次例外安排，请通过 AI 文件导入核对" }
@@ -42,17 +48,17 @@ object IcsScheduleCodec {
         }
         require(occurrences.isNotEmpty()) { "ICS 中没有可导入的定时课程事件" }
 
-        val firstMonday = (metadata.termStartDate ?: occurrences.minOf { it.start.toLocalDate() })
-            .with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+        val firstMonday = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleCalendarWeekStart(
+            calendarConfig, metadata.termStartDate ?: occurrences.minOf { it.start.toLocalDate() })
         val rawLastWeek = occurrences.maxOf { occurrence ->
-            ChronoUnit.WEEKS.between(firstMonday, occurrence.start.toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))).toInt() + 1
+            ChronoUnit.WEEKS.between(firstMonday, com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleCalendarWeekStart(calendarConfig, occurrence.start.toLocalDate())).toInt() + 1
         }
         val totalWeeks = (metadata.totalWeeks ?: rawLastWeek).coerceIn(1, 60)
         require(rawLastWeek <= totalWeeks) { "日历日期超出课表周数范围，请通过 AI 文件导入确认学期范围" }
         val usable = occurrences.filter { occurrence ->
             val week = ChronoUnit.WEEKS.between(
                 firstMonday,
-                occurrence.start.toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleCalendarWeekStart(calendarConfig, occurrence.start.toLocalDate())
             ).toInt() + 1
             week in 1..totalWeeks
         }
@@ -123,7 +129,7 @@ object IcsScheduleCodec {
             val weeks = values.map { occurrence ->
                 ChronoUnit.WEEKS.between(
                     firstMonday,
-                    occurrence.start.toLocalDate().with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
+                    com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleCalendarWeekStart(calendarConfig, occurrence.start.toLocalDate())
                 ).toInt() + 1
             }.filter { it in 1..totalWeeks }.distinct().sorted()
             val standardStart = key.periods.firstOrNull()?.let(periodsByIndex::get)?.startTime
@@ -156,13 +162,14 @@ object IcsScheduleCodec {
 
         val termStart = metadata.termStartDate ?: firstMonday
         val today = LocalDate.now()
-        val detectedWeek = (ChronoUnit.DAYS.between(termStart, today).toInt() / 7 + 1).coerceIn(1, totalWeeks)
+        val detectedWeek = effectiveCurrentWeek(calendarConfig.copy(termStartDate = termStart.toString(),
+            totalWeeks = totalWeeks, autoCurrentWeek = true), today)
         val inferredCounts = inferPeriodCounts(periods)
         val counts = metadata.partCounts?.takeIf {
             it.morning + it.noon + it.afternoon + it.evening == periods.size
         } ?: inferredCounts
         ImportDraft(
-            config = baseConfig.copy(
+            config = calendarConfig.copy(
                 totalWeeks = totalWeeks,
                 currentWeek = detectedWeek,
                 termStartDate = termStart.toString(),
@@ -185,7 +192,8 @@ object IcsScheduleCodec {
         config: ScheduleConfigEntity,
         periods: List<PeriodEntity>,
         courses: List<CourseEntity>,
-        today: LocalDate = LocalDate.now()
+        today: LocalDate = LocalDate.now(),
+        catalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog = com.xiaomanjun.sleepdownschedule.model.TimetableCatalog()
     ): String {
         val timeZoneId = ZoneId.systemDefault().id
         val periodsByIndex = periods.associateBy { it.periodIndex }
@@ -200,24 +208,28 @@ object IcsScheduleCodec {
             appendLine("METHOD:PUBLISH")
             appendLine("X-WR-CALNAME:${escapeText(calendarName)}")
             appendLine("X-SLEEPDOWN-SCHEMA:2")
+            val native = "X-SLEEPDOWN-JSON:" + java.util.Base64.getEncoder().encodeToString(
+                buildCanonicalScheduleJson(config,periods,courses,catalog).toByteArray(Charsets.UTF_8))
+            native.chunked(74).forEachIndexed { index,line -> appendLine(if(index==0) line else " $line") }
             appendLine("X-SLEEPDOWN-TOTAL-WEEKS:${config.totalWeeks}")
+            appendLine("X-SLEEPDOWN-WEEK-START:${if (config.weekStartsOnSunday) "SUNDAY" else "MONDAY"}")
             config.termStartDate?.let { appendLine("X-SLEEPDOWN-TERM-START:$it") }
             appendLine("X-SLEEPDOWN-PART-COUNTS:${config.morningPeriodCount},${config.noonPeriodCount},${config.afternoonPeriodCount},${config.eveningPeriodCount}")
             periods.sortedBy { it.periodIndex }.forEach { period ->
                 appendLine("X-SLEEPDOWN-PERIOD:${period.periodIndex},${period.startTime},${period.endTime}")
             }
             courses.sortedWith(compareBy<CourseEntity> { it.weekday }.thenBy { it.name }).forEach { course ->
-                val ranges = if (course.arrangementProjection != null) courseReminderSessions(course, periods).mapNotNull { session ->
-                    val start = courseStartTime(session, periods) ?: return@mapNotNull null
-                    val end = courseEndTime(session, periods) ?: return@mapNotNull null
-                    IcsPeriodRange(session.periods, start, end)
-                } else course.customTimeRangeOrNull()?.let { (start, end) ->
-                    listOf(IcsPeriodRange(course.periods.distinct().sorted(), start, end))
-                } ?: contiguousPeriodRanges(course.periods, periodsByIndex)
                 course.weeks.distinct().sorted()
                     .filter { it in 1..config.totalWeeks && parityMatches(course.weekParity, it) }
                     .forEach { week ->
-                        val date = scheduleWeekStartDate(config, week, today).plusDays((course.weekday - 1).toLong())
+                        val date = scheduleWeekStartDate(config, week, today).plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, course.weekday))
+                        val occurrence = com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(course,config,periods,catalog,date)
+                        val ranges = courseReminderSessions(occurrence,periods).mapNotNull { session ->
+                            val start = courseStartTime(session,periods) ?: return@mapNotNull null
+                            val end = courseEndTime(session,periods) ?: return@mapNotNull null
+                            IcsPeriodRange(com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments(session,periods)
+                                .map { it.index }.filter { it > 0 },start,end)
+                        }
                         ranges.forEachIndexed { rangeIndex, range ->
                             val start = date.atTime(range.start)
                             val end = date.atTime(range.end)
@@ -236,8 +248,9 @@ object IcsScheduleCodec {
                             if (description.isNotBlank()) appendLine("DESCRIPTION:${escapeText(description)}")
                             appendLine("X-SLEEPDOWN-WEEK:$week")
                             appendLine("X-SLEEPDOWN-PERIODS:${range.indices.joinToString(",")}")
-                            course.customPeriodTimes?.takeIf { course.arrangementProjection == null }
-                                ?.let { appendLine("X-SLEEPDOWN-PERIOD-TIMES:$it") }
+                            com.xiaomanjun.sleepdownschedule.domain.schedule.encodeCoursePeriodTimes(
+                                com.xiaomanjun.sleepdownschedule.domain.schedule.parseCoursePeriodTimes(course.customPeriodTimes)
+                                    .filter { it.index in range.indices })?.let { appendLine("X-SLEEPDOWN-PERIOD-TIMES:$it") }
                             appendLine("END:VEVENT")
                         }
                     }
@@ -251,12 +264,13 @@ object IcsScheduleCodec {
         calendarName: String,
         config: ScheduleConfigEntity,
         periods: List<PeriodEntity>,
-        courses: List<CourseEntity>
+        courses: List<CourseEntity>,
+        catalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog = com.xiaomanjun.sleepdownschedule.model.TimetableCatalog()
     ): File {
         val directory = File(context.cacheDir, "shared_schedules").apply { mkdirs() }
         val safeName = calendarName.replace(Regex("[\\\\/:*?\"<>|]"), "_").ifBlank { "SleepDown课表" }
         return File(directory, "$safeName.ics").apply {
-            writeText(export(calendarName, config, periods, courses), Charsets.UTF_8)
+            writeText(export(calendarName, config, periods, courses, catalog = catalog), Charsets.UTF_8)
         }
     }
 
@@ -277,7 +291,8 @@ object IcsScheduleCodec {
         val totalWeeks: Int? = null,
         val termStartDate: LocalDate? = null,
         val partCounts: PeriodPartCounts? = null,
-        val periods: List<PeriodEntity> = emptyList()
+        val periods: List<PeriodEntity> = emptyList(),
+        val weekStartsOnSunday: Boolean? = null
     )
 
     private data class IcsPeriodRange(val indices: List<Int>, val start: LocalTime, val end: LocalTime)
@@ -310,7 +325,10 @@ object IcsScheduleCodec {
             val end = values.getOrNull(2)?.takeIf { runCatching { LocalTime.parse(it) }.isSuccess } ?: return@mapNotNull null
             PeriodEntity(index, start, end)
         }
-        return SleepDownMetadata(totalWeeks, termStart, counts, periods)
+        val sundayFirst = properties.firstOrNull { it.name == "X-SLEEPDOWN-WEEK-START" }?.value?.let {
+            when (it.uppercase()) { "SUNDAY" -> true; "MONDAY" -> false; else -> null }
+        }
+        return SleepDownMetadata(totalWeeks, termStart, counts, periods, sundayFirst)
     }
 
     private fun parseEvents(text: String): List<IcsEvent> {

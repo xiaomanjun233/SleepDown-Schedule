@@ -20,19 +20,17 @@ object ActivityTransitionCoordinator {
     private const val LogTag = "ActivityTransition"
     private val installed = AtomicBoolean(false)
     private val legacyBackend = LegacyTransitionBackend()
-    private val oplusBackend = OplusSeamlessBackend()
+    private val nativeBackend: TransitionBackend = SharedViewKitBackend()
 
     fun install(application: Application) {
         if (!installed.compareAndSet(false, true)) return
         application.registerActivityLifecycleCallbacks(
             object : Application.ActivityLifecycleCallbacks {
-                override fun onActivityResumed(activity: Activity) {
-                    oplusBackend.onSourceActivityResumed(activity)
-                }
+                override fun onActivityResumed(activity: Activity) = Unit
 
                 override fun onActivityDestroyed(activity: Activity) {
+                    nativeBackend.onActivityDestroyed(activity)
                     if (activity.isFinishing) {
-                        oplusBackend.onActivityDestroyed(activity)
                         val id = activity.intent.transitionSessionIdOrNull()
                         val session = TransitionPayloadStore.session(id)
                         if (session != null &&
@@ -59,44 +57,9 @@ object ActivityTransitionCoordinator {
         routeId: TransitionRouteId,
         intent: android.content.Intent,
         payload: TransitionPayload? = null
-    ): TransitionLaunchResult = openInternal(
-        activity = activity,
-        routeId = routeId,
-        intent = intent,
-        payload = payload,
-        forceNativeForDebug = false,
-        allowDebugDestinationOverride = false
-    )
-
-    /** Debug-source-set bisection hook; never callable in a release build. */
-    internal suspend fun openDebugNativeCandidate(
-        activity: Activity,
-        routeId: TransitionRouteId,
-        intent: android.content.Intent,
-        payload: TransitionPayload
-    ): TransitionLaunchResult {
-        check(BuildConfig.DEBUG) { "Debug transition harness is unavailable in release builds" }
-        return openInternal(
-            activity = activity,
-            routeId = routeId,
-            intent = intent,
-            payload = payload,
-            forceNativeForDebug = true,
-            allowDebugDestinationOverride = true
-        )
-    }
-
-    private suspend fun openInternal(
-        activity: Activity,
-        routeId: TransitionRouteId,
-        intent: android.content.Intent,
-        payload: TransitionPayload?,
-        forceNativeForDebug: Boolean,
-        allowDebugDestinationOverride: Boolean
     ): TransitionLaunchResult = withContext(Dispatchers.Main.immediate) {
         val route = TransitionRouteCatalog.get(routeId)
         validateDestination(route, intent)
-            ?.takeUnless { allowDebugDestinationOverride }
             ?.let { reason ->
             val failed = TransitionPayloadStore.create(routeId, payload)
             failed.moveTo(TransitionSessionState.Failed)
@@ -107,8 +70,8 @@ object ActivityTransitionCoordinator {
         val parentId = payload?.parentSessionId ?: activity.activeTransitionSessionIdOrNull()
         val landscape = activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         val normalizedPayload = if (landscape) payload?.copy(
-            openingAnchor = null, returnAnchorProvider = null, nativeSourceViewProvider = null,
-            backgroundBitmap = null, parentSessionId = parentId, nativeSourceLeashAlphaOutOnOpen = false
+            openingAnchor = null, returnAnchorProvider = null,
+            backgroundBitmap = null, parentSessionId = parentId
         ) else payload?.copy(parentSessionId = parentId)
         val session = TransitionPayloadStore.create(routeId, normalizedPayload, parentId)
         intent.putTransitionIdentity(session)
@@ -120,27 +83,28 @@ object ActivityTransitionCoordinator {
                 .getOrDefault(false)
         }
         val nativeDestination = route.nativeDestinationClassName
-        val nativeEligible = !landscape && (forceNativeForDebug || TransitionFeatureGate.allowsOplus(route)) &&
+        val nativeEligible = !landscape && TransitionFeatureGate.allowsSharedViewKit(route) &&
             (!route.requiresOpeningAnchor || normalizedPayload?.openingAnchor?.isValid == true) &&
             returnAnchorReady &&
-            (allowDebugDestinationOverride || nativeDestination != null)
+            nativeDestination != null
         if (nativeEligible) {
             session.moveTo(TransitionSessionState.SourceReady)
-            val nativeIntent = if (allowDebugDestinationOverride) {
-                android.content.Intent(intent)
-            } else {
-                android.content.Intent(intent).setClassName(
-                    activity.packageName,
-                    checkNotNull(nativeDestination)
-                )
-            }.also { it.putTransitionIdentity(session) }
+            val nativeIntent = android.content.Intent(intent).setClassName(
+                activity.packageName, checkNotNull(nativeDestination)
+            ).also { it.putTransitionIdentity(session) }
             val nativeRequest = legacyRequest.copy(intent = nativeIntent)
-            when (val native = oplusBackend.open(nativeRequest)) {
+            when (val native = nativeBackend.open(nativeRequest)) {
                 TransitionBackendOpenResult.Started -> {
                     return@withContext TransitionLaunchResult.NativeRegistered(session.id)
                 }
                 is TransitionBackendOpenResult.Rejected -> {
-                    log(session, oplusBackend.name, "fallback", native.reason)
+                    log(session, nativeBackend.name, "fallback", native.reason)
+                    // Never start Legacy while another native leash is moving: that would open a
+                    // second destination on top of the in-flight system animation.
+                    if (native.reason == SharedViewKitBackend.AnimationInProgressReason) {
+                        TransitionPayloadStore.remove(session.id)
+                        return@withContext TransitionLaunchResult.Failed(session.id, native.reason)
+                    }
                 }
             }
         }
@@ -182,7 +146,7 @@ object ActivityTransitionCoordinator {
 
     fun requestNativeClose(activity: Activity, sessionId: TransitionSessionId?): Boolean {
         val session = TransitionPayloadStore.session(sessionId) ?: return false
-        return oplusBackend.requestClose(activity, session)
+        return nativeBackend.requestClose(activity, session)
     }
 
     fun beginLegacyClose(sessionId: TransitionSessionId?) {
@@ -314,7 +278,7 @@ object ActivityTransitionCoordinator {
         event: String,
         reason: String
     ) {
-        if (!BuildConfig.DEBUG) return
+        if (!BuildConfig.DEBUG && !BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST) return
         Log.d(
             LogTag,
             "route=${session.routeId.wireName} session=${session.id.value} " +

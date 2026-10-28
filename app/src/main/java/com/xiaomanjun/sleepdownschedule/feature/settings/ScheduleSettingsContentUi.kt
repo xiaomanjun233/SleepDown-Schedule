@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.content.Intent
 import android.net.Uri
 import android.provider.Settings
@@ -36,7 +38,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
@@ -58,17 +59,12 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTimePickerRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsToggleRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsValueRow
 import com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationChoiceRow
 import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationDetails
 import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationPreview
 import com.xiaomanjun.sleepdownschedule.feature.experimental.rememberExperimentalNotificationUiState
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.home.week.*
-import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdatePreferences
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
-import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
@@ -123,6 +119,8 @@ fun ScheduleSettingsContent(
     scheduleAdjustmentsJson: String = state.config.scheduleAdjustmentsJson,
     onScheduleAdjustmentsChange: (String) -> Unit = {},
     onOpenPeriodSchemes: () -> Unit = {},
+    onOpenSpecialCourses: () -> Unit = {},
+    onOpenDateTimetables: () -> Unit = {},
     periodSchemeLibrary: List<SavedPeriodScheme> = emptyList(),
     onSelectPeriodScheme: (SavedPeriodScheme) -> Unit = {},
     periodEditorExit: PeriodEditorExitCoordinator? = null
@@ -174,6 +172,8 @@ fun ScheduleSettingsContent(
             scheduleAdjustmentsJson = scheduleAdjustmentsJson,
             onScheduleAdjustmentsChange = onScheduleAdjustmentsChange,
             onOpenPeriodSchemes = onOpenPeriodSchemes,
+            onOpenSpecialCourses = onOpenSpecialCourses,
+            onOpenDateTimetables = onOpenDateTimetables,
             periodSchemeLibrary = periodSchemeLibrary,
             onSelectPeriodScheme = onSelectPeriodScheme,
             periodEditorExit = periodEditorExit
@@ -492,6 +492,8 @@ fun ScheduleSettingsContentFixed(
     scheduleAdjustmentsJson: String = state.config.scheduleAdjustmentsJson,
     onScheduleAdjustmentsChange: (String) -> Unit = {},
     onOpenPeriodSchemes: () -> Unit = {},
+    onOpenSpecialCourses: () -> Unit = {},
+    onOpenDateTimetables: () -> Unit = {},
     periodSchemeLibrary: List<SavedPeriodScheme> = emptyList(),
     onSelectPeriodScheme: (SavedPeriodScheme) -> Unit = {},
     periodEditorExit: PeriodEditorExitCoordinator? = null
@@ -517,53 +519,57 @@ fun ScheduleSettingsContentFixed(
                 SettingsDivider()
                 SettingsToggleRow("隐藏空周末", "", hideEmptyWeekends, backdrop, onCheckedChange = onHideEmptyWeekendsChange)
                 SettingsDivider()
-                SettingsToggleRow("显示非本周课程", "以浏览周为准，灰色展示且优先显示当周课程",
+                SettingsToggleRow("显示非本周课程", "灰色预告后续课程，结课后自动隐藏；当周课程优先",
                     showNonCurrentWeekCourses, backdrop, onCheckedChange = onShowNonCurrentWeekCoursesChange)
                 SettingsDivider()
                 SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
             }
         }
         error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        GlassPreferenceSection("作息") {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                if (schemeDraft != null) {
-                    val active = schemeDraft.schemes.first { it.scheme.id == schemeDraft.activeSchemeId }
-                    val currentIndex = periodSchemeLibrary.indexOfFirst { it.id == active.scheme.publicId }
-                    val labels = periodSchemeLibrary.map { scheme ->
-                        if (periodSchemeLibrary.count { it.name == scheme.name } > 1) {
-                            val source = scheme.sources.firstOrNull()?.scheduleName ?: "公共作息"
-                            "${scheme.name}（$source · #${scheme.roomId}）"
-                        } else scheme.name
-                    }
-                    SleepDownLiquidDropdownPreference(
-                        items = labels,
-                        selectedIndex = currentIndex,
-                        title = "当前作息", backdrop = backdrop, config = state.config,
-                        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                        maxHeight = 318.dp, onExpandedChange = {},
-                        onSelectedIndexChange = { index ->
-                            periodSchemeLibrary.getOrNull(index)?.let(onSelectPeriodScheme)
-                        }
-                    )
-                    SettingsDivider()
+        TimeSlotCoursesSettings(config = state.config, backdrop = backdrop, onOpen = onOpenSpecialCourses)
+        ScheduleAdjustmentsSettings(state.copy(config = draftConfig), backdrop, scheduleAdjustmentsJson, onScheduleAdjustmentsChange)
+    }
+    val timetableSettings: @Composable () -> Unit = {
+        if (schemeDraft != null) {
+            val active = schemeDraft.schemes.first { it.scheme.id == schemeDraft.activeSchemeId }
+            val currentIndex = periodSchemeLibrary.indexOfFirst { it.id == active.scheme.publicId }
+            val labels = periodSchemeLibrary.map { scheme ->
+                if (periodSchemeLibrary.count { it.name == scheme.name } > 1) {
+                    val source = scheme.sources.firstOrNull()?.scheduleName ?: "公共作息"
+                    "${scheme.name}（$source · #${scheme.roomId}）"
+                } else scheme.name
+            }
+            SleepDownLiquidDropdownPreference(
+                items = labels,
+                selectedIndex = currentIndex,
+                title = "当前作息", backdrop = backdrop, config = state.config,
+                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                maxHeight = 318.dp, onExpandedChange = {},
+                onSelectedIndexChange = { index ->
+                    periodSchemeLibrary.getOrNull(index)?.let(onSelectPeriodScheme)
                 }
-                SettingsNavigationRow(
-                    "作息管理",
-                    "新建、复制、编辑和删除公共作息",
-                    onClick = onOpenPeriodSchemes
-                )
-                SettingsDivider()
-                SettingsInfoRow("注意", "在这里下方直接编辑修改作息，仅对当前课表生效，如需修改共用的作息，请进入作息管理页面")
+            )
+            SettingsDivider()
+        }
+        SettingsNavigationRow("日期作息", "设置夏冬季等日期规则；固定网格保持基准作息", onClick = onOpenDateTimetables)
+        SettingsDivider()
+        SettingsInfoRow("编辑范围", "这里修改作息仅对本课表生效；共用作息请在下方“作息管理”中编辑")
+    }
+    val publicTimetableSettings: @Composable () -> Unit = {
+        GlassPreferenceSection("作息管理") {
+            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                SettingsNavigationRow("公共作息库", "新建、复制、编辑和删除公共作息", onClick = onOpenPeriodSchemes)
             }
         }
-        ScheduleAdjustmentsSettings(state.copy(config = draftConfig), backdrop, scheduleAdjustmentsJson, onScheduleAdjustmentsChange)
     }
     if (schemeDraft != null) {
         PeriodSchemeEditor(
             state, backdrop, draftConfig, schemeDraft,
             onSchemeDraftChange, onPeriodCountsChange, topPadding,
             leadingContent = termSettings,
-            exitCoordinator = periodEditorExit
+            exitCoordinator = periodEditorExit,
+            timetableContent = timetableSettings,
+            trailingContent = publicTimetableSettings
         )
     } else {
         LazyColumn(
@@ -572,6 +578,7 @@ fun ScheduleSettingsContentFixed(
         ) {
             item { termSettings() }
             item { Text("正在读取作息…", modifier = Modifier.padding(20.dp)) }
+            item { publicTimetableSettings() }
         }
     }
 }

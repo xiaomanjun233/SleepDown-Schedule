@@ -2,7 +2,6 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.backup.*
 import android.net.Uri
 import android.util.Base64
 import kotlinx.serialization.Serializable
@@ -115,7 +114,11 @@ data class AiProviderProfile(
     val supportsFileUpload: Boolean = capabilities.supportsFileUpload,
     val supportsPdfDirect: Boolean = capabilities.supportsPdfFileInput,
     val availableModels: List<String> = emptyList(),
-    val reasoningEffort: AiReasoningEffort = AiReasoningEffort.MEDIUM
+    val reasoningEffort: AiReasoningEffort = AiReasoningEffort.MEDIUM,
+    val managedReasoningOptions: List<AiReasoningEffort>? = null,
+    val managedReasoningLocked: Boolean = false,
+    val managedModelDisplayName: String? = null,
+    @kotlinx.serialization.Transient val modelCatalog: List<AiModelOption> = emptyList()
 )
 
 data class AiImportSettings(
@@ -144,7 +147,8 @@ data class AiProviderConfig(
     val reasoningEffort: AiReasoningEffort,
     val authType: AiAuthType = AiAuthType.ApiKeyBearer,
     val responsesPath: String = "/responses",
-    val chatCompletionsPath: String = "/chat/completions"
+    val chatCompletionsPath: String = "/chat/completions",
+    val managedReasoningControlled: Boolean = false
 ) {
     /**
      * 解析实际请求端点。仅当显式配置了非空路径时才追加；路径为空时直接使用 baseUrl，
@@ -256,6 +260,7 @@ fun extractAiReasoningForDisplay(output: String): String {
         .trim()
 }
 
+@Serializable
 data class AiModelOption(
     val label: String,
     val model: String,

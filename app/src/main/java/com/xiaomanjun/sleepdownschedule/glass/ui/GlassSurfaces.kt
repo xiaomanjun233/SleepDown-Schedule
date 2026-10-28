@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.glass.ui
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import android.os.Build
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.background
@@ -7,7 +9,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -30,9 +31,8 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.app.ui.Screen
 import com.xiaomanjun.sleepdownschedule.core.performance.LocalGlassQuality
-import com.xiaomanjun.sleepdownschedule.feature.home.day.hasAnyWallpaper
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
 import com.xiaomanjun.sleepdownschedule.glass.GlassHighlightFrame
@@ -46,12 +46,6 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 
 typealias GlassTokens = GlassMaterialSpec
-
-@Composable
-fun appUsesDarkTheme(config: ScheduleConfigEntity): Boolean {
-    val systemDark = isSystemInDarkTheme()
-    return if (config.followSystemDarkMode) systemDark else config.darkMode
-}
 
 @Composable
 fun glassUsesLightStyle(config: ScheduleConfigEntity): Boolean {
@@ -321,6 +315,14 @@ fun GlassDialogSurface(
     shape: Shape = RoundedRectangle(26.dp),
     content: @Composable () -> Unit
 ) {
+    if (!com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()) {
+        val base = if (glassUsesLightStyle(config)) Color.White else Color(0xFF050505)
+        MorphDialogSurface(
+            surfaceColor = base.copy(alpha = GlassTokens.dialog().surfaceAlpha * LocalGlassQuality.current),
+            shape = shape, modifier = modifier
+        ) { content() }
+        return
+    }
     GlassSurface(
         backdrop = backdrop,
         config = config,

@@ -6,6 +6,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class EduWebSecurityTest {
+    @Test fun credentialPromptsExposeTheRightTypeWithoutMisclassifyingVerificationCodes() {
+        assertEquals(EduPromptCredentialType.Username, eduPromptCredentialType("请输入学号", ""))
+        assertEquals(EduPromptCredentialType.Username, eduPromptCredentialType("请输入账号", "随后填写教务密码"))
+        assertEquals(EduPromptCredentialType.Password, eduPromptCredentialType("统一认证密码", ""))
+        assertEquals(EduPromptCredentialType.Password, eduPromptCredentialType("Password", ""))
+        assertEquals(null, eduPromptCredentialType("验证码", "输入动态密码"))
+        assertEquals(null, eduPromptCredentialType("选择学期", ""))
+    }
+
     @Test
     fun normalizesWebAddressesWithoutChangingExplicitHttpScheme() {
         assertEquals("https://jw.example.edu.cn", normalizeEduUrl("jw.example.edu.cn"))

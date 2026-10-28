@@ -906,6 +906,25 @@ private val MIGRATION_46_47 = object : Migration(46, 47) {
     }
 }
 
+private val MIGRATION_47_48 = object : Migration(47, 48) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE schedule_config ADD COLUMN weekStartsOnSunday INTEGER NOT NULL DEFAULT 0")
+    }
+}
+
+// Two local v48 candidates introduced different columns. Upgrade either shape without
+// rebuilding tables or changing the existing course, alignment or timetable settings.
+private val MIGRATION_48_49 = object : Migration(48, 49) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        if (!db.hasColumn("schedule_config", "weekStartsOnSunday")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN weekStartsOnSunday INTEGER NOT NULL DEFAULT 0")
+        }
+        if (!db.hasColumn("schedule_config", "timeSlotCoursesJson")) {
+            db.execSQL("ALTER TABLE schedule_config ADD COLUMN timeSlotCoursesJson TEXT NOT NULL DEFAULT ''")
+        }
+    }
+}
+
 internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_1_2,
     MIGRATION_2_3,
@@ -952,7 +971,10 @@ internal val APP_DATABASE_MIGRATIONS: List<Migration> = listOf(
     MIGRATION_43_44,
     MIGRATION_44_45,
     MIGRATION_45_46,
-    MIGRATION_46_47
+    MIGRATION_46_47,
+    MIGRATION_47_48,
+    MIGRATION_48_49,
+    MIGRATION_49_50
 )
 
 private fun addWallpaperCropColumns(db: SupportSQLiteDatabase) {
@@ -970,6 +992,7 @@ internal fun createAppDatabase(
     context: Context,
     databaseName: String = "course_schedule.db"
 ): AppDatabase {
+    backupBeforeTimingUpgrade(context, context.getDatabasePath(databaseName))
     repairDatabaseFileBeforeRoomOpen(context.getDatabasePath(databaseName))
     return Room.databaseBuilder(context, AppDatabase::class.java, databaseName)
         .addMigrations(*APP_DATABASE_MIGRATIONS.toTypedArray())
@@ -980,6 +1003,8 @@ private fun repairDatabaseFileBeforeRoomOpen(path: File) {
     if (!path.exists()) return
     runCatching {
         SQLiteDatabase.openDatabase(path.absolutePath, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+            // Version 50 uses normalized timing tables. Never run legacy table reconstruction on it.
+            if (db.version >= 50) return@use
             val needsStructuralRepair = db.version < 26 ||
                 !sqliteTableExists(db, "schedule_profiles") ||
                 !sqliteTableExists(db, "schedule_config") ||

@@ -2,47 +2,14 @@ package com.xiaomanjun.sleepdownschedule.feature.backup
 
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.model.AppIconPreferencesSnapshot
-import java.util.UUID
 import kotlinx.serialization.Serializable
 
-/**
- * Stable, Room-independent identifiers used inside a .sleepdown archive.
- *
- * These identifiers intentionally do not preserve Room auto-increment values. They only need to
- * be stable for the lifetime of one archive and its import plan.
- */
-object BackupStableId {
-    const val SCHEDULE_PREFIX = "schedule"
-    const val COURSE_PREFIX = "course"
-    const val SCHEME_PREFIX = "scheme"
-    const val SESSION_PREFIX = "session"
-    const val MESSAGE_PREFIX = "message"
-    const val WIDGET_PREFIX = "widget"
-    const val ASSET_PREFIX = "asset"
-    const val HISTORY_PREFIX = "history"
-
-    private val uuidPattern = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}")
-
-    fun new(prefix: String): String {
-        require(prefix.matches(Regex("[a-z][a-z0-9_-]{0,31}"))) { "非法备份 ID 前缀" }
-        return "${prefix}_${UUID.randomUUID()}"
-    }
-
-    fun isValid(value: String, prefix: String? = null): Boolean {
-        if (value.length > 128) return false
-        val separator = value.indexOf('_')
-        if (separator <= 0 || separator == value.lastIndex) return false
-        val actualPrefix = value.substring(0, separator)
-        if (prefix != null && actualPrefix != prefix) return false
-        return actualPrefix.matches(Regex("[a-z][a-z0-9_-]{0,31}")) &&
-            value.substring(separator + 1).matches(uuidPattern)
-    }
-
-    fun requireValid(value: String, prefix: String? = null): String {
-        require(isValid(value, prefix)) { "非法备份 stable ID: $value" }
-        return value
-    }
-}
+// Keep existing backup source imports while shared snapshot values live in model.
+typealias BackupStableId = com.xiaomanjun.sleepdownschedule.model.backup.BackupStableId
+typealias BackupDayAgentPreferences = com.xiaomanjun.sleepdownschedule.model.backup.BackupDayAgentPreferences
+typealias BackupAiImportPreferences = com.xiaomanjun.sleepdownschedule.model.backup.BackupAiImportPreferences
+typealias BackupAiProvider = com.xiaomanjun.sleepdownschedule.model.backup.BackupAiProvider
+typealias BackupAiImportHistoryEntry = com.xiaomanjun.sleepdownschedule.model.backup.BackupAiImportHistoryEntry
 
 object BackupAssetCategory {
     const val SCHEDULES = "schedules"
@@ -74,12 +41,12 @@ object BackupAssetPurpose {
 object BackupFormatV1 {
     const val FORMAT_VERSION = 1
     const val PRODUCT = "SleepDown Backup"
-    const val DATA_VERSION = 1
+    const val DATA_VERSION = 2
     const val PREFERENCES_VERSION = 1
     const val CHECKSUM_VERSION = 1
     const val CHECKSUM_ALGORITHM = "SHA-256"
-    const val DEFAULT_AI_IMPORT_HISTORY_RETENTION_DAYS = 30
-    val AI_IMPORT_HISTORY_RETENTION_OPTIONS = listOf(7, 30, 90, 0)
+    const val DEFAULT_AI_IMPORT_HISTORY_RETENTION_DAYS = com.xiaomanjun.sleepdownschedule.model.backup.DefaultAiImportHistoryRetentionDays
+    val AI_IMPORT_HISTORY_RETENTION_OPTIONS = com.xiaomanjun.sleepdownschedule.model.backup.AiImportHistoryRetentionOptions
 
     const val MANIFEST_ENTRY = "manifest.json"
     const val DATA_ENTRY = "data.json"
@@ -169,7 +136,8 @@ data class BackupData(
     val schedules: List<BackupSchedule> = emptyList(),
     val widgetAppearances: List<BackupWidgetAppearance> = emptyList(),
     /** Null identifies older archives whose schemes belonged to individual schedules. */
-    val sharedPeriodSchemes: List<BackupPeriodScheme>? = null
+    val sharedPeriodSchemes: List<BackupPeriodScheme>? = null,
+    val timetableCombos: List<BackupTimetableCombo> = emptyList()
 )
 
 @Serializable
@@ -183,7 +151,8 @@ data class BackupSchedule(
     val periodSchemes: List<BackupPeriodScheme> = emptyList(),
     val agentDailySessions: List<BackupAgentDailySession> = emptyList(),
     val agentMessages: List<BackupAgentMessage> = emptyList(),
-    val activePeriodSchemeId: String? = null
+    val activePeriodSchemeId: String? = null,
+    val activeTimetableComboId: String? = null
 )
 
 /** Protocol DTO for ScheduleConfigEntity. It intentionally has no database id or URI field. */
@@ -253,7 +222,9 @@ data class BackupScheduleConfig(
     val homeChromeSamplingScale: Float = DefaultHomeChromeSamplingScale,
     val scheduleAdjustmentsJson: String = "",
     val showNonCurrentWeekCourses: Boolean = false,
-    val periodAlignmentMode: String = "INDEX"
+    val weekStartsOnSunday: Boolean = false,
+    val periodAlignmentMode: String = "INDEX",
+    val timeSlotCoursesJson: String = ""
 )
 
 @Serializable
@@ -271,14 +242,20 @@ data class BackupCourse(
     val customEndTime: String? = null,
     val customColorArgb: Long? = null,
     val customPeriodTimes: String? = null,
-    val originalPeriodTimes: String? = null
+    val originalPeriodTimes: String? = null,
+    val independentPeriodSchemeId: String? = null,
+    val credit: Float? = null,
+    val timingReviewReason: String? = null,
+    val legacyTimingSourceJson: String? = null,
+    val sourcePaletteIndex: Int? = null
 )
 
 @Serializable
 data class BackupPeriod(
     val periodIndex: Int,
     val startTime: String,
-    val endTime: String
+    val endTime: String,
+    val alias: String? = null
 )
 
 @Serializable
@@ -308,8 +285,15 @@ data class BackupPeriodScheme(
 data class BackupPeriodSchemeTime(
     val periodIndex: Int,
     val startTime: String,
-    val endTime: String
+    val endTime: String,
+    val alias: String? = null
 )
+
+@Serializable
+data class BackupTimetableCombo(val id: String, val name: String, val baseSchemeId: String, val rules: List<BackupTimetableDateRule>)
+
+@Serializable
+data class BackupTimetableDateRule(val schemeId: String, val startDate: String, val endDate: String)
 
 @Serializable
 data class BackupAgentDailySession(
@@ -364,60 +348,4 @@ data class BackupPreferences(
     val aiImportHistory: List<BackupAiImportHistoryEntry> = emptyList(),
     val savedPeriodSchemes: List<com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme>? = null,
     val courseQuietSettings: com.xiaomanjun.sleepdownschedule.domain.schedule.CourseQuietSettings? = null
-)
-
-@Serializable
-data class BackupDayAgentPreferences(
-    val hasDecision: Boolean,
-    val enabled: Boolean,
-    val dailyAiEnabled: Boolean,
-    val weatherEnabled: Boolean,
-    val memoryEnabled: Boolean,
-    val memory: String,
-    val memoryTurnDay: String?,
-    val memoryTurnCount: Int,
-    val memoryLastAgentUpdateDay: String?,
-    val appliedActionsBySchedule: Map<String, List<String>> = emptyMap(),
-    val weekAssistantEnabled: Boolean = true
-)
-
-@Serializable
-data class BackupAiImportPreferences(
-    val selectedProviderId: String,
-    val managedFreeOfferDecision: String? = null,
-    val providers: List<BackupAiProvider> = emptyList()
-)
-
-@Serializable
-data class BackupAiProvider(
-    val id: String,
-    val displayName: String,
-    val providerType: String,
-    val baseUrl: String,
-    val model: String,
-    val authType: String,
-    val supportsImageInput: Boolean,
-    val supportsPdfFileInput: Boolean,
-    val supportsJsonSchema: Boolean,
-    val supportsJsonMode: Boolean,
-    val supportsFileUpload: Boolean,
-    val supportsResponses: Boolean,
-    val supportsVision: Boolean,
-    val supportsPdfDirect: Boolean,
-    val endpointStyle: String,
-    val structuredOutputMode: String,
-    val inputMode: String,
-    val availableModels: List<String> = emptyList(),
-    val reasoningEffort: String
-)
-
-@Serializable
-data class BackupAiImportHistoryEntry(
-    val id: String,
-    val createdAt: Long,
-    val title: String,
-    val prompt: String,
-    val sourceSummary: String,
-    val payload: String,
-    val contextAssetId: String? = null
 )

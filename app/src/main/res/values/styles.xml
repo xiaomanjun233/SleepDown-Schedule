@@ -11,6 +11,19 @@
 
     <style name="AppTheme" parent="@style/AppThemeBase" />
 
+    <style name="AppTheme.SettingsSlide" parent="@style/AppTheme">
+        <item name="android:windowAnimationStyle">@style/Animation.SettingsSlide</item>
+    </style>
+    <style name="Animation.SettingsSlide" parent="@android:style/Animation.Activity">
+        <item name="android:activityOpenEnterAnimation">@anim/settings_slide_enter</item>
+        <item name="android:activityOpenExitAnimation">@anim/settings_slide_exit</item>
+        <item name="android:activityCloseEnterAnimation">@anim/settings_slide_pop_enter</item>
+        <item name="android:activityCloseExitAnimation">@anim/settings_slide_pop_exit</item>
+    </style>
+    <style name="AppTheme.NativeDetail.SettingsSlide" parent="@style/AppTheme.NativeDetail">
+        <item name="android:windowAnimationStyle">@style/Animation.SettingsSlide</item>
+    </style>
+
     <style name="AppTheme.TranslucentMorph" parent="@style/AppTheme">
         <item name="android:windowIsTranslucent">true</item>
         <item name="android:windowBackground">@android:color/transparent</item>
@@ -19,11 +32,8 @@
         <item name="android:windowNoTitle">true</item>
     </style>
 
-    <!-- Opaque detail theme for ColorOS ViewSeamless destinations. ViewSeamless requires an
-         opaque destination window (a transparent one makes OplusViewSeamlessRemoteManager log
-         `skip anim`). Glass for these pages is provided by the page content itself, not by a
-         translucent window. -->
-    <style name="AppTheme.OplusSeamlessDetail" parent="@style/AppTheme">
+    <!-- Concrete opaque destination used by the opt-in SharedViewKit route. -->
+    <style name="AppTheme.NativeDetail" parent="@style/AppTheme">
         <item name="android:windowIsTranslucent">false</item>
         <item name="android:windowBackground">#FFEDEEF3</item>
         <item name="android:windowDisablePreview">false</item>

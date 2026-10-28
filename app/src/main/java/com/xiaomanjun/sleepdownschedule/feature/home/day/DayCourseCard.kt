@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +14,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +51,7 @@ import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
 import com.xiaomanjun.sleepdownschedule.domain.schedule.isHiddenByPeriodAlignment
 import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
+import com.xiaomanjun.sleepdownschedule.domain.schedule.effectiveArrangementOrNull
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorDayAppearance
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.LocalCourseEditorFlightRegistry
@@ -212,6 +215,20 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
     val ownBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
     val visibleBounds = remember(course.id) { arrayOfNulls<Rect>(1) }
     val flightRegistry = LocalCourseEditorFlightRegistry.current
+    val openEditor by androidx.compose.runtime.rememberUpdatedState<() -> Unit> {
+        val bounds = ownBounds[0]
+        val visible = visibleBounds[0]
+        if (bounds != null && visible != null) flightRegistry?.captureSource(
+            bounds, visible, CourseEditorDayAppearance(course, periods, showTime, showWeeks,
+                tabletFontScale, muted, adjustmentLabel, cornerRadius = DayCourseCardCornerRadius, backdrop = backdrop))
+        onClick?.invoke(bounds)
+    }
+    val editorTapOwner = remember(course.id, displayedWeek, adjustmentLabel) { Any() }
+    androidx.compose.runtime.DisposableEffect(flightRegistry, editorTapOwner, onClick != null) {
+        if (onClick != null) flightRegistry?.registerTarget(editorTapOwner, displayedWeek, day = true,
+            bounds = { visibleBounds[0] }, open = { openEditor() })
+        onDispose { flightRegistry?.removeTarget(editorTapOwner) }
+    }
     val editId = LocalEditingCourseId.current
     val startupPhase = LocalStartupPhase.current
     val sharedScope = if (startupPhase == StartupPhase.FullQuality && enableSharedTransition && course.id > 0L) LocalSharedTransitionScope.current else null
@@ -228,7 +245,8 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
         }
     CourseBoundsSource(
         courseId = course.id,
-        visible = editId != course.id,
+        visible = editId != course.id && course.id !in
+            com.xiaomanjun.sleepdownschedule.core.ui.chrome.LocalEditingCourseIds.current,
         sharedScope = sharedScope,
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedRectangle(DayCourseCardCornerRadius)
@@ -249,16 +267,7 @@ fun CourseCard(course: CourseEntity, periods: List<PeriodEntity>, showTime: Bool
             // its position-dependent display list across those lifecycle transitions.
             expandedOutlineLight = true,
             muted = muted,
-            onClick = if (onClick != null) ({
-                val bounds = ownBounds[0]
-                val visible = visibleBounds[0]
-                if (bounds != null && visible != null) flightRegistry?.captureSource(
-                    bounds, visible,
-                    CourseEditorDayAppearance(course, periods, showTime, showWeeks, tabletFontScale, muted,
-                        adjustmentLabel, cornerRadius = DayCourseCardCornerRadius, backdrop = backdrop)
-                )
-                onClick(bounds)
-            }) else null
+            onClick = if (onClick != null) ({ openEditor() }) else null
         ) {
             DayCourseCardContent(
                 course = course,
@@ -286,7 +295,7 @@ fun ImportPreviewCourseCard(
     config: ScheduleConfigEntity = defaultConfig()
 ) {
     val effective = remember(course, periods, config.periodAlignmentMode) {
-        projectCourseArrangement(captureOriginalPeriodTimes(course, periods), config, periods)
+        if (course.effectiveArrangementOrNull() != null) course else projectCourseArrangement(captureOriginalPeriodTimes(course, periods), config, periods)
     }
     // Preview lives on the settings page, without the timetable's wallpaper. Resolve one
     // page ink, just like the live cards; individual seed colors must not invert labels.

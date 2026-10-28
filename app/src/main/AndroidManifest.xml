@@ -190,9 +190,26 @@
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".MainActivity" />
         <activity
+            android:name=".NativeQuickSheetSettingsDetailActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NativeDetail"
+            android:parentActivityName=".MainActivity" />
+        <activity
             android:name=".feature.settings.ScheduleAdjustmentsActivity"
             android:exported="false"
             android:theme="@style/AppTheme"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".SettingsDetailActivity" />
+        <activity
+            android:name=".feature.settings.SpecialCourseEditorActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.SettingsSlide"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".SettingsDetailActivity" />
+        <activity
+            android:name=".feature.settings.NativeSpecialCourseEditorActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NativeDetail.SettingsSlide"
             android:windowSoftInputMode="adjustResize"
             android:parentActivityName=".SettingsDetailActivity" />
         <activity
@@ -206,10 +223,14 @@
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".MainActivity" />
         <activity
-            android:name=".OplusCourseManagementActivity"
+            android:name=".NativeCourseManagementActivity"
             android:exported="false"
-            android:theme="@style/AppTheme.OplusSeamlessDetail"
+            android:theme="@style/AppTheme.NativeDetail"
             android:parentActivityName=".MainActivity" />
+        <activity-alias
+            android:name=".OplusCourseManagementActivity"
+            android:targetActivity=".CourseManagementActivity"
+            android:exported="false" />
         <activity
             android:name=".feature.experimental.colorosui.ColorOsCourseManagementActivity"
             android:exported="false"
@@ -221,20 +242,28 @@
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".CourseManagementActivity" />
         <activity
-            android:name=".OplusCourseManagementDetailActivity"
+            android:name=".NativeCourseManagementDetailActivity"
             android:exported="false"
-            android:theme="@style/AppTheme.OplusSeamlessDetail"
+            android:theme="@style/AppTheme.NativeDetail"
             android:parentActivityName=".CourseManagementActivity" />
+        <activity-alias
+            android:name=".OplusCourseManagementDetailActivity"
+            android:targetActivity=".NativeCourseManagementDetailActivity"
+            android:exported="false" />
         <activity
             android:name=".EduSchoolSelectActivity"
             android:exported="false"
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".MainActivity" />
         <activity
-            android:name=".OplusEduSchoolSelectActivity"
+            android:name=".NativeEduSchoolSelectActivity"
             android:exported="false"
-            android:theme="@style/AppTheme.OplusSeamlessDetail"
+            android:theme="@style/AppTheme.NativeDetail"
             android:parentActivityName=".MainActivity" />
+        <activity-alias
+            android:name=".OplusEduSchoolSelectActivity"
+            android:targetActivity=".EduSchoolSelectActivity"
+            android:exported="false" />
         <activity
             android:name=".EduImportActivity"
             android:exported="false"
@@ -257,15 +286,24 @@
             android:exported="false"
             android:theme="@style/AppTheme.TranslucentMorph"
             android:parentActivityName=".AiEduImportProgressActivity" />
-        <activity
+        <activity-alias
             android:name=".OplusAiImportHistoryActivity"
+            android:targetActivity=".AiImportHistoryActivity"
+            android:exported="false" />
+        <activity
+            android:name=".NativeAiImportHistoryActivity"
             android:exported="false"
-            android:theme="@style/AppTheme.OplusSeamlessDetail"
+            android:theme="@style/AppTheme.NativeDetail"
             android:parentActivityName=".AiEduImportProgressActivity" />
         <activity
             android:name=".AiImportHistoryDetailActivity"
             android:exported="false"
             android:theme="@style/AppTheme.TranslucentMorph"
+            android:parentActivityName=".AiImportHistoryActivity" />
+        <activity
+            android:name=".NativeAiImportHistoryDetailActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NativeDetail"
             android:parentActivityName=".AiImportHistoryActivity" />
         <provider
             android:name="androidx.core.content.FileProvider"

@@ -33,7 +33,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.TopBackButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassMiuixDetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalGlassSettingsContentTopPadding
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 private val DetailTopBarHeight = SleepDownDesignTokens.SecondaryPage.CompactTopBarHeight
@@ -174,6 +174,9 @@ fun DetailTopBar(
                     onClick = onBack,
                     modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize)
                 )
+            } else {
+                // A root-level floating back button still owns this leading slot.
+                Box(Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize))
             }
             Box(
                 modifier = Modifier

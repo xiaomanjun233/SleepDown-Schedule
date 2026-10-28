@@ -10,20 +10,26 @@ import com.xiaomanjun.sleepdownschedule.model.*
 /** Only the timetable renderer consumes these; they never enter calendar/Widget course buckets. */
 internal data class NonCurrentWeekCard(val course: CourseEntity, val top: Float, val bottom: Float)
 
+/** References preview a future occurrence relative to the browsed week, including parity gaps. */
+internal fun CourseEntity.isUpcomingWeekReference(week: Int): Boolean =
+    !(week in weeks && parityMatches(weekParity, week)) &&
+        weeks.any { it > week && parityMatches(weekParity, it) }
+
 internal fun nonCurrentWeekCards(
     courses: List<CourseEntity>, actual: List<CourseEntity>, week: Int, day: Int,
     periods: List<PeriodEntity>, rowHeight: Float,
-    renderedActualBounds: List<Pair<Float, Float>>? = null
+    renderedActualBounds: List<Pair<Float, Float>>? = null,
+    timeGrid: WeekTimeSlotGrid? = null
 ): List<NonCurrentWeekCard> {
     fun cards(course: CourseEntity): List<NonCurrentWeekCard> =
-        courseAlignmentFragments(course, periods).flatMap { fragment ->
-            if (courseNeedsSupplementaryWeekRow(fragment, periods)) emptyList() else {
+        courseWeekDisplayFragments(course, periods).flatMap { fragment ->
+            if (courseNeedsSupplementaryWeekRow(fragment, periods) && timeGrid?.clockRows.isNullOrEmpty()) emptyList() else {
                 val segments = buildWeekConflictGroups(listOf(fragment), periods.map { it.periodIndex }, periods)
                     .flatMap { it.segments }
                 val rendered = if (fragment.hasCustomTime() && fragment.arrangementProjection == null)
                     segments.take(1) else segments
                 rendered.map { segment ->
-                    val (top, bottom) = weekCardVerticalBounds(segment, periods, rowHeight.dp)
+                    val (top, bottom) = weekCardVerticalBounds(segment, periods, rowHeight.dp, timeGrid)
                     NonCurrentWeekCard(segment.course, top, bottom)
                 }
             }
@@ -31,7 +37,7 @@ internal fun nonCurrentWeekCards(
     val occupied = (renderedActualBounds ?: actual.filter { it.weekday == day }.flatMap(::cards)
         .map { it.top to it.bottom }).toMutableList()
     val candidates = courses.filter { it.weekday == day && !it.isHiddenByPeriodAlignment() &&
-        !(week in it.weeks && parityMatches(it.weekParity, week)) }
+        it.isUpcomingWeekReference(week) }
         .flatMap(::cards)
         .sortedWith(compareBy<NonCurrentWeekCard> { it.top }.thenBy { it.bottom }
             .thenBy { it.course.id }.thenBy { it.course.name })
@@ -50,16 +56,18 @@ internal fun weekPresentationWeekdays(
 ): List<Int> {
     val start = scheduleWeekStartDate(config, week)
     val hasWeekendPlaceholder = (6..7).any { day ->
-        scheduleAdjustmentForDate(config, start.plusDays((day - 1).toLong()))?.let {
+        scheduleAdjustmentForDate(config, start.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, day)))?.let {
             it.sourceDate == null && it.allDayPlaceholder
         } == true
     }
+    val hasWeekendSlots = runCatching { decodeTimeSlotCourses(config.timeSlotCoursesJson) }.getOrDefault(emptyList())
+        .any { slot -> slot.weekdays.any { it >= 6 } }
     val hasWeekendReference = config.showNonCurrentWeekCourses && courses.any {
         it.weekday >= 6 && !it.isHiddenByPeriodAlignment() &&
-            !(week in it.weeks && parityMatches(it.weekParity, week))
+            it.isUpcomingWeekReference(week)
     }
     return visibleWeekdaysForBuckets(buckets,
-        config.hideEmptyWeekends && !hasWeekendPlaceholder && !hasWeekendReference)
+        config.hideEmptyWeekends && !hasWeekendPlaceholder && !hasWeekendReference && !hasWeekendSlots, config.weekStartsOnSunday)
 }
 
 internal fun nonCurrentSupplementaryCourses(
@@ -69,8 +77,8 @@ internal fun nonCurrentSupplementaryCourses(
     val occupied = actual.filter { it.weekday == day }.flatMap { it.occupiedTimeIntervals(periods) }.toMutableList()
     return buildList {
         courses.filter { it.weekday == day && !it.isHiddenByPeriodAlignment() &&
-            !(week in it.weeks && parityMatches(it.weekParity, week)) }
-            .flatMap { courseAlignmentFragments(it, periods) }
+            it.isUpcomingWeekReference(week) }
+            .flatMap { courseWeekDisplayFragments(it, periods) }
             .filter { courseNeedsSupplementaryWeekRow(it, periods) }
             .sortedWith(compareBy<CourseEntity> { it.customStartTime }.thenBy { it.id }).forEach { course ->
                 val intervals = course.occupiedTimeIntervals(periods)

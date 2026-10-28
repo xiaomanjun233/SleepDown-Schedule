@@ -20,8 +20,6 @@ import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 
 /**

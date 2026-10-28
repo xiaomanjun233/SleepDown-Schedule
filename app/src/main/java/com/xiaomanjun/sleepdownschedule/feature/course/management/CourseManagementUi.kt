@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.management
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
+import com.xiaomanjun.sleepdownschedule.model.DefaultCourseCardPalette
+
 import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeCoursePeriodTimes
 
 import android.graphics.Bitmap
@@ -25,6 +29,8 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -49,6 +55,9 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
 import androidx.compose.material3.Icon
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -79,6 +88,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -86,6 +96,8 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -94,7 +106,6 @@ import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.performance.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.LightTopBarButtonShadow
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
@@ -111,7 +122,6 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.previewCourseEdits
 import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.legacy.*
@@ -218,12 +228,14 @@ internal fun CourseManagementScreen(
     onOpenCourse: suspend (
         Long,
         Rect,
+        () -> Rect?,
         AnchoredMorphSnapshots?,
         () -> Unit,
         () -> Unit
     ) -> Boolean
 ) {
     val groups = remember(state.courses) { buildManagedCourseGroups(state.courses) }
+    val currentGroups by rememberUpdatedState(groups)
     val foreground = appPanelForegroundColor(state.config)
     val scope = rememberCoroutineScope()
     val activity = transitionActivity
@@ -256,7 +268,7 @@ internal fun CourseManagementScreen(
                         config = state.config,
                         periods = state.periods,
                         sourceHidden = hiddenGroupKey == group.key,
-                        onClick = { sourceBounds ->
+                        onClick = { sourceBounds, currentBounds ->
                             if (hiddenGroupKey != null) return@ManagedCourseListCard
                             scope.launch {
                                 val fullFrame = captureTransitionFrame()
@@ -301,6 +313,12 @@ internal fun CourseManagementScreen(
                                 val launched = onOpenCourse(
                                     group.representative.id,
                                     sourceBounds,
+                                    {
+                                        currentBounds().takeIf {
+                                            currentGroups.any { current -> current.key == group.key &&
+                                                current.courses.any { it.id == group.representative.id } }
+                                        }
+                                    },
                                     AnchoredMorphSnapshots(
                                         background = cleanBackground,
                                         source = sourceSnapshot
@@ -328,21 +346,29 @@ private fun ManagedCourseListCard(
     config: ScheduleConfigEntity,
     periods: List<PeriodEntity>,
     sourceHidden: Boolean,
-    onClick: (Rect) -> Unit
+    onClick: (Rect, () -> Rect?) -> Unit
 ) {
     var sourceBounds by remember(group.key) { mutableStateOf<Rect?>(null) }
+    var coordinates by remember(group.key) { mutableStateOf<LayoutCoordinates?>(null) }
+    DisposableEffect(group.key) { onDispose { coordinates = null } }
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .onGloballyPositioned { sourceBounds = it.boundsInWindow() }
+            .onGloballyPositioned { coordinates = it; sourceBounds = it.boundsInWindow() }
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null
             ) {
-                // Use the full grid cell bounds as the Oplus source rect: the cell includes the
-                // card plus its grid padding/gap, so the placeholder covers the whole spot and no
-                // underlying card leaks out during the motion (accepting a rectangular morph).
-                sourceBounds?.let(onClick)
+                sourceBounds?.let { bounds ->
+                    onClick(bounds) {
+                        coordinates?.takeIf { it.isAttached }?.let { current ->
+                            val visible = current.boundsInWindow()
+                            // A clipped/recycled lazy item is not a reliable system return target.
+                            visible.takeIf { it.width >= current.size.width - 1f &&
+                                it.height >= current.size.height - 1f }
+                        }
+                    }
+                }
             }
     ) {
         ManagedCourseListCardContent(
@@ -366,6 +392,26 @@ private fun Bitmap.cropToCourseManagementBounds(bounds: Rect, rootPosition: Offs
         Bitmap.createBitmap(this, left, top, cropWidth, cropHeight)
     }.getOrNull()
 
+internal data class ManagedCourseDaySummary(val weekday: Int, val times: List<String>)
+
+/** Shared by the painted card and its native transition; course chips have a separate tint. */
+internal fun managedCourseCardSurfaceColor(surface: Color, selected: Boolean = false): Color {
+    val fill = surface.copy(alpha = 0.86f)
+    return if (selected) Color.Black.copy(alpha = 0.08f).compositeOver(fill) else fill
+}
+
+internal fun buildManagedCourseDaySummaries(
+    courses: List<CourseEntity>, periods: List<PeriodEntity>, weekStartsOnSunday: Boolean
+): List<ManagedCourseDaySummary> = courses.groupBy(CourseEntity::weekday).entries
+    .sortedBy { (day, _) -> if (weekStartsOnSunday) day % 7 else day }
+    .map { (day, entries) ->
+        ManagedCourseDaySummary(day, entries.map { arrangement ->
+            if (arrangement.isHiddenByPeriodAlignment()) {
+                "暂不显示 · 原始第${arrangement.originalArrangement().periods.joinToString("、")}节"
+            } else courseTimeLabel(arrangement, periods).replace(" - ", "–")
+        }.distinct())
+    }
+
 @Composable
 internal fun ManagedCourseListCardContent(
     group: ManagedCourseGroup,
@@ -377,20 +423,17 @@ internal fun ManagedCourseListCardContent(
     val representative = group.representative
     val cardColor = courseCardBaseColor(config, representative)
     val textColor = appPanelForegroundColor(config)
-    val summaryColor = textColor.copy(alpha = 0.72f)
-    // The identity rail is useful in every palette mode: solid deliberately repeats one color,
-    // gradient shows the tonal assignment, and colorful shows the multi-seed assignment.
-    val showCourseColor = true
-    val courseInfoLines = buildList {
-        representative.teacher?.takeIf { it.isNotBlank() }?.let { add("教师：$it") }
-        representative.location?.takeIf { it.isNotBlank() }?.let { add("地点：$it") }
+    val summaryColor = textColor.copy(alpha = 0.78f)
+    val locations = remember(group.courses) {
+        group.courses.mapNotNull { it.location?.trim()?.takeIf(String::isNotEmpty) }.distinct()
+    }
+    val daySummaries = remember(group.courses, periods, config.weekStartsOnSunday) {
+        buildManagedCourseDaySummaries(group.courses, periods, config.weekStartsOnSunday)
     }
     Column(
         modifier = modifier
             .background(
-                MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.86f).let { surface ->
-                    if (selected) Color.Black.copy(alpha = 0.08f).compositeOver(surface) else surface
-                },
+                managedCourseCardSurfaceColor(MaterialTheme.colorScheme.surfaceContainerHigh, selected),
                 CourseManagementCardShape
             )
             .padding(horizontal = 14.dp, vertical = 16.dp),
@@ -398,20 +441,22 @@ internal fun ManagedCourseListCardContent(
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.Top
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Box(
                 Modifier
                     .width(3.dp)
                     .height(24.dp)
                     .clip(Capsule())
-                    .background(if (showCourseColor) cardColor else Color.Transparent)
+                    .background(cardColor)
             )
             Text(
                 representative.name,
                 color = textColor,
                 style = MiuixTheme.textStyles.title3.copy(fontSize = 17.sp, lineHeight = 22.sp),
                 fontWeight = FontWeight.Bold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 softWrap = true,
                 modifier = Modifier
                     .weight(1f)
@@ -422,35 +467,47 @@ internal fun ManagedCourseListCardContent(
                 contentDescription = null,
                 tint = textColor.copy(alpha = 0.70f),
                 modifier = Modifier
-                    .padding(top = 2.dp)
                     .size(16.dp)
                     .graphicsLayer { rotationZ = 180f }
             )
         }
-        if (courseInfoLines.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                courseInfoLines.forEach { info ->
-                    Text(
-                        text = info,
-                        color = summaryColor,
-                        style = MiuixTheme.textStyles.body2,
-                        lineHeight = 20.sp,
-                        softWrap = true
-                    )
-                }
+        if (locations.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Outlined.LocationOn, contentDescription = "地点",
+                    tint = summaryColor.copy(alpha = 0.62f), modifier = Modifier.size(15.dp))
+                Text(locations.joinToString(" · "), color = summaryColor,
+                    style = MiuixTheme.textStyles.body2.copy(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+                    lineHeight = 20.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f))
             }
         }
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            group.courses.forEach { arrangement ->
-                Text(
-                    text = "周${weekdayLabel(arrangement.weekday)} " + if (arrangement.isHiddenByPeriodAlignment()) {
-                        "暂不显示 · 原始第${arrangement.originalArrangement().periods.joinToString("、")}节"
-                    } else courseTimeLabel(arrangement, periods),
-                    color = summaryColor,
-                    style = MiuixTheme.textStyles.body2,
-                    lineHeight = 20.sp,
-                    softWrap = true
-                )
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            daySummaries.take(4).forEach { day ->
+                ManagedCourseArrangementChip("周${weekdayLabel(day.weekday)}", day.times, cardColor, summaryColor)
+            }
+            if (daySummaries.size > 4) {
+                ManagedCourseArrangementChip(null, listOf("+${daySummaries.size - 4} 天安排"), cardColor, summaryColor)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ManagedCourseArrangementChip(day: String?, times: List<String>, courseColor: Color, textColor: Color) {
+    val style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 17.sp,
+        platformStyle = PlatformTextStyle(includeFontPadding = false))
+    Row(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(courseColor.copy(alpha = 0.10f))
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp), verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(Icons.Outlined.Schedule, contentDescription = "安排", tint = textColor.copy(alpha = 0.68f),
+            modifier = Modifier.size(13.dp))
+        if (day != null) Text(day, color = textColor, style = style, maxLines = 1, softWrap = false)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            times.forEach { time ->
+                Text(time, color = textColor, style = style, maxLines = 1, softWrap = false,
+                    modifier = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE))
             }
         }
     }

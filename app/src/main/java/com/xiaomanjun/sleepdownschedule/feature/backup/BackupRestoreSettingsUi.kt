@@ -41,7 +41,6 @@ import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.identity.AppIdentity
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
@@ -54,7 +53,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import java.io.File
 import java.text.SimpleDateFormat
 import java.time.Instant

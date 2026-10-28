@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.personalization
 
+import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizeWallpaperBlurSlider
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth

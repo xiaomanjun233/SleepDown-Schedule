@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -12,6 +14,7 @@ import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
@@ -32,6 +35,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.ChatGptAuthManager
 import com.kyant.backdrop.Backdrop
@@ -40,9 +46,9 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogSceneBackdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.sleepDownPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
-import com.xiaomanjun.sleepdownschedule.feature.home.day.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
+import kotlinx.coroutines.CancellationException
 
 @Stable
 internal class AiRuntimePickerState(initialSettings: AiImportSettings) {
@@ -53,7 +59,9 @@ internal class AiRuntimePickerState(initialSettings: AiImportSettings) {
     internal var revision by mutableIntStateOf(0)
 
     fun open() {
-        expanded = true
+        // Toggle instead of "set true": if a host ever dropped the popup without resetting the
+        // state, a plain tap must still recover the picker instead of being swallowed.
+        expanded = !expanded
     }
 
     fun dismiss() {
@@ -104,13 +112,24 @@ internal fun AiRuntimePicker(
     }
     val lightGlass = glassUsesLightStyle(config)
     val auth by ChatGptAuthManager.state.collectAsStateWithLifecycle()
-    LaunchedEffect(auth.account, auth.models, state.settings.profile.id) {
-        if (AiProviderPresets.isChatGptId(state.settings.profile.id)) {
-            val refreshed = AiImportSettingsStore.loadProvider(context, state.settings.profile.id)
-            if (refreshed != state.settings) {
-                state.commit(refreshed)
-                onSettingsChanged(refreshed)
-            }
+    val settingsChanges by AiImportSettingsStore.changes.collectAsStateWithLifecycle()
+    LaunchedEffect(auth.account, auth.models, settingsChanges, state.settings.profile.id) {
+        val refreshed = AiImportSettingsStore.loadProvider(context, state.settings.profile.id)
+        if (refreshed != state.settings) {
+            state.commit(refreshed)
+            onSettingsChanged(refreshed)
+        }
+    }
+    LaunchedEffect(state.expanded, state.settings.profile.id) {
+        if (!state.expanded) return@LaunchedEffect
+        val selected = state.settings
+        if (AiProviderModelCatalog.endpoint(selected.profile) == null || selected.apiKey.isBlank()) return@LaunchedEffect
+        try {
+            AiProviderModelCatalog.refresh(context, selected)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // A failed discovery keeps the last usable list; it must not block model selection.
         }
     }
     val profiles = remember(state.revision, auth.account) {
@@ -129,6 +148,10 @@ internal fun AiRuntimePicker(
         AiProviderPresets.reasoningEfforts(state.settings.profile)
     }
     val responsesEnabled = AiProviderPresets.shouldUseResponses(state.settings.profile)
+    val reasoningAvailable = responsesEnabled || (
+        AiProviderPresets.isManagedFreeId(state.settings.profile.id) &&
+            state.settings.profile.managedReasoningOptions != null
+        )
 
     fun commit(next: AiImportSettings) {
         AiImportSettingsStore.save(context, next)
@@ -160,7 +183,7 @@ internal fun AiRuntimePicker(
             children = modelOptions.mapIndexed { index, option ->
                 SleepDownLiquidMenuItem(
                     key = "model-$index-${option.model}",
-                    text = option.model,
+                    text = if (AiProviderPresets.isManagedFreeId(state.settings.profile.id)) option.label else option.model,
                     selected = option.model.equals(
                         state.settings.profile.defaultModel,
                         ignoreCase = true
@@ -182,9 +205,9 @@ internal fun AiRuntimePicker(
         SleepDownLiquidMenuItem(
             key = "reasoning",
             text = "思考强度",
-            enabled = responsesEnabled && efforts.isNotEmpty(),
-            summary = if (responsesEnabled) null else "需启用 Responses",
-            children = if (responsesEnabled) {
+            enabled = reasoningAvailable && efforts.isNotEmpty(),
+            summary = if (reasoningAvailable) null else "需启用 Responses",
+            children = if (reasoningAvailable) {
                 efforts.map { effort ->
                     SleepDownLiquidMenuItem(
                         key = "reasoning-${effort.name}",
@@ -204,10 +227,26 @@ internal fun AiRuntimePicker(
             }
         )
     )
+    val visibleMenuItems = menuItems.filterNot {
+        it.key == "reasoning" && state.settings.profile.managedReasoningLocked
+    }
     var anchorBounds by remember { mutableStateOf(Rect.Zero) }
     var triggerTransferred by remember { mutableStateOf(false) }
+    // Follow the state both ways: the popup host can disappear (another Activity on top, window
+    // detach) without ever delivering onDismissFinished, which used to leave the pill invisible
+    // and unresponsive because `expanded` stayed true.
     LaunchedEffect(state.expanded) {
-        if (state.expanded) triggerTransferred = true
+        triggerTransferred = state.expanded
+    }
+    // A popup cannot survive its host Activity being paused; reset the state so the trigger is
+    // usable again when the page resumes.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner, state) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_PAUSE) state.dismiss()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
     Box(
         modifier = Modifier
@@ -221,7 +260,7 @@ internal fun AiRuntimePicker(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = state.settings.profile.defaultModel.ifBlank {
+                    text = state.settings.profile.managedModelDisplayName ?: state.settings.profile.defaultModel.ifBlank {
                         state.settings.profile.displayName
                     },
                     color = foreground.copy(alpha = 0.92f),
@@ -278,7 +317,7 @@ internal fun AiRuntimePicker(
         SleepDownLiquidCascadingPopup(
             show = state.expanded,
             anchorBounds = anchorBounds,
-            items = menuItems,
+            items = visibleMenuItems,
             onDismissRequest = state::dismiss,
             backdrop = popupBackdrop,
             config = config,

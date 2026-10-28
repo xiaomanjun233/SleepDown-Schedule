@@ -28,4 +28,6 @@ sealed interface TransitionLaunchResult {
 internal interface TransitionBackend {
     val name: String
     suspend fun open(request: TransitionOpenRequest): TransitionBackendOpenResult
+    fun requestClose(activity: Activity, session: TransitionSession): Boolean = false
+    fun onActivityDestroyed(activity: Activity) = Unit
 }

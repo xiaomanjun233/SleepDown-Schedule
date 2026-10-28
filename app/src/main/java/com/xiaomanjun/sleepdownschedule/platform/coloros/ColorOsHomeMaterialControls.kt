@@ -27,9 +27,6 @@ internal object ColorOsHomeMaterialControls : HomeMaterialControls {
     override fun FloatingButtonVisual(dark: Boolean, modifier: Modifier) = ColorOsHomeFloatingButtonVisual(dark, modifier)
 
     @Composable
-    override fun ordinaryDockWidth() = colorOsOrdinaryDockWidth()
-
-    @Composable
     override fun SearchField(value: String, onValueChange: (String) -> Unit, dark: Boolean,
         bottomOffset: Dp, entranceProgress: Float, largeScreen: Boolean, modifier: Modifier) =
         ColorOsSchoolSearchField(value, onValueChange, dark, bottomOffset, entranceProgress, largeScreen, modifier)

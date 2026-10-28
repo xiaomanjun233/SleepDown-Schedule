@@ -73,7 +73,7 @@ internal fun courseCopyGridTap(
         return controller.reject("请切回所选上课周")
     }
     if (weekdays.isEmpty() || point.x < 0 || point.x >= grid.width || point.y < 0 ||
-        point.y >= grid.rowHeight * grid.periodIndexes.size) return CourseCopyTap.Rejected
+        point.y >= grid.contentHeight || !grid.isLessonY(point.y)) return CourseCopyTap.Rejected
     val localGrid = grid.copy(origin = Offset.Zero, scroll = null, scrollAtCapture = 0)
     val selected = controller.target?.takeIf {
         it.week == week && courseCopyBounds(it.course, localGrid, weekdays, periods).any { rect -> rect.contains(point) }

@@ -8,12 +8,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.LiquidCourseCardBlurMax
-import com.xiaomanjun.sleepdownschedule.feature.home.overlay.homeMenuDestinationTrajectoryGeometry
+import com.xiaomanjun.sleepdownschedule.transition.legacy.homeMenuDestinationTrajectoryGeometry
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.homePersonalizationTrajectoryGeometry
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.homeThreeDotMenuTrajectoryGeometry
-import com.xiaomanjun.sleepdownschedule.transition.legacy.legacyHomeMenuDestinationMorphSpec
-import com.xiaomanjun.sleepdownschedule.transition.legacy.legacyPersonalizationMorphSpec
-import com.xiaomanjun.sleepdownschedule.transition.legacy.legacyThreeDotMenuMorphSpec
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.legacyHomeMenuDestinationMorphSpec
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.legacyPersonalizationMorphSpec
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.legacyThreeDotMenuMorphSpec
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -21,6 +21,100 @@ import org.junit.Test
 import kotlin.math.roundToInt
 
 class GlassFrameworkTest {
+    @Test
+    fun nativeOpeningUsesLiquidHandoffWhileKeepingItsPreviousReturnPolicy() {
+        val source = Rect(80f, 160f, 320f, 420f)
+        val target = Rect(40f, 90f, 960f, 1500f)
+        val routes: List<(Boolean, Boolean) -> LiquidMorphSpec> = listOf(
+            { early, opening -> legacyCourseEditorMorphSpec(source, target, 24f, 32f, 180f,
+                6f, 5f, hasSourceTransform = true, preloadedContent = true,
+                earlyContentHandoff = early, earlyOpeningContentHandoff = opening) },
+            { early, opening -> legacyPersonalizationMorphSpec(source, target, 18f, 36f, 72f,
+                90f, 28f, 1f, 12f, 6f, 14f, preloadedContent = true,
+                earlyContentHandoff = early, earlyOpeningContentHandoff = opening) }
+        )
+        routes.forEach { route ->
+            val oldNative = route(false, false)
+            val updatedNative = route(false, true)
+            val liquid = route(true, true)
+            var changedOpening = false
+            for (progress in listOf(0f, 0.18f, 0.25f, 0.35f, 0.5f, 0.7f, 1f)) {
+                val opening = LiquidMorphInput(source, target, progress, LiquidMorphDirection.Opening)
+                val updated = updatedNative.frame(opening)
+                assertEquals(liquid.frame(opening).content, updated.content)
+                assertEquals(oldNative.frame(opening).rect, updated.rect)
+                assertEquals(oldNative.frame(opening).cornerRadiusPx, updated.cornerRadiusPx, 0f)
+                if (oldNative.frame(opening).content != updated.content) changedOpening = true
+                val closing = opening.copy(direction = LiquidMorphDirection.Closing)
+                assertEquals(oldNative.frame(closing), updatedNative.frame(closing))
+            }
+            assertTrue(changedOpening)
+        }
+    }
+
+    @Test
+    fun liquidHandoffTracksShellExpansionWithoutReplacingTheIndependentReturnCurve() {
+        val source = Rect(80f, 160f, 320f, 420f)
+        val target = Rect(40f, 90f, 960f, 1500f)
+        val routes: List<(Boolean) -> LiquidMorphSpec> = listOf(
+            { early -> legacyCourseEditorMorphSpec(source, target, 24f, 32f, 180f,
+                6f, 5f, hasSourceTransform = true, preloadedContent = true, earlyContentHandoff = early) },
+            { early -> legacyPersonalizationMorphSpec(source, target, 18f, 36f, 72f,
+                90f, 28f, 1f, 12f, 6f, 14f, preloadedContent = true, earlyContentHandoff = early) }
+        )
+        routes.forEach { route ->
+            for (direction in LiquidMorphDirection.entries) {
+            for (progress in listOf(0f, 0.18f, 0.25f, 0.35f, 0.5f, 0.7f, 1f)) {
+                val input = LiquidMorphInput(source, target, progress, direction)
+                val native = route(false).frame(input)
+                val liquid = route(true).frame(input)
+                assertEquals(native.rect, liquid.rect)
+                assertEquals(native.cornerRadiusPx, liquid.cornerRadiusPx, 0f)
+                assertEquals(1f, liquid.content.sourceAlpha + liquid.content.destinationContentAlpha, 0.0001f)
+                if (liquid.shapeProgress <= 0.24f) assertEquals(0f, liquid.content.destinationContentAlpha, 0f)
+                if (liquid.shapeProgress >= 0.62f) assertEquals(1f, liquid.content.destinationContentAlpha, 0f)
+                if (progress <= 0.35f) assertEquals(0f, native.content.destinationContentAlpha, 0f)
+            }
+            }
+        }
+    }
+
+    @Test
+    fun preloadedFormsCrossfadeMidMotionWithoutChangingTheirShells() {
+        val source = Rect(80f, 160f, 320f, 420f)
+        val target = Rect(40f, 90f, 960f, 1500f)
+        val routes: List<(Boolean) -> LiquidMorphSpec> = listOf(
+            { preload -> legacyCourseEditorMorphSpec(source, target, 24f, 32f, 180f,
+                6f, 5f, hasSourceTransform = true, preloadedContent = preload) },
+            { preload -> legacyPersonalizationMorphSpec(source, target, 18f, 36f, 72f,
+                90f, 28f, 1f, 12f, 6f, 14f, preloadedContent = preload) }
+        )
+        routes.forEach { route ->
+            val legacy = route(false)
+            val preloaded = route(true)
+            listOf(0f, 0.25f, 0.5f, 0.8f, 1f).forEach { progress ->
+                val frames = LiquidMorphDirection.entries.map { direction ->
+                    val input = LiquidMorphInput(source, target, progress, direction)
+                    val frame = preloaded.frame(input)
+                    val original = legacy.frame(input)
+                    assertEquals(original.rect, frame.rect)
+                    assertEquals(original.cornerRadiusPx, frame.cornerRadiusPx, 0f)
+                    assertEquals(original.content.destinationSurfaceAlpha, frame.content.destinationSurfaceAlpha, 0f)
+                    assertEquals(1f, frame.content.sourceAlpha + frame.content.destinationContentAlpha, 0.0001f)
+                    when {
+                        progress <= 0.25f -> assertEquals(0f, frame.content.destinationContentAlpha, 0f)
+                        progress >= 0.8f -> assertEquals(1f, frame.content.destinationContentAlpha, 0f)
+                        else -> assertTrue(frame.content.destinationContentAlpha in 0.1f..0.9f)
+                    }
+                    frame
+                }
+                // The native raw-clock alpha policy stays independent of route geometry.
+                assertEquals(frames[0].content.destinationContentAlpha,
+                    frames[1].content.destinationContentAlpha, 0f)
+            }
+        }
+    }
+
     @Test
     fun legacyMaterialFactoriesKeepEveryExistingToken() {
         val pill = GlassMaterialSpec.pill()

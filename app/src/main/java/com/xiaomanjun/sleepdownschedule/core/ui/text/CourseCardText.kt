@@ -11,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.ui.Modifier
@@ -59,6 +60,7 @@ internal fun CourseCardText(
         softTextShadowStrength(floatArrayOf(it), displayedColor.luminance(), displayedColor.alpha)
     }
     var targetShadowStrength by remember(displayedColor) { mutableFloatStateOf(0f) }
+    var sampledWhiteShadow by remember(background, displayedColor) { mutableStateOf(false) }
     val animatedShadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "course-text-soft-shadow")
     val shadowStrength = flatShadowStrength ?: animatedShadowStrength
     val coordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
@@ -95,6 +97,7 @@ internal fun CourseCardText(
         if (previousSamples != null && previousSamples.size == samples.size &&
             samples.indices.all { abs(samples[it] - previousSamples[it]) < 0.012f }) return true
         lastSamples[0] = samples
+        sampledWhiteShadow = coloredCourseShadowIsWhite(samples)
         targetShadowStrength = softTextShadowStrength(
             samples, displayedColor.luminance(), displayedColor.alpha, targetShadowStrength
         )
@@ -134,6 +137,8 @@ internal fun CourseCardText(
     }
     val density = LocalDensity.current
     val lightText = courseTextNeedsDarkShadow(displayedColor)
+    val whiteShadow = if (coloredText) background?.flatLuminance?.let { it >= 0.5f } ?: sampledWhiteShadow
+        else !lightText
     val effectiveFontSize = when {
         fontSize != TextUnit.Unspecified -> fontSize
         style.fontSize != TextUnit.Unspecified -> style.fontSize
@@ -148,14 +153,14 @@ internal fun CourseCardText(
             }
         }
         // A centered, low-density halo backs the glyphs without tracing their edges.
-        // Wallpaper and flat cards use the same spread; samples only choose its strength.
+        // Wallpaper and flat cards use the same spread; samples choose strength and polarity.
         val maximumShadowAlpha = when {
-            coloredText -> if (lightText) 0.42f else 0.24f
+            coloredText -> if (whiteShadow) 0.42f else 0.24f
             lightText -> 0.22f
             else -> 0.15f
         }
         style.copy(shadow = Shadow(
-            color = (if (lightText) Color.Black else Color.White).copy(
+            color = (if (whiteShadow) Color.White else Color.Black).copy(
                 alpha = maximumShadowAlpha * shadowStrength
             ),
             offset = Offset.Zero,

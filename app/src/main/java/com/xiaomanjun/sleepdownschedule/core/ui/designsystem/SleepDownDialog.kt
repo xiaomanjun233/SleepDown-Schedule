@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.designsystem
 
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -170,7 +172,12 @@ fun LiquidDialogSurface(
         }
     }
 
-    if (backdrop != null) {
+    if (!com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()) {
+        com.xiaomanjun.sleepdownschedule.glass.ui.MorphDialogSurface(
+            surfaceColor = surfaceColor, shape = shape, modifier = panelModifier,
+            backdrop = backdrop, blurRadius = blurRadius
+        ) { panelContent() }
+    } else if (backdrop != null) {
         LiquidPanel(
             backdrop = backdrop,
             modifier = panelModifier,
@@ -741,7 +748,11 @@ fun DialogLiquidButton(
 ) {
     val darkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val useMonochromeNeutral = role == DialogButtonRole.Neutral && monochromeNeutral
-    val controlDark = lightStyleOverride?.not() ?: darkTheme
+    val materialForeground = LocalNativeMaterialForeground.current
+    val controlDark = lightStyleOverride?.not()
+        ?: materialForeground.takeUnless { it == Color.Unspecified }?.let { it.luminance() > 0.5f }
+        ?: LocalContentColor.current.takeUnless { it == Color.Unspecified }?.let { it.luminance() > 0.5f }
+        ?: darkTheme
     val useRoundIcon = roundIcon && role != DialogButtonRole.Neutral
     val resolvedIconRes = iconRes ?: when {
         useRoundIcon && role == DialogButtonRole.Cancel -> R.drawable.ic_close_light
@@ -889,14 +900,20 @@ fun DialogCapsuleField(
         PasswordVisualTransformation() else VisualTransformation.None,
     trailingContent: (@Composable () -> Unit)? = null
 ) {
-    val dark = fieldLightStyleOverride?.not() ?: appUsesDarkTheme(config)
+    val materialForeground = LocalNativeMaterialForeground.current
+    val requestedForeground = fieldTextColor
+        ?: materialForeground.takeUnless { it == Color.Unspecified }
+        ?: LocalContentColor.current.takeUnless { it == Color.Unspecified }
+    val dark = fieldLightStyleOverride?.not()
+        ?: requestedForeground?.let { it.luminance() > 0.5f }
+        ?: appUsesDarkTheme(config)
     val fieldBase = if (dark) Color(0xFF2C2C2E) else Color.White
     val superPerformance = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
     val background = if (superPerformance) com.xiaomanjun.sleepdownschedule.glass.flatControlColor(dark)
         else fieldBase.copy(alpha = if (dark) 0.54f else 0.70f)
     val fieldShape = RoundedRectangle(cornerRadius ?: if (minLines == 1)
         SleepDownDesignTokens.Field.SingleLineCorner else SleepDownDesignTokens.Field.MultiLineCorner)
-    val foreground = fieldTextColor ?: LocalContentColor.current
+    val foreground = requestedForeground ?: if (dark) Color.White else Color(0xFF111111)
     val textColor = if (enabled) foreground else foreground.copy(alpha = foreground.alpha * 0.48f)
     val verticalPadding = if (minLines == 1) SleepDownDesignTokens.Field.SingleLineVerticalPadding
         else SleepDownDesignTokens.Field.MultiLineVerticalPadding

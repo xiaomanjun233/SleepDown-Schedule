@@ -191,19 +191,6 @@ internal fun createNativeHomeDock(
     }
 }
 
-@Composable
-internal fun colorOsOrdinaryDockWidth(): androidx.compose.ui.unit.Dp {
-    val native = rememberNativeContext(dark = false) ?: return 140.dp
-    val source = native.first
-    val resources = native.second.resources
-    fun dimension(name: String) = resources.getDimensionPixelSize(source.resource(name, "dimen"))
-    // Two full-size native cells, their gap, the menu inset and the bar's outer safe inset.
-    val pixels = 2 * dimension("coui_bottom_floating_navigation_bar_item_max_width") +
-        dimension("coui_bottom_floating_navigation_bar_item_space") +
-        2 * dimension("coui_bottom_floating_navigation_bar_item_bg_horizontal_padding") +
-        2 * dimension("coui_bottom_floating_navigation_bar_padding_horizontal")
-    return with(LocalDensity.current) { pixels.toDp() }
-}
 
 /** Returns false only when native preparation failed, so the caller can use its existing UI. */
 @Composable

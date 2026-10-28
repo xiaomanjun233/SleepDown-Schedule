@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.map
 import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
 
 private val changelogReleaseDates = mapOf(
+    "1.2.8_beta1" to "2026-10-27",
     "1.2.7.1" to "2026-10-20",
     "1.2.7-r1" to "2026-10-19",
     "1.2.7" to "2026-10-15",

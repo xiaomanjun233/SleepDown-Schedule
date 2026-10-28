@@ -1,8 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import android.provider.Settings
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -28,10 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color as ComposeColor
@@ -59,11 +54,11 @@ import com.xiaomanjun.sleepdownschedule.core.web.resolveSleepDownCustomTabsPacka
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSwitchGroup
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SleepDownReleasesUrl
 import com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdater
-import com.xiaomanjun.sleepdownschedule.feature.update.GiteeReleaseInfo
-import com.xiaomanjun.sleepdownschedule.feature.update.GiteeUpdateCheckResult
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateDialog
+import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateDialogHost
+import com.xiaomanjun.sleepdownschedule.feature.update.rememberAppUpdateSession
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import java.io.File
-import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
@@ -75,7 +70,6 @@ fun SettingsRootScreen(
 ) {
     val inheritedBackdrop = backdrop
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
     val configuration = LocalConfiguration.current
     val density = LocalDensity.current
     val darkTheme = appUsesDarkTheme(state.config)
@@ -106,58 +100,7 @@ fun SettingsRootScreen(
     LaunchedEffect(versionName) {
         GiteeAppUpdater.restoreCachedStatus(context, versionName)
     }
-    var updateDialog by remember { mutableStateOf<SettingsUpdateDialog?>(null) }
-    var downloadedUpdate by remember { mutableStateOf<java.io.File?>(null) }
-    val installPermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) {
-        val apk = downloadedUpdate
-        if (apk != null && GiteeAppUpdater.canRequestPackageInstalls(context)) {
-            runCatching { GiteeAppUpdater.launchInstaller(context, apk) }
-                .onFailure { updateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
-        }
-    }
-
-    fun checkForUpdate() {
-        if (updateDialog is SettingsUpdateDialog.Checking || updateDialog is SettingsUpdateDialog.Downloading) return
-        updateDialog = SettingsUpdateDialog.Checking
-        GiteeAppUpdater.markDailyCheckStarted(context)
-        scope.launch {
-            updateDialog = GiteeAppUpdater.checkForUpdate(context, versionName).fold(
-                onSuccess = { result ->
-                    GiteeAppUpdater.recordCheckResult(context, result)
-                    when (result) {
-                        is GiteeUpdateCheckResult.UpdateAvailable -> SettingsUpdateDialog.Available(result.release)
-                        is GiteeUpdateCheckResult.UpToDate -> SettingsUpdateDialog.UpToDate(result.release.tagName)
-                    }
-                },
-                onFailure = { SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
-            )
-        }
-    }
-
-    fun downloadAndInstall(release: GiteeReleaseInfo) {
-        if (release.apkUrl == null) {
-            updateDialog = SettingsUpdateDialog.NoApk(release)
-            return
-        }
-        updateDialog = SettingsUpdateDialog.Downloading(release)
-        scope.launch {
-            GiteeAppUpdater.downloadApk(context, release).fold(
-                onSuccess = { apk ->
-                    downloadedUpdate = apk
-                    if (GiteeAppUpdater.canRequestPackageInstalls(context)) {
-                        runCatching { GiteeAppUpdater.launchInstaller(context, apk) }
-                            .onSuccess { updateDialog = null }
-                            .onFailure { updateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
-                    } else {
-                        updateDialog = SettingsUpdateDialog.InstallPermissionRequired
-                    }
-                },
-                onFailure = { updateDialog = SettingsUpdateDialog.Error(it.readableUpdateMessage()) }
-            )
-        }
-    }
+    val updates = rememberAppUpdateSession(versionName)
     GlassMiuixRootSettingsScaffold(
         title = "设置",
         config = state.config
@@ -214,12 +157,12 @@ fun SettingsRootScreen(
                     SettingsNavigationRow(
                         "检查更新",
                         leadingIcon = Icons.Rounded.SystemUpdate,
-                        badgeText = when (updateDialog) {
-                            SettingsUpdateDialog.Checking -> "检查中"
-                            is SettingsUpdateDialog.Downloading -> "下载中"
+                        badgeText = when (updates.dialog) {
+                            AppUpdateDialog.Checking -> "检查中"
+                            is AppUpdateDialog.Downloading -> "下载中"
                             else -> if (updateAvailable) "有新版" else null
                         },
-                        onClick = ::checkForUpdate
+                        onClick = { updates.checkForUpdate() }
                     )
                 }
             }
@@ -309,22 +252,15 @@ fun SettingsRootScreen(
         }
     }
 
-    SettingsUpdateDialogHost(
-        dialog = updateDialog,
+    AppUpdateDialogHost(
+        session = updates,
         backdrop = backdrop,
         config = state.config,
-        onDismiss = { updateDialog = null },
-        onRetry = ::checkForUpdate,
-        onDownload = ::downloadAndInstall,
-        onOpenRelease = { release ->
-            openExternalPage(release.releaseUrl)
-        },
+        onRetry = { updates.checkForUpdate() },
+        onOpenRelease = { release -> openExternalPage(release.releaseUrl) },
         onOpenBackup = {
             openExternalPage(SleepDownReleasesUrl)
-            updateDialog = null
-        },
-        onRequestInstallPermission = {
-            installPermissionLauncher.launch(GiteeAppUpdater.unknownSourcesSettingsIntent(context))
+            updates.dismiss()
         }
     )
 }

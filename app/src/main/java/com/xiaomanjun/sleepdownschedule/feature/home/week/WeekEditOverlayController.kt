@@ -70,8 +70,38 @@ data class WeekEditOverlayRequest(
     val editWeek: Int,
     val weekdayCount: Int,
     val initialPointerPosition: Offset,
-    val destinationWeek: Int = editWeek
+    val destinationWeek: Int = editWeek,
+    val rowTopsPx: List<Float> = emptyList(),
+    val weekdays: List<Int> = emptyList()
 )
+
+internal fun WeekEditOverlayRequest.rowTopFor(period: Int): Float {
+    val index = periodIndexes.indexOf(period).coerceAtLeast(0)
+    return rowTopsPx.getOrNull(index) ?: index * periodRowHeightPx
+}
+
+internal fun WeekEditOverlayRequest.columnFor(day: Int): Int =
+    if (weekdays.isEmpty()) day - 1 else weekdays.indexOf(day).coerceAtLeast(0)
+
+internal fun WeekEditOverlayRequest.weekdayAfterMove(deltaX: Float): Int {
+    val days = weekdays.ifEmpty { (1..weekdayCount).toList() }
+    return days[(columnFor(dayIndex) + (deltaX / gridColumnWidthPx).roundToInt()).coerceIn(days.indices)]
+}
+
+internal fun WeekEditOverlayRequest.columnDeltaTo(day: Int): Int = columnFor(day) - columnFor(dayIndex)
+
+internal fun WeekEditOverlayRequest.startPeriodAfterMove(deltaY: Float): Int =
+    periodIndexes.minByOrNull { kotlin.math.abs(rowTopFor(it) - rowTopFor(periodIndex) - deltaY) } ?: periodIndex
+
+internal fun WeekEditOverlayRequest.heightForSpan(span: Int, startPeriod: Int = periodIndex, gap: Float = 0f): Float {
+    val first = periodIndexes.indexOf(startPeriod).coerceAtLeast(0)
+    val last = (first + span.coerceAtLeast(1) - 1).coerceAtMost(periodIndexes.lastIndex)
+    if (last < first) return periodRowHeightPx
+    return (rowTopFor(periodIndexes[last]) + periodRowHeightPx - rowTopFor(startPeriod) - gap).coerceAtLeast(1f)
+}
+
+internal fun WeekEditOverlayRequest.spanForHeight(height: Float): Int =
+    (1..maxSpan.coerceAtLeast(1)).minByOrNull { kotlin.math.abs(heightForSpan(it) - height) } ?: 1
 
 internal const val WeekEditLiftedScale = 1.12f
 private const val WeekEditProjectionSeconds = 0.015f
@@ -432,12 +462,9 @@ internal class WeekEditOverlayController(
             }
             WeekEditOverlayMode.Resize -> {
                 val previousHeight = gestureTargetHeight
-                gestureTargetHeight = weekEditResizeHeightAfterDrag(
-                    currentHeightPx = previousHeight,
-                    dragDeltaYPx = delta.y,
-                    periodRowHeightPx = activeRequest.periodRowHeightPx,
-                    maxSpan = activeRequest.maxSpan,
-                    resizePaddingPx = resizePaddingPx
+                gestureTargetHeight = (previousHeight + delta.y * WeekEditResizeDragGain).coerceIn(
+                    activeRequest.heightForSpan(1, gap = resizePaddingPx),
+                    activeRequest.heightForSpan(activeRequest.maxSpan, gap = resizePaddingPx)
                 )
                 dragPointerX += delta.x
                 dragPointerY += gestureTargetHeight - previousHeight
@@ -498,8 +525,8 @@ internal class WeekEditOverlayController(
         val releaseGridY = gestureTargetY + scrollCompensationY
         val target = weekCourseEditTarget(
             periodIndexes = activeRequest.periodIndexes,
-            weekday = activeRequest.dayIndex + (releaseGridX / activeRequest.gridColumnWidthPx).roundToInt(),
-            startPeriod = activeRequest.periodIndex + (releaseGridY / activeRequest.periodRowHeightPx).roundToInt(),
+            weekday = activeRequest.weekdayAfterMove(releaseGridX),
+            startPeriod = activeRequest.startPeriodAfterMove(releaseGridY),
             span = activeRequest.currentSpan,
             weekdayCount = activeRequest.weekdayCount
         )
@@ -510,10 +537,10 @@ internal class WeekEditOverlayController(
             !hasWeekCourseEditConflict(if (crossingWeek) activeRequest.course.copy(id = -1) else activeRequest.course,
                 edited, activeRequest.weekCourses, activeRequest.destinationWeek) &&
             (crossingWeek || edited.weekday != activeRequest.course.weekday || edited.periods != activeRequest.course.periods)
-        val targetX = if (canSave) (target.weekday - activeRequest.dayIndex) * activeRequest.gridColumnWidthPx else 0f
+        val targetX = if (canSave) activeRequest.columnDeltaTo(target.weekday) * activeRequest.gridColumnWidthPx else 0f
         val targetY = if (canSave) {
-            ((target.periods.firstOrNull() ?: activeRequest.periodIndex) - activeRequest.periodIndex) *
-                activeRequest.periodRowHeightPx - scrollCompensationY
+            activeRequest.rowTopFor(target.periods.firstOrNull() ?: activeRequest.periodIndex) -
+                activeRequest.rowTopFor(activeRequest.periodIndex) - scrollCompensationY
         } else {
             0f
         }
@@ -529,7 +556,7 @@ internal class WeekEditOverlayController(
             beginLandingFlight(
                 targetX = targetX,
                 targetY = targetY,
-                targetHeight = activeRequest.sourceBounds.height,
+                targetHeight = activeRequest.heightForSpan(activeRequest.currentSpan, target.periods.first(), activeRequest.heightForSpan(activeRequest.currentSpan) - activeRequest.sourceBounds.height).coerceAtLeast(1f),
                 releaseVelocity = velocity
             )
             onUpdateCourseSingleWeek(activeRequest.course, edited, activeRequest.editWeek)
@@ -556,11 +583,7 @@ internal class WeekEditOverlayController(
     ) {
         val activeRequest = request ?: return
         gestureActive = false
-        val targetSpan = weekEditResizeTargetSpan(
-            heightPx = gestureTargetHeight,
-            periodRowHeightPx = activeRequest.periodRowHeightPx,
-            maxSpan = activeRequest.maxSpan
-        )
+        val targetSpan = activeRequest.spanForHeight(gestureTargetHeight)
         val target = weekCourseEditTarget(
             periodIndexes = activeRequest.periodIndexes,
             weekday = activeRequest.dayIndex,
@@ -573,7 +596,7 @@ internal class WeekEditOverlayController(
             !hasWeekCourseEditConflict(activeRequest.course, edited, activeRequest.weekCourses, activeRequest.editWeek) &&
             edited.periods != activeRequest.course.periods
         val targetHeight = if (canSave) {
-            activeRequest.periodRowHeightPx * targetSpan - resizePaddingPx
+            activeRequest.heightForSpan(targetSpan, gap = resizePaddingPx)
         } else {
             activeRequest.sourceBounds.height
         }

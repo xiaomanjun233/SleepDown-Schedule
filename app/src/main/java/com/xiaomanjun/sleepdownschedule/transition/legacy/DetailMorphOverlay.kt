@@ -43,11 +43,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.*
-import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsSection
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import kotlin.math.PI
 import kotlin.math.sin
@@ -141,12 +137,10 @@ private class DetailMorphClipShape(
 @Composable
 fun DetailScheduleMorphOverlay(
     request: DetailMorphRequest,
-    detailState: AppState,
     onMorphStateChange: (DetailMorphState) -> Unit,
-    onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
-    onPreviewLiveUpdate: (ScheduleConfigEntity) -> Unit,
     onFinished: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    content: @Composable (exitCommitRequest: Int, requestToolbarBack: () -> Unit, onExitCommitFinished: (Boolean) -> Unit) -> Unit
 ) {
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
@@ -353,26 +347,14 @@ fun DetailScheduleMorphOverlay(
                     .fillMaxSize()
                     .graphicsLayer { alpha = values.contentAlpha }
             ) {
-                DetailActivityScaffold(
-                    title = "课表详细设置",
-                    config = detailState.config,
-                    onBack = {
+                content(
+                    exitCommitRequest,
+                    {
                         exitUsesToolbarDuration = true
                         exitCommitRequest++
-                    }
-                ) { backdrop ->
-                    ScheduleConfigScreen(
-                        state = detailState,
-                        backdrop = backdrop,
-                        section = SettingsSection.Schedule,
-                        onSave = onSave,
-                        onPreviewLiveUpdate = onPreviewLiveUpdate,
-                        exitCommitRequest = exitCommitRequest,
-                        onExitCommitFinished = { saved ->
-                            if (saved) close(useToolbarDuration = exitUsesToolbarDuration)
-                        }
-                    )
-                }
+                    },
+                    { saved -> if (saved) close(useToolbarDuration = exitUsesToolbarDuration) }
+                )
             }
         }
         if (morphStillAnimating || closing.value) {

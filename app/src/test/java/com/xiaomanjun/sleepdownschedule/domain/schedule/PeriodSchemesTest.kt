@@ -92,8 +92,8 @@ class PeriodSchemesTest {
             PeriodSchemeTimeEntity(1, 1, "08:00", "08:45"),
             PeriodSchemeTimeEntity(1, 1, "09:00", "09:45")
         )
-        assertEquals("节次编号必须从 1 连续排列", validateResolvedPeriodTimes(duplicate))
-        assertEquals("节次编号必须从 1 连续排列", validateResolvedPeriodTimes(
+        assertEquals("节次编号必须是互不重复的正整数", validateResolvedPeriodTimes(duplicate))
+        assertNull(validateResolvedPeriodTimes(
             listOf(PeriodSchemeTimeEntity(1, 2, "08:00", "08:45"))
         ))
     }

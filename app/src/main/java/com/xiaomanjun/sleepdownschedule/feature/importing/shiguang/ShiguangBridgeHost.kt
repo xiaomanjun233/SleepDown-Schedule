@@ -1,6 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing.shiguang
 
-import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.webkit.JavascriptInterface
@@ -15,46 +14,54 @@ import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.decodeFromString
 
 internal class ShiguangBridgeHost(
-    private val context: Context,
     private var onDraft: (ImportDraft) -> Unit,
     private var onMessage: (String) -> Unit,
     private var onInteractionRequest: (EduBridgeInteractionRequest) -> Unit
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
-    private val session = ShiguangImportSession()
+    private data class Task(val generation: Long, val session: ShiguangImportSession, var promptAnswer: String?)
+    @Volatile private var task: Task? = null
+    @Volatile private var generation = 0L
+    @Volatile private var closed = false
     private var activeWebView: WebView? = null
-    private var initialPromptAnswer: String? = null
     private val _running = kotlinx.coroutines.flow.MutableStateFlow(false)
     val running: kotlinx.coroutines.flow.StateFlow<Boolean> = _running
 
-    fun finishExecution() { _running.value = false }
+    /** Cancel this task without allowing already queued results to cross into the next one. */
+    fun finishExecution() {
+        generation++
+        task = null
+        _running.value = false
+    }
 
-    /** Reuse the already-installed native bridge; addJavascriptInterface only updates after reload. */
-    fun attachTaskCallbacks(
-        onDraft: (ImportDraft) -> Unit,
-        onMessage: (String) -> Unit,
-        onInteractionRequest: (EduBridgeInteractionRequest) -> Unit
-    ): () -> Unit {
-        val previousDraft = this.onDraft
-        val previousMessage = this.onMessage
-        val previousInteraction = this.onInteractionRequest
-        this.onDraft = onDraft
-        this.onMessage = onMessage
-        this.onInteractionRequest = onInteractionRequest
-        return {
-            this.onDraft = previousDraft
-            this.onMessage = previousMessage
-            this.onInteractionRequest = previousInteraction
+    fun close() {
+        if (closed) return
+        closed = true
+        finishExecution()
+        mainHandler.removeCallbacksAndMessages(null)
+        activeWebView = null
+        onDraft = {}
+        onMessage = {}
+        onInteractionRequest = {}
+    }
+
+    private fun postForTask(expectedGeneration: Long, action: () -> Unit) {
+        mainHandler.post {
+            if (!closed && generation == expectedGeneration) action()
         }
     }
 
     fun bindWebView(webView: WebView?) {
-        activeWebView = webView
+        if (!closed) activeWebView = webView
     }
 
     fun evaluateJavascript(script: String, callback: ValueCallback<String?>? = null): Boolean {
+        if (closed) return false
         val target = activeWebView ?: return false
-        target.evaluateJavascript(script, callback)
+        val expectedGeneration = generation
+        target.evaluateJavascript(script) { result ->
+            if (!closed && generation == expectedGeneration && activeWebView === target) callback?.onReceiveValue(result)
+        }
         return true
     }
 
@@ -69,27 +76,33 @@ internal class ShiguangBridgeHost(
         mergeOverlappingTimeSlots: Boolean = false,
         allowImportedBellTimes: Boolean = false
     ) {
-        session.begin(config, periods, mergeOverlappingTimeSlots, allowImportedBellTimes)
+        check(!closed) { "教务会话已关闭" }
+        val next = ShiguangImportSession()
+        next.begin(config, periods, mergeOverlappingTimeSlots, allowImportedBellTimes)
+        generation++
+        task = Task(generation, next, initialPromptAnswer)
         _running.value = true
-        this.initialPromptAnswer = initialPromptAnswer
     }
 
     fun onMessageReceived(jsonString: String) {
+        if (closed) return
+        val currentTask = task
+        val expectedGeneration = currentTask?.generation ?: generation
         val message = try {
             ShiguangBridgeJson.decodeFromString(ShiguangBridgeMessage.serializer(), jsonString)
         } catch (error: Exception) {
-            mainHandler.post { onMessage("拾光 Bridge 消息无效：${error.message}") }
+            postForTask(expectedGeneration) { onMessage("拾光 Bridge 消息无效：${error.message}") }
             return
         }
         try {
             when (message.action) {
                 "showToast" -> parsePayload<ShiguangShowToastPayload>(message).let { payload ->
-                    mainHandler.post { onMessage(payload.message) }
+                    postForTask(expectedGeneration) { onMessage(payload.message) }
                 }
 
                 "showAlert" -> parsePayload<ShiguangShowAlertPayload>(message).let { payload ->
                     val callbackId = requireCallbackId(message)
-                    mainHandler.post {
+                    postForTask(expectedGeneration) {
                         onInteractionRequest(
                             EduBridgeInteractionRequest.Alert(
                                 requestId = callbackId,
@@ -103,15 +116,15 @@ internal class ShiguangBridgeHost(
 
                 "showPrompt" -> parsePayload<ShiguangShowPromptPayload>(message).let { payload ->
                     val callbackId = requireCallbackId(message)
-                    initialPromptAnswer?.let { answer ->
-                        initialPromptAnswer = null
+                    currentTask?.promptAnswer?.let { answer ->
+                        currentTask.promptAnswer = null
                         resolve(
                             callbackId,
-                            ShiguangBridgeJson.encodeToString(String.serializer(), answer)
+                            ShiguangBridgeJson.encodeToString(String.serializer(), answer), expectedGeneration
                         )
                         return@let
                     }
-                    mainHandler.post {
+                    postForTask(expectedGeneration) {
                         onInteractionRequest(
                             EduBridgeInteractionRequest.Prompt(
                                 requestId = callbackId,
@@ -130,7 +143,7 @@ internal class ShiguangBridgeHost(
                         ListSerializer(String.serializer()),
                         payload.itemsJsonString
                     )
-                    mainHandler.post {
+                    postForTask(expectedGeneration) {
                         onInteractionRequest(
                             EduBridgeInteractionRequest.SingleSelection(
                                 requestId = callbackId,
@@ -143,35 +156,49 @@ internal class ShiguangBridgeHost(
                 }
 
                 "saveImportedCourses" -> parsePayload<ShiguangSaveCoursesPayload>(message).let { payload ->
-                    session.stageCourses(payload.coursesJsonString)
-                    resolve(requireCallbackId(message), "true")
+                    requireNotNull(currentTask) { "当前没有正在执行的拾光导入任务" }.session.stageCourses(payload.coursesJsonString)
+                    resolve(requireCallbackId(message), "true", expectedGeneration)
                 }
 
                 "saveCourseConfig" -> parsePayload<ShiguangSaveConfigPayload>(message).let { payload ->
-                    session.stageCourseConfig(payload.configJsonString)
+                    requireNotNull(currentTask) { "当前没有正在执行的拾光导入任务" }.session.stageCourseConfig(payload.configJsonString)
                     resolve(requireCallbackId(message), "true")
                 }
 
                 "savePresetTimeSlots" -> parsePayload<ShiguangSaveTimeSlotsPayload>(message).let { payload ->
-                    session.stageTimeSlots(payload.timeSlotsJsonString)
+                    requireNotNull(currentTask) { "当前没有正在执行的拾光导入任务" }.session.stageTimeSlots(payload.timeSlotsJsonString)
                     resolve(requireCallbackId(message), "true")
                 }
 
-                "notifyTaskCompletion" -> {
-                    val draft = session.complete()
-                    finishExecution()
-                    mainHandler.post { onDraft(draft) }
+                "saveComboSchedule" -> parsePayload<ShiguangSaveComboSchedulePayload>(message).let { payload ->
+                    requireNotNull(currentTask) { "当前没有正在执行的拾光导入任务" }.session.stageComboSchedule(payload.comboScheduleJsonString)
+                    resolve(requireCallbackId(message), "true", expectedGeneration)
                 }
 
-                "notifyExecutionFinished" -> finishExecution()
+                "notifyTaskCompletion" -> {
+                    val draft = requireNotNull(currentTask) { "当前没有正在执行的拾光导入任务" }.session.complete()
+                    postForTask(expectedGeneration) {
+                        task = null
+                        _running.value = false
+                        onDraft(draft)
+                    }
+                }
+
+                "notifyExecutionFinished" -> postForTask(expectedGeneration) {
+                    task = null
+                    _running.value = false
+                }
 
                 else -> throw IllegalArgumentException("未知拾光 Bridge action：${message.action}")
             }
         } catch (error: Exception) {
             val detail = error.message ?: "拾光 Bridge 处理失败"
-            mainHandler.post { onMessage(detail) }
-            message.callbackId?.let { reject(it, detail) }
-            if (message.callbackId == null) finishExecution()
+            postForTask(expectedGeneration) { onMessage(detail) }
+            message.callbackId?.let { reject(it, detail, expectedGeneration) }
+            if (message.callbackId == null) postForTask(expectedGeneration) {
+                task = null
+                _running.value = false
+            }
         }
     }
 
@@ -183,15 +210,15 @@ internal class ShiguangBridgeHost(
     private fun requireCallbackId(message: ShiguangBridgeMessage): String =
         requireNotNull(message.callbackId) { "${message.action} 缺少 callbackId" }
 
-    private fun resolve(callbackId: String, resultRawJs: String) {
+    private fun resolve(callbackId: String, resultRawJs: String, expectedGeneration: Long = generation) {
         val script = buildShiguangJsCallbackScript(callbackId, success = true, resultRawJs)
-        mainHandler.post { evaluateJavascript(script) }
+        postForTask(expectedGeneration) { evaluateJavascript(script) }
     }
 
-    private fun reject(callbackId: String, errorText: String) {
+    private fun reject(callbackId: String, errorText: String, expectedGeneration: Long) {
         val errorJson = ShiguangBridgeJson.encodeToString(String.serializer(), errorText)
         val script = buildShiguangJsCallbackScript(callbackId, success = false, errorJson)
-        mainHandler.post { evaluateJavascript(script) }
+        postForTask(expectedGeneration) { evaluateJavascript(script) }
     }
 }
 

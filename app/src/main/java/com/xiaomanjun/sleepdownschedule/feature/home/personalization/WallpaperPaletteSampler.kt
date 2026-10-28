@@ -54,9 +54,8 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPreviewOrientati
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.loadWallpaperBitmap
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.wallpaperCropState
 import com.xiaomanjun.sleepdownschedule.feature.home.day.sampleCroppedBitmapColor
-import com.xiaomanjun.sleepdownschedule.feature.settings.title
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first

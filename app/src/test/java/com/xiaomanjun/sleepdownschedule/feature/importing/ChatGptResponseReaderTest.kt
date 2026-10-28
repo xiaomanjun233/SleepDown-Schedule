@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import java.io.StringReader
+import kotlinx.serialization.json.*
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -64,4 +65,50 @@ class ChatGptResponseReaderTest {
         assertTrue(failure.message!!.contains("使用受限"))
         assertFalse(failure.message!!.contains("secret"))
     }
+
+    @Test fun finishedFunctionItemsSurviveACondensedTerminalEnvelopeWithNamespaceAndArguments() {
+        val result = readEvents(
+            """{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc1","call_id":"c1","namespace":"sleepdown","name":"GET_WEEK_SCHEDULE","arguments":""}}""",
+            """{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc1","delta":"{\"week\":"}""",
+            """{"type":"response.function_call_arguments.delta","output_index":0,"item_id":"fc1","delta":"2}"}""",
+            """{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc1","call_id":"c1","name":"GET_WEEK_SCHEDULE","arguments":""}}""",
+            """{"type":"response.completed","response":{"status":"completed","output":[]}}"""
+        )
+        val call = result["output"]!!.jsonArray.single().jsonObject
+        assertEquals("sleepdown", call["namespace"]!!.jsonPrimitive.content)
+        assertEquals("c1", call["call_id"]!!.jsonPrimitive.content)
+        assertEquals("{\"week\":2}", call["arguments"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun finalFunctionValuesWinAndDoNotExecuteASecondCopy() {
+        val result = readEvents(
+            """{"type":"response.output_item.done","output_index":0,"item":{"type":"function_call","id":"fc1","call_id":"c1","name":"GET_WEEK_SCHEDULE","arguments":"{\"week\":1}"}}""",
+            """{"type":"response.completed","response":{"status":"completed","output":[{"type":"function_call","id":"fc1","call_id":"c1","name":"GET_WEEK_SCHEDULE","arguments":"{\"week\":2}"}]}}"""
+        )
+        val call = result["output"]!!.jsonArray.single().jsonObject
+        assertEquals("{\"week\":2}", call["arguments"]!!.jsonPrimitive.content)
+    }
+
+    @Test fun unfinishedStreamedCallsCannotBeRecoveredFromAnOtherwiseCompletedResponse() {
+        val result = readEvents(
+            """{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc1","call_id":"c1","name":"GET_WEEK_SCHEDULE","arguments":""}}""",
+            """{"type":"response.function_call_arguments.done","output_index":0,"item_id":"fc1","arguments":"{}"}""",
+            """{"type":"response.completed","response":{"status":"completed","output":[]}}"""
+        )
+        assertTrue(result["output"]!!.jsonArray.isEmpty())
+    }
+
+    @Test fun restoredReasoningAndToolCallsStayBeforeTheFinalMessage() {
+        val result = readEvents(
+            """{"type":"response.output_item.done","output_index":0,"item":{"type":"reasoning","id":"r1","encrypted_content":"opaque"}}""",
+            """{"type":"response.output_item.done","output_index":1,"item":{"type":"function_call","id":"fc1","call_id":"c1","name":"GET_WEEK_SCHEDULE","arguments":"{}"}}""",
+            """{"type":"response.completed","response":{"status":"completed","output":[{"type":"message","id":"m1","role":"assistant","content":[{"type":"output_text","text":"正在查询"}]}]}}"""
+        )
+        assertEquals(listOf("reasoning", "function_call", "message"),
+            result["output"]!!.jsonArray.map { it.jsonObject["type"]!!.jsonPrimitive.content })
+    }
+
+    private fun readEvents(vararg events: String): JsonObject = Json.parseToJsonElement(
+        StringReader(events.joinToString("\n\n", postfix = "\n\n") { "data: $it" }).buffered().readChatGptResponse()
+    ).jsonObject
 }

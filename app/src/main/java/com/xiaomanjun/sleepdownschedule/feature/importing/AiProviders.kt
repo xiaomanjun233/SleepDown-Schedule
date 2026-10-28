@@ -2,7 +2,6 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.feature.backup.*
 import android.content.Context
 import android.net.Uri
 import android.util.Base64
@@ -96,6 +95,10 @@ internal interface AiScheduleImportProvider {
 }
 
 internal fun JsonObjectBuilder.putChatSamplingAndReasoning(config: AiProviderConfig) {
+    if (config.providerId == AiProviderPresets.dailyFree.id && config.managedReasoningControlled) {
+        put("reasoning_effort", JsonPrimitive(config.reasoningEffort.apiValue))
+        return
+    }
     if (config.providerId != AiProviderPresets.deepSeek.id) {
         put("temperature", JsonPrimitive(0.1))
         return

@@ -2,12 +2,6 @@ package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -59,7 +53,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsSharedGradient
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.rememberSettingsPaneBackground
 import com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestorePreviewScreen
 import com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestoreSettingsScreen
-import com.xiaomanjun.sleepdownschedule.feature.home.AdaptivePaneTransition
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.AdaptivePaneTransition
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.importing.DonateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
@@ -67,7 +61,7 @@ import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.ScheduleManager
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.aboutPageGradientColors
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCustomizationScreen
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
 @Composable
 fun SettingsScreen(
@@ -228,27 +222,7 @@ fun SettingsScreen(
                 ) {
                     AdaptivePaneTransition(
                         target = displayedPage, landscape = adaptiveMetrics.isTabletLandscape,
-                        portraitTransitionSpec = {
-                            when {
-                                detailNavigationDirection > 0 -> {
-                                    slideInHorizontally(
-                                        tween(500, easing = MiuixSettingsNavigationMotion)
-                                    ) { width -> width } togetherWith
-                                        slideOutHorizontally(
-                                            tween(500, easing = MiuixSettingsNavigationMotion)
-                                        ) { width -> -width / 4 }
-                                }
-                                detailNavigationDirection < 0 -> {
-                                    slideInHorizontally(
-                                        tween(500, easing = MiuixSettingsNavigationMotion)
-                                    ) { width -> -width / 4 } togetherWith
-                                        slideOutHorizontally(
-                                            tween(500, easing = MiuixSettingsNavigationMotion)
-                                        ) { width -> width }
-                                }
-                                else -> EnterTransition.None togetherWith ExitTransition.None
-                            }
-                        },
+                        portraitTransitionSpec = { settingsDetailTransition(detailNavigationDirection) },
                         label = "TabletSettingsDetailNavigation"
                     ) { targetPage ->
                         GlassMiuixTabletDetailPaneScaffold(
@@ -426,6 +400,9 @@ private fun SettingsPageContent(
             onExitCommitFinished = onExitCommitFinished,
             onExitInterceptionChange = onExitInterceptionChange,
             onOpenScheduleSettings = onOpenScheduleSettings ?: { onPageChange(SettingsPage.Schedule) }
+        )
+        SettingsPage.SpecialCourses -> TimeSlotCourseManagementScreen(
+            state, backdrop, exitCommitRequest, onExitCommitFinished, onExitInterceptionChange
         )
         SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
             state = state,

@@ -7,6 +7,7 @@ import androidx.core.graphics.get
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.domain.schedule.isHiddenByPeriodAlignment
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
 import com.xiaomanjun.sleepdownschedule.parityMatches
 import com.xiaomanjun.sleepdownschedule.scheduleWeekStartDate
 import java.time.LocalDate
@@ -19,7 +20,7 @@ internal fun courseWeeksChanged(original: CourseEntity, edited: CourseEntity): B
 
 internal fun coursesVisibleInWeek(courses: List<CourseEntity>, week: Int): List<CourseEntity> {
     val visible = courses.filter { course ->
-        !course.isHiddenByPeriodAlignment() && week in course.weeks && parityMatches(course.weekParity, week)
+        course.timingReviewReason == null && !course.isHiddenByPeriodAlignment() && week in course.weeks && parityMatches(course.weekParity, week)
     }
     val singleWeekOverrideKeys = visible
         .filter { it.weeks.distinct() == listOf(week) }
@@ -57,16 +58,19 @@ internal fun weekCourseBuckets(courses: List<CourseEntity>, week: Int): WeekCour
 
 /** Date adjustments affect rendered occurrences, never the stored weekday/weeks. */
 internal fun weekCourseBuckets(
-    courses: List<CourseEntity>, week: Int, config: ScheduleConfigEntity, today: LocalDate = LocalDate.now()
+    courses: List<CourseEntity>, week: Int, config: ScheduleConfigEntity, today: LocalDate = LocalDate.now(),
+    catalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog = com.xiaomanjun.sleepdownschedule.model.TimetableCatalog(),
+    periods: List<com.xiaomanjun.sleepdownschedule.PeriodEntity> = emptyList()
 ): WeekCourseBuckets {
-    if (config.scheduleAdjustmentsJson.isBlank()) return weekCourseBuckets(courses, week)
     val start = scheduleWeekStartDate(config, week, today)
-    val regular = coursesVisibleInWeek(courses, week).groupBy { it.weekday }
+    val sources = courses.map { it.originalArrangement() }
+    val regular = coursesVisibleInWeek(sources, week).groupBy { it.weekday }
     val sourceWeeks = mutableMapOf(week to regular)
     val cancelled = mutableSetOf<Int>()
     val makeup = mutableSetOf<Int>()
     val visible = (1..7).flatMap { weekday ->
-        val adjustment = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config, start.plusDays((weekday - 1).toLong()))
+        val occurrenceDate = start.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, weekday))
+        val adjustment = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config, start.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, weekday)))
         if (adjustment == null) {
             regular[weekday].orEmpty()
         } else if (adjustment.sourceDate == null) {
@@ -79,8 +83,11 @@ internal fun weekCourseBuckets(
             val origin = LocalDate.parse(adjustment.sourceDate)
             val originWeek = com.xiaomanjun.sleepdownschedule.domain.schedule.adjustedTeachingWeekForDate(config, origin, today)
             if (originWeek == null) emptyList() else sourceWeeks.getOrPut(originWeek) {
-                coursesVisibleInWeek(courses, originWeek).groupBy { it.weekday }
+                coursesVisibleInWeek(sources, originWeek).groupBy { it.weekday }
             }[origin.dayOfWeek.value].orEmpty().map { it.copy(weekday = weekday) }
+        }.map { course ->
+            if (periods.isEmpty()) course else com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(
+                course, config, periods, catalog, occurrenceDate)
         }
     }
     return WeekCourseBuckets(
@@ -95,11 +102,12 @@ internal fun weekCourseBuckets(
 
 internal fun visibleWeekdaysForBuckets(
     buckets: WeekCourseBuckets,
-    hideEmptyWeekends: Boolean
+    hideEmptyWeekends: Boolean,
+    weekStartsOnSunday: Boolean = false
 ): List<Int> = if (hideEmptyWeekends && !buckets.weekendHasCourse) {
     SchoolWeekdays
 } else {
-    FullWeekdays
+    if (weekStartsOnSunday) listOf(7, 1, 2, 3, 4, 5, 6) else FullWeekdays
 }
 
 internal fun CourseEntity.occurrenceOverrideKey(): String {
@@ -108,6 +116,8 @@ internal fun CourseEntity.occurrenceOverrideKey(): String {
         periods.distinct().sorted().joinToString(","),
         customStartTime.orEmpty(),
         customEndTime.orEmpty(),
+        customPeriodTimes.orEmpty(),
+        independentPeriodSchemeId?.toString().orEmpty(),
         name.trim()
     ).joinToString("|")
 }

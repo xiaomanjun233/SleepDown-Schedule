@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.overlay
 
+import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredMorphGeometry
+import com.xiaomanjun.sleepdownschedule.transition.legacy.homeMorphSmoothStep
+
 import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -15,9 +18,11 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
@@ -65,6 +70,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassPanelTintAl
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColor
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorOpeningTaper
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorTaperTransform
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorContentTaper
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeProgressiveBackdropBlurStepCount
 import com.xiaomanjun.sleepdownschedule.feature.home.quantizeHomeProgressiveBackdropBlurProgress
@@ -89,7 +95,11 @@ import com.xiaomanjun.sleepdownschedule.glass.sampleGlassTransitionEnvelope
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownPlainGlassSurface
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassDialogSurface
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
-import com.xiaomanjun.sleepdownschedule.transition.legacy.legacyPersonalizationMorphSpec
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphDirection
+import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphInput
+import com.xiaomanjun.sleepdownschedule.glass.curveValues
+import com.xiaomanjun.sleepdownschedule.glass.withCurveContinuity
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.legacyPersonalizationMorphSpec
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.first
@@ -153,6 +163,7 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
     adaptiveMetrics: HomeAdaptiveMetrics,
     previewProgress: Float,
     contentMounted: Boolean,
+    contentDuringMotion: Boolean,
     onContentLaidOut: () -> Unit,
     onDismissRequest: () -> Unit,
     sourceContent: @Composable (Modifier) -> Unit,
@@ -160,12 +171,15 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
 ) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val latestPreviewProgress = rememberUpdatedState(previewProgress)
+    val earlyContentHandoff = !com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()
     val morphSpec = remember(
         sourceBounds,
         sourcePressedScale,
         targetRect,
         adaptiveMetrics,
-        density.density
+        density.density,
+        contentDuringMotion,
+        earlyContentHandoff
     ) {
         legacyPersonalizationMorphSpec(
             source = sourceBounds,
@@ -184,19 +198,55 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
             },
             closingControlDropPx = with(density) {
                 ThreeDotMenuMotion.CloseControlDropDp.dp.toPx()
-            }
+            },
+            preloadedContent = contentDuringMotion,
+            earlyContentHandoff = earlyContentHandoff,
+            earlyOpeningContentHandoff = true
         )
+    }
+    DisposableEffect(morphSpec, motionState) {
+        val sampler: (Float, Boolean) -> FloatArray = { p, closing ->
+            morphSpec.frame(LiquidMorphInput(sourceBounds, targetRect, p,
+                if (closing) LiquidMorphDirection.Closing else LiquidMorphDirection.Opening))
+                .curveValues(courseEditorOpeningTaper(p,
+                    sourceBounds.center.y - targetRect.center.y, targetRect.height, closing))
+        }
+        motionState.curveContinuity.bind(sampler) { current, closing ->
+            val captured = Rect(current[0], current[1], current[2], current[3])
+            val from = if (closing) sourceBounds else captured
+            val to = if (closing) captured else targetRect
+            val rebased = legacyPersonalizationMorphSpec(
+                source = from, target = to,
+                pinchDiameterPx = with(density) { 18.dp.toPx() },
+                minimumDropPx = with(density) { 36.dp.toPx() }, maximumDropPx = with(density) { 72.dp.toPx() },
+                maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() },
+                targetCornerRadiusPx = if (closing) current[4] else with(density) { 28.dp.toPx() },
+                sourcePressedScale = if (closing) sourcePressedScale else 1f,
+                verticalReboundAmplitudePx = with(density) { ThreeDotMenuMotion.OpenReboundAmplitudeDp.dp.toPx() },
+                closingSinkOffsetPx = with(density) { ThreeDotMenuMotion.CloseSinkOffsetDp.dp.toPx() },
+                closingControlDropPx = with(density) { ThreeDotMenuMotion.CloseControlDropDp.dp.toPx() },
+                preloadedContent = contentDuringMotion, earlyContentHandoff = earlyContentHandoff,
+                earlyOpeningContentHandoff = true)
+            val frames: (Float) -> FloatArray = { p ->
+                rebased.frame(LiquidMorphInput(from, to, p,
+                    if (closing) LiquidMorphDirection.Closing else LiquidMorphDirection.Opening))
+                    .curveValues(courseEditorOpeningTaper(p, from.center.y - to.center.y, to.height, closing))
+            }
+            frames
+        }
+        onDispose { motionState.curveContinuity.unbind(sampler) }
     }
     val geometry = remember(morphSpec, motionState) {
         derivedStateOf {
             // Personalization and the three-dot menu are one liquid object choreography. The
             // performance work below only changes recording and backdrop sampling.
-            morphSpec.homeGeometry(
+            morphSpec.frame(LiquidMorphInput(
                 source = sourceBounds,
                 target = targetRect,
                 rawProgress = motionState.progress.value,
-                closing = motionState.phase == HomeAnchoredOverlayPhase.Closing
-            )
+                direction = if (motionState.phase == HomeAnchoredOverlayPhase.Closing)
+                    LiquidMorphDirection.Closing else LiquidMorphDirection.Opening
+            )).withCurveContinuity(motionState.curveContinuity, motionState.progress.value).toHomeAnchoredGeometry()
         }
     }
     val glassSceneState = LocalGlassSceneState.current
@@ -354,27 +404,29 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
         derivedStateOf {
             if (motionState.phase == HomeAnchoredOverlayPhase.Opening ||
                 motionState.phase == HomeAnchoredOverlayPhase.Closing) {
-                courseEditorOpeningTaper(motionState.progress.value,
+                motionState.curveContinuity.value(13, motionState.progress.value,
+                    courseEditorOpeningTaper(motionState.progress.value,
                     sourceBounds.center.y - targetRect.center.y, targetRect.height,
-                    closing = motionState.phase == HomeAnchoredOverlayPhase.Closing)
+                    closing = motionState.phase == HomeAnchoredOverlayPhase.Closing))
             } else 0f
         }
     }
     val shape = remember(geometry, density, taper) {
         DeferredHomeMorphShape(geometry, continuous = true, density = density, taper = taper)
     }
-    val fixedAllocation = remember(stableProgressiveEnvelope, motionState.phase, backdrop) {
-        if (!GlassMotionExperiments.fixedMorph || backdrop == null ||
+    val nativeMaterial = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()
+    val fixedAllocation = remember(stableProgressiveEnvelope, motionState.phase, backdrop, nativeMaterial) {
+        if (!nativeMaterial || !GlassMotionExperiments.fixedMorph || backdrop == null ||
             motionState.phase == HomeAnchoredOverlayPhase.Open || !useStableProgressiveSurface) null
         else GlassMorphAllocation(checkNotNull(stableProgressiveEnvelope),
             { geometry.value.asGlassTransitionGeometry() }, with(density) { 10.dp.toPx() })
     }
     val maxContentBlurPx = with(density) { 5.dp.toPx() }
     val formReveal = remember { Animatable(0f) }
-    val showForm = contentMounted && motionState.phase == HomeAnchoredOverlayPhase.Open
-    val revealForm = showForm && motionState.phase == HomeAnchoredOverlayPhase.Open
-    LaunchedEffect(revealForm) {
-        formReveal.animateTo(if (revealForm) 1f else 0f, tween(220))
+    val showForm = contentMounted && (contentDuringMotion || motionState.phase == HomeAnchoredOverlayPhase.Open)
+    val revealForm = !contentDuringMotion && showForm && motionState.phase == HomeAnchoredOverlayPhase.Open
+    LaunchedEffect(revealForm, contentDuringMotion) {
+        if (!contentDuringMotion) formReveal.animateTo(if (revealForm) 1f else 0f, tween(220))
     }
     val targetWidth = with(density) { targetRect.width.toDp() }
     val targetHeight = with(density) { targetRect.height.toDp() }
@@ -503,7 +555,9 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
                     geometry.value.pathProgress >= 0.999f
                 clip = !fullOpenEndpoint
                 this.shape = shape
-                compositingStrategy = if (fullOpenEndpoint || fixedAllocation != null) {
+                compositingStrategy = if (contentDuringMotion) {
+                    CompositingStrategy.ModulateAlpha
+                } else if (fullOpenEndpoint || fixedAllocation != null) {
                     CompositingStrategy.Auto
                 } else {
                     CompositingStrategy.Offscreen
@@ -530,7 +584,13 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
                 geometry.value.surfaceAlpha *
                     (1f - latestPreviewProgress.value.coerceIn(0f, 1f))
             },
-            contentAlphaProvider = { formReveal.value },
+            contentAlphaProvider = { if (contentDuringMotion) geometry.value.contentAlpha else formReveal.value },
+            contentScaleProvider = {
+                if (contentDuringMotion) Offset(geometry.value.rect.width / targetRect.width,
+                    geometry.value.rect.height / targetRect.height) else Offset(1f, 1f)
+            },
+            contentTaperProvider = { taper.value },
+            contentCompositingStrategy = if (contentDuringMotion) CompositingStrategy.ModulateAlpha else CompositingStrategy.Auto,
             contentBlurRadiusPxProvider = {
                 // Blur is now a crossfade between two pre-recorded GPU layers below. Leaving this
                 // outer target-sized layer unblurred avoids recomputing a full form RenderEffect on
@@ -543,13 +603,14 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
             content = { contentModifier ->
                 if (showForm) {
                     content(
-                        contentModifier
+                        contentModifier.then(if (contentDuringMotion && motionState.phase != HomeAnchoredOverlayPhase.Open)
+                            Modifier.clearAndSetSemantics { } else Modifier)
                     )
                 }
             }
         )
 
-        Box(
+        if (motionState.phase != HomeAnchoredOverlayPhase.Open) Box(
             modifier = Modifier
                 .requiredSize(
                     width = with(density) { sourceBounds.width.toDp() },
@@ -575,9 +636,8 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
             sourceContent(Modifier.fillMaxSize())
         }
 
-        if (motionState.phase != HomeAnchoredOverlayPhase.Opening &&
-            motionState.phase != HomeAnchoredOverlayPhase.Open
-        ) {
+        if (motionState.phase != HomeAnchoredOverlayPhase.Open &&
+            (contentDuringMotion || motionState.phase != HomeAnchoredOverlayPhase.Opening)) {
             Box(
                 Modifier
                     .fillMaxSize()
@@ -604,6 +664,9 @@ private fun DeferredHomePersonalizeMorphPanel(
     warmupBackdropEffects: Boolean,
     surfaceAlphaProvider: () -> Float,
     contentAlphaProvider: () -> Float,
+    contentScaleProvider: () -> Offset,
+    contentTaperProvider: () -> Float,
+    contentCompositingStrategy: CompositingStrategy,
     contentBlurRadiusPxProvider: () -> Float,
     backdropBlurProgressProvider: () -> Float,
     onContentLaidOut: () -> Unit,
@@ -633,7 +696,34 @@ private fun DeferredHomePersonalizeMorphPanel(
         }
     ) {
         if (showSurface && renderMaterial) {
-            if (backdrop != null) {
+            if (!com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()) {
+                com.xiaomanjun.sleepdownschedule.glass.ui.MorphDialogSurface(
+                    surfaceColor = surfaceColor, shape = shape,
+                    modifier = Modifier.fillMaxSize(), backdrop = backdrop,
+                    surfaceAlpha = surfaceAlphaProvider
+                )
+            } else if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer.current?.invoke(
+                com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest(
+                    modifier = Modifier
+                        .wrapContentSize(Alignment.TopStart, unbounded = true)
+                        .requiredSize(targetWidth, targetHeight)
+                        .graphicsLayer {
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                            val scale = contentScaleProvider()
+                            scaleX = scale.x
+                            scaleY = scale.y
+                        },
+                    // The parent owns the moving outline. Keep the Android material View at its
+                    // final measured size, rather than relayout its blur surface on every frame.
+                    shape = androidx.compose.ui.graphics.RectangleShape, dark = !lightGlass,
+                    surfaceAlpha = surfaceAlphaProvider,
+                    role = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Form,
+                    onDrawTint = { drawRect(surfaceColor) },
+                    edgeEffects = false, followTouch = false
+                )
+            ) {} == true) {
+                // The active native renderer owns this surface, just like the other native forms.
+            } else if (backdrop != null) {
                 if (progressiveBlur && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                     DeferredProgressivePersonalizeSurface(
                         backdrop = backdrop,
@@ -680,10 +770,20 @@ private fun DeferredHomePersonalizeMorphPanel(
         }
         Box(
             modifier = Modifier
-                .align(Alignment.Center)
-                .requiredSize(targetWidth, targetHeight)
-                .onSizeChanged {
-                    if (it.width > 0 && it.height > 0) onContentLaidOut()
+                // Explicit placement avoids requiredSize's implicit centering under the small
+                // shell constraints. The entire form, including native controls, shares this layer.
+                .layout { measurable, constraints ->
+                    val targetW = targetWidth.roundToPx().coerceAtLeast(1)
+                    val targetH = targetHeight.roundToPx().coerceAtLeast(1)
+                    val placeable = measurable.measure(Constraints.fixed(targetW, targetH))
+                    layout(constraints.maxWidth, constraints.maxHeight) {
+                        placeable.placeWithLayer(0, 0) {
+                            transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, 0f)
+                            val scale = contentScaleProvider()
+                            scaleX = scale.x
+                            scaleY = scale.y
+                        }
+                    }
                 }
                 .graphicsLayer {
                     val contentAlpha = contentAlphaProvider()
@@ -698,14 +798,17 @@ private fun DeferredHomePersonalizeMorphPanel(
                     compositingStrategy = if (blurPx > 0.01f) {
                         CompositingStrategy.Offscreen
                     } else {
-                        CompositingStrategy.Auto
+                        contentCompositingStrategy
                     }
                     renderEffect = if (blurPx > 0.01f) {
                         BlurEffect(blurPx, blurPx, TileMode.Clamp)
                     } else null
                 }
+                .courseEditorContentTaper(contentTaperProvider)
         ) {
-            content(Modifier.fillMaxSize())
+            content(Modifier.fillMaxSize().onSizeChanged {
+                if (it.width > 0 && it.height > 0) onContentLaidOut()
+            })
         }
     }
 }

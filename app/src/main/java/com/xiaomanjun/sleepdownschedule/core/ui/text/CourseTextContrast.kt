@@ -7,6 +7,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import kotlin.math.roundToInt
 
+private val HomeNotFrozen = object : State<Boolean> { override val value = false }
+internal val LocalHomeBackgroundFrozen = compositionLocalOf<State<Boolean>> { HomeNotFrozen }
+
+/** Pause CPU wallpaper/foreground decisions during page motion without freezing live glass. */
+internal val LocalHomeTextContrastFrozen = compositionLocalOf<State<Boolean>> { HomeNotFrozen }
+
 internal class CourseTextBackground(
     private val isFrozen: () -> Boolean,
     val flatLuminance: Float? = null,
@@ -75,3 +81,11 @@ internal fun courseTextColorForPage(seed: Color, hasWallpaper: Boolean, lightTex
 
 /** Choose the higher-contrast shadow for the actual colored glyph, not the page foreground. */
 internal fun courseTextNeedsDarkShadow(color: Color): Boolean = color.luminance() > 0.17912878f
+
+/** Colored course ink uses a white diffuse halo on bright surfaces, per the visual policy. */
+internal fun coloredCourseShadowIsWhite(luminances: FloatArray): Boolean {
+    var sum = 0f
+    var count = 0
+    for (value in luminances) if (value.isFinite()) { sum += value; count++ }
+    return count > 0 && sum / count >= 0.5f
+}

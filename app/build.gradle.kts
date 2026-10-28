@@ -19,8 +19,7 @@ val releaseStorePassword = releaseSecret("sleepdown.releaseStorePassword", "SLEE
 val releaseKeyAlias = releaseSecret("sleepdown.releaseKeyAlias", "SLEEPDOWN_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseSecret("sleepdown.releaseKeyPassword", "SLEEPDOWN_RELEASE_KEY_PASSWORD")
 val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOWN_REMOTE_CONFIG_SECRET").orEmpty()
-// 用旧客户端可识别的第四段数字补发 r1 修复；versionCode 仍为 35。
-val sleepDownVersionName = "1.2.7.1"
+val sleepDownVersionName = "1.2.8_beta1"
 val skipReleaseResourceShrink = providers.gradleProperty("sleepdown.skipReleaseResourceShrink")
     .map(String::toBoolean)
     .getOrElse(false)
@@ -73,7 +72,7 @@ android {
         applicationId = "com.xiaomanjun.sleepdownschedule"
         minSdk = 26
         targetSdk = 36
-        versionCode = 35
+        versionCode = 36
         versionName = sleepDownVersionName
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "SLEEPDOWN_API_BASE_URL", "\"https://api.sleepdownschedule.cn\"")
@@ -151,11 +150,15 @@ android {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"github\"")
             buildConfigField("boolean", "SLEEPDOWN_EXPERIMENTAL_FEATURES", "true")
+            // GitHub builds use gold transitions by default; keep an explicit comparison override.
+            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST",
+                providers.gradleProperty("sleepdown.sharedViewKitTest").map(String::toBoolean).getOrElse(true).toString())
         }
         create("store") {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"store\"")
             buildConfigField("boolean", "SLEEPDOWN_EXPERIMENTAL_FEATURES", "false")
+            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST", "false")
         }
     }
 
@@ -222,7 +225,7 @@ dependencies {
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation("androidx.palette:palette-ktx:1.0.0")
     implementation("androidx.exifinterface:exifinterface:1.4.2")
-    compileOnly("com.oplus.animation:viewseamless:1.0.0@aar")
+    "githubImplementation"("gsai.sdk:sharedview-kit:1.0.0.4")
     implementation(project(":kyant-backdrop"))
     implementation("io.github.kyant0:shapes:1.2.0")
     implementation("top.yukonga.miuix.kmp:miuix-ui-android:0.9.3")

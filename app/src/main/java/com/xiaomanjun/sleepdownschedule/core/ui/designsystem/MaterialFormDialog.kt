@@ -6,7 +6,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.glass.ui.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
 /** The host owns the window; the form keeps validation and save state. */
 @Composable

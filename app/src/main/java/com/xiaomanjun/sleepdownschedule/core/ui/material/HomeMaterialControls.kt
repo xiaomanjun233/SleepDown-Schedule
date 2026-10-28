@@ -30,9 +30,6 @@ internal interface HomeMaterialControls {
     fun FloatingButtonVisual(dark: Boolean, modifier: Modifier): Boolean = false
 
     @Composable
-    fun ordinaryDockWidth(): Dp = 140.dp
-
-    @Composable
     fun SearchField(value: String, onValueChange: (String) -> Unit, dark: Boolean,
         bottomOffset: Dp, entranceProgress: Float, largeScreen: Boolean, modifier: Modifier): Boolean = false
 

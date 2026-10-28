@@ -21,6 +21,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.graphicsLayer
@@ -180,7 +183,9 @@ fun HomeIconButton(
     accentColor: ComposeColor = ComposeColor.Unspecified,
     visible: Boolean = true,
     onClick: (Float) -> Unit,
-    onButtonPositioned: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null
+    onButtonPositioned: ((androidx.compose.ui.geometry.Rect) -> Unit)? = null,
+    returnLayer: GraphicsLayer? = null,
+    enabled: Boolean = visible
 ) {
     val view = LocalView.current
     val pressSnapshot = remember { LiquidButtonPressSnapshot() }
@@ -197,6 +202,14 @@ fun HomeIconButton(
                 }
             )
             .graphicsLayer { alpha = if (visible) 1f else 0f }
+            .drawWithContent {
+                // Keep the actual button before its menu hides it. Cropping the hidden Home
+                // frame for an Activity return only captures wallpaper at this position.
+                if (returnLayer != null && visible) {
+                    returnLayer.record { this@drawWithContent.drawContent() }
+                    drawLayer(returnLayer)
+                } else drawContent()
+            }
     ) {
         HomeIconButtonVisual(
             backdrop = backdrop,
@@ -206,7 +219,7 @@ fun HomeIconButton(
             selected = selected,
             accentColor = accentColor,
             modifier = Modifier.fillMaxSize(),
-            isInteractive = visible,
+            isInteractive = enabled,
             pressSnapshot = pressSnapshot,
             // COUI owns touch animation and haptics; only forward the business action.
             onNativeClick = { onClick(1f) },

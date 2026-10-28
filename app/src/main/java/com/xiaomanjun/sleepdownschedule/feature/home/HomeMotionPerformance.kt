@@ -1,8 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
+import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeMenuDestinationEduBackgroundScale
+
 import com.xiaomanjun.sleepdownschedule.*
-import com.xiaomanjun.sleepdownschedule.app.ui.*
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.BackgroundZoomOpenScale
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.model.HomeMode
@@ -155,10 +155,10 @@ internal fun shouldUseStagedHomeOverlayBlur(
     substantialOverlayActive: Boolean
 ): Boolean = !previewActive && substantialOverlayActive
 
-/** Keeps cached and live background paths on the exact same depth/blur curve. */
-internal fun homeOverlayDepthProgress(zoom: Float): Float {
+/** The host supplies editor depth; Home does not read another feature's motion parameters. */
+internal fun homeOverlayDepthProgress(zoom: Float, editorBackgroundScale: Float): Float {
     val depthRange = maxOf(
-        abs(BackgroundZoomOpenScale - 1f),
+        abs(editorBackgroundScale - 1f),
         abs(HomeMenuDestinationEduBackgroundScale - 1f)
     ).coerceAtLeast(0.001f)
     return (abs(zoom - 1f) / depthRange).coerceIn(0f, 1f)
