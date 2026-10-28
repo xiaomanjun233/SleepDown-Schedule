@@ -482,6 +482,22 @@ class SharedPeriodSchemeRepositoryTest {
         rejected { repository.saveDateTimetableRules(1,null,emptyList(),emptyList()) }
     }
 
+    @Test fun importingAlternateTimetableFreezesCourseTimesWithoutCreatingCourseBindings() = runBlocking {
+        val config = requireNotNull(database.configDao().getConfig(1))
+        val base = database.configDao().getPeriods(1)
+        val alternate = base.map { if (it.periodIndex == 1) it.copy(startTime = "08:20", endTime = "09:05") else it }
+        val source = course(1, listOf(1)).copy(independentPeriodSchemeId = -1)
+        repository.importDraft(ImportDraft(config, base, listOf(source), timetablePlan = ImportedTimetablePlan(
+            independentTimetables = listOf(ImportedTimetable("B楼例外", alternate)))))
+        val saved = database.courseDao().getCourses(1).single()
+        assertNull(saved.independentPeriodSchemeId)
+        assertEquals("08:20", saved.customStartTime)
+        assertEquals("09:05", saved.customEndTime)
+        assertEquals(source.periods, saved.periods)
+        assertEquals(courseTimeSegments(source, alternate), courseTimeSegments(saved, base))
+        assertTrue(database.periodSchemeDao().getAllSchemes().none { it.name == "B楼例外" })
+    }
+
     private fun standardTimes(id: Long) = listOf(PeriodSchemeTimeEntity(id, 1, "08:00", "08:45"),
         PeriodSchemeTimeEntity(id, 2, "09:00", "09:45"), PeriodSchemeTimeEntity(id, 3, "14:00", "14:45"))
 

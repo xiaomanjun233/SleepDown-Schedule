@@ -82,8 +82,7 @@ internal fun CourseEditorFormPage(
     rowEntrance: (Int) -> Float = { _ -> 1f },
     timetableCatalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog = com.xiaomanjun.sleepdownschedule.model.TimetableCatalog()
 ) {
-    val selectedBells = draft.independentPeriodSchemeId?.let { id -> timetableCatalog.times.filter { it.schemeId == id }
-        .sortedBy { it.periodIndex }.map { PeriodEntity(it.periodIndex,it.startTime,it.endTime,config.id,it.alias) } } ?: periods
+    val selectedBells = periods
     val selectedValues = selectedBells.map { it.periodIndex }
     // This form lives on the wallpaper-sampling CourseGlassCard. Its complete foreground domain
     // must follow the glass contrast decision; appPanelForegroundColor follows the app theme and
@@ -204,22 +203,20 @@ internal fun CourseEditorFormPage(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), fieldTextColor = editorFieldTextColor)
         }
         item(key = "timing-mode", contentType = "selector") {
-            val templates = timetableCatalog.schemes.filter { scheme -> timetableCatalog.times.any { it.schemeId == scheme.id } }
-            val labels = listOf("跟随课表作息") + templates.map { "单独使用：${it.name}" } + "自定义时间"
-            val selected = if (draft.customStartTime != null) labels.lastIndex
-                else draft.independentPeriodSchemeId?.let { id -> templates.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.plus(1) } ?: 0
+            val labels = listOf("跟随课表作息", "自定义时间")
+            val selected = if (draft.customStartTime != null || !draft.customPeriodTimes.isNullOrBlank() || draft.independentPeriodSchemeId != null) 1 else 0
             CourseEditorPickerValue("时间方式", labels[selected], backdrop, config) {
                 onOpenPicker(CourseEditorPickerRequest.Wheel("时间方式", labels, selected, onConfirm = { index, _ ->
-                    val custom = index == labels.lastIndex
-                    onDraftChange(draft.copy(independentPeriodSchemeId = templates.getOrNull(index-1)?.id.takeUnless { custom },
-                        customStartTime = selectedBells.firstOrNull()?.startTime?.takeIf { custom },
-                        customEndTime = selectedBells.firstOrNull()?.endTime?.takeIf { custom },
+                    val custom = index == 1
+                    if (index != selected || draft.independentPeriodSchemeId != null) onDraftChange(draft.copy(independentPeriodSchemeId = null,
+                        customStartTime = if (custom) draft.customStartTime ?: selectedBells.firstOrNull { it.periodIndex == draft.periodStart }?.startTime else null,
+                        customEndTime = if (custom) draft.customEndTime ?: selectedBells.firstOrNull { it.periodIndex == draft.periodEnd }?.endTime else null,
                         customPeriodTimes = null, customLessonTimesEdited = false, timingSelectionEdited = true))
                 }))
             }
         }
         item(key = "timing-help", contentType = "description") {
-            Text("跟随课表时，日期安排会自动生效。单独使用的作息可在作息管理中编辑；自定义时间在本课程内修改。",
+            Text("跟随课表时，日期安排会自动生效。自定义时间仅对本课程生效，可在下方编辑。",
                 modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall)
         }
         if (course?.timingReviewReason != null || course?.arrangementProjection?.reviewReason != null) {
@@ -268,6 +265,7 @@ internal fun CourseEditorFormPage(
                                 customEndTime = null,
                                 customPeriodTimes = null,
                                 customLessonTimesEdited = false,
+                                independentPeriodSchemeId = null,
                                 periodRangeEdited = true,
                                 timingSelectionEdited = true
                             )

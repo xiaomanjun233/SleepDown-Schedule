@@ -3,10 +3,25 @@ package com.xiaomanjun.sleepdownschedule.feature.course.editor
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.WeekParity
 import com.xiaomanjun.sleepdownschedule.defaultConfig
+import com.xiaomanjun.sleepdownschedule.PeriodEntity
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.withCustomTimetableTimes
 import org.junit.Assert.*
 import org.junit.Test
 
 class CourseEditorDataSafetyTest {
+    @Test fun editingLegacyReferenceKeepsEveryLessonClockAfterItBecomesCustom() {
+        val legacy = course.copy(independentPeriodSchemeId = 9)
+        val reference = listOf(PeriodEntity(3, "08:20", "09:05"), PeriodEntity(4, "09:15", "10:00"))
+        val converted = legacy.withCustomTimetableTimes(reference)
+        val draft = courseEditorDraft(listOf(converted), periods, 16).copy(name = "线性代数")
+        val saved = draft.toCourses(listOf(legacy), periods, true).single()
+        assertNull(saved.independentPeriodSchemeId)
+        assertEquals(converted.customPeriodTimes, saved.customPeriodTimes)
+        assertEquals(courseTimeSegments(legacy, reference), courseTimeSegments(saved, emptyList()))
+        assertEquals(legacy.weeks, saved.weeks)
+    }
+
     @Test fun explicitPeriodRangeReplacesTheGapsAndSurvivesReopening() {
         val source = course.copy(periods = listOf(1, 3), customStartTime = "08:00", customEndTime = "10:45")
         val draft = courseEditorDraft(listOf(source), listOf(1, 2, 3), 20).copy(

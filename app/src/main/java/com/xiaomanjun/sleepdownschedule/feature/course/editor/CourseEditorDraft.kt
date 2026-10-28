@@ -339,7 +339,7 @@ internal fun courseEditorCopyDraft(
     totalWeeks: Int
 ): CourseEditorDraft = courseEditorDraft(listOf(source), periodValues, totalWeeks)
     .copy(weekdays = emptySet(), periodStart = 0, periodEnd = 0,
-        customStartTime = null, customEndTime = null, customPeriodTimes = null)
+        customStartTime = null, customEndTime = null, customPeriodTimes = null, independentPeriodSchemeId = null)
 
 internal fun courseEditorOriginalForWeekday(
     originals: List<CourseEntity>,
@@ -393,7 +393,8 @@ internal fun CourseEditorDraft.toCourses(
             customEndTime = customEndTime,
             originalPeriodTimes = original?.originalPeriodTimes?.takeIf { timingUnchanged },
             customPeriodTimes = customPeriodTimes?.takeIf {
-                customLessonTimesEdited || (original?.periods == periods && original.customStartTime == customStartTime &&
+                customLessonTimesEdited || (original?.independentPeriodSchemeId != null && independentPeriodSchemeId == null) ||
+                    (original?.periods == periods && original.customStartTime == customStartTime &&
                     original.customEndTime == customEndTime)
             },
             customColorArgb = if (allowCustomColorOverride) {
