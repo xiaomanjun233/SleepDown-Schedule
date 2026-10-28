@@ -1,6 +1,17 @@
 # 当前工作交接
 
-## 2026-10-27 课程时间模型重构已提交
+## 2026-10-28 Beta1 已收束，后续两项独立修复
+
+用户在本轮明确要求“以 1.2.8 beta1 为最新基线收束，整理、合并或关闭远端、本地 PR，获得干净工作区”，并要求建立时间显示和金标动画两个 PR；随后强调认定某个 Release 后“必须完成审查和合并，不要堆在上面”。该长期约束已写入 AGENTS.md，不能解释成仅有可选合并授权。
+
+main 源码基线现为 `e72643f2`，包含 `v1.2.8_beta1` / `498d39cc` 的全部祖先。#79、#86、#87 已合并，#81 内容已被完整包含后关闭，过时的 develop 流程 #80 关闭。首轮完整 CI 的 12 项失败已逐项处理，真实稀疏节点导入回归已修复；五类 69 项定向回归与最终完整 CI #68 成功。版本保持 1.2.8_beta1 / 36，没有改标签、发布新包或新增安装。详细结果及九份新增具名 stash 的保全规则见[收束记录](reports/2026-10-28-beta1-consolidation.md)。以下历史段落中的 #86/#87 未合并及授权边界，只记录当时状态。
+
+- [时间显示 PR #88](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/88)：`tmp/week-time-display` / `codex/week-time-display`。保留单一时间轴、起止时间贴卡片上下沿、当天日期作息替换；特殊课程独立/占位/整周智能模式、地点、备注及起止周；日期选择改二级胶囊弹窗并去掉上移/移除。Release Kotlin 与四类 39 项回归、架构检查通过，保持 Draft 等待设备观感。详见该分支 `docs/reports/2026-10-28-week-time-display.md`。
+- [金标源 View PR #89](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/89)：`tmp/gold-source-corners` / `codex/gold-source-corners`。`e4f337ef` 将既有局部像素投影为完整、已 attach 的单一源 View，提供 Outline 和圆角软件采样，返回桥接同样裁切；保留会话释放及降级。GitHub/商店 Release Kotlin 与三类 26 项回归、架构检查通过，保持 Draft 等待 ROM 圆角、裁切和返回实机确认。详见该分支 `docs/reports/2026-10-28-gold-source-corners.md`。
+
+本轮只授权并完成旧发布 PR 的收束；两个新增修复 PR 尚未发布或合并。后续继续对应分支，不在旧动画树重做。源码工作树通过提交或具名 stash 收口，原分支、旧 stash 和忽略素材保持可恢复，禁止把私有后端或原始用户数据作为清理对象。
+
+## 历史：2026-10-27 课程时间模型重构已提交
 
 **1.2.8 Beta1 已发布：** 用户确认日志、指定金标文案并授权“改完就可以发布了”。源码及双平台标签均为 `498d39cc`，主应用 `1.2.8_beta1` / 36；完整签名 Release 6m12s、18 条日志逐字比对、架构与包身份核验通过。GitHub Release `425042198` / Gitee `1245016` 均为预发布，四份公开附件摘要匹配，GitHub latest 仍为 1.2.7.1，Gitee 实际更新列表已含 Beta1。新主包 `f1eb232c…0f2429d`，组件沿用 6.0.19 / 259。详见[发布记录](2026-10-27-beta1-1.2.8-release.md)。用户明确本地 GitHub 凭据、不要浏览器已写入两处 AGENTS；发布使用本地 credential helper 和既有官方 API。没有合并 #86/#87，main 尚未包含发布源码；未新增 Beta1 安装或实机验收。
 
