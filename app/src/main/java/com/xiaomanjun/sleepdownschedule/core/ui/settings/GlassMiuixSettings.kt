@@ -13,6 +13,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -301,6 +303,7 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun GlassMiuixDetailActivityScaffold(
     title: String,
@@ -335,13 +338,18 @@ internal fun GlassMiuixDetailActivityScaffold(
     val density = LocalDensity.current
     val rootView = LocalView.current
     val visibleStatusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val statusBarSafeTop = maxOf(
+        visibleStatusBarTop,
+        WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding(),
+        WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
+    )
     val stableStatusBarTop = if (preserveStatusBarSpace) {
         val stableTopPx = ViewCompat.getRootWindowInsets(rootView)
             ?.getInsetsIgnoringVisibility(
                 WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()
             )
             ?.top
-        stableTopPx?.let { with(density) { it.toDp() } } ?: visibleStatusBarTop
+        maxOf(statusBarSafeTop, stableTopPx?.let { with(density) { it.toDp() } } ?: 0.dp)
     } else {
         visibleStatusBarTop
     }
