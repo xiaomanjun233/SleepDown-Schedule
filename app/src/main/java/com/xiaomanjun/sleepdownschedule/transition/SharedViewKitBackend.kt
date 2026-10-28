@@ -31,13 +31,15 @@ internal class SharedViewKitBackend(
         var watchdog: Runnable? = null
     ) {
         var kitReturnBitmap: Bitmap? = null
-        var returnAnchor: TransitionAnchorFrame? = null
+        var releaseReturnCover: (() -> Unit)? = null
         /**
          * The vendor path may return the same Bitmap instance from its own copy step and recycle it
          * when the request is rejected. Only this app-owned software copy is ever handed over, so a
          * failed handshake can never invalidate the payload bitmap that Legacy still needs.
          */
         fun recycleKitBitmap() {
+            releaseReturnCover?.invoke()
+            releaseReturnCover = null
             sourceView.release()
             if (!kitBitmap.isRecycled) kitBitmap.recycle()
             kitReturnBitmap?.let { if (!it.isRecycled) it.recycle() }
@@ -135,7 +137,6 @@ internal class SharedViewKitBackend(
         }.getOrNull()
         val bundle = Bundle().apply {
             if (source != null && anchor?.isValid == true) {
-                resource.returnAnchor = anchor
                 putParcelable(SharedViewKitContract.Bounds, boundsForKit(source.window.decorView, anchor, resource.capabilities))
                 putFloat(SharedViewKitContract.Radius, anchor.cornerRadiusPx)
                 if (resource.capabilities.returnBitmap) {
@@ -159,9 +160,14 @@ internal class SharedViewKitBackend(
         }
         resource.closing = true
         movingSession = session.id
-        // The source stays hidden for the whole return animation: the ROM flies the card back into
-        // those bounds, so restoring it here would show the real button underneath the moving card.
-        // `complete()` restores it once the BACK callback (or watchdog) ends the session.
+        // Prepare the landing pixels before the ROM drops its final leash frame. Waiting for BACK
+        // end leaves an empty source frame when the callback arrives after the compositor swap.
+        if (source != null && anchor?.isValid == true) {
+            (resource.kitReturnBitmap ?: anchor.bitmap)?.softwareCopyForKit(anchor.cornerRadiusPx)?.let { bitmap ->
+                resource.releaseReturnCover = source.attachOpeningSourceSnapshotHandoff(anchor.copy(bitmap = bitmap))
+            }
+        }
+        // Keep business state hidden until completion; only the landing snapshot is pre-armed.
         watch(resource)
         return true
     }
@@ -199,21 +205,12 @@ internal class SharedViewKitBackend(
 
     private fun complete(resource: Resource) {
         if (!current(resource)) return
-        // Cover the state handoff only until the first restored source draw. Holding a translucent
-        // button snapshot for extra frames composites it twice and causes a visible brightness pulse.
+        // The landing cover already exists. Transfer its ownership until the restored source frame.
         val source = resource.source.get()?.takeUnless { it.isDestroyed || it.isFinishing }
-        val anchor = resource.returnAnchor
-        var releaseReturnCover: (() -> Unit)? = null
-        if (source != null && anchor?.isValid == true) {
-            val coverBitmap = (resource.kitReturnBitmap ?: anchor.bitmap)?.softwareCopyForKit(anchor.cornerRadiusPx)
-            if (coverBitmap != null) {
-                releaseReturnCover = source.attachOpeningSourceSnapshotHandoff(anchor.copy(bitmap = coverBitmap))
-                // Do not recycle a bitmap that may still be referenced by a submitted RenderNode.
-                // Removing the cover releases ownership; the renderer/GC retires its pixel storage.
-            }
-        }
+        val releaseReturnCover = resource.releaseReturnCover
+        resource.releaseReturnCover = null
         TransitionPayloadStore.releaseSource(resource.session.id)
-        releaseReturnCover?.let { ReturnCoverHandoff(checkNotNull(source).window.decorView, it).start() }
+        releaseReturnCover?.let { if (source != null) ReturnCoverHandoff(source.window.decorView, it).start() else it() }
         resource.session.invalidateCallbacks()
         if (movingSession == resource.session.id) movingSession = null
         resource.session.moveTo(TransitionSessionState.Finished)

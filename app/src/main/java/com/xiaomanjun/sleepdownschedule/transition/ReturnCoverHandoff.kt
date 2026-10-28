@@ -3,11 +3,17 @@ package com.xiaomanjun.sleepdownschedule.transition
 import android.view.View
 import androidx.core.view.OneShotPreDrawListener
 
-/** One source frame owns the swap; no fixed frame count or second fading button surface. */
+/** Give Compose a frame to apply restored state before retiring the pre-armed landing cover. */
 internal class ReturnCoverHandoff(private val root: View, private val releaseCover: () -> Unit) :
     Runnable, View.OnAttachStateChangeListener {
     private var preDraw: OneShotPreDrawListener? = null
     private var released = false
+    private val armForNextFrame = Runnable {
+        if (!released) {
+            preDraw = OneShotPreDrawListener.add(root, this)
+            root.invalidate()
+        }
+    }
 
     fun start() {
         if (released) return
@@ -16,7 +22,7 @@ internal class ReturnCoverHandoff(private val root: View, private val releaseCov
             return
         }
         root.addOnAttachStateChangeListener(this)
-        preDraw = OneShotPreDrawListener.add(root, this)
+        root.postOnAnimation(armForNextFrame)
         // An app backgrounded during the return may not draw again. Do not retain its cover.
         root.postDelayed(this, MaximumWaitMillis)
         root.invalidate()
@@ -29,6 +35,7 @@ internal class ReturnCoverHandoff(private val root: View, private val releaseCov
         preDraw = null
         root.removeOnAttachStateChangeListener(this)
         root.removeCallbacks(this)
+        root.removeCallbacks(armForNextFrame)
         releaseCover()
     }
 

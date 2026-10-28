@@ -187,6 +187,38 @@ class SharedViewKitBackendTest {
         assertNull(shadowOf(source).nextStartedActivity)
     }
 
+    @Test fun landingCoverIsDrawnBeforeBackEndAndRetiresAfterTheRestoredFrame() = runBlocking {
+        val request = openAndSettle()
+        returning = anchor.copy(bitmap = Bitmap.createBitmap(100, 140, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.CYAN)
+        })
+        val destination = Robolectric.buildActivity(Activity::class.java).setup().get()
+        assertTrue(backend.requestClose(destination, request.session))
+        fun sourcePixel(): Int {
+            val root = source.window.decorView
+            val capture = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+            root.draw(android.graphics.Canvas(capture))
+            return capture.getPixel(60, 90).also { capture.recycle() }
+        }
+        assertEquals(android.graphics.Color.CYAN, sourcePixel())
+        assertEquals(0, releases.get())
+        api.callbacks!!.onEnd(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idle()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+        source.window.decorView.viewTreeObserver.dispatchOnPreDraw()
+        assertNotEquals(android.graphics.Color.CYAN, sourcePixel())
+        assertEquals(1, releases.get())
+    }
+
+    @Test fun sourceDestructionAlsoRemovesThePrearmedLandingCover() = runBlocking {
+        val request = openAndSettle()
+        assertTrue(backend.requestClose(Robolectric.buildActivity(Activity::class.java).setup().get(), request.session))
+        backend.onActivityDestroyed(source)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNull(TransitionPayloadStore.session(request.session.id))
+        assertEquals(1, releases.get())
+    }
+
     @Test fun declaredReturnBitmapReplacesOpeningPixelsAndStaysAliveUntilBackCompletes() = runBlocking {
         api.supportsReturnBitmap = true
         val request = request()
