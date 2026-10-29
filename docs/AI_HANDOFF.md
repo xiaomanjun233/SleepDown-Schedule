@@ -1,6 +1,6 @@
 # 当前工作交接
 
-最新联合候选 `b5ef16f4` 已完整签名打包成功（5m57s），含时间/HD `2eb22f1e` 与金标 `56f7dde8`，1.2.8_beta1 / 36、金标开启；保全 APK `tmp/review-apks/SleepDown-1.2.8-beta1-hd-b5ef16f4-30b65f4f.apk`（主仓库相对路径），SHA-256 `30b65f4fc711ceb0b4832d412156afa00c72e19dca66199d3bdbb95ef853a7b2`。安装瞬间原 PLJ110 离线，5037/5038/新增 5039 的 USB 与 mDNS 均已核对无设备；已请求接回，尚未安装成功。设备恢复后沿用既有安装授权和此 APK，勿重复构建或把旧包安装算成本包。源码恢复时间 PR 分支；详细签名、通道及产物见[联合交付](reports/2026-10-28-time-gold-review-install.md)。
+最新联合候选 `b5ef16f4` 已完整签名打包成功（5m57s），含时间/HD `2eb22f1e` 与金标 `56f7dde8`，1.2.8_beta1 / 36、金标开启；保全 APK `tmp/review-apks/SleepDown-1.2.8-beta1-hd-b5ef16f4-30b65f4f.apk`（主仓库相对路径），SHA-256 `30b65f4fc711ceb0b4832d412156afa00c72e19dca66199d3bdbb95ef853a7b2`。此前安装时离线，用户随后再次要求“安装”，已于 2026-10-29 17:07:01（Asia/Shanghai）经 SDK 37.0.1 客户端与同来源 5038 USB 服务覆盖安装到原 OPPO PLJ110（Android 17 / SDK 37），返回 Success，手机 base.apk SHA-256 与本包完全一致。5037/5039 和全部无线 mDNS 同时检查，无其他设备；保留数据，未主动启动，无需重新构建。源码保持时间 PR 分支；详细签名、通道及实际安装结果见[联合交付](reports/2026-10-28-time-gold-review-install.md)。实际界面与 ROM 观感待确认。
 
 ## 2026-10-29 HD、显示调用及手动时间边界
 

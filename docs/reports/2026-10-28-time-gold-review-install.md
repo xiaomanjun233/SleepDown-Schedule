@@ -11,7 +11,9 @@
 - SHA-256：`30b65f4fc711ceb0b4832d412156afa00c72e19dca66199d3bdbb95ef853a7b2`。
 - 源码回归：#88 Release Kotlin 与九类 62 项通过；#89 Release Kotlin 与四类 30 项通过。联合架构检查 603 个生产文件、0 违规。显示分支审查与停止性能采集的边界见[HD 与显示核对](2026-10-29-hd-and-display-routing.md)。
 
-**安装尚未完成。** 构建前原 PLJ110 / Android 17 在 SDK 5038 USB 在线；实际执行 `install -r` 时目标已离线，返回 device not found，没有安装成功。随后重新核对全部 ADB 监听 5037/5038/5039：5037 为 OPPO Connect 36.0.1 / SYSTEM 配对目录，5038 与 5039 为 SDK 37.0.1 / 当前用户目录；三条服务的 USB 与 mDNS 均无设备。未停止 OPPO 服务、未扫描历史无线端口或清除数据，已请求接回原手机。恢复后直接安装此保全 APK，无需重复构建；不能把旧 cb02b47d 的已安装状态写作本包已安装。未发布 Release 或合并两个新 PR。
+构建完成时的首次安装因原设备离线失败，当时核对 5037/5038/5039 的 USB 与 mDNS 均无设备；这次失败未修改手机数据。用户随后再次明确要求“安装”，重新检查现有全部服务及无线发现，SDK 5038 USB 已发现原目标，5037/5039 无设备，全部 mDNS 无无线端点。
+
+**本包已于 2026-10-29 17:07:01（Asia/Shanghai）覆盖安装成功。** 实际客户端与 5038 服务端均为 `D:\Android studio\AndroidSDK\platform-tools\adb.exe` / 37.0.1，服务使用当前用户配对目录；目标为原 OPPO PLJ110 / USB `3B15AE023YL00000` / Android 17 / SDK 37。显式 `-P 5038 -s 3B15AE023YL00000 install -r` 返回 Success；版本回读 `1.2.8_beta1` / 36，安装后的 base.apk SHA-256 完整匹配 `30b65f4fc711ceb0b4832d412156afa00c72e19dca66199d3bdbb95ef853a7b2`。直接使用保全新包，没有重复构建、清除数据或主动启动，没有停止 OPPO 服务。实际 HD 流畅度、文字滚动与金标 ROM 观感仍待用户确认；未发布 Release 或合并两个新 PR。
 
 用户在完成 #88/#89 两个独立 PR 后要求“打包安装”。本轮仅本地合成安装候选，原 PR 与 main 的代码边界保留。
 
