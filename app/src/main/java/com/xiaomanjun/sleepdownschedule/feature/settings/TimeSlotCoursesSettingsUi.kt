@@ -1,5 +1,10 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import com.xiaomanjun.sleepdownschedule.core.ui.text.unclippedMarquee
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import com.kyant.shapes.Capsule
+
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -197,11 +202,13 @@ private fun TimeSlotCourseNavigationCard(
 
 @Composable
 private fun TimeSlotCourseCardInfo(icon: ImageVector, label: String, foreground: androidx.compose.ui.graphics.Color) {
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(modifier = Modifier.fillMaxWidth().clip(Capsule())
+        .background(foreground.copy(alpha = 0.06f)).padding(horizontal = 10.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, contentDescription = null, tint = foreground.copy(alpha = 0.52f), modifier = Modifier.size(14.dp))
         Text(label, color = foreground.copy(alpha = 0.78f), style = MiuixTheme.textStyles.footnote1,
             maxLines = 1, softWrap = false,
-            modifier = Modifier.weight(1f).basicMarquee(iterations = Int.MAX_VALUE))
+            modifier = Modifier.weight(1f).unclippedMarquee())
     }
 }
 
@@ -354,6 +361,7 @@ private fun TimeSlotCourseEditor(
                             customStartTime = start.takeUnless { usesPeriods }, customEndTime = end.takeUnless { usesPeriods },
                             regularStartTime = start, regularEndTime = end,
                             periodIndices = selectedPeriods.ifEmpty { availablePeriods.subList(first, last + 1) },
+                            availablePeriodIndices = availablePeriods,
                             customPeriodTimes = lessonTimes.takeIf(String::isNotBlank),
                             customTimeMatchesPeriods = usesPeriods && availablePeriods.containsAll(selectedPeriods),
                             onConfirmPeriods = { from, to ->

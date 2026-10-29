@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
-import androidx.compose.foundation.basicMarquee
+import com.xiaomanjun.sleepdownschedule.core.ui.text.unclippedMarquee
+
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
@@ -658,7 +659,7 @@ fun WeekCourseColumnsLayer(
                         val heading = listOf(band.slot.name, band.slot.location).filter(String::isNotBlank).joinToString(" · ")
                         val time = "${band.slot.startTime}–${band.slot.endTime}"
                         val compact = !band.inGrid || band.collapsed || band.height.dp < 76.dp * density.fontScale
-                        val scrollingText = Modifier.fillMaxWidth().basicMarquee(iterations = Int.MAX_VALUE)
+                        val scrollingText = Modifier.fillMaxWidth().unclippedMarquee(centered = true, enabled = !outgoing)
                         Text(if (compact) listOf(heading, time, band.slot.note).filter(String::isNotBlank).joinToString(" · ") else heading,
                             color = glassForegroundColor(config), style = MaterialTheme.typography.labelMedium,
                             modifier = scrollingText, textAlign = TextAlign.Center,

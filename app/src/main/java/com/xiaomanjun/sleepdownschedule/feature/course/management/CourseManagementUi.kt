@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.management
 
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.manualCourseClockError
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseClockOrigin
+
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
 import com.xiaomanjun.sleepdownschedule.model.DefaultCourseCardPalette
@@ -643,6 +646,9 @@ internal fun CourseManagementDetailPage(
     }
     fun commit(values: List<CourseEntity>) {
         if (saving) return
+        val clockError = values.firstNotNullOfOrNull { edited -> manualCourseClockError(edited,
+            group.courses.firstOrNull { it.id == edited.id }?.originalArrangement(), state.periods) }
+        if (clockError != null) { validationMessage = clockError; return }
         if (onSaveAndThen != null) {
             saving = true
             onSaveAndThen(values) { success ->
@@ -1102,7 +1108,7 @@ private fun CourseArrangementEditorCard(
             value = if (effective.hasCustomTime()) courseTimeLabel(effective, periods)
             else "第${displayedPeriodIndices.minOrNull() ?: 1}-${displayedPeriodIndices.maxOrNull() ?: 1}节",
             onClick = {
-                val values = (periods.map(PeriodEntity::periodIndex) + course.periods).distinct().sorted().ifEmpty { listOf(1) }
+                val values = periods.map(PeriodEntity::periodIndex).distinct().sorted().ifEmpty { listOf(1) }
                 val displayedPeriods = if (matchingCustomClock) effective.periods else course.periods
                 val startIndex = values.indexOf(displayedPeriods.minOrNull()).coerceAtLeast(0)
                 val endIndex = values.indexOf(displayedPeriods.maxOrNull()).coerceAtLeast(startIndex)
@@ -1118,8 +1124,10 @@ private fun CourseArrangementEditorCard(
                         regularStartTime = periods.firstOrNull { it.periodIndex == values[startIndex] }?.startTime,
                         regularEndTime = periods.firstOrNull { it.periodIndex == values[endIndex] }?.endTime,
                         periodIndices = course.periods.distinct().sorted(),
+                        availablePeriodIndices = values,
                         customPeriodTimes = course.customPeriodTimes,
                         customTimeMatchesPeriods = matchingCustomClock,
+                        minimumStartTime = courseClockOrigin(periods),
                         onConfirmPeriods = { start, end ->
                             onCourseChange(
                                 course.copy(

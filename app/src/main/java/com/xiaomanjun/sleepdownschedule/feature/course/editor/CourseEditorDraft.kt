@@ -14,6 +14,23 @@ import com.xiaomanjun.sleepdownschedule.parityMatches
 import com.xiaomanjun.sleepdownschedule.scheduleWeekStartDate
 import com.xiaomanjun.sleepdownschedule.weekdayLabel
 import kotlinx.coroutines.flow.map
+import java.time.LocalTime
+
+internal fun courseClockOrigin(periods: List<PeriodEntity>): LocalTime? =
+    periods.minByOrNull { it.periodIndex }?.startTime?.let { LocalTime.parse(it) }
+
+internal fun customCourseStartError(start: String?, periodTimes: String?, origin: LocalTime?): String? {
+    if (origin == null) return null
+    val first = (parseCoursePeriodTimes(periodTimes).map { it.start } +
+        listOfNotNull(start?.let(LocalTime::parse))).minOrNull() ?: return null
+    return "开始时间不能早于作息起点 $origin".takeIf { first < origin }
+}
+
+internal fun manualCourseClockError(course: CourseEntity, original: CourseEntity?, periods: List<PeriodEntity>): String? {
+    if (original != null && course.customStartTime == original.customStartTime &&
+        course.customEndTime == original.customEndTime && course.customPeriodTimes == original.customPeriodTimes) return null
+    return customCourseStartError(course.customStartTime, course.customPeriodTimes, courseClockOrigin(periods))
+}
 
 @Immutable
 data class CourseEditorFormData(

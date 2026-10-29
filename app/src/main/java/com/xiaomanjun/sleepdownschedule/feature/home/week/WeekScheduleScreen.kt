@@ -568,7 +568,7 @@ internal fun SinglePillWeekScheduleScreen(
                                                 lineHeight = 15.sp,
                                                 fontWeight = FontWeight.ExtraBold,
                                                 textAlign = TextAlign.Center,
-                                                color = if (isSpecialCurrent) ComposeColor(0xFF3D2B00) else ComposeColor.White
+                                                color = ComposeColor.White
                                             )
                                         } else {
                                             HomeReadableText(

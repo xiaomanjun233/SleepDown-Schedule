@@ -239,11 +239,8 @@ internal fun DayScheduleScreen(
                 }
             }
             val targetWeek = targetWeekOrNull ?: effectiveCurrentWeek(state.config, targetDate)
-            val targetWeekday = (targetTeachingDate ?: targetDate).dayOfWeek.toChineseWeekday()
-            val dayCourses = remember(state.courses, state.periods, state.config.scheduleAdjustmentsJson, targetWeekOrNull, targetWeekday) {
-                if (targetWeekOrNull == null) emptyList() else weekCourseBuckets(state.courses, targetWeekOrNull)
-                    .byWeekday[targetWeekday]
-                    .orEmpty()
+            val dayCourses = remember(state.courses, state.periods, state.config, state.timetableCatalog, targetDate) {
+                dayDisplayCourses(state, targetDate)
                     .sortedWith(
                         compareBy<CourseEntity> { courseStartTime(it, state.periods) ?: LocalTime.MAX }
                             .thenBy { it.name }
@@ -596,7 +593,7 @@ private fun DayStatusGlassPill(
             Text(
                 text = text,
                 style = MaterialTheme.typography.titleSmall,
-                color = if (special) ComposeColor(0xFF3D2B00) else ComposeColor.White,
+                color = ComposeColor.White,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1
             )

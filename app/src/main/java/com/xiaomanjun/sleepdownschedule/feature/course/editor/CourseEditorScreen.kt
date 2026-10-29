@@ -153,7 +153,10 @@ fun NormalizedCourseEditorScreen(
             periodValues = periodValues,
             allowCustomColorOverride = courseCardAllowsCustomOverrides(config)
         )
+        val clockError = if (currentDraft.timingSelectionEdited || group.courses.isEmpty())
+            customCourseStartError(currentDraft.customStartTime, currentDraft.customPeriodTimes, courseClockOrigin(formData.periods)) else null
         when {
+            clockError != null -> error = clockError
             currentDraft.name.isBlank() -> error = "课程名称不能为空"
             currentDraft.weekdays.isEmpty() -> error = "请选择星期"
             currentDraft.weeks.isEmpty() -> error = "请选择周次"

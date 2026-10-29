@@ -5,10 +5,36 @@ import com.xiaomanjun.sleepdownschedule.model.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.model.WeekParity
 import java.time.LocalDate
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertEquals
+import com.xiaomanjun.sleepdownschedule.model.*
+import com.xiaomanjun.sleepdownschedule.domain.schedule.*
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DayCourseStatusTest {
+    @Test fun dayAndWeekCardsResolveTheActualOccurrenceDateInsteadOfReusingTodaysProjection() {
+        val date = LocalDate.of(2026, 10, 29)
+        val config = defaultConfig().copy(termStartDate = "2026-10-26", totalWeeks = 2,
+            activeTimetableComboId = 1)
+        val base = listOf(PeriodEntity(1, "09:00", "09:45"))
+        val catalog = TimetableCatalog(
+            schemes = listOf(PeriodSchemeEntity(11, 0, "平时"), PeriodSchemeEntity(12, 0, "当天")),
+            times = listOf(PeriodSchemeTimeEntity(11, 1, "09:00", "09:45"),
+                PeriodSchemeTimeEntity(12, 1, "08:20", "09:05")),
+            combos = listOf(TimetableComboEntity(id = 1, name = "日期安排", baseSchemeId = 11)),
+            rules = listOf(TimetableDateRuleEntity(comboId = 1, schemeId = 12,
+                startDate = date.toString(), endDate = date.toString(), position = 0)))
+        val source = course.copy(weekday = 4, periods = listOf(1), weeks = listOf(1, 2))
+        val state = AppState(config = config, periods = base, timetableCatalog = catalog,
+            courses = listOf(projectCourseArrangement(source, config, base, catalog, date)))
+        for ((day, expected) in listOf(date to "08:20", date.plusWeeks(1) to "09:00")) {
+            val card = dayDisplayCourses(state, day).single()
+            val week = weekCourseBuckets(state.courses, if (day == date) 1 else 2, config, day, catalog, base)
+                .byWeekday.getValue(4).single()
+            assertEquals(expected, courseStartTime(card, base).toString())
+            assertEquals(courseTimeSegments(week, base), courseTimeSegments(card, base))
+        }
+    }
     private val today = LocalDate.of(2026, 9, 21)
     private val course = CourseEntity(id = 1, name = "课程", teacher = null, location = null,
         weekday = 1, periods = listOf(1, 2), weeks = listOf(4), weekParity = WeekParity.ALL, note = null)
