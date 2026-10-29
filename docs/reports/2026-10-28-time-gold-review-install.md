@@ -1,5 +1,18 @@
 # 2026-10-28 时间与金标修复联合安装
 
+## 2026-10-29 HD 与手动时间下限联合候选
+
+本地 `codex/beta1-hd-review-install-20261029` / `b5ef16f4` 包含时间/HD #88 的 `2eb22f1e`（代码 `1bef9853` / `1bee8e59`）与金标 #89 的 `56f7dde8`。构建开始于合并提交 `f27dda5b`，随后 `b5ef16f4` 只清理交接文档残留标记，应用源码没有变化；两条 PR head 的祖先关系已核对。
+
+完整 `assembleGithubRelease` 5m57s 成功，159 项任务（22 执行、137 复用），保留 R8、资源压缩、lintVital、打包及正式签名。包名 `com.xiaomanjun.sleepdownschedule`、版本 `1.2.8_beta1` / 36，实验能力与金标开关为 true。V2 签名证书 SHA-256 `0f2b50dfb7e10c6f5981ab966f1f4ebd76af81a7ad9ba31663284eaa88c0181a`，与此前安装一致。APK dex 已包含新的“开始时间不能早于作息起点”校验，旧候选不含此字符串。
+
+- 保全 APK：`tmp/review-apks/SleepDown-1.2.8-beta1-hd-b5ef16f4-30b65f4f.apk`（相对主仓库目录）。
+- 文件大小：7,741,787 字节。
+- SHA-256：`30b65f4fc711ceb0b4832d412156afa00c72e19dca66199d3bdbb95ef853a7b2`。
+- 源码回归：#88 Release Kotlin 与九类 62 项通过；#89 Release Kotlin 与四类 30 项通过。联合架构检查 603 个生产文件、0 违规。显示分支审查与停止性能采集的边界见[HD 与显示核对](2026-10-29-hd-and-display-routing.md)。
+
+**安装尚未完成。** 构建前原 PLJ110 / Android 17 在 SDK 5038 USB 在线；实际执行 `install -r` 时目标已离线，返回 device not found，没有安装成功。随后重新核对全部 ADB 监听 5037/5038/5039：5037 为 OPPO Connect 36.0.1 / SYSTEM 配对目录，5038 与 5039 为 SDK 37.0.1 / 当前用户目录；三条服务的 USB 与 mDNS 均无设备。未停止 OPPO 服务、未扫描历史无线端口或清除数据，已请求接回原手机。恢复后直接安装此保全 APK，无需重复构建；不能把旧 cb02b47d 的已安装状态写作本包已安装。未发布 Release 或合并两个新 PR。
+
 用户在完成 #88/#89 两个独立 PR 后要求“打包安装”。本轮仅本地合成安装候选，原 PR 与 main 的代码边界保留。
 
 - 本地分支：`codex/beta1-review-install-20261028`，源码 `140d9a34922f7907c8f45fa6d366182e19cbe4ea`。
