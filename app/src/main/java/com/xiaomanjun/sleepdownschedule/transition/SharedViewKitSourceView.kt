@@ -23,6 +23,14 @@ internal class SharedViewKitSourceView private constructor(
     private val clipPath = Path()
     private val destination = RectF()
     private var host: ViewGroup? = null
+    var onNativeSourceRestored: (() -> Unit)? = null
+
+    override fun setAlpha(alpha: Float) {
+        val wasHidden = this.alpha == 0f
+        super.setAlpha(alpha)
+        // SharedViewKit restores its source at the native tail, before its end callback.
+        if (wasHidden && alpha > 0f) onNativeSourceRestored?.invoke()
+    }
 
     init {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -52,6 +60,7 @@ internal class SharedViewKitSourceView private constructor(
     }
 
     fun release() {
+        onNativeSourceRestored = null
         host?.overlay?.remove(this)
         host = null
     }

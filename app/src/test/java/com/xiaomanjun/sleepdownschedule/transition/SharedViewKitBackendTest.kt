@@ -187,7 +187,7 @@ class SharedViewKitBackendTest {
         assertNull(shadowOf(source).nextStartedActivity)
     }
 
-    @Test fun landingCoverIsDrawnBeforeBackEndAndRetiresAfterTheRestoredFrame() = runBlocking {
+    @Test fun landingCoverAppearsOnlyWhenNativeSourceRestoresAtTheReturnTail() = runBlocking {
         val request = openAndSettle()
         returning = anchor.copy(bitmap = Bitmap.createBitmap(100, 140, Bitmap.Config.ARGB_8888).apply {
             eraseColor(android.graphics.Color.CYAN)
@@ -200,6 +200,16 @@ class SharedViewKitBackendTest {
             root.draw(android.graphics.Canvas(capture))
             return capture.getPixel(60, 90).also { capture.recycle() }
         }
+        assertNotEquals(android.graphics.Color.CYAN, sourcePixel())
+        val nativeSource = api.inputView!!
+        nativeSource.alpha = 0f
+        nativeSource.alpha = 1f
+        assertNotEquals(android.graphics.Color.CYAN, sourcePixel())
+        api.callbacks!!.onStart(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idle()
+        nativeSource.alpha = 0f
+        assertNotEquals(android.graphics.Color.CYAN, sourcePixel())
+        nativeSource.alpha = 1f
         assertEquals(android.graphics.Color.CYAN, sourcePixel())
         assertEquals(0, releases.get())
         api.callbacks!!.onEnd(SharedViewKitContract.Back)
@@ -210,13 +220,34 @@ class SharedViewKitBackendTest {
         assertEquals(1, releases.get())
     }
 
-    @Test fun sourceDestructionAlsoRemovesThePrearmedLandingCover() = runBlocking {
+    @Test fun sourceDestructionDisarmsTheLateLandingSignal() = runBlocking {
         val request = openAndSettle()
         assertTrue(backend.requestClose(Robolectric.buildActivity(Activity::class.java).setup().get(), request.session))
         backend.onActivityDestroyed(source)
         shadowOf(Looper.getMainLooper()).idle()
+        assertNull(api.inputView!!.onNativeSourceRestored)
         assertNull(TransitionPayloadStore.session(request.session.id))
         assertEquals(1, releases.get())
+    }
+
+    @Test fun aMissingNativeRestoreSignalKeepsTheWholeReturnFreeOfLandingPixels() = runBlocking {
+        val request = openAndSettle()
+        returning = anchor.copy(bitmap = Bitmap.createBitmap(100, 140, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.CYAN)
+        })
+        assertTrue(backend.requestClose(Robolectric.buildActivity(Activity::class.java).setup().get(), request.session))
+        api.callbacks!!.onStart(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300))
+        val root = source.window.decorView
+        val capture = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+        root.draw(android.graphics.Canvas(capture))
+        assertNotEquals(android.graphics.Color.CYAN, capture.getPixel(60, 90))
+        capture.recycle()
+        api.callbacks!!.onEnd(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+        root.viewTreeObserver.dispatchOnPreDraw()
+        assertEquals(1, releases.get())
+        assertNull(TransitionPayloadStore.session(request.session.id))
     }
 
     @Test fun declaredReturnBitmapReplacesOpeningPixelsAndStaysAliveUntilBackCompletes() = runBlocking {

@@ -31,7 +31,10 @@ internal class SharedViewKitBackend(
         var watchdog: Runnable? = null
     ) {
         var kitReturnBitmap: Bitmap? = null
+        var pendingReturnAnchor: TransitionAnchorFrame? = null
         var releaseReturnCover: (() -> Unit)? = null
+        var returnStarted = false
+        var coverAttached = false
         /**
          * The vendor path may return the same Bitmap instance from its own copy step and recycle it
          * when the request is rejected. Only this app-owned software copy is ever handed over, so a
@@ -40,6 +43,8 @@ internal class SharedViewKitBackend(
         fun recycleKitBitmap() {
             releaseReturnCover?.invoke()
             releaseReturnCover = null
+            if (!coverAttached) pendingReturnAnchor?.bitmap?.let { if (!it.isRecycled) it.recycle() }
+            pendingReturnAnchor = null
             sourceView.release()
             if (!kitBitmap.isRecycled) kitBitmap.recycle()
             kitReturnBitmap?.let { if (!it.isRecycled) it.recycle() }
@@ -83,6 +88,9 @@ internal class SharedViewKitBackend(
             return rejected("invalidSessionState")
         }
         val resource = Resource(session, WeakReference(request.activity), capabilities, session.nextCallbackGeneration(), kitBitmap, sourceView)
+        sourceView.onNativeSourceRestored = {
+            dispatch { if (current(resource) && resource.closing && resource.returnStarted) showReturnCover(resource) }
+        }
         resources[session.id] = resource
         if (!TransitionPayloadStore.registerCleanup(session.id) { dispatch { release(session.id) } }) {
             release(session.id)
@@ -160,20 +168,19 @@ internal class SharedViewKitBackend(
         }
         resource.closing = true
         movingSession = session.id
-        // Prepare the landing pixels before the ROM drops its final leash frame. Waiting for BACK
-        // end leaves an empty source frame when the callback arrives after the compositor swap.
+        // Prepare pixels only. Do not draw a second button underneath the whole return animation.
         if (source != null && anchor?.isValid == true) {
             (resource.kitReturnBitmap ?: anchor.bitmap)?.softwareCopyForKit(anchor.cornerRadiusPx)?.let { bitmap ->
-                resource.releaseReturnCover = source.attachOpeningSourceSnapshotHandoff(anchor.copy(bitmap = bitmap))
+                resource.pendingReturnAnchor = anchor.copy(bitmap = bitmap)
             }
         }
-        // Keep business state hidden until completion; only the landing snapshot is pre-armed.
         watch(resource)
         return true
     }
 
     private fun onStart(resource: Resource, mode: Int) {
         if (!current(resource)) return
+        if (mode == SharedViewKitContract.Back && resource.closing) resource.returnStarted = true
         if (mode == SharedViewKitContract.Open && !resource.closing &&
             resource.session.moveFrom(TransitionSessionState.NativeRegistered, TransitionSessionState.NativeRunning)) {
             TransitionPayloadStore.handoffOpeningSource(resource.session.id)
@@ -205,7 +212,8 @@ internal class SharedViewKitBackend(
 
     private fun complete(resource: Resource) {
         if (!current(resource)) return
-        // The landing cover already exists. Transfer its ownership until the restored source frame.
+        // ROMs without a source-alpha signal get an end-only handoff, never an early cover.
+        showReturnCover(resource)
         val source = resource.source.get()?.takeUnless { it.isDestroyed || it.isFinishing }
         val releaseReturnCover = resource.releaseReturnCover
         resource.releaseReturnCover = null
@@ -215,6 +223,16 @@ internal class SharedViewKitBackend(
         if (movingSession == resource.session.id) movingSession = null
         resource.session.moveTo(TransitionSessionState.Finished)
         TransitionPayloadStore.remove(resource.session.id)
+    }
+
+    private fun showReturnCover(resource: Resource) {
+        if (resource.coverAttached) return
+        val source = resource.source.get()?.takeUnless { it.isDestroyed || it.isFinishing } ?: return
+        val anchor = resource.pendingReturnAnchor ?: return
+        source.attachOpeningSourceSnapshotHandoff(anchor)?.let {
+            resource.coverAttached = true
+            resource.releaseReturnCover = it
+        }
     }
 
     override fun onActivityDestroyed(activity: Activity) {
