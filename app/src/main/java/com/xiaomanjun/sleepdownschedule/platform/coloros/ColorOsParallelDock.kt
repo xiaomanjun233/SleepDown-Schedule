@@ -50,7 +50,6 @@ import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.dockImeCompensationPx
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.excludeParentPullGesture
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import java.lang.reflect.Method
@@ -185,7 +184,7 @@ internal fun ColorOsParallelHomeDock(
     val open = rememberUpdatedState(onOpenMenu)
     val canOpen = rememberUpdatedState(selectedIndex < 2 && !buttonHidden)
     val returnLayer = rememberGraphicsLayer()
-    val accent = dockAccent(source, context, LocalHomeDockAccent.current)
+    val accent = source.color(context, "couiColorPrimary").defaultColor
     val fabColor = dockAccent(source, context, LocalHomeButtonAccent.current)
     val returnRecorded = remember(native, effectiveDark, fabColor, style, density.density) { AtomicBoolean(false) }
     val readyReturnSnapshot = rememberUpdatedState(returnRecorded)
@@ -216,8 +215,7 @@ internal fun ColorOsParallelHomeDock(
         ColorOsNativeUi.prepare("create the native 3+1 dock") {
             val tabs = listOf(R.drawable.ic_day_view to "今日", R.drawable.ic_week_view to "课程表",
                 R.drawable.ic_settings to "设置")
-            val dock = createNativeHomeDock(source, context, host, tabs, selectedIndex, accent,
-                neutral = style?.weatherMaterial == true, foreground = style?.foreground) { select.value(it) }
+            val dock = createNativeHomeDock(source, context, host, tabs, selectedIndex, accent) { select.value(it) }
             lateinit var fab: NativeFab
             fab = createNativeFab(source, context, host, fabColor, style?.weatherMaterial == true, style?.foreground) {
                 // A moving/partially merged source cannot also become the menu's fixed anchor.
@@ -290,7 +288,7 @@ internal fun ColorOsParallelHomeDock(
                             group.dock.refreshAppearance()
                             group.fab.refreshAppearance()
                         }
-                        group.dock.updateAccent(accent, neutral = style?.weatherMaterial == true, foreground = style?.foreground)
+                        group.dock.updateAccent(accent)
                         group.fab.updateAccent(fabColor, neutral = style?.weatherMaterial == true, foreground = style?.foreground)
                         group.dock.select(selectedIndex.coerceIn(0, 2))
                         group.expand(selectedIndex < 2, animate = true)

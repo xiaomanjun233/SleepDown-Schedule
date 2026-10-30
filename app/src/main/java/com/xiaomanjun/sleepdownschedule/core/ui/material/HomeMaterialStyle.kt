@@ -20,6 +20,5 @@ internal fun homeMaterialNeutralTint(dark: Boolean) =
     androidx.compose.ui.graphics.Color(if (dark) 0xFF050505 else 0xFFFFFFFF)
         .copy(alpha = if (dark) 0.40f else 0.28f)
 
-internal val LocalHomeDockAccent = compositionLocalOf<Int?> { null }
 internal val LocalHomeButtonAccent = compositionLocalOf<Int?> { null }
 internal val LocalHomeOverflowMenu = compositionLocalOf<State<List<AddMenuAction>>?> { null }

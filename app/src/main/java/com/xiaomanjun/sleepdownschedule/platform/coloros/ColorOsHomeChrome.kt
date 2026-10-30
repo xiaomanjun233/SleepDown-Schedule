@@ -8,8 +8,15 @@ internal fun ColorOsNativeUi.Source.weatherButtonBlurParams(
     context: Context, radiusScale: Float = 1f, tintAlphaScale: Float = 1f
 ): Any = scaledBlurParams(context, "TYPE_CONTENT_TRANSPARENT_BUTTON", radiusScale, tintAlphaScale)
 
-internal fun ColorOsNativeUi.Source.dockBlurParams(context: Context, neutral: Boolean): Any =
-    scaledBlurParams(context, if (neutral) "TYPE_CONTENT_TRANSPARENT_BUTTON" else "TYPE_FRAMEWORK_BOTTOM_BAR", 1f)
+/**
+ * The Dock keeps COUI's own bottom-bar recipe. Over a pale wallpaper its color layers read as
+ * blown-out white, so dim those layers slightly instead of swapping in another preset.
+ */
+internal fun ColorOsNativeUi.Source.dockBlurParams(
+    context: Context, neutral: Boolean = false, layerBrightness: Float = 1f
+): Any = scaledBlurParams(
+    context, if (neutral) "TYPE_CONTENT_TRANSPARENT_BUTTON" else "TYPE_FRAMEWORK_BOTTOM_BAR",
+    1f, layerBrightness = layerBrightness)
 
 /** Embed the alert's resource recipe in this window, without a second window-behind sampler. */
 internal fun ColorOsNativeUi.Source.dialogBlurParams(context: Context): Any {
@@ -47,18 +54,23 @@ internal fun ColorOsNativeUi.Source.capsuleBlurRadius(context: Context): Float =
         .getMethod("getBlurRadius", Context::class.java).invoke(capsuleBlurParams(context), context) as Float
 
 private fun ColorOsNativeUi.Source.scaledBlurParams(
-    context: Context, typeName: String, radiusScale: Float, tintAlphaScale: Float = 1f
+    context: Context, typeName: String, radiusScale: Float, tintAlphaScale: Float = 1f,
+    layerBrightness: Float = 1f
 ): Any {
     val effect = load("com.coui.appcompat.COUIMaterialEffect")
     val type = load("com.coui.appcompat.COUIMaterialBlurEffect\$BlurEffectType")
     val base = load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams")
     val preset = effect.getMethod("getBlurParamsByType", Context::class.java, type)
         .invoke(null, context, type.getField(typeName).get(null))
-    if (radiusScale == 1f && tintAlphaScale == 1f) return preset
+    if (radiusScale == 1f && tintAlphaScale == 1f && layerBrightness == 1f) return preset
     fun color(name: String): String {
         val original = base.getMethod(name, Context::class.java).invoke(preset, context) as Int
         val alpha = (android.graphics.Color.alpha(original) * tintAlphaScale).toInt().coerceIn(0, 255)
-        return "#" + Integer.toHexString((original and 0x00FFFFFF) or (alpha shl 24)).padStart(8, '0')
+        fun dim(channel: Int) = (channel * layerBrightness).toInt().coerceIn(0, 255)
+        val rgb = (original and 0x00FFFFFF).let {
+            (dim(it shr 16 and 0xFF) shl 16) or (dim(it shr 8 and 0xFF) shl 8) or dim(it and 0xFF)
+        }
+        return "#" + Integer.toHexString(rgb or (alpha shl 24)).padStart(8, '0')
     }
     val radius = base.getMethod("getBlurRadius", Context::class.java).invoke(preset, context) as Float
     return load("com.coui.appcompat.COUIMaterialBlurEffect\$BlurEffectParams")
