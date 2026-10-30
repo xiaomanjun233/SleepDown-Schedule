@@ -137,12 +137,12 @@ internal fun ColorOsHomeFloatingButtonVisual(dark: Boolean, modifier: Modifier):
     val accent = dockAccent(native.first, native.second, LocalHomeButtonAccent.current)
     val fab = remember(native, host) {
         ColorOsNativeUi.prepare("create the native FAB return endpoint") {
-            createNativeFab(native.first, native.second, host, accent, style?.weatherMaterial == true, style?.foreground, null)
+            createNativeFab(native.first, native.second, host, accent, false, null, null)
         }
     } ?: return false
     key(native) { AndroidView(factory = { fab.root }, modifier = modifier, update = {
         if (native.first.updateTheme(native.second, effectiveDark)) fab.refreshAppearance()
-        fab.updateAccent(accent, neutral = style?.weatherMaterial == true, foreground = style?.foreground)
+        fab.updateAccent(accent, neutral = false, foreground = null)
     }) }
     DisposableEffect(fab) { onDispose { fab.dispose() } }
     return true
@@ -218,7 +218,7 @@ internal fun ColorOsParallelHomeDock(
                 R.drawable.ic_settings to "设置")
             val dock = createNativeHomeDock(source, context, host, tabs, selectedIndex, accent) { select.value(it) }
             lateinit var fab: NativeFab
-            fab = createNativeFab(source, context, host, fabColor, style?.weatherMaterial == true, style?.foreground) {
+            fab = createNativeFab(source, context, host, fabColor, false, null) {
                 // A moving/partially merged source cannot also become the menu's fixed anchor.
                 if (canOpen.value &&
                     !dock.expansionMoving() && !dock.view.isLayoutRequested) {

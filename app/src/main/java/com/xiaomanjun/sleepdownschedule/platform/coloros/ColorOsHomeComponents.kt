@@ -318,7 +318,7 @@ internal fun ColorOsHomeIconButton(
                 .getField("TYPE_DEFAULT_BLUR").getInt(null)
             type.getMethod("setMaterialEffectType", Int::class.javaPrimitiveType).invoke(effect, materialType)
             NativeIconButton(view, sizedIcon, requireNotNull(effect), type.getMethod("detach"), source).also { button ->
-                button.updateHomeStyle(style?.weatherMaterial == true, style?.foreground, backdropBlurred)
+                button.updateHomeStyle(style?.weatherMaterial == true, null, backdropBlurred)
                 source.bindFollowLightIntensity(view, effect)
                 view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                     override fun onViewAttachedToWindow(view: View) { view.post { button.refreshAppearance() } }
@@ -335,12 +335,12 @@ internal fun ColorOsHomeIconButton(
             // Popup parses its surface/text colors once in its constructor. A separate context
             // follows the same neutral theme and material as the home button.
             NativeOverflowMenu(source, source.themedContext(host, effectiveDark), host,
-                neutral = style?.weatherMaterial == true, foreground = style?.foreground)
+                neutral = style?.weatherMaterial == true, foreground = null)
         }
     }
     key(context, iconRes) {
         AndroidView(factory = { button.view }, modifier = modifier, update = { view ->
-            button.updateHomeStyle(style?.weatherMaterial == true, style?.foreground, backdropBlurred)
+            button.updateHomeStyle(style?.weatherMaterial == true, null, backdropBlurred)
             if (source.updateTheme(context, effectiveDark)) button.refreshAppearance()
             view.contentDescription = contentDescription
             view.isSelected = selected
