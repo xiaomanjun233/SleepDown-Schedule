@@ -27,8 +27,11 @@ internal object AutoRefreshWebSession {
                 .associate { it.substringBefore('=').trim() to it.substringAfter('=', "").trim() }
             for (entry in cookie.value.split(';').map(String::trim).filter { it.contains('=') }) {
                 if (current[entry.substringBefore('=').trim()] == entry.substringAfter('=', "").trim()) continue
+                // CookieManager cannot report attributes; keep Secure for https sessions so the
+                // server still receives the restored cookie. Path stays "/" as a safe superset.
+                val secure = if (cookie.url.startsWith("https", true) && !entry.contains("secure", true)) "; Secure" else ""
                 suspendCancellableCoroutine<Unit> { continuation ->
-                    manager.setCookie(cookie.url, "$entry; Path=/") {
+                    manager.setCookie(cookie.url, "$entry; Path=/$secure") {
                         if (continuation.isActive) continuation.resume(Unit)
                     }
                 }
@@ -55,7 +58,10 @@ internal object AutoRefreshWebSession {
     fun captureCookies(urls: Collection<String>): List<AutoRefreshCookie> {
         val manager = CookieManager.getInstance()
         manager.flush()
-        return urls.filter { origin(it) != null }.distinct().mapNotNull { url ->
+        // CookieManager only answers for a concrete path, so probe each URL and its origin root.
+        val probes = urls.flatMap { listOf(it, origin(it)?.plus("/")) }
+            .filterNotNull().filter { origin(it) != null }.distinct()
+        return probes.mapNotNull { url ->
             manager.getCookie(url)?.takeIf(String::isNotBlank)?.let { AutoRefreshCookie(url, it) }
         }
     }
