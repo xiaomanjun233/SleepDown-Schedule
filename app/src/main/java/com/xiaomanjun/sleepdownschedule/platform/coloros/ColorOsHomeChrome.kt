@@ -5,13 +5,6 @@ import android.graphics.BlendMode
 import androidx.compose.foundation.layout.*
 
 internal const val LightFollowLightScale = 0.65f
-private const val LightNativeLayerBrightness = 0.9f
-
-/** A light backdrop makes COUI's own layer colors read as blown-out white; dark stays exact. */
-internal fun nativeLayerBrightness(context: Context): Float =
-    if (context.resources.configuration.uiMode and
-        android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
-        android.content.res.Configuration.UI_MODE_NIGHT_YES) 1f else LightNativeLayerBrightness
 
 internal fun ColorOsNativeUi.Source.weatherButtonBlurParams(
     context: Context, radiusScale: Float = 1f, tintAlphaScale: Float = 1f
@@ -50,12 +43,7 @@ internal fun ColorOsNativeUi.Source.toolbarButtonBlurParams(
 ): Any? = when {
     backdropBlurred -> scaledBlurParams(context,
         if (neutral) "TYPE_CONTENT_TRANSPARENT_BUTTON" else "TYPE_FRAMEWORK_TOP_BAR_BLUR", 0.35f)
-    // A stock toolbar button over a pale wallpaper blows its layers out; keep COUI's default
-    // button recipe and dim it slightly instead of switching to the weather preset.
-    neutral -> nativeLayerBrightness(context).let { brightness ->
-        if (brightness == 1f) null
-        else scaledBlurParams(context, "TYPE_DEFAULT_BLUR", 1f, layerBrightness = brightness)
-    }
+    neutral -> weatherButtonBlurParams(context)
     else -> null
 }
 

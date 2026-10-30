@@ -39,6 +39,9 @@ internal fun ColorOsNativeUi.Source.createMenuItem(context: Context, host: Conte
         }
 }
 
+/** COUI samples 160f behind its popup; the home menu keeps its layers with a shorter reach. */
+private const val HomeMenuBlurRadius = 120f
+
 /** RoundFrameLayout's standard menu colors/radius, with the same optional home-neutral tint. */
 internal fun ColorOsNativeUi.Source.menuBlurParams(context: Context, neutral: Boolean): Any {
     val base = load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams")
@@ -46,23 +49,17 @@ internal fun ColorOsNativeUi.Source.menuBlurParams(context: Context, neutral: Bo
     val dark = context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
         android.content.res.Configuration.UI_MODE_NIGHT_YES
     val theme = if (dark) "dark" else "light"
-    // Home menus keep COUI's popup layer colors now; the neutral re-tint read as a different
-    // material next to the rest of the chrome. Light chrome only dims those layers slightly.
-    val brightness = nativeLayerBrightness(context)
-    fun layer(resourceName: String): String {
-        val color = context.getColor(resource(resourceName, "color"))
-        fun dim(channel: Int) = (channel * brightness).toInt().coerceIn(0, 255)
-        val rgb = (color and 0x00FFFFFF).let {
-            (dim(it shr 16 and 0xFF) shl 16) or (dim(it shr 8 and 0xFF) shl 8) or dim(it and 0xFF)
-        }
-        return "#" + Integer.toHexString(rgb or (color and 0xFF000000.toInt())).padStart(8, '0')
+    fun layer(method: String, resourceName: String): String {
+        val color = if (neutral) base.getMethod(method, Context::class.java).invoke(preset, context) as Int
+            else context.getColor(resource(resourceName, "color"))
+        return "#" + Integer.toHexString(color).padStart(8, '0')
     }
     return load("com.coui.appcompat.COUIMaterialBlurEffect\$BlurEffectParams")
         .getConstructor(Float::class.javaPrimitiveType, String::class.java, android.graphics.BlendMode::class.java,
             String::class.java, android.graphics.BlendMode::class.java)
-        .newInstance(160f, layer("coui_popup_list_blend_blur_$theme"),
+        .newInstance(HomeMenuBlurRadius, layer("getColorLayer1", "coui_popup_list_blend_blur_$theme"),
             base.getMethod("getBlendModeLayer1").invoke(preset),
-            layer("coui_popup_list_mix_blur_$theme"),
+            layer("getColorLayer2", "coui_popup_list_mix_blur_$theme"),
             base.getMethod("getBlendModeLayer2").invoke(preset))
 }
 
