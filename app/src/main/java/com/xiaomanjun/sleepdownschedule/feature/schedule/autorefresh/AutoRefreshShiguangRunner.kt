@@ -198,10 +198,8 @@ internal object AutoRefreshShiguangRunner {
             target = webView
             val cookieManager = CookieManager.getInstance().apply { setAcceptCookie(true) }
             profile.cookies.forEach { cookie ->
-                val currentNames = cookieManager.getCookie(cookie.url).orEmpty().split(';')
-                    .map { it.substringBefore('=').trim() }.toSet()
                 cookie.value.split(';').map(String::trim).filter { it.contains('=') }.forEach { value ->
-                    if (value.substringBefore('=') !in currentNames) cookieManager.setCookie(cookie.url, "$value; Path=/")
+                    cookieManager.setCookie(cookie.url, "$value; Path=/")
                 }
             }
             cookieManager.flush()
