@@ -12,22 +12,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WeekTimeSlotGridTest {
-    @Test fun smartCollapseChecksTheWholeWeekAndOnlyTheSelectedWeeks() {
+    @Test fun smartModeOccupiesGridRowsWithoutCollapsingThem() {
         val slot = TimeSlotCourse("study", "晚自习", "08:00", "09:40",
             weekdays = listOf(1, 2, 3), displayMode = com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotDisplayMode.SMART,
             startWeek = 2, endWeek = 4)
         fun grid(week: Int, busy: Boolean) = weekTimeSlotGrid(listOf(slot), 3, 100f,
             periods = periods, week = week, clockIntervals = if (busy) listOf(java.time.LocalTime.parse("08:00") to java.time.LocalTime.parse("08:45")) else emptyList())
         assertTrue(grid(1, false).bands.isEmpty())
-        assertEquals(300f, grid(2, true).totalHeight, 0f)
-        assertFalse(grid(2, true).bands.single().collapsed)
-        assertEquals(132f, grid(2, false).totalHeight, 0f)
-        assertTrue(grid(2, false).bands.single().collapsed)
-        assertEquals(setOf(0, 1), grid(2, false).collapsedRows)
         assertTrue(grid(5, false).bands.isEmpty())
+        assertEquals(300f, grid(2, true).totalHeight, 0f)
+        assertEquals(300f, grid(2, false).totalHeight, 0f)
+        val band = grid(2, false).bands.single()
+        assertTrue(band.inGrid)
+        assertFalse(band.collapsed)
+        assertEquals(200f, band.height, 0f)
+        assertTrue(grid(2, false).collapsedRows.isEmpty())
     }
 
-    @Test fun gridModeUsesTheExistingRowsAndAnAdjacentWeekdayRun() {
+    @Test fun retiredGridModeUsesTheSameRowsAsSmartMode() {
         val slot = TimeSlotCourse("study", "晚自习", "08:00", "09:40", weekdays = listOf(1, 2, 3),
             displayMode = com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotDisplayMode.GRID)
         val grid = weekTimeSlotGrid(listOf(slot), 3, 100f, periods = periods)
