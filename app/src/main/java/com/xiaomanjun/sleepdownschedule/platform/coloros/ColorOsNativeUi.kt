@@ -161,8 +161,15 @@ internal object ColorOsNativeUi {
             visitFollowLights(root, null) { it.javaClass.getMethod("cancel").invoke(it) }
         }
 
+        /** A light backdrop makes the stock follow light read as glare; keep it just under. */
+        private fun followLight(root: View, multiplier: Float): Float =
+            if (root.context.resources.configuration.uiMode and
+                android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+                android.content.res.Configuration.UI_MODE_NIGHT_YES) multiplier
+            else multiplier * LightFollowLightScale
+
         fun refreshFollowLightIntensity(root: View, multiplier: Float = 2f) {
-            visitFollowLights(root, null) { setFollowLightIntensity(it, multiplier) }
+            visitFollowLights(root, null) { setFollowLightIntensity(it, followLight(root, multiplier)) }
         }
 
         /** One pass after attach/layout or material changes, never an animation-frame poll. */
@@ -184,7 +191,7 @@ internal object ColorOsNativeUi {
                 pending = ViewTreeObserver.OnPreDrawListener {
                     cancelPending()
                     prepare("adjust native follow light intensity") {
-                        visitFollowLights(root, delegate) { setFollowLightIntensity(it, multiplier) }
+                        visitFollowLights(root, delegate) { setFollowLightIntensity(it, followLight(root, multiplier)) }
                         afterMaterialApplied?.invoke()
                     }
                     true

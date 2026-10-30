@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenu
 import java.lang.reflect.Method
@@ -219,7 +220,7 @@ internal fun ColorOsHomeDock(
     val callback = rememberUpdatedState(onSelect)
     val source = native.first
     val context = native.second
-    val accent = source.color(context, "couiColorPrimary").defaultColor
+    val accent = dockAccent(source, context, LocalHomeDockAccent.current)
     val height = with(LocalDensity.current) {
         context.resources.getDimensionPixelSize(source.resource("coui_bottom_floating_navigation_bar_height", "dimen")).toDp()
     }

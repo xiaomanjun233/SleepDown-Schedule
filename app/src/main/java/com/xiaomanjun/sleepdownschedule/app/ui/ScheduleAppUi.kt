@@ -175,7 +175,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.interaction.popExitTransition
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.setStatusBarDarkIcons
 import com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenu
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
@@ -1077,6 +1077,11 @@ fun CourseScheduleAppUi(
     val homeChromeDark = if (homeChromeHasWallpaper) !adaptiveGlassState.lightGlass else appDarkTheme
     val colorOsHomeAccents = com.xiaomanjun.sleepdownschedule.platform.coloros
         .rememberColorOsHomeAccents(visualState.config, wallpaperDark = appDarkTheme, dockDark = homeChromeDark)
+    val colorOsActiveDockAccent = if (screen is Screen.Home) colorOsHomeAccents?.dock
+        else colorOsHomeAccents?.button?.let {
+            com.xiaomanjun.sleepdownschedule.platform.coloros.colorOsContrastingAccent(
+                it, MaterialTheme.colorScheme.background.toArgb())
+        }
     val homeNeutralChromeStyle = remember(nativeVisuals, homeChromeDark, homeChromeHasWallpaper, homeChromeForeground) {
         if (!nativeVisuals) null else com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialStyle(
             homeChromeDark, homeChromeHasWallpaper && !homeChromeDark, homeChromeForeground)
@@ -2121,6 +2126,7 @@ fun CourseScheduleAppUi(
         LocalStartupPhase provides startupPhase,
         LocalGlassQuality provides glassQuality,
         LocalAdaptiveGlass provides adaptiveGlassState,
+        com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent provides colorOsActiveDockAccent,
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent provides colorOsHomeAccents?.button,
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle provides
             homeNeutralChromeStyle.takeIf { screen is Screen.Home },

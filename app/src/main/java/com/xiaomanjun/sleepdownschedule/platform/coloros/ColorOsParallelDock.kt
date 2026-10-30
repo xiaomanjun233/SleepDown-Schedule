@@ -50,6 +50,7 @@ import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.dockImeCompensationPx
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.excludeParentPullGesture
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import java.lang.reflect.Method
@@ -184,7 +185,7 @@ internal fun ColorOsParallelHomeDock(
     val open = rememberUpdatedState(onOpenMenu)
     val canOpen = rememberUpdatedState(selectedIndex < 2 && !buttonHidden)
     val returnLayer = rememberGraphicsLayer()
-    val accent = source.color(context, "couiColorPrimary").defaultColor
+    val accent = dockAccent(source, context, LocalHomeDockAccent.current)
     val fabColor = dockAccent(source, context, LocalHomeButtonAccent.current)
     val returnRecorded = remember(native, effectiveDark, fabColor, style, density.density) { AtomicBoolean(false) }
     val readyReturnSnapshot = rememberUpdatedState(returnRecorded)
