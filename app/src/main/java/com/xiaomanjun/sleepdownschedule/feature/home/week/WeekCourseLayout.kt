@@ -658,19 +658,28 @@ fun WeekCourseColumnsLayer(
                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         val heading = listOf(band.slot.name, band.slot.location).filter(String::isNotBlank).joinToString(" · ")
                         val time = "${band.slot.startTime}–${band.slot.endTime}"
-                        val compact = !band.inGrid || band.collapsed || band.height.dp < 76.dp * density.fontScale
-                        val scrollingText = Modifier.fillMaxWidth().unclippedMarquee(centered = true, enabled = !outgoing)
-                        Text(if (compact) listOf(heading, time, band.slot.note).filter(String::isNotBlank).joinToString(" · ") else heading,
-                            color = glassForegroundColor(config), style = MaterialTheme.typography.labelMedium,
-                            modifier = scrollingText, textAlign = TextAlign.Center,
-                            maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
-                        if (!compact) {
-                            Text(time, color = glassForegroundColor(config), style = MaterialTheme.typography.labelSmall,
-                                modifier = scrollingText, textAlign = TextAlign.Center, maxLines = 1, softWrap = false)
-                            if (band.slot.note.isNotBlank()) Text(band.slot.note,
-                                color = glassForegroundColor(config), style = MaterialTheme.typography.bodySmall,
-                                modifier = scrollingText, textAlign = TextAlign.Center,
+                        // 独立显示 grows to fit heading and time, so only a one-line band merges them.
+                        val compact = band.height.dp < 44.dp * density.fontScale
+                        val foreground = glassForegroundColor(config)
+                        if (compact) {
+                            Text(listOf(heading, time, band.slot.note).filter(String::isNotBlank).joinToString(" · "),
+                                color = foreground, style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.fillMaxWidth().unclippedMarquee(centered = true, enabled = !outgoing),
+                                textAlign = TextAlign.Center,
                                 maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+                        } else {
+                            // Only the longest (title) line scrolls; the clock and note stay still.
+                            Text(heading, color = foreground, style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.fillMaxWidth().unclippedMarquee(centered = true, enabled = !outgoing),
+                                textAlign = TextAlign.Center,
+                                maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+                            Text(time, color = foreground, style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                                maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                            if (band.slot.note.isNotBlank()) Text(band.slot.note,
+                                color = foreground, style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                                maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }

@@ -73,15 +73,15 @@ class WeekTimeSlotGridTest {
 
     @Test fun bandsHaveTheirOwnSpaceIncludingBeforeFirstAndAfterLastLesson() {
         val grid = grid()
-        assertEquals(listOf(32f, 164f, 264f), grid.rowTops)
-        assertEquals(listOf(0f, 132f, 364f), grid.bands.map { it.top })
-        assertEquals(396f, grid.totalHeight, 0f)
-        assertEquals(132f, grid.bottom(1f), 0f)
-        assertEquals(164f, grid.top(1f), 0f)
+        assertEquals(listOf(46f, 192f, 292f), grid.rowTops)
+        assertEquals(listOf(0f, 146f, 392f), grid.bands.map { it.top })
+        assertEquals(438f, grid.totalHeight, 0f)
+        assertEquals(146f, grid.bottom(1f), 0f)
+        assertEquals(192f, grid.top(1f), 0f)
         assertEquals(100f, grid.bottom(2f) - grid.top(1f), 0f)
         // Exact-clock courses can extend beyond the last numbered row; retain that geometry.
-        assertEquals(389f, grid.top(3.25f), 0f)
-        assertEquals(464f, grid.bottom(4f), 0f)
+        assertEquals(417f, grid.top(3.25f), 0f)
+        assertEquals(492f, grid.bottom(4f), 0f)
     }
 
     @Test fun stackedBandsNeverCompressLessonCardsOrOverlapTheLastLesson() {
@@ -112,10 +112,10 @@ class WeekTimeSlotGridTest {
             null, 0, false, axis.rowTops)
         assertFalse(grid.isLessonY(150f))
         assertTrue(grid.isLessonY(200f))
-        assertEquals(12f, grid.rowTop(-0.2f), 0.001f)
+        assertEquals(26f, grid.rowTop(-0.2f), 0.001f)
         val bounds = courseCopyBounds(course.copy(periods = listOf(2)), grid, (1..7).toList(), periods).single()
-        assertEquals(166f, bounds.top, 0f)
-        assertEquals(262f, bounds.bottom, 0f)
+        assertEquals(194f, bounds.top, 0f)
+        assertEquals(290f, bounds.bottom, 0f)
     }
 
     @Test fun moveResizeAndSundayTargetsUseActualRowAndColumnPositions() {
@@ -128,7 +128,7 @@ class WeekTimeSlotGridTest {
         assertEquals(1, request.weekdayAfterMove(100f))
         assertEquals(1, request.columnDeltaTo(1))
         assertEquals(7, request.weekdayAfterMove(-100f))
-        assertEquals(232f, request.heightForSpan(2), 0f)
+        assertEquals(246f, request.heightForSpan(2), 0f)
         assertEquals(2, request.spanForHeight(228f))
     }
 }

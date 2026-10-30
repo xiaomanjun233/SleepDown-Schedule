@@ -75,8 +75,9 @@ internal fun weekTimeSlotGrid(
     var cursor = 0f
     for (index in 0..periodCount) {
         independent[index].orEmpty().forEach { slot ->
-            bands += WeekTimeSlotBand(slot, cursor, bandHeight)
-            cursor += bandHeight
+            // 独立显示 owns its own row, so it may grow to fit heading, time and an optional note.
+            bands += WeekTimeSlotBand(slot, cursor, independentBandHeight(slot, bandHeight))
+            cursor += independentBandHeight(slot, bandHeight)
         }
         if (index < periodCount) {
             tops += cursor
@@ -96,6 +97,16 @@ internal fun weekTimeSlotGrid(
 }
 
 internal val LocalWeekTimeSlotGrid = staticCompositionLocalOf<WeekTimeSlotGrid?> { null }
+
+/** One text line in a 32dp default band, so extra lines only add what they actually need. */
+private const val BandTextLineDp = 14f
+
+/** 独立显示 may show heading, time and an optional note; grow instead of clipping the title. */
+internal fun independentBandHeight(slot: TimeSlotCourse, bandHeight: Float): Float {
+    val lines = 2 + if (slot.note.isNotBlank()) 1 else 0
+    val lineHeight = bandHeight / 32f * BandTextLineDp
+    return bandHeight + (lines - 1) * lineHeight
+}
 internal fun weekTimeSlotTailKey(id: String): String = "special-slot:$id"
 
 internal fun timeSlotColumnRuns(weekdays: List<Int>, included: Set<Int>): List<IntRange> = buildList {
