@@ -593,7 +593,7 @@ private fun EduImportGuideMorphOverlay(
                     indication = null, enabled = visible && !expanded, onClick = onExpand
                 )
         ) {
-            TopAssistantSurface(backdrop, config, cardShape, solidShade = geometryProgress > 0.96f, modifier = Modifier.fillMaxSize(),
+            TopAssistantSurface(backdrop, config, cardShape, solidShade = geometryProgress < 0.04f, modifier = Modifier.fillMaxSize(),
                 glow = expanded, nativeMaterial = true) {
             Box(Modifier.fillMaxSize().clip(cardShape)) {
                 Row(

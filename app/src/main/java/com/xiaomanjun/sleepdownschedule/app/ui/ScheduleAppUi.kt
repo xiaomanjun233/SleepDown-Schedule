@@ -2132,7 +2132,7 @@ fun CourseScheduleAppUi(
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent provides colorOsActiveDockAccent,
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent provides colorOsHomeAccents?.button,
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle provides
-            homeNeutralChromeStyle.takeIf { screen is Screen.Home },
+            homeNeutralChromeStyle,
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenu provides
             colorOsOverflowActions.takeIf { parallelPhoneNavigation },
         LocalHomeReadability provides homeReadabilityContext,
