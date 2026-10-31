@@ -496,7 +496,7 @@ private fun EduImportGuideMorphOverlay(
         modifier = Modifier
             .fillMaxSize()
             .graphicsLayer { clip = false }
-            .zIndex(1000f)
+            .zIndex(10_000f)
     ) {
         val rootInsets = ViewCompat.getRootWindowInsets(view)
         val statusBarHeightPx = rootInsets
@@ -593,7 +593,7 @@ private fun EduImportGuideMorphOverlay(
                     indication = null, enabled = visible && !expanded, onClick = onExpand
                 )
         ) {
-            TopAssistantSurface(backdrop, config, cardShape, modifier = Modifier.fillMaxSize(),
+            TopAssistantSurface(backdrop, config, cardShape, solidShade = geometryProgress > 0.96f, modifier = Modifier.fillMaxSize(),
                 glow = expanded, nativeMaterial = true) {
             Box(Modifier.fillMaxSize().clip(cardShape)) {
                 Row(
