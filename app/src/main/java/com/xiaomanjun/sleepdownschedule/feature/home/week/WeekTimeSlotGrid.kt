@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.home.week
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotCourse
 import com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotDisplayMode
+import com.xiaomanjun.sleepdownschedule.domain.schedule.occupiesGrid
 import com.xiaomanjun.sleepdownschedule.model.PeriodEntity
 import java.time.LocalTime
 import kotlin.math.floor
@@ -62,52 +63,50 @@ internal fun weekTimeSlotGrid(
     fun covered(slot: TimeSlotCourse) = bells.indices.filter { index ->
         LocalTime.parse(slot.startTime) < bells[index].second && LocalTime.parse(slot.endTime) > bells[index].first
     }
-    val independent = visible.filter { it.displayMode == TimeSlotDisplayMode.INDEPENDENT || covered(it).isEmpty() }
+    val independent = visible.filter { !it.displayMode.occupiesGrid() || covered(it).isEmpty() }
         .groupBy { slot ->
             if (slot.afterPeriod == 0) 0 else periods.sortedBy { it.periodIndex }
                 .indexOfFirst { it.periodIndex == slot.afterPeriod }.takeIf { it >= 0 }?.plus(1)
                 ?: slot.afterPeriod.coerceIn(0, periodCount)
         }
-    val heights = MutableList(periodCount) { rowHeight }
-    val collapsed = linkedSetOf<Int>()
-    val compactSlots = linkedSetOf<String>()
-    visible.filter { it.displayMode == TimeSlotDisplayMode.SMART }.forEach { slot ->
-        val rows = covered(slot)
-        if (rows.isNotEmpty() && rows.none { it in collapsed } && clockIntervals.none { (start, end) ->
-                start < bells[rows.last()].second && end > bells[rows.first()].first
-            } && independent.keys.none { it > rows.first() && it <= rows.last() }) {
-            rows.forEach { heights[it] = bandHeight / rows.size }
-            collapsed += rows
-            compactSlots += slot.id
-        }
-    }
     val tops = ArrayList<Float>(periodCount)
     val bands = ArrayList<WeekTimeSlotBand>()
     val clockRows = ArrayList<WeekClockBand>()
     var cursor = 0f
     for (index in 0..periodCount) {
         independent[index].orEmpty().forEach { slot ->
-            bands += WeekTimeSlotBand(slot, cursor, bandHeight)
-            cursor += bandHeight
+            // 独立显示 owns its own row, so it may grow to fit heading, time and an optional note.
+            bands += WeekTimeSlotBand(slot, cursor, independentBandHeight(slot, bandHeight))
+            cursor += independentBandHeight(slot, bandHeight)
         }
         if (index < periodCount) {
             tops += cursor
-            bells.getOrNull(index)?.let { clockRows += WeekClockBand(it.first, it.second, cursor, heights[index]) }
-            cursor += heights[index]
+            bells.getOrNull(index)?.let { clockRows += WeekClockBand(it.first, it.second, cursor, rowHeight) }
+            cursor += rowHeight
         }
     }
-    val grid = WeekTimeSlotGrid(rowHeight, tops, cursor, bands, visibleWeekdays,
-        clockRows = clockRows, rowHeights = heights, collapsedRows = collapsed)
-    visible.filter { it.displayMode != TimeSlotDisplayMode.INDEPENDENT && covered(it).isNotEmpty() }.forEach { slot ->
+    val grid = WeekTimeSlotGrid(rowHeight, tops, cursor, bands, visibleWeekdays, clockRows = clockRows)
+    // 智能显示 occupies the selected lessons exactly like an ordinary course; adjacent display days
+    // still merge into one card because that grouping happens per column run.
+    visible.filter { it.displayMode.occupiesGrid() && covered(it).isNotEmpty() }.forEach { slot ->
         val rows = covered(slot)
         val top = grid.top(rows.first().toFloat())
-        bands += WeekTimeSlotBand(slot, top, grid.bottom((rows.last() + 1).toFloat()) - top,
-            collapsed = slot.id in compactSlots, inGrid = true)
+        bands += WeekTimeSlotBand(slot, top, grid.bottom((rows.last() + 1).toFloat()) - top, inGrid = true)
     }
     return grid.copy(bands = bands.sortedBy { it.top })
 }
 
 internal val LocalWeekTimeSlotGrid = staticCompositionLocalOf<WeekTimeSlotGrid?> { null }
+
+/** One text line in a 32dp default band, so extra lines only add what they actually need. */
+private const val BandTextLineDp = 14f
+
+/** 独立显示 may show heading, time and an optional note; grow instead of clipping the title. */
+internal fun independentBandHeight(slot: TimeSlotCourse, bandHeight: Float): Float {
+    val lines = 2 + if (slot.note.isNotBlank()) 1 else 0
+    val lineHeight = bandHeight / 32f * BandTextLineDp
+    return bandHeight + (lines - 1) * lineHeight
+}
 internal fun weekTimeSlotTailKey(id: String): String = "special-slot:$id"
 
 internal fun timeSlotColumnRuns(weekdays: List<Int>, included: Set<Int>): List<IntRange> = buildList {

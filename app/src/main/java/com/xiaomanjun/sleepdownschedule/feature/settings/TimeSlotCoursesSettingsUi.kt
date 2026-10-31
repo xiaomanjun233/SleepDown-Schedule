@@ -387,14 +387,15 @@ private fun TimeSlotCourseEditor(
         item {
             GlassPreferenceSection("显示方式") {
                 SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
-                    val modeLabels = listOf("独立显示", "占位显示", "智能显示")
-                    SleepDownLiquidDropdownPreference(items = modeLabels, selectedIndex = displayMode.ordinal,
+                    val selectableModes = com.xiaomanjun.sleepdownschedule.domain.schedule.SelectableTimeSlotDisplayModes
+                    val modeLabels = listOf("独立显示", "智能显示")
+                    SleepDownLiquidDropdownPreference(items = modeLabels,
+                        selectedIndex = selectableModes.indexOf(displayMode).takeIf { it >= 0 } ?: 1,
                         title = "显示模式", backdrop = popupBackdrop, config = config, enabled = !saving,
-                        onSelectedIndexChange = { modeName = TimeSlotDisplayMode.entries[it].name })
+                        onSelectedIndexChange = { modeName = selectableModes[it].name })
                     SettingsInfoRow("显示说明", when (displayMode) {
                         TimeSlotDisplayMode.INDEPENDENT -> "沿用原方案，在节次边界独立显示。"
-                        TimeSlotDisplayMode.GRID -> "占用所选时间段的格子，相邻显示日合成一张卡片；有正式课程的当天优先显示正式课程。"
-                        TimeSlotDisplayMode.SMART -> "对应时段整周都没有正式课程时，合并成带起止时间的胶囊；其他情况按占位显示。"
+                        else -> "像普通课程一样占用所选节次，相邻显示日合成一张卡片；有正式课程的当天优先显示正式课程。"
                     })
                     SettingsDivider()
                     SettingsPickerValueRow("显示星期", timeSlotWeekdaySummary(weekdays), enabled = !saving, onClick = {

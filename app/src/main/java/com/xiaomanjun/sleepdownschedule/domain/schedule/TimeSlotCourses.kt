@@ -16,6 +16,15 @@ import java.time.format.DateTimeFormatter
 @Serializable
 enum class TimeSlotDisplayMode { INDEPENDENT, GRID, SMART }
 
+/** The picker offers two modes; GRID is the retired third one and keeps decoding as 智能显示. */
+internal val SelectableTimeSlotDisplayModes = listOf(
+    TimeSlotDisplayMode.INDEPENDENT,
+    TimeSlotDisplayMode.SMART
+)
+
+/** 独立显示 keeps its own row on the boundary; every other mode occupies lesson cells. */
+internal fun TimeSlotDisplayMode.occupiesGrid(): Boolean = this != TimeSlotDisplayMode.INDEPENDENT
+
 @Serializable
 data class TimeSlotCourse(
     val id: String,
