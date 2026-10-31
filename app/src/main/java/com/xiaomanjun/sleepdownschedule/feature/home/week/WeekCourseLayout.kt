@@ -1,11 +1,15 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import com.xiaomanjun.sleepdownschedule.core.ui.text.unclippedMarquee
+
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -98,67 +102,24 @@ internal data class WeekRenderedSegment(
     val segment: WeekCourseSegment
 )
 
-internal data class WeekCustomTimeLabels(
-    val showStart: Boolean,
-    val showEnd: Boolean,
-    val showRangeBelow: Boolean
-)
-
 internal const val WeekCustomTimeLabelGap = 1f
-
-internal fun weekCustomTimeLabels(
-    top: Float,
-    bottom: Float,
-    occupied: List<Pair<Float, Float>>,
-    gridBottom: Float,
-    textHeight: Float
-): WeekCustomTimeLabels {
-    fun hasSpace(labelTop: Float, labelBottom: Float): Boolean =
-        labelTop >= 0f && labelBottom <= gridBottom && occupied.none { (cardTop, cardBottom) ->
-            cardBottom > labelTop - 1f && cardTop < labelBottom + 1f
-        }
-
-    val startFits = hasSpace(top - textHeight - WeekCustomTimeLabelGap, top - WeekCustomTimeLabelGap)
-    val endFits = hasSpace(bottom + WeekCustomTimeLabelGap, bottom + textHeight + WeekCustomTimeLabelGap)
-    return when {
-        startFits && endFits -> WeekCustomTimeLabels(true, true, false)
-        endFits -> WeekCustomTimeLabels(false, false, true)
-        else -> WeekCustomTimeLabels(startFits, false, false)
-    }
-}
-
-/** Reserve labels in visual order, including other fragments of the same course and reference cards. */
-internal fun weekColumnCustomTimeLabels(
-    cardBounds: List<Pair<Float, Float>>, customCardIndexes: Set<Int>,
-    gridBottom: Float, textHeight: Float, referenceBounds: List<Pair<Float, Float>> = emptyList()
-): List<WeekCustomTimeLabels?> {
-    val result = MutableList<WeekCustomTimeLabels?>(cardBounds.size) { null }
-    val reservedLabels = mutableListOf<Pair<Float, Float>>()
-    cardBounds.indices.sortedBy { cardBounds[it].first }.forEach { index ->
-        if (index !in customCardIndexes) return@forEach
-        val (top, bottom) = cardBounds[index]
-        val labels = weekCustomTimeLabels(top, bottom,
-            cardBounds.filterIndexed { other, _ -> other != index } + referenceBounds + reservedLabels,
-            gridBottom, textHeight)
-        result[index] = labels
-        if (labels.showStart) reservedLabels += top - textHeight - WeekCustomTimeLabelGap to top - WeekCustomTimeLabelGap
-        if (labels.showEnd || labels.showRangeBelow) {
-            reservedLabels += bottom + WeekCustomTimeLabelGap to bottom + textHeight + WeekCustomTimeLabelGap
-        }
-    }
-    return result
-}
 
 internal fun weekCardVerticalBounds(
     segment: WeekCourseSegment,
     periods: List<PeriodEntity>,
     cardHeight: Dp,
-    timeGrid: WeekTimeSlotGrid? = null
+    timeGrid: WeekTimeSlotGrid? = null,
+    edgeLabelHeight: Float = 12f
 ): Pair<Float, Float> {
     segment.course.customTimeRangeOrNull()?.let { (start, end) ->
         val top = timeGrid?.clockPosition(start)
         val bottom = timeGrid?.clockPosition(end)
-        if (top != null && bottom != null && bottom > top) return top to bottom
+        if (top != null && bottom != null) {
+            val from = if (bottom > top) top else if (top >= timeGrid.totalHeight) timeGrid.rowTops.lastOrNull() ?: 0f else top
+            val to = if (bottom > top) bottom else (from + cardHeight.value).coerceAtMost(timeGrid.totalHeight)
+            val inset = minOf(edgeLabelHeight, ((to - from) - 18f).coerceAtLeast(0f) / 2)
+            return (from + inset) to (to - inset).coerceAtLeast(from + inset + 1f)
+        }
     }
     val exact = exactTimeWeekPlacement(segment.course, periods)
     val startRow = exact?.topRows ?: segment.startPosition.toFloat()
@@ -264,11 +225,6 @@ private fun WeekDayColumn(
     val density = LocalDensity.current
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
     val courseGlassRestorePlan = LocalCourseGlassRestorePlan.current
-    val visibleCardBounds = remember(renderedSegments, periods, cardHeight, timeGrid) {
-        renderedSegments.map {
-            weekCardVerticalBounds(it.segment, periods, cardHeight, timeGrid)
-        }
-    }
     val timeLabelStyle = weekCourseTimeLabelStyle()
     val timeLabelMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
     val timeLabelHeight = with(density) {
@@ -276,12 +232,10 @@ private fun WeekDayColumn(
             timeLabelMeasurer.measure("00:00", style = timeLabelStyle, softWrap = false, maxLines = 1).size.height
         }.toDp().value
     }
-    val timeLabelsByIndex = remember(renderedSegments, periods, cardHeight, visibleCardBounds, timeLabelHeight, referenceCards) {
-        weekColumnCustomTimeLabels(
-            visibleCardBounds,
-            renderedSegments.indices.filter { exactTimeWeekPlacement(renderedSegments[it].segment.course, periods) != null }.toSet(),
-            timeGrid.totalHeight, timeLabelHeight, referenceCards.map { it.top to it.bottom }
-        )
+    val visibleCardBounds = remember(renderedSegments, periods, cardHeight, timeGrid, timeLabelHeight) {
+        renderedSegments.map {
+            weekCardVerticalBounds(it.segment, periods, cardHeight, timeGrid, timeLabelHeight + WeekCustomTimeLabelGap)
+        }
     }
 
     BoxWithConstraints(
@@ -292,7 +246,7 @@ private fun WeekDayColumn(
         val measuredCardLayoutWidth = (maxWidth - 4.dp).coerceAtLeast(1.dp)
         if (emptyBackground.alpha > 0f) {
             Box(Modifier.fillMaxSize()) {
-                periods.forEachIndexed { index, _ -> Box(Modifier.offset(y = timeGrid.rowTops[index].dp)) { EmptyWeekCell(cardHeight, emptyBackground) } }
+                periods.forEachIndexed { index, _ -> if (index !in timeGrid.collapsedRows) Box(Modifier.offset(y = timeGrid.rowTops[index].dp)) { EmptyWeekCell(timeGrid.rowHeights[index].dp, emptyBackground) } }
             }
         }
         if (holidayLabel != null) {
@@ -341,7 +295,6 @@ private fun WeekDayColumn(
             val bounds = visibleCardBounds[renderedIndex]
             val segmentTop = bounds.first.dp
             val segmentHeight = (bounds.second - bounds.first).dp
-            val timeLabels = timeLabelsByIndex[renderedIndex]
             Box(
                 modifier = Modifier
                     .offset(y = segmentTop)
@@ -407,10 +360,10 @@ private fun WeekDayColumn(
                     occlusionMaterialMounted = occlusionMaterialMounted &&
                         courseGlassRestorePlan.mountsGroup(courseGlassRestoreGroupKey(editWeek, listOf(glassCandidateId)))
                 )
-                timeLabels?.let { labels ->
+                segment.course.customTimeRangeOrNull()?.let { (start, end) ->
                     val labelColor = glassForegroundColor(config)
-                    if (labels.showStart) WeekCourseTimeLabel(
-                                text = segment.course.customTimeRangeOrNull()?.first?.toString().orEmpty(),
+                    WeekCourseTimeLabel(
+                                text = start.toString(),
                                 modifier = Modifier
                                     .align(Alignment.TopCenter)
                                     .offset(y = -(timeLabelHeight + WeekCustomTimeLabelGap).dp)
@@ -419,8 +372,8 @@ private fun WeekDayColumn(
                                 fontSize = 8.sp,
                                 lineHeight = 9.sp,
                     )
-                    if (labels.showEnd) WeekCourseTimeLabel(
-                                text = segment.course.customTimeRangeOrNull()?.second?.toString().orEmpty(),
+                    WeekCourseTimeLabel(
+                                text = end.toString(),
                                 modifier = Modifier
                                     .align(Alignment.BottomCenter)
                                     .offset(y = (timeLabelHeight + WeekCustomTimeLabelGap).dp)
@@ -428,13 +381,6 @@ private fun WeekDayColumn(
                                 color = labelColor,
                                 fontSize = 8.sp,
                                 lineHeight = 9.sp,
-                    )
-                    if (labels.showRangeBelow) WeekCourseTimeLabel(
-                        text = segment.course.customTimeRangeOrNull()?.let { "${it.first}–${it.second}" }.orEmpty(),
-                        modifier = Modifier.align(Alignment.BottomCenter).offset(y = (timeLabelHeight + WeekCustomTimeLabelGap).dp).zIndex(12f),
-                        color = labelColor,
-                        fontSize = 7.sp,
-                        lineHeight = 9.sp,
                     )
                 }
             }
@@ -705,12 +651,36 @@ fun WeekCourseColumnsLayer(
                         .padding(horizontal = 2.dp, vertical = 3.dp)
                         .weekPageTail(weekTimeSlotTailKey(band.slot.id), tailCardOrder[weekTimeSlotTailKey(band.slot.id)], 0.5f)
                         .homeSwitchGroup(tailCardOrder[weekTimeSlotTailKey(band.slot.id)]),
-                    shape = Capsule(), tokens = timeSlotBandTokens,
+                    shape = if (band.inGrid && !band.collapsed) RoundedRectangle(18.dp) else Capsule(), tokens = timeSlotBandTokens,
                     domain = GlassBackdropDomain.Content, debugLabel = "WeekTimeSlotBand", onClick = null,
                     nativeMaterial = nativeBands, nativeBlurRadiusScale = 1.4f) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(band.slot.name, color = glassForegroundColor(config), fontSize = 12.sp,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 2.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                        val heading = listOf(band.slot.name, band.slot.location).filter(String::isNotBlank).joinToString(" · ")
+                        val time = "${band.slot.startTime}–${band.slot.endTime}"
+                        // 独立显示 grows to fit heading and time, so only a one-line band merges them.
+                        val compact = band.height.dp < 44.dp * density.fontScale
+                        val foreground = glassForegroundColor(config)
+                        if (compact) {
+                            Text(listOf(heading, time, band.slot.note).filter(String::isNotBlank).joinToString(" · "),
+                                color = foreground, style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.fillMaxWidth().unclippedMarquee(centered = true, enabled = !outgoing),
+                                textAlign = TextAlign.Center,
+                                maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+                        } else {
+                            // Only the longest (title) line scrolls; the clock and note stay still.
+                            Text(heading, color = foreground, style = MaterialTheme.typography.labelMedium,
+                                modifier = Modifier.fillMaxWidth().unclippedMarquee(centered = true, enabled = !outgoing),
+                                textAlign = TextAlign.Center,
+                                maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+                            Text(time, color = foreground, style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                                maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                            if (band.slot.note.isNotBlank()) Text(band.slot.note,
+                                color = foreground, style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
+                                maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
+                        }
                     }
                 }
             }

@@ -136,7 +136,9 @@ internal fun SinglePillWeekScheduleScreen(
     val today = clock.toLocalDate()
     val now = clock.toLocalTime()
     val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-    val currentPeriod = currentTimelinePeriod(state.periods, now)
+    val todayTimeline = remember(state.config, state.periods, state.courses, state.timetableCatalog, today, now) {
+        weekDayTimeline(state, today, now)
+    }
     // Keep one computed bucket per visited week, shared by the rail, supplements and Pager.
     // Data replacement invalidates the cache; swiping back reuses the same immutable lists.
     val weekBucketCache = remember(state.courses, state.config.id, state.config.totalWeeks,
@@ -157,11 +159,8 @@ internal fun SinglePillWeekScheduleScreen(
     var weekJump by remember { mutableStateOf<AdjacentWeekJump?>(null) }
     val visibleCourses = weekBuckets.visibleCourses
     val showingCurrentWeek = !today.isBefore(weekStart) && today.isBefore(weekStart.plusWeeks(1))
-    val specialBell = if (showingCurrentWeek) {
-        activeWeekCourseBell(visibleCourses, today.dayOfWeek.value, now)
-    } else null
-    val specialCourseInProgress = showingCurrentWeek &&
-        specialCourseCoversTime(visibleCourses, today.dayOfWeek.value, now)
+    val activePeriodIndex = if (showingCurrentWeek) todayTimeline.activePeriodIndex
+        else currentTimelinePeriod(state.periods, now)?.periodIndex
     val hasAdjustmentBadges = remember(state.config.scheduleAdjustmentsJson) {
         com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(state.config.scheduleAdjustmentsJson).isNotEmpty()
     }
@@ -174,14 +173,17 @@ internal fun SinglePillWeekScheduleScreen(
     }
     var programmaticPage by remember { mutableIntStateOf(-1) }
     val density = LocalDensity.current
-    val clockIntervals = remember(state.courses, state.config, state.periods, state.timetableCatalog, today) {
-        com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleTimeAxisIntervals(state, today)
-    }
-    val timeGrid = remember(state.config.timeSlotCoursesJson, state.periods, clockIntervals, cardHeight, density.fontScale, weekdays) {
+    val gridCache = remember(state, cardHeight, density.fontScale, today) { mutableMapOf<Int, WeekTimeSlotGrid>() }
+    fun gridForWeek(week: Int) = gridCache.getOrPut(week) {
+        val buckets = bucketsForWeek(week)
+        val days = weekPresentationWeekdays(buckets, state.courses, state.config, week)
+        val intervals = buckets.visibleCourses.flatMap { com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments(it, state.periods) }
+            .map { it.start to it.end }
         weekTimeSlotGrid(runCatching { com.xiaomanjun.sleepdownschedule.domain.schedule.resolvedTimeSlotCourses(state.config.timeSlotCoursesJson, state.periods) }.getOrDefault(emptyList()),
-            state.periods.size, cardHeight.value, 32f * density.fontScale.coerceIn(1f, 1.5f), weekdays,
-            state.periods, clockIntervals)
+            state.periods.size, cardHeight.value, 40f * density.fontScale.coerceAtLeast(1f), days,
+            state.periods, intervals, week)
     }
+    val timeGrid = gridForWeek(displayWeek)
     val screenWidth = adaptiveMetrics.contentWidth
     val topSpacerHeight = adaptiveMetrics.weekTopSpacerHeight
     val horizontalContentStartPadding = if (adaptiveMetrics.isLargeScreen) {
@@ -536,6 +538,8 @@ internal fun SinglePillWeekScheduleScreen(
                         val showTimeColumn =
                             cardHeight.value >= minimumWeekTimelineRowHeightDp(density.fontScale)
                         state.periods.forEachIndexed { rowIndex, period ->
+                            if (rowIndex in timeGrid.collapsedRows) return@forEachIndexed
+                            val displayedPeriod = if (showingCurrentWeek) todayTimeline.periods.firstOrNull { it.periodIndex == period.periodIndex } ?: period else period
                             Box(
                                 modifier = Modifier
                                     .offset(y = timeGrid.rowTops[rowIndex].dp)
@@ -545,9 +549,8 @@ internal fun SinglePillWeekScheduleScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-                                    val isSpecialCurrent = specialBell?.index == period.periodIndex
-                                    val isCurrent = if (specialCourseInProgress) isSpecialCurrent
-                                        else currentPeriod?.periodIndex == period.periodIndex
+                                    val isCurrent = activePeriodIndex == period.periodIndex
+                                    val isSpecialCurrent = showingCurrentWeek && isCurrent && todayTimeline.exceptionalActivePeriod
                                     Box(
                                         modifier = if (isCurrent) Modifier
                                             .background(
@@ -565,7 +568,7 @@ internal fun SinglePillWeekScheduleScreen(
                                                 lineHeight = 15.sp,
                                                 fontWeight = FontWeight.ExtraBold,
                                                 textAlign = TextAlign.Center,
-                                                color = if (isSpecialCurrent) ComposeColor(0xFF3D2B00) else ComposeColor.White
+                                                color = ComposeColor.White
                                             )
                                         } else {
                                             HomeReadableText(
@@ -580,7 +583,7 @@ internal fun SinglePillWeekScheduleScreen(
                                     }
                                     if (showTimeColumn) {
                                         HomeReadableText(
-                                            period.startTime,
+                                            displayedPeriod.startTime,
                                             fontSize = 10.sp,
                                             lineHeight = 11.sp,
                                             fontWeight = FontWeight.Normal,
@@ -588,7 +591,7 @@ internal fun SinglePillWeekScheduleScreen(
                                             color = textColor.copy(alpha = 0.86f)
                                         )
                                         HomeReadableText(
-                                            period.endTime,
+                                            displayedPeriod.endTime,
                                             fontSize = 10.sp,
                                             lineHeight = 11.sp,
                                             fontWeight = FontWeight.Normal,
@@ -606,7 +609,7 @@ internal fun SinglePillWeekScheduleScreen(
                                 HomeReadableText(band.end.toString(), fontSize = 9.sp, lineHeight = 11.sp, color = textColor.copy(alpha = 0.86f))
                             }
                         }
-                        timeGrid.bands.forEach { band ->
+                        timeGrid.bands.filter { !it.inGrid }.forEach { band ->
                             Column(Modifier.offset(y = band.top.dp).height(band.height.dp).fillMaxWidth(),
                                 horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                                 HomeReadableText(band.slot.startTime, fontSize = 10.sp, lineHeight = 12.sp, color = textColor)
@@ -660,6 +663,7 @@ internal fun SinglePillWeekScheduleScreen(
                             }
                             val pageCardCount = remember(pageWeek) { mutableIntStateOf(0) }
                             WeekPageSamplingScope(weekTail, page, homeSwitching, weekJump) {
+                            CompositionLocalProvider(LocalWeekTimeSlotGrid provides gridForWeek(pageWeek)) {
                             WeekCourseColumnsLayer(
                                 modifier = Modifier.padding(
                                     start = rowHeaderWidth,
@@ -729,6 +733,7 @@ internal fun SinglePillWeekScheduleScreen(
                                 onCancelWeekEditOverlay = weekEditOverlay::cancelGesture,
                                 onCourseClick = openPageOccurrence
                             )
+                            }
                             }
                         }
                     }

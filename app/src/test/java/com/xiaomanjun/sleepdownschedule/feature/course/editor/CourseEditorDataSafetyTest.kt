@@ -3,10 +3,39 @@ package com.xiaomanjun.sleepdownschedule.feature.course.editor
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.WeekParity
 import com.xiaomanjun.sleepdownschedule.defaultConfig
+import com.xiaomanjun.sleepdownschedule.PeriodEntity
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.withCustomTimetableTimes
 import org.junit.Assert.*
 import org.junit.Test
 
 class CourseEditorDataSafetyTest {
+    @Test fun manuallySelectedCustomClocksCannotStartBeforeTheFirstBell() {
+        val bells = listOf(PeriodEntity(1, "09:00", "09:45"), PeriodEntity(2, "09:55", "10:40"))
+        val early = course.copy(customStartTime = "08:20", customEndTime = "09:05")
+        assertNotNull(manualCourseClockError(early, null, bells))
+        assertNull(manualCourseClockError(early.copy(customStartTime = "09:00", customEndTime = "09:45"), null, bells))
+        assertNotNull(customCourseStartError("09:00", "1,08:20-09:05", courseClockOrigin(bells)))
+    }
+
+    @Test fun renamingAnExistingEarlyCourseKeepsItsRealClockWhileManualTimeChangesAreChecked() {
+        val bells = listOf(PeriodEntity(1, "09:00", "09:45"))
+        val imported = course.copy(customStartTime = "08:20", customEndTime = "09:05")
+        assertNull(manualCourseClockError(imported.copy(name = "改名", location = "B201"), imported, bells))
+        assertNotNull(manualCourseClockError(imported.copy(customStartTime = "08:30"), imported, bells))
+    }
+    @Test fun editingLegacyReferenceKeepsEveryLessonClockAfterItBecomesCustom() {
+        val legacy = course.copy(independentPeriodSchemeId = 9)
+        val reference = listOf(PeriodEntity(3, "08:20", "09:05"), PeriodEntity(4, "09:15", "10:00"))
+        val converted = legacy.withCustomTimetableTimes(reference)
+        val draft = courseEditorDraft(listOf(converted), periods, 16).copy(name = "线性代数")
+        val saved = draft.toCourses(listOf(legacy), periods, true).single()
+        assertNull(saved.independentPeriodSchemeId)
+        assertEquals(converted.customPeriodTimes, saved.customPeriodTimes)
+        assertEquals(courseTimeSegments(legacy, reference), courseTimeSegments(saved, emptyList()))
+        assertEquals(legacy.weeks, saved.weeks)
+    }
+
     @Test fun explicitPeriodRangeReplacesTheGapsAndSurvivesReopening() {
         val source = course.copy(periods = listOf(1, 3), customStartTime = "08:00", customEndTime = "10:45")
         val draft = courseEditorDraft(listOf(source), listOf(1, 2, 3), 20).copy(

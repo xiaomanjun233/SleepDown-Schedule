@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.data.repository
 import com.xiaomanjun.sleepdownschedule.domain.schedule.withCompatiblePeriodGrid
+import com.xiaomanjun.sleepdownschedule.domain.schedule.withCustomCourseTimetables
 
 import androidx.room.withTransaction
 import com.xiaomanjun.sleepdownschedule.*
@@ -724,7 +725,7 @@ class ScheduleRepository(private val database: AppDatabase) {
             return id
         }
         val config = requireNotNull(configDao.getConfig(scheduleId))
-        val independentIds = draft.timetablePlan.independentTimetables.map { save(it) }
+        val customCourses = draft.withCustomCourseTimetables(readTimetableCatalog()).courses
         val dateTables = draft.timetablePlan.dateTimetables
         val comboId = if (dateTables.isEmpty()) null else {
             val id = timetableDao.putCombo(com.xiaomanjun.sleepdownschedule.model.TimetableComboEntity(
@@ -735,12 +736,7 @@ class ScheduleRepository(private val database: AppDatabase) {
             id
         }
         configDao.upsertConfig(config.copy(activeTimetableComboId = comboId))
-        return draft.courses.map { source ->
-            source.copy(independentPeriodSchemeId = source.independentPeriodSchemeId?.let { id ->
-                if (id < 0) independentIds.getOrNull((-id-1).toInt()) ?: error("课程独立作息未导入")
-                else { require(periodSchemeDao.getScheme(id) != null) { "课程独立作息已不存在" }; id }
-            })
-        }
+        return customCourses
     }
 
     /** Replaces one explicitly bound schedule without changing which schedule is active. */

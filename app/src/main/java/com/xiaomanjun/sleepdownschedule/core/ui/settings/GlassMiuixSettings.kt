@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.settings
 
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.avoidFloatingChrome
+import androidx.compose.ui.text.rememberTextMeasurer
+
 import androidx.compose.foundation.LocalOverscrollFactory
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -13,6 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -262,10 +267,16 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
                 contentWindowInsets = WindowInsets(0, 0, 0, 0),
                 topBar = {
                     if (topBarVisible) {
+                        val titleStyle = if (useMiuixCollapsedTitleStyle) MiuixTheme.textStyles.title3 else MaterialTheme.typography.titleLarge
+                        val titleWidth = rememberTextMeasurer().measure(title, titleStyle, maxLines = 1).size.width
                         SettingsGradientTopBar(
                             config = pageConfig,
                             backdrop = contentBackdrop,
-                            enabled = true
+                            enabled = true,
+                            modifier = Modifier.avoidFloatingChrome(
+                                centerContentWidth = with(LocalDensity.current) { titleWidth.toDp() },
+                                startContentWidth = if (showBackButton) horizontalContentInset + 16.dp +
+                                    SleepDownDesignTokens.SecondaryPage.BackButtonSize else 0.dp)
                         ) {
                             DetailTopBar(
                                 title = title,
@@ -301,6 +312,7 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
     }
 }
 
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 internal fun GlassMiuixDetailActivityScaffold(
     title: String,
@@ -335,13 +347,18 @@ internal fun GlassMiuixDetailActivityScaffold(
     val density = LocalDensity.current
     val rootView = LocalView.current
     val visibleStatusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val statusBarSafeTop = maxOf(
+        visibleStatusBarTop,
+        WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding(),
+        WindowInsets.displayCutout.asPaddingValues().calculateTopPadding()
+    )
     val stableStatusBarTop = if (preserveStatusBarSpace) {
         val stableTopPx = ViewCompat.getRootWindowInsets(rootView)
             ?.getInsetsIgnoringVisibility(
                 WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()
             )
             ?.top
-        stableTopPx?.let { with(density) { it.toDp() } } ?: visibleStatusBarTop
+        maxOf(statusBarSafeTop, stableTopPx?.let { with(density) { it.toDp() } } ?: 0.dp)
     } else {
         visibleStatusBarTop
     }
@@ -512,6 +529,7 @@ private fun SettingsGradientTopBar(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     enabled: Boolean,
+    modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
     val tintColor = if (glassUsesLightStyle(config)) Color.White else Color(0xFF111111)
@@ -537,7 +555,7 @@ private fun SettingsGradientTopBar(
         Modifier
     }
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .then(if (webTransition) Modifier else blurModifier)
             .graphicsLayer { clip = false }

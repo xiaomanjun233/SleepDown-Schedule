@@ -27,11 +27,12 @@ internal data class CourseLessonClockDraft(
     fun withLesson(index: Int, row: CourseLessonClockRow): CourseLessonClockDraft =
         copy(lessons = List(maxOf(index + 1, lessons.size)) { if (it == index) row else lesson(it) })
 
-    fun times(preferredIndices: List<Int>): List<CoursePeriodTime> {
-        val size = count.toIntOrNull()?.takeIf { it in 1..40 }
-            ?: throw IllegalArgumentException("节数必须为 1–40")
-        val firstIndex = preferredIndices.firstOrNull()?.coerceAtLeast(1) ?: 1
-        val indices = preferredIndices.takeIf { it.size == size } ?: List(size) { firstIndex + it }
+    fun times(preferredIndices: List<Int>, availableIndices: List<Int> = preferredIndices): List<CoursePeriodTime> {
+        val available = courseLessonPickerIndices(preferredIndices, availableIndices)
+        require(available.isNotEmpty()) { "当前作息没有可选择的节次" }
+        val size = count.toIntOrNull()?.takeIf { it in 1..available.size }
+            ?: throw IllegalArgumentException("当前起始节次最多可选 ${available.size} 节")
+        val indices = preferredIndices.takeIf { it.size == size && it.all(available::contains) } ?: available.take(size)
         val durations = List(size) { index ->
             val row = if (individually) lesson(index) else CourseLessonClockRow(classMinutes, breakMinutes)
             CourseLessonDuration(
@@ -42,6 +43,12 @@ internal data class CourseLessonClockDraft(
         }
         return buildCourseLessonTimes(parseLessonClock(start), indices, durations)
     }
+}
+
+internal fun courseLessonPickerIndices(preferred: List<Int>, available: List<Int>): List<Int> {
+    val valid = available.filter { it > 0 }.distinct().sorted()
+    val first = preferred.firstOrNull { it in valid } ?: valid.firstOrNull() ?: return emptyList()
+    return valid.dropWhile { it < first }.take(40)
 }
 
 internal fun initialCourseLessonClockDraft(

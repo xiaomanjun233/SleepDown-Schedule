@@ -11,6 +11,19 @@ import org.junit.Test
 class CourseLessonClockDraftTest {
     private val draft = CourseLessonClockDraft("08:30", "3", "45", "10", false, emptyList())
 
+    @Test fun threeActualLessonsNeverAllowAFourthOrAnInventedSourceNumber() {
+        assertEquals(listOf(1, 2, 3), courseLessonPickerIndices(listOf(1), listOf(1, 2, 3)))
+        assertThrows(IllegalArgumentException::class.java) { draft.copy(count = "4").times(listOf(1), listOf(1, 2, 3)) }
+        assertEquals(listOf(1, 2, 3), draft.times(listOf(1), listOf(1, 2, 3)).map { it.index })
+    }
+
+    @Test fun countLimitUsesRemainingActualLessonsAndPreservesSparseNumbers() {
+        assertEquals(listOf(3, 5), courseLessonPickerIndices(listOf(3), listOf(1, 3, 5)))
+        assertEquals(listOf(3, 5), draft.copy(count = "2").times(listOf(3), listOf(1, 3, 5)).map { it.index })
+        assertThrows(IllegalArgumentException::class.java) { draft.times(listOf(3), listOf(1, 3, 5)) }
+        assertThrows(IllegalArgumentException::class.java) { draft.times(emptyList(), emptyList()) }
+    }
+
     @Test fun uniformLessonsPreserveClassAndBreakBoundaries() {
         val times = draft.times(listOf(3, 4, 5))
         assertEquals(listOf(3, 4, 5), times.map { it.index })

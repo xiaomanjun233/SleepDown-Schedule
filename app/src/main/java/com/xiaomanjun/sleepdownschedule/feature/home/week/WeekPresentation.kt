@@ -61,7 +61,7 @@ internal fun weekPresentationWeekdays(
         } == true
     }
     val hasWeekendSlots = runCatching { decodeTimeSlotCourses(config.timeSlotCoursesJson) }.getOrDefault(emptyList())
-        .any { slot -> slot.weekdays.any { it >= 6 } }
+        .any { slot -> week >= slot.startWeek && (slot.endWeek == null || week <= slot.endWeek) && slot.weekdays.any { it >= 6 } }
     val hasWeekendReference = config.showNonCurrentWeekCourses && courses.any {
         it.weekday >= 6 && !it.isHiddenByPeriodAlignment() &&
             it.isUpcomingWeekReference(week)

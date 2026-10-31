@@ -126,11 +126,14 @@ internal class ShiguangImportSession {
             json
         )
         require(parsed.isNotEmpty()) { "时间段数据为空" }
+        // Slots numbered 0 or below (morning reading, pre-lesson blocks) stay out of the grid;
+        // their clocks still reach courses through customStartTime/EndTime or per-lesson times.
         val sorted = parsed.distinct()
+            .filter { it.number > 0 }
             .sortedBy(ShiguangTimeSlotPayload::number)
+        require(sorted.isNotEmpty()) { "时间段数据为空" }
         require(sorted.map { it.number }.distinct().size == sorted.size) { "同一节次存在不同时间，无法确定课程的真实作息" }
         sorted.forEachIndexed { index, slot ->
-            require(slot.number > 0) { "时间段编号必须大于 0" }
             val start = parseTime(slot.startTime, "第 ${slot.number} 节 startTime")
             val end = parseTime(slot.endTime, "第 ${slot.number} 节 endTime")
             require(start < end) { "第 ${slot.number} 节结束时间必须晚于开始时间" }
@@ -185,19 +188,19 @@ internal class ShiguangImportSession {
     private fun validateCourse(index: Int, course: ShiguangCoursePayload) {
         val label = "第 ${index + 1} 门课程"
         require(course.name.isNotBlank()) { "$label name 不能为空" }
-        require(course.day in 1..7) { "$label day 必须在 1 到 7 之间" }
+        // day 0 marks an unscheduled course (SCUEC 未安排时间课程); it is kept for review, not dropped.
+        require(course.day in 0..7) { "$label day 必须在 0 到 7 之间" }
         require(course.weeks.isNotEmpty()) { "$label weeks 不能为空" }
         require(course.weeks.all { it > 0 }) { "$label weeks 必须为正整数" }
         require(course.credit == null || (course.credit.isFinite() && course.credit >= 0f)) { "$label 学分无效" }
-        val startSection = course.startSection
-        val endSection = course.endSection
+        if (course.day == 0) return
+        val startSection = course.startSection?.takeIf { it > 0 }
+        val endSection = course.endSection?.takeIf { it > 0 }
         val hasStartSection = startSection != null
         val hasEndSection = endSection != null
         require(course.isCustomTime || hasStartSection == hasEndSection) { "$label startSection 与 endSection 必须同时提供" }
         if (!course.isCustomTime && startSection != null && endSection != null) {
-            require(startSection > 0 && endSection >= startSection) {
-                "$label 节次范围无效"
-            }
+            require(endSection >= startSection) { "$label 节次范围无效" }
         }
         if (course.hasExactTime()) {
             val periodIndexes = course.sectionRangeOrNull()?.toList()
@@ -212,9 +215,9 @@ internal class ShiguangImportSession {
                 val end = parseTime(course.customEndTime, "$label customEndTime")
                 require(start < end) { "$label 自定义结束时间必须晚于开始时间" }
             }
-        } else {
-            require(hasStartSection) { "$label 缺少节次范围" }
         }
+        // A course without sections and without its own clock becomes a review entry instead of
+        // failing the whole import; the confirmation screen and course list keep it visible.
     }
 
     private data class SessionSnapshot(
@@ -235,19 +238,46 @@ internal class ShiguangImportSession {
             } ?: basePeriods
             require(mappedPeriods.isNotEmpty()) { "目标课表没有可用于预览的节次" }
             val periodIndexSet = mappedPeriods.mapTo(hashSetOf(), PeriodEntity::periodIndex)
+            val periodBells = mappedPeriods.associateBy(PeriodEntity::periodIndex)
             val sourceSlots = originalConflictingSlots?.associateBy { it.number }
             val mappedCourses = courses.mapIndexed { index, course ->
-                val periods = if (course.isCustomTime && course.customPeriodTimes.isNullOrBlank()) emptyList() else course.sectionRangeOrNull()?.map { originalSection ->
-                    if (sectionMapping == null || sourceSlots != null) originalSection
-                    else requireNotNull(sectionMapping[originalSection]) {
-                        "第 ${index + 1} 门课程引用了不存在的节次"
-                    }
-                }?.distinct()?.sorted()
-                    ?: parseCoursePeriodTimes(course.customPeriodTimes).map { it.index }
-                        .takeIf { it.isNotEmpty() }
+                // Explicit per-lesson clocks own the lesson numbers; otherwise the adapter's
+                // section range is authoritative even when the course brings its own clock.
+                val periods = parseCoursePeriodTimes(course.customPeriodTimes).map { it.index }
+                    .takeIf { it.isNotEmpty() }
+                    ?: course.sectionRangeOrNull()?.map { originalSection ->
+                        if (sectionMapping == null || sourceSlots != null) originalSection
+                        else requireNotNull(sectionMapping[originalSection]) {
+                            "第 ${index + 1} 门课程引用了不存在的节次"
+                        }
+                    }?.distinct()?.sorted()
                     ?: emptyList()
-                if (!course.hasExactTime()) {
-                    require(periods.isNotEmpty()) { "第 ${index + 1} 门课程缺少节次范围" }
+                // Nothing upstream can place this course on the grid: keep it as a review entry so the
+                // user can complete it instead of losing it or failing the entire import.
+                if (course.day !in 1..7 || (periods.isEmpty() && !course.hasExactTime())) {
+                    return@mapIndexed CourseEntity(
+                        name = course.name,
+                        teacher = course.teacher.ifBlank { null },
+                        location = course.position.ifBlank { null },
+                        weekday = if (course.day in 1..7) course.day else 1,
+                        periods = emptyList(),
+                        weeks = course.weeks.distinct().sorted(),
+                        weekParity = WeekParity.ALL,
+                        note = course.remark?.takeIf { it.isNotBlank() },
+                        customStartTime = null,
+                        customEndTime = null,
+                        customPeriodTimes = null,
+                        originalPeriodTimes = null,
+                        customColorArgb = null,
+                        scheduleId = baseConfig.id,
+                        credit = course.credit,
+                        timingReviewReason = if (course.day !in 1..7) {
+                            "上游未安排上课星期与节次，请补充"
+                        } else {
+                            "上游没有给出节次或真实时间，请补充"
+                        },
+                        sourcePaletteIndex = course.color
+                    )
                 }
                 val clockSlots = sourceSlots ?: timeSlots?.associateBy { it.number }
                     ?.takeIf { periods.any { number -> number !in periodIndexSet } }
@@ -268,10 +298,25 @@ internal class ShiguangImportSession {
                     sourceTimes != null && sourceTimes.size == periods.size &&
                         sourceTimes.zipWithNext().all { (a, b) -> LocalTime.parse(b.startTime) >= LocalTime.parse(a.endTime) }
                 }
+                // A campus with its own bells only reports the outer edges. Turn that into a 按课时
+                // course: the two known edges stay exact, interior boundaries keep the target scheme.
+                val derivedLessons = if (
+                    course.isCustomTime && course.customPeriodTimes.isNullOrBlank() &&
+                    course.customStartTime != null && course.customEndTime != null && periods.isNotEmpty()
+                ) runCatching {
+                    deriveLessonClock(
+                        LocalTime.parse(requireNotNull(course.customStartTime)),
+                        LocalTime.parse(requireNotNull(course.customEndTime)),
+                        periods,
+                        periodBells
+                    )
+                }.getOrNull() else null
                 val clock = if (sourceTimes != null && !course.hasExactTime()) normalizeCourseClock(
                     sourceTimes.minOf { LocalTime.parse(it.startTime) }.toString(),
                     sourceTimes.maxOf { LocalTime.parse(it.endTime) }.toString(), exactPeriodClock, periods
-                ) else normalizeCourseClock(course.customStartTime, course.customEndTime, course.customPeriodTimes, periods)
+                ) else normalizeCourseClock(
+                    course.customStartTime, course.customEndTime, derivedLessons ?: course.customPeriodTimes, periods
+                )
                 CourseEntity(
                     name = course.name,
                     teacher = course.teacher.ifBlank { null },
@@ -292,7 +337,7 @@ internal class ShiguangImportSession {
                     sourcePaletteIndex = course.color
                 )
             }
-            val mappedConfig = courseConfig?.let { imported ->
+            val declaredConfig = courseConfig?.let { imported ->
                 baseConfig.copy(
                     totalWeeks = imported.semesterTotalWeeks,
                     currentWeek = baseConfig.currentWeek.coerceIn(1, imported.semesterTotalWeeks),
@@ -303,7 +348,27 @@ internal class ShiguangImportSession {
                     weekStartsOnSunday = imported.firstDayOfWeek == 7
                 )
             } ?: baseConfig
-            require(mappedCourses.all { course -> course.weeks.all { it in 1..mappedConfig.totalWeeks } }) { "课程周次超出学期范围" }
+            // Weeks that the adapter reports beyond its own semester must not fail the import; the
+            // schedule simply covers them. Nothing is truncated and no course week is rewritten.
+            val requiredWeeks = mappedCourses.maxOfOrNull { it.weeks.maxOrNull() ?: 0 } ?: 0
+            val mappedConfig = if (requiredWeeks > declaredConfig.totalWeeks) {
+                declaredConfig.copy(
+                    totalWeeks = requiredWeeks.coerceAtMost(60),
+                    currentWeek = declaredConfig.currentWeek.coerceIn(1, requiredWeeks.coerceAtMost(60))
+                )
+            } else declaredConfig
+            val notices = buildList {
+                if (originalConflictingSlots != null) {
+                    add("原作息含重叠时段，课程真实时间与原始编号已保留；网格继续使用当前基准作息。")
+                }
+                if (requiredWeeks > declaredConfig.totalWeeks) {
+                    add("课程周次超出上游学期范围，总周数已扩展到 ${mappedConfig.totalWeeks} 周。")
+                }
+                val reviewCount = mappedCourses.count { it.timingReviewReason != null }
+                if (reviewCount > 0) {
+                    add("$reviewCount 门课程上游未给出上课时间，已作为待安排课程保留，可在课程中补充。")
+                }
+            }
             return ImportDraft(
                 config = com.xiaomanjun.sleepdownschedule.domain.schedule.inferPeriodCounts(mappedPeriods).let { counts ->
                     mappedConfig.copy(morningPeriodCount=counts.morning,noonPeriodCount=counts.noon,
@@ -311,20 +376,49 @@ internal class ShiguangImportSession {
                 },
                 periods = mappedPeriods,
                 courses = mappedCourses,
-                notices = if (originalConflictingSlots != null) listOf("原作息含重叠时段，课程真实时间与原始编号已保留；网格继续使用当前基准作息。") else emptyList()
+                notices = notices
             )
         }
     }
 }
 
 private fun ShiguangCoursePayload.sectionRangeOrNull(): IntRange? {
-    val start = startSection ?: return null
-    val end = endSection ?: return null
-    return start..end
+    // Section 0 means "not scheduled" upstream; it must never become a grid row.
+    val start = startSection?.takeIf { it > 0 } ?: return null
+    val end = endSection?.takeIf { it > 0 } ?: return null
+    return if (end >= start) start..end else null
 }
 
 private fun ShiguangCoursePayload.hasExactTime(): Boolean =
     isCustomTime || !customStartTime.isNullOrBlank() || !customEndTime.isNullOrBlank() || !customPeriodTimes.isNullOrBlank()
+
+/**
+ * A campus with its own bells only reports the first start and the last end. Turn that into
+ * per-lesson clocks: the two reported edges stay exact, every interior boundary keeps the
+ * target scheme's bell so no lesson time is invented. Returns null when the range is unusable.
+ */
+private fun deriveLessonClock(
+    start: LocalTime,
+    end: LocalTime,
+    periods: List<Int>,
+    bells: Map<Int, PeriodEntity>
+): String? {
+    if (periods.isEmpty() || end <= start) return null
+    if (periods.size == 1) return "${periods.first()},$start-$end"
+    val pieces = mutableListOf<Triple<Int, LocalTime, LocalTime>>()
+    var cursor = start
+    periods.forEachIndexed { index, number ->
+        val bell = bells[number]
+        val bellStart = bell?.let { runCatching { LocalTime.parse(it.startTime) }.getOrNull() }
+        val bellEnd = bell?.let { runCatching { LocalTime.parse(it.endTime) }.getOrNull() }
+        val pieceStart = if (index == 0) start else maxOf(cursor, bellStart ?: cursor)
+        val pieceEnd = if (index == periods.lastIndex) end else minOf(bellEnd ?: end, end)
+        if (pieceEnd <= pieceStart) return null
+        pieces += Triple(number, pieceStart, pieceEnd)
+        cursor = pieceEnd
+    }
+    return pieces.joinToString(";") { "${it.first},${it.second}-${it.third}" }
+}
 
 private fun ShiguangCoursePayload.customTimePeriodIndexes(periods: List<PeriodEntity>): List<Int> {
     if (!hasExactTime()) return emptyList()
