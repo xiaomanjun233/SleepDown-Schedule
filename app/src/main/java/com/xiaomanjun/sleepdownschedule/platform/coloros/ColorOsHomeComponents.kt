@@ -33,8 +33,6 @@ private const val NavigationItem =
 private const val NavigationMaterial =
     "com.coui.appcompat.bottomfloatingnavigationbar.BaseBottomFloatingMenuView\$MaterialEffectState"
 
-/** Stock bottom-bar layers read as blown-out white over a pale wallpaper; stay just under 1. */
-private const val LightDockLayerBrightness = 0.9f
 
 internal class NativeDock(
     val view: ViewGroup,
@@ -46,6 +44,7 @@ internal class NativeDock(
     private val source: ColorOsNativeUi.Source,
     private val context: Context,
     private var accent: Int,
+    private var dark: Boolean,
     private var neutral: Boolean,
     private var foreground: Int?
 ) {
@@ -60,9 +59,11 @@ internal class NativeDock(
             "night=${context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK}")
     }
 
-    fun updateAccent(color: Int, neutral: Boolean = this.neutral, foreground: Int? = this.foreground, force: Boolean = false) {
-        if (!force && color == accent && neutral == this.neutral && foreground == this.foreground) return
+    fun updateAccent(color: Int, dark: Boolean = this.dark, neutral: Boolean = this.neutral,
+        foreground: Int? = this.foreground, force: Boolean = false) {
+        if (!force && color == accent && dark == this.dark && neutral == this.neutral && foreground == this.foreground) return
         accent = color
+        this.dark = dark
         this.foreground = foreground
         val restorePreset = this.neutral && !neutral
         this.neutral = neutral
@@ -74,22 +75,13 @@ internal class NativeDock(
         applyMaterial()
     }
 
-    private val isNight: Boolean
-        get() = context.resources.configuration.uiMode and
-            android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
-            android.content.res.Configuration.UI_MODE_NIGHT_YES
-
     fun applyMaterial() {
         if (!view.isAttachedToWindow || !source.blurEnabled()) return
-        // Neutral keeps the weather preset; otherwise stay on COUI's bottom-bar recipe and only
-        // dim its layers over a light backdrop. Dark chrome keeps COUI's own values.
-        val brightness = if (neutral || isNight) 1f else LightDockLayerBrightness
-        if (!neutral && brightness == 1f) return
         val base = source.load("com.coui.appcompat.bottomfloatingnavigationbar.BaseBottomFloatingMenuView")
         val paramsType = source.load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams")
         val apply = source.load("com.coui.appcompat.COUIMaterialEffect")
             .getMethod("setViewBlurEffect", View::class.java, paramsType)
-        val params = source.dockBlurParams(context, neutral, brightness)
+        val params = source.dockBlurParams(dark)
         for (index in 0 until view.childCount) {
             val child = view.getChildAt(index)
             if (base.isInstance(child)) apply.invoke(null, child, params)
@@ -143,6 +135,7 @@ internal fun createNativeHomeDock(
     tabs: List<Pair<Int, String>>,
     selectedIndex: Int,
     accent: Int,
+    dark: Boolean,
     neutral: Boolean = false,
     foreground: Int? = null,
     onSelect: (Int) -> Unit
@@ -191,7 +184,7 @@ internal fun createNativeHomeDock(
     bar.clipToPadding = false
     return NativeDock(bar, type.getMethod("getSelectedItemId"),
         type.getMethod("setSelectedItemId", Int::class.javaPrimitiveType), setListener, listener,
-        icons, source, context, accent, neutral, foreground).also { dock ->
+        icons, source, context, accent, dark, neutral, foreground).also { dock ->
         source.bindFollowLightIntensity(bar, afterMaterialApplied = {
             dock.applyMaterial()
             dock.tintLight()
@@ -226,13 +219,13 @@ internal fun ColorOsHomeDock(
     }
     val dock = remember(source, context, tabs) {
         ColorOsNativeUi.prepare("create the floating navigation bar") {
-            createNativeHomeDock(source, context, host, tabs, selectedIndex, accent) { callback.value(it) }
+            createNativeHomeDock(source, context, host, tabs, selectedIndex, accent, effectiveDark) { callback.value(it) }
         }
     } ?: return false
     key(context, tabs) {
         AndroidView(factory = { dock.view }, modifier = modifier.height(height), update = {
             if (source.updateTheme(context, effectiveDark)) dock.refreshAppearance()
-            dock.updateAccent(accent)
+            dock.updateAccent(accent, effectiveDark)
             dock.select(selectedIndex.coerceIn(tabs.indices))
         })
     }

@@ -260,4 +260,4 @@ main 源码基线现为 `e72643f2`，包含 `v1.2.8_beta1` / `498d39cc` 的全�
 
 ## 2026-10-31 1.2.8 Beta2
 
-已发布 `v1.2.8_beta2`（预发布，源码 `8e43ac36`）。#88 #89 #91 #92 #93 #94 #95 #96 已全部合入 `main`，无遗留 PR。附件 `SleepDown-Schedule_v1.2.8_beta2.apk`（7741763 / `06fe29d0…`）与 `SleepDown-ColorOS-Course-Component.apk`（3577334 / `5f5b4c47…`）经公开地址回读一致；组件未重建。后续待办：Gitee 同步 Release；凝光底栏材质仅保留“默认材质 + 浅色色层 0.9”，其余首页控件参数已按用户要求回退。
+已发布 `v1.2.8_beta2`（预发布，源码 `8e43ac36`）。#88 #89 #91 #92 #93 #94 #95 #96 已全部合入 `main`，无遗留 PR。附件 `SleepDown-Schedule_v1.2.8_beta2.apk`（7741763 / `06fe29d0…`）与 `SleepDown-ColorOS-Course-Component.apk`（3577334 / `5f5b4c47…`）经公开地址回读一致；组件未重建。用户随后要求同步 GitHub 最新 Release 到 Gitee，已于 2026-10-31 12:57:20（Asia/Shanghai）完成 [Gitee Beta2](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v1.2.8_beta2)（Release `1259032`），发布标签指向同一源码，完整说明与预发布标记一致，两份公开 APK 匿名回读大小及 SHA-256 匹配，应用更新列表已包含本版。同步记录见[发布报告](2026-10-31-beta2-1.2.8-release.md)，本地记录分支为 `codex/gitee-beta2-sync-20261031`，未重新构建或安装。凝光底栏材质仅保留“默认材质 + 浅色色层 0.9”，其余首页控件参数已按用户要求回退。

@@ -216,7 +216,7 @@ internal fun ColorOsParallelHomeDock(
         ColorOsNativeUi.prepare("create the native 3+1 dock") {
             val tabs = listOf(R.drawable.ic_day_view to "今日", R.drawable.ic_week_view to "课程表",
                 R.drawable.ic_settings to "设置")
-            val dock = createNativeHomeDock(source, context, host, tabs, selectedIndex, accent) { select.value(it) }
+            val dock = createNativeHomeDock(source, context, host, tabs, selectedIndex, accent, effectiveDark) { select.value(it) }
             lateinit var fab: NativeFab
             fab = createNativeFab(source, context, host, fabColor, style?.weatherMaterial == true, style?.foreground) {
                 // A moving/partially merged source cannot also become the menu's fixed anchor.
@@ -289,7 +289,7 @@ internal fun ColorOsParallelHomeDock(
                             group.dock.refreshAppearance()
                             group.fab.refreshAppearance()
                         }
-                        group.dock.updateAccent(accent)
+                        group.dock.updateAccent(accent, effectiveDark)
                         group.fab.updateAccent(fabColor, neutral = style?.weatherMaterial == true, foreground = style?.foreground)
                         group.dock.select(selectedIndex.coerceIn(0, 2))
                         group.expand(selectedIndex < 2, animate = true)

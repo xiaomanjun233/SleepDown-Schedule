@@ -9,14 +9,23 @@ internal fun ColorOsNativeUi.Source.weatherButtonBlurParams(
 ): Any = scaledBlurParams(context, "TYPE_CONTENT_TRANSPARENT_BUTTON", radiusScale, tintAlphaScale)
 
 /**
- * The Dock keeps COUI's own bottom-bar recipe. Its color layers read as blown-out white over a
- * pale wallpaper, so those layers are dimmed slightly; the rest of the recipe is untouched.
+ * COUIMaterialBlurEffect's own bottom-bar presets: light #B3666666 COLOR_DODGE + #99F5F5F5
+ * LUMINOSITY, dark #80666666 OVERLAY + #B3262626 LUMINOSITY, both at radius 25. The Dock uses
+ * these exact system values, with no local tint or brightness adjustment.
  */
-internal fun ColorOsNativeUi.Source.dockBlurParams(
-    context: Context, neutral: Boolean, layerBrightness: Float = 1f
-): Any = scaledBlurParams(context,
-    if (neutral) "TYPE_CONTENT_TRANSPARENT_BUTTON" else "TYPE_FRAMEWORK_BOTTOM_BAR", 1f,
-    layerBrightness = layerBrightness)
+private const val DockBlurRadius = 25f
+
+/** `dark` comes from the home chrome's wallpaper readability, not the app theme. */
+internal fun ColorOsNativeUi.Source.dockBlurParams(dark: Boolean): Any {
+    return load("com.coui.appcompat.COUIMaterialBlurEffect\$BlurEffectParams")
+        .getConstructor(Float::class.javaPrimitiveType, String::class.java, BlendMode::class.java,
+            String::class.java, BlendMode::class.java)
+        .newInstance(DockBlurRadius,
+            if (dark) "#80666666" else "#B3666666",
+            if (dark) BlendMode.OVERLAY else BlendMode.COLOR_DODGE,
+            if (dark) "#B3262626" else "#99F5F5F5",
+            BlendMode.LUMINOSITY)
+}
 
 /** Embed the alert's resource recipe in this window, without a second window-behind sampler. */
 internal fun ColorOsNativeUi.Source.dialogBlurParams(context: Context): Any {
