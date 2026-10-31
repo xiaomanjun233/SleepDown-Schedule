@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomeAdaptiveMetrics
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen
+
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -272,6 +275,10 @@ internal fun WeekPageSamplingScope(
     content: @Composable () -> Unit
 ) {
     val parentKey = LocalGlassSampleRecordKey.current
+    val parentFrozen = LocalGlassCoordinatesFrozen.current
+    val hd = LocalHomeAdaptiveMetrics.current?.isLargeScreen == true
+    val movingSample = remember(motion, page) { Any() }
+    val frozen = remember(motion, hd, parentFrozen) { { parentFrozen() || hd && motion.moving } }
     val paneVisible = LocalHomePaneVisible.current
     // An idle retained pane keeps only its settled page measured and composed. The outer pane
     // suppresses its drawing/sampling, so switching modes can reuse these glass nodes.
@@ -297,8 +304,11 @@ internal fun WeekPageSamplingScope(
         if (com.xiaomanjun.sleepdownschedule.glass.MaterialSamplingDiagnostics.enabled)
             com.xiaomanjun.sleepdownschedule.glass.MaterialSamplingDiagnostics.dedicatedRefreshes++
     }
-    val key = remember(motion, parentKey) {
-        derivedStateOf { Triple(parentKey(), motion.sampleKey, mountedSampleRevision.intValue) }
+    val key = remember(motion, parentKey, hd) {
+        derivedStateOf {
+            if (hd && motion.moving) movingSample to mountedSampleRevision.intValue
+            else Triple(parentKey(), motion.sampleKey, mountedSampleRevision.intValue)
+        }
     }
     val sampleKey = remember(key) { { key.value } }
     val parentTextFrozen = LocalHomeTextContrastFrozen.current
@@ -307,6 +317,7 @@ internal fun WeekPageSamplingScope(
     }
     CompositionLocalProvider(
         LocalWeekPageSlot provides page,
+        LocalGlassCoordinatesFrozen provides frozen,
         LocalGlassSampleRecordKey provides sampleKey,
         LocalHomeTextContrastFrozen provides textFrozen
     ) {

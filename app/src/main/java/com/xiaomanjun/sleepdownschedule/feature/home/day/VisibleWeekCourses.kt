@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.isHiddenByPeriodAlignment
+
 import androidx.compose.foundation.layout.only
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -47,6 +49,15 @@ internal data class WeekCourseBuckets(
 internal val SchoolWeekdays = (1..5).toList()
 internal val FullWeekdays = (1..7).toList()
 
+/** Day and week panes must resolve the same occurrence, including date bells and make-up days. */
+internal fun dayDisplayCourses(state: com.xiaomanjun.sleepdownschedule.model.AppState, date: LocalDate): List<CourseEntity> {
+    val week = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekForDateOrNull(state.config, date)
+        ?: return emptyList()
+    return weekCourseBuckets(state.courses, week, state.config, date, state.timetableCatalog, state.periods)
+        .byWeekday[date.dayOfWeek.value].orEmpty()
+        .filterNot { it.isHiddenByPeriodAlignment() }
+}
+
 internal fun weekCourseBuckets(courses: List<CourseEntity>, week: Int): WeekCourseBuckets {
     val visibleCourses = coursesVisibleInWeek(courses, week)
     return WeekCourseBuckets(
@@ -71,7 +82,7 @@ internal fun weekCourseBuckets(
     val visible = (1..7).flatMap { weekday ->
         val occurrenceDate = start.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, weekday))
         val adjustment = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config, start.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, weekday)))
-        if (adjustment == null) {
+        val occurrences = if (adjustment == null) {
             regular[weekday].orEmpty()
         } else if (adjustment.sourceDate == null) {
             // The day is off. Keep the regular cards so the timetable still shows what was planned,
@@ -85,7 +96,8 @@ internal fun weekCourseBuckets(
             if (originWeek == null) emptyList() else sourceWeeks.getOrPut(originWeek) {
                 coursesVisibleInWeek(sources, originWeek).groupBy { it.weekday }
             }[origin.dayOfWeek.value].orEmpty().map { it.copy(weekday = weekday) }
-        }.map { course ->
+        }
+        occurrences.map { course ->
             if (periods.isEmpty()) course else com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(
                 course, config, periods, catalog, occurrenceDate)
         }

@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.rememberPageMotionBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
@@ -29,9 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -209,6 +208,7 @@ internal fun Modifier.homeSwitchLayer(
     pageClip: HomeSwitchClip = HomeSwitchClip.None
 ): Modifier {
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1f else 1f
+    val motionBlur = rememberPageMotionBlur()
     return graphicsLayer {
         if (motion.landscape && !motion.plainSlide) {
             translationX = 0f
@@ -216,8 +216,7 @@ internal fun Modifier.homeSwitchLayer(
             alpha = visibility
             scaleX = 0.96f + 0.04f * visibility
             scaleY = scaleX
-            val blur = (1f - visibility) * 10.dp.toPx()
-            renderEffect = if (motion.moving && blur > 0.5f) BlurEffect(blur, blur, TileMode.Clamp) else null
+            renderEffect = if (motion.moving) motionBlur((1f - visibility) * 10f) else null
             clip = motion.moving
             shape = if (clip) RoundedCornerShape(24.dp) else RectangleShape
         } else {
@@ -329,8 +328,13 @@ internal fun HomeSwitchPane(
         val currentParentKey = rememberUpdatedState(parentKey)
         // The callbacks read changing visibility in drawing. Replacing the callbacks would
         // instead invalidate every retained glass consumer when this pane appears/disappears.
-        val frozen = remember { { !currentVisible.value || currentParentFrozen.value() } }
-        val sampleKey = remember { { if (currentVisible.value) currentParentKey.value() else hiddenKey } }
+        val movingSample = remember(motion) { Any() }
+        val frozen = remember(motion) {
+            { !currentVisible.value || currentParentFrozen.value() || motion.landscape && motion.moving }
+        }
+        val sampleKey = remember(motion) {
+            { if (!currentVisible.value) hiddenKey else if (motion.landscape && motion.moving) movingSample else currentParentKey.value() }
+        }
         val parentVisible = LocalHomePaneVisible.current
         val parentBackgroundFrozen = LocalHomeBackgroundFrozen.current
         val parentTextFrozen = LocalHomeTextContrastFrozen.current
@@ -357,6 +361,7 @@ internal fun HomeSwitchPane(
 /** A retained day page must not leak neighbouring cards through the outer page's rebound. */
 @Composable
 internal fun HomeDayPageDrawingScope(pager: PagerState, page: Int, content: @Composable () -> Unit) {
+    val hd = LocalHomeAdaptiveMetrics.current?.isLargeScreen == true
     val homeSwitching = LocalHomeTextContrastFrozen.current
     val visible by remember(pager, page, homeSwitching) {
         derivedStateOf {
@@ -372,10 +377,14 @@ internal fun HomeDayPageDrawingScope(pager: PagerState, page: Int, content: @Com
     val currentVisible = rememberUpdatedState(visible)
     val currentParentFrozen = rememberUpdatedState(parentFrozen)
     val currentParentKey = rememberUpdatedState(parentKey)
-    val frozen = remember { { !currentVisible.value || currentParentFrozen.value() } }
-    val key = remember(pager, hiddenKey) {
+    val movingSample = remember(pager, page) { Any() }
+    val frozen = remember(hd, pager) {
+        { !currentVisible.value || currentParentFrozen.value() || hd && pager.isScrollInProgress }
+    }
+    val key = remember(pager, hiddenKey, hd) {
         derivedStateOf {
-            if (currentVisible.value) Pair(currentParentKey.value(), pager.currentPage + pager.currentPageOffsetFraction) else hiddenKey
+            if (!currentVisible.value) hiddenKey else if (hd && pager.isScrollInProgress) movingSample
+            else Pair(currentParentKey.value(), pager.currentPage + pager.currentPageOffsetFraction)
         }
     }
     val sampleKey = remember(key) { { key.value } }

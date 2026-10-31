@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.app.ui
 
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.LocalFloatingChromeBounds
+
 import com.xiaomanjun.sleepdownschedule.feature.settings.ScheduleConfigScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsSection
 
@@ -767,6 +769,7 @@ fun CourseScheduleAppUi(
     val density = LocalDensity.current
     val homeAdaptiveMetrics = rememberHomeAdaptiveMetrics()
     val homeSidebarState = rememberHomeSidebarState(homeAdaptiveMetrics)
+    val homeTabBarBounds = remember { mutableStateOf<Rect?>(null) }
     val eduFloatingOverlayHost = remember(homeSidebarState) {
         DetailActivityFloatingOverlayHost { Modifier.homeSidebarContentInset(homeSidebarState) }
     }
@@ -2630,6 +2633,7 @@ fun CourseScheduleAppUi(
             LocalHomeAdaptiveMetrics provides sidebarContentMetrics,
             LocalHomePagerStartOverflow provides homeSidebarState.targetContentInset,
             LocalSettingsSharedGradient provides tabletAboutGradient,
+            LocalFloatingChromeBounds provides homeTabBarBounds,
             LocalHomeBackgroundFrozen provides rememberUpdatedState(homeBackgroundFreezeActive),
             LocalHomeTextContrastFrozen provides rememberUpdatedState(rootPageMotion.moving || homeModeMotion.moving || homeSidebarState.moving),
             com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen provides
@@ -2739,7 +2743,7 @@ fun CourseScheduleAppUi(
                                 .fillMaxWidth()
                                 .padding(top = homeAdaptiveMetrics.safeTop + 66.dp)
                                 .padding(
-                                    start = LocalHomePagerStartOverflow.current + if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp,
+                                    start = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp,
                                     end = if (homeAdaptiveMetrics.isLargeScreen) homeAdaptiveMetrics.tabletContentMargin else 0.dp
                                 )
                                 .homeCountdownShockwave(0.70f)
@@ -2969,7 +2973,7 @@ fun CourseScheduleAppUi(
                             }
                         }
                         HomeSwitchPane(rootPageMotion, secondary = true,
-                            modifier = Modifier.fillMaxSize().padding(top = homeSidebarState.targetContentTopInset),
+                            modifier = Modifier.fillMaxSize(),
                             pageClip = HomeSwitchClip.Page, retainContent = true) {
                             LandscapePageTransition(
                                 sidebarPage,
@@ -3477,6 +3481,7 @@ fun CourseScheduleAppUi(
 
     HomeSidebar(
         state = homeSidebarState, metrics = homeAdaptiveMetrics,
+        onTabBarBoundsChanged = { homeTabBarBounds.value = it },
         selected = when {
             pickerState.overlayVisible -> HomeSidebarDestination.Schedules
             screen is Screen.Config -> if (homeAdaptiveMetrics.isTabletLandscape) sidebarPage else HomeSidebarDestination.Settings

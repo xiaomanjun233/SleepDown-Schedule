@@ -33,6 +33,9 @@ private const val NavigationItem =
 private const val NavigationMaterial =
     "com.coui.appcompat.bottomfloatingnavigationbar.BaseBottomFloatingMenuView\$MaterialEffectState"
 
+/** Stock bottom-bar layers read as blown-out white over a pale wallpaper; stay just under 1. */
+private const val LightDockLayerBrightness = 0.9f
+
 internal class NativeDock(
     val view: ViewGroup,
     val getSelected: Method,
@@ -71,13 +74,22 @@ internal class NativeDock(
         applyMaterial()
     }
 
+    private val isNight: Boolean
+        get() = context.resources.configuration.uiMode and
+            android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
+            android.content.res.Configuration.UI_MODE_NIGHT_YES
+
     fun applyMaterial() {
-        if (!neutral || !view.isAttachedToWindow || !source.blurEnabled()) return
+        if (!view.isAttachedToWindow || !source.blurEnabled()) return
+        // Neutral keeps the weather preset; otherwise stay on COUI's bottom-bar recipe and only
+        // dim its layers over a light backdrop. Dark chrome keeps COUI's own values.
+        val brightness = if (neutral || isNight) 1f else LightDockLayerBrightness
+        if (!neutral && brightness == 1f) return
         val base = source.load("com.coui.appcompat.bottomfloatingnavigationbar.BaseBottomFloatingMenuView")
         val paramsType = source.load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams")
         val apply = source.load("com.coui.appcompat.COUIMaterialEffect")
             .getMethod("setViewBlurEffect", View::class.java, paramsType)
-        val params = source.dockBlurParams(context, neutral)
+        val params = source.dockBlurParams(context, neutral, brightness)
         for (index in 0 until view.childCount) {
             val child = view.getChildAt(index)
             if (base.isInstance(child)) apply.invoke(null, child, params)
@@ -214,14 +226,13 @@ internal fun ColorOsHomeDock(
     }
     val dock = remember(source, context, tabs) {
         ColorOsNativeUi.prepare("create the floating navigation bar") {
-            createNativeHomeDock(source, context, host, tabs, selectedIndex, accent,
-                neutral = style?.weatherMaterial == true, foreground = style?.foreground) { callback.value(it) }
+            createNativeHomeDock(source, context, host, tabs, selectedIndex, accent) { callback.value(it) }
         }
     } ?: return false
     key(context, tabs) {
         AndroidView(factory = { dock.view }, modifier = modifier.height(height), update = {
             if (source.updateTheme(context, effectiveDark)) dock.refreshAppearance()
-            dock.updateAccent(accent, neutral = style?.weatherMaterial == true, foreground = style?.foreground)
+            dock.updateAccent(accent)
             dock.select(selectedIndex.coerceIn(tabs.indices))
         })
     }

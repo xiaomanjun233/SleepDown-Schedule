@@ -551,7 +551,7 @@ fun ScheduleSettingsContentFixed(
             )
             SettingsDivider()
         }
-        SettingsNavigationRow("日期作息", "设置夏冬季等日期规则；固定网格保持基准作息", onClick = onOpenDateTimetables)
+        SettingsNavigationRow("日期作息", "在不同时间应用不同的作息", onClick = onOpenDateTimetables)
         SettingsDivider()
         SettingsInfoRow("编辑范围", "这里修改作息仅对本课表生效；共用作息请在下方“作息管理”中编辑")
     }

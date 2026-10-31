@@ -31,11 +31,13 @@ import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseEntity
+import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
 import com.xiaomanjun.sleepdownschedule.domain.schedule.originalTimeSegments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.withCustomTimetableTimes
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardAllowsCustomOverrides
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardBaseColor
 import kotlinx.coroutines.flow.map
@@ -118,13 +120,18 @@ fun NormalizedCourseEditorScreen(
         editorGroups.indexOfFirst { group -> group.courses.any { it.id == initialCourse?.id } }.coerceAtLeast(0)
     }
     val pagerState = rememberPagerState(initialPage = initialPage) { editorGroups.size }
-    val initialDrafts = remember(editorGroups, periodValues, config.totalWeeks, copyDraft) {
+    val initialDrafts = remember(editorGroups, periodValues, config.totalWeeks, copyDraft, formData.timetableCatalog) {
         editorGroups.mapIndexed { index, group ->
             index to if (copyDraft != null && initialCourse == null) {
                 // A copy is a new draft, never a member of the source course's edit group.
                 // Keep its content and selected weeks, but require a fresh time selection.
                 courseEditorCopyDraft(copyDraft, periodValues, config.totalWeeks.coerceAtLeast(1))
-            } else courseEditorDraft(group.courses, periodValues, config.totalWeeks.coerceAtLeast(1))
+            } else courseEditorDraft(group.courses.map { source ->
+                val reference = formData.timetableCatalog.times.filter { it.schemeId == source.independentPeriodSchemeId }
+                    .map { PeriodEntity(it.periodIndex, it.startTime, it.endTime, alias = it.alias) }
+                if (source.independentPeriodSchemeId == null) source
+                else runCatching { source.withCustomTimetableTimes(reference) }.getOrElse { source }
+            }, periodValues, config.totalWeeks.coerceAtLeast(1))
         }.toMap()
     }
     var drafts by remember(initialDrafts) { mutableStateOf(initialDrafts) }
@@ -143,13 +150,17 @@ fun NormalizedCourseEditorScreen(
         val currentDraft = drafts.getValue(page)
         val edited = currentDraft.toCourses(
             originals = group.courses,
-            periodValues = currentDraft.independentPeriodSchemeId?.let { id -> formData.timetableCatalog.times.filter { it.schemeId == id }.map { it.periodIndex } } ?: periodValues,
+            periodValues = periodValues,
             allowCustomColorOverride = courseCardAllowsCustomOverrides(config)
         )
+        val clockError = if (currentDraft.timingSelectionEdited || group.courses.isEmpty())
+            customCourseStartError(currentDraft.customStartTime, currentDraft.customPeriodTimes, courseClockOrigin(formData.periods)) else null
         when {
+            clockError != null -> error = clockError
             currentDraft.name.isBlank() -> error = "课程名称不能为空"
             currentDraft.weekdays.isEmpty() -> error = "请选择星期"
             currentDraft.weeks.isEmpty() -> error = "请选择周次"
+            currentDraft.independentPeriodSchemeId != null -> error = "旧课程的作息时间不完整，请选择自定义时间或跟随课表作息"
             currentDraft.credit.isNotBlank() && (currentDraft.credit.toFloatOrNull()?.let { !it.isFinite() || it < 0f } != false) -> error = "请输入有效学分"
             edited.firstOrNull()?.periods.isNullOrEmpty() && currentDraft.customStartTime == null -> error = "请选择节次或自定义时间"
             group.courses.isNotEmpty() && onSaveGroup != null -> onSaveGroup(group.courses, edited)

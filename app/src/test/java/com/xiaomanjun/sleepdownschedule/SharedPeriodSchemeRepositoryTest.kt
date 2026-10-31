@@ -9,6 +9,15 @@ import com.xiaomanjun.sleepdownschedule.model.agent.AgentActionScope
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedAction
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedActionType
 import com.xiaomanjun.sleepdownschedule.model.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangImportSession
+import com.xiaomanjun.sleepdownschedule.feature.importing.CanonicalScheduleJson
+import com.xiaomanjun.sleepdownschedule.feature.importing.buildCanonicalScheduleJson
+import com.xiaomanjun.sleepdownschedule.feature.importing.IcsScheduleCodec
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorDraft
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.toCourses
+import com.xiaomanjun.sleepdownschedule.feature.home.week.weekDayTimeline
+import java.time.LocalDate
+import java.time.LocalTime
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.After
@@ -480,6 +489,94 @@ class SharedPeriodSchemeRepositoryTest {
         assertEquals("08:10 - 09:00",courseTimeLabel(day.getValue("固定实验"),state.periods))
         assertEquals("08:00",state.periods.first().startTime)
         rejected { repository.saveDateTimetableRules(1,null,emptyList(),emptyList()) }
+    }
+
+    @Test fun importingAlternateTimetableFreezesCourseTimesWithoutCreatingCourseBindings() = runBlocking {
+        val config = requireNotNull(database.configDao().getConfig(1))
+        val base = database.configDao().getPeriods(1)
+        val alternate = base.map { if (it.periodIndex == 1) it.copy(startTime = "08:20", endTime = "09:05") else it }
+        val source = course(1, listOf(1)).copy(independentPeriodSchemeId = -1)
+        repository.importDraft(ImportDraft(config, base, listOf(source), timetablePlan = ImportedTimetablePlan(
+            independentTimetables = listOf(ImportedTimetable("B楼例外", alternate)))))
+        val saved = database.courseDao().getCourses(1).single()
+        assertNull(saved.independentPeriodSchemeId)
+        assertEquals("08:20", saved.customStartTime)
+        assertEquals("09:05", saved.customEndTime)
+        assertEquals(source.periods, saved.periods)
+        assertEquals(courseTimeSegments(source, alternate), courseTimeSegments(saved, base))
+        assertTrue(database.periodSchemeDao().getAllSchemes().none { it.name == "B楼例外" })
+    }
+
+    @Test fun academicBridgeClocksStayConsistentThroughRoomEditingAndExports() = runBlocking {
+        val draft = academicDraft("""[
+          {"name":"跨楼实训","teacher":"教师","position":"B201","day":4,"weeks":[1],"startSection":1,"endSection":2,"customPeriodTimes":"1,08:20-09:05;2,09:15-10:00"},
+          {"name":"跨楼实训","teacher":"教师","position":"B201","day":4,"weeks":[2],"startSection":1,"endSection":2},
+          {"name":"普通课程","teacher":"教师","position":"A101","day":4,"weeks":[1,2],"startSection":3,"endSection":3}
+        ]""")
+        val date = LocalDate.of(2026, 10, 29)
+        val preview = draft.timingPreviewState()
+        val expected = courseTimeSegments(preview.courses.first { it.customPeriodTimes != null }, preview.periods)
+        assertEquals(listOf(1, 2), expected.map { it.index })
+        assertEquals(listOf("08:20", "09:15"), expected.map { it.start.toString() })
+        repository.importDraft(draft)
+        val saved = repository.activeSnapshot()
+        val stored = saved.courses.first { it.customPeriodTimes != null }.arrangementForWrite()
+        assertEquals(3, saved.periods.size)
+        assertEquals("09:00", saved.periods.first().startTime)
+        assertNull(stored.independentPeriodSchemeId)
+        assertEquals(expected, courseTimeSegments(stored, saved.periods))
+        assertEquals(expected, coursesForDate(saved, date).first { it.name == stored.name }.let { courseTimeSegments(it, saved.periods) })
+        assertEquals(expected.first().start, courseStartTime(stored, saved.periods))
+        assertEquals(expected.last().end, courseEndTime(stored, saved.periods))
+        assertTrue(weekDayTimeline(saved, date, LocalTime.of(8, 30)).exceptionalActivePeriod)
+        assertNull(weekDayTimeline(saved, date, LocalTime.of(9, 10)).activePeriodIndex)
+        assertEquals(2, weekDayTimeline(saved, date, LocalTime.of(9, 30)).activePeriodIndex)
+        assertFalse(weekDayTimeline(saved, date, LocalTime.of(11, 0)).exceptionalActivePeriod)
+        assertEquals("09:00", weekDayTimeline(saved, date.plusWeeks(1), LocalTime.of(9, 10)).periods.first().startTime)
+
+        val roundTrip = CanonicalScheduleJson.decode(buildCanonicalScheduleJson(saved.config, saved.periods, saved.courses,
+            saved.timetableCatalog), saved.config).timingPreviewState()
+        assertEquals(expected, courseTimeSegments(roundTrip.courses.first { it.customPeriodTimes != null }, roundTrip.periods))
+        val ics = IcsScheduleCodec.export("教务验收", saved.config, saved.periods, saved.courses, date, saved.timetableCatalog)
+        assertTrue(Regex("DTSTART(?:;[^:]*)?:20261029T082000").containsMatchIn(ics))
+        val restored = IcsScheduleCodec.parse(ics.toByteArray(), saved.config).getOrThrow().timingPreviewState()
+        assertEquals(expected, courseTimeSegments(restored.courses.first { it.customPeriodTimes != null }, restored.periods))
+
+        val edited = courseEditorDraft(listOf(stored), saved.periods.map { it.periodIndex }, saved.config.totalWeeks)
+            .copy(name = "跨楼实训·已编辑").toCourses(listOf(stored), saved.periods.map { it.periodIndex }, true).single()
+        repository.updateCourse(edited)
+        val reopened = repository.activeSnapshot().courses.single { it.id == stored.id }.arrangementForWrite()
+        assertEquals(expected, courseTimeSegments(reopened, saved.periods))
+        assertEquals(stored.weeks, reopened.weeks)
+    }
+
+    @Test fun academicDateRuleChangesOnlyItsDateAndSurvivesBothExports() = runBlocking {
+        val draft = academicDraft("""[{"name":"日期课程","teacher":"教师","position":"A101","day":4,"weeks":[1,2],"startSection":1,"endSection":2}]""", dateRule = true)
+        repository.importDraft(draft)
+        val saved = repository.activeSnapshot()
+        val date = LocalDate.of(2026, 10, 29)
+        val clocks = coursesForDate(saved, date).single().let { courseTimeSegments(it, saved.periods) }
+        assertEquals("08:20", clocks.first().start.toString())
+        assertEquals("09:55", clocks.last().start.toString())
+        assertEquals("09:00", saved.periods.first().startTime)
+        assertTrue(weekDayTimeline(saved, date, LocalTime.of(8, 30)).exceptionalActivePeriod)
+        assertEquals("09:00", weekDayTimeline(saved, date.plusDays(1), LocalTime.of(9, 10)).periods.first().startTime)
+        val json = CanonicalScheduleJson.decode(buildCanonicalScheduleJson(saved.config, saved.periods, saved.courses,
+            saved.timetableCatalog), saved.config).timingPreviewState()
+        assertEquals(clocks, courseTimeSegments(coursesForDate(json, date).single(), json.periods))
+        val ics = IcsScheduleCodec.export("日期教务验收", saved.config, saved.periods, saved.courses, date, saved.timetableCatalog)
+        val restored = IcsScheduleCodec.parse(ics.toByteArray(), saved.config).getOrThrow().timingPreviewState()
+        assertEquals(clocks, courseTimeSegments(coursesForDate(restored, date).single(), restored.periods))
+    }
+
+    private fun academicDraft(courses: String, dateRule: Boolean = false): ImportDraft {
+        val session = ShiguangImportSession()
+        session.begin(defaultConfig(), defaultPeriods(), allowImportedBellTimes = true)
+        session.stageTimeSlots("""[{"number":1,"startTime":"09:00","endTime":"09:45"},{"number":2,"startTime":"09:55","endTime":"10:40"},{"number":3,"startTime":"10:50","endTime":"11:35"}]""")
+        session.stageCourseConfig("""{"semesterStartDate":"2026-10-26","semesterTotalWeeks":2,"firstDayOfWeek":1}""")
+        if (dateRule) session.stageComboSchedule("""{"name":"日期安排","publicSchedules":[{"name":"仅今天","startDate":"2026-10-29","endDate":"2026-10-29","timeSlots":[{"number":1,"startTime":"08:20","endTime":"09:05"}]}]}""")
+        session.stageCourses(courses)
+        return session.complete()
     }
 
     private fun standardTimes(id: Long) = listOf(PeriodSchemeTimeEntity(id, 1, "08:00", "08:45"),

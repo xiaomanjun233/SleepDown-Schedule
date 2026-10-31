@@ -6,6 +6,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -29,13 +30,13 @@ internal fun WeekCourseTimeLabel(text: String, color: Color, modifier: Modifier 
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
     val style = weekCourseTimeLabelStyle(fontSize, lineHeight)
-    BoxWithConstraints(modifier.fillMaxWidth()) {
+    BoxWithConstraints(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         val widthPx = with(density) { maxWidth.toPx() }
         val naturalWidth = remember(text, style, measurer) {
             measurer.measure(text, style = style, softWrap = false, maxLines = 1).size.width
         }
         val fit = if (naturalWidth > 0) ((widthPx - 1f) / naturalWidth).coerceIn(0.01f, 1f) else 1f
-        HomeReadableText(text, color = color, modifier = Modifier.fillMaxWidth(),
+        HomeReadableText(text, color = color,
             style = style, fontSize = fontSize * fit, lineHeight = lineHeight,
             textAlign = TextAlign.Center, maxLines = 1, softWrap = false)
     }

@@ -135,6 +135,8 @@ internal fun TopAssistantSurface(
     refractionEnabled: Boolean = true,
     opaqueHeaderHeight: Dp = 0.dp,
     bottomShadeAlpha: Float = 0.04f,
+    /** Collapsed island sits against the camera cutout: paint it flat black, never a gradient. */
+    solidShade: Boolean = false,
     interactiveHighlight: InteractiveHighlight? = null,
     morphAllocation: GlassMorphAllocation? = null,
     shapeProvider: (() -> Shape)? = null,
@@ -200,7 +202,11 @@ internal fun TopAssistantSurface(
                     startY = bounds.top + header,
                     endY = maxOf(bounds.top + header + 1f, bounds.bottom)
                 )
-                onDrawBehind { drawRect(shade, bounds.topLeft, bounds.size) }
+                if (solidShade) {
+                    onDrawBehind { drawRect(Color.Black, bounds.topLeft, bounds.size) }
+                } else {
+                    onDrawBehind { drawRect(shade, bounds.topLeft, bounds.size) }
+                }
             }.then(if (glow) Modifier.drawWithCache {
                 val radius = size.width * 0.70f
                 val cyan = Brush.radialGradient(

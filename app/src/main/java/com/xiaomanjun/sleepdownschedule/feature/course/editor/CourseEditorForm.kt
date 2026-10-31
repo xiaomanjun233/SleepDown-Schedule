@@ -82,8 +82,7 @@ internal fun CourseEditorFormPage(
     rowEntrance: (Int) -> Float = { _ -> 1f },
     timetableCatalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog = com.xiaomanjun.sleepdownschedule.model.TimetableCatalog()
 ) {
-    val selectedBells = draft.independentPeriodSchemeId?.let { id -> timetableCatalog.times.filter { it.schemeId == id }
-        .sortedBy { it.periodIndex }.map { PeriodEntity(it.periodIndex,it.startTime,it.endTime,config.id,it.alias) } } ?: periods
+    val selectedBells = periods
     val selectedValues = selectedBells.map { it.periodIndex }
     // This form lives on the wallpaper-sampling CourseGlassCard. Its complete foreground domain
     // must follow the glass contrast decision; appPanelForegroundColor follows the app theme and
@@ -203,21 +202,6 @@ internal fun CourseEditorFormPage(
                 placeholder = "学分（可选）", config = config,
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp), fieldTextColor = editorFieldTextColor)
         }
-        item(key = "timing-mode", contentType = "selector") {
-            val templates = timetableCatalog.schemes.filter { scheme -> timetableCatalog.times.any { it.schemeId == scheme.id } }
-            val labels = listOf("跟随课表作息") + templates.map { "指定：${it.name}" } + "自定义时间"
-            val selected = if (draft.customStartTime != null) labels.lastIndex
-                else draft.independentPeriodSchemeId?.let { id -> templates.indexOfFirst { it.id == id }.takeIf { it >= 0 }?.plus(1) } ?: 0
-            CourseEditorPickerValue("时间方式", labels[selected], backdrop, config) {
-                onOpenPicker(CourseEditorPickerRequest.Wheel("时间方式", labels, selected, onConfirm = { index, _ ->
-                    val custom = index == labels.lastIndex
-                    onDraftChange(draft.copy(independentPeriodSchemeId = templates.getOrNull(index-1)?.id.takeUnless { custom },
-                        customStartTime = selectedBells.firstOrNull()?.startTime?.takeIf { custom },
-                        customEndTime = selectedBells.firstOrNull()?.endTime?.takeIf { custom },
-                        customPeriodTimes = null, customLessonTimesEdited = false, timingSelectionEdited = true))
-                }))
-            }
-        }
         if (course?.timingReviewReason != null || course?.arrangementProjection?.reviewReason != null) {
             item(key = "timing-review") { Text(course.timingReviewReason ?: course.arrangementProjection!!.reviewReason.orEmpty(),
                 modifier = Modifier.padding(horizontal = 20.dp), style = MaterialTheme.typography.bodySmall) }
@@ -264,6 +248,7 @@ internal fun CourseEditorFormPage(
                                 customEndTime = null,
                                 customPeriodTimes = null,
                                 customLessonTimesEdited = false,
+                                independentPeriodSchemeId = null,
                                 periodRangeEdited = true,
                                 timingSelectionEdited = true
                             )

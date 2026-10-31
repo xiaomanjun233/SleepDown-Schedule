@@ -21,13 +21,10 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.BlurEffect
-import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.unit.dp
 
 /** Shared sidebar-page motion. Feature navigation owns the target and the portrait transition. */
 private object LandscapePageMotion {
@@ -50,6 +47,7 @@ internal fun <T> LandscapePageTransition(
     content: @Composable (T) -> Unit
 ) {
     val pageTransition = updateTransition(target, label = "landscape-page")
+    val motionBlur = rememberPageMotionBlur()
     val moving = pageTransition.isRunning || pageTransition.currentState != pageTransition.targetState
     val latestMovingCallback by rememberUpdatedState(onMovingChange)
     LaunchedEffect(moving) { latestMovingCallback(moving) }
@@ -67,12 +65,11 @@ internal fun <T> LandscapePageTransition(
                     scaleOut(LandscapePageMotion.ExitScale, targetScale = LandscapePageMotion.HiddenScale))
                 .using(null)
         }) { page ->
-        val blur by transition.animateFloat(label = "landscape-page-blur", transitionSpec = { LandscapePageMotion.Blur }) {
+        val blur = transition.animateFloat(label = "landscape-page-blur", transitionSpec = { LandscapePageMotion.Blur }) {
             if (it == EnterExitState.Visible) 0f else LandscapePageMotion.HiddenBlurDp
         }
         Box(Modifier.fillMaxSize().graphicsLayer {
-            val radius = blur.dp.toPx()
-            renderEffect = if (radius > 0.5f) BlurEffect(radius, radius, TileMode.Clamp) else null
+            renderEffect = motionBlur(blur.value)
         }) { content(page) }
     }
 }

@@ -12,19 +12,47 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class WeekTimeSlotGridTest {
-    @Test fun realClockBandsKeepLunchAndLateCoursesVisibleWithoutAddingLessonNumbers() {
+    @Test fun smartModeOccupiesGridRowsWithoutCollapsingThem() {
+        val slot = TimeSlotCourse("study", "晚自习", "08:00", "09:40",
+            weekdays = listOf(1, 2, 3), displayMode = com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotDisplayMode.SMART,
+            startWeek = 2, endWeek = 4)
+        fun grid(week: Int, busy: Boolean) = weekTimeSlotGrid(listOf(slot), 3, 100f,
+            periods = periods, week = week, clockIntervals = if (busy) listOf(java.time.LocalTime.parse("08:00") to java.time.LocalTime.parse("08:45")) else emptyList())
+        assertTrue(grid(1, false).bands.isEmpty())
+        assertTrue(grid(5, false).bands.isEmpty())
+        assertEquals(300f, grid(2, true).totalHeight, 0f)
+        assertEquals(300f, grid(2, false).totalHeight, 0f)
+        val band = grid(2, false).bands.single()
+        assertTrue(band.inGrid)
+        assertFalse(band.collapsed)
+        assertEquals(200f, band.height, 0f)
+        assertTrue(grid(2, false).collapsedRows.isEmpty())
+    }
+
+    @Test fun retiredGridModeUsesTheSameRowsAsSmartMode() {
+        val slot = TimeSlotCourse("study", "晚自习", "08:00", "09:40", weekdays = listOf(1, 2, 3),
+            displayMode = com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotDisplayMode.GRID)
+        val grid = weekTimeSlotGrid(listOf(slot), 3, 100f, periods = periods)
+        assertEquals(300f, grid.totalHeight, 0f)
+        assertEquals(200f, grid.bands.single().height, 0f)
+        assertTrue(grid.bands.single().inGrid)
+        assertEquals(listOf(0..2), timeSlotColumnRuns((1..7).toList(), slot.weekdays.toSet()))
+    }
+
+    @Test fun clocksOutsideTheBellsNeverAddBlankAxisRows() {
         val start = java.time.LocalTime.parse("12:00")
         val end = java.time.LocalTime.parse("13:00")
         val grid = weekTimeSlotGrid(emptyList(),periods.size,100f,periods=periods,clockIntervals=listOf(start to end))
         assertEquals(3,grid.rowTops.size)
-        assertEquals(1,grid.clockBands.size)
+        assertEquals(0,grid.clockBands.size)
+        assertEquals(300f, grid.totalHeight, 0f)
         val source = course.copy(periods=emptyList(),customStartTime="12:00",customEndTime="13:00")
         val projected = com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(source,defaultConfig(),periods)
         val segment = com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups(listOf(projected),periods.map { it.periodIndex },periods).single().segments.single()
         val bounds = weekCardVerticalBounds(segment,periods,100.dp,grid)
-        assertTrue(bounds.first >= 300f)
+        assertTrue(bounds.first >= 200f)
         assertTrue(bounds.second > bounds.first)
-        assertEquals(grid.totalHeight,bounds.second,0.01f)
+        assertTrue(bounds.second <= grid.totalHeight)
         assertEquals(emptyList<Int>(),projected.periods)
     }
 
@@ -45,15 +73,15 @@ class WeekTimeSlotGridTest {
 
     @Test fun bandsHaveTheirOwnSpaceIncludingBeforeFirstAndAfterLastLesson() {
         val grid = grid()
-        assertEquals(listOf(32f, 164f, 264f), grid.rowTops)
-        assertEquals(listOf(0f, 132f, 364f), grid.bands.map { it.top })
-        assertEquals(396f, grid.totalHeight, 0f)
-        assertEquals(132f, grid.bottom(1f), 0f)
-        assertEquals(164f, grid.top(1f), 0f)
+        assertEquals(listOf(46f, 192f, 292f), grid.rowTops)
+        assertEquals(listOf(0f, 146f, 392f), grid.bands.map { it.top })
+        assertEquals(438f, grid.totalHeight, 0f)
+        assertEquals(146f, grid.bottom(1f), 0f)
+        assertEquals(192f, grid.top(1f), 0f)
         assertEquals(100f, grid.bottom(2f) - grid.top(1f), 0f)
         // Exact-clock courses can extend beyond the last numbered row; retain that geometry.
-        assertEquals(389f, grid.top(3.25f), 0f)
-        assertEquals(464f, grid.bottom(4f), 0f)
+        assertEquals(417f, grid.top(3.25f), 0f)
+        assertEquals(492f, grid.bottom(4f), 0f)
     }
 
     @Test fun stackedBandsNeverCompressLessonCardsOrOverlapTheLastLesson() {
@@ -84,10 +112,10 @@ class WeekTimeSlotGridTest {
             null, 0, false, axis.rowTops)
         assertFalse(grid.isLessonY(150f))
         assertTrue(grid.isLessonY(200f))
-        assertEquals(12f, grid.rowTop(-0.2f), 0.001f)
+        assertEquals(26f, grid.rowTop(-0.2f), 0.001f)
         val bounds = courseCopyBounds(course.copy(periods = listOf(2)), grid, (1..7).toList(), periods).single()
-        assertEquals(166f, bounds.top, 0f)
-        assertEquals(262f, bounds.bottom, 0f)
+        assertEquals(194f, bounds.top, 0f)
+        assertEquals(290f, bounds.bottom, 0f)
     }
 
     @Test fun moveResizeAndSundayTargetsUseActualRowAndColumnPositions() {
@@ -100,7 +128,7 @@ class WeekTimeSlotGridTest {
         assertEquals(1, request.weekdayAfterMove(100f))
         assertEquals(1, request.columnDeltaTo(1))
         assertEquals(7, request.weekdayAfterMove(-100f))
-        assertEquals(232f, request.heightForSpan(2), 0f)
+        assertEquals(246f, request.heightForSpan(2), 0f)
         assertEquals(2, request.spanForHeight(228f))
     }
 }

@@ -35,6 +35,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
@@ -55,9 +57,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -214,9 +219,13 @@ internal fun HomeSidebar(
     hasGradientBackground: Boolean = false,
     tabSelection: HomeSidebarDestination = selected,
     actions: List<AddMenuAction> = emptyList(),
+    onTabBarBoundsChanged: (Rect?) -> Unit = {},
     onAction: (AddMenuAction) -> Unit = { it.onClick() },
     onNavigate: (HomeSidebarDestination) -> Unit
 ) {
+    val currentBoundsCallback by rememberUpdatedState(onTabBarBoundsChanged)
+    DisposableEffect(Unit) { onDispose { currentBoundsCallback(null) } }
+    SideEffect { if (!state.enabled || !visible || state.expanded || state.moving) currentBoundsCallback(null) }
     if (!state.enabled || !visible) return
     val adaptiveGlass = LocalAdaptiveGlass.current
     val lightGlass = if (followHomeGlass) adaptiveGlass.lightGlass else !appUsesDarkTheme(config)
@@ -232,14 +241,6 @@ internal fun HomeSidebar(
                 .copy(alpha = homeChromeGlassSurfaceAlpha(lightGlass) * 0.86f)
         },
         animationSpec = tween(220), label = "HomeSidebarSurfaceTheme"
-    )
-    val expansion = state.expansionProgress().coerceIn(0f, 1f)
-    val tokens = GlassTokens.pill().copy(
-        blur = homeChromeBlur(lerp(1.3f, 16f, expansion).dp, config),
-        lensHeight = lerp(10f, 6f, expansion).dp,
-        lensAmount = lerp(40f, 12f, expansion).dp,
-        surfaceAlpha = homeChromeGlassSurfaceAlpha(lightGlass) * 0.86f,
-        highlightAlpha = 0.035f
     )
     val shape = RoundedRectangle(24.dp)
     val enabled = navigationEnabled && !state.moving
@@ -297,6 +298,9 @@ internal fun HomeSidebar(
         // own measured child, otherwise a disabled bar can shield the dialog beside it.
         Box(
             Modifier.fillMaxSize().excludeParentPullGesture()
+                .onGloballyPositioned {
+                    if (!state.expanded && !state.moving) currentBoundsCallback(it.boundsInRoot())
+                }
                 .pointerInput(enabled) {
                     if (!enabled) awaitPointerEventScope {
                         while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
@@ -307,8 +311,9 @@ internal fun HomeSidebar(
         ) {
             // Glass clips its own drawContent to the material outline. Keep the slider a sibling
             // so its pressed lens can grow beyond the shell instead of being cut at both ends.
-            if (state.expanded || state.moving) GlassSurface(
-                backdrop = backdrop, config = config, tokens = tokens,
+            if (state.expanded || state.moving) SidebarMorphSurface(
+                state = state, lightGlass = lightGlass,
+                backdrop = backdrop, config = config,
                 surfaceColorOverride = surfaceColor, shape = shape,
                 domain = if (selected == HomeSidebarDestination.Schedules) GlassBackdropDomain.PickerScene
                     else GlassBackdropDomain.ChromeCombined,
@@ -323,10 +328,13 @@ internal fun HomeSidebar(
                         ink.copy(alpha = if (lightGlass) 0.06f else 0.12f),
                         Color.White.copy(alpha = if (lightGlass) 0.22f else 0.22f)
                     )), shape))
-            ) {}
+            )
             if (state.expanded || state.moving) {
                 Column(
-                    Modifier.fillMaxSize().clipToBounds().padding(horizontal = 8.dp, vertical = 6.dp)
+                    Modifier.fillMaxSize().clipToBounds()
+                        .fixedFloatingChromeContent(state.expandedInset - state.startEdge,
+                            metrics.screenHeight - metrics.safeTop - metrics.safeBottom - 14.dp)
+                        .padding(horizontal = 8.dp, vertical = 6.dp)
                         .graphicsLayer { alpha = ((state.expansionProgress() - 0.35f) / 0.65f).coerceIn(0f, 1f) }
                         .then(if (state.moving) Modifier.clearAndSetSemantics { } else Modifier)
                 ) {
@@ -384,6 +392,7 @@ internal fun HomeSidebar(
             if (!state.expanded || state.moving) {
                 Row(
                     Modifier.fillMaxWidth().height(48.dp)
+                        .fixedFloatingChromeContent(minOf(300.dp, metrics.screenWidth - 24.dp), 48.dp)
                         .graphicsLayer {
                             alpha = (1f - state.expansionProgress() * 2.5f).coerceIn(0f, 1f)
                             compositingStrategy = CompositingStrategy.ModulateAlpha
@@ -414,6 +423,30 @@ internal fun HomeSidebar(
         }
         }
     }
+}
+
+/** Only the shell is remeasured during morph; native rows/text retain stable constraints. */
+internal fun Modifier.fixedFloatingChromeContent(width: Dp, height: Dp): Modifier = layout { measurable, constraints ->
+    val child = measurable.measure(Constraints.fixed(width.roundToPx().coerceAtLeast(1), height.roundToPx().coerceAtLeast(1)))
+    layout(constraints.maxWidth, constraints.maxHeight) { child.placeRelative(0, 0) }
+}
+
+@Composable
+private fun SidebarMorphSurface(
+    state: HomeSidebarState, lightGlass: Boolean, backdrop: Backdrop, config: ScheduleConfigEntity,
+    surfaceColorOverride: Color, shape: androidx.compose.ui.graphics.Shape, domain: GlassBackdropDomain,
+    debugLabel: String, nativeMaterial: Boolean, nativeDark: Boolean, restShadowAlpha: Float, modifier: Modifier
+) {
+    // Keep the frame-dependent material read out of the sidebar list's composition scope.
+    val expansion = state.expansionProgress().coerceIn(0f, 1f)
+    val tokens = GlassTokens.pill().copy(
+        blur = homeChromeBlur(lerp(1.3f, 16f, expansion).dp, config),
+        lensHeight = lerp(10f, 6f, expansion).dp, lensAmount = lerp(40f, 12f, expansion).dp,
+        surfaceAlpha = homeChromeGlassSurfaceAlpha(lightGlass) * 0.86f, highlightAlpha = 0.035f
+    )
+    GlassSurface(backdrop = backdrop, config = config, tokens = tokens, surfaceColorOverride = surfaceColorOverride,
+        shape = shape, domain = domain, debugLabel = debugLabel, nativeMaterial = nativeMaterial,
+        nativeDark = nativeDark, restShadowAlpha = restShadowAlpha, modifier = modifier) {}
 }
 
 @Composable
