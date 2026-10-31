@@ -20,12 +20,18 @@ internal object AutoRefreshWebSession {
         for (cookie in profile.cookies) {
             if (origin(cookie.url) == null) continue
             // A live browser session may be newer than the encrypted snapshot.
-            val currentNames = manager.getCookie(cookie.url).orEmpty().split(';')
-                .map { it.substringBefore('=').trim() }.toSet()
+            // Compare values, not names: a rotated or expired live cookie must not keep the
+            // retained session out of the jar. Equal values are the only case worth skipping.
+            val current = manager.getCookie(cookie.url).orEmpty().split(';')
+                .map(String::trim).filter { it.contains('=') }
+                .associate { it.substringBefore('=').trim() to it.substringAfter('=', "").trim() }
             for (entry in cookie.value.split(';').map(String::trim).filter { it.contains('=') }) {
-                if (entry.substringBefore('=') in currentNames) continue
+                if (current[entry.substringBefore('=').trim()] == entry.substringAfter('=', "").trim()) continue
+                // CookieManager cannot report attributes; keep Secure for https sessions so the
+                // server still receives the restored cookie. Path stays "/" as a safe superset.
+                val secure = if (cookie.url.startsWith("https", true) && !entry.contains("secure", true)) "; Secure" else ""
                 suspendCancellableCoroutine<Unit> { continuation ->
-                    manager.setCookie(cookie.url, "$entry; Path=/") {
+                    manager.setCookie(cookie.url, "$entry; Path=/$secure") {
                         if (continuation.isActive) continuation.resume(Unit)
                     }
                 }
@@ -52,7 +58,10 @@ internal object AutoRefreshWebSession {
     fun captureCookies(urls: Collection<String>): List<AutoRefreshCookie> {
         val manager = CookieManager.getInstance()
         manager.flush()
-        return urls.filter { origin(it) != null }.distinct().mapNotNull { url ->
+        // CookieManager only answers for a concrete path, so probe each URL and its origin root.
+        val probes = urls.flatMap { listOf(it, origin(it)?.plus("/")) }
+            .filterNotNull().filter { origin(it) != null }.distinct()
+        return probes.mapNotNull { url ->
             manager.getCookie(url)?.takeIf(String::isNotBlank)?.let { AutoRefreshCookie(url, it) }
         }
     }
@@ -147,13 +156,11 @@ internal object AutoRefreshWebSession {
             sessionStorage.setItem(marker, '1');
             var values = $valuesJson;
             // A live token in either store wins over the whole retained credential snapshot.
-            var occupied = Object.keys(values).some(function(key) {
-                var name = key.slice(key.indexOf(':') + 1);
-                return localStorage.getItem(name) || sessionStorage.getItem(name);
-            });
-            if (!occupied) Object.keys(values).forEach(function(key) {
+            // Restore every key independently: one stale live token must not block the rest.
+            Object.keys(values).forEach(function(key) {
                 var name = key.slice(key.indexOf(':') + 1);
                 var storage = key.indexOf('local:') === 0 ? localStorage : sessionStorage;
+                if (storage.getItem(name) === values[key]) return;
                 storage.setItem(name, values[key]);
             });
             var savedName = ${windowName?.let(JSONObject::quote) ?: "null"};
