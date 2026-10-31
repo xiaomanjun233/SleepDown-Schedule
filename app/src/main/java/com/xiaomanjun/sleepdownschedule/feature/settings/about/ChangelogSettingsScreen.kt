@@ -302,6 +302,18 @@ fun ChangelogSettingsScreen(
                 // versions; each details animation still owns only its own small graphics layer.
                 AboutGlassPanel(darkTheme, Modifier.fillMaxWidth(), longContent = true) {
             changelogItem(
+                "1.2.8_beta2",
+                """
+                    调整凝光视效下的底栏材质：保持系统默认底栏材质，浅色壁纸下略微压低材质亮度，减少过曝。
+                    特殊课程的显示模式合并为“独立显示”和“智能显示”：独立显示独占时间列，智能显示像普通课程一样占用格子，相邻星期合并为一组。
+                    教务导入的课程会保留学校自己的上下课时间，周视图按课时显示并与真实时刻对齐。
+                    修复周视图课程实际时间显示与 HD 布局动效，时间标注与卡片位置保持一致。
+                    修复金标无缝动画的源圆角采样与返回衔接闪烁，展开和收回更连贯。
+                    教务导入页的灵动岛不再被返回按钮遮挡，收起后为纯黑，不再出现渐变色。
+                    改进教务自动刷新的登录态保存，会话过期或 cookie 轮换后不再频繁要求重新登录。
+                """.trimIndent()
+            )
+            changelogItem(
                 "1.2.8_beta1",
                 """
                     重构课程与作息管理，支持同一课表中不同教学楼、校区使用不同作息。普通课程跟随课表作息，指定作息和自定义时间分别保留，减少切换作息、编辑课程后的时间错乱。
