@@ -15,10 +15,8 @@ internal fun ColorOsNativeUi.Source.weatherButtonBlurParams(
  */
 private const val DockBlurRadius = 25f
 
-internal fun ColorOsNativeUi.Source.dockBlurParams(context: Context): Any {
-    val dark = context.resources.configuration.uiMode and
-        android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
-        android.content.res.Configuration.UI_MODE_NIGHT_YES
+/** `dark` comes from the home chrome's wallpaper readability, not the app theme. */
+internal fun ColorOsNativeUi.Source.dockBlurParams(dark: Boolean): Any {
     return load("com.coui.appcompat.COUIMaterialBlurEffect\$BlurEffectParams")
         .getConstructor(Float::class.javaPrimitiveType, String::class.java, BlendMode::class.java,
             String::class.java, BlendMode::class.java)
