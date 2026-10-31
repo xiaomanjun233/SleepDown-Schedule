@@ -1,5 +1,11 @@
 # 当前工作交接
 
+## 2026-10-30 导入课程的校区自发作息改为按课时
+
+用户要求把“某门课所在楼宇作息与课表不同”的上游数据映射为按课时课程，并复用 #88 已实现的当天表头替换与黄色节次标，不新增第二套作息、不写入作息库。PR #91（Draft，base #88 `codex/week-time-display`，head `codex/imported-course-bells`）只改导入侧：`ShiguangImportSession` 把只给整体起止的课程转成 `customPeriodTimes`，仅首尾边界取上游值、中间节次沿用目标作息，切分不成时回退整体区间；同时修正 `isCustomTime` 课程被清空节次的既有问题，并让 `day=0`、`number=0` 作息与超出学期的 `weeks` 不再中止整次导入（分别转待安排课程、不进网格、扩展总周数并提示）。表头替换与黄标仍由 `weekDayTimeline` 负责，本次未改显示层。
+
+验证：`compileGithubReleaseKotlin` 通过；新增 `ShiguangImportSessionBellSyncTest`（6）与 `CampusBellFixtureTest`（1），既有 `ShiguangImportSessionCustomTimeTest`（4）、`WeekCourseBellTest`（9）通过。联合基线（#88 + #89）完整签名打包 6m58s 通过，1.2.8_beta1 / 36，APK 7,758,151 字节，经 5038 USB 覆盖安装到原 OPPO PLJ110 返回 Success；验收用 `tmp/验收-校区作息.json` 已推送至设备 Download。尚未合并或发布；表头黄标与卡片位置的实机观感待用户确认。
+
 最新联合候选 `b5ef16f4` 已完整签名打包成功（5m57s），含时间/HD `2eb22f1e` 与金标 `56f7dde8`，1.2.8_beta1 / 36、金标开启；保全 APK `tmp/review-apks/SleepDown-1.2.8-beta1-hd-b5ef16f4-30b65f4f.apk`（主仓库相对路径），SHA-256 `30b65f4fc711ceb0b4832d412156afa00c72e19dca66199d3bdbb95ef853a7b2`。此前安装时离线，用户随后再次要求“安装”，已于 2026-10-29 17:07:01（Asia/Shanghai）经 SDK 37.0.1 客户端与同来源 5038 USB 服务覆盖安装到原 OPPO PLJ110（Android 17 / SDK 37），返回 Success，手机 base.apk SHA-256 与本包完全一致。5037/5039 和全部无线 mDNS 同时检查，无其他设备；保留数据，未主动启动，无需重新构建。源码保持时间 PR 分支；详细签名、通道及实际安装结果见[联合交付](reports/2026-10-28-time-gold-review-install.md)。实际界面与 ROM 观感待确认。
 
 ## 2026-10-29 HD、显示调用及手动时间边界
