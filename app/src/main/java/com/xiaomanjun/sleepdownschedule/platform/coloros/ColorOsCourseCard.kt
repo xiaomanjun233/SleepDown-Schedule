@@ -440,7 +440,7 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
                     else if (style == ColorOsSurfaceStyle.Form) source.weatherButtonBlurParams(context, value.blurRadiusScale, 0f)
                     else if (style == ColorOsSurfaceStyle.Dialog) source.dialogBlurParams(context)
                     else if (style == ColorOsSurfaceStyle.Dock || style == ColorOsSurfaceStyle.NeutralDock)
-                        source.dockBlurParams(context, style == ColorOsSurfaceStyle.NeutralDock)
+                        source.dockBlurParams(context)
                     else source.weatherButtonBlurParams(context, value.blurRadiusScale, value.tintAlphaScale))
         } else {
             setBlur.invoke(null, this, blurType.getField(if (blur) CourseBlurPreset else "TYPE_NO_EFFECT").get(null))

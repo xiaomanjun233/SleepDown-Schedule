@@ -33,8 +33,6 @@ private const val NavigationItem =
 private const val NavigationMaterial =
     "com.coui.appcompat.bottomfloatingnavigationbar.BaseBottomFloatingMenuView\$MaterialEffectState"
 
-/** Stock bottom-bar layers read as blown-out white over a pale wallpaper; stay just under 1. */
-private const val LightDockLayerBrightness = 0.9f
 
 internal class NativeDock(
     val view: ViewGroup,
@@ -74,22 +72,13 @@ internal class NativeDock(
         applyMaterial()
     }
 
-    private val isNight: Boolean
-        get() = context.resources.configuration.uiMode and
-            android.content.res.Configuration.UI_MODE_NIGHT_MASK ==
-            android.content.res.Configuration.UI_MODE_NIGHT_YES
-
     fun applyMaterial() {
         if (!view.isAttachedToWindow || !source.blurEnabled()) return
-        // Neutral keeps the weather preset; otherwise stay on COUI's bottom-bar recipe and only
-        // dim its layers over a light backdrop. Dark chrome keeps COUI's own values.
-        val brightness = if (neutral || isNight) 1f else LightDockLayerBrightness
-        if (!neutral && brightness == 1f) return
         val base = source.load("com.coui.appcompat.bottomfloatingnavigationbar.BaseBottomFloatingMenuView")
         val paramsType = source.load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams")
         val apply = source.load("com.coui.appcompat.COUIMaterialEffect")
             .getMethod("setViewBlurEffect", View::class.java, paramsType)
-        val params = source.dockBlurParams(context, neutral, brightness)
+        val params = source.dockBlurParams(context)
         for (index in 0 until view.childCount) {
             val child = view.getChildAt(index)
             if (base.isInstance(child)) apply.invoke(null, child, params)
