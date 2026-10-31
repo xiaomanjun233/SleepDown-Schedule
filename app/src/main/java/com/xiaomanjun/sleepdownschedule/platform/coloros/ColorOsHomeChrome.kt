@@ -4,21 +4,19 @@ import android.content.Context
 import android.graphics.BlendMode
 import androidx.compose.foundation.layout.*
 
-internal const val LightFollowLightScale = 0.65f
-
 internal fun ColorOsNativeUi.Source.weatherButtonBlurParams(
     context: Context, radiusScale: Float = 1f, tintAlphaScale: Float = 1f
 ): Any = scaledBlurParams(context, "TYPE_CONTENT_TRANSPARENT_BUTTON", radiusScale, tintAlphaScale)
 
 /**
- * The Dock keeps COUI's own bottom-bar recipe. Over a pale wallpaper its color layers read as
- * blown-out white, so dim those layers slightly instead of swapping in another preset.
+ * The Dock keeps COUI's own bottom-bar recipe. Its color layers read as blown-out white over a
+ * pale wallpaper, so those layers are dimmed slightly; the rest of the recipe is untouched.
  */
 internal fun ColorOsNativeUi.Source.dockBlurParams(
-    context: Context, neutral: Boolean = false, layerBrightness: Float = 1f
-): Any = scaledBlurParams(
-    context, if (neutral) "TYPE_CONTENT_TRANSPARENT_BUTTON" else "TYPE_FRAMEWORK_BOTTOM_BAR",
-    1f, layerBrightness = layerBrightness)
+    context: Context, neutral: Boolean, layerBrightness: Float = 1f
+): Any = scaledBlurParams(context,
+    if (neutral) "TYPE_CONTENT_TRANSPARENT_BUTTON" else "TYPE_FRAMEWORK_BOTTOM_BAR", 1f,
+    layerBrightness = layerBrightness)
 
 /** Embed the alert's resource recipe in this window, without a second window-behind sampler. */
 internal fun ColorOsNativeUi.Source.dialogBlurParams(context: Context): Any {

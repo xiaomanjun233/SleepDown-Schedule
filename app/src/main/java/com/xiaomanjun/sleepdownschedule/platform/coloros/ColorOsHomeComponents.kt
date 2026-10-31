@@ -81,8 +81,8 @@ internal class NativeDock(
 
     fun applyMaterial() {
         if (!view.isAttachedToWindow || !source.blurEnabled()) return
-        // Neutral keeps the transparent weather preset. Otherwise stay on COUI's bottom-bar
-        // recipe and only dim its layers over a light backdrop; dark chrome stays untouched.
+        // Neutral keeps the weather preset; otherwise stay on COUI's bottom-bar recipe and only
+        // dim its layers over a light backdrop. Dark chrome keeps COUI's own values.
         val brightness = if (neutral || isNight) 1f else LightDockLayerBrightness
         if (!neutral && brightness == 1f) return
         val base = source.load("com.coui.appcompat.bottomfloatingnavigationbar.BaseBottomFloatingMenuView")
@@ -318,7 +318,7 @@ internal fun ColorOsHomeIconButton(
                 .getField("TYPE_DEFAULT_BLUR").getInt(null)
             type.getMethod("setMaterialEffectType", Int::class.javaPrimitiveType).invoke(effect, materialType)
             NativeIconButton(view, sizedIcon, requireNotNull(effect), type.getMethod("detach"), source).also { button ->
-                button.updateHomeStyle(style?.weatherMaterial == true, null, backdropBlurred)
+                button.updateHomeStyle(style?.weatherMaterial == true, style?.foreground, backdropBlurred)
                 source.bindFollowLightIntensity(view, effect)
                 view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                     override fun onViewAttachedToWindow(view: View) { view.post { button.refreshAppearance() } }
@@ -335,12 +335,12 @@ internal fun ColorOsHomeIconButton(
             // Popup parses its surface/text colors once in its constructor. A separate context
             // follows the same neutral theme and material as the home button.
             NativeOverflowMenu(source, source.themedContext(host, effectiveDark), host,
-                neutral = style?.weatherMaterial == true, foreground = null)
+                neutral = style?.weatherMaterial == true, foreground = style?.foreground)
         }
     }
     key(context, iconRes) {
         AndroidView(factory = { button.view }, modifier = modifier, update = { view ->
-            button.updateHomeStyle(style?.weatherMaterial == true, null, backdropBlurred)
+            button.updateHomeStyle(style?.weatherMaterial == true, style?.foreground, backdropBlurred)
             if (source.updateTheme(context, effectiveDark)) button.refreshAppearance()
             view.contentDescription = contentDescription
             view.isSelected = selected

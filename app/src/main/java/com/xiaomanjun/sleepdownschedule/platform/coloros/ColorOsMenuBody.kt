@@ -39,9 +39,6 @@ internal fun ColorOsNativeUi.Source.createMenuItem(context: Context, host: Conte
         }
 }
 
-/** COUI samples 160f behind its popup; the home menu keeps its layers with a shorter reach. */
-private const val HomeMenuBlurRadius = 120f
-
 /** RoundFrameLayout's standard menu colors/radius, with the same optional home-neutral tint. */
 internal fun ColorOsNativeUi.Source.menuBlurParams(context: Context, neutral: Boolean): Any {
     val base = load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams")
@@ -57,7 +54,7 @@ internal fun ColorOsNativeUi.Source.menuBlurParams(context: Context, neutral: Bo
     return load("com.coui.appcompat.COUIMaterialBlurEffect\$BlurEffectParams")
         .getConstructor(Float::class.javaPrimitiveType, String::class.java, android.graphics.BlendMode::class.java,
             String::class.java, android.graphics.BlendMode::class.java)
-        .newInstance(HomeMenuBlurRadius, layer("getColorLayer1", "coui_popup_list_blend_blur_$theme"),
+        .newInstance(160f, layer("getColorLayer1", "coui_popup_list_blend_blur_$theme"),
             base.getMethod("getBlendModeLayer1").invoke(preset),
             layer("getColorLayer2", "coui_popup_list_mix_blur_$theme"),
             base.getMethod("getBlendModeLayer2").invoke(preset))
