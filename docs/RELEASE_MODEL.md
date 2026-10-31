@@ -6,10 +6,10 @@
 
 | 项目 | 当前事实 | 核对入口 |
 | --- | --- | --- |
-| 持续开发入口 | `main`，源码收束点 `e72643f2`，实际版本 `1.2.8_beta1` / 36 | #87 合并提交与 `app/build.gradle.kts` |
-| 最新 Beta | `v1.2.8_beta1`，发布源码 `498d39cc`，已通过 #87 回流 main；发布标签与附件保持原样 | [发布记录](2026-10-27-beta1-1.2.8-release.md)、[收束记录](reports/2026-10-28-beta1-consolidation.md) |
+| 持续开发入口 | `main`，源码收束点 `8e43ac36`，实际版本 `1.2.8_beta2` / 36 | #87 合并提交与 `app/build.gradle.kts` |
+| 最新 Beta | `v1.2.8_beta2`，发布源码 `8e43ac36`，已通过 #96 进入 main；发布标签与附件保持原样 | [发布记录](2026-10-31-beta2-1.2.8-release.md)、[Beta1 记录](2026-10-27-beta1-1.2.8-release.md) |
 | 最新正式版 | `v1.2.7.1`，源码 `bdc380ee`，双平台正式发布；r1 已撤下，旧标签保留。发布源码已通过 #78 回流 main | [发布与更新兼容核验](reports/2026-10-20-update-revision-compatibility.md)、[架构任务基线](reports/2026-10-20-architecture-review.md) |
-| Android 主应用 | `com.xiaomanjun.sleepdownschedule`，当前开发基线 `1.2.8_beta1` / `36`；最新正式版仍为 `1.2.7.1` / `35` | `app/build.gradle.kts` 与发布记录 |
+| Android 主应用 | `com.xiaomanjun.sleepdownschedule`，当前开发基线 `1.2.8_beta2` / `36`；最新正式版仍为 `1.2.7.1` / `35` | `app/build.gradle.kts` 与发布记录 |
 | 发行渠道 | `github` 与 `store` 两种 flavor；厂商实验入口由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 按渠道控制 | `app/build.gradle.kts`、`app/src/github/`、`app/src/store/` |
 | 课程组件 | 独立包 `com.suda.yzune.wakeupschedule`；构建版本 `6.0.19` / `259` | `coloros-wakeup-proxy/build.gradle.kts` |
 | 历史实验线 | `exp` 与 `v1.2.6-exp*` 保留作为已发布历史，停止作为后续功能基线 | Git 历史与旧 Release |
@@ -56,6 +56,10 @@
 6. 核对发布源码可从 main 到达；若按已授权例外先发布，记录源码 SHA、差异和回流 PR。回流时保留已发布提交的祖先关系，不能只更新版本字符串便宣称 main 与 Release 对齐。合并与发布的授权分别处理。
 
 构建、安装与专项验收入口见根目录 [AGENTS.md](../AGENTS.md)。Git 工作方式见[开发工作流](DEVELOPMENT_WORKFLOW.md)。具体历史记录在 `release-notes/` 与带日期的 `docs/` 报告中；历史记录不自动定义当前功能状态。
+
+## 1.2.8 Beta2 已发布（2026-10-31）
+
+用户确认先写日志再发布。主应用 `1.2.8_beta2` / `36`（与 Beta1 相同的 `versionCode`，可直接覆盖安装），新标签 `v1.2.8_beta2`，源码 `8e43ac36`。GitHub 已发为预发布，两份附件回读的字节数与 SHA-256 与本地一致；课程组件沿用 `6.0.19` / `259`，本版未重新构建。详见[发布记录](2026-10-31-beta2-1.2.8-release.md)。
 
 ## 1.2.8 Beta1 已发布（2026-10-27）
 

@@ -257,3 +257,7 @@ main 源码基线现为 `e72643f2`，包含 `v1.2.8_beta1` / `498d39cc` 的全�
 - [横屏凝光整条胶囊反馈与亮度修订](reports/2026-10-19-navigation-shell-feedback.md)
 - [助理 Popup、日视图文件上传与课程外观修订](reports/2026-10-19-popup-day-file-card-feedback.md)
 - [通用多作息显示与界面反馈](reports/2026-10-19-standard-clock-ui-feedback.md)
+
+## 2026-10-31 1.2.8 Beta2
+
+已发布 `v1.2.8_beta2`（预发布，源码 `8e43ac36`）。#88 #89 #91 #92 #93 #94 #95 #96 已全部合入 `main`，无遗留 PR。附件 `SleepDown-Schedule_v1.2.8_beta2.apk`（7741763 / `06fe29d0…`）与 `SleepDown-ColorOS-Course-Component.apk`（3577334 / `5f5b4c47…`）经公开地址回读一致；组件未重建。后续待办：Gitee 同步 Release；凝光底栏材质仅保留“默认材质 + 浅色色层 0.9”，其余首页控件参数已按用户要求回退。
