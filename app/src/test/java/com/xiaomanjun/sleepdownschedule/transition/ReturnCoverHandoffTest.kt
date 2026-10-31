@@ -19,12 +19,15 @@ import org.robolectric.annotation.LooperMode
 @Config(sdk = [35], application = Application::class)
 @LooperMode(LooperMode.Mode.PAUSED)
 class ReturnCoverHandoffTest {
-    @Test fun coverLeavesBeforeTheFirstSourceDrawInsteadOfOverlappingItForTwoFrames() {
+    @Test fun coverWaitsForTheRestoredComposeFrameBeforeLeaving() {
         val owner = Robolectric.buildActivity(Activity::class.java).setup()
         val root = owner.get().window.decorView
         var releases = 0
         ReturnCoverHandoff(root) { releases++ }.start()
         assertEquals(0, releases)
+        root.viewTreeObserver.dispatchOnPreDraw()
+        assertEquals(0, releases)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
         root.viewTreeObserver.dispatchOnPreDraw()
         assertEquals(1, releases)
         root.viewTreeObserver.dispatchOnPreDraw()

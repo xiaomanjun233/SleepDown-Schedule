@@ -7,6 +7,7 @@ internal object SharedViewKitContract {
     const val FallbackType = "sharedView.fallbackAnimType"
     const val Color = "sharedView.color"
     const val Bitmap = "sharedView.bitmap"
+    const val Radius = "sharedView.radius"
     const val Open = 0
     const val Back = 1
 }

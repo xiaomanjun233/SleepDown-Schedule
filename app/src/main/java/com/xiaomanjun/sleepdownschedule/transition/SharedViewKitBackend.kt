@@ -26,17 +26,26 @@ internal class SharedViewKitBackend(
         val capabilities: SharedViewKitCapabilities,
         val generation: Long,
         val kitBitmap: Bitmap,
+        val sourceView: SharedViewKitSourceView,
         var closing: Boolean = false,
         var watchdog: Runnable? = null
     ) {
         var kitReturnBitmap: Bitmap? = null
-        var returnAnchor: TransitionAnchorFrame? = null
+        var pendingReturnAnchor: TransitionAnchorFrame? = null
+        var releaseReturnCover: (() -> Unit)? = null
+        var returnStarted = false
+        var coverAttached = false
         /**
          * The vendor path may return the same Bitmap instance from its own copy step and recycle it
          * when the request is rejected. Only this app-owned software copy is ever handed over, so a
          * failed handshake can never invalidate the payload bitmap that Legacy still needs.
          */
         fun recycleKitBitmap() {
+            releaseReturnCover?.invoke()
+            releaseReturnCover = null
+            if (!coverAttached) pendingReturnAnchor?.bitmap?.let { if (!it.isRecycled) it.recycle() }
+            pendingReturnAnchor = null
+            sourceView.release()
             if (!kitBitmap.isRecycled) kitBitmap.recycle()
             kitReturnBitmap?.let { if (!it.isRecycled) it.recycle() }
             kitReturnBitmap = null
@@ -63,16 +72,25 @@ internal class SharedViewKitBackend(
         // Compose GraphicsLayer snapshots are Config#HARDWARE. The vendor implementation reads
         // pixels for the return mask color and rejects hardware bitmaps, so hand it an app-owned
         // software copy; the payload bitmap stays untouched for the Legacy fallback.
-        val kitBitmap = anchor.bitmap?.softwareCopyForKit()
+        val kitBitmap = anchor.bitmap?.softwareCopyForKit(anchor.cornerRadiusPx)
             ?: return rejected("softwareBitmapUnavailable")
         if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST)
             Log.i("SharedViewKit", "bitmap=${anchor.bitmap.config}->${kitBitmap.config} ${kitBitmap.width}x${kitBitmap.height}")
         val session = request.session
+        val sourceView = SharedViewKitSourceView.attach(request.activity, anchor, kitBitmap)
+        if (sourceView == null) {
+            kitBitmap.recycle()
+            return rejected("sourceViewUnavailable")
+        }
         if (!session.moveTo(TransitionSessionState.NativeRegistered)) {
+            sourceView.release()
             kitBitmap.recycle()
             return rejected("invalidSessionState")
         }
-        val resource = Resource(session, WeakReference(request.activity), capabilities, session.nextCallbackGeneration(), kitBitmap)
+        val resource = Resource(session, WeakReference(request.activity), capabilities, session.nextCallbackGeneration(), kitBitmap, sourceView)
+        sourceView.onNativeSourceRestored = {
+            dispatch { if (current(resource) && resource.closing && resource.returnStarted) showReturnCover(resource) }
+        }
         resources[session.id] = resource
         if (!TransitionPayloadStore.registerCleanup(session.id) { dispatch { release(session.id) } }) {
             release(session.id)
@@ -91,13 +109,12 @@ internal class SharedViewKitBackend(
             } }
         )
         val extras = Bundle().apply {
+            putFloat(SharedViewKitContract.Radius, sourceView.radiusPx)
             capabilities.fallbackType?.let { putInt(SharedViewKitContract.FallbackType, it) }
             putInt(SharedViewKitContract.Color, anchor.surfaceColor ?: transitionSurfaceColor(kitBitmap,
                 request.payload?.backgroundColor ?: android.graphics.Color.TRANSPARENT))
         }
-        val options = sdk("options") { api.options(kitBitmap,
-            boundsForKit(request.activity.window.decorView, anchor, capabilities),
-            anchor.cornerRadiusPx, extras, callbacks) }
+        val options = sdk("options") { api.options(sourceView, extras, callbacks) }
         if (options == null) {
             session.invalidateCallbacks()
             release(session.id)
@@ -128,11 +145,10 @@ internal class SharedViewKitBackend(
         }.getOrNull()
         val bundle = Bundle().apply {
             if (source != null && anchor?.isValid == true) {
-                resource.returnAnchor = anchor
                 putParcelable(SharedViewKitContract.Bounds, boundsForKit(source.window.decorView, anchor, resource.capabilities))
-                putFloat("sharedView.radius", anchor.cornerRadiusPx)
+                putFloat(SharedViewKitContract.Radius, anchor.cornerRadiusPx)
                 if (resource.capabilities.returnBitmap) {
-                    anchor.bitmap?.softwareCopyForKit()?.let { bitmap ->
+                    anchor.bitmap?.softwareCopyForKit(anchor.cornerRadiusPx)?.let { bitmap ->
                         // The opening menu and the return FAB are different surfaces. Updating
                         // bounds alone leaves the SDK animating the opening menu's old pixels.
                         resource.kitReturnBitmap = bitmap
@@ -152,18 +168,23 @@ internal class SharedViewKitBackend(
         }
         resource.closing = true
         movingSession = session.id
-        // The source stays hidden for the whole return animation: the ROM flies the card back into
-        // those bounds, so restoring it here would show the real button underneath the moving card.
-        // `complete()` restores it once the BACK callback (or watchdog) ends the session.
+        // Prepare pixels only. Do not draw a second button underneath the whole return animation.
+        if (source != null && anchor?.isValid == true) {
+            (resource.kitReturnBitmap ?: anchor.bitmap)?.softwareCopyForKit(anchor.cornerRadiusPx)?.let { bitmap ->
+                resource.pendingReturnAnchor = anchor.copy(bitmap = bitmap)
+            }
+        }
         watch(resource)
         return true
     }
 
     private fun onStart(resource: Resource, mode: Int) {
         if (!current(resource)) return
+        if (mode == SharedViewKitContract.Back && resource.closing) resource.returnStarted = true
         if (mode == SharedViewKitContract.Open && !resource.closing &&
             resource.session.moveFrom(TransitionSessionState.NativeRegistered, TransitionSessionState.NativeRunning)) {
             TransitionPayloadStore.handoffOpeningSource(resource.session.id)
+            resource.sourceView.visibility = View.INVISIBLE
         }
     }
 
@@ -191,25 +212,27 @@ internal class SharedViewKitBackend(
 
     private fun complete(resource: Resource) {
         if (!current(resource)) return
-        // Cover the state handoff only until the first restored source draw. Holding a translucent
-        // button snapshot for extra frames composites it twice and causes a visible brightness pulse.
+        // ROMs without a source-alpha signal get an end-only handoff, never an early cover.
+        showReturnCover(resource)
         val source = resource.source.get()?.takeUnless { it.isDestroyed || it.isFinishing }
-        val anchor = resource.returnAnchor
-        var releaseReturnCover: (() -> Unit)? = null
-        if (source != null && anchor?.isValid == true) {
-            val coverBitmap = (resource.kitReturnBitmap ?: anchor.bitmap)?.softwareCopyForKit()
-            if (coverBitmap != null) {
-                releaseReturnCover = source.attachOpeningSourceSnapshotHandoff(anchor.copy(bitmap = coverBitmap))
-                // Do not recycle a bitmap that may still be referenced by a submitted RenderNode.
-                // Removing the cover releases ownership; the renderer/GC retires its pixel storage.
-            }
-        }
+        val releaseReturnCover = resource.releaseReturnCover
+        resource.releaseReturnCover = null
         TransitionPayloadStore.releaseSource(resource.session.id)
-        releaseReturnCover?.let { ReturnCoverHandoff(checkNotNull(source).window.decorView, it).start() }
+        releaseReturnCover?.let { if (source != null) ReturnCoverHandoff(source.window.decorView, it).start() else it() }
         resource.session.invalidateCallbacks()
         if (movingSession == resource.session.id) movingSession = null
         resource.session.moveTo(TransitionSessionState.Finished)
         TransitionPayloadStore.remove(resource.session.id)
+    }
+
+    private fun showReturnCover(resource: Resource) {
+        if (resource.coverAttached) return
+        val source = resource.source.get()?.takeUnless { it.isDestroyed || it.isFinishing } ?: return
+        val anchor = resource.pendingReturnAnchor ?: return
+        source.attachOpeningSourceSnapshotHandoff(anchor)?.let {
+            resource.coverAttached = true
+            resource.releaseReturnCover = it
+        }
     }
 
     override fun onActivityDestroyed(activity: Activity) {
@@ -307,6 +330,18 @@ internal fun boundsForKit(root: View, anchor: TransitionAnchorFrame, capabilitie
  * reading the return mask color. Always hand the Kit an independent ARGB_8888 copy: the payload
  * bitmap then stays valid for Legacy fallback even if the vendor recycles its own input.
  */
-private fun Bitmap.softwareCopyForKit(): Bitmap? = runCatching {
-    if (isRecycled) null else copy(Bitmap.Config.ARGB_8888, false)
+internal fun Bitmap.softwareCopyForKit(radiusPx: Float): Bitmap? = runCatching {
+    if (isRecycled) return@runCatching null
+    val software = copy(Bitmap.Config.ARGB_8888, false) ?: return@runCatching null
+    val radius = radiusPx.coerceIn(0f, minOf(width, height) / 2f)
+    if (radius == 0f) return@runCatching software
+    try {
+        Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { rounded ->
+            val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                shader = android.graphics.BitmapShader(software, android.graphics.Shader.TileMode.CLAMP,
+                    android.graphics.Shader.TileMode.CLAMP)
+            }
+            android.graphics.Canvas(rounded).drawRoundRect(0f, 0f, width.toFloat(), height.toFloat(), radius, radius, paint)
+        }
+    } finally { software.recycle() }
 }.getOrNull()

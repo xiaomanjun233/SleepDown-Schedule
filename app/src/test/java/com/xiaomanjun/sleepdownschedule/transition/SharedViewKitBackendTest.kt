@@ -22,10 +22,12 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @LooperMode(LooperMode.Mode.PAUSED)
 class SharedViewKitBackendTest {
     private val api = FakeApi()
@@ -38,6 +40,27 @@ class SharedViewKitBackendTest {
     private var returning: TransitionAnchorFrame? = anchor
 
     @After fun cleanup() { TransitionPayloadStore.clearForTests(); shadowOf(Looper.getMainLooper()).idle() }
+
+    @Test fun sourceViewHasFullBoundsAndOutlineAndLivesUntilSessionRelease() = runBlocking {
+        val request = request()
+        assertEquals(TransitionBackendOpenResult.Started, backend.open(request))
+        val view = checkNotNull(api.inputView)
+        assertEquals(100, view.width)
+        assertEquals(140, view.height)
+        assertEquals(10, view.left)
+        assertEquals(20, view.top)
+        assertEquals(20f, api.openBundle!!.getFloat(SharedViewKitContract.Radius), 0f)
+        api.callbacks!!.onStart(SharedViewKitContract.Open)
+        api.callbacks!!.onEnd(SharedViewKitContract.Open)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(view.isAttachedToWindow)
+        assertEquals(View.INVISIBLE, view.visibility)
+        assertTrue(backend.requestClose(source, request.session))
+        api.callbacks!!.onEnd(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertFalse(view.isAttachedToWindow)
+        assertFalse(anchor.bitmap!!.isRecycled)
+    }
 
     @Test fun surfaceColorUsesTheCardRatherThanTheBlackActivityBackground() {
         val pixels = Bitmap.createBitmap(80, 100, Bitmap.Config.ARGB_8888).apply {
@@ -162,6 +185,69 @@ class SharedViewKitBackendTest {
         assertEquals(0, api.cancels)
         assertNotNull(shadowOf(source).nextStartedActivity)
         assertNull(shadowOf(source).nextStartedActivity)
+    }
+
+    @Test fun landingCoverAppearsOnlyWhenNativeSourceRestoresAtTheReturnTail() = runBlocking {
+        val request = openAndSettle()
+        returning = anchor.copy(bitmap = Bitmap.createBitmap(100, 140, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.CYAN)
+        })
+        val destination = Robolectric.buildActivity(Activity::class.java).setup().get()
+        assertTrue(backend.requestClose(destination, request.session))
+        fun sourcePixel(): Int {
+            val root = source.window.decorView
+            val capture = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+            root.draw(android.graphics.Canvas(capture))
+            return capture.getPixel(60, 90).also { capture.recycle() }
+        }
+        assertNotEquals(android.graphics.Color.CYAN, sourcePixel())
+        val nativeSource = api.inputView!!
+        nativeSource.alpha = 0f
+        nativeSource.alpha = 1f
+        assertNotEquals(android.graphics.Color.CYAN, sourcePixel())
+        api.callbacks!!.onStart(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idle()
+        nativeSource.alpha = 0f
+        assertNotEquals(android.graphics.Color.CYAN, sourcePixel())
+        nativeSource.alpha = 1f
+        assertEquals(android.graphics.Color.CYAN, sourcePixel())
+        assertEquals(0, releases.get())
+        api.callbacks!!.onEnd(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idle()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+        source.window.decorView.viewTreeObserver.dispatchOnPreDraw()
+        assertNotEquals(android.graphics.Color.CYAN, sourcePixel())
+        assertEquals(1, releases.get())
+    }
+
+    @Test fun sourceDestructionDisarmsTheLateLandingSignal() = runBlocking {
+        val request = openAndSettle()
+        assertTrue(backend.requestClose(Robolectric.buildActivity(Activity::class.java).setup().get(), request.session))
+        backend.onActivityDestroyed(source)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNull(api.inputView!!.onNativeSourceRestored)
+        assertNull(TransitionPayloadStore.session(request.session.id))
+        assertEquals(1, releases.get())
+    }
+
+    @Test fun aMissingNativeRestoreSignalKeepsTheWholeReturnFreeOfLandingPixels() = runBlocking {
+        val request = openAndSettle()
+        returning = anchor.copy(bitmap = Bitmap.createBitmap(100, 140, Bitmap.Config.ARGB_8888).apply {
+            eraseColor(android.graphics.Color.CYAN)
+        })
+        assertTrue(backend.requestClose(Robolectric.buildActivity(Activity::class.java).setup().get(), request.session))
+        api.callbacks!!.onStart(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300))
+        val root = source.window.decorView
+        val capture = Bitmap.createBitmap(root.width, root.height, Bitmap.Config.ARGB_8888)
+        root.draw(android.graphics.Canvas(capture))
+        assertNotEquals(android.graphics.Color.CYAN, capture.getPixel(60, 90))
+        capture.recycle()
+        api.callbacks!!.onEnd(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+        root.viewTreeObserver.dispatchOnPreDraw()
+        assertEquals(1, releases.get())
+        assertNull(TransitionPayloadStore.session(request.session.id))
     }
 
     @Test fun declaredReturnBitmapReplacesOpeningPixelsAndStaysAliveUntilBackCompletes() = runBlocking {
@@ -304,14 +390,22 @@ class SharedViewKitBackendTest {
         var returnBundle: Bundle? = null
         var returnActivity: Activity? = null
         var inputBitmap: Bitmap? = null
+        var inputView: SharedViewKitSourceView? = null
         var openBundle: Bundle? = null
         var recycleRejectedInput = false
         override fun supportedProtocol() = protocol
         override fun extras() = mapOf(SharedViewKitContract.Bounds to "rect|WINDOW|bounds",
             SharedViewKitContract.BackType to "int|VIEW_ANIM_FOLLOW_SYSTEM,VIEW_ANIM_FADE_OUT|back") +
             if (supportsReturnBitmap) mapOf(SharedViewKitContract.Bitmap to "Bitmap||return pixels") else emptyMap()
-        override fun options(bitmap: Bitmap, bounds: Rect, radiusPx: Float, extras: Bundle,
+        override fun options(source: View, extras: Bundle,
             callbacks: SharedViewKitCallbacks): ActivityOptions? {
+            val view = source as SharedViewKitSourceView
+            inputView = view
+            val bitmap = view.bitmap
+            assertTrue(view.isAttachedToWindow)
+            assertTrue(view.clipToOutline)
+            val outline = android.graphics.Outline().also { view.outlineProvider.getOutline(view, it) }
+            assertEquals(view.radiusPx, outline.radius, 0f)
             optionsCalls++
             inputBitmap = bitmap
             openBundle = Bundle(extras)

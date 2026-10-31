@@ -64,7 +64,7 @@ GitHub 渠道的 Debug 和签名 Release 默认启用已适配路线的金标动
 
 - SDK 固定为已核对的 `gsai.sdk:sharedview-kit:1.0.0.4`；Nexus 仅解析 `gsai.sdk`。升级时重新核对官方发布、接口、产物校验和 Release。
 - `isViewAnimationSupported() > 0` 才继续，不能将 Oplus 的旧版本阈值移植到标准 Kit。
-- Compose 路线使用已有局部 Bitmap 和 px 圆角，不伪造 AndroidView，不传整个 ComposeView。
+- Compose 路线把已有局部像素投影到会话持有的独立源 View，按完整窗口 bounds attach 到 decor overlay，以 px 圆角提供 Outline，并在软件采样时保留透明圆角；不传整个 ComposeView。系统接管后只隐藏该源 View，直到会话结束才移除，返回桥接也采用相同圆角。源尺寸与像素不匹配、越出窗口或未 attach 时拒绝本次原生注册，沿用既有降级。
 - 标准 metadata 明确 WINDOW 时使用项目窗口锚点；SCREEN/缺省时增加同一根 View 的屏幕/窗口位置差。打开与关闭共用转换，不硬编码状态栏高度。
 - 首批要求设备声明可写的安全返回策略；BACK/FALLBACK 的支持集合分别解析。未声明的扩展参数不传入。
 - 源卡片保留至 OPEN 接管；稳定目的内容由系统转场使用，不能再叠加 Legacy Morph、应用背景缩放或第二层模糊。
