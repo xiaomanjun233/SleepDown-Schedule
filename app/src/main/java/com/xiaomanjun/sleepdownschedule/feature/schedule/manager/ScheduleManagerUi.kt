@@ -569,13 +569,25 @@ fun ScheduleManagerScreen(
     if (showShareOptions) {
         LiquidAlertDialog(
             title = "分享课表",
-            message = "选择分享 SleepDown 课表口令，或导出可被日历应用识别的 ICS 文件。随后可在系统分享器中选择发送或保存。",
+            message = "分享云端短口令（15 分钟内有效，需要联网），或导出可被日历应用识别的 ICS 文件。随后可在系统分享器中选择发送或保存。",
             actions = listOf(
-                LiquidAlertAction("分享课表口令", LiquidAlertActionStyle.Primary) {
+                LiquidAlertAction("分享短口令", LiquidAlertActionStyle.Primary) {
                     showShareOptions = false
-                    runCatching { buildSleepDownScheduleToken(centeredConfig, centeredPeriods, centeredCourses, state.timetableCatalog) }
-                        .onSuccess { shareScheduleToken(context,centeredProfile.name,it) }
-                        .onFailure { Toast.makeText(context,it.message ?: "课表分享失败",Toast.LENGTH_SHORT).show() }
+                    Toast.makeText(context, "正在生成短口令…", Toast.LENGTH_SHORT).show()
+                    scope.launch {
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                val payload = CloudShortCode.buildPayload(
+                                    centeredConfig, centeredPeriods, centeredCourses, state.timetableCatalog
+                                )
+                                CloudShortCode.create(payload)
+                            }
+                        }.onSuccess { created ->
+                            shareScheduleShortCode(context, centeredProfile.name, created.code)
+                        }.onFailure { error ->
+                            Toast.makeText(context, error.message ?: "短口令生成失败", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 },
                 LiquidAlertAction("分享 ICS 文件", LiquidAlertActionStyle.Secondary) {
                     showShareOptions = false
@@ -607,13 +619,16 @@ fun ScheduleManagerScreen(
     }
 }
 
-internal fun shareScheduleToken(context: Context, scheduleName: String, token: String) {
+internal fun shareScheduleShortCode(context: Context, scheduleName: String, code: String) {
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, "$scheduleName - SleepDown 课表口令")
-        putExtra(Intent.EXTRA_TEXT, token)
+        putExtra(Intent.EXTRA_SUBJECT, "$scheduleName - SleepDown 短口令")
+        putExtra(
+            Intent.EXTRA_TEXT,
+            "SleepDown 课表短口令（15 分钟内有效，请在「口令/文件导入」中粘贴）\n${CloudShortCode.display(code)}"
+        )
     }
-    context.startActivity(Intent.createChooser(intent, "分享课表口令"))
+    context.startActivity(Intent.createChooser(intent, "分享短口令"))
 }
 
 internal fun shareScheduleIcs(context: Context, scheduleName: String, file: java.io.File) {

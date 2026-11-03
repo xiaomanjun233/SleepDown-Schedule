@@ -325,18 +325,18 @@ import com.xiaomanjun.sleepdownschedule.feature.home.withSidebarInsets
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiEduImportProgressSession
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportHistoryBackgroundCapture
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettingsStore
+import com.xiaomanjun.sleepdownschedule.feature.importing.CloudShortCode
 import com.xiaomanjun.sleepdownschedule.feature.importing.ConfirmScheduleScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.ImportPreviewPage
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchoolPickerScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.IcsScheduleCodec
 import com.xiaomanjun.sleepdownschedule.feature.importing.NormalizedAiManualImportScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.PendingImportSetupStore
-import com.xiaomanjun.sleepdownschedule.feature.importing.buildSleepDownScheduleToken
 import com.xiaomanjun.sleepdownschedule.feature.importing.loadAiImportFile
 import com.xiaomanjun.sleepdownschedule.feature.importing.toIntentKey
 import com.xiaomanjun.sleepdownschedule.feature.schedule.ScheduleSnapshotStore
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.shareScheduleIcs
-import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.shareScheduleToken
+import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.shareScheduleShortCode
 import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.CustomizeUiState
 import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.QuickScheduleDraft
 import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.QuickScheduleSettingsSheets
@@ -3168,10 +3168,21 @@ fun CourseScheduleAppUi(
                 val courses = allSchedulesState.allCourses.filter { it.scheduleId == scheduleId }
                 val scheduleName = profile?.name ?: "课表"
                 when (shareType) {
-                    ScheduleShareType.TOKEN -> runCatching {
-                        buildSleepDownScheduleToken(config, periods, courses, allSchedulesState.timetableCatalog)
-                    }.onSuccess { shareScheduleToken(context,scheduleName,it) }
-                        .onFailure { Toast.makeText(context,it.message ?: "课表分享失败",Toast.LENGTH_SHORT).show() }
+                    ScheduleShareType.SHORT_CODE -> appScope.launch {
+                        Toast.makeText(context, "正在生成短口令…", Toast.LENGTH_SHORT).show()
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                val payload = CloudShortCode.buildPayload(
+                                    config, periods, courses, allSchedulesState.timetableCatalog
+                                )
+                                CloudShortCode.create(payload)
+                            }
+                        }.onSuccess { created ->
+                            shareScheduleShortCode(context, scheduleName, created.code)
+                        }.onFailure {
+                            Toast.makeText(context, it.message ?: "短口令生成失败", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                     ScheduleShareType.ICS -> appScope.launch {
                         runCatching {
                             withContext(Dispatchers.IO) {

@@ -132,7 +132,7 @@ sealed interface CustomizeUiState {
     data object ExitingPicker : CustomizeUiState
 }
 
-enum class ScheduleShareType { TOKEN, ICS }
+enum class ScheduleShareType { SHORT_CODE, ICS }
 
 data class QuickScheduleDraft(
     val scheduleId: Int,
@@ -1221,11 +1221,11 @@ fun SchedulePickerOverlay(
     if (showShareOptions) {
         LiquidAlertDialog(
             title = "分享课表",
-            message = "选择分享 SleepDown 课表口令，或导出可被日历应用识别的 ICS 文件。",
+            message = "分享云端短口令（15 分钟内有效，需要联网），或导出可被日历应用识别的 ICS 文件。",
             actions = listOf(
-                LiquidAlertAction("分享课表口令", LiquidAlertActionStyle.Primary) {
+                LiquidAlertAction("分享短口令", LiquidAlertActionStyle.Primary) {
                     showShareOptions = false
-                    onShare(selectedId, ScheduleShareType.TOKEN)
+                    onShare(selectedId, ScheduleShareType.SHORT_CODE)
                 },
                 LiquidAlertAction("分享 ICS 文件", LiquidAlertActionStyle.Secondary) {
                     showShareOptions = false

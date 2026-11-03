@@ -490,11 +490,43 @@ fun NormalizedAiManualImportScreen(
         }
     }
     fun parseDraft() {
+        if (aiParsing) return
         val result = ScheduleImportParser.parse(jsonText, state.config, state.periods)
         result.onSuccess {
             error = null
             onParsed(it)
-        }.onFailure {
+        }.onFailure { localError ->
+            val shortCode = CloudShortCode.extractCode(jsonText)
+            if (shortCode != null) {
+                error = null
+                routeMessage = "正在从云端获取短口令课表…"
+                aiParsing = true
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) { CloudShortCode.resolve(shortCode) }
+                    }.onSuccess { payload ->
+                        runCatching {
+                            withContext(Dispatchers.Default) {
+                                ScheduleImportParser.parse(payload, state.config, state.periods).getOrThrow()
+                            }
+                        }.onSuccess { draft ->
+                            aiParsing = false
+                            routeMessage = null
+                            error = null
+                            onParsed(draft)
+                        }.onFailure { parseError ->
+                            aiParsing = false
+                            routeMessage = null
+                            error = parseError.message ?: "短口令课表解析失败"
+                        }
+                    }.onFailure { networkError ->
+                        aiParsing = false
+                        routeMessage = null
+                        error = networkError.message ?: "短口令获取失败"
+                    }
+                }
+                return@onFailure
+            }
             val starLinkCode = extractStarLinkShareCode(jsonText)
             if (starLinkCode != null) {
                 error = null
@@ -523,7 +555,7 @@ fun NormalizedAiManualImportScreen(
                 error = null
                 showAiTokenRepairPrompt = true
             } else {
-                error = it.message ?: "口令解析失败"
+                error = localError.message ?: "口令解析失败"
             }
         }
     }
