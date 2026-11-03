@@ -1,5 +1,9 @@
 # 当前工作交接
 
+## 2026-11-03 云端短口令 PR（后端已部署，APK 未安装）
+
+分享面板的“分享课表口令”改为云端短口令：十位 Crockford Base32（展示 `SD-XXXXX-XXXXX`），上传紧凑 canonical JSON，服务端主密钥加密保存、15 分钟后删除，接收端由云端解密后本地预览，不调用 AI。`SDCT1`、canonical JSON 和 ICS 的导入兼容保留；JSON 文件分享作为后继独立 PR，不在本 PR 内。后端已用本机阿里云 CLI 部署候选 `0b8730b2…`，标签 `sleepdown-platform-20261103-195130-44fb29`；`go vet`/`go test`、生产创建/解析/404、`compileGithubReleaseKotlin` 与 `CloudShortCodeTest` 5 项通过。新 APK 尚未安装，未做真机验收。详见[报告](reports/2026-11-03-cloud-short-code.md)。
+
 ## 2026-10-29 返回尾段衔接纠正
 
 用户明确纠正“不是一直垫按钮，等返回动画快结束再垫”。本批替代此前 `bada208c` 的全程预铺：返回请求只准备圆角像素；系统在 BACK 尾段将已隐藏的源 View alpha 从 0 恢复时才挂载落点图，再沿用真实业务源恢复帧的 pre-draw 交接。仅处理 BACK 已开始的当前会话，忽略迟到 OPEN 恢复；无 alpha 信号的设备在结束回调交接，不猜固定时长。Release Kotlin 及四类 30 项原生图形/会话回归通过（5m52s），包含返回前段无垫图、尾段才出现、迟到 OPEN、无恢复信号与销毁释放。实际 ROM 观感尚未验证；#88 同轮修复 HD、节次上限与显示调用链，联合包由其报告维护。尚未发布或合并 #88/#89。

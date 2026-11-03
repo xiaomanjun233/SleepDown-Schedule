@@ -57,6 +57,11 @@ fun buildCanonicalScheduleJson(config: ScheduleConfigEntity, periods: List<Perio
 /** Shared public wire contract. The legacy SleepDown JSON remains a read adapter only. */
 internal object CanonicalScheduleJson {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true; coerceInputValues = true }
+    // Short codes carry the same document; dropping default/null fields keeps the payload small
+    // while the reader's defaults restore identical semantics.
+    private val compactJson = Json {
+        ignoreUnknownKeys = true; encodeDefaults = false; explicitNulls = false; coerceInputValues = true
+    }
     fun isCanonical(value: String): Boolean = runCatching {
         val root = json.parseToJsonElement(value).jsonObject
         "courses" in root && "scheduleConfig" !in root && "schemaVersion" !in root
@@ -144,7 +149,12 @@ internal object CanonicalScheduleJson {
         return draft.copy(courses = restored, timetablePlan = ImportedTimetablePlan(document.comboSchedule?.name,dateTables,independents))
     }
 
-    fun encode(draft: ImportDraft): String {
+    fun encode(draft: ImportDraft): String = json.encodeToString(document(draft))
+
+    /** Same document with defaults/nulls omitted; only for compact self-contained sharing. */
+    internal fun encodeCompact(draft: ImportDraft): String = compactJson.encodeToString(document(draft))
+
+    private fun document(draft: ImportDraft): CanonicalScheduleDocument {
         fun slots(periods: List<PeriodEntity>) = periods.map { ShiguangTimeSlotPayload(it.periodIndex,it.startTime,it.endTime,it.alias) }
         val templates = draft.timetablePlan.independentTimetables.mapIndexed { index, table -> NativeTimetableJson("t$index",table.name,slots(table.periods)) }
         val courses = draft.courses.flatMapIndexed { index, value ->
@@ -176,8 +186,8 @@ internal object CanonicalScheduleJson {
         val combo = draft.timetablePlan.dateTimetables.takeIf { it.isNotEmpty() }?.let { tables ->
             ComboScheduleJson(draft.timetablePlan.comboName,tables.map { PublicScheduleJson(it.name,requireNotNull(it.startDate),requireNotNull(it.endDate),it.classDuration,it.breakDuration,slots(it.periods)) })
         }
-        return json.encodeToString(CanonicalScheduleDocument(courses,slots(draft.periods),
+        return CanonicalScheduleDocument(courses,slots(draft.periods),
             ShiguangCourseConfigPayload(draft.config.termStartDate,draft.config.totalWeeks,draft.config.classDurationMinutes,draft.config.breakDurationMinutes,
-                if (draft.config.weekStartsOnSunday) 7 else 1),combo,NativeScheduleExtension(timetables=templates)))
+                if (draft.config.weekStartsOnSunday) 7 else 1),combo,NativeScheduleExtension(timetables=templates))
     }
 }

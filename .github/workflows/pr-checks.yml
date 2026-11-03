@@ -115,6 +115,7 @@ jobs:
           --tests 'com.xiaomanjun.sleepdownschedule.DatabaseMigrationCoverageTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.settings.PeriodSchemeEditorSaveTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.ScheduleImportCustomCourseTest'
+          --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.CloudShortCodeTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.WakeUpImportSessionTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangImportSessionCustomTimeTest'
           --tests 'com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangBridgeLifecycleTest'
