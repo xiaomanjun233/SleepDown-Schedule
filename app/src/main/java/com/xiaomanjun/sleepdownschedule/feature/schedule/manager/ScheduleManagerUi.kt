@@ -431,33 +431,20 @@ fun ScheduleManagerScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            profiles.forEachIndexed { index, profile ->
-                val active = profile.id == selectedProfileId
-                val dotSize by animateDpAsState(
-                    targetValue = if (active) 9.dp else 7.dp,
-                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f),
-                    label = "schedule-dot-size-${profile.id}"
-                )
-                val dotAlpha by animateFloatAsState(
-                    targetValue = if (active) 0.92f else 0.36f,
-                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f),
-                    label = "schedule-dot-alpha-${profile.id}"
-                )
-                Box(
-                    modifier = Modifier
-                        .size(dotSize)
-                        .clip(Capsule())
-                        .background(Color.White.copy(alpha = dotAlpha))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {
-                                selectedProfileId = profile.id
-                                scope.launch { listState.animateScrollToItem(index) }
-                            }
-                        )
-                )
-            }
+            SleepDownPageIndicator(
+                pageCount = profiles.size,
+                position = {
+                    val info = listState.layoutInfo
+                    val center = (info.viewportStartOffset + info.viewportEndOffset) / 2f
+                    val item = info.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2f - center) }
+                    item?.let { it.index + (center - it.offset - it.size / 2f) / it.size.coerceAtLeast(1) } ?: 0f
+                },
+                selectedPage = { profiles.indexOfFirst { it.id == selectedProfileId }.coerceAtLeast(0) },
+                onSelect = { index ->
+                    selectedProfileId = profiles[index].id
+                    scope.launch { listState.animateScrollToItem(index) }
+                }
+            )
         }
 
         BoxWithConstraints(

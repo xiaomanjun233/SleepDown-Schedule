@@ -4,6 +4,13 @@ import android.content.Context
 import android.graphics.BlendMode
 import androidx.compose.foundation.layout.*
 
+/** Launcher page indicator glass, using its native blur radius and background colour. */
+internal fun ColorOsNativeUi.Source.pageIndicatorBlurParams(context: Context): Any =
+    load("com.coui.appcompat.COUIMaterialBlurEffect\$BlurEffectParams")
+        .getConstructor(Float::class.javaPrimitiveType, String::class.java, BlendMode::class.java,
+            String::class.java, BlendMode::class.java)
+        .newInstance(120f, "#3DFFFFFF", BlendMode.SRC_OVER, "#00000000", BlendMode.SRC_OVER)
+
 internal fun ColorOsNativeUi.Source.weatherButtonBlurParams(
     context: Context, radiusScale: Float = 1f, tintAlphaScale: Float = 1f
 ): Any = scaledBlurParams(context, "TYPE_CONTENT_TRANSPARENT_BUTTON", radiusScale, tintAlphaScale)

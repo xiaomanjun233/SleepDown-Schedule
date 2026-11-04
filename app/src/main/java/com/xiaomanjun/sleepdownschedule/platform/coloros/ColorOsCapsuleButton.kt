@@ -1,6 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.platform.coloros
 
 import android.content.Context
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.view.MotionEvent
 import android.view.View
 import android.widget.TextView
@@ -18,11 +20,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -35,6 +41,7 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCapsuleButtonRequest
 
 /** COUI supplies the material and motion; Compose draws live content using that same motion. */
@@ -43,7 +50,7 @@ internal fun ColorOsCapsuleButton(request: NativeCapsuleButtonRequest, content: 
     val native = rememberNativeContext(request.dark) ?: return false
     val latest = rememberUpdatedState(request)
     val primary = request.primaryColor.isSpecified
-    val button = remember(native, request.dark, primary) {
+    val button = remember(native, request.dark, primary, request.lightBackdrop) {
         ColorOsNativeUi.prepare("create a capsule button") {
             native.first.updateTheme(native.second, request.dark)
             val view = native.first.load("com.coui.appcompat.button.COUIButton")
@@ -72,8 +79,7 @@ internal fun ColorOsCapsuleButton(request: NativeCapsuleButtonRequest, content: 
                 }
             }
             native.first.bindFollowLightIntensity(view, afterMaterialApplied = {
-                if (primary) native.first.applyCapsuleAccent(view, latest.value.primaryColor.toArgb())
-                else native.first.applyTransparentCapsule(view)
+                native.first.applyCapsuleAppearance(view, latest.value)
             })
             view
         }
@@ -100,8 +106,7 @@ internal fun ColorOsCapsuleButton(request: NativeCapsuleButtonRequest, content: 
         }
         appearance.inputEnabled = request.enabled
         if (changed) {
-            if (primary) native.first.applyCapsuleAccent(it, checkNotNull(accent))
-            else native.first.applyTransparentCapsule(it)
+            native.first.applyCapsuleAppearance(it, request)
         }
         appearance.accent = accent
     }, content = content)
@@ -137,10 +142,42 @@ internal fun NativeCapsuleButtonLayout(
                 true
             } else false
         }.focusable(request.enabled), propagateMinConstraints = true) {
+        if (request.cardLightShadow) {
+            val shadow = rememberCardLightButtonShadow()
+            if (shadow != null) Box(Modifier.matchParentSize()
+                .graphicsLayer {
+                    motion.applyTo(this)
+                    translationY += -6.dp.toPx() * (1f - (scaleX + scaleY) / 2f) / 0.1f
+                }
+                .drawWithCache {
+                    val sx = size.width / shadow.buttonSize.width
+                    val sy = size.height / shadow.buttonSize.height
+                    val width = shadow.drawable.intrinsicWidth * sx
+                    val height = shadow.drawable.intrinsicHeight * sy
+                    val left = (size.width - width) / 2f
+                    val top = shadow.topOffset * sy
+                    shadow.drawable.setBounds(left.toInt(), top.toInt(), (left + width).toInt(), (top + height).toInt())
+                    onDrawBehind { shadow.drawable.draw(drawContext.canvas.nativeCanvas) }
+                })
+        }
         // A PRIMARY/SECONDARY change creates a new native button. AndroidView's factory runs
         // once per identity; retaining the old holder leaves its disposed listeners on screen.
         key(button) {
             AndroidView(factory = { button }, modifier = Modifier.matchParentSize(), update = update)
+        }
+        // Lit glass: the original personalisation page samples the colour band behind its button
+        // and stacks a translucent white wash on top (all_theme_button_shape_background). The
+        // native material keeps the sampled blur; this layer is the wash, under the content and
+        // above the material, and shares the press motion of the label row.
+        val sheen = request.surfaceSheen
+        if (sheen != null) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .graphicsLayer { motion.applyTo(this) }
+                    .clip(Capsule())
+                    .drawBehind { sheen.invoke()?.let { drawRect(it) } }
+            )
         }
         // Read motion only in the layer block: native animation updates transform properties,
         // without recomposing or recording the content through a foreign ViewOverlay canvas.
@@ -154,6 +191,27 @@ internal fun NativeCapsuleButtonLayout(
 private class CapsuleAppearance {
     var accent: Int? = null
     var inputEnabled = true
+}
+
+private fun ColorOsNativeUi.Source.applyCapsuleAppearance(view: TextView, request: NativeCapsuleButtonRequest) {
+    if (request.lightBackdrop && applyCardLightBackdrop(view)) return
+    if (request.primaryColor.isSpecified) applyCapsuleAccent(view, request.primaryColor.toArgb())
+    else applyTransparentCapsule(view)
+}
+
+/** AllThemeButton#e samples behind the View; View.setRenderEffect would blur the label instead. */
+private fun ColorOsNativeUi.Source.applyCardLightBackdrop(view: TextView): Boolean {
+    if (!view.isAttachedToWindow || !blurEnabled()) return false
+    return ColorOsNativeUi.prepare("sample the card light behind a capsule") {
+        val setter = load("com.oplus.view.OplusViewBackgroundRenderEffect").getMethod(
+            "setBackgroundRenderEffect", RenderEffect::class.java, View::class.java
+        )
+        // The ordinary preset's color layers would conceal the light behind this button.
+        load("com.coui.appcompat.COUIMaterialEffect").getMethod("clearBlurEffect", View::class.java)
+            .invoke(null, view)
+        setter.invoke(null, RenderEffect.createBlurEffect(30f, 30f, Shader.TileMode.MIRROR), view)
+        true
+    } == true
 }
 
 /** Ordinary capsules share the navigation button's native transparent color layers. */
