@@ -31,7 +31,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsBasicComponent as MiuixBasicComponent
 
 @Composable
 fun SettingsTextFieldRow(

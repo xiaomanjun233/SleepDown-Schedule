@@ -223,6 +223,11 @@ fun AboutSettingsScreen(state: AppState, backdrop: Backdrop?) {
                     SettingsValueRow("液态玻璃效果", "AndroidLiquidGlass · Kyant")
                     SettingsDivider()
                     SettingsValueRow("设置与界面组件", "MIUIX · compose-miuix-ui")
+                    if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) {
+                        SettingsDivider()
+                        SettingsNavigationRow("COUI 设置排版", "COUI-Kit · ItosEO · MPL 2.0",
+                            onClick = { openProjectPage("https://github.com/ItosEO/COUI-Kit") })
+                    }
                     SettingsDivider()
                     SettingsValueRow("教务适配资源", "shiguang_warehouse · XingHeYuZhuan")
                 }

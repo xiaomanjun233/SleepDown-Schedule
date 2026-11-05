@@ -74,10 +74,10 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsBasicComponent as MiuixBasicComponent
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.ArrowRight
-import top.yukonga.miuix.kmp.preference.ArrowPreference as MiuixArrowPreference
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsArrowPreference as MiuixArrowPreference
 
 @Composable
 internal fun SettingsFallbackChip(label: String, selected: Boolean, onClick: () -> Unit) {
@@ -109,6 +109,24 @@ fun SettingsNavigationRow(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
+    if (LocalCouiSettingsEnabled.current) {
+        val colors = com.itos.coui.theme.CouiTheme.colorScheme
+        com.itos.coui.layout.Item(
+            modifier = Modifier.background(colors.onSurface.copy(alpha = if (selected) .1f else 0f)),
+            icon = leadingIcon?.let { image -> { Icon(image, null, Modifier.size(24.dp), tint = leadingIconTint) } },
+            summary = subtitle?.let { text -> { com.itos.coui.text.Text(text = text,
+                kind = com.itos.coui.text.CouiTextKind.PreferenceSummary, color = colors.onSurfaceVariant) } },
+            trailing = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (badgeText != null) Text(badgeText, style = MaterialTheme.typography.labelSmall,
+                        color = colors.accent, modifier = Modifier.padding(end = 8.dp))
+                    Icon(com.itos.coui.icons.CouiIcons.Next, null, Modifier.size(20.dp), tint = colors.onSurfaceVariant)
+                }
+            }, enabled = enabled, onClick = onClick
+        ) { com.itos.coui.text.Text(text = title, kind = com.itos.coui.text.CouiTextKind.PreferenceTitle,
+            color = if (enabled) colors.onSurface else colors.onSurface.copy(alpha = .3f)) }
+        return
+    }
     val neutralSelection = MaterialTheme.colorScheme.onSurface
     val iconTint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f)
         androidx.compose.ui.graphics.lerp(leadingIconTint, ComposeColor.White, 0.18f) else leadingIconTint
@@ -196,6 +214,11 @@ fun SettingsNavigationRow(
  */
 @Composable
 internal fun SettingsForwardIndicator(modifier: Modifier = Modifier) {
+    if (LocalCouiSettingsEnabled.current) {
+        Icon(com.itos.coui.icons.CouiIcons.Next, null, modifier.size(20.dp),
+            tint = com.itos.coui.theme.CouiTheme.colorScheme.onSurfaceVariant)
+        return
+    }
     Image(
         modifier = modifier.size(width = 10.dp, height = 16.dp),
         imageVector = MiuixIcons.Basic.ArrowRight,
@@ -602,6 +625,20 @@ fun SettingsActionButton(
 
 @Composable
 private fun SettingsPreferenceText(title: String, summary: String?, badge: String?, enabled: Boolean = true) {
+    if (LocalCouiSettingsEnabled.current) {
+        val colors = com.itos.coui.theme.CouiTheme.colorScheme
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            com.itos.coui.text.Text(text = title, kind = com.itos.coui.text.CouiTextKind.PreferenceTitle,
+                color = if (enabled) colors.onSurface else colors.onSurface.copy(alpha = .3f),
+                modifier = Modifier.weight(1f, fill = false))
+            if (badge != null) Text(badge, style = MaterialTheme.typography.labelSmall,
+                color = colors.accent, modifier = Modifier.padding(start = 6.dp))
+        }
+        if (!summary.isNullOrEmpty()) com.itos.coui.text.Text(text = summary,
+            kind = com.itos.coui.text.CouiTextKind.PreferenceSummary,
+            color = if (enabled) colors.onSurfaceVariant else colors.onSurface.copy(alpha = .3f))
+        return
+    }
     val theme = top.yukonga.miuix.kmp.theme.MiuixTheme
     val titleColor = if (enabled) theme.colorScheme.onBackground else theme.colorScheme.disabledOnSecondaryVariant
     if (badge == null) {

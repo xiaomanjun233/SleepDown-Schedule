@@ -37,6 +37,21 @@ fun SettingsGroup(
     surfaceColorOverride: ComposeColor? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    if (LocalCouiSettingsEnabled.current) {
+        val colors = com.itos.coui.theme.CouiTheme.colorScheme
+        val shape = com.itos.coui.layout.CouiPageDefaults.shape
+        CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
+            if (LocalCouiLiquidMaterial.current && android.os.Build.VERSION.SDK_INT >= 31 && backdrop != null) {
+                LiquidPanel(backdrop = backdrop, modifier = modifier.then(surfaceModifier), shape = shape,
+                    surfaceColor = surfaceColorOverride ?: colors.container.copy(alpha = .78f)) {
+                    Column(content = content)
+                }
+            } else com.itos.coui.layout.Group(modifier = modifier.then(surfaceModifier),
+                colors = com.itos.coui.layout.CouiPageDefaults.themeColors().copy(card = surfaceColorOverride ?: colors.container),
+                horizontalMargin = 0.dp, topSpacing = 0.dp, content = content)
+        }
+        return
+    }
     val miuixLayout = LocalGlassMiuixEnabled.current
     val shape = RoundedRectangle(if (miuixLayout) 24.dp else 30.dp)
     val darkTheme = appUsesDarkTheme(config)
@@ -82,6 +97,10 @@ fun SettingsGroup(
 
 @Composable
 fun SettingsDivider() {
+    if (LocalCouiSettingsEnabled.current) {
+        com.itos.coui.layout.Divider()
+        return
+    }
     if (LocalGlassMiuixEnabled.current) return
     Box(
         Modifier
@@ -94,6 +113,12 @@ fun SettingsDivider() {
 
 @Composable
 fun GlassPreferenceCategory(text: String, modifier: Modifier = Modifier) {
+    if (LocalCouiSettingsEnabled.current) {
+        com.itos.coui.text.Text(text = text, kind = com.itos.coui.text.CouiTextKind.GroupTitle,
+            color = com.itos.coui.theme.CouiTheme.colorScheme.onSurfaceVariant,
+            modifier = modifier.padding(start = 16.dp, top = 12.dp, bottom = 8.dp))
+        return
+    }
     if (LocalGlassMiuixEnabled.current) {
         MiuixSmallTitle(
             text = text,

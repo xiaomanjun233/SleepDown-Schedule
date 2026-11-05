@@ -119,7 +119,7 @@ fun GlassMiuixSettingsTheme(
         CompositionLocalProvider(
             LocalGlassMiuixEnabled provides true,
             LocalOverscrollFactory provides overscrollFactory,
-            content = content
+            content = { CouiSettingsTheme(config, content) }
         )
     }
 }
@@ -130,6 +130,10 @@ fun GlassMiuixRootSettingsScaffold(
     config: ScheduleConfigEntity,
     content: @Composable (PaddingValues, Backdrop) -> Unit
 ) {
+    if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) {
+        CouiSettingsRootScaffold(title, config, content)
+        return
+    }
     val pageConfig = settingsVisualConfig(config)
     val pageColor = settingsPageBackground(pageConfig)
     val pageBackground = rememberSettingsPaneBackground(pageColor)
@@ -222,6 +226,15 @@ internal fun GlassMiuixTabletDetailPaneScaffold(
     topBarActions: @Composable (Backdrop?) -> Unit = {},
     content: @Composable (Backdrop?) -> Unit
 ) {
+    if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) {
+        CouiSettingsPageScaffold(title, config, modifier, showBack = showBackButton, onBack = onBack,
+            topBarVisible = topBarVisible, topBarActions = topBarActions) { _, source ->
+            Box(Modifier.fillMaxSize().padding(horizontal = horizontalContentInset)) {
+                content(source.takeIf { android.os.Build.VERSION.SDK_INT >= 31 })
+            }
+        }
+        return
+    }
     val pageConfig = settingsVisualConfig(config)
     val pageColor = settingsPageBackground(pageConfig)
     val pageBackground = rememberSettingsPaneBackground(pageColor)
@@ -329,6 +342,16 @@ internal fun GlassMiuixDetailActivityScaffold(
     topBarActions: @Composable (Backdrop?) -> Unit,
     content: @Composable (Backdrop?) -> Unit
 ) {
+    if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) {
+        CouiSettingsPageScaffold(title, config, showBack = true, onBack = onBack,
+            topBarVisible = topBarVisible, showTopGradientBlur = showTopGradientBlur,
+            isolateContentFromBackdrop = isolateContentFromBackdrop,
+            preserveStatusBarSpace = preserveStatusBarSpace, topBarBackdropOverride = topBarBackdropOverride,
+            topBarActions = topBarActions) { _, source ->
+                content(source.takeUnless { isolateContentFromBackdrop || android.os.Build.VERSION.SDK_INT < 31 })
+            }
+        return
+    }
     val pageConfig = settingsVisualConfig(config)
     val pageColor = settingsPageBackground(pageConfig)
     val backgroundBackdrop = rememberGlassLayerBackdrop(
@@ -525,7 +548,7 @@ internal fun GlassMiuixDetailActivityScaffold(
 }
 
 @Composable
-private fun SettingsGradientTopBar(
+internal fun SettingsGradientTopBar(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     enabled: Boolean,

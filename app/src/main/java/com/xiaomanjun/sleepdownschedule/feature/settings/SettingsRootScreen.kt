@@ -60,6 +60,12 @@ import com.xiaomanjun.sleepdownschedule.feature.update.rememberAppUpdateSession
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import java.io.File
 import top.yukonga.miuix.kmp.utils.overScrollVertical
+import com.itos.coui.icons.CouiIcons
+import com.itos.coui.scroll.rememberCouiOverscrollEffect
+import com.xiaomanjun.sleepdownschedule.BuildConfig
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsListState
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsArrowPreference
+import androidx.compose.foundation.lazy.rememberLazyListState
 
 @Composable
 fun SettingsRootScreen(
@@ -105,22 +111,27 @@ fun SettingsRootScreen(
         title = "设置",
         config = state.config
     ) { innerPadding, pageBackdrop ->
-        val backdrop = if (LocalSettingsSharedGradient.current != null) pageBackdrop else inheritedBackdrop
+        val backdrop = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS && android.os.Build.VERSION.SDK_INT < 31) null
+            else if (BuildConfig.SLEEPDOWN_COUI_SETTINGS || LocalSettingsSharedGradient.current != null) pageBackdrop else inheritedBackdrop
         LazyColumn(
+            state = LocalCouiSettingsListState.current ?: rememberLazyListState(),
+            overscrollEffect = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) rememberCouiOverscrollEffect()
+                else androidx.compose.foundation.rememberOverscrollEffect(),
             modifier = Modifier
                 .fillMaxSize()
-                .overScrollVertical(),
+                .then(if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) Modifier else Modifier.overScrollVertical()),
             contentPadding = PaddingValues(
                 start = 16.dp,
                 end = 16.dp,
                 top = innerPadding.calculateTopPadding() + 8.dp,
                 bottom = DockScrollPadding
             ),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) 16.dp else 12.dp)
         ) {
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth().homeSwitchGroup()) {
-                top.yukonga.miuix.kmp.preference.ArrowPreference(
+                SettingsArrowPreference(
+                    iconSize = 56.dp,
                     title = appName,
                     summary = null,
                     startAction = {
@@ -172,28 +183,28 @@ fun SettingsRootScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow(
                         "通用设置",
-                        leadingIcon = Icons.Rounded.Settings,
+                        leadingIcon = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) CouiIcons.Settings else Icons.Rounded.Settings,
                         leadingIconTint = ComposeColor(0xFF0A84FF),
                         selected = selectedPage == SettingsPage.General,
                         onClick = { onPageChange(SettingsPage.General) }
                     )
                     SettingsNavigationRow(
                         "小组件设置",
-                        leadingIcon = Icons.Rounded.Widgets,
+                        leadingIcon = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) CouiIcons.Components else Icons.Rounded.Widgets,
                         leadingIconTint = ComposeColor(0xFFFF9500),
                         selected = selectedPage == SettingsPage.Widgets,
                         onClick = { onPageChange(SettingsPage.Widgets) }
                     )
                     SettingsNavigationRow(
                         "当前课表详细设置",
-                        leadingIcon = Icons.Rounded.Tune,
+                        leadingIcon = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) CouiIcons.Calendar else Icons.Rounded.Tune,
                         leadingIconTint = ComposeColor(0xFF5856D6),
                         selected = selectedPage == SettingsPage.Schedule,
                         onClick = { onPageChange(SettingsPage.Schedule) }
                     )
                     SettingsNavigationRow(
                         "自动刷新课表",
-                        leadingIcon = Icons.Rounded.Sync,
+                        leadingIcon = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) CouiIcons.Time else Icons.Rounded.Sync,
                         leadingIconTint = ComposeColor(0xFF34C759),
                         badgeText = "实验功能",
                         selected = selectedPage == SettingsPage.AutoRefreshSchedule,
@@ -201,7 +212,7 @@ fun SettingsRootScreen(
                     )
                     SettingsNavigationRow(
                         "通知设置",
-                        leadingIcon = Icons.Rounded.Notifications,
+                        leadingIcon = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) CouiIcons.Notifications else Icons.Rounded.Notifications,
                         leadingIconTint = ComposeColor(0xFF0A84FF),
                         selected = selectedPage == SettingsPage.Notifications,
                         onClick = { onPageChange(SettingsPage.Notifications) }
@@ -214,14 +225,14 @@ fun SettingsRootScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                     SettingsNavigationRow(
                         "AI 设置",
-                        leadingIcon = Icons.Rounded.AutoAwesome,
+                        leadingIcon = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) CouiIcons.Featured else Icons.Rounded.AutoAwesome,
                         leadingIconTint = ComposeColor(0xFFAF52DE),
                         selected = selectedPage == SettingsPage.AiImport,
                         onClick = { onPageChange(SettingsPage.AiImport) }
                     )
                     SettingsNavigationRow(
                         "AI 助理",
-                        leadingIcon = Icons.Rounded.ChatBubble,
+                        leadingIcon = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) CouiIcons.Popup else Icons.Rounded.ChatBubble,
                         leadingIconTint = ComposeColor(0xFF00A9C7),
                         selected = selectedPage == SettingsPage.DayAgent,
                         onClick = { onPageChange(SettingsPage.DayAgent) }
@@ -241,7 +252,7 @@ fun SettingsRootScreen(
                     )
                     SettingsNavigationRow(
                         "捐赠支持",
-                        leadingIcon = Icons.Rounded.Favorite,
+                        leadingIcon = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) CouiIcons.FeaturedSelected else Icons.Rounded.Favorite,
                         leadingIconTint = ComposeColor(0xFFFF2D55),
                         selected = selectedPage == SettingsPage.Donate,
                         onClick = { onPageChange(SettingsPage.Donate) }

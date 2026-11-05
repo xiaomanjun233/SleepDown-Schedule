@@ -67,7 +67,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.util.UUID
-import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsBasicComponent as MiuixBasicComponent
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** The schedule page contains only the same navigation row used by other settings. */
