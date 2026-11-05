@@ -12,6 +12,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField as MaterialOutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.settingsPreferencePadding
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -26,7 +27,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
@@ -63,7 +64,7 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
 
     SleepDownSecondaryPageList(
         contentTopPadding = topPadding,
-        contentBottomPadding = DockScrollPadding
+        contentBottomPadding = detailContentBottomPadding()
     ) {
         item {
             GlassPreferenceSection("AI 助理") {
@@ -149,7 +150,7 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
                         backdrop = backdrop,
                         config = state.config,
                         modifier = Modifier.fillMaxWidth(),
-                        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                        insideMargin = settingsPreferencePadding(),
                         maxHeight = 260.dp,
                         onExpandedChange = {},
                         onSelectedIndexChange = { index ->

@@ -607,14 +607,15 @@ fun WeekCourseBlock(
                 refreshOwnBounds()
             }
         }
+    val shortcut = shortcuts?.request
+    val hiddenByOverlay = copyMotion?.hides(course, editWeek) == true ||
+        (shortcut?.course?.id == course.id && shortcut.week == editWeek &&
+            shortcut.bounds == ownBoundsRef[0])
     val visibilityModifier = if (
         shortcuts?.request != null || copyMotion?.active == true ||
         copyMotion?.hides(course, editWeek) == true
     ) Modifier.graphicsLayer {
-        val shortcut = shortcuts?.request
-        alpha = if (copyMotion?.hides(course, editWeek) == true ||
-            (shortcut?.course?.id == course.id && shortcut.week == editWeek &&
-                shortcut.bounds == ownBoundsRef[0])) 0f else 1f
+        alpha = if (hiddenByOverlay) 0f else 1f
     } else Modifier
     CourseBoundsSource(
         courseId = course.id,
@@ -785,7 +786,9 @@ fun WeekCourseBlock(
                 shape = cardShape,
                 mountMaterial = occlusionMaterialMounted,
                 // Pager owns lifetime; scrolling never toggles a card's material nodes.
-                viewportMaterialVisible = true,
+                viewportMaterialVisible = !hiddenByOverlay &&
+                    ((activeOverlayCourseId != course.id && !isOverlayTarget) ||
+                        weekEditMotionState?.realCardVisible == true),
                 muted = subdued,
                 followTouch = !editMode,
                 onClick = null

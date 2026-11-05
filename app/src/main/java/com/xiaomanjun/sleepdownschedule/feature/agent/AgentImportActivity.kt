@@ -4,6 +4,7 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportActivitySource
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportInteraction
 import com.xiaomanjun.sleepdownschedule.feature.importing.importPublicProgressText
 import com.xiaomanjun.sleepdownschedule.feature.importing.completedImportProgressSummaries
+import com.xiaomanjun.sleepdownschedule.feature.importing.completedImportAssistantReports
 
 /** Provider assistant prose is public progress, never a substitute for native reasoning. */
 internal fun importAgentProgressDetails(text: String?): List<String> {
@@ -12,7 +13,7 @@ internal fun importAgentProgressDetails(text: String?): List<String> {
     if (Regex("(?i)<(?:think(?:ing)?|analysis|reasoning)(?:\\s|>)|encrypted_content|chain_of_thought|<agent_actions|DSML|tool_calls|function_call")
             .containsMatchIn(raw)) return emptyList()
     return if (raw.contains("<import_progress>")) completedImportProgressSummaries(raw)
-    else listOfNotNull(importPublicProgressText(raw))
+    else completedImportAssistantReports(raw)
 }
 
 /** Actual tool/status events are lossless; short public model narration shares the bounded ticker. */

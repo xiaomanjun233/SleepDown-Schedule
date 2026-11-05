@@ -14,6 +14,12 @@
 
 ## 胶囊按钮
 
+多课表浮层的卡片投光通过公共 `NativeCardLightRequest` 交给凝光 renderer：运行时从系统壁纸 APK 加载 `WallpaperShadowView`、COE 与原始 `shadow_card.coz`，按卡片真实底边定位在整个浮层内。只有附加受光按钮请求原厂 30px MIRROR 背景采样；普通胶囊继续使用原有材质。系统实现缺失时省去附加光效；生命周期与显隐控制原生启停，退出后释放、不复用已销毁的引擎。接入与验收边界见[卡片光效报告](../reports/2026-11-04-schedule-manager-card-glow.md)。
+
+组件预览复用同一投光能力，上传实际软件 ARGB_8888 画面并等待 Surface 首帧；卡片圆角与按钮的实际受光位置由请求传入。原生 `uProcess` 的 650ms 椭圆展开与 1000ms 透明度独立驱动，稳定后停止提交。按钮另加载 Wallpapers 的 `all_theme_button_bottom_shadow`，随按钮原生按压运动；组件光区按实际宽度及有限深度适配。
+
+有限页面的翻页进度统一使用 `SleepDownPagerIndicator` / `SleepDownPageIndicator`。ColorOS 上采用桌面 `OplusPageIndicator` 的绘制规格、COUI 模糊/描边/跟手光，以及 Launcher 的原生 `TouchAnimatorHelper`；支持点击、连续拖动选页、取消恢复和 RTL，两种材质模式均可使用。整类 `OplusPageIndicator` 依赖 Launcher ActivityContext 和业务状态，未直接实例化。非 ColorOS 保留可点击 Compose 实现。详见[原生页点与照亮进度](../reports/2026-11-05-native-page-indicators-and-card-light.md)。
+
 既有 `LiquidButton` 是兼容入口：可点击按钮优先交给 `ColorOsCapsuleButton`，成功后直接返回，之前的 Kyant 按压、拖拽形变与高光状态不会创建。`DialogLiquidButton` 和 Alert 操作按钮直接使用同一个渲染接口，包括没有 Backdrop 的场景。
 
 原生 `COUIButton` 负责材质、圆角、触摸、滑动取消、跟手光和触感；Compose 保留图标、文字、加载内容及原有尺寸。外层合并按钮语义并处理键盘激活，原生空文本 View 不重复暴露给无障碍。业务显式禁用状态传递给原生控件。

@@ -11,6 +11,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ChatGptLocalToolsTest {
+    @Test fun taskAndEduWorkspacesReachAccountToolsWithoutFileUploads() {
+        val tools = agentResponsesToolDefinitions(workspaceTools = listOf(
+            com.xiaomanjun.sleepdownschedule.feature.importing.taskWorkspaceDefinition("TASK_WORKSPACE", false),
+            com.xiaomanjun.sleepdownschedule.feature.importing.taskWorkspaceDefinition("EDU_WORKSPACE", false)))
+        val body = chatGptResponsesBody(buildJsonObject { put("input", "核对本地材料和教务接口"); put("tools", tools) })
+        val names = body["input"]!!.jsonArray.first().jsonObject["tools"]!!.jsonArray.map { it.jsonObject["name"]!!.jsonPrimitive.content }
+        assertTrue("TASK_WORKSPACE" in names)
+        assertTrue("EDU_WORKSPACE" in names)
+        assertFalse(body.toString().contains("file_id"))
+        val call = decodeAgentToolCall("edit", "functions.sleepdown.TASK_WORKSPACE", Json.parseToJsonElement(
+            """{"operation":"WRITE","path":"adapter.js","text":"// source","expectedHash":""}"""))
+        assertEquals(AgentToolName.TASK_WORKSPACE, call.name)
+        assertNull(call.validationError)
+    }
     @Test fun recoveryLoadsOnlyEagerLocalReadsAtTheStartOfTheInput() {
         val reads = agentReadRecoveryTools(agentResponsesToolDefinitions(includeMemoryTool = true))
         val body = chatGptResponsesBody(buildJsonObject {

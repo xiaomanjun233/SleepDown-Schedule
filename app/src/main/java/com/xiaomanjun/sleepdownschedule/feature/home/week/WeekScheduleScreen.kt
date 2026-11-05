@@ -469,14 +469,18 @@ internal fun SinglePillWeekScheduleScreen(
                     horizontalArrangement = Arrangement.Center
                 ) {
                     WeekSwitchButton(-1, state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
-                    HomeReadableText(
-                        text = "第${displayWeek}周",
-                        modifier = Modifier.padding(horizontal = 10.dp),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        color = textColor
-                    )
+                    WeekHeaderCrossfade(
+                        target = displayWeek,
+                        modifier = Modifier.padding(horizontal = 10.dp)
+                    ) { week ->
+                        HomeReadableText(
+                            text = "第${week}周",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            color = textColor
+                        )
+                    }
                     WeekSwitchButton(1, state.config, headerBackdrop, enabled = displayWeek < state.config.totalWeeks) { onSwipeWeek(1) }
                 }
             }
@@ -506,7 +510,6 @@ internal fun SinglePillWeekScheduleScreen(
                                 }
                                 WeekPagerHeaderLabels(
                                     pagerState = pagerState,
-                                    displayWeek = displayWeek,
                                     courses = state.courses,
                                     config = state.config,
                                     today = today,
@@ -754,6 +757,7 @@ internal fun SinglePillWeekScheduleScreen(
             liftProgress = weekEditOverlay.liftProgress,
             rotation = weekEditOverlay.rotation,
             gestureActive = weekEditOverlay.gestureActive,
+            pointerPosition = weekEditOverlay.pointerPosition,
             gridOffsetY = weekEditOverlay.gridOffsetY,
             gridScrollCompensationY = weekEditOverlay.gridScrollCompensationY,
             heightPx = weekEditOverlay.height,

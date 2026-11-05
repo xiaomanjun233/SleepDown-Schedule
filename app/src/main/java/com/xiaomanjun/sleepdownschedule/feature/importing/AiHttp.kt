@@ -202,7 +202,8 @@ internal fun postJson(
     requestContext: AiImportNetworkContext = AiImportNetworkContext("TEXT")
 ): String {
     requestContext.interaction?.checkActive()
-    return when (aiRequestEndpointStyle(url, body)) {
+    val started = System.nanoTime()
+    val response = when (aiRequestEndpointStyle(url, body)) {
         AiEndpointStyle.CHAT_COMPLETIONS ->
             postChatCompletionStreaming(url, apiKey, body, authType, providerId, requestContext)
         AiEndpointStyle.RESPONSES ->
@@ -219,6 +220,9 @@ internal fun postJson(
             requestContext
         )
     }
+    com.xiaomanjun.sleepdownschedule.core.ai.parseAiRequestUsage(response, System.nanoTime() - started)
+        ?.let { requestContext.interaction?.onUsage?.invoke(it) }
+    return response
 }
 
 /** Custom gateways may intentionally use a root URL; request shape still identifies the wire API. */
@@ -429,7 +433,8 @@ private fun publishNonStreamingImportActivity(
     if (style == AiEndpointStyle.CHAT_COMPLETIONS) {
         requireUsableChatCompletionStatus(root, response)
         val message = root.optionalArray("choices").firstOrNull()?.jsonObject?.get("message") as? JsonObject ?: return
-        val reports = completedImportProgressSummaries((message["content"] as? JsonPrimitive)?.contentOrNull.orEmpty())
+        val reports = completedImportAssistantReports(chatProviderReasoning(message)) +
+            completedImportAssistantReports((message["content"] as? JsonPrimitive)?.contentOrNull.orEmpty())
         orderedImportActivities(reports, chatMessageActivity(message)).forEach { context.interaction?.publishActivity(it) }
         val summary = chatProviderReasoning(message).ifBlank {
             importProgressSummary((message["content"] as? JsonPrimitive)?.contentOrNull.orEmpty())
@@ -438,7 +443,7 @@ private fun publishNonStreamingImportActivity(
     } else {
         requireCompletedResponsesStatus(root, response)
         val summary = collectResponsesSummaries(root).lastOrNull().orEmpty()
-        val reports = completedImportProgressSummaries(responsesOutputText(root))
+        val reports = (collectResponsesSummaries(root) + responsesAssistantTexts(root)).flatMap { completedImportAssistantReports(it) }
         val progress = reports.lastOrNull().orEmpty()
         orderedImportActivities(reports, summary.takeIf(String::isNotBlank)?.let {
             AiImportActivity(it, AiImportActivitySource.PROVIDER_SUMMARY)
@@ -485,6 +490,7 @@ internal class ChatCompletionSseAccumulator {
     private val toolCalls = linkedMapOf<Int, ChatToolCallAccumulator>()
     private var usage: JsonElement? = null
     private val progressTracker = AiImportProgressTracker()
+    private val summaryTracker = AiImportProgressTracker()
 
     fun consume(payload: String) {
         activity = null
@@ -514,6 +520,7 @@ internal class ChatCompletionSseAccumulator {
                 }
             chatProviderReasoning(delta).takeIf(String::isNotEmpty)?.let {
                 reasoning.append(it)
+                progressReports = progressReports + summaryTracker.newlyCompleted(reasoning)
                 activity = AiImportActivity(importActivityText(reasoning), AiImportActivitySource.PROVIDER_SUMMARY)
             }
             delta.optionalArray("tool_calls").forEachIndexed { fallbackIndex, rawCall ->
@@ -529,11 +536,16 @@ internal class ChatCompletionSseAccumulator {
         } else {
             choice["message"].takeUnless { it == JsonNull }?.jsonObject?.let {
                 fullMessage = it
-                progressReports = progressTracker.newlyCompleted((it["content"] as? JsonPrimitive)?.contentOrNull.orEmpty())
+                progressReports = summaryTracker.newlyCompleted(chatProviderReasoning(it), completed = true) +
+                    progressTracker.newlyCompleted((it["content"] as? JsonPrimitive)?.contentOrNull.orEmpty(), completed = true)
                 activity = chatMessageActivity(it)
             }
         }
-        choice["finish_reason"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let { finishReason = it }
+        choice["finish_reason"]?.jsonPrimitive?.contentOrNull?.takeIf { it.isNotBlank() }?.let {
+            finishReason = it
+            val completed = it in setOf("stop", "tool_calls", "function_call")
+            progressReports = progressReports + summaryTracker.newlyCompleted(reasoning, completed) + progressTracker.newlyCompleted(content, completed)
+        }
     }
 
     fun toCompletionJson(): String {
@@ -637,6 +649,9 @@ internal class ResponsesSseAccumulator(private val requireCompleted: Boolean = f
     private val functionCalls = linkedMapOf<String, ResponsesFunctionCallAccumulator>()
     private val itemKeysByIndex = mutableMapOf<Int, String>()
     private val outputText = StringBuilder()
+    private val progressTextByItem = mutableMapOf<String, StringBuilder>()
+    private val summaryTextByPart = mutableMapOf<String, StringBuilder>()
+    private val summaryTracker = AiImportProgressTracker()
     val reasoning = StringBuilder()
     private val reasoningText = StringBuilder()
     val displayReasoning: CharSequence get() = reasoning.takeIf { it.isNotEmpty() }
@@ -686,7 +701,10 @@ internal class ResponsesSseAccumulator(private val requireCompleted: Boolean = f
                 sawCompleted = completedResponse?.get("status")?.jsonPrimitive?.contentOrNull == "completed"
                 completedResponse?.let { requireCompletedResponsesStatus(it, if (requireCompleted) "" else payload) }
                 val summary = completedResponse?.let { collectResponsesSummaries(it).lastOrNull() }.orEmpty()
-                progressReports = progressTracker.newlyCompleted(completedResponse?.let(::responsesOutputText).orEmpty())
+                progressReports = completedResponse?.let { response ->
+                    collectResponsesSummaries(response).flatMap { summaryTracker.newlyCompleted(it, completed = true) } +
+                        responsesAssistantTexts(response).flatMap { progressTracker.newlyCompleted(it, completed = true) }
+                }.orEmpty()
                 val progress = progressReports.lastOrNull().orEmpty()
                 activity = when {
                     summary.isNotBlank() -> AiImportActivity(importActivityText(summary), AiImportActivitySource.PROVIDER_SUMMARY)
@@ -706,14 +724,18 @@ internal class ResponsesSseAccumulator(private val requireCompleted: Boolean = f
                     activity = AiImportActivity("正在接收工具调用", AiImportActivitySource.STATUS)
                 }
                 if (item["type"]?.jsonPrimitive?.contentOrNull == "reasoning") {
-                    val summary = collectResponsesSummaries(buildJsonObject { put("output", JsonArray(listOf(item))) }).lastOrNull()
+                    val summaries = collectResponsesSummaries(buildJsonObject { put("output", JsonArray(listOf(item))) })
+                    if (event["type"]?.jsonPrimitive?.contentOrNull == "response.output_item.done") {
+                        progressReports = summaries.flatMap { summaryTracker.newlyCompleted(it, completed = true) }
+                    }
+                    val summary = summaries.lastOrNull()
                     activity = summary?.let { AiImportActivity(importActivityText(it), AiImportActivitySource.PROVIDER_SUMMARY) }
                         ?: AiImportActivity("模型正在处理请求", AiImportActivitySource.STATUS)
                 }
                 if (item["type"]?.jsonPrimitive?.contentOrNull == "message") {
                     progressReports = progressTracker.newlyCompleted(responsesOutputText(buildJsonObject {
                         put("output", JsonArray(listOf(item)))
-                    }))
+                    }), completed = event["type"]?.jsonPrimitive?.contentOrNull == "response.output_item.done")
                     progressReports.lastOrNull()?.let { report ->
                         activity = AiImportActivity(report, AiImportActivitySource.MODEL_PROGRESS)
                     }
@@ -731,21 +753,33 @@ internal class ResponsesSseAccumulator(private val requireCompleted: Boolean = f
                     .finish(event["arguments"]?.jsonPrimitive?.contentOrNull.orEmpty())
             }
             "response.output_text.delta" -> {
-                event["delta"]?.jsonPrimitive?.contentOrNull?.let(outputText::append)
+                val delta = event["delta"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                outputText.append(delta)
+                val progressText = progressTextByItem.getOrPut(itemKey(event)) { StringBuilder() }.append(delta)
                 activity = AiImportActivity("正在接收模型输出（${outputText.length} 字符）", AiImportActivitySource.STATUS)
-                progressReports = progressTracker.newlyCompleted(outputText)
+                progressReports = progressTracker.newlyCompleted(progressText)
                 progressReports.lastOrNull()?.let { report ->
                     activity = AiImportActivity(report, AiImportActivitySource.MODEL_PROGRESS)
                 }
             }
+            "response.output_text.done" -> {
+                progressReports = progressTracker.newlyCompleted(event["text"]?.jsonPrimitive?.contentOrNull
+                    ?: progressTextByItem[itemKey(event)]?.toString().orEmpty(), completed = true)
+                progressReports.lastOrNull()?.let { activity = AiImportActivity(it, AiImportActivitySource.MODEL_PROGRESS) }
+            }
             "response.reasoning_summary_part.added" ->
                 if (reasoning.isNotEmpty()) reasoning.append("\n\n")
             "response.reasoning_summary_text.delta" -> {
-                event["delta"]?.jsonPrimitive?.contentOrNull?.let(reasoning::append)
+                val delta = event["delta"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                reasoning.append(delta)
+                val partKey = itemKey(event) + ":" + (event["summary_index"]?.jsonPrimitive?.contentOrNull ?: "0")
+                val part = summaryTextByPart.getOrPut(partKey) { StringBuilder() }.append(delta)
+                progressReports = summaryTracker.newlyCompleted(part)
                 activity = AiImportActivity(importActivityText(reasoning), AiImportActivitySource.PROVIDER_SUMMARY)
             }
             "response.reasoning_summary_text.done" -> {
                 val summary = event["text"]?.jsonPrimitive?.contentOrNull.orEmpty()
+                progressReports = summaryTracker.newlyCompleted(summary, completed = true)
                 if (summary.isNotBlank()) activity = AiImportActivity(importActivityText(summary), AiImportActivitySource.PROVIDER_SUMMARY)
             }
             "response.reasoning_text.delta" -> {

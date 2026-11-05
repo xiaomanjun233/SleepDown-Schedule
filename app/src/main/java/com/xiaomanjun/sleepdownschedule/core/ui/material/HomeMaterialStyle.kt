@@ -5,12 +5,13 @@ import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
 
-/** Weather uses COUI's neutral/transparent button material, independent of its sky colors. */
+/** Home chrome follows the wallpaper contrast while preserving each system material recipe. */
 @Immutable
 internal data class HomeMaterialStyle(
     val dark: Boolean,
     val weatherMaterial: Boolean,
-    val foreground: Int?
+    val foreground: Int?,
+    val sampleBrightness: Float = 1f
 )
 
 internal val LocalHomeMaterialStyle = compositionLocalOf<HomeMaterialStyle?> { null }

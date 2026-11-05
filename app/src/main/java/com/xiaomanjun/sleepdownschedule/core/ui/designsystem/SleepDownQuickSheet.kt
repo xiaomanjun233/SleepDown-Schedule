@@ -230,6 +230,11 @@ fun SleepDownPickerDialog(
             }
         }
     }
+    if (com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsEnabled.current) {
+        com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsContentDialog(
+            show, onDismissRequest, onDismissFinished, body)
+        return
+    }
     if (NativePickerDialog(show, config, onDismissRequest, onDismissFinished, body)) return
     val visuals = rememberCenteredDialogVisuals(
         backdrop = backdrop,

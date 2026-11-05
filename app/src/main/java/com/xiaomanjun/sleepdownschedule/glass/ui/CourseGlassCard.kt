@@ -156,6 +156,7 @@ fun CourseGlassCard(
     editorSampleScale: Float = 1f,
     expandedOutlineLight: Boolean = false,
     followTouch: Boolean = true,
+    externalTouch: (() -> com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSurfaceTouch)? = null,
     // Expanded forms can keep course material without the card's rim/caustic projection.
     nativeEdgeEffects: Boolean = true,
     followLightRadius: androidx.compose.ui.unit.Dp? = null,
@@ -234,6 +235,7 @@ fun CourseGlassCard(
                 statusModifier.onGloballyPositioned { coordinates[0] = it }, shape, appUsesDarkTheme(config),
                 renderSurface, drawMaterialNodes, onClick, tintDraw,
                 followTouch = followTouch,
+                externalTouch = externalTouch,
                 edgeEffects = nativeEdgeEffects,
                 followLightRadius = followLightRadius
             )) {

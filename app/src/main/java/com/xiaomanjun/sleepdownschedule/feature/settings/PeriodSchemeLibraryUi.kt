@@ -9,9 +9,11 @@ import androidx.compose.animation.shrinkHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -50,8 +52,6 @@ import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import top.yukonga.miuix.kmp.basic.Text as MiuixText
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 internal data class PeriodSchemeManagementRequest(
     val id: String,
@@ -173,13 +173,14 @@ fun PeriodSchemeManagementScreen(
         },
         managementContent = { hideSource ->
             Box(Modifier.fillMaxSize()) {
-                LazyColumn(Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = navigationBottom + 100.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    if (!loaded) item { MiuixText("正在读取作息…", modifier = Modifier.padding(vertical = 20.dp),
-                        style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary) }
+                SleepDownSecondaryPageList(modifier = Modifier.fillMaxSize(),
+                    contentTopPadding = topPadding + if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) 0.dp else 12.dp,
+                    contentBottomPadding = navigationBottom + 100.dp,
+                    sectionSpacing = if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) null else 8.dp) {
+                    if (!loaded) item { Text("正在读取作息…", modifier = Modifier.padding(vertical = 20.dp),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     error?.let { message -> item {
-                        MiuixText(message, style = MiuixTheme.textStyles.body2, color = MaterialTheme.colorScheme.error)
+                        Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                         if (!loaded) SettingsActionButton("重新读取", backdrop, onClick = { retry++ })
                     } }
                     items(library, key = { it.id }) { saved ->
@@ -192,8 +193,8 @@ fun PeriodSchemeManagementScreen(
                             onSelect = { switchPeriodScheme(saved) })
                     }
                     if (loaded && library.isEmpty()) item {
-                        MiuixText("还没有作息，点击右下角加号新建", modifier = Modifier.padding(vertical = 24.dp),
-                            style = MiuixTheme.textStyles.body2, color = MiuixTheme.colorScheme.onSurfaceVariantSummary)
+                        Text("还没有作息，点击右下角加号新建", modifier = Modifier.padding(vertical = 24.dp),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 val canCreate = loaded && !busy
@@ -280,16 +281,16 @@ private fun PeriodSchemeCard(
             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    MiuixText(saved.name, Modifier.weight(1f, fill = false), style = MiuixTheme.textStyles.headline1,
-                        fontWeight = FontWeight.Medium, color = MiuixTheme.colorScheme.onBackground,
+                    Text(saved.name, Modifier.weight(1f, fill = false), style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurface,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (selected) MiuixText("当前", Modifier.clip(RoundedRectangle(6.dp))
+                    if (selected) Text("当前", Modifier.clip(RoundedRectangle(6.dp))
                         .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)).padding(horizontal = 4.dp, vertical = 2.dp),
-                        style = MiuixTheme.textStyles.footnote1, fontWeight = FontWeight.Medium,
+                        style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Medium,
                         color = MaterialTheme.colorScheme.primary)
                 }
-                MiuixText("${saved.times.size}节 · ${starts.joinToString(" / ") { it.second }}", style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text("${saved.times.size}节 · ${starts.joinToString(" / ") { it.second }}", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val sources = buildList {
                     if (saved.createdInLibrary) add("手动新建")
                     addAll(saved.sources.map { it.scheduleName }.distinct())
@@ -297,9 +298,9 @@ private fun PeriodSchemeCard(
                 val sourceLabel = if (sources.isEmpty()) "公共作息"
                     else "来源：" + sources.joinToString("、")
                 val referenceLabel = saved.usages?.let { "${it.size} 个课表引用 · " }.orEmpty()
-                MiuixText(referenceLabel + sourceLabel + if (disambiguate) " · #${saved.roomId}" else "",
-                    style = MiuixTheme.textStyles.body2,
-                    color = MiuixTheme.colorScheme.onSurfaceVariantSummary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(referenceLabel + sourceLabel + if (disambiguate) " · #${saved.roomId}" else "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 DialogLiquidButton(

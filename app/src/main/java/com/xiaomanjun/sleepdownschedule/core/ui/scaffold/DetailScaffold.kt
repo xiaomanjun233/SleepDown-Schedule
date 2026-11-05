@@ -31,8 +31,10 @@ import com.xiaomanjun.sleepdownschedule.DefaultWallpaperStyle
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.TopBackButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassMiuixDetailActivityScaffold
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsPageScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalGlassSettingsContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsContentPadding
+import com.itos.coui.layout.CouiPageDefaults
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -48,11 +50,20 @@ internal fun detailTopOverlayHeight(): Dp {
 
 @Composable
 internal fun detailContentTopPadding(): Dp {
+    LocalCouiSettingsContentPadding.current?.let {
+        return it.calculateTopPadding()
+    }
     LocalGlassSettingsContentTopPadding.current?.let { return it }
     val density = LocalDensity.current
     val statusTop = with(density) { WindowInsets.safeDrawing.only(WindowInsetsSides.Top).getTop(this).toDp() }
     return statusTop + DetailTopBarHeight + DetailContentTopGap
 }
+
+/** 普通二级页只预留系统安全区及组间距；悬浮底部操作由所属页面单独避让。 */
+@Composable
+internal fun detailContentBottomPadding(): Dp = LocalCouiSettingsContentPadding.current?.let {
+    it.calculateBottomPadding() + CouiPageDefaults.groupSpacing
+} ?: com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 
 @Composable
 fun DetailActivityScaffold(
@@ -70,21 +81,13 @@ fun DetailActivityScaffold(
     topBarActions: @Composable (Backdrop?) -> Unit = {},
     content: @Composable (Backdrop?) -> Unit
 ) {
-    GlassMiuixDetailActivityScaffold(
-        title = title,
-        config = config,
-        onBack = onBack,
-        showTopGradientBlur = showTopGradientBlur,
+    CouiSettingsPageScaffold(title, config, showBack = true, onBack = onBack,
+        topBarVisible = topBarVisible, showTopGradientBlur = showTopGradientBlur,
         isolateContentFromBackdrop = isolateContentFromBackdrop,
-        compactTopBar = compactTopBar,
-        centerCompactTitle = centerCompactTitle,
-        compactTitleMatchesSettings = compactTitleMatchesSettings,
-        topBarVisible = topBarVisible,
-        preserveStatusBarSpace = preserveStatusBarSpace,
-        topBarBackdropOverride = topBarBackdropOverride,
-        topBarActions = topBarActions,
-        content = content
-    )
+        preserveStatusBarSpace = preserveStatusBarSpace, topBarBackdropOverride = topBarBackdropOverride,
+        topBarActions = topBarActions) { _, source ->
+        content(source.takeUnless { isolateContentFromBackdrop || android.os.Build.VERSION.SDK_INT < 31 })
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -207,6 +210,8 @@ fun DetailTopBar(
 
 @Composable
 fun settingsPageBackground(config: ScheduleConfigEntity): ComposeColor {
+    if (com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsEnabled.current)
+        return com.itos.coui.theme.CouiTheme.colorScheme.background
     return if (appUsesDarkTheme(config)) ComposeColor.Black else SleepDownDesignTokens.LightPageBackground
 }
 

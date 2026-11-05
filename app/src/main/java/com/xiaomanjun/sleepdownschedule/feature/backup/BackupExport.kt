@@ -390,8 +390,7 @@ object BackupExportMapper {
                 .sortedWith(compareBy<AgentMessageEntity> { it.createdAt }.thenBy { it.id })
                 .map { message ->
                     val parsed = parseAgentMessageContent(message.content)
-                    val attachmentAssetIds = parsed.attachmentFileName?.let { fileName ->
-                        listOf(
+                    val attachmentAssetIds = parsed.attachmentFileNames.map { fileName ->
                             resolveAsset(
                                 BackupExportAssetRequest(
                                     sourceKey = "agent-attachment:${message.scheduleId}:${message.id}:$fileName",
@@ -401,8 +400,7 @@ object BackupExportMapper {
                                     ownerId = messageIds.getValue(message.id)
                                 )
                             )
-                        )
-                    }.orEmpty()
+                    }
                     BackupAgentMessage(
                         id = messageIds.getValue(message.id),
                         sessionId = sessionIds[AgentSessionRoomKey(message.scheduleId, message.sessionDate)],

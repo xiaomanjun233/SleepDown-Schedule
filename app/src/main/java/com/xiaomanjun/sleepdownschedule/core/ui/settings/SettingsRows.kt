@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -43,12 +44,14 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -74,10 +77,11 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.ArrowRight
-import top.yukonga.miuix.kmp.preference.ArrowPreference as MiuixArrowPreference
+import com.itos.coui.effect.couiButtonFeedback
+import com.itos.coui.input.CouiHapticFeedback
+import com.itos.coui.input.performCouiHapticFeedback
 
 @Composable
 internal fun SettingsFallbackChip(label: String, selected: Boolean, onClick: () -> Unit) {
@@ -107,29 +111,30 @@ fun SettingsNavigationRow(
     leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     leadingIconTint: ComposeColor = MaterialTheme.colorScheme.primary,
     enabled: Boolean = true,
+    minHeight: Dp? = null,
     onClick: () -> Unit
 ) {
     val neutralSelection = MaterialTheme.colorScheme.onSurface
     val iconTint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f)
         androidx.compose.ui.graphics.lerp(leadingIconTint, ComposeColor.White, 0.18f) else leadingIconTint
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixArrowPreference(
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsArrowPreference(
             title = title,
             summary = subtitle,
             enabled = enabled,
-            startAction = {
-                leadingIcon?.let {
+            startAction = leadingIcon?.let { icon -> {
+                icon.let {
                     Icon(it, contentDescription = null, tint = iconTint,
-                        modifier = Modifier.padding(start = 4.dp, end = 8.dp).size(23.dp))
+                        modifier = Modifier.size(23.dp))
                 }
-            },
+            } },
             modifier = Modifier
                 .fillMaxWidth()
+                .then(minHeight?.let { Modifier.heightIn(min = it) } ?: Modifier)
                 .background(
                     neutralSelection.copy(alpha = if (selected) 0.10f else 0f)
                 ),
-            insideMargin = PaddingValues(start = 14.dp, end = if (leadingIcon != null) 22.dp else 14.dp,
-                top = 12.dp, bottom = 12.dp),
+            insideMargin = settingsPreferencePadding(),
             endActions = {
                 if (badgeText != null) {
                     Text(
@@ -192,10 +197,15 @@ fun SettingsNavigationRow(
 
 /**
  * The unified forward indicator every row uses when it opens a secondary surface. Rows that cannot
- * be a plain [SettingsNavigationRow] still reuse this exact Miuix arrow so the affordance matches.
+ * be a plain [SettingsNavigationRow] still reuse the current settings family's arrow.
  */
 @Composable
 internal fun SettingsForwardIndicator(modifier: Modifier = Modifier) {
+    if (LocalCouiSettingsEnabled.current) {
+        Icon(com.itos.coui.icons.CouiIcons.Next, null, modifier.size(width = 12.dp, height = 24.dp),
+            tint = ComposeColor(if (com.itos.coui.theme.CouiTheme.isDark) 0x4DFFFFFF else 0x42000000))
+        return
+    }
     Image(
         modifier = modifier.size(width = 10.dp, height = 16.dp),
         imageVector = MiuixIcons.Basic.ArrowRight,
@@ -208,7 +218,30 @@ internal fun SettingsForwardIndicator(modifier: Modifier = Modifier) {
 
 @Composable
 fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdrop: Backdrop?, enabled: Boolean = true, badgeText: String? = null, compact: Boolean = false, onCheckedChange: (Boolean) -> Unit) {
-    if (LocalGlassMiuixEnabled.current) {
+    if (LocalCouiSettingsEnabled.current && !LocalCouiLiquidMaterial.current) {
+        val interaction = remember { MutableInteractionSource() }
+        val view = LocalView.current
+        val dark = com.itos.coui.theme.CouiTheme.isDark
+        // 原版由整行承担 48dp 命中区；子开关只测量 24dp 轨道，避免再叠一个 48dp 点击区。
+        SettingsBasicComponent(modifier = Modifier.fillMaxWidth()
+            .couiButtonFeedback(dark, interaction, enabled, list = true)
+            .toggleable(checked, interaction, null, enabled, Role.Switch) { target ->
+                view.performCouiHapticFeedback(CouiHapticFeedback.Switch)
+                onCheckedChange(target)
+            },
+            insideMargin = settingsPreferencePadding(compact), enabled = enabled,
+            endActions = {
+                com.itos.coui.switch.Switch(modifier = Modifier.padding(start = 16.dp),
+                    checked = checked, onCheckedChange = null, onDragCheckedChange = onCheckedChange,
+                    enabled = enabled, interactionSource = interaction,
+                    colors = com.itos.coui.switch.CouiSwitchDefaults.colors(
+                        com.itos.coui.theme.CouiTheme.colorScheme.accent,
+                        com.itos.coui.theme.CouiTheme.isDark).copy(
+                        focusOutline = com.itos.coui.theme.CouiTheme.colorScheme.accent.copy(alpha = .4f)))
+            }) { SettingsPreferenceText(title, subtitle, badgeText, enabled) }
+        return
+    }
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
         GlassMiuixInteractivePreference(
             title = title,
             summary = subtitle.takeIf { it.isNotBlank() },
@@ -255,10 +288,10 @@ fun SettingsActionRow(
     badgeText: String? = null,
     onClick: () -> Unit
 ) {
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixBasicComponent(
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsBasicComponent(
             modifier = Modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            insideMargin = settingsPreferencePadding(),
             endActions = {
                 DialogLiquidButton(
                     backdrop = backdrop,
@@ -302,8 +335,8 @@ fun SettingsActionRow(
 
 @Composable
 fun SettingsValueRow(title: String, value: String, compact: Boolean = false, valueOnRight: Boolean = false) {
-    if (compact && !valueOnRight && LocalGlassMiuixEnabled.current) {
-        MiuixBasicComponent(title = title, summary = value, modifier = Modifier.fillMaxWidth(),
+    if (compact && !valueOnRight && (LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsBasicComponent(title = title, summary = value, modifier = Modifier.fillMaxWidth(),
             insideMargin = PaddingValues(horizontal = 4.dp, vertical = 8.dp))
         return
     }
@@ -316,11 +349,11 @@ fun SettingsValueRow(title: String, value: String, compact: Boolean = false, val
         }
         return
     }
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixBasicComponent(
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsBasicComponent(
             title = title,
             modifier = Modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = if (compact) 4.dp else 14.dp, vertical = if (compact) 8.dp else 12.dp),
+            insideMargin = settingsPreferencePadding(compact),
             endActions = {
                 Text(
                     value,
@@ -365,8 +398,8 @@ fun SettingsPickerValueRow(
     compact: Boolean = false,
     valueBelowTitle: Boolean = false
 ) {
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixArrowPreference(
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsArrowPreference(
             title = title,
             summary = value.ifBlank { "未设置" }.takeIf { valueBelowTitle },
             endActions = {
@@ -383,7 +416,7 @@ fun SettingsPickerValueRow(
             onClick = onClick,
             enabled = enabled,
             modifier = modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = if (compact) 4.dp else 14.dp, vertical = if (compact) 8.dp else 12.dp)
+            insideMargin = settingsPreferencePadding(compact)
         )
         return
     }
@@ -422,10 +455,10 @@ fun SettingsPickerValueRow(
 
 @Composable
 fun SettingsInfoRow(title: String, body: String, badgeText: String? = null) {
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixBasicComponent(
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsBasicComponent(
             modifier = Modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+            insideMargin = settingsPreferencePadding()
         ) { SettingsPreferenceText(title, body, badgeText) }
         return
     }
@@ -451,14 +484,14 @@ private fun GlassMiuixInteractivePreference(
     compact: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    MiuixBasicComponent(
+    SettingsBasicComponent(
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer(alpha = if (enabled) 1f else 0.48f),
-        insideMargin = PaddingValues(horizontal = if (compact) 4.dp else 14.dp, vertical = if (compact) 8.dp else 12.dp),
+        insideMargin = settingsPreferencePadding(compact),
         endActions = {
-            // Let Miuix measure the multiline label and its control in the same row. A separate
+            // Measure the multiline label and its control in the same COUI Item. A separate
             // overlay could retain the first-pass center while the summary wrapped on entry.
             Box(Modifier.size(controlWidth, controlHeight),
                 contentAlignment = Alignment.Center) {
@@ -483,7 +516,7 @@ fun SettingsChoiceRow(title: String, selected: NotificationMode, backdrop: Backd
         backdrop = backdrop,
         config = config,
         modifier = Modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        insideMargin = settingsPreferencePadding(),
         maxHeight = 240.dp,
         onExpandedChange = {},
         onSelectedIndexChange = { index -> onSelected(modes[index.coerceIn(modes.indices)]) }
@@ -517,7 +550,7 @@ fun SettingsLiveUpdateChipTextRow(
         backdrop = backdrop,
         config = config,
         modifier = Modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        insideMargin = settingsPreferencePadding(),
         maxHeight = 260.dp,
         onExpandedChange = {},
         onSelectedIndexChange = { index -> onSelected(options[index.coerceIn(options.indices)]) }
@@ -602,6 +635,20 @@ fun SettingsActionButton(
 
 @Composable
 private fun SettingsPreferenceText(title: String, summary: String?, badge: String?, enabled: Boolean = true) {
+    if (LocalCouiSettingsEnabled.current) {
+        val colors = com.itos.coui.theme.CouiTheme.colorScheme
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            com.itos.coui.text.Text(text = title, kind = com.itos.coui.text.CouiTextKind.PreferenceTitle,
+                color = if (enabled) colors.onSurface else colors.onSurface.copy(alpha = .3f),
+                modifier = Modifier.weight(1f, fill = false))
+            if (badge != null) Text(badge, style = MaterialTheme.typography.labelSmall,
+                color = colors.accent, modifier = Modifier.padding(start = 6.dp))
+        }
+        if (!summary.isNullOrEmpty()) com.itos.coui.text.Text(text = summary,
+            kind = com.itos.coui.text.CouiTextKind.PreferenceSummary,
+            color = if (enabled) colors.onSurfaceVariant else colors.onSurface.copy(alpha = .3f))
+        return
+    }
     val theme = top.yukonga.miuix.kmp.theme.MiuixTheme
     val titleColor = if (enabled) theme.colorScheme.onBackground else theme.colorScheme.disabledOnSecondaryVariant
     if (badge == null) {

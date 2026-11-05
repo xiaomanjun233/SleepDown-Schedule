@@ -96,7 +96,11 @@ internal fun agentChangeRows(action: AgentValidatedAction, facts: DayAgentFacts)
             add(AgentChangeRow("保留", null, "未选中的周次和节次保持原安排"))
         }
     } else when (action.type) {
-        AgentValidatedActionType.SET_SETTING -> add(AgentChangeRow(
+        AgentValidatedActionType.SET_SETTING -> if (action.settingKey == "TIME_SLOT_COURSES") {
+            val old = facts.settingSnapshot[action.settingKey].orEmpty().let { if (it == "[]") "" else it }
+            val updated = action.settingValue?.let { applySpecialCoursePatch(old, it) }
+            add(AgentChangeRow("特殊课程", specialCourseSummary(old), updated?.let(::specialCourseSummary) ?: "补丁未通过校验"))
+        } else add(AgentChangeRow(
             AgentSettingRegistry.definitions.firstOrNull { it.key == action.settingKey }?.description ?: "节次时间",
             agentReadableSetting(facts.settingSnapshot[action.settingKey]), agentReadableSetting(action.settingValue)))
         AgentValidatedActionType.SET_PERIOD_SETTINGS -> action.periodSettings?.let { patch ->

@@ -241,7 +241,7 @@ private fun AutoRefreshDashboardContent(
     }
     Box(Modifier.fillMaxSize()) {
         SleepDownSecondaryPageList(
-            contentTopPadding = detailContentTopPadding() + 12.dp,
+            contentTopPadding = detailContentTopPadding() + if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) 0.dp else 12.dp,
             contentBottomPadding = DockScrollPadding,
             modifier = Modifier.fillMaxSize().glassBackdropProducer(contentBackdrop)
         ) {

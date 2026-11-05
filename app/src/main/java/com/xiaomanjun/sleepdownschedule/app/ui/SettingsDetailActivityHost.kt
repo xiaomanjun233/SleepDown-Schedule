@@ -85,6 +85,8 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsRootScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsSection
 import com.xiaomanjun.sleepdownschedule.feature.settings.VisualEffectsSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
 import com.xiaomanjun.sleepdownschedule.feature.settings.usesPersistentCenteredSettingsTitle
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCustomizationScreen
@@ -207,6 +209,13 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                 // entries retain their platform/depth transition behavior.
                 var transitionRequestClose by remember { mutableStateOf<(() -> Unit)?>(null) }
                 val closeSettings: () -> Unit = { (transitionRequestClose ?: { finish() })() }
+                fun openSettingsPage(page: SettingsPage) {
+                    ActivityTransitionCoordinator.openImmediate(
+                        this@SettingsDetailActivityHost, TransitionRouteId.SettingsToSettingsDetail,
+                        Intent(this@SettingsDetailActivityHost, SettingsDetailActivity::class.java)
+                            .putExtra(SettingsDetailPageExtra, page.name)
+                    )
+                }
                 val requestExit: () -> Unit = {
                     when (section) {
                         SettingsPage.Schedule, SettingsPage.PeriodSchemes, SettingsPage.SpecialCourses -> scheduleExitRequest++
@@ -331,25 +340,13 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                             onSave = { config, _ -> viewModel.saveNotificationSettings(config) },
                             onPreviewLiveUpdate = viewModel::previewLiveUpdate
                         )
-                        SettingsPage.About -> ChangelogSettingsScreen(
+                        SettingsPage.About -> ColorOsAboutSettingsScreen(
                             state = state,
                             backdrop = backdrop,
-                            onDonate = {
-                                ActivityTransitionCoordinator.openImmediate(
-                                    this@SettingsDetailActivityHost,
-                                    TransitionRouteId.SettingsToSettingsDetail,
-                                    Intent(this@SettingsDetailActivityHost, SettingsDetailActivity::class.java)
-                                        .putExtra(SettingsDetailPageExtra, SettingsPage.Donate.name)
-                                )
-							},
-							onPrivacyPolicy = {
-								ActivityTransitionCoordinator.openImmediate(
-                                    this@SettingsDetailActivityHost,
-                                    TransitionRouteId.SettingsToSettingsDetail,
-                                    Intent(this@SettingsDetailActivityHost, SettingsDetailActivity::class.java)
-                                        .putExtra(SettingsDetailPageExtra, SettingsPage.PrivacyPolicy.name)
-                                )
-							}
+                            onDonate = { openSettingsPage(SettingsPage.Donate) },
+                            onPrivacyPolicy = { openSettingsPage(SettingsPage.PrivacyPolicy) },
+                            onSoftwareUpdate = { openSettingsPage(SettingsPage.SoftwareUpdate) },
+                            onHistory = { openSettingsPage(SettingsPage.Changelog) },
                         )
                         SettingsPage.BackupRestore -> BackupRestoreSettingsScreen(
                             state = state,
@@ -391,25 +388,9 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 )
                             }
                         }
-                        SettingsPage.Changelog -> ChangelogSettingsScreen(
-                            state = state,
-                            backdrop = backdrop,
-                            onDonate = {
-                                ActivityTransitionCoordinator.openImmediate(
-                                    this@SettingsDetailActivityHost,
-                                    TransitionRouteId.SettingsToSettingsDetail,
-                                    Intent(this@SettingsDetailActivityHost, SettingsDetailActivity::class.java)
-                                        .putExtra(SettingsDetailPageExtra, SettingsPage.Donate.name)
-                                )
-							},
-							onPrivacyPolicy = {
-								ActivityTransitionCoordinator.openImmediate(
-                                    this@SettingsDetailActivityHost,
-                                    TransitionRouteId.SettingsToSettingsDetail,
-                                    Intent(this@SettingsDetailActivityHost, SettingsDetailActivity::class.java)
-                                        .putExtra(SettingsDetailPageExtra, SettingsPage.PrivacyPolicy.name)
-                                )
-							}
+                        SettingsPage.Changelog -> ChangelogSettingsScreen(state, backdrop)
+                        SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(
+                            state, backdrop, onHistory = { openSettingsPage(SettingsPage.Changelog) }
                         )
 						SettingsPage.Donate -> DonateSettingsScreen(state, backdrop)
 						SettingsPage.PrivacyPolicy -> PrivacyPolicySettingsScreen(state, backdrop)

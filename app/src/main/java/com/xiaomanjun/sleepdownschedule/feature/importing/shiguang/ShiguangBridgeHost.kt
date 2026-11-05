@@ -19,7 +19,10 @@ internal class ShiguangBridgeHost(
     private var onInteractionRequest: (EduBridgeInteractionRequest) -> Unit
 ) {
     private val mainHandler = Handler(Looper.getMainLooper())
-    private data class Task(val generation: Long, val session: ShiguangImportSession, var promptAnswer: String?)
+    private data class Task(val generation: Long, val session: ShiguangImportSession, var promptAnswer: String?,
+                            val capture: ((Result<ImportDraft>) -> Unit)? = null,
+                            val interaction: ((EduBridgeInteractionRequest) -> Unit)? = null,
+                            val executionToken: String? = null)
     @Volatile private var task: Task? = null
     @Volatile private var generation = 0L
     @Volatile private var closed = false
@@ -27,11 +30,17 @@ internal class ShiguangBridgeHost(
     private val _running = kotlinx.coroutines.flow.MutableStateFlow(false)
     val running: kotlinx.coroutines.flow.StateFlow<Boolean> = _running
 
+    fun cancelCapture(capture: (Result<ImportDraft>) -> Unit) {
+        if (task?.capture === capture) finishExecution()
+    }
+
     /** Cancel this task without allowing already queued results to cross into the next one. */
     fun finishExecution() {
+        val previous = task
         generation++
         task = null
         _running.value = false
+        previous?.capture?.invoke(Result.failure(IllegalStateException("教务脚本已停止或页面发生变化")))
     }
 
     fun close() {
@@ -74,13 +83,17 @@ internal class ShiguangBridgeHost(
         periods: List<PeriodEntity>,
         initialPromptAnswer: String? = null,
         mergeOverlappingTimeSlots: Boolean = false,
-        allowImportedBellTimes: Boolean = false
+        allowImportedBellTimes: Boolean = false,
+        capture: ((Result<ImportDraft>) -> Unit)? = null,
+        captureInteraction: ((EduBridgeInteractionRequest) -> Unit)? = null,
+        executionToken: String? = null
     ) {
         check(!closed) { "教务会话已关闭" }
+        if (task?.capture != null) finishExecution()
         val next = ShiguangImportSession()
         next.begin(config, periods, mergeOverlappingTimeSlots, allowImportedBellTimes)
         generation++
-        task = Task(generation, next, initialPromptAnswer)
+        task = Task(generation, next, initialPromptAnswer, capture, captureInteraction, executionToken)
         _running.value = true
     }
 
@@ -94,16 +107,30 @@ internal class ShiguangBridgeHost(
             postForTask(expectedGeneration) { onMessage("拾光 Bridge 消息无效：${error.message}") }
             return
         }
+        if (message.executionToken != currentTask?.executionToken) {
+            message.callbackId?.let { reject(it, "此脚本所属导入任务已结束，旧结果未交付", expectedGeneration) }
+            return
+        }
         try {
             when (message.action) {
                 "showToast" -> parsePayload<ShiguangShowToastPayload>(message).let { payload ->
-                    postForTask(expectedGeneration) { onMessage(payload.message) }
+                    postForTask(expectedGeneration) {
+                        onMessage(payload.message)
+                        // Non-returning official flows also signal cancellation through these
+                        // terminal messages. Release their busy state without treating warnings
+                        // such as a failed optional bell request as a completed import.
+                        if (payload.message.trim().trimEnd('。', '.') in setOf("用户取消了导入", "导入已取消")) {
+                            currentTask?.capture?.invoke(Result.failure(IllegalStateException("用户取消了导入")))
+                            task = null
+                            _running.value = false
+                        }
+                    }
                 }
 
                 "showAlert" -> parsePayload<ShiguangShowAlertPayload>(message).let { payload ->
                     val callbackId = requireCallbackId(message)
                     postForTask(expectedGeneration) {
-                        onInteractionRequest(
+                        (currentTask?.interaction ?: onInteractionRequest)(
                             EduBridgeInteractionRequest.Alert(
                                 requestId = callbackId,
                                 title = payload.titleText.ifBlank { "提示" },
@@ -125,7 +152,7 @@ internal class ShiguangBridgeHost(
                         return@let
                     }
                     postForTask(expectedGeneration) {
-                        onInteractionRequest(
+                        (currentTask?.interaction ?: onInteractionRequest)(
                             EduBridgeInteractionRequest.Prompt(
                                 requestId = callbackId,
                                 title = payload.titleText.ifBlank { "请输入" },
@@ -144,7 +171,7 @@ internal class ShiguangBridgeHost(
                         payload.itemsJsonString
                     )
                     postForTask(expectedGeneration) {
-                        onInteractionRequest(
+                        (currentTask?.interaction ?: onInteractionRequest)(
                             EduBridgeInteractionRequest.SingleSelection(
                                 requestId = callbackId,
                                 title = payload.titleText.ifBlank { "请选择" },
@@ -180,13 +207,14 @@ internal class ShiguangBridgeHost(
                     postForTask(expectedGeneration) {
                         task = null
                         _running.value = false
-                        onDraft(draft)
+                        currentTask.capture?.invoke(Result.success(draft)) ?: onDraft(draft)
                     }
                 }
 
                 "notifyExecutionFinished" -> postForTask(expectedGeneration) {
                     task = null
                     _running.value = false
+                    currentTask?.capture?.invoke(Result.failure(IllegalStateException("脚本执行结束，未提交完整课程；请核对登录状态和脚本输出")))
                 }
 
                 else -> throw IllegalArgumentException("未知拾光 Bridge action：${message.action}")
@@ -198,6 +226,7 @@ internal class ShiguangBridgeHost(
             if (message.callbackId == null) postForTask(expectedGeneration) {
                 task = null
                 _running.value = false
+                currentTask?.capture?.invoke(Result.failure(IllegalArgumentException(detail)))
             }
         }
     }

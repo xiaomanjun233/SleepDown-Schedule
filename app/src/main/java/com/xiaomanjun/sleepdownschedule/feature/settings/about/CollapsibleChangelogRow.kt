@@ -39,7 +39,7 @@ import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalGlassMiuixEnabled
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
 import kotlinx.coroutines.flow.map
-import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsBasicComponent as MiuixBasicComponent
 
 private val changelogReleaseDates = mapOf(
     "1.2.8_beta1" to "2026-10-27",

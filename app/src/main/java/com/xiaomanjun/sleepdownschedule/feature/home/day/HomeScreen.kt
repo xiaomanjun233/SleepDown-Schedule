@@ -87,7 +87,7 @@ internal fun HomeScreen(
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit = {},
     onAgentAction: AgentActionHandler = { _, _ -> },
-    onAgentImportFile: ((android.net.Uri) -> Unit)? = null,
+    onAgentImportFile: ((List<android.net.Uri>) -> Unit)? = null,
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     conflictFocusCourseId: Long? = null,
     conflictFocusCourseKey: String? = null,

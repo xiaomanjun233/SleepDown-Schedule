@@ -62,6 +62,7 @@ import top.yukonga.miuix.kmp.basic.ListPopupVisualStyle
 import top.yukonga.miuix.kmp.basic.PopupPositionProvider
 import top.yukonga.miuix.kmp.overlay.OverlayCascadingListPopup
 import top.yukonga.miuix.kmp.preference.OverlayDropdownPreference
+import top.yukonga.miuix.kmp.popup.OverlayDropdownPopup
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** Business model only; Miuix owns popup layout, input and cascading motion. */
@@ -278,6 +279,27 @@ private fun rememberSleepDownPopupRowColors(contentColor: Color? = null): Dropdo
     }
 }
 
+/** 挂在触发值所在 Row 内，让原 Miuix Morph 取得实际控件的窗口坐标。 */
+@Composable
+internal fun SettingsMiuixDropdownPopup(
+    items: List<String>, selectedIndex: Int, show: Boolean,
+    backdrop: Backdrop?, config: ScheduleConfigEntity, maxHeight: Dp,
+    onDismiss: () -> Unit, onDismissFinished: () -> Unit, onSelected: (Int) -> Unit,
+    collapseContent: @Composable () -> Unit,
+) {
+    val entry = DropdownEntry(items.mapIndexed { index, label ->
+        DropdownItem(text = label, selected = index == selectedIndex, onClick = { onSelected(index) })
+    })
+    OverlayDropdownPopup(entry = entry, show = show,
+        onDismiss = onDismiss, onDismissFinished = onDismissFinished,
+        maxHeight = maxHeight,
+        dropdownColors = rememberSleepDownPopupRowColors(sleepDownPanelForegroundColor(config)),
+        renderInRootScaffold = false, excludeFromBackdropCapture = true,
+        popupVisualStyle = rememberMiuixListPopupStyle(LocalSettingsPopupBackdrop.current ?: backdrop, config),
+        revealLimitHeight = if (items.size > 2) 112.dp else 0.dp,
+        collapseContent = collapseContent)
+}
+
 @Composable
 internal fun SleepDownLiquidDropdownPreference(
     items: List<String>,
@@ -288,7 +310,7 @@ internal fun SleepDownLiquidDropdownPreference(
     modifier: Modifier = Modifier,
     summary: String? = null,
     selectedBadgeText: String? = null,
-    insideMargin: PaddingValues = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+    insideMargin: PaddingValues = settingsPreferencePadding(),
     maxHeight: Dp = 318.dp,
     compactTextStyle: TextStyle? = null,
     @Suppress("UNUSED_PARAMETER") expanded: Boolean? = null,
@@ -297,6 +319,11 @@ internal fun SleepDownLiquidDropdownPreference(
     onExpandedChange: (Boolean) -> Unit = {},
     onSelectedIndexChange: (Int) -> Unit
 ) {
+    if (LocalCouiSettingsEnabled.current) {
+        CouiSettingsDropdownPreference(items, selectedIndex, title, modifier, summary, selectedBadgeText,
+            insideMargin, maxHeight, enabled, backdrop, config, onExpandedChange, onSelectedIndexChange)
+        return
+    }
     // The dropdown host is rendered by the root Miuix host as a sibling after the page's
     // underlay producer, so it may sample the complete Scaffold underlay (TopBar, large title,
     // content and low-level overlays) instead of only the flat background passed by the caller.
@@ -392,7 +419,8 @@ internal fun SleepDownLiquidCascadingPopup(
     collapseContent: (@Composable () -> Unit)? = null,
     onDismissFinished: (() -> Unit)? = null,
     alignment: PopupPositionProvider.Align = PopupPositionProvider.Align.End,
-    morphHorizontalInset: Dp = 7.dp
+    morphHorizontalInset: Dp = 7.dp,
+    itemTextStyle: TextStyle? = null
 ) {
     val completeUnderlayBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     val renderInRootScaffold = LocalCenteredDialogRenderInRootScaffold.current
@@ -415,6 +443,7 @@ internal fun SleepDownLiquidCascadingPopup(
         cornerRadius = 25.dp
     )
     val popupVisualStyle = basePrimaryVisualStyle.copy(
+        itemTextStyle = itemTextStyle ?: basePrimaryVisualStyle.itemTextStyle,
         // Capture the complete parent (including labels) for the child glass. The settings
         // morph renderer draws its material and labels as siblings inside this container.
         interactionModifier = Modifier
@@ -428,7 +457,7 @@ internal fun SleepDownLiquidCascadingPopup(
         backdrop = secondaryUnderlayBackdrop,
         config = config,
         cornerRadius = 25.dp
-    )
+    ).let { style -> style.copy(itemTextStyle = itemTextStyle ?: style.itemTextStyle) }
     val popupRowColors = rememberSleepDownPopupRowColors(
         contentColor ?: sleepDownPanelForegroundColor(config)
     )

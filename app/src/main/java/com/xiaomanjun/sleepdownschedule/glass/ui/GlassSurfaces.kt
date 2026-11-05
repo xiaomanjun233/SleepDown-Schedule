@@ -82,6 +82,8 @@ fun GlassSurface(
     nativeTintAlphaScale: Float = 1f,
     nativeDockMaterial: Boolean = false,
     nativeFollowLightIntensityScale: Float = 1f,
+    nativeMaterialVisible: Boolean = true,
+    nativeElasticTouchFeedback: Boolean = false,
     content: @Composable () -> Unit
 ) {
     if (nativeMaterial) {
@@ -92,12 +94,14 @@ fun GlassSurface(
             // only clips its default capsule; it cannot relocate the stroke inside an envelope.
             modifier = if (morphAllocation != null) modifier.glassMorphContent(morphAllocation) else modifier,
             shape = shape, dark = nativeDark ?: !glassUsesLightStyle(config),
+            materialVisible = nativeMaterialVisible,
             blurRadiusScale = nativeBlurRadiusScale,
             tintAlphaScale = nativeTintAlphaScale,
             followLightIntensityScale = nativeFollowLightIntensityScale,
             role = if (nativeDockMaterial) com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.HomeDock
                 else com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Content,
             onClick = onClick,
+            elasticTouchFeedback = nativeElasticTouchFeedback,
             shapeProvider = if (morphAllocation != null) {
                 { RoundedRectangle(with(nativeDensity) { morphAllocation.geometry().cornerRadiusPx.toDp() }) }
             } else shapeProvider,
@@ -161,7 +165,7 @@ fun GlassSurface(
         ),
         // Passive glass never receives press events. An identity graphics layer here can
         // retain the previous pixels of a badge while its parent pager layer moves.
-        layerScale = if (onClick == null) null else 1f + 0.055f * pressProgress
+        layerScale = if (onClick == null && !nativeElasticTouchFeedback) null else 1f + 0.055f * pressProgress
     )
     val contentModifier = if (useGlass) {
         modifier.sleepDownGlassSurface(
@@ -210,11 +214,11 @@ fun GlassSurface(
             }
     }
         .then(
-            if (onClick == null) Modifier else Modifier.clickable(
+            if (onClick == null && !nativeElasticTouchFeedback) Modifier else Modifier.clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                role = Role.Button,
-                onClick = onClick
+                role = if (onClick != null) Role.Button else null,
+                onClick = onClick ?: {}
             )
         )
 

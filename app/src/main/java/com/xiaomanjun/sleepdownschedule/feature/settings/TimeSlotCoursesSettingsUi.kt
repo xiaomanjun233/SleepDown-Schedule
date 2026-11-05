@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
@@ -67,8 +68,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.time.LocalTime
 import java.util.UUID
-import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsBasicComponent as MiuixBasicComponent
 
 /** The schedule page contains only the same navigation row used by other settings. */
 @Composable
@@ -181,7 +181,7 @@ private fun TimeSlotCourseNavigationCard(
                     if (slot == null) Icon(Icons.Outlined.Add, contentDescription = null,
                         tint = MaterialTheme.colorScheme.primary.copy(alpha = if (enabled) 1f else 0.38f),
                         modifier = Modifier.size(18.dp))
-                    Text(title, color = foreground, style = MiuixTheme.textStyles.main,
+                    Text(title, color = foreground, style = MaterialTheme.typography.titleMedium,
                         maxLines = 1, softWrap = false,
                         modifier = Modifier.weight(1f).basicMarquee(iterations = Int.MAX_VALUE))
                     if (slot != null) Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = null,
@@ -193,7 +193,7 @@ private fun TimeSlotCourseNavigationCard(
                     TimeSlotCourseCardInfo(Icons.Outlined.ViewAgenda, timeSlotAnchorLabel(slot.afterPeriod), foreground)
                 } else {
                     Text(subtitle, color = foreground.copy(alpha = if (enabled) 0.72f else foreground.alpha),
-                        style = MiuixTheme.textStyles.footnote1)
+                        style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
@@ -206,7 +206,7 @@ private fun TimeSlotCourseCardInfo(icon: ImageVector, label: String, foreground:
         .background(foreground.copy(alpha = 0.06f)).padding(horizontal = 10.dp, vertical = 6.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, contentDescription = null, tint = foreground.copy(alpha = 0.52f), modifier = Modifier.size(14.dp))
-        Text(label, color = foreground.copy(alpha = 0.78f), style = MiuixTheme.textStyles.footnote1,
+        Text(label, color = foreground.copy(alpha = 0.78f), style = MaterialTheme.typography.labelMedium,
             maxLines = 1, softWrap = false,
             modifier = Modifier.weight(1f).unclippedMarquee())
     }
@@ -227,14 +227,17 @@ fun TimeSlotCourseEditorScreen(
     var error by remember { mutableStateOf<String?>(null) }
     SideEffect { onExitInterceptionChange(true) }
     DisposableEffect(Unit) { onDispose { onExitInterceptionChange(false) } }
-    val padding = PaddingValues(start = 16.dp, end = 16.dp, top = detailContentTopPadding() + 12.dp,
-        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 32.dp)
+    val padding = PaddingValues(start = 16.dp, end = 16.dp,
+        top = detailContentTopPadding() + if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) 0.dp else 12.dp,
+        bottom = if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS)
+            com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding()
+            else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 32.dp)
     MaterialTheme(typography = MaterialTheme.typography.copy(
-        titleMedium = MiuixTheme.textStyles.main,
-        bodyMedium = MiuixTheme.textStyles.body1,
-        bodySmall = MiuixTheme.textStyles.footnote1,
-        labelLarge = MiuixTheme.textStyles.button,
-        labelMedium = MiuixTheme.textStyles.footnote1
+        titleMedium = MaterialTheme.typography.titleMedium,
+        bodyMedium = MaterialTheme.typography.bodyMedium,
+        bodySmall = MaterialTheme.typography.labelMedium,
+        labelLarge = MaterialTheme.typography.labelLarge,
+        labelMedium = MaterialTheme.typography.labelMedium
     )) {
     TimeSlotCourseEditor(original, state.periods, config, backdrop, LocalSettingsPopupBackdrop.current ?: backdrop,
         padding, saving, error, exitCommitRequest, onClose = { if (!saving) onExitCommitFinished(true) },
@@ -336,7 +339,8 @@ private fun TimeSlotCourseEditor(
             "第${selectedPeriods.first()}–${selectedPeriods.last()}节") + " · $start–$end"
         else -> "$start–$end"
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = padding, verticalArrangement = Arrangement.spacedBy(14.dp)) {
+    SleepDownSecondaryPageList(modifier = Modifier.fillMaxSize(),
+        contentTopPadding = padding.calculateTopPadding(), contentBottomPadding = padding.calculateBottomPadding()) {
         item {
             GlassPreferenceSection("基本信息") {
                 SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {

@@ -378,7 +378,7 @@ class BackupRestoreService(
         }
         guarded("Agent 附件清理失败") {
             val referenced = database.agentDao().getAllMessageContents()
-                .mapNotNull { parseAgentMessageContent(it).attachmentFileName }
+                .flatMap { parseAgentMessageContent(it).attachmentFileNames }
                 .toSet()
             val directory = File(appContext.filesDir, "agent_attachments")
             val existing = directory.listFiles().orEmpty().filter(File::isFile).mapTo(linkedSetOf()) { it.name }

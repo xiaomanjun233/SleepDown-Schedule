@@ -47,7 +47,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignToke
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassMiuixSettingsTheme
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassMiuixTabletDetailPaneScaffold
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsTabletDetailPaneScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsSharedGradient
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsSharedGradient
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.rememberSettingsPaneBackground
@@ -59,6 +59,8 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.DonateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.ScheduleManagerScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.aboutPageGradientColors
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCustomizationScreen
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
@@ -225,13 +227,11 @@ fun SettingsScreen(
                         portraitTransitionSpec = { settingsDetailTransition(detailNavigationDirection) },
                         label = "TabletSettingsDetailNavigation"
                     ) { targetPage ->
-                        GlassMiuixTabletDetailPaneScaffold(
+                        CouiSettingsTabletDetailPaneScaffold(
                             title = targetPage.title(),
                             config = pageConfig,
                             topBarVisible = !(targetPage == SettingsPage.Widgets && tabletWidgetEditorVisible),
                             showBackButton = targetPage != selectedPage,
-                            useMiuixCollapsedTitleStyle =
-                                targetPage.usesPersistentCenteredSettingsTitle(),
                             onBack = ::popTabletDetailPage,
                             topBarActions = { topBackdrop ->
                                 if (targetPage == SettingsPage.AutoRefreshSchedule && autoRefreshProfile == null) {
@@ -445,17 +445,17 @@ private fun SettingsPageContent(
                 )
             }
         }
-        SettingsPage.About -> ChangelogSettingsScreen(
+        SettingsPage.About -> ColorOsAboutSettingsScreen(
             pageState,
             backdrop,
 			onDonate = { onPageChange(SettingsPage.Donate) },
-			onPrivacyPolicy = { onPageChange(SettingsPage.PrivacyPolicy) }
+			onPrivacyPolicy = { onPageChange(SettingsPage.PrivacyPolicy) },
+            onSoftwareUpdate = { onPageChange(SettingsPage.SoftwareUpdate) },
+            onHistory = { onPageChange(SettingsPage.Changelog) },
         )
-        SettingsPage.Changelog -> ChangelogSettingsScreen(
-            pageState,
-            backdrop,
-			onDonate = { onPageChange(SettingsPage.Donate) },
-			onPrivacyPolicy = { onPageChange(SettingsPage.PrivacyPolicy) }
+        SettingsPage.Changelog -> ChangelogSettingsScreen(pageState, backdrop)
+        SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(
+            pageState, backdrop, onHistory = { onPageChange(SettingsPage.Changelog) }
         )
 		SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
 		SettingsPage.PrivacyPolicy -> PrivacyPolicySettingsScreen(pageState, backdrop)

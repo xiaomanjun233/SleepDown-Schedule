@@ -6,6 +6,7 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material.icons.Icons
@@ -29,7 +30,7 @@ import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceCategory
@@ -185,9 +186,8 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
                 CircularProgressIndicator()
             }
         } else if (page == 1) {
-            LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
-                top = detailContentTopPadding(), bottom = DockScrollPadding),
-                modifier = Modifier.imePadding(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            SleepDownSecondaryPageList(contentTopPadding = detailContentTopPadding(),
+                contentBottomPadding = detailContentBottomPadding(), modifier = Modifier.imePadding()) {
                 item {
                     GlassPreferenceSection("连接 WebDAV") {
                         GlassPreferenceCategory("输入网盘或 NAS 的 WebDAV 连接信息")
@@ -229,8 +229,8 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
                 }
             }
         } else {
-            LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
-                top = detailContentTopPadding(), bottom = DockScrollPadding), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            SleepDownSecondaryPageList(contentTopPadding = detailContentTopPadding(),
+                contentBottomPadding = detailContentBottomPadding()) {
                 item {
                     GlassPreferenceSection("WebDAV 连接") {
                         SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {

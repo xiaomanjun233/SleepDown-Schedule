@@ -61,7 +61,9 @@ internal class DefaultScheduleFilePreprocessor(private val context: Context) : S
     }
 
     private fun preprocessPdf(file: AiImportFile, config: AiProviderConfig): PreprocessResult {
-        val extracted = extractPdfTextBestEffort(file.bytes)
+        val extracted = extractPdfTextLocally(context, file)
+        if (canSendNativePdf(config)) return PreprocessResult.Raw(file, file.bytes,
+            "将原 PDF 交给支持文件输入的模型读取文字与版面；细节可按页局部放大核对。")
         if (isUsefulExtractedScheduleText(extracted)) {
             return PreprocessResult.Text(extracted, "已优先在本机从 PDF 提取有效文字，原 PDF 不会上传。")
         }
@@ -78,19 +80,38 @@ internal class DefaultScheduleFilePreprocessor(private val context: Context) : S
     }
 }
 
-private val NativeResponsesDocumentExtensions = setOf("xls", "doc", "ppt", "rtf", "odt", "odp")
+internal fun canSendNativePdf(config: AiProviderConfig): Boolean =
+    config.inputMode == AiInputMode.RESPONSES_FILE && config.supportsVision && config.supportsPdfDirect &&
+        config.supportsFileUpload && config.authType != AiAuthType.ChatGptOAuth &&
+        config.endpointStyle in setOf(AiEndpointStyle.RESPONSES, AiEndpointStyle.CHAT_COMPLETIONS)
 
 internal fun canSendNativeFile(file: AiImportFile, config: AiProviderConfig): Boolean {
-    val extension = file.displayName.substringAfterLast('.', "").lowercase()
-    val officialOpenAiResponses = config.providerId in setOf(AiProviderPresets.openAI.id, AiProviderPresets.chatGpt.id) &&
-        isOfficialOpenAIBaseUrl(config.baseUrl) &&
-        config.endpointStyle == AiEndpointStyle.RESPONSES
-    val explicitlyEnabledCompatibleResponses = config.endpointStyle == AiEndpointStyle.RESPONSES &&
-        config.inputMode == AiInputMode.RESPONSES_FILE
     return config.supportsFileUpload &&
-        config.inputMode != AiInputMode.TEXT_ONLY &&
-        extension in NativeResponsesDocumentExtensions &&
-        (officialOpenAiResponses || explicitlyEnabledCompatibleResponses)
+        config.inputMode == AiInputMode.RESPONSES_FILE &&
+        config.endpointStyle == AiEndpointStyle.RESPONSES
+}
+
+/** Use the platform PDF text decoder when available; embedded fonts need more than PDF regexes. */
+internal fun extractPdfTextLocally(context: Context, file: AiImportFile): String {
+    if (android.os.Build.VERSION.SDK_INT < 35) return extractPdfTextBestEffort(file.bytes)
+    val temp = File.createTempFile("ai_pdf_text_", ".pdf", context.cacheDir)
+    try {
+        temp.writeBytes(file.bytes)
+        return ParcelFileDescriptor.open(temp, ParcelFileDescriptor.MODE_READ_ONLY).use { descriptor ->
+            PdfRenderer(descriptor).use { renderer ->
+                require(renderer.pageCount in 1..100) { "PDF 页数过多，请仅选择课表所在页面" }
+                buildString {
+                    for (index in 0 until renderer.pageCount) {
+                        if (length >= 48_000) { append("\n后续页面请使用材料工具按页读取。\n"); break }
+                        renderer.openPage(index).use { page ->
+                            append("\n[第 ${index + 1} 页]\n")
+                            append(page.textContents.joinToString("\n") { it.text }.take(12_000))
+                        }
+                    }
+                }
+            }
+        }
+    } finally { temp.delete() }
 }
 
 internal fun icsTextForAi(bytes: ByteArray): String {
@@ -99,10 +120,10 @@ internal fun icsTextForAi(bytes: ByteArray): String {
     return text
 }
 
-internal fun extractAiImportTextPreview(file: AiImportFile): LocalAiDocumentText? = when {
+internal fun extractAiImportTextPreview(file: AiImportFile, context: Context? = null): LocalAiDocumentText? = when {
     file.isIcs -> LocalAiDocumentText(icsTextForAi(file.bytes), "ICS 日历")
     file.isLocalTextDocument -> extractLocalAiDocumentText(file.displayName, file.mimeType, file.bytes)
-    file.isPdf -> extractPdfTextBestEffort(file.bytes)
+    file.isPdf -> (if (context == null) extractPdfTextBestEffort(file.bytes) else extractPdfTextLocally(context, file))
         .takeIf(::isUsefulExtractedScheduleText)
         ?.let { LocalAiDocumentText(it, "PDF") }
     else -> null
@@ -170,7 +191,7 @@ private fun AiImportFile.toRenderedImage(pageIndex: Int): RenderedPageImage {
     return RenderedPageImage(
         pageIndex = pageIndex,
         mimeType = "image/jpeg",
-        base64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+        base64 = Base64.encodeToString(compressAiImportImage(bytes), Base64.NO_WRAP)
     )
 }
 
@@ -180,7 +201,7 @@ internal fun renderAiImportPreviewImages(
     maxPages: Int = 6
 ): List<RenderedPageImage> = when {
     file.isImage -> listOf(file.toRenderedImage(0))
-    file.isPdf && !isUsefulExtractedScheduleText(extractPdfTextBestEffort(file.bytes)) ->
+    file.isPdf && !isUsefulExtractedScheduleText(extractPdfTextLocally(context, file)) ->
         renderPdfPageImages(context, file, maxPages)
     else -> emptyList()
 }

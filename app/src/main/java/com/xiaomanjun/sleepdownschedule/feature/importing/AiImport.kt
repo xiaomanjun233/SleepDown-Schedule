@@ -30,6 +30,34 @@ class AiScheduleImportService(
     private val context: Context,
     private val interaction: AiImportInteraction? = null
 ) {
+    internal suspend fun parseScheduleFiles(
+        files: List<AiImportFile>, settings: AiImportSettings,
+        onHttpPhase: (AiImportHttpPhase) -> Unit, onReasoningUpdate: (String) -> Unit = {}
+    ): Result<AiScheduleImportResult> = withContext(Dispatchers.IO) {
+        runCatching {
+            val prepared = prepareAiImportBatch(context, files)
+            withManagedAiFailover(context, settings, requiresVision = prepared.images.isNotEmpty()) { candidate, attempt ->
+                interaction?.checkActive()
+                require(candidate.hasCredentialConfiguration()) { "请先配置 AI 账号" }
+                val config = candidate.toProviderConfig().normalizedForRequest()
+                require(config.supportsVision || prepared.images.isEmpty()) { "这组文件含图片，请选择支持图片输入的模型" }
+                require(config.inputMode != AiInputMode.TEXT_ONLY || prepared.images.isEmpty()) { "当前仅本地文本模式无法解析图片" }
+                val input = prepared.input()
+                val network = input.networkContext(context, "FILES", { attempt.observe(it); onHttpPhase(it) },
+                    onReasoningUpdate = { if (it.isNotBlank()) attempt.commit(); onReasoningUpdate(it) })
+                AiMaterialWorkspace.fromFiles(context, files).use { materials ->
+                    materials.taskWorkspace = AiTaskWorkspace(context, checkActive = { interaction?.checkActive() })
+                    val request = network.copy(interaction = interaction, materials = materials)
+                    val result = if (config.endpointStyle == AiEndpointStyle.RESPONSES)
+                        OpenAiResponsesProvider().parseSchedule(config, input, request)
+                    else OpenAiCompatibleChatProvider().parseSchedule(config, input, request)
+                    AiScheduleImportResult(result.content, "已在本机整理 ${files.size} 个文件，可逐文件读取及放大核对。",
+                        rawOutput = result.content, reasoningOutput = result.reasoning, managedRouteId = candidate.managedRouteId)
+                }
+            }
+        }
+    }
+
     suspend fun parseScheduleFile(
         file: AiImportFile,
         settings: AiImportSettings,
@@ -38,7 +66,7 @@ class AiScheduleImportService(
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
-                withManagedAiFailover(context, settings, requiresVision = file.isImage || (file.isPdf && extractAiImportTextPreview(file) == null)) { candidate, attempt ->
+                withManagedAiFailover(context, settings, requiresVision = file.isImage || (file.isPdf && extractAiImportTextPreview(file, context) == null)) { candidate, attempt ->
                     interaction?.checkActive()
                     val phases: (AiImportHttpPhase) -> Unit = { attempt.observe(it); onHttpPhase(it) }
                     val reasoning: (String) -> Unit = { if (it.isNotBlank()) attempt.commit(); onReasoningUpdate(it) }
@@ -70,9 +98,13 @@ class AiScheduleImportService(
                     onHttpPhase,
                     onReasoningUpdate = onReasoningUpdate
                 )
-                val result = when {
-                    config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
-                    else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
+                val result = AiMaterialWorkspace.fromFile(context, file).use { materials ->
+                    materials.taskWorkspace = AiTaskWorkspace(context, checkActive = { interaction?.checkActive() })
+                    val requestContext = networkContext.copy(interaction = interaction, materials = materials)
+                    when {
+                        config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, requestContext)
+                        else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, requestContext)
+                    }
                 }
                 AiScheduleImportResult(
                     output = result.content,
@@ -121,9 +153,13 @@ class AiScheduleImportService(
                 val config = settings.toProviderConfig().normalizedForRequest()
                 val input = AiScheduleInput.ExtractedText(cleaned, sourceName)
                 val networkContext = input.networkContext(context, "TEXT", onHttpPhase, onReasoningUpdate = onReasoningUpdate)
-                val result = when {
+                    .copy(materials = AiMaterialWorkspace(sourceName, cleaned, 0))
+                val result = checkNotNull(networkContext.materials).use { materials ->
+                    materials.taskWorkspace = AiTaskWorkspace(context, checkActive = { interaction?.checkActive() })
+                    when {
                     config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
                     else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
+                    }
                 }
                 AiScheduleImportResult(
                     output = result.content,
@@ -135,14 +171,16 @@ class AiScheduleImportService(
         }
     }
 
-    suspend fun parseScheduleCapturedPage(
+    internal suspend fun parseScheduleCapturedPage(
         text: String,
         screenshots: List<RenderedPageImage>,
         sourceName: String,
         warnings: List<String>,
         settings: AiImportSettings,
         onHttpPhase: (AiImportHttpPhase) -> Unit,
-        onReasoningUpdate: (String) -> Unit = {}
+        onReasoningUpdate: (String) -> Unit = {},
+        readCurrentPage: (() -> String)? = null,
+        eduWorkspace: AiEduWorkspace? = null
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
@@ -150,7 +188,7 @@ class AiScheduleImportService(
                     interaction?.checkActive()
                     val phases: (AiImportHttpPhase) -> Unit = { attempt.observe(it); onHttpPhase(it) }
                     val reasoning: (String) -> Unit = { if (it.isNotBlank()) attempt.commit(); onReasoningUpdate(it) }
-                    parseScheduleCapturedPageOnce(text, screenshots, sourceName, warnings, candidate, phases, reasoning).getOrThrow()
+                    parseScheduleCapturedPageOnce(text, screenshots, sourceName, warnings, candidate, phases, reasoning, readCurrentPage, eduWorkspace).getOrThrow()
                         .copy(managedRouteId = candidate.managedRouteId)
                 }
             }
@@ -164,7 +202,9 @@ class AiScheduleImportService(
         warnings: List<String>,
         settings: AiImportSettings,
         onHttpPhase: (AiImportHttpPhase) -> Unit,
-        onReasoningUpdate: (String) -> Unit = {}
+        onReasoningUpdate: (String) -> Unit = {},
+        readCurrentPage: (() -> String)? = null,
+        eduWorkspace: AiEduWorkspace? = null
     ): Result<AiScheduleImportResult> {
         return withContext(Dispatchers.IO) {
             runCatching {
@@ -187,16 +227,21 @@ class AiScheduleImportService(
                 }
                 val networkContext = input.networkContext(
                     context,
-                    inputType = "CAPTURED_PAGE",
+                    inputType = if (eduWorkspace != null) "EDU_WORKSPACE" else "CAPTURED_PAGE",
                     onHttpPhase = onHttpPhase,
                     screenshotCount = screenshots.size,
                     onReasoningUpdate = onReasoningUpdate
-                )
-                val result = when {
+                ).copy(materials = AiMaterialWorkspace.fromPages(sourceName, cleaned, screenshots, readCurrentPage))
+                val result = checkNotNull(networkContext.materials).use { materials ->
+                    materials.taskWorkspace = AiTaskWorkspace(context, eduWorkspace, allowPageImages = config.supportsVision) { interaction?.checkActive() }
+                    when {
                     config.endpointStyle == AiEndpointStyle.RESPONSES -> OpenAiResponsesProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
                     else -> OpenAiCompatibleChatProvider().parseSchedule(config, input, networkContext.copy(interaction = interaction))
+                    }
                 }
-                val routeMessage = if (screenshots.isEmpty()) {
+                val routeMessage = if (eduWorkspace != null) {
+                    "已由 AI 使用当前教务网页与工具核对导入资料。"
+                } else if (screenshots.isEmpty()) {
                     "已提取当前教务页面文本，使用 AI 解析。"
                 } else {
                     "已抓取页面文本并生成 ${screenshots.size} 张截图，交给视觉模型解析。"
@@ -414,6 +459,7 @@ internal fun AiImportSettings.toProviderConfig(): AiProviderConfig {
         authType = profile.authType,
         responsesPath = profile.responsesPath,
         chatCompletionsPath = profile.chatCompletionsPath,
+        contextWindowTokens = profile.contextWindowTokens,
         managedReasoningControlled = AiProviderPresets.isManagedFreeId(profile.id) &&
             profile.managedReasoningOptions != null
     )

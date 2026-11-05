@@ -57,12 +57,13 @@ class BackupExportService(
             )
         }
         snapshot.agentMessages.forEach { message ->
-            val fileName = parseAgentMessageContent(message.content).attachmentFileName ?: return@forEach
+            parseAgentMessageContent(message.content).attachmentFileNames.forEach { fileName ->
             inputs += sourceReader.readAgentAttachment(
                 sourceKey = "agent-attachment:${message.scheduleId}:${message.id}:$fileName",
                 fileName = fileName,
                 mediaType = mediaTypeForFileName(fileName)
             )
+            }
         }
         return inputs
     }

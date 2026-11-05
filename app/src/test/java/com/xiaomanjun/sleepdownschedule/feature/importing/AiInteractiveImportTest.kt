@@ -69,7 +69,13 @@ class AiInteractiveImportTest {
             }
             val key = if (style == AiEndpointStyle.RESPONSES) "input" else "messages"
             requests.forEach { request ->
-                val contents = request[key]!!.jsonArray.map { it.jsonObject["content"]!!.jsonPrimitive.content }
+                val contents = request[key]!!.jsonArray.mapNotNull { item ->
+                    when (val content = item.jsonObject["content"]) {
+                        is JsonPrimitive -> content.content
+                        is JsonArray -> content.mapNotNull { it.jsonObject["text"]?.jsonPrimitive?.contentOrNull }.joinToString("\n")
+                        else -> null
+                    }
+                }
                 val memory = contents.single { it.startsWith("{\"kind\":\"user_memory_context\"") }
                 assertEquals("课程名称保留英文", Json.parseToJsonElement(memory).jsonObject["content"]!!.jsonPrimitive.content)
                 assertTrue(contents.contains("synthetic schedule source"))

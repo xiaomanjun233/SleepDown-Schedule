@@ -25,6 +25,87 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import kotlin.math.roundToInt
+
+@Composable
+internal fun rememberColorOsIntentSeekBar(dark: Boolean): NativeIntentSeekBarBinding? {
+    val native = rememberNativeContext(dark) ?: return null
+    return remember(native) {
+        ColorOsNativeUi.prepare("create native intent seek bar") {
+            NativeIntentSeekBarBinding(native.first, native.second)
+        }
+    }
+}
+
+/**
+ * ColorOS playback seek bar. The conic-light progress style is the material used by the
+ * fluid-cloud media card; it is a passive read bar here, so the thumb stays hidden and
+ * playback state drives the moving light instead of touch.
+ */
+internal class NativeIntentSeekBarBinding(source: ColorOsNativeUi.Source, context: Context) {
+    private val type = source.load("com.coui.appcompat.seekbar.COUIIntentSeekBar")
+    val view = type.getConstructor(Context::class.java).newInstance(context) as View
+    private val setMax = type.getMethod("setMax", Int::class.javaPrimitiveType)
+    private val setProgress = type.getMethod("setProgress", Int::class.javaPrimitiveType)
+    private val setUseMaterialEffect = type.getMethod("setUseMaterialEffect", Int::class.javaPrimitiveType)
+    private val setConicLightEnabled = type.getMethod("setConicLightEnabled", Boolean::class.javaPrimitiveType)
+    private val setConicLightColor = type.getMethod("setConicLightColor", Int::class.javaPrimitiveType)
+    private val setShowThumb = type.getMethod("setShowThumb", Boolean::class.javaPrimitiveType)
+    private val setBackgroundColor = type.getMethod("setSeekBarBackgroundColor", ColorStateList::class.java)
+    private val setPaddingHorizontal = type.getMethod("setPaddingHorizontal", Float::class.javaPrimitiveType)
+    private val playbackType = source.load("com.coui.appcompat.seekbar.PlaybackState")
+    private val setPlaybackState = type.getMethod("setPlaybackState", playbackType)
+    private val playing = playbackType.getField("PLAYING").get(null)
+    private val idle = playbackType.getField("IDLE").get(null)
+    private var color: Int? = null
+    private var track: Int? = null
+    private var lastProgress = -1
+    private var playback: Any? = null
+
+    init {
+        setMax.invoke(view, 1000)
+        setUseMaterialEffect.invoke(view, 1)
+        setConicLightEnabled.invoke(view, true)
+        setShowThumb.invoke(view, false)
+        setPlaybackState.invoke(view, idle)
+        // A passive read bar: remove the seekbar's own side padding so the track uses the
+        // assistant card's content width, and consume touches so the thumb cannot be dragged.
+        view.setPadding(0, 0, 0, 0)
+        setPaddingHorizontal.invoke(view, 0f)
+        view.setOnTouchListener { _, _ -> true }
+        view.isClickable = false
+        view.isFocusable = false
+        view.isLongClickable = false
+        view.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        view.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+    }
+
+    fun sync(progress: Float?, accent: Int, trackColor: Int) {
+        val target = if (progress == null) idle else playing
+        if (target !== playback) {
+            setPlaybackState.invoke(view, target)
+            playback = target
+        }
+        if (progress == null) return
+        val value = (progress.coerceIn(0f, 1f) * 1000f).roundToInt()
+        if (value != lastProgress) {
+            setProgress.invoke(view, value)
+            lastProgress = value
+        }
+        if (accent != color) {
+            setConicLightColor.invoke(view, accent)
+            color = accent
+        }
+        if (trackColor != track) {
+            setBackgroundColor.invoke(view, ColorStateList.valueOf(trackColor))
+            track = trackColor
+        }
+    }
+
+    fun dispose() {
+        setPlaybackState.invoke(view, idle)
+    }
+}
 
 @Composable
 internal fun ColorOsSlider(request: NativeSliderRequest): Boolean {

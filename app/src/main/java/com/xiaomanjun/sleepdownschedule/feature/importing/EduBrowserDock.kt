@@ -80,6 +80,10 @@ import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.backdrop.shadow.Shadow
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.sleepDownPanelForegroundColor
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceActive
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidCascadingPopup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidMenuItem
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
@@ -104,6 +108,24 @@ private val LightBrowserDockShadow = Shadow(
     offset = DpOffset(0.dp, 2.dp),
     color = Color.Black.copy(alpha = 0.10f)
 )
+
+@Composable
+private fun EduBrowserDockSurface(
+    config: ScheduleConfigEntity,
+    shape: androidx.compose.ui.graphics.Shape,
+    modifier: Modifier,
+    content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit
+) {
+    val renderer = LocalNativeMaterialSurfaceRenderer.current
+    if (renderer?.invoke(NativeMaterialSurfaceRequest(
+            modifier = modifier,
+            shape = shape,
+            dark = appUsesDarkTheme(config),
+            role = NativeMaterialSurfaceRole.HomeDock,
+            elasticTouchFeedback = true
+        )) { Box(Modifier.fillMaxSize(), content = content) } == true) return
+    Box(modifier, content = content)
+}
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -162,9 +184,7 @@ internal fun EduBrowserDock(
             )
         }
     }
-    var importMenuVisible by remember { mutableStateOf(false) }
     var moreMenuVisible by remember { mutableStateOf(false) }
-    var importAnchor by remember { mutableStateOf(Rect.Zero) }
     var moreAnchor by remember { mutableStateOf(Rect.Zero) }
     val lightDockGlass = !appUsesDarkTheme(config)
     val dockSurfaceColor = if (lightDockGlass) {
@@ -274,14 +294,16 @@ internal fun EduBrowserDock(
                 .then(dockMotionModifier),
             contentAlignment = Alignment.Center
         ) {
-            Box(
+            EduBrowserDockSurface(
+                config = config,
+                shape = RoundedRectangle(dockCorner),
                 modifier = Modifier
                     .width(dockWidth)
                     .height(dockTotalHeight)
             ) {
                 // Keep the blinking editable caret outside the backdrop consumer. Otherwise every
                 // caret blink invalidates the complete liquid-glass surface on some renderers.
-                LiquidButton(
+                if (!LocalNativeMaterialSurfaceActive.current) LiquidButton(
                     onClick = {},
                     backdrop = backdrop,
                     modifier = Modifier.fillMaxSize(),
@@ -307,11 +329,10 @@ internal fun EduBrowserDock(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .liquidButtonVisualTransform(
+                    .then(if (LocalNativeMaterialSurfaceActive.current) Modifier else Modifier.liquidButtonVisualTransform(
                         interactiveHighlight = dockInteractiveHighlight,
                         pressExpansion = 1.5.dp
-                    )
-                    .then(dockInteractiveHighlight.gestureModifier)
+                    ).then(dockInteractiveHighlight.gestureModifier))
             ) {
                 if (visibleHistoryEntries.isNotEmpty()) {
                     Box(
@@ -487,7 +508,6 @@ internal fun EduBrowserDock(
                             addressFocused = it.isFocused
                             if (it.isFocused) {
                                 onHistoryExpandedChange(false)
-                                importMenuVisible = false
                                 moreMenuVisible = false
                             }
                         },
@@ -560,11 +580,16 @@ internal fun EduBrowserDock(
                             iconRes = R.drawable.ic_school_import,
                             contentDescription = "导入",
                             foreground = foreground,
-                            enabled = sideControlsEnabled && primaryActionEnabled,
-                            modifier = Modifier.onGloballyPositioned { importAnchor = it.boundsInRoot() },
+                            enabled = sideControlsEnabled && primaryActionEnabled && !aiImportRunning && (!originalImportAvailable || !originalImportRunning),
                             onClick = {
                                 moreMenuVisible = false
-                                importMenuVisible = !importMenuVisible
+                                if (originalImportAvailable) {
+                                    keyboard?.hide()
+                                    onOriginalImport()
+                                } else {
+                                    keyboard?.hide()
+                                    onAiImport()
+                                }
                             }
                         )
                         EduBrowserDockIcon(
@@ -574,7 +599,6 @@ internal fun EduBrowserDock(
                             enabled = sideControlsEnabled,
                             modifier = Modifier.onGloballyPositioned { moreAnchor = it.boundsInRoot() },
                             onClick = {
-                                importMenuVisible = false
                                 moreMenuVisible = !moreMenuVisible
                             }
                         )
@@ -609,42 +633,16 @@ internal fun EduBrowserDock(
         }
 
         SleepDownLiquidCascadingPopup(
-            show = importMenuVisible,
-            anchorBounds = importAnchor,
-            items = buildList {
-                if (originalImportAvailable) {
-                    add(SleepDownLiquidMenuItem(
-                        key = "edu-original-import",
-                        text = if (originalImportRunning) "正在导入…" else "常规教务导入",
-                        enabled = !originalImportRunning,
-                        iconRes = R.drawable.ic_school_import,
-                        onClick = {
-                            importMenuVisible = false
-                            onOriginalImport()
-                        }
-                    ))
-                }
-                add(SleepDownLiquidMenuItem(
-                    key = "edu-ai-import",
-                    text = "AI 导入",
-                    iconRes = R.drawable.ic_ai_import,
-                    enabled = !aiImportRunning,
-                    onClick = {
-                        importMenuVisible = false
-                        onAiImport()
-                    }
-                ))
-            },
-            onDismissRequest = { importMenuVisible = false },
-            backdrop = backdrop,
-            config = config,
-            panelMinWidth = 174.dp,
-            horizontalSafeInset = BrowserDockExpandedHorizontalInset
-        )
-        SleepDownLiquidCascadingPopup(
             show = moreMenuVisible,
             anchorBounds = moreAnchor,
             items = buildList {
+                if (originalImportAvailable) add(SleepDownLiquidMenuItem(
+                    key = "edu-ai-import",
+                    text = "AI 导入",
+                    iconRes = R.drawable.ic_ai_import,
+                    enabled = !aiImportRunning && !originalImportRunning,
+                    onClick = { moreMenuVisible = false; onAiImport() }
+                ))
                 if (visibleHistoryEntries.isNotEmpty()) {
                     add(SleepDownLiquidMenuItem(
                         key = "edu-history",

@@ -162,7 +162,7 @@ internal fun TopAssistantSurface(
             }
         } else Modifier)
     ) {
-        if (materialEnabled) GlassSurface(
+        if (materialEnabled && !solidShade) GlassSurface(
             nativeMaterial = nativeMaterial,
             nativeFollowLightIntensityScale = nativeFollowLightIntensityScale,
             nativeDark = true,

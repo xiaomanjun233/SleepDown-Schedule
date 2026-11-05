@@ -34,6 +34,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaomanjun.sleepdownschedule.CourseEntity
@@ -94,13 +95,17 @@ internal fun splitAgentReasoning(content: String): AgentMessageParts {
     }
 }
 
+internal data class AgentRunTraceAppearance(val text: Color, val detail: Color, val icon: Color,
+    val highlight: Color, val textStyle: TextStyle, val detailStyle: TextStyle)
+
 @Composable
 internal fun AgentRunTrace(
     statuses: List<AgentRunStatus>,
     expanded: Boolean,
     foreground: Color,
     active: Boolean,
-    onToggle: () -> Unit
+    onToggle: () -> Unit,
+    appearance: AgentRunTraceAppearance? = null
 ) {
     Column(
         modifier = Modifier
@@ -117,7 +122,8 @@ internal fun AgentRunTrace(
                 AgentRunStatusRow(
                     status = status,
                     foreground = foreground,
-                    shimmer = active && index == statuses.lastIndex
+                    shimmer = active && index == statuses.lastIndex,
+                    appearance = appearance
                 )
             }
         } else {
@@ -134,7 +140,8 @@ internal fun AgentRunTrace(
                         ?: AgentRunStatus(AgentRunStatusIcon.THINKING, "正在思考")
                 },
                 foreground = foreground,
-                shimmer = active
+                shimmer = active,
+                appearance = appearance
             )
         }
     }
@@ -144,7 +151,8 @@ internal fun AgentRunTrace(
 internal fun AgentRunStatusRow(
     status: AgentRunStatus,
     foreground: Color,
-    shimmer: Boolean = false
+    shimmer: Boolean = false,
+    appearance: AgentRunTraceAppearance? = null
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
         Row(
@@ -155,7 +163,7 @@ internal fun AgentRunStatusRow(
                 Icon(
                     painter = painterResource(agentRunStatusIcon(status.icon)),
                     contentDescription = null,
-                    tint = Color(0xFF55C2FF).copy(
+                    tint = appearance?.icon ?: Color(0xFF55C2FF).copy(
                         alpha = if (status.icon == AgentRunStatusIcon.THINKING) 0.68f else 0.86f
                     ),
                     modifier = Modifier.size(15.dp)
@@ -167,17 +175,19 @@ internal fun AgentRunStatusRow(
                 } else {
                     "调用工具 · ${status.text}"
                 },
-                baseColor = foreground.copy(alpha = if (status.icon == AgentRunStatusIcon.THINKING) 0.43f else 0.57f),
-                shimmer = shimmer
+                baseColor = appearance?.text ?: foreground.copy(alpha = if (status.icon == AgentRunStatusIcon.THINKING) 0.43f else 0.57f),
+                shimmer = shimmer,
+                style = appearance?.textStyle ?: MaterialTheme.typography.labelMedium,
+                highlight = appearance?.highlight ?: Color.White.copy(alpha = 0.96f)
             )
         }
         status.detail?.takeIf(String::isNotBlank)?.let { note ->
             Text(
                 text = note,
                 modifier = Modifier.padding(start = 19.dp, end = 6.dp),
-                color = foreground.copy(alpha = 0.84f),
-                style = MaterialTheme.typography.bodyMedium,
-                lineHeight = 20.sp
+                color = appearance?.detail ?: foreground.copy(alpha = 0.84f),
+                style = appearance?.detailStyle ?: MaterialTheme.typography.bodyMedium,
+                lineHeight = appearance?.detailStyle?.lineHeight ?: 20.sp
             )
         }
     }
@@ -187,13 +197,15 @@ internal fun AgentRunStatusRow(
 private fun AgentStatusText(
     text: String,
     baseColor: Color,
-    shimmer: Boolean
+    shimmer: Boolean,
+    style: TextStyle,
+    highlight: Color
 ) {
     if (!shimmer) {
         Text(
             text = text,
             color = baseColor,
-            style = MaterialTheme.typography.labelMedium
+            style = style
         )
         return
     }
@@ -217,7 +229,7 @@ private fun AgentStatusText(
         colors = listOf(
             baseColor,
             baseColor,
-            Color.White.copy(alpha = 0.96f),
+            highlight,
             baseColor,
             baseColor
         ),
@@ -228,7 +240,7 @@ private fun AgentStatusText(
         text = text,
         modifier = Modifier.onSizeChanged { textWidth = it.width.coerceAtLeast(1) },
         color = Color.Unspecified,
-        style = MaterialTheme.typography.labelMedium.copy(brush = brush)
+        style = style.copy(brush = brush)
     )
 }
 

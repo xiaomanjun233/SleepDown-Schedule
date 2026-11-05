@@ -4,6 +4,34 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AiImportConversationTest {
+    @Test fun continuingFromAnOlderPreviewDoesNotReplaceTheLatestReplyArtifact() {
+        val draft = com.xiaomanjun.sleepdownschedule.model.ImportDraft(
+            com.xiaomanjun.sleepdownschedule.defaultConfig(), com.xiaomanjun.sleepdownschedule.defaultPeriods(),
+            listOf(com.xiaomanjun.sleepdownschedule.model.CourseEntity(name = "原始课程", teacher = null, location = null,
+                weekday = 1, periods = listOf(1), weeks = listOf(1),
+                weekParity = com.xiaomanjun.sleepdownschedule.model.WeekParity.ALL, note = null)))
+        val first = ensureImportCheckpoint(AiEduImportProgress(taskId = "test"), draft)
+        val revised = draft.copy(courses = listOf(draft.courses.single().copy(name = "本轮新课程")))
+        val latest = appendImportCheckpoint(first, revised, "修改完成", AiImportCheckpointKind.AI).getOrThrow().first
+        val selectedOld = selectImportCheckpoint(latest, first.selectedCheckpointId!!, draft.config).getOrThrow().first
+        val archived = archiveImportTurn(selectedOld, draft).last()
+        assertEquals(latest.checkpoints.last().payload, archived.artifactPayload)
+    }
+
+    @Test fun intermediateDialogueSurvivesANewTurnAndHistoryRoundTrip() {
+        val reports = List(30) { index -> AiImportReport("第 $index 条中间消息",
+            if (index % 2 == 0) AiImportReportKind.MODEL else AiImportReportKind.EXECUTION) }
+        val first = AiEduImportProgress(userPrompt = "导入课表", activityReports = reports, finished = true)
+        val next = AiEduImportProgress(userPrompt = "只修改周次", conversationTurns = archiveImportTurn(first),
+            activityReports = listOf(AiImportReport("正在核对周次", AiImportReportKind.MODEL)))
+        val restored = progressFromJson(progressToJson(next))
+        assertEquals(reports, restored.conversationTurns.single().activityReports)
+        assertEquals(next.activityReports, restored.activityReports)
+        val legacy = progressToJson(next)
+        legacy.getJSONArray("conversationTurns").getJSONObject(0).remove("activityReports")
+        assertTrue(progressFromJson(legacy).conversationTurns.single().activityReports.isEmpty())
+    }
+
     @Test fun storedDraftRetainsExplicitCourseClock() {
         val draft = com.xiaomanjun.sleepdownschedule.model.ImportDraft(
             com.xiaomanjun.sleepdownschedule.defaultConfig().copy(

@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -34,7 +35,7 @@ import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.SettingsDetailActivity
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsDetailPageExtra
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CenterLiquidDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogCapsuleField
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
@@ -71,9 +72,9 @@ fun ScheduleManagerScreen(
     val coursesPerSchedule = remember(state.allCourses) {
         state.allCourses.groupBy { it.scheduleId }.mapValues { it.value.size }
     }
-    LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    SleepDownSecondaryPageList(
+        contentTopPadding = topPadding,
+        contentBottomPadding = detailContentBottomPadding(),
     ) {
         item {
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {

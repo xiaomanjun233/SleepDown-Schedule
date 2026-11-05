@@ -70,7 +70,7 @@ internal fun HomeAssistantHost(
     backdrop: Backdrop?,
     backgroundMotion: DayAgentBackgroundMotionState,
     onAgentAction: AgentActionHandler,
-    onImportFile: (Uri) -> Unit
+    onImportFile: (List<Uri>) -> Unit
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -186,10 +187,10 @@ fun ScheduleSettingsContent(
         drawContent()
     }
     Box(Modifier.fillMaxSize()) {
-        LazyColumn(
+        SleepDownSecondaryPageList(
             modifier = Modifier.fillMaxSize().glassBackdropProducer(previewBackdrop),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            contentTopPadding = topPadding,
+            contentBottomPadding = DockScrollPadding,
         ) {
             if (section == SettingsSection.Schedule) {
                 item {
@@ -201,8 +202,8 @@ fun ScheduleSettingsContent(
                         SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
                     }
                 }
-                item { GlassPreferenceCategory("节次时间") }
                 item {
+                    GlassPreferenceSection("节次时间") {
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
                         val sortedPeriods = periods.sortedBy { it.periodIndex }
                         sortedPeriods.forEachIndexed { idx, period ->
@@ -231,6 +232,7 @@ fun ScheduleSettingsContent(
                         }
                     }
                 }
+                    }
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         SettingsActionButton("添加节次", backdrop, onClick = {
@@ -543,7 +545,7 @@ fun ScheduleSettingsContentFixed(
                 items = labels,
                 selectedIndex = currentIndex,
                 title = "当前作息", backdrop = backdrop, config = state.config,
-                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                insideMargin = com.xiaomanjun.sleepdownschedule.core.ui.settings.settingsPreferencePadding(),
                 maxHeight = 318.dp, onExpandedChange = {},
                 onSelectedIndexChange = { index ->
                     periodSchemeLibrary.getOrNull(index)?.let(onSelectPeriodScheme)
@@ -572,9 +574,9 @@ fun ScheduleSettingsContentFixed(
             trailingContent = publicTimetableSettings
         )
     } else {
-        LazyColumn(
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = DockScrollPadding),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+        SleepDownSecondaryPageList(
+            contentTopPadding = topPadding,
+            contentBottomPadding = com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding(),
         ) {
             item { termSettings() }
             item { Text("正在读取作息…", modifier = Modifier.padding(20.dp)) }

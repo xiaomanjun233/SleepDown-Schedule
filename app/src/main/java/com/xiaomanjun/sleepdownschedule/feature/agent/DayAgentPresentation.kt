@@ -43,7 +43,7 @@ internal fun rememberDayAgentPresentation(
     val focusSlot = lesson?.slot ?: facts.tomorrow.firstOrNull().takeIf { previewTomorrow }
     val remainingSeconds = lesson?.secondsRemainingAt(presentationClock)
     val remainingMinutes = remainingSeconds?.let { (it + 59L) / 60L }
-    val finalTenMinutes = remainingSeconds != null && remainingSeconds <= 600L &&
+    val finalTenMinutes = remainingSeconds != null && remainingSeconds <= AgentCountdownWindowSeconds &&
         (focusOverride != null || now.toLocalDate() == date)
     val activityLabel = when {
         lesson?.phase == AgentLessonPhase.IN_CLASS && finalTenMinutes ->
@@ -68,6 +68,11 @@ internal fun rememberDayAgentPresentation(
         facts.today.isEmpty() -> "轻松一天"
         else -> "今日完成"
     }
+    // Class and break both read down for their whole duration; the final ten minutes only
+    // change the countdown typography to MM:SS.
+    val phaseProgress = lesson
+        ?.takeIf { it.phase != AgentLessonPhase.BEFORE }
+        ?.progressAt(presentationClock)
     val locationText = focusSlot?.course?.let { course ->
         listOfNotNull(course.location?.takeIf(String::isNotBlank), course.teacher?.takeIf(String::isNotBlank)).joinToString(" | ")
     }.orEmpty()
@@ -113,6 +118,7 @@ internal fun rememberDayAgentPresentation(
         collapsed = collapsed,
         cardIsDark = cardIsDark,
         countdownSeconds = remainingSeconds?.takeIf { finalTenMinutes },
+        countdownProgress = phaseProgress,
         transitionKey = lesson?.transitionKey
     )
     val conversationInitialText = remember(facts.today, facts.tomorrow, focusSlot, weather, previewTomorrow) {

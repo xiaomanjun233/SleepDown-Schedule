@@ -185,16 +185,20 @@ internal fun CourseShortcutOverlay(
     }
     val request = controller.request
     BackHandler(enabled = request != null) { controller.close() }
-    if (request != null) {
-        val density = LocalDensity.current
-        val haptic = LocalHapticFeedback.current
-        val safe = WindowInsets.safeDrawing
-        var hostBounds by remember { mutableStateOf<Rect?>(null) }
-        BoxWithConstraints(
-            Modifier.fillMaxSize()
-                .onGloballyPositioned { hostBounds = it.boundsInRoot() }
-                .pointerInput(controller) { detectTapGestures { controller.close() } }
-        ) {
+    // Resolve the host before a long-press hides its source. Creating this host only after
+    // open left one frame with neither the real card nor its lifted replacement drawn.
+    var hostBounds by remember { mutableStateOf<Rect?>(null) }
+    BoxWithConstraints(
+        Modifier.fillMaxSize()
+            .onGloballyPositioned { hostBounds = it.boundsInRoot() }
+            .then(if (request != null) Modifier.pointerInput(controller) {
+                detectTapGestures { controller.close() }
+            } else Modifier)
+    ) {
+        if (request != null) {
+            val density = LocalDensity.current
+            val haptic = LocalHapticFeedback.current
+            val safe = WindowInsets.safeDrawing
             val host = hostBounds ?: return@BoxWithConstraints
             val available = with(density) {
                 Rect(

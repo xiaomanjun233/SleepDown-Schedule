@@ -36,6 +36,19 @@ class DayAgentCourseClockTest {
         assertEquals("00:01", agentCountdownText(1))
     }
 
+    @Test fun classAndBreakReadBarsSpanTheWholePhase() {
+        val inClass = agentLessonFocus(listOf(slot), periods, date.atTime(8, 15))!!
+        assertEquals(1f / 3f, inClass.progressAt(date.atTime(8, 15)), 0.0001f)
+
+        val breakFocus = agentLessonFocus(listOf(slot), periods, date.atTime(8, 50))!!
+        assertEquals(AgentLessonPhase.BREAK, breakFocus.phase)
+        assertEquals(0.5f, breakFocus.progressAt(date.atTime(8, 50)), 0.0001f)
+
+        val secondLesson = agentLessonFocus(listOf(slot), periods, date.atTime(9, 0))!!
+        assertEquals(AgentLessonPhase.IN_CLASS, secondLesson.phase)
+        assertEquals(5f / 45f, secondLesson.progressAt(date.atTime(9, 0)), 0.0001f)
+    }
+
     @Test fun courseBellTimesOverrideTheDefaultSchedule() {
         val adjusted = course.copy(customStartTime = "10:10", customEndTime = "11:45",
             customPeriodTimes = "1,10:10-10:50;2,11:05-11:45")
@@ -43,8 +56,9 @@ class DayAgentCourseClockTest {
         val focus = agentLessonFocus(listOf(customSlot), periods, date.atTime(10, 55))!!
         assertEquals(AgentLessonPhase.BREAK, focus.phase)
         assertEquals(date.atTime(11, 5), focus.transitionAt)
-        assertTrue(agentNextBoundaryWithinTenMinutes(listOf(customSlot), periods, date.atTime(10, 55)))
-        assertFalse(agentNextBoundaryWithinTenMinutes(listOf(customSlot), periods, date.atTime(9, 0)))
+        assertTrue(agentNeedsSecondTick(listOf(customSlot), periods, date.atTime(10, 55)))
+        assertTrue(agentNeedsSecondTick(listOf(customSlot), periods, date.atTime(10, 20)))
+        assertFalse(agentNeedsSecondTick(listOf(customSlot), periods, date.atTime(9, 0)))
     }
 
     @Test fun aMissingTeachingPeriodStartsANewSessionInsteadOfAnAllDayBreak() {

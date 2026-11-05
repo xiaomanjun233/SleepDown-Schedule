@@ -46,6 +46,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColo
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlpha
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.excludeParentPullGesture
+import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekHeaderCrossfade
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekHeaderWeather
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassLens
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassPill
@@ -75,44 +76,51 @@ fun HomeDateTitle(
             .clickable(interactionSource = interactionSource, indication = null, onClick = onReturnCurrent),
         verticalArrangement = Arrangement.Center
     ) {
+        val titleText = when {
+            beforeScheduleTerm -> "当前暂未开学"
+            afterScheduleTerm -> "学期已结束"
+            showReturnToCurrentWeekHint -> "点击此处回到本周"
+            else -> "第${displayWeek}周"
+        }
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            Box(Modifier.weight(1f, fill = false)) {
+                WeekHeaderCrossfade(target = titleText) { text ->
+                    HomeReadableText(
+                        text = text,
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontSize = 16.sp,
+                            lineHeight = 18.sp
+                        ),
+                        fontWeight = FontWeight.Medium,
+                        color = color.copy(alpha = 0.68f),
+                        maxLines = 1,
+                        softWrap = false,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+            if (showWeather) com.xiaomanjun.sleepdownschedule.feature.home.week.WeekHeaderWeather(color.copy(alpha = 0.68f))
+        }
+        val dateText = if (showTwoDays) {
+            val nextDate = displayDate.plusDays(1)
+            "${displayDate.monthValue}月${displayDate.dayOfMonth}日–${nextDate.monthValue}月${nextDate.dayOfMonth}日"
+        } else {
+            "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}"
+        }
+        WeekHeaderCrossfade(target = dateText) { text ->
             HomeReadableText(
-                when {
-                    beforeScheduleTerm -> "当前暂未开学"
-                    afterScheduleTerm -> "学期已结束"
-                    showReturnToCurrentWeekHint -> "点击此处回到本周"
-                    else -> "第${displayWeek}周"
-                },
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontSize = 16.sp,
-                    lineHeight = 18.sp
+                text,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 19.sp,
+                    lineHeight = 21.sp
                 ),
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f, fill = false),
-                color = color.copy(alpha = 0.68f),
+                fontWeight = FontWeight.Bold,
+                color = color,
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis
             )
-            if (showWeather) com.xiaomanjun.sleepdownschedule.feature.home.week.WeekHeaderWeather(color.copy(alpha = 0.68f))
         }
-        HomeReadableText(
-            if (showTwoDays) {
-                val nextDate = displayDate.plusDays(1)
-                "${displayDate.monthValue}月${displayDate.dayOfMonth}日–${nextDate.monthValue}月${nextDate.dayOfMonth}日"
-            } else {
-                "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}"
-            },
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = 19.sp,
-                lineHeight = 21.sp
-            ),
-            fontWeight = FontWeight.Bold,
-            color = color,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis
-        )
     }
 }
 

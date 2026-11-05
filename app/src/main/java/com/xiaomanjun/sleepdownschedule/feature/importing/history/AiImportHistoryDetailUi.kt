@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -34,6 +35,8 @@ import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import java.text.DateFormat
 import java.util.Date
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 open class AiImportHistoryDetailActivityHost : ComponentActivity() {
     companion object {
@@ -52,8 +55,10 @@ open class AiImportHistoryDetailActivityHost : ComponentActivity() {
         setContent {
             val state by app.repository.state.collectAsStateWithLifecycle(AppState())
             CourseScheduleTheme(config = state.config) {
-                val entry = remember(entryId) {
-                    AiImportHistoryStore.load(this).firstOrNull { it.id == entryId }
+                var historyLoaded by remember(entryId) { mutableStateOf(false) }
+                val entry by produceState<AiImportHistoryEntry?>(null, entryId) {
+                    value = withContext(Dispatchers.IO) { AiImportHistoryStore.loadEntry(this@AiImportHistoryDetailActivityHost, entryId) }
+                    historyLoaded = true
                 }
                 val draft = remember(entry, state.config.id) {
                     entry?.let { AiImportHistoryStore.restore(it, state.config).getOrNull() }
@@ -94,7 +99,7 @@ open class AiImportHistoryDetailActivityHost : ComponentActivity() {
                         ) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Text(
-                                    "这条导入记录已不存在",
+                                    if (historyLoaded) "这条导入记录已不存在" else "正在读取导入记录…",
                                     color = glassForegroundColor(settingsVisualConfig(state.config)).copy(alpha = 0.52f)
                                 )
                             }
@@ -103,9 +108,9 @@ open class AiImportHistoryDetailActivityHost : ComponentActivity() {
                         AiEduImportProgressPage(
                             config = state.config,
                             onClose = requestClose,
-                            historicalProgress = historyConversationProgress(entry, draft),
+                            historicalProgress = historyConversationProgress(checkNotNull(entry), draft),
                             historicalDraft = draft,
-                            historicalEntryId = entry.id,
+                            historicalEntryId = checkNotNull(entry).id,
                             showHistoryAction = false,
                             onImportRequested = { restored, createNewSchedule ->
                                 AiEduImportProgressSession.requestFinalImport(restored, createNewSchedule)

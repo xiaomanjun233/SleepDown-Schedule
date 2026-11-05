@@ -45,7 +45,7 @@ class BackupRoomRestoreTest {
                                 scheduleId = 7,
                                 sessionDate = "2026-08-10",
                                 role = "user",
-                                content = "[[agent_image:11111111-1111-1111-1111-111111111111.jpg]]\n看图",
+                                content = "[[agent_image:11111111-1111-1111-1111-111111111111.jpg]]\n[[agent_image:second.png]]\n看图",
                                 createdAt = 1L,
                                 status = "READY"
                             )
@@ -62,6 +62,11 @@ class BackupRoomRestoreTest {
                             sourceKey = "agent-attachment:7:601:11111111-1111-1111-1111-111111111111.jpg",
                             bytes = byteArrayOf(4, 5, 6),
                             mediaType = "image/jpeg"
+                        ),
+                        BackupExportAssetInput(
+                            sourceKey = "agent-attachment:7:601:second.png",
+                            bytes = byteArrayOf(7, 8, 9),
+                            mediaType = "image/png"
                         )
                     )
                 )
@@ -74,14 +79,17 @@ class BackupRoomRestoreTest {
         )
         val scheduleId = plan.scheduleIds.values.single()
         val wallpaperId = archive.data.schedules.single().config.wallpaperAssetId!!
-        val attachmentId = archive.data.schedules.single().agentMessages.single().attachmentAssetIds.single()
+        val attachmentIds = archive.data.schedules.single().agentMessages.single().attachmentAssetIds
+        assertEquals(2, attachmentIds.size)
+        val attachmentId = attachmentIds.first()
 
         val rows = BackupRoomRestoreMapper.map(
             archive = archive,
             plan = plan,
             assetUrisById = mapOf(wallpaperId to "file:///data/wallpaper", attachmentId to "file:///data/agent"),
             attachmentFileNamesByAssetId = mapOf(
-                attachmentId to "11111111-1111-1111-1111-111111111111.jpg"
+                attachmentId to "11111111-1111-1111-1111-111111111111.jpg",
+                attachmentIds[1] to "second.png"
             )
         )
 
@@ -94,7 +102,7 @@ class BackupRoomRestoreTest {
         assertEquals("1,08:12-08:38", rows.courses.single().customPeriodTimes)
         assertEquals(0xFF6688AAL, rows.courses.single().customColorArgb)
         assertEquals(
-            "[[agent_image:11111111-1111-1111-1111-111111111111.jpg]]\n看图",
+            "[[agent_image:11111111-1111-1111-1111-111111111111.jpg]]\n[[agent_image:second.png]]\n看图",
             rows.agentMessages.single().content
         )
     }

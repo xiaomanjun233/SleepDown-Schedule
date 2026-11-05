@@ -133,7 +133,7 @@ internal fun DayScheduleScreen(
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit,
     onAgentAction: AgentActionHandler,
-    onAgentImportFile: ((android.net.Uri) -> Unit)? = null
+    onAgentImportFile: ((List<android.net.Uri>) -> Unit)? = null
 ) {
     val centerPage = 10_000
     val anchorDate = remember { displayDate }

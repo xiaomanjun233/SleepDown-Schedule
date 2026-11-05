@@ -43,6 +43,8 @@ internal object DayAgentRunCoordinator {
         val state: MutableStateFlow<DayAgentBackgroundRunState> =
             MutableStateFlow(DayAgentBackgroundRunState()),
         var job: Job? = null,
+        val mailbox: com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox<AgentTaskInput> = com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox(),
+        var interaction: com.xiaomanjun.sleepdownschedule.feature.importing.AiImportInteraction? = null,
         @Volatile
         var conversationVisible: Boolean = false,
         @Volatile
@@ -63,6 +65,28 @@ internal object DayAgentRunCoordinator {
     fun observe(scheduleId: Int, date: LocalDate): StateFlow<DayAgentBackgroundRunState> =
         entry(scheduleId, date).state.asStateFlow()
 
+    fun observeInputs(scheduleId: Int, date: LocalDate) = entry(scheduleId, date).mailbox.inputs
+    fun submitInput(scheduleId: Int, date: LocalDate, input: AgentTaskInput, mode: com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode): Boolean {
+        val entry = entry(scheduleId, date)
+        return synchronized(entry) {
+            if (!entry.state.value.running) return@synchronized false
+            if (input.text.isBlank() || input.text.length > 6_000) return@synchronized false
+            entry.mailbox.trySubmit(input, mode) != null
+        }
+    }
+    fun replaceInput(scheduleId: Int, date: LocalDate, id: String, input: AgentTaskInput) = entry(scheduleId, date).mailbox.replace(id, input)
+    fun removeInput(scheduleId: Int, date: LocalDate, id: String) { entry(scheduleId, date).mailbox.remove(id) }
+    fun guideInput(context: Context, scheduleId: Int, facts: DayAgentFacts, id: String): Boolean {
+        val entry = entry(scheduleId, facts.date)
+        return synchronized(entry) {
+            if (entry.state.value.running) return@synchronized entry.mailbox.steer(id)
+            val input = entry.mailbox.inputs.value.firstOrNull { it.id == id } ?: return@synchronized false
+            start(context, scheduleId, facts, input.value.text, imageAttachments = input.value.allImages).also { accepted ->
+                if (accepted) entry.mailbox.remove(id)
+            }
+        }
+    }
+
     fun setConversationVisible(scheduleId: Int, date: LocalDate, visible: Boolean) {
         val entryKey = key(scheduleId, date)
         val entry = entry(scheduleId, date)
@@ -75,7 +99,8 @@ internal object DayAgentRunCoordinator {
         scheduleId: Int,
         facts: DayAgentFacts,
         question: String,
-        imageAttachment: AgentImageAttachment? = null
+        imageAttachment: AgentImageAttachment? = null,
+        imageAttachments: List<AgentImageAttachment> = emptyList()
     ): Boolean {
         val appContext = context.applicationContext
         val app = appContext as CourseScheduleApp
@@ -83,6 +108,7 @@ internal object DayAgentRunCoordinator {
         synchronized(entry) {
             if (entry.job?.isActive == true || entry.state.value.running) return false
             val generation = ++entry.generation
+            entry.mailbox.resume()
             entry.state.value = DayAgentBackgroundRunState(
                 running = true,
                 statuses = listOf(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在准备"))
@@ -98,14 +124,22 @@ internal object DayAgentRunCoordinator {
                 return false
             }
             entry.job = app.applicationScope.launch(Dispatchers.IO) {
+                var currentInput = AgentTaskInput(question, imageAttachment, imageAttachments)
+                while (true) {
+                val interaction = com.xiaomanjun.sleepdownschedule.feature.importing.AiImportInteraction(currentInput.text)
+                interaction.mailbox = entry.mailbox
+                entry.interaction = interaction
+                entry.state.value = DayAgentBackgroundRunState(running = true,
+                    statuses = listOf(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在准备")))
                 val buffer = StringBuilder()
                 var lastStreamPublishUptime = 0L
                 val result = runCatching {
                     DayAgentRepository(appContext).sendMessage(
                         scheduleId = scheduleId,
                         facts = facts,
-                        question = question,
-                        imageAttachment = imageAttachment,
+                        question = currentInput.text,
+                        imageAttachments = currentInput.allImages,
+                        interaction = interaction,
                         onStatus = statusCallback@{ status ->
                             if (entry.generation != generation) return@statusCallback
                             entry.state.update { current ->
@@ -152,6 +186,12 @@ internal object DayAgentRunCoordinator {
                 if (entry.generation != generation) return@launch
                 val failure = result.exceptionOrNull()
                 if (failure == null) {
+                    val queued = synchronized(entry) {
+                        entry.mailbox.nextQueued().also { next ->
+                            if (next == null) entry.state.update { it.copy(running = false, streamingText = "", error = null) }
+                        }
+                    }
+                    if (queued != null) { currentInput = queued; continue }
                     entry.state.update {
                         it.copy(running = false, streamingText = "", error = null)
                     }
@@ -162,6 +202,7 @@ internal object DayAgentRunCoordinator {
                         )
                     }
                 } else {
+                    entry.mailbox.pause()
                     entry.state.update {
                         it.copy(
                             running = false,
@@ -177,6 +218,8 @@ internal object DayAgentRunCoordinator {
                         )
                     }
                 }
+                break
+                }
                 synchronized(entry) {
                     if (entry.generation == generation) entry.job = null
                 }
@@ -190,6 +233,10 @@ internal object DayAgentRunCoordinator {
         val entry = entry(scheduleId, date)
         synchronized(entry) {
             entry.generation++
+            entry.mailbox.pause()
+            entry.interaction?.markCancelled()
+            val connection = entry.interaction
+            (context.applicationContext as CourseScheduleApp).applicationScope.launch(Dispatchers.IO) { connection?.disconnect() }
             entry.job?.cancel()
             entry.job = null
             entry.state.value = DayAgentBackgroundRunState()
@@ -200,7 +247,7 @@ internal object DayAgentRunCoordinator {
 
     private fun evictIfIdle(entryKey: String, entry: Entry) {
         synchronized(entry) {
-            if (entry.job?.isActive != true && !entry.state.value.running && !entry.conversationVisible) {
+            if (entry.job?.isActive != true && !entry.state.value.running && !entry.conversationVisible && entry.mailbox.inputs.value.isEmpty()) {
                 entries.remove(entryKey, entry)
             }
         }

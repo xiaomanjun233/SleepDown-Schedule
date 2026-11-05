@@ -24,6 +24,7 @@ internal fun Modifier.weekMoveGestureHost(controller: WeekEditOverlayController,
     val drag by rememberUpdatedState(onDrag)
     val finish by rememberUpdatedState(onFinish)
     val cancel by rememberUpdatedState(onCancel)
+    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     return pointerInput(controller) {
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
@@ -45,7 +46,10 @@ internal fun Modifier.weekMoveGestureHost(controller: WeekEditOverlayController,
                         if (!change.pressed) {
                             released = change.changedToUpIgnoreConsumed()
                             change.consume()
-                            if (released) finish(tracker.calculateVelocity())
+                            if (released) {
+                                finish(tracker.calculateVelocity())
+                                haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
+                            }
                             break
                         }
                         drag(change.positionChange())

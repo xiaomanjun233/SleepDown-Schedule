@@ -35,7 +35,7 @@ fun TodayAgentHost(
     onPrepareOpen: suspend () -> Unit = {},
     onAgentDismissed: () -> Unit = {},
     onAgentAction: AgentActionHandler = { _, _ -> },
-    onImportFile: ((android.net.Uri) -> Unit)? = null
+    onImportFile: ((List<android.net.Uri>) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()

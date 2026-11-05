@@ -42,7 +42,9 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCa
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCourseCardMode
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCourseCardRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMenuTouchSource
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeStrokeOverlayRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import java.lang.reflect.Method
 
@@ -136,12 +138,59 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, conte
             if (LocalHomeMaterialStyle.current?.weatherMaterial == true) ColorOsSurfaceStyle.NeutralDock else ColorOsSurfaceStyle.Dock
         else -> ColorOsSurfaceStyle.Content
     }
-    val themedRequest = if (request.role == com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.HomeDock)
-        request.copy(dark = LocalHomeMaterialStyle.current?.dark ?: request.dark) else request
+    val homeStyle = LocalHomeMaterialStyle.current
+    val themedRequest = request.copy(
+        dark = if (style == ColorOsSurfaceStyle.Dock || style == ColorOsSurfaceStyle.NeutralDock) homeStyle?.dark ?: request.dark else request.dark,
+        sampleBrightness = if (style == ColorOsSurfaceStyle.Content || style == ColorOsSurfaceStyle.Dock)
+            homeStyle?.sampleBrightness ?: request.sampleBrightness else request.sampleBrightness)
     return ColorOsMaterialSurface(themedRequest, style, null, content = content)
 }
 
-internal enum class ColorOsSurfaceStyle { Content, CourseCard, Menu, NeutralMenu, Dialog, Form, Dock, NeutralDock, Navigation }
+internal enum class ColorOsSurfaceStyle { Content, CourseCard, Menu, NeutralMenu, Dialog, Form, Dock, NeutralDock, Navigation, PageIndicator }
+
+/**
+ * Draws only the COUI outer stroke for a card. Liquid glass uses this to keep the same rim as
+ * the native material without enabling native blur, tint or spot light.
+ */
+@Composable
+internal fun ColorOsCardOuterStroke(request: NativeStrokeOverlayRequest): Boolean {
+    val native = rememberColorOsStrokeContext(request.dark) ?: return false
+    val density = LocalDensity.current
+    val direction = LocalLayoutDirection.current
+    val surface = remember(native) {
+        ColorOsNativeUi.prepare("create card outer stroke") {
+            NativeMaterialSurface(native.second, native.first, ColorOsSurfaceStyle.Dock)
+        }
+    } ?: return false
+    val materialRequest = remember(request.dark, request.shape) {
+        NativeMaterialSurfaceRequest(
+            modifier = Modifier,
+            shape = request.shape,
+            dark = request.dark,
+            materialVisible = true,
+            edgeEffects = true,
+            blurRadiusScale = 0f,
+            followTouch = false,
+            role = NativeMaterialSurfaceRole.HomeDock,
+            onDrawTint = null,
+            surfaceAlpha = { 0f }
+        )
+    }
+    Box(request.modifier) {
+        key(surface) {
+            AndroidView(
+                factory = { surface },
+                modifier = Modifier.matchParentSize(),
+                update = {
+                    surface.updateOutline(request.shape, density, direction)
+                    surface.configure(materialRequest, density, direction)
+                }
+            )
+        }
+    }
+    DisposableEffect(surface) { onDispose { surface.release() } }
+    return true
+}
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -216,6 +265,7 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, style
                 // Morph geometry is read in drawing, never used as a composition key.
                 val value = latest.value
                 surface.updateOutline(value.shapeProvider?.invoke() ?: value.shape, density, direction)
+                value.externalTouch?.invoke()?.let(surface::followExternalTouch)
                 drawContent()
             }, update = {
             source.updateTheme(context, request.dark)
@@ -240,7 +290,7 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, style
     return true
 }
 
-private class NativeMaterialSurface(context: Context, private val source: ColorOsNativeUi.Source,
+internal class NativeMaterialSurface(context: Context, private val source: ColorOsNativeUi.Source,
     private val style: ColorOsSurfaceStyle) : View(context) {
     val courseGlow = if (style == ColorOsSurfaceStyle.CourseCard)
         ColorOsNativeUi.prepare("prepare bounded course caustic") { ColorOsCourseCardGlow(context, source) } else null
@@ -260,11 +310,13 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
         ColorOsSurfaceStyle.CourseCard -> 1.2f
         ColorOsSurfaceStyle.Menu, ColorOsSurfaceStyle.NeutralMenu -> 1.7f
         ColorOsSurfaceStyle.Navigation -> 0.75f
+        ColorOsSurfaceStyle.PageIndicator -> 1f
         else -> 2f
     }
     private val lightPreset = when {
         isMenu -> "TYPE_TRANSLUCENT_LARGE_1"
         style == ColorOsSurfaceStyle.Navigation -> "TYPE_CAPSULE_2"
+        style == ColorOsSurfaceStyle.PageIndicator -> "TYPE_TRANSPARENT_SMALL_1"
         else -> CourseLightPreset
     }
     // Reuse the native popup's edge drawable instead of applying the FAB stroke to menus.
@@ -282,6 +334,9 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
     private var surfaceShape: Shape? = null
     private var released = false
     private var touchLightEnabled = false
+    private var externalPressed = false
+    private var externalPosition = androidx.compose.ui.geometry.Offset.Unspecified
+    private var externalDownTime = 0L
     private val stateListenerType = source.load("com.coui.appcompat.OnMaterialStateChangeListener")
     private val stateListener = source.listener(stateListenerType.name) { name, _ ->
         if (name == "onMaterialStateChange" && !released) applyMaterial()
@@ -358,7 +413,8 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
         val materialChanged = previous == null || previous.dark != value.dark ||
             previous.materialVisible != value.materialVisible || previous.edgeEffects != value.edgeEffects ||
             previous.followTouch != value.followTouch ||
-            previous.blurRadiusScale != value.blurRadiusScale || previous.tintAlphaScale != value.tintAlphaScale
+            previous.blurRadiusScale != value.blurRadiusScale || previous.tintAlphaScale != value.tintAlphaScale ||
+            previous.sampleBrightness != value.sampleBrightness
         request = value
         val lightThemeChanged = style == ColorOsSurfaceStyle.Navigation && previous?.dark != value.dark
         if (lightThemeChanged) {
@@ -433,10 +489,11 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
         updateMaterialCorners()
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
         if (blur && (isMenu || style == ColorOsSurfaceStyle.Form || style == ColorOsSurfaceStyle.Dialog || style == ColorOsSurfaceStyle.Dock ||
-                style == ColorOsSurfaceStyle.NeutralDock || value.blurRadiusScale != 1f || value.tintAlphaScale != 1f)) {
+                style == ColorOsSurfaceStyle.NeutralDock || style == ColorOsSurfaceStyle.PageIndicator || value.blurRadiusScale != 1f || value.tintAlphaScale != 1f)) {
             effect.getMethod("setViewBlurEffect", View::class.java,
                 source.load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams"))
                 .invoke(null, this, if (isMenu) source.menuBlurParams(context, style == ColorOsSurfaceStyle.NeutralMenu)
+                    else if (style == ColorOsSurfaceStyle.PageIndicator) source.pageIndicatorBlurParams(context)
                     else if (style == ColorOsSurfaceStyle.Form) source.weatherButtonBlurParams(context, value.blurRadiusScale, 0f)
                     else if (style == ColorOsSurfaceStyle.Dialog) source.dialogBlurParams(context)
                     else if (style == ColorOsSurfaceStyle.Dock || style == ColorOsSurfaceStyle.NeutralDock)
@@ -445,6 +502,10 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
         } else {
             setBlur.invoke(null, this, blurType.getField(if (blur) CourseBlurPreset else "TYPE_NO_EFFECT").get(null))
         }
+        if (blur && value.sampleBrightness < 1f) source.applySampledBlur(this,
+            if (style == ColorOsSurfaceStyle.Dock) source.dockBlurParams(context, false)
+            else source.weatherButtonBlurParams(context, value.blurRadiusScale, value.tintAlphaScale),
+            value.sampleBrightness)
         setStroke.invoke(null, this, strokeType.getField(
             if (!stroke || isMenu) "TYPE_NO_EFFECT"
             else if (style == ColorOsSurfaceStyle.CourseCard) CourseStrokePreset else ContentStrokePreset).get(null))
@@ -466,7 +527,7 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
     }
 
     fun followTouch(event: MotionEvent) {
-        if (!isAttachedToWindow || released || !touchLightEnabled) return
+        if (!isAttachedToWindow || released || !touchLightEnabled || request?.externalTouch != null) return
         getLocationOnScreen(location)
         val local = MotionEvent.obtain(event)
         try {
@@ -475,7 +536,30 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
         } finally { local.recycle() }
     }
 
-    fun clearTouch() { light.javaClass.getMethod("cancel").invoke(light) }
+    fun followExternalTouch(touch: com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSurfaceTouch) {
+        if (!touch.pressed) {
+            // Stop at release; a settling card must not carry the finger's light into its flight.
+            if (externalPressed) clearTouch()
+            return
+        }
+        if (!isAttachedToWindow || released || !touchLightEnabled ||
+            !touch.position.x.isFinite() || !touch.position.y.isFinite()) return
+        if (externalPressed && externalPosition == touch.position) return
+        val now = android.os.SystemClock.uptimeMillis()
+        if (!externalPressed) externalDownTime = now
+        val event = MotionEvent.obtain(externalDownTime, now,
+            if (externalPressed) MotionEvent.ACTION_MOVE else MotionEvent.ACTION_DOWN,
+            touch.position.x, touch.position.y, 0)
+        try { lightTouch.invoke(light, event) } finally { event.recycle() }
+        externalPressed = true
+        externalPosition = touch.position
+    }
+
+    fun clearTouch() {
+        light.javaClass.getMethod("cancel").invoke(light)
+        externalPressed = false
+        externalPosition = androidx.compose.ui.geometry.Offset.Unspecified
+    }
 
     private fun clearBlur() {
         val type = source.load("com.coui.appcompat.COUIMaterialBlurEffect\$BlurEffectType")

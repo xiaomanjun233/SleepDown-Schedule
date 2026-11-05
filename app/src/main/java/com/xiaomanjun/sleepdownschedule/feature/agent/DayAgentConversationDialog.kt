@@ -28,6 +28,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -136,6 +138,9 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettingsStore
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiProviderPresets
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiRuntimePicker
 import com.xiaomanjun.sleepdownschedule.feature.importing.loadAiImportFile
+import com.xiaomanjun.sleepdownschedule.feature.importing.loadAiImportFiles
+import com.xiaomanjun.sleepdownschedule.feature.importing.MaxAiImportFiles
+import com.xiaomanjun.sleepdownschedule.feature.importing.MaxAiImportBatchBytes
 import com.xiaomanjun.sleepdownschedule.feature.importing.rememberAiRuntimePickerState
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation
@@ -195,15 +200,16 @@ internal fun DayAgentConversationDialog(
     homePresentation: Boolean = false,
     homeAnchorBounds: Rect? = null,
     homeInitiallyFullScreen: Boolean = false,
-    onImportFile: ((android.net.Uri) -> Unit)? = null
+    onImportFile: ((List<android.net.Uri>) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val inputState = remember { mutableStateOf("") }
     var inputCapsuleBounds by remember { mutableStateOf(Rect.Zero) }
+    var pendingCapsulesHeightPx by remember { mutableIntStateOf(0) }
     var textInputBounds by remember { mutableStateOf(Rect.Zero) }
-    var imageAttachment by remember { mutableStateOf<AgentImageAttachment?>(null) }
+    var imageAttachments by remember { mutableStateOf(emptyList<AgentImageAttachment>()) }
     var attachmentMenuExpanded by remember { mutableStateOf(false) }
     var attachmentError by remember { mutableStateOf<String?>(null) }
     var runStatusesExpanded by remember { mutableStateOf(true) }
@@ -234,6 +240,10 @@ internal fun DayAgentConversationDialog(
     }.collectAsStateWithLifecycle()
     val streamingText = backgroundRun.streamingText
     val sending = backgroundRun.running
+    val queuedInputs by remember(state.config.id, facts.date) {
+        DayAgentRunCoordinator.observeInputs(state.config.id, facts.date)
+    }.collectAsStateWithLifecycle()
+    var editingInputId by remember(state.config.id, facts.date) { mutableStateOf<String?>(null) }
     val runStatuses = backgroundRun.statuses
     val error = backgroundRun.error
     var agentAiSettings by remember(dialogContext) {
@@ -386,8 +396,7 @@ internal fun DayAgentConversationDialog(
     val homeTop = homeEdgeInset
     var composerTextHeightPx by remember { mutableIntStateOf(0) }
     val composerTextHeight = with(density) { composerTextHeightPx.toDp() }
-    val homeInputTargetHeight = maxOf(56.dp, composerTextHeight + 24.dp) +
-        if (imageAttachment != null && !compactHomeInput) 38.dp else 0.dp
+    val homeInputTargetHeight = maxOf(56.dp, composerTextHeight + 24.dp)
     val homeInputHeight by animateDpAsState(homeInputTargetHeight,
         tween(180, easing = CubicBezierEasing(0.20f, 0.72f, 0.26f, 1f)), label = "agent-composer-height")
     // Lift the input into the camera cap instead of reserving a separate status-bar row.
@@ -553,24 +562,24 @@ internal fun DayAgentConversationDialog(
         onRelease = ::settleFullPull
     )
     val imagePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
+        ActivityResultContracts.GetMultipleContents()
+    ) { uris ->
+        if (uris.isEmpty()) return@rememberLauncherForActivityResult
         scope.launch {
             attachmentError = null
-            loadAiImportFile(dialogContext, uri)
-                .onSuccess { file ->
-                    imageAttachment = AgentImageAttachment(
-                        mimeType = if (file.mimeType.startsWith("image/")) {
-                            "image/jpeg"
-                        } else {
-                            file.mimeType
-                        },
-                        base64 = Base64.encodeToString(file.bytes, Base64.NO_WRAP),
-                        sourceName = file.displayName
-                    )
+            runCatching {
+                val files = loadAiImportFiles(dialogContext, uris)
+                require(imageAttachments.size + files.size <= MaxAiImportFiles) { "每组最多 $MaxAiImportFiles 张图片" }
+                val existingBytes = imageAttachments.sumOf {
+                    it.base64.length.toLong() / 4 * 3 - if (it.base64.endsWith("==")) 2 else if (it.base64.endsWith("=")) 1 else 0
                 }
-                .onFailure { attachmentError = it.message ?: "图片读取失败" }
+                require(existingBytes + files.sumOf { it.bytes.size.toLong() } <= MaxAiImportBatchBytes) { "这组图片总大小不能超过 40MB，请分批发送" }
+                val selected = withContext(Dispatchers.IO) { files.map { file ->
+                    require(file.isImage) { "请选择图片文件" }
+                    AgentImageAttachment(file.mimeType, Base64.encodeToString(file.bytes, Base64.NO_WRAP), file.displayName)
+                } }
+                imageAttachments = imageAttachments + selected
+            }.onFailure { attachmentError = it.message ?: "图片读取失败" }
         }
     }
     DisposableEffect(state.config.id, facts.date) {
@@ -629,9 +638,9 @@ internal fun DayAgentConversationDialog(
                     )
                 }
                 launch {
-                    // Hand over while there is still a visible final return segment. The Dialog
-                    // is removed immediately and the real shell completes the same geometry,
-                    // avoiding the expensive cross-window composition hitch near expansion == 0.
+                    // Report the final return geometry while the background finishes settling.
+                    // The day-card owner keeps its source material hidden until onDismiss,
+                    // so both shells cannot become visible during this remaining segment.
                     while (expansion.value > 0.01f) {
                         withFrameNanos { }
                     }
@@ -685,20 +694,35 @@ internal fun DayAgentConversationDialog(
         }
     }
 
-    val importFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null && onImportFile != null) dismissAnimated { onImportFile(uri) }
+    val importFilePicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty() && onImportFile != null) dismissAnimated { onImportFile(uris) }
     }
 
+    fun submitPending(mode: com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode) {
+        val question = inputState.value.trim()
+        if (question.isBlank()) return
+        val input = AgentTaskInput(question, images = imageAttachments)
+        val accepted = editingInputId?.let { DayAgentRunCoordinator.replaceInput(state.config.id, facts.date, it, input) }
+            ?: DayAgentRunCoordinator.submitInput(state.config.id, facts.date, input, mode)
+        if (accepted) { inputState.value = ""; imageAttachments = emptyList(); editingInputId = null }
+        else if (editingInputId != null) { editingInputId = null; attachmentError = "这条消息已开始处理，可将修改作为新补充发送" }
+        else attachmentError = "当前无法加入候选，最多保留 16 条；输入内容已保留"
+    }
     fun send(questionOverride: String? = null) {
         val question = questionOverride?.trim().orEmpty().ifBlank { inputState.value.trim() }
-        if (question.isBlank() || sending) return
+        if (question.isBlank()) return
+        if (question.length > 6_000) { attachmentError = "消息最多 6000 字符，请缩短后发送；原文已保留"; return }
+        if (editingInputId != null || sending) {
+            submitPending(com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode.QUEUE)
+            return
+        }
         runStatusesExpanded = true
         val started = DayAgentRunCoordinator.start(
             context = dialogContext,
             scheduleId = state.config.id,
             facts = facts,
             question = question,
-            imageAttachment = imageAttachment
+            imageAttachments = imageAttachments
         )
         if (homePresentation) {
             homeResponseStartId = messages.lastOrNull()?.id ?: 0L
@@ -708,14 +732,14 @@ internal fun DayAgentConversationDialog(
         }
         if (started) {
             inputState.value = ""
-            imageAttachment = null
+            imageAttachments = emptyList()
             attachmentMenuExpanded = false
             attachmentError = null
         }
     }
 
     fun toggleSend() {
-        if (sending) {
+        if (sending && inputState.value.isBlank()) {
             DayAgentRunCoordinator.cancel(
                 context = dialogContext,
                 scheduleId = state.config.id,
@@ -732,6 +756,9 @@ internal fun DayAgentConversationDialog(
     }
 
     val overlayVisible = remember { mutableStateOf(true) }
+    LaunchedEffect(queuedInputs.isEmpty(), imageAttachments.isEmpty()) {
+        if (queuedInputs.isEmpty() && imageAttachments.isEmpty()) pendingCapsulesHeightPx = 0
+    }
     PopupLayout(
         visible = overlayVisible,
         enterTransition = EnterTransition.None,
@@ -798,7 +825,7 @@ internal fun DayAgentConversationDialog(
                         // Restore the native round-rect clip used by this route in v1.2.3.
                         shape = if (homePresentation) {
                             homeShellShape()
-                        } else RoundedCornerShape(visualRadiusPx.toDp())
+                        } else RoundedRectangle(visualRadiusPx.toDp())
                          clip = !homeFullScreenSettled &&
                              (!homePresentation || homeResponseVisible || homeFullScreen || homeMotion.drop.isRunning)
                      }
@@ -819,7 +846,12 @@ internal fun DayAgentConversationDialog(
                     backdrop = backdrop,
                     config = state.config,
                     modifier = Modifier.matchParentSize(),
-                    shape = RoundedCornerShape(32.dp),
+                    shape = RoundedRectangle(sourceCornerRadius),
+                    shapeProvider = {
+                        val raw = expansion.value.coerceIn(0f, 1f)
+                        val corner = agentSmoothStep(0.04f, 0.90f, agentMorphSizeProgress(raw, closing))
+                        RoundedRectangle(with(density) { (sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * corner).toDp() })
+                    },
                     // Keep the expanded conversation shell visually identical to the compact
                     // home card. Passing the resolved tokens also preserves the card's light/dark
                     // wallpaper treatment instead of maintaining a second drifting parameter set.
@@ -907,8 +939,8 @@ internal fun DayAgentConversationDialog(
                                  else if (!homePresentation) 34.dp else 0.dp,
                              bottom = if (homePresentation && homeFullScreen)
                                  inputInsets.bottom +
-                                     homeInputHeight + 24.dp
-                                 else if (anchoredTabletConversation) 58.dp
+                                     homeInputHeight + with(density) { pendingCapsulesHeightPx.toDp() } + 24.dp
+                                 else if (anchoredTabletConversation) 58.dp + with(density) { pendingCapsulesHeightPx.toDp() }
                                  else if (compactHomeInput) 4.dp else 16.dp
                          ),
                          verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -931,12 +963,12 @@ internal fun DayAgentConversationDialog(
                                   // Decode off the main thread and downsample to the preview
                                   // size; the original synchronous full-size decode ran inside
                                   // composition and janked scrolling past attachment messages.
-                                  val sentPreview by produceState<androidx.compose.ui.graphics.ImageBitmap?>(
-                                      initialValue = null,
-                                      userContent.attachmentFileName
+                                  val sentPreviews by produceState<List<androidx.compose.ui.graphics.ImageBitmap>>(
+                                      initialValue = emptyList(),
+                                      userContent.attachmentFileNames
                                   ) {
-                                      value = userContent.attachmentFileName?.let { fileName ->
-                                          withContext(Dispatchers.IO) {
+                                      value = withContext(Dispatchers.IO) {
+                                          userContent.attachmentFileNames.mapNotNull { fileName ->
                                               runCatching {
                                                   val path = File(
                                                       dialogContext.filesDir,
@@ -962,7 +994,9 @@ internal fun DayAgentConversationDialog(
                                           horizontalAlignment = Alignment.End,
                                           verticalArrangement = Arrangement.spacedBy(6.dp)
                                       ) {
-                                          sentPreview?.let {
+                                          if (sentPreviews.isNotEmpty()) Row(Modifier.width(280.dp).horizontalScroll(rememberScrollState()),
+                                              horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                          sentPreviews.forEach {
                                               Image(
                                                   bitmap = it,
                                                   contentDescription = "已发送图片",
@@ -972,6 +1006,7 @@ internal fun DayAgentConversationDialog(
                                                       .height(112.dp)
                                                       .clip(UnevenRoundedRectangle(14.dp, 14.dp, 4.dp, 14.dp))
                                               )
+                                          }
                                           }
                                           if (userContent.text.isNotBlank()) {
                                               Text(
@@ -1315,7 +1350,7 @@ internal fun DayAgentConversationDialog(
                     foreground = foreground,
                     config = state.config,
                     heightOverride = homeInputHeight.takeIf { homePresentation },
-                    expanded = imageAttachment != null && !compactHomeInput,
+                    expanded = false,
                     sharedInteractiveHighlight = if (compactHomeInput) homeInputInteraction else null,
                     surfaceVisibility = { if (homePresentation) fullMotion.drop.value.coerceIn(0f, 1f) else 1f },
                     modifier = (if (homePresentation) {
@@ -1363,7 +1398,7 @@ internal fun DayAgentConversationDialog(
                             translationY = 18.dp.toPx() * (1f - p)
                         })
                         .onGloballyPositioned { inputCapsuleBounds = it.boundsInRoot() },
-                    shape = if (imageAttachment == null) {
+                    shape = if (imageAttachments.isEmpty()) {
                         RoundedRectangle(cornerRadius = 28.dp, style = RoundedCornerStyle.Continuous)
                     } else {
                         RoundedRectangle(cornerRadius = 26.dp, style = RoundedCornerStyle.Continuous)
@@ -1387,31 +1422,6 @@ internal fun DayAgentConversationDialog(
                             .fillMaxSize()
                             .padding(start = if (compactHomeInput) 12.dp else 8.dp, end = if (compactHomeInput) 4.dp else 8.dp)
                     ) {
-                         imageAttachment?.takeUnless { compactHomeInput }?.let { attachment ->
-                             Row(
-                                 modifier = Modifier
-                                      .padding(start = 44.dp, end = 4.dp)
-                                      .fillMaxWidth()
-                                      .height(36.dp),
-                                 verticalAlignment = Alignment.CenterVertically
-                             ) {
-                                 Text(
-                                     text = "图片 · ${attachment.sourceName}",
-                                    color = foreground.copy(alpha = 0.72f),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    maxLines = 1,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(
-                                    text = "×",
-                                    color = foreground,
-                                    modifier = Modifier
-                                        .clip(CircleShape)
-                                        .clickable { imageAttachment = null }
-                                        .padding(horizontal = 8.dp, vertical = 2.dp)
-                                )
-                            }
-                        }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1457,23 +1467,39 @@ internal fun DayAgentConversationDialog(
                                 onSettingsChanged = { next ->
                                     agentAiSettings = next
                                     if (!AiProviderPresets.supportsImageInput(next.profile)) {
-                                        imageAttachment = null
+                                        imageAttachments = emptyList()
                                         attachmentMenuExpanded = false
                                     }
                                 }
                             )
                             if (compactHomeInput) AgentCapsuleSendButton(
-                                sending = sending,
+                                sending = sending && inputState.value.isBlank(),
                                 enabled = sending || inputState.value.isNotBlank(),
                                 onClick = ::toggleSend
                             ) else AgentSendLiquidButton(
                                 backdrop = agentInputBackdrop,
-                                sending = sending,
+                                sending = sending && inputState.value.isBlank(),
                                 onClick = ::toggleSend
                             )
                         }
                     }
                 }
+                if (composerVisible && inputCapsuleBounds.height > 0f) AgentInputCapsules(
+                    inputs = queuedInputs, attachment = imageAttachments.takeIf { it.isNotEmpty() }?.let { if (it.size == 1) "图片 · ${it.single().sourceName}" else "${it.size} 张图片" },
+                    config = state.config,
+                    backdrop = composerBackdrop, foreground = foreground,
+                    onEdit = { editingInputId = it.id; inputState.value = it.value.text; imageAttachments = it.value.allImages },
+                    onRemove = { DayAgentRunCoordinator.removeInput(state.config.id, facts.date, it); if (editingInputId == it) editingInputId = null },
+                    onRemoveAttachment = { imageAttachments = emptyList() },
+                    onGuide = { next ->
+                        DayAgentRunCoordinator.guideInput(dialogContext, state.config.id, facts, next.id)
+                    },
+                    modifier = (if (anchoredTabletConversation) Modifier.width(answerWidth) else Modifier.fillMaxWidth())
+                        .onSizeChanged { pendingCapsulesHeightPx = it.height }.offset {
+                        IntOffset(if (anchoredTabletConversation) targetLeftPx.roundToInt() else 0,
+                            (if (compactHomeInput) inputCapsuleBounds.bottom + 6.dp.toPx()
+                            else inputCapsuleBounds.top - pendingCapsulesHeightPx - 6.dp.toPx()).roundToInt().coerceAtLeast(0))
+                    }.graphicsLayer { alpha = ((expansion.value - 0.6f) / 0.4f).coerceIn(0f, 1f) })
                 }
          LaunchedEffect(Unit) {
               backgroundMotionState.progress.snapTo(0f)

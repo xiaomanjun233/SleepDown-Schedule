@@ -2,6 +2,9 @@ package com.xiaomanjun.sleepdownschedule.feature.home.day
 
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -46,6 +49,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.sleepDownPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseCardText
 import com.xiaomanjun.sleepdownschedule.core.ui.text.courseTextColorForPage
+import com.xiaomanjun.sleepdownschedule.core.ui.text.readableAccentColor
 import com.xiaomanjun.sleepdownschedule.courseTimeLabel
 import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
@@ -297,30 +301,31 @@ fun ImportPreviewCourseCard(
     val effective = remember(course, periods, config.periodAlignmentMode) {
         if (course.effectiveArrangementOrNull() != null) course else projectCourseArrangement(captureOriginalPeriodTimes(course, periods), config, periods)
     }
-    // Preview lives on the settings page, without the timetable's wallpaper. Resolve one
-    // page ink, just like the live cards; individual seed colors must not invert labels.
+    // A preview is an artifact on a known page surface, independent of live wallpaper materials.
     val visualConfig = settingsVisualConfig(config)
-    val textColor = homeCourseTextColor(visualConfig, course, sleepDownPanelForegroundColor(visualConfig), false)
-    val coloredText = visualConfig.courseCardColoredTextEnabled
-    CourseGlassCard(
-        backdrop = null,
-        config = visualConfig,
-        course = course,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedRectangle(16.dp)
-    ) {
+    val seed = courseCardBaseColor(visualConfig, course)
+    val surface = androidx.compose.ui.graphics.lerp(MaterialTheme.colorScheme.surface, seed, 0.04f).copy(alpha = 1f)
+    val textColor = readableAccentColor(sleepDownPanelForegroundColor(visualConfig), surface)
+    val titleColor = if (visualConfig.courseCardColoredTextEnabled) readableAccentColor(seed, surface) else textColor
+    Box(Modifier.fillMaxWidth().background(surface, RoundedRectangle(16.dp))
+        .border(1.dp, textColor.copy(alpha = 0.10f), RoundedRectangle(16.dp))) {
         Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            CourseCardText(course.name, style = MaterialTheme.typography.titleMedium, color = textColor, coloredText = coloredText)
-            CourseCardText(
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Box(Modifier.size(7.dp).background(titleColor, androidx.compose.foundation.shape.CircleShape))
+                Text(course.name, style = MaterialTheme.typography.titleMedium, color = titleColor, fontWeight = FontWeight.SemiBold)
+            }
+            Text(
                 text = "周${weekdayLabel(course.weekday)} · " +
-                    if (effective.isHiddenByPeriodAlignment()) "暂不显示 · 原始第 ${course.periods.joinToString("、")} 节"
-                    else courseHomeTimeDetail(effective, periods),
-                color = textColor, coloredText = coloredText
+                    if (effective.isHiddenByPeriodAlignment()) "暂不显示 · 原始${com.xiaomanjun.sleepdownschedule.domain.schedule.compactPeriodsLabel(course.periods)}"
+                    else if (effective.hasCustomTime()) courseTimeLabel(effective, periods)
+                    else courseTimeLabel(effective, periods) + " · " + com.xiaomanjun.sleepdownschedule.domain.schedule.compactPeriodsLabel(course.periods),
+                color = textColor, style = MaterialTheme.typography.bodyMedium
             )
-            if (!course.location.isNullOrBlank()) CourseCardText("地点：" + course.location, color = textColor, coloredText = coloredText)
-            if (!course.teacher.isNullOrBlank()) CourseCardText("教师：" + course.teacher, color = textColor, coloredText = coloredText)
-            CourseCardText("周次：" + course.weeks.joinToString(",") + " · " + parityLabel(course.weekParity), color = textColor, coloredText = coloredText)
-            if (!course.note.isNullOrBlank()) CourseCardText("备注：" + course.note, color = textColor, coloredText = coloredText)
+            if (!course.location.isNullOrBlank()) Text("地点：" + course.location, color = textColor, style = MaterialTheme.typography.bodyMedium)
+            if (!course.teacher.isNullOrBlank()) Text("教师：" + course.teacher, color = textColor, style = MaterialTheme.typography.bodyMedium)
+            Text("周次：" + com.xiaomanjun.sleepdownschedule.domain.schedule.compactWeeksLabel(course.weeks, "未指定周次") +
+                " · " + parityLabel(course.weekParity), color = textColor, style = MaterialTheme.typography.bodyMedium)
+            if (!course.note.isNullOrBlank()) Text("备注：" + course.note, color = textColor, style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
