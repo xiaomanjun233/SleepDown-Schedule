@@ -39,7 +39,7 @@ internal fun ColorOsCardLight(request: NativeCardLightRequest): Boolean {
     val source = remember { WallpaperCardLightSource.get(context.applicationContext) } ?: return false
     val host = remember(context, source) {
         ColorOsNativeUi.prepare("create the system card light") {
-            CardLightHost(context, source.create(context), source.bandHeight, source.receiverCenterOffset)
+            CardLightHost(context, source.create(context), source.bandHeight)
         }
     } ?: return false
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -106,10 +106,7 @@ private object WallpaperCardLightSource {
             type.getMethod("setViewProcess", Float::class.javaPrimitiveType)
             type.getMethod("d") // onStart in the verified system APK
             type.getMethod("e") // onStop
-            val buttonHeightId = native.resources.getIdentifier("all_theme_button_height", "dimen", packageName)
-            check(buttonHeightId != 0)
-            WallpaperLightSource(native, type, native.resources.getDimensionPixelSize(heightId),
-                28f * native.resources.displayMetrics.density + native.resources.getDimension(buttonHeightId) / 2f)
+            WallpaperLightSource(native, type, native.resources.getDimensionPixelSize(heightId))
         }
         return cached
     }
@@ -118,8 +115,7 @@ private object WallpaperCardLightSource {
 private class WallpaperLightSource(
     private val native: Context,
     private val type: Class<*>,
-    val bandHeight: Int,
-    val receiverCenterOffset: Float
+    val bandHeight: Int
 ) {
     fun buttonShadow(): CardLightButtonShadow {
         fun dimension(name: String): Float {
@@ -155,12 +151,6 @@ private class WallpaperLightSource(
         val progress = type.getMethod("setViewProcess", Float::class.javaPrimitiveType)
         val start = type.getMethod("d")
         val stop = type.getMethod("e")
-        val engineField = type.declaredFields.single { it.type.name == "com.oplus.vfxsdk.naive.COEEngine" }
-            .apply { isAccessible = true }
-        val engine = checkNotNull(engineField.get(nativeView))
-        val renderer = checkNotNull(engine.javaClass.getMethod("I", Int::class.javaPrimitiveType).invoke(engine, 1))
-        val parameter = renderer.javaClass.getMethod("setParameter", Int::class.javaPrimitiveType,
-            String::class.java, Array<Any>::class.java)
         val layout = type.getDeclaredMethod("getLayoutWithDevice").apply { isAccessible = true }.invoke(nativeView) as Int
         // Original shadow_card.coz layout table, in its 3px/dp design coordinates.
         val stockCardWidth = floatArrayOf(616f, 1085f, 614f, 550f)[layout.coerceIn(0, 3)] *
@@ -183,9 +173,6 @@ private class WallpaperLightSource(
             }
             override fun prepareSurface() { start.invoke(nativeView) }
             override fun setProgress(value: Float) {
-                // A slightly steeper plane opens the fan and shortens its far edge. Reapply with
-                // reveal updates because the stock 100ms layout animator also writes uAngleX.
-                parameter.invoke(renderer, 0, "uAngleX", arrayOf(99f))
                 progress.invoke(nativeView, value)
             }
             override fun start() {
@@ -223,8 +210,7 @@ internal data class CardLightFrame(
 internal class CardLightHost(
     context: Context,
     private val driver: CardLightDriver,
-    private val bandHeight: Int,
-    private val receiverCenterOffset: Float = bandHeight * (50f / 136f)
+    private val bandHeight: Int
 ) : FrameLayout(context) {
     private var frame = CardLightFrame(null, Rect.Zero, 0f)
     private var started = false
@@ -335,18 +321,16 @@ internal class CardLightHost(
 
     private fun positionLight() {
         driver.view.translationX = frame.bounds.center.x - driver.view.measuredWidth / 2f
-        val top = frame.bounds.bottom - frame.cornerRadius.coerceIn(0f, frame.bounds.height / 2f)
+        // The accepted 355e15d7 build places the unscaled native band at the card bottom.
+        // Moving its whole rectangular texture up by the corner radius exposed a hard top
+        // edge beside the card; stretching it to the action row also distorted the fan.
+        val top = frame.bounds.bottom
         driver.view.translationY = top
         driver.view.pivotY = 0f
-        // The stock button centre is 28dp + half of its 44dp height below the card. Our page
-        // also has a pager indicator, so map that receiving plane to the actual controls while
-        // preserving the original native render size, shader and blur (no new FBOs per frame).
-        driver.view.scaleY = frame.projectionDepth?.let { it / bandHeight } ?: frame.receiverBounds?.takeUnless { it.isEmpty }?.let {
-            ((it.center.y - top) / receiverCenterOffset).coerceAtLeast(1f)
-        } ?: 1f
+        driver.view.scaleY = frame.projectionDepth?.let { it / bandHeight } ?: 1f
         driver.view.scaleX = if (frame.fitToCardWidth && driver.projectedCardWidth > 0f && frame.bounds.width > 0f) {
             frame.bounds.width / driver.projectedCardWidth * 1.15f
-        } else 1.2f
+        } else 1f
     }
 
     override fun dispatchDraw(canvas: Canvas) {

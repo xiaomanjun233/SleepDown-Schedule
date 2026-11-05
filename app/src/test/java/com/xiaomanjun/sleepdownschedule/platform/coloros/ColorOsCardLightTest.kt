@@ -133,17 +133,18 @@ class ColorOsCardLightTest {
         host.release()
     }
 
-    @Test fun lightOverlapsTheCardCornersAndMapsTheReceivingPlaneToTheButtons() {
+    @Test fun pickerKeepsTheAcceptedNativeGeometryEvenWithCornersAndDistantButtons() {
         val activity = Robolectric.buildActivity(Activity::class.java).setup().get()
         val driver = Driver(activity)
-        val host = CardLightHost(activity, driver, 136, receiverCenterOffset = 50f)
+        val host = CardLightHost(activity, driver, 136)
         activity.setContentView(host)
         host.update(CardLightFrame(null, Bounds, 0f, cornerRadius = 34f,
             receiverBounds = Rect(100f, 574f, 300f, 626f)))
         host.measure(exactly(400), exactly(800))
         host.layout(0, 0, 400, 800)
-        assertEquals(466f, driver.view.translationY, 0f)
-        assertEquals(600f, driver.view.translationY + driver.view.scaleY * 50f, 0.001f)
+        assertEquals(500f, driver.view.translationY, 0f)
+        assertEquals(1f, driver.view.scaleX, 0f)
+        assertEquals(1f, driver.view.scaleY, 0f)
         assertEquals(136, driver.view.height)
         host.release()
     }
