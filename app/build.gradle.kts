@@ -71,6 +71,7 @@ android {
     defaultConfig {
         applicationId = "com.xiaomanjun.sleepdownschedule"
         minSdk = 26
+        buildConfigField("boolean", "SLEEPDOWN_COUI_SETTINGS", providers.gradleProperty("sleepdown.couiSettings").orElse("true").get())
         targetSdk = 36
         versionCode = 36
         versionName = sleepDownVersionName
@@ -200,6 +201,7 @@ ksp {
 }
 
 dependencies {
+    implementation(project(":sleepdown-coui"))
     val composeBom = platform("androidx.compose:compose-bom:2024.10.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
