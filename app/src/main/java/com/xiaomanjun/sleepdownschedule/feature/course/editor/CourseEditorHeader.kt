@@ -112,27 +112,5 @@ internal fun ProjectPagerIndicator(
     pageCount: Int,
     modifier: Modifier = Modifier
 ) {
-    val density = LocalDensity.current
-    val dotSpacingPx = with(density) { 15.dp.toPx() }
-    val horizontalPaddingPx = with(density) { 12.dp.toPx() }
-    val indicatorWidth = with(density) { (24 + (pageCount - 1) * 15).dp }
-    Canvas(modifier = modifier.width(indicatorWidth).height(24.dp)) {
-        drawContinuousRoundRect(
-            color = ComposeColor.Black.copy(alpha = 0.28f),
-            cornerRadius = CornerRadius(size.height / 2f, size.height / 2f)
-        )
-        repeat(pageCount) { page ->
-            drawCircle(
-                color = ComposeColor.White.copy(alpha = 0.30f),
-                radius = 4.dp.toPx(),
-                center = Offset(horizontalPaddingPx + page * dotSpacingPx, size.height / 2f)
-            )
-        }
-        val position = (pagerState.currentPage + pagerState.currentPageOffsetFraction).coerceIn(0f, (pageCount - 1).toFloat())
-        drawCircle(
-            color = ComposeColor.White,
-            radius = 5.dp.toPx(),
-            center = Offset(horizontalPaddingPx + position * dotSpacingPx, size.height / 2f)
-        )
-    }
+    com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPagerIndicator(pagerState, pageCount, modifier)
 }

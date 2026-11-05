@@ -11,6 +11,8 @@ private val ColorOsRenderers = ControlMaterialRenderers(
     followLight = { ColorOsFollowLight(it) },
     courseCard = { request, content -> ColorOsCourseCard(request, content) },
     surface = { request, content -> ColorOsMaterialSurface(request, content) },
+    cardLight = { request -> ColorOsCardLight(request) },
+    pageIndicator = { request -> ColorOsPagerIndicator(request) },
     slider = { ColorOsSlider(it) },
     switch = { ColorOsSwitch(it) },
     segments = { ColorOsSegments(it) },
@@ -22,7 +24,8 @@ private val ColorOsRenderers = ControlMaterialRenderers(
 @Composable
 internal fun ProvideColorOsMaterials(enabled: Boolean, content: @Composable () -> Unit) {
     ProvideControlMaterials(
-        renderers = if (enabled) ColorOsRenderers else ControlMaterialRenderers.LiquidGlass,
+        renderers = if (enabled) ColorOsRenderers else
+            ControlMaterialRenderers.LiquidGlass.copy(pageIndicator = ColorOsRenderers.pageIndicator),
         courseCardMode = if (enabled) rememberColorOsCourseCardMode() else null,
         progressiveBlur = if (enabled) rememberColorOsProgressiveBlur() else null,
         content = content

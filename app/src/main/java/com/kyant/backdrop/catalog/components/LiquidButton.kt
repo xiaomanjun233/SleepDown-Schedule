@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -96,6 +97,15 @@ fun LiquidButton(
     enabled: Boolean = true,
     nativeDarkOverride: Boolean? = null,
     preserveMaterialWhenDisabled: Boolean = false,
+    nativeLightBackdrop: Boolean = false,
+    nativeLightShadow: Boolean = false,
+    /**
+     * Wash over the material, under the content. The ColorOS personalisation page stacks this
+     * white gradient on the background-sampled light under its card, so a surface that is lit by
+     * something behind it reads as glass instead of as a blurred copy of that something.
+     * Evaluated in the draw phase; null leaves the existing material untouched.
+     */
+    surfaceSheen: (() -> Brush?)? = null,
     content: @Composable RowScope.() -> Unit
 ) {
     // Compatibility entry for existing feature buttons. Surface-only hosts (menus, fields,
@@ -110,7 +120,10 @@ fun LiquidButton(
             surfaceColor.luminance() < 0.5f else MaterialTheme.colorScheme.background.luminance() < 0.5f
         if (nativeRenderer(NativeCapsuleButtonRequest(onClick, modifier, height, contentPadding, dark,
                 enabled = enabled, primaryColor = accent, acceptsGesture = interactionEnabledAt,
-                preserveMaterialWhenDisabled = preserveMaterialWhenDisabled), content)) {
+                preserveMaterialWhenDisabled = preserveMaterialWhenDisabled,
+                lightBackdrop = nativeLightBackdrop,
+                cardLightShadow = nativeLightShadow,
+                surfaceSheen = surfaceSheen), content)) {
             pressSnapshot?.progress = 0f
             return
         }
@@ -178,13 +191,14 @@ fun LiquidButton(
             lens(lensHeight.toPx(), lensAmount.toPx(), chromaticAberration = chromaticAberration)
         }
     }
-    val buttonOnDrawSurface: DrawScope.() -> Unit = remember(tint, surfaceColor) {
+    val buttonOnDrawSurface: DrawScope.() -> Unit = remember(tint, surfaceColor, surfaceSheen) {
         {
             if (tint.isSpecified) {
                 drawRect(tint.copy(alpha = 0.18f), blendMode = BlendMode.Hue)
                 drawRect(tint.copy(alpha = 0.22f))
             }
             if (surfaceColor.isSpecified) drawRect(surfaceColor)
+            surfaceSheen?.invoke()?.let { drawRect(it) }
         }
     }
     Row(

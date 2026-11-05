@@ -141,7 +141,7 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, conte
     return ColorOsMaterialSurface(themedRequest, style, null, content = content)
 }
 
-internal enum class ColorOsSurfaceStyle { Content, CourseCard, Menu, NeutralMenu, Dialog, Form, Dock, NeutralDock, Navigation }
+internal enum class ColorOsSurfaceStyle { Content, CourseCard, Menu, NeutralMenu, Dialog, Form, Dock, NeutralDock, Navigation, PageIndicator }
 
 @OptIn(androidx.compose.ui.ExperimentalComposeUiApi::class)
 @Composable
@@ -240,7 +240,7 @@ internal fun ColorOsMaterialSurface(request: NativeMaterialSurfaceRequest, style
     return true
 }
 
-private class NativeMaterialSurface(context: Context, private val source: ColorOsNativeUi.Source,
+internal class NativeMaterialSurface(context: Context, private val source: ColorOsNativeUi.Source,
     private val style: ColorOsSurfaceStyle) : View(context) {
     val courseGlow = if (style == ColorOsSurfaceStyle.CourseCard)
         ColorOsNativeUi.prepare("prepare bounded course caustic") { ColorOsCourseCardGlow(context, source) } else null
@@ -260,11 +260,13 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
         ColorOsSurfaceStyle.CourseCard -> 1.2f
         ColorOsSurfaceStyle.Menu, ColorOsSurfaceStyle.NeutralMenu -> 1.7f
         ColorOsSurfaceStyle.Navigation -> 0.75f
+        ColorOsSurfaceStyle.PageIndicator -> 1f
         else -> 2f
     }
     private val lightPreset = when {
         isMenu -> "TYPE_TRANSLUCENT_LARGE_1"
         style == ColorOsSurfaceStyle.Navigation -> "TYPE_CAPSULE_2"
+        style == ColorOsSurfaceStyle.PageIndicator -> "TYPE_TRANSPARENT_SMALL_1"
         else -> CourseLightPreset
     }
     // Reuse the native popup's edge drawable instead of applying the FAB stroke to menus.
@@ -433,10 +435,11 @@ private class NativeMaterialSurface(context: Context, private val source: ColorO
         updateMaterialCorners()
         setBackgroundColor(android.graphics.Color.TRANSPARENT)
         if (blur && (isMenu || style == ColorOsSurfaceStyle.Form || style == ColorOsSurfaceStyle.Dialog || style == ColorOsSurfaceStyle.Dock ||
-                style == ColorOsSurfaceStyle.NeutralDock || value.blurRadiusScale != 1f || value.tintAlphaScale != 1f)) {
+                style == ColorOsSurfaceStyle.NeutralDock || style == ColorOsSurfaceStyle.PageIndicator || value.blurRadiusScale != 1f || value.tintAlphaScale != 1f)) {
             effect.getMethod("setViewBlurEffect", View::class.java,
                 source.load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams"))
                 .invoke(null, this, if (isMenu) source.menuBlurParams(context, style == ColorOsSurfaceStyle.NeutralMenu)
+                    else if (style == ColorOsSurfaceStyle.PageIndicator) source.pageIndicatorBlurParams(context)
                     else if (style == ColorOsSurfaceStyle.Form) source.weatherButtonBlurParams(context, value.blurRadiusScale, 0f)
                     else if (style == ColorOsSurfaceStyle.Dialog) source.dialogBlurParams(context)
                     else if (style == ColorOsSurfaceStyle.Dock || style == ColorOsSurfaceStyle.NeutralDock)
