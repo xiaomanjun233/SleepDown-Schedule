@@ -18,7 +18,7 @@ import com.xiaomanjun.sleepdownschedule.HomeStartMode
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
 import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
@@ -102,7 +102,7 @@ fun GeneralSettingsScreen(
     }
     SleepDownSecondaryPageList(
         contentTopPadding = topPadding,
-        contentBottomPadding = DockScrollPadding
+        contentBottomPadding = detailContentBottomPadding()
     ) {
         item(key = "general-appearance") {
             GlassPreferenceSection("外观") {
@@ -113,6 +113,7 @@ fun GeneralSettingsScreen(
                         defaultHomeMode = draft.defaultHomeMode,
                         onSelected = { applyChange(draft.copy(darkMode = it, followSystemDarkMode = false)) }
                     )
+                    SettingsDivider()
                     SettingsToggleRow(
                         title = "跟随系统",
                         subtitle = "",

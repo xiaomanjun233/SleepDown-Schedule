@@ -45,6 +45,8 @@
 | 跨 Activity 转场 | [TRANSITION_FRAMEWORK.md](TRANSITION_FRAMEWORK.md) |
 | 定位动效参数、播放与资源释放边界 | [动效维护入口](architecture/MOTION_MAINTENANCE.md) |
 | AI 文件导入 | [AI_FILE_IMPORT.md](ai/AI_FILE_IMPORT.md) |
+| AI 任务循环、材料／教务工作区、插嘴与排队 | [AGENT_HARNESS.md](ai/AGENT_HARNESS.md) |
+| 临时写脚本、精确编辑与教务注入的本地验证 | [AI_SCRIPT_SMOKE_TEST.md](ai/AI_SCRIPT_SMOKE_TEST.md) |
 | AI助理 | [DAY_AGENT_RUNTIME.md](architecture/DAY_AGENT_RUNTIME.md) |
 | 备份与升级 | [BACKUP_FORMAT_V1.md](migration/BACKUP_FORMAT_V1.md)、[1_2_0_PACKAGE_MIGRATION.md](migration/1_2_0_PACKAGE_MIGRATION.md) |
 | 节次设置 | [PERIOD_SCHEMES_GUIDE.md](PERIOD_SCHEMES_GUIDE.md) |

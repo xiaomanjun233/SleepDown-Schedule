@@ -34,7 +34,7 @@ private const val NavigationMaterial =
     "com.coui.appcompat.bottomfloatingnavigationbar.BaseBottomFloatingMenuView\$MaterialEffectState"
 
 /** Stock bottom-bar layers read as blown-out white over a pale wallpaper; stay just under 1. */
-private const val LightDockLayerBrightness = 0.9f
+private const val LightDockSampleBrightness = 0.94f
 
 internal class NativeDock(
     val view: ViewGroup,
@@ -81,18 +81,14 @@ internal class NativeDock(
 
     fun applyMaterial() {
         if (!view.isAttachedToWindow || !source.blurEnabled()) return
-        // Neutral keeps the weather preset; otherwise stay on COUI's bottom-bar recipe and only
-        // dim its layers over a light backdrop. Dark chrome keeps COUI's own values.
-        val brightness = if (neutral || isNight) 1f else LightDockLayerBrightness
+        // Preserve the white native color layers; dim only the input sampled below them.
+        val brightness = if (neutral || isNight) 1f else LightDockSampleBrightness
         if (!neutral && brightness == 1f) return
         val base = source.load("com.coui.appcompat.bottomfloatingnavigationbar.BaseBottomFloatingMenuView")
-        val paramsType = source.load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams")
-        val apply = source.load("com.coui.appcompat.COUIMaterialEffect")
-            .getMethod("setViewBlurEffect", View::class.java, paramsType)
-        val params = source.dockBlurParams(context, neutral, brightness)
+        val params = source.dockBlurParams(context, neutral)
         for (index in 0 until view.childCount) {
             val child = view.getChildAt(index)
-            if (base.isInstance(child)) apply.invoke(null, child, params)
+            if (base.isInstance(child)) source.applySampledBlur(child, params, brightness)
         }
     }
 
@@ -318,7 +314,7 @@ internal fun ColorOsHomeIconButton(
                 .getField("TYPE_DEFAULT_BLUR").getInt(null)
             type.getMethod("setMaterialEffectType", Int::class.javaPrimitiveType).invoke(effect, materialType)
             NativeIconButton(view, sizedIcon, requireNotNull(effect), type.getMethod("detach"), source).also { button ->
-                button.updateHomeStyle(style?.weatherMaterial == true, style?.foreground, backdropBlurred)
+                button.updateHomeStyle(style?.weatherMaterial == true, style?.foreground, backdropBlurred, style?.sampleBrightness ?: 1f)
                 source.bindFollowLightIntensity(view, effect)
                 view.addOnAttachStateChangeListener(object : View.OnAttachStateChangeListener {
                     override fun onViewAttachedToWindow(view: View) { view.post { button.refreshAppearance() } }
@@ -340,7 +336,7 @@ internal fun ColorOsHomeIconButton(
     }
     key(context, iconRes) {
         AndroidView(factory = { button.view }, modifier = modifier, update = { view ->
-            button.updateHomeStyle(style?.weatherMaterial == true, style?.foreground, backdropBlurred)
+            button.updateHomeStyle(style?.weatherMaterial == true, style?.foreground, backdropBlurred, style?.sampleBrightness ?: 1f)
             if (source.updateTheme(context, effectiveDark)) button.refreshAppearance()
             view.contentDescription = contentDescription
             view.isSelected = selected
@@ -363,11 +359,14 @@ private class NativeIconButton(val view: View, val icon: Drawable, val effect: A
     private var neutral = false
     private var foreground: Int? = null
     private var backdropBlurred = false
-    fun updateHomeStyle(wanted: Boolean, foreground: Int?, backdropBlurred: Boolean) {
-        if (neutral == wanted && this.foreground == foreground && this.backdropBlurred == backdropBlurred) return
+    private var sampleBrightness = 1f
+    fun updateHomeStyle(wanted: Boolean, foreground: Int?, backdropBlurred: Boolean, sampleBrightness: Float) {
+        if (neutral == wanted && this.foreground == foreground && this.backdropBlurred == backdropBlurred &&
+            this.sampleBrightness == sampleBrightness) return
         neutral = wanted
         this.foreground = foreground
         this.backdropBlurred = backdropBlurred
+        this.sampleBrightness = sampleBrightness
         refreshAppearance()
     }
     fun refreshAppearance() {
@@ -375,6 +374,9 @@ private class NativeIconButton(val view: View, val icon: Drawable, val effect: A
         val params = source.toolbarButtonBlurParams(view.context, neutral, backdropBlurred)
         effect.javaClass.getMethod("setCustomBlurParams", source.load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams"))
             .invoke(effect, params)
+        if (params != null && view.isAttachedToWindow && source.blurEnabled() && sampleBrightness < 1f) {
+            source.applySampledBlur(view, params, sampleBrightness)
+        }
         icon.setTintList(ColorStateList(arrayOf(intArrayOf(android.R.attr.state_selected), intArrayOf()),
             intArrayOf(foreground ?: source.color(view.context, "couiColorPrimary").defaultColor,
                 foreground ?: source.color(view.context, "couiColorLabelPrimary").defaultColor)))

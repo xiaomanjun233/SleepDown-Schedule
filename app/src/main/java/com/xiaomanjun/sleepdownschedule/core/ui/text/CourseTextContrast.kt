@@ -7,6 +7,25 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import kotlin.math.roundToInt
 
+/** Preserve an accent's hue while making ordinary-sized text readable on a known surface. */
+internal fun readableAccentColor(accent: Color, background: Color, minimumContrast: Float = 4.5f): Color {
+    val opaque = accent.copy(alpha = 1f)
+    fun contrast(color: Color): Float {
+        val first = color.luminance()
+        val second = background.luminance()
+        return (maxOf(first, second) + 0.05f) / (minOf(first, second) + 0.05f)
+    }
+    if (contrast(opaque) >= minimumContrast) return opaque
+    val target = if (contrast(Color.Black) >= contrast(Color.White)) Color.Black else Color.White
+    var low = 0f
+    var high = 1f
+    repeat(14) {
+        val middle = (low + high) / 2f
+        if (contrast(androidx.compose.ui.graphics.lerp(opaque, target, middle)) >= minimumContrast) high = middle else low = middle
+    }
+    return androidx.compose.ui.graphics.lerp(opaque, target, high)
+}
+
 private val HomeNotFrozen = object : State<Boolean> { override val value = false }
 internal val LocalHomeBackgroundFrozen = compositionLocalOf<State<Boolean>> { HomeNotFrozen }
 

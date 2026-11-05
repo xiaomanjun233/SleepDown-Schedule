@@ -52,6 +52,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -299,14 +300,20 @@ internal fun AgentInputLiquidCapsule(
     surfaceVisibility: () -> Float = { 1f },
     sharedInteractiveHighlight: InteractiveHighlight? = null,
     heightOverride: Dp? = null,
+    wrapContentHeight: Boolean = false,
     content: @Composable () -> Unit
 ) {
     val dockHeight = heightOverride ?: if (expanded) 94.dp else 56.dp
+    val density = LocalDensity.current
+    var measuredHeight by remember { mutableStateOf(dockHeight) }
+    val heightModifier = if (wrapContentHeight) Modifier.heightIn(min = dockHeight).onSizeChanged {
+        measuredHeight = with(density) { it.height.toDp() }
+    } else Modifier.height(dockHeight)
     val nativeSurface = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer.current
     if (nativeSurface?.invoke(com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest(
-        modifier = modifier.height(dockHeight), shape = shape, dark = foreground.luminance() > 0.5f,
+        modifier = modifier.then(heightModifier), shape = shape, dark = foreground.luminance() > 0.5f,
         surfaceAlpha = surfaceVisibility, elasticTouchFeedback = true
-    )) { Box(Modifier.fillMaxSize()) { content() } } == true) return
+    )) { Box(if (wrapContentHeight) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) { content() } } == true) return
 
     val interactionScope = rememberCoroutineScope()
     val currentInteractionEnabledAt = rememberUpdatedState(interactionEnabledAt)
@@ -324,7 +331,7 @@ internal fun AgentInputLiquidCapsule(
 
     Box(
         modifier = modifier
-            .height(dockHeight)
+            .then(heightModifier)
             .graphicsLayer { clip = false }
     ) {
         if (backdrop != null) {
@@ -333,8 +340,8 @@ internal fun AgentInputLiquidCapsule(
             LiquidButton(
                 onClick = {},
                 backdrop = backdrop,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = surfaceVisibility() },
-                height = dockHeight,
+                modifier = Modifier.matchParentSize().graphicsLayer { alpha = surfaceVisibility() },
+                height = if (wrapContentHeight) measuredHeight else dockHeight,
                 contentPadding = PaddingValues(0.dp),
                 blurRadius = 16.dp,
                 lensHeight = 18.dp,
@@ -357,7 +364,7 @@ internal fun AgentInputLiquidCapsule(
             GlassSurface(
                 backdrop = null,
                 config = config,
-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = surfaceVisibility() },
+                modifier = Modifier.matchParentSize().graphicsLayer { alpha = surfaceVisibility() },
                 shape = shape,
                 tokens = tokens,
                 baseSurfaceColorOverride = surfaceBase
@@ -365,7 +372,7 @@ internal fun AgentInputLiquidCapsule(
         }
         Box(
             modifier = Modifier
-                .fillMaxSize()
+                .then(if (wrapContentHeight) Modifier.fillMaxWidth() else Modifier.fillMaxSize())
                 .liquidButtonVisualTransform(
                     interactiveHighlight = interactiveHighlight,
                     pressExpansion = pressExpansion

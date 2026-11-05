@@ -29,3 +29,18 @@ internal fun rememberNativeContext(
         }
     }
 }
+
+/** Outer-stroke reuse is independent of the native glass mode; only the class source is needed. */
+@Composable
+internal fun rememberColorOsStrokeContext(dark: Boolean): Pair<ColorOsNativeUi.Source, Context>? {
+    val host = LocalContext.current
+    val configuration = LocalConfiguration.current
+    val source = remember(host.applicationContext) { ColorOsNativeUi.source(host.applicationContext) }
+    return remember(source, host, configuration, dark) {
+        source?.let { native ->
+            ColorOsNativeUi.prepare("create the native stroke theme") {
+                native to native.themedContext(host, dark)
+            }
+        }
+    }
+}

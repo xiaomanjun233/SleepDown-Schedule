@@ -4,19 +4,45 @@ import android.content.Context
 import android.graphics.BlendMode
 import androidx.compose.foundation.layout.*
 
+/** COUI's own blur → two color layers, with exposure applied only to the sampled background. */
+internal fun ColorOsNativeUi.Source.applySampledBlur(view: android.view.View, params: Any, brightness: Float) {
+    val effect = load("com.coui.appcompat.COUIMaterialEffect")
+    val base = load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams")
+    if (brightness >= 1f || android.os.Build.VERSION.SDK_INT < 31) {
+        effect.getMethod("setViewBlurEffect", android.view.View::class.java, base).invoke(null, view, params)
+        return
+    }
+    val context = view.context
+    val radius = base.getMethod("getBlurRadius", Context::class.java).invoke(params, context) as Float
+    val matrix = android.graphics.ColorMatrix().apply { setScale(brightness, brightness, brightness, 1f) }
+    var result = android.graphics.RenderEffect.createColorFilterEffect(android.graphics.ColorMatrixColorFilter(matrix))
+    if (radius > 0f) result = android.graphics.RenderEffect.createBlurEffect(radius, radius, result, android.graphics.Shader.TileMode.MIRROR)
+    for ((color, mode) in listOf("getColorLayer1" to "getBlendModeLayer1", "getColorLayer2" to "getBlendModeLayer2")) {
+        result = android.graphics.RenderEffect.createColorFilterEffect(android.graphics.BlendModeColorFilter(
+            base.getMethod(color, Context::class.java).invoke(params, context) as Int,
+            base.getMethod(mode).invoke(params) as BlendMode), result)
+    }
+    effect.getMethod("setBackgroundRenderEffect", android.graphics.RenderEffect::class.java, android.view.View::class.java)
+        .invoke(null, result, view)
+}
+
 internal fun ColorOsNativeUi.Source.weatherButtonBlurParams(
     context: Context, radiusScale: Float = 1f, tintAlphaScale: Float = 1f
 ): Any = scaledBlurParams(context, "TYPE_CONTENT_TRANSPARENT_BUTTON", radiusScale, tintAlphaScale)
 
-/**
- * The Dock keeps COUI's own bottom-bar recipe. Its color layers read as blown-out white over a
- * pale wallpaper, so those layers are dimmed slightly; the rest of the recipe is untouched.
- */
+/** Keep COUI's bottom-bar color layers, including its original white. */
 internal fun ColorOsNativeUi.Source.dockBlurParams(
     context: Context, neutral: Boolean, layerBrightness: Float = 1f
 ): Any = scaledBlurParams(context,
     if (neutral) "TYPE_CONTENT_TRANSPARENT_BUTTON" else "TYPE_FRAMEWORK_BOTTOM_BAR", 1f,
     layerBrightness = layerBrightness)
+
+/** OplusPageIndicator's 120px glass recipe, with its launcher background colour. */
+internal fun ColorOsNativeUi.Source.pageIndicatorBlurParams(context: Context): Any =
+    load("com.coui.appcompat.COUIMaterialBlurEffect\$BlurEffectParams")
+        .getConstructor(Float::class.javaPrimitiveType, String::class.java, BlendMode::class.java,
+            String::class.java, BlendMode::class.java)
+        .newInstance(120f, "#3DFFFFFF", BlendMode.SRC_OVER, "#00000000", BlendMode.SRC_OVER)
 
 /** Embed the alert's resource recipe in this window, without a second window-behind sampler. */
 internal fun ColorOsNativeUi.Source.dialogBlurParams(context: Context): Any {

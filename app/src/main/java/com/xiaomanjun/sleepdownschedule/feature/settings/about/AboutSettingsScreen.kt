@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -87,9 +88,9 @@ fun AboutSettingsScreen(state: AppState, backdrop: Backdrop?) {
             Toast.makeText(context, "暂时无法打开这个页面", Toast.LENGTH_SHORT).show()
         }
     }
-    LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    SleepDownSecondaryPageList(
+        contentTopPadding = topPadding,
+        contentBottomPadding = com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding(),
     ) {
         item(key = "about-hero") {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
@@ -223,6 +224,11 @@ fun AboutSettingsScreen(state: AppState, backdrop: Backdrop?) {
                     SettingsValueRow("液态玻璃效果", "AndroidLiquidGlass · Kyant")
                     SettingsDivider()
                     SettingsValueRow("设置与界面组件", "MIUIX · compose-miuix-ui")
+                    if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) {
+                        SettingsDivider()
+                        SettingsNavigationRow("COUI 设置排版", "COUI-Kit · ItosEO · MPL 2.0",
+                            onClick = { openProjectPage("https://github.com/ItosEO/COUI-Kit") })
+                    }
                     SettingsDivider()
                     SettingsValueRow("教务适配资源", "shiguang_warehouse · XingHeYuZhuan")
                 }
@@ -505,8 +511,7 @@ internal fun AboutCreditLinkRow(
 }
 
 internal fun aboutPageGradientColors(darkTheme: Boolean): List<ComposeColor> = if (darkTheme) {
-    listOf(ComposeColor(0xFF071A43), ComposeColor(0xFF142D70), ComposeColor(0xFF2C174F), ComposeColor(0xFF08102F))
+    listOf(ComposeColor.Black, ComposeColor.Black)
 } else {
-    listOf(ComposeColor(0xFFDFE3F8), ComposeColor(0xFFE7E0FC), ComposeColor(0xFFF2DDF7),
-        ComposeColor(0xFFF9DDEA), ComposeColor(0xFFEDE5FA))
+    listOf(ComposeColor(0xFFF0F1F2), ComposeColor(0xFFF0F1F2))
 }

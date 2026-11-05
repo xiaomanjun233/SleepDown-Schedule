@@ -331,12 +331,14 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchoolPickerScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.IcsScheduleCodec
 import com.xiaomanjun.sleepdownschedule.feature.importing.NormalizedAiManualImportScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.PendingImportSetupStore
-import com.xiaomanjun.sleepdownschedule.feature.importing.buildSleepDownScheduleToken
+import com.xiaomanjun.sleepdownschedule.feature.importing.CloudShortCode
+import com.xiaomanjun.sleepdownschedule.feature.importing.ScheduleJsonShare
 import com.xiaomanjun.sleepdownschedule.feature.importing.loadAiImportFile
 import com.xiaomanjun.sleepdownschedule.feature.importing.toIntentKey
 import com.xiaomanjun.sleepdownschedule.feature.schedule.ScheduleSnapshotStore
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.shareScheduleIcs
-import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.shareScheduleToken
+import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.shareScheduleJson
+import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.shareScheduleShortCode
 import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.CustomizeUiState
 import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.QuickScheduleDraft
 import com.xiaomanjun.sleepdownschedule.feature.schedule.picker.QuickScheduleSettingsSheets
@@ -531,7 +533,7 @@ fun CourseScheduleAppUi(
     var homeDialogVisible by remember { mutableStateOf(false) }
     val appScope = rememberCoroutineScope()
     val homeAssistant = remember(appScope) { HomeAssistantState(appScope) }
-    var assistantImportUri by remember { mutableStateOf<Uri?>(null) }
+    var assistantImportUris by remember { mutableStateOf(emptyList<Uri>()) }
     var assistantImportText by remember { mutableStateOf<String?>(null) }
     val assistantHaptic = LocalHapticFeedback.current
     var assistantHapticSent by remember { mutableStateOf(false) }
@@ -957,7 +959,7 @@ fun CourseScheduleAppUi(
                         if (IcsScheduleCodec.isSleepDown(file.bytes)) {
                             Toast.makeText(context, error.message ?: "ICS 解析失败", Toast.LENGTH_SHORT).show()
                         } else {
-                            assistantImportUri = uri
+                            assistantImportUris = listOf(uri)
                             homeDialog = HomeDialog.ImportSchedule
                         }
                     }
@@ -1085,9 +1087,10 @@ fun CourseScheduleAppUi(
             com.xiaomanjun.sleepdownschedule.platform.coloros.colorOsContrastingAccent(
                 it, MaterialTheme.colorScheme.background.toArgb())
         }
-    val homeNeutralChromeStyle = remember(nativeVisuals, homeChromeDark, homeChromeHasWallpaper, homeChromeForeground) {
+    val homeChromeStyle = remember(nativeVisuals, homeChromeDark, homeChromeHasWallpaper, homeChromeForeground) {
         if (!nativeVisuals) null else com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialStyle(
-            homeChromeDark, homeChromeHasWallpaper && !homeChromeDark, homeChromeForeground)
+            homeChromeDark, weatherMaterial = false, foreground = homeChromeForeground,
+            sampleBrightness = if (homeChromeHasWallpaper && !homeChromeDark) 0.94f else 1f)
     }
     val statusBarWallpaperLuminance = remember(homeReadabilityContext) {
         homeStatusBarWallpaperLuminance(homeReadabilityContext)
@@ -2040,7 +2043,7 @@ fun CourseScheduleAppUi(
             }
             AgentValidatedActionType.OPEN_IMPORT -> {
                 assistantImportText = action.importText
-                assistantImportUri = action.importAttachmentUri?.let(Uri::parse)
+                assistantImportUris = listOfNotNull(action.importAttachmentUri?.let(Uri::parse))
                 homeDialog = HomeDialog.ImportSchedule
                 onResult(
                     AgentPlanExecutionResult(
@@ -2132,7 +2135,7 @@ fun CourseScheduleAppUi(
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent provides colorOsActiveDockAccent,
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent provides colorOsHomeAccents?.button,
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle provides
-            homeNeutralChromeStyle.takeIf { screen is Screen.Home },
+            homeChromeStyle.takeIf { screen is Screen.Home },
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenu provides
             colorOsOverflowActions.takeIf { parallelPhoneNavigation },
         LocalHomeReadability provides homeReadabilityContext,
@@ -2187,7 +2190,7 @@ fun CourseScheduleAppUi(
                     backdrop = centeredDialogSceneBackdrop,
                     backgroundMotion = dayAgentBackgroundMotionState,
                     onAgentAction = handleHomeAgentAction,
-                    onImportFile = { uri -> assistantImportUri = uri; homeDialog = HomeDialog.ImportSchedule }
+                    onImportFile = { uris -> assistantImportUris = uris; homeDialog = HomeDialog.ImportSchedule }
                 )
                 CourseCopyOverlay(courseCopy, visualState.config, centeredDialogSceneBackdrop, backgroundBackdrop)
                 CourseShortcutOverlay(
@@ -2926,8 +2929,8 @@ fun CourseScheduleAppUi(
                                     onCourseClick = homeCourseClick,
                                     onAddCourse = viewModel::addCourse,
                                     onAgentAction = handleHomeAgentAction,
-                                    onAgentImportFile = { uri ->
-                                        assistantImportUri = uri
+                                    onAgentImportFile = { uris ->
+                                        assistantImportUris = uris
                                         homeDialog = HomeDialog.ImportSchedule
                                     },
                                     onUpdateCourseSingleWeek = viewModel::updateCourseSingleWeek,
@@ -3168,10 +3171,36 @@ fun CourseScheduleAppUi(
                 val courses = allSchedulesState.allCourses.filter { it.scheduleId == scheduleId }
                 val scheduleName = profile?.name ?: "课表"
                 when (shareType) {
-                    ScheduleShareType.TOKEN -> runCatching {
-                        buildSleepDownScheduleToken(config, periods, courses, allSchedulesState.timetableCatalog)
-                    }.onSuccess { shareScheduleToken(context,scheduleName,it) }
-                        .onFailure { Toast.makeText(context,it.message ?: "课表分享失败",Toast.LENGTH_SHORT).show() }
+                    ScheduleShareType.SHORT_CODE -> appScope.launch {
+                        Toast.makeText(context, "正在生成短口令…", Toast.LENGTH_SHORT).show()
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                val payload = CloudShortCode.buildPayload(
+                                    config, periods, courses, allSchedulesState.timetableCatalog
+                                )
+                                CloudShortCode.create(payload)
+                            }
+                        }.onSuccess { created ->
+                            shareScheduleShortCode(context, scheduleName, created.code)
+                        }.onFailure {
+                            Toast.makeText(context, it.message ?: "短口令生成失败", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                    ScheduleShareType.JSON -> appScope.launch {
+                        runCatching {
+                            withContext(Dispatchers.IO) {
+                                ScheduleJsonShare.writeShareFile(
+                                    context = context,
+                                    scheduleName = scheduleName,
+                                    config = config,
+                                    periods = periods,
+                                    courses = courses,
+                                    catalog = allSchedulesState.timetableCatalog
+                                )
+                            }
+                        }.onSuccess { shareScheduleJson(context, scheduleName, it) }
+                            .onFailure { Toast.makeText(context, it.message ?: "JSON 文件生成失败", Toast.LENGTH_SHORT).show() }
+                    }
                     ScheduleShareType.ICS -> appScope.launch {
                         runCatching {
                             withContext(Dispatchers.IO) {
@@ -4394,8 +4423,8 @@ fun CourseScheduleAppUi(
                     HomeDialog.ImportSchedule -> NormalizedAiManualImportScreen(
                         state = state,
                         backdrop = homeDialogBackdrop,
-                        initialFileUri = assistantImportUri,
-                        onInitialFileConsumed = { assistantImportUri = null },
+                        initialFileUris = assistantImportUris,
+                        onInitialFileConsumed = { assistantImportUris = emptyList() },
                         initialText = assistantImportText,
                         onInitialTextConsumed = { assistantImportText = null },
                         onCancel = { dismissHomeDialog() },

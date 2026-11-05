@@ -11,6 +11,9 @@ private val ColorOsRenderers = ControlMaterialRenderers(
     followLight = { ColorOsFollowLight(it) },
     courseCard = { request, content -> ColorOsCourseCard(request, content) },
     surface = { request, content -> ColorOsMaterialSurface(request, content) },
+    strokeOverlay = { request -> ColorOsCardOuterStroke(request) },
+    cardLight = { request -> ColorOsCardLight(request) },
+    pageIndicator = { request -> ColorOsPagerIndicator(request) },
     slider = { ColorOsSlider(it) },
     switch = { ColorOsSwitch(it) },
     segments = { ColorOsSegments(it) },
@@ -21,8 +24,16 @@ private val ColorOsRenderers = ControlMaterialRenderers(
 
 @Composable
 internal fun ProvideColorOsMaterials(enabled: Boolean, content: @Composable () -> Unit) {
+    val renderers = if (enabled) {
+        ColorOsRenderers
+    } else {
+        // Liquid glass still uses the native outer stroke on capable devices; every other native
+        // capability stays disabled.
+        ControlMaterialRenderers.LiquidGlass.copy(strokeOverlay = ColorOsRenderers.strokeOverlay,
+            pageIndicator = ColorOsRenderers.pageIndicator)
+    }
     ProvideControlMaterials(
-        renderers = if (enabled) ColorOsRenderers else ControlMaterialRenderers.LiquidGlass,
+        renderers = renderers,
         courseCardMode = if (enabled) rememberColorOsCourseCardMode() else null,
         progressiveBlur = if (enabled) rememberColorOsProgressiveBlur() else null,
         content = content

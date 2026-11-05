@@ -550,6 +550,11 @@ fun LiquidAlertDialog(
     isSelector: Boolean = false,
     messageContent: (@Composable () -> Unit)? = null
 ) {
+    if (com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsEnabled.current) {
+        com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsAlert(title, message, actions,
+            onDismissRequest, scrollableMessageContent, messageMaxHeight, messageContent)
+        return
+    }
     if (!isSelector && LocalNativeAlertRenderer.current?.invoke(NativeAlertRequest(
             title, message, actions, appUsesDarkTheme(config), onDismissRequest,
             messageMaxHeight, scrollableMessageContent, messageContent
@@ -671,6 +676,7 @@ private fun LiquidAlertActionButton(
     if (backdrop != null) {
         LiquidButton(
             onClick = if (action.enabled) action.onClick else ({ }),
+            enabled = action.enabled,
             backdrop = backdrop,
             modifier = modifier,
             isInteractive = false,
@@ -800,7 +806,9 @@ fun DialogLiquidButton(
     val surfaceColor = if (neutralFlat) com.xiaomanjun.sleepdownschedule.glass.flatControlColor(controlDark) else if (highContrast) {
         Color.Black.copy(alpha = if (controlDark) 0.62f else 0.52f)
     } else when (role) {
-        DialogButtonRole.Confirm -> controlAccentColor(Color(0xFF0A84FF)).copy(alpha = 0.82f)
+        DialogButtonRole.Confirm -> controlAccentColor(
+            if (com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsEnabled.current)
+                MaterialTheme.colorScheme.primary else Color(0xFF0A84FF)).copy(alpha = 0.82f)
         DialogButtonRole.Cancel -> if (destructiveFilled) {
             Color(0xFFFF453A).copy(alpha = 0.78f)
         } else {

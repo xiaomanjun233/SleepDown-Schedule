@@ -149,7 +149,7 @@ internal fun SettingsDatePickerContent(
         // readable without changing the dialog width: reserve more width for the year and cap
         // only this dense numeric control's effective size at the extreme DPI combinations.
         val compactPicker = maxWidth < 300.dp || fontScale > 1.12f
-        val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+        val pickerTextStyle = MaterialTheme.typography.headlineSmall.copy(
             fontSize = when {
                 maxWidth < 270.dp || fontScale > 1.32f -> 21.sp
                 compactPicker -> 24.sp
@@ -160,7 +160,7 @@ internal fun SettingsDatePickerContent(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(if (compactPicker) 4.dp else 8.dp)
         ) {
-            top.yukonga.miuix.kmp.basic.NumberPicker(
+            SettingsNumberPicker(
                 value = year,
                 onValueChange = onYearChange,
                 range = 2000..2100,
@@ -169,7 +169,7 @@ internal fun SettingsDatePickerContent(
                 textStyle = pickerTextStyle,
                 modifier = Modifier.weight(if (compactPicker) 1.65f else 1.5f)
             )
-            top.yukonga.miuix.kmp.basic.NumberPicker(
+            SettingsNumberPicker(
                 value = month,
                 onValueChange = onMonthChange,
                 range = 1..12,
@@ -178,7 +178,7 @@ internal fun SettingsDatePickerContent(
                 textStyle = pickerTextStyle,
                 modifier = Modifier.weight(1f)
             )
-            top.yukonga.miuix.kmp.basic.NumberPicker(
+            SettingsNumberPicker(
                 value = day.coerceAtMost(maxDay),
                 onValueChange = onDayChange,
                 range = 1..maxDay,
@@ -309,7 +309,7 @@ internal fun SettingsTimePickerContent(
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
                 val pickerContentColor = LocalContentColor.current
                 val compact = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.15f
-                val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                val pickerTextStyle = MaterialTheme.typography.headlineSmall.copy(
                     color = pickerContentColor,
                     fontSize = if (compact) 23.sp else 28.sp
                 )
@@ -323,7 +323,7 @@ internal fun SettingsTimePickerContent(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)
                 ) {
-                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                    SettingsNumberPicker(
                         value = selectedHour,
                         onValueChange = { hour ->
                             val minute = (selectedMinute % 60).coerceIn(minuteRangeForHour(hour, safeMinimum, safeMaximum))
@@ -336,7 +336,7 @@ internal fun SettingsTimePickerContent(
                         textStyle = pickerTextStyle,
                         modifier = Modifier.weight(1f)
                     )
-                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                    SettingsNumberPicker(
                         value = selectedMinute % 60,
                         onValueChange = { onValueChange(selectedHour * 60 + it) },
                         range = allowedMinuteRange,
@@ -356,7 +356,7 @@ internal fun SettingsMinutePickerContent(
     value: Int, onValueChange: (Int) -> Unit, range: IntRange, modifier: Modifier = Modifier
 ) {
         val pickerContentColor = LocalContentColor.current
-        top.yukonga.miuix.kmp.basic.NumberPicker(
+        SettingsNumberPicker(
             value = value.coerceIn(range),
             onValueChange = onValueChange,
             range = range,
@@ -368,7 +368,7 @@ internal fun SettingsMinutePickerContent(
                 disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
                 disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
             ),
-            textStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+            textStyle = MaterialTheme.typography.headlineSmall.copy(
                 color = pickerContentColor,
                 fontSize = 28.sp
             ),
@@ -444,7 +444,7 @@ internal fun ConstrainedPeriodTimePickers(
                 Text("开始时间", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(Modifier.fillMaxWidth()) {
-                top.yukonga.miuix.kmp.basic.NumberPicker(
+                SettingsNumberPicker(
                     value = startHour,
                     onValueChange = { hour ->
                         val minute = (selection.startMinute % 60)
@@ -458,7 +458,7 @@ internal fun ConstrainedPeriodTimePickers(
                     colors = pickerColors,
                     modifier = Modifier.weight(1f)
                 )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
+                SettingsNumberPicker(
                     value = selection.startMinute % 60,
                     onValueChange = { updateStart(startHour * 60 + it) },
                     range = startMinuteRange,
@@ -476,7 +476,7 @@ internal fun ConstrainedPeriodTimePickers(
                 Text("结束时间", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(Modifier.fillMaxWidth()) {
-                top.yukonga.miuix.kmp.basic.NumberPicker(
+                SettingsNumberPicker(
                     value = endHour,
                     onValueChange = { hour ->
                         val minute = (selection.endMinute % 60)
@@ -490,7 +490,7 @@ internal fun ConstrainedPeriodTimePickers(
                     colors = pickerColors,
                     modifier = Modifier.weight(1f)
                 )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
+                SettingsNumberPicker(
                     value = selection.endMinute % 60,
                     onValueChange = { updateEnd(endHour * 60 + it) },
                     range = endMinuteRange,

@@ -19,7 +19,8 @@ internal val ShiguangPayloadJson = Json {
 internal data class ShiguangBridgeMessage(
     @SerialName("action") val action: String,
     @SerialName("callbackId") val callbackId: String? = null,
-    @SerialName("payload") val payload: String? = null
+    @SerialName("payload") val payload: String? = null,
+    val executionToken: String? = null
 )
 
 @Serializable
@@ -72,6 +73,12 @@ internal val ShiguangBridgeInitScript = """
 
     var callbacks = {};
     var callbackCounter = 0;
+    var executionToken = null;
+    window._shiguangWithExecutionToken = function(token, invoke) {
+        var previous = executionToken;
+        executionToken = token;
+        try { return invoke(); } finally { executionToken = previous; }
+    };
 
     function postRawMessage(msg) {
         if (window._shiguangNativeBridge && typeof window._shiguangNativeBridge.postMessage === 'function') {
@@ -92,6 +99,7 @@ internal val ShiguangBridgeInitScript = """
     function postMessageToNative(action, payload, callbackId) {
         var msg = JSON.stringify({
             action: action,
+            executionToken: executionToken,
             callbackId: callbackId || null,
             payload: payload ? JSON.stringify(payload) : null
         });
@@ -209,9 +217,11 @@ internal val ShiguangBridgeInitScript = """
             postMessageToNative('showToast', { message: message });
         },
         notifyTaskCompletion: function() {
+            if (shiguangBridge._cleanupAdapterExecution) shiguangBridge._cleanupAdapterExecution();
             postMessageToNative('notifyTaskCompletion');
         },
         notifyExecutionFinished: function() {
+            if (shiguangBridge._cleanupAdapterExecution) shiguangBridge._cleanupAdapterExecution();
             postMessageToNative('notifyExecutionFinished');
         }
     };

@@ -25,6 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -84,6 +85,13 @@ internal fun homeStatusBarWallpaperLuminance(context: HomeReadabilityContext): F
         rows = 3
     )?.average()?.toFloat()
 }
+
+/**
+ * Scales the legibility shadow of every text below it. A crossfade stacks two copies of the same
+ * label, so it provides 0.5 to keep the total shadow strength of one label instead of doubling it
+ * into a dark, hard-edged patch over the wallpaper.
+ */
+internal val LocalHomeTextShadowScale = staticCompositionLocalOf { 1f }
 
 @Composable
 fun HomeReadableText(
@@ -157,14 +165,16 @@ fun HomeReadableText(
         style.fontSize != TextUnit.Unspecified -> style.fontSize
         else -> 14.sp
     }
-    val shadowStyle = if (!hasWallpaper || shadowStrength <= 0.001f || readability.bitmap == null) style else {
+    val shadowStyle = if (!hasWallpaper || shadowStrength <= 0.001f || readability.bitmap == null ||
+        LocalHomeTextShadowScale.current <= 0.001f
+    ) style else {
         val radius = with(density) {
             (effectiveFontSize.toPx() * if (lightText) 0.50f else 0.54f)
                 .coerceIn(5.dp.toPx(), 12.dp.toPx())
         }
         style.copy(shadow = androidx.compose.ui.graphics.Shadow(
             color = (if (lightText) ComposeColor.Black else ComposeColor.White).copy(
-                alpha = (if (lightText) 0.62f else 0.68f) * shadowStrength
+                alpha = (if (lightText) 0.62f else 0.68f) * shadowStrength * LocalHomeTextShadowScale.current
             ),
             offset = Offset.Zero,
             blurRadius = radius

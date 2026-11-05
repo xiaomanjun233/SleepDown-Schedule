@@ -214,7 +214,8 @@ internal fun AppTopBar(
                         SettingsPage.WebDav -> "WebDAV 备份"
                         SettingsPage.BackupPreview -> "恢复预览"
                         SettingsPage.About -> "关于应用"
-                        SettingsPage.Changelog -> "关于应用"
+                        SettingsPage.Changelog -> "更新日志"
+                        SettingsPage.SoftwareUpdate -> "软件更新"
                         SettingsPage.Donate -> "捐赠支持"
 						SettingsPage.PrivacyPolicy -> "隐私政策"
                     },

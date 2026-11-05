@@ -18,6 +18,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,15 +58,43 @@ internal class AiRuntimePickerState(initialSettings: AiImportSettings) {
     var expanded by mutableStateOf(false)
         private set
     internal var revision by mutableIntStateOf(0)
+    internal var popupSession by mutableIntStateOf(0)
+        private set
+    internal var retainedAnchorLabel by mutableStateOf<String?>(null)
+        private set
+    internal var triggerTransferred by mutableStateOf(false)
+        private set
+    internal val label: String get() = retainedAnchorLabel ?: currentLabel
+    private val currentLabel: String get() = settings.profile.managedModelDisplayName
+        ?: settings.profile.defaultModel.ifBlank { settings.profile.displayName }
 
     fun open() {
         // Toggle instead of "set true": if a host ever dropped the popup without resetting the
         // state, a plain tap must still recover the picker instead of being swallowed.
+        if (!expanded && retainedAnchorLabel == null) {
+            retainedAnchorLabel = currentLabel
+            popupSession++
+        }
         expanded = !expanded
     }
 
     fun dismiss() {
         expanded = false
+    }
+
+    internal fun onPopupMeasured() {
+        if (expanded) triggerTransferred = true
+    }
+
+    internal fun onDismissFinished() {
+        if (expanded) return // A late exit callback cannot release a reopened popup's anchor.
+        triggerTransferred = false
+        retainedAnchorLabel = null
+    }
+
+    internal fun releaseHost() {
+        expanded = false
+        onDismissFinished()
     }
 
     internal fun commit(next: AiImportSettings) {
@@ -231,22 +260,15 @@ internal fun AiRuntimePicker(
         it.key == "reasoning" && state.settings.profile.managedReasoningLocked
     }
     var anchorBounds by remember { mutableStateOf(Rect.Zero) }
-    var triggerTransferred by remember { mutableStateOf(false) }
-    // Follow the state both ways: the popup host can disappear (another Activity on top, window
-    // detach) without ever delivering onDismissFinished, which used to leave the pill invisible
-    // and unresponsive because `expanded` stayed true.
-    LaunchedEffect(state.expanded) {
-        triggerTransferred = state.expanded
-    }
     // A popup cannot survive its host Activity being paused; reset the state so the trigger is
     // usable again when the page resumes.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, state) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_PAUSE) state.dismiss()
+            if (event == Lifecycle.Event.ON_PAUSE) state.releaseHost()
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer); state.releaseHost() }
     }
     Box(
         modifier = Modifier
@@ -260,9 +282,7 @@ internal fun AiRuntimePicker(
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = state.settings.profile.managedModelDisplayName ?: state.settings.profile.defaultModel.ifBlank {
-                        state.settings.profile.displayName
-                    },
+                    text = state.label,
                     color = foreground.copy(alpha = 0.92f),
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Medium,
@@ -275,7 +295,7 @@ internal fun AiRuntimePicker(
         if (embedded) {
             Box(
                 modifier = modifier
-                    .graphicsLayer { alpha = if (triggerTransferred) 0f else 1f }
+                    .graphicsLayer { alpha = if (state.triggerTransferred) 0f else 1f }
                     .heightIn(min = 32.dp)
                     .clip(shape)
                     .background(foreground.copy(alpha = 0.045f))
@@ -297,7 +317,7 @@ internal fun AiRuntimePicker(
                 backdrop = backdrop,
                 config = config,
                 modifier = modifier.heightIn(min = 32.dp)
-                    .graphicsLayer { alpha = if (triggerTransferred) 0f else 1f },
+                    .graphicsLayer { alpha = if (state.triggerTransferred) 0f else 1f },
                 shape = shape,
                 tokens = GlassTokens.pill(intensity = 0.72f).copy(
                     blur = 8.dp,
@@ -314,6 +334,10 @@ internal fun AiRuntimePicker(
                 labelContent()
             }
         }
+        // Miuix retains measured parent/host bounds while closed. A complete new opening
+        // must measure the current anchor (especially after IME movement); a reversal keeps
+        // the same session so its in-flight spring and source geometry remain continuous.
+        key(state.popupSession) {
         SleepDownLiquidCascadingPopup(
             show = state.expanded,
             anchorBounds = anchorBounds,
@@ -322,9 +346,14 @@ internal fun AiRuntimePicker(
             backdrop = popupBackdrop,
             config = config,
             contentColor = popupForeground,
+            itemTextStyle = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Normal),
             morphFromAnchor = true,
-            collapseContent = labelContent,
-            onDismissFinished = { triggerTransferred = false }
+            collapseContent = {
+                // The source remains visible while the root popup obtains its first geometry.
+                Box(Modifier.onGloballyPositioned { state.onPopupMeasured() }) { labelContent() }
+            },
+            onDismissFinished = state::onDismissFinished
         )
+        }
     }
 }

@@ -22,11 +22,10 @@ internal fun agentSettingsPage(value: String?): SettingsPage? = when (value) {
     "NOTIFICATIONS" -> SettingsPage.Notifications
     "SCHEDULE_MANAGER" -> SettingsPage.ScheduleManager
     "BACKUP_RESTORE" -> SettingsPage.BackupRestore
-    // ABOUT / CHANGELOG / DOWNLOAD are separate entries in the settings root but all land on the
-    // same "关于应用" screen, so the agent protocol keeps three names and maps them to one page.
-    "ABOUT" -> SettingsPage.Changelog
+    // Keep the published protocol names while opening the corresponding full-screen page.
+    "ABOUT" -> SettingsPage.About
     "CHANGELOG" -> SettingsPage.Changelog
-    "DOWNLOAD" -> SettingsPage.Changelog
+    "DOWNLOAD" -> SettingsPage.SoftwareUpdate
     "DONATE" -> SettingsPage.Donate
     "PRIVACY_POLICY" -> SettingsPage.PrivacyPolicy
     else -> null

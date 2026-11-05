@@ -18,6 +18,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.*
+import com.itos.coui.scroll.couiVerticalScroll
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsContentPadding
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -401,9 +403,11 @@ internal fun PeriodSchemeEditor(
                     renderEffect = if (motion.value > 0f && motion.value < 1f) sunkenBlur else null
                 }
                 .then(if (session != null) Modifier.clearAndSetSemantics { } else Modifier)
-                .verticalScroll(normalScroll, enabled = session == null)
-                .padding(start = 16.dp, end = 16.dp, top = topPadding + 12.dp, bottom = navBottom + 32.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .consumeWindowInsets(LocalCouiSettingsContentPadding.current ?: PaddingValues(0.dp))
+                .couiVerticalScroll(normalScroll, enabled = session == null)
+                .padding(start = 16.dp, end = 16.dp, top = topPadding + 12.dp,
+                    bottom = com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding()),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             leadingContent()
             Column(Modifier.fillMaxWidth()) {

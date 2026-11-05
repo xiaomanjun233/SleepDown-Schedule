@@ -97,4 +97,26 @@ class AutoRefreshReviewRepositoryTest {
         assertEquals("303", rebased.differences.single().before!!.location)
         assertEquals("202", rebased.differences.single().after!!.location)
     }
+
+    @Test fun mixedReviewAppliesOnlySelectedAdditionAndRemovalAndKeepsLocalEdit() = runBlocking {
+        repository.addCourse(db.courseDao().getCourses(1).single().copy(id = 0, name = "物理", weekday = 2))
+        val state = repository.scheduleSnapshot(1)
+        val math = state.courses.single { it.name == "数学" }
+        val incoming = listOf(math.copy(id = 0, location = "202"), math.copy(id = 0, name = "英语", weekday = 3))
+        val pending = PendingScheduleRefresh.create(AutoRefreshScheduleProfile("test", "学校", "a", "入口", "", "", 1),
+            state, incoming, state.config)
+        val selected = pending.differences.indices.filter { index ->
+            pending.differences[index].let { it.before?.name == "物理" || it.after?.name == "英语" }
+        }.toSet()
+        assertEquals(3, pending.differences.size)
+        assertEquals(state.courses.map { it.originalArrangement() }.sortedBy { it.id },
+            db.courseDao().getCourses(1).sortedBy { it.id })
+        repository.applyReviewedRefresh(1, pending.before, pending.timingKey,
+            mergeReviewedRefresh(pending.before, pending.differences, selected), null)
+        val result = db.courseDao().getCourses(1)
+        assertEquals(setOf("数学", "英语"), result.map { it.name }.toSet())
+        assertEquals(math.originalArrangement(), result.single { it.name == "数学" })
+        assertEquals("101", result.single { it.name == "数学" }.location)
+        assertTrue(result.single { it.name == "英语" }.id != 0L)
+    }
 }

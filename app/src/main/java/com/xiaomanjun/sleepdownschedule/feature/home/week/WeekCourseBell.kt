@@ -23,7 +23,30 @@ private data class RailCourse(
 internal fun weekDayTimeline(state: AppState, date: LocalDate, now: LocalTime): WeekDayTimeline {
     val scheduled = resolveTimetable(state.config, state.periods, state.timetableCatalog, date).periods
     val byIndex = scheduled.associateBy { it.periodIndex }
-    val courses = coursesForDate(state, date).mapNotNull { course ->
+    val ordinary = coursesForDate(state, date)
+    val teachingDate = teachingDateForSchedule(state.config, date)
+    val week = teachingDate?.let {
+        if (it != date) adjustedTeachingWeekForDate(state.config, it) else scheduleWeekForDateOrNull(state.config, it)
+    }.takeIf { scheduleWeekForDateOrNull(state.config, date) != null }
+    val occupied = ordinary.flatMap { it.arrangementForWrite().periods }.toSet()
+    // Grid special lessons share the numbered rail; independent bands own their own time labels.
+    // Keep ordinary courses authoritative wherever their cells hide a special lesson.
+    val special = if (week == null || teachingDate == null) emptyList() else
+        runCatching { resolvedTimeSlotCourses(state.config.timeSlotCoursesJson, scheduled) }.getOrDefault(emptyList()).mapIndexedNotNull { index, slot ->
+            if (!slot.displayMode.occupiesGrid() || slot.customPeriodTimes.isNullOrBlank() ||
+                teachingDate.dayOfWeek.value !in slot.weekdays ||
+                week < slot.startWeek || (slot.endWeek != null && week > slot.endWeek)) return@mapIndexedNotNull null
+            val indices = slot.periodIndices.filter { it !in occupied }
+            if (indices.isEmpty()) return@mapIndexedNotNull null
+            val clocks = parseCoursePeriodTimes(slot.customPeriodTimes).filter { it.index in indices }
+            CourseEntity(id = -index.toLong() - 1, name = slot.name, teacher = null, location = slot.location,
+                weekday = teachingDate.dayOfWeek.value, periods = indices, weeks = listOf(week),
+                weekParity = WeekParity.ALL, note = slot.note,
+                customStartTime = if (clocks.isEmpty()) null else clocks.first().start.toString(),
+                customEndTime = if (clocks.isEmpty()) null else clocks.last().end.toString(),
+                customPeriodTimes = clocks.takeIf { it.isNotEmpty() }?.joinToString(";") { "${it.index},${it.start}-${it.end}" })
+        }
+    val courses = (ordinary + special).mapNotNull { course ->
         val source = course.arrangementForWrite()
         val times = courseTimeSegments(course, state.periods)
         val indices = source.periods.filter { it in byIndex }.ifEmpty {

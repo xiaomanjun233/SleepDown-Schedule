@@ -5,12 +5,14 @@ import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import android.appwidget.AppWidgetManager
 import android.content.ComponentName
 import android.graphics.Bitmap
+import android.graphics.Canvas as AndroidCanvas
 import android.net.Uri
 import android.os.Bundle
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.RemoteViews
 import android.widget.Toast
+import androidx.core.view.doOnLayout
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -36,6 +38,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.PageSize
 import androidx.compose.foundation.pager.rememberPagerState
@@ -61,6 +65,7 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
@@ -80,7 +85,7 @@ import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidControlSlider
 import com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidMenuButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
@@ -111,6 +116,8 @@ private data class WidgetEditRequest(
     val sourceUri: Uri?,
     val sourceBounds: Rect
 )
+
+private class WidgetLightCaptureState { var active = false }
 
 internal fun widgetAppearanceForType(
     appearances: List<WidgetAppearanceEntity>,
@@ -154,7 +161,11 @@ fun WidgetCustomizationScreen(
     var appearances by remember { mutableStateOf<List<WidgetAppearanceEntity>>(emptyList()) }
     var editRequest by remember { mutableStateOf<WidgetEditRequest?>(null) }
     var editorSourceHandedOff by remember { mutableStateOf(false) }
-    var currentPreviewBounds by remember { mutableStateOf(Rect.Zero) }
+    val previewBounds = remember { mutableStateMapOf<WidgetAppearanceVariant, Rect>() }
+    var lightReceiverBounds by remember { mutableStateOf(Rect.Zero) }
+    var lightOrigin by remember { mutableStateOf(Offset.Zero) }
+    var lightSnapshot by remember { mutableStateOf<Pair<String, Bitmap>?>(null) }
+    val lightRenderer = LocalNativeCardLightRenderer.current
     val adaptiveMetrics = rememberHomeAdaptiveMetrics()
     val topPadding = detailContentTopPadding() +
         if (adaptiveMetrics.isLargeScreen) 18.dp else 0.dp
@@ -172,10 +183,21 @@ fun WidgetCustomizationScreen(
     fun installedIds(type: WidgetAppearanceVariant): IntArray = manager.getAppWidgetIds(providerComponent(type))
     val widgetTypes = ActiveWidgetAppearanceVariants
     val pagerState = rememberPagerState { widgetTypes.size }
+    val listState = rememberLazyListState()
     val selectedPage by remember(pagerState) {
         derivedStateOf { pagerState.settledPage.coerceIn(widgetTypes.indices) }
     }
     val selectedType = widgetTypes[selectedPage]
+    val currentPreviewBounds = previewBounds[selectedType] ?: Rect.Zero
+    val lightReady = lightRenderer != null && lightSnapshot?.first == selectedType.key &&
+        !pagerState.isScrollInProgress && editRequest == null && listState.firstVisibleItemIndex == 0 &&
+        !currentPreviewBounds.isEmpty && !lightReceiverBounds.isEmpty
+    val lightAnimation = rememberCardLightAnimation(lightReady, selectedType.key)
+    val lightSheen: () -> Brush? = remember {
+        val wash = Brush.verticalGradient(listOf(Color(0x4DFFFFFF), Color(0x1AFFFFFF)))
+        val draw: () -> Brush? = { wash }
+        draw
+    }
     // Reuse the exact rendered previews already displayed by the pager. A pin request without
     // EXTRA_APPWIDGET_PREVIEW can produce an empty confirmation sheet on the current launcher.
     val widgetPreviews = remember { mutableStateMapOf<WidgetAppearanceVariant, RemoteViews>() }
@@ -257,18 +279,32 @@ fun WidgetCustomizationScreen(
         it.variant == selectedType.key && it.enabled && it.wallpaperUri != null
     }
 
-    Box(Modifier.fillMaxSize()) {
-        LazyColumn(
+    Box(Modifier.fillMaxSize().onGloballyPositioned { lightOrigin = it.positionInWindow() }) {
+        lightRenderer?.invoke(NativeCardLightRequest(
+            bitmap = lightSnapshot?.takeIf { it.first == selectedType.key }?.second,
+            cardBounds = { currentPreviewBounds.translate(-lightOrigin.x, -lightOrigin.y) },
+            strength = { lightAnimation.opacity.value },
+            modifier = Modifier.matchParentSize(),
+            cornerRadius = if (selectedType == WidgetAppearanceVariant.COURSES_SQUARE) 16.dp else 18.dp,
+            receiverBounds = { lightReceiverBounds.translate(-lightOrigin.x, -lightOrigin.y) },
+            revealProgress = { lightAnimation.reveal.value },
+            projectionDepth = with(LocalDensity.current) {
+                widgetLightProjectionDepth(currentPreviewBounds, lightReceiverBounds, 16.dp.toPx()).toDp()
+            },
+            fitToCardWidth = true
+        ))
+        SleepDownSecondaryPageList(
+            state = listState,
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(
-                top = topPadding,
-                bottom = DockScrollPadding
-            ),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            contentTopPadding = topPadding,
+            contentBottomPadding = detailContentBottomPadding(),
+            horizontalPadding = 0.dp,
+            sectionSpacing = if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) null else 14.dp,
         ) {
             item {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.fillMaxWidth().padding(top =
+                        if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) 16.dp else 0.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
@@ -339,9 +375,11 @@ fun WidgetCustomizationScreen(
                                             },
                                         useParentSize = true,
                                         onBoundsChanged = {
-                                            if (page == pagerState.currentPage) currentPreviewBounds = it
+                                            previewBounds[type] = it
                                         },
-                                        onRemoteViewsReady = { widgetPreviews[type] = it }
+                                        onRemoteViewsReady = { widgetPreviews[type] = it },
+                                        captureForLight = lightRenderer != null && page == pagerState.currentPage,
+                                        onLightBitmap = { lightSnapshot = type.key to it }
                                     )
                                 }
                                 Spacer(Modifier.height(8.dp))
@@ -354,7 +392,8 @@ fun WidgetCustomizationScreen(
                         pageCount = widgetTypes.size
                     )
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                            .onGloballyPositioned { lightReceiverBounds = it.boundsInWindow() },
                         horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterHorizontally),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -377,6 +416,7 @@ fun WidgetCustomizationScreen(
                         },
                         modifier = Modifier.weight(1f),
                         textColorOverride = Color.White,
+                        lightShadow = lightRenderer != null,
                         surfaceColorOverride = controlAccentColor(Color(0xFF0A84FF)).copy(alpha = 0.72f)
                     )
                     LiquidMenuButton(
@@ -396,18 +436,13 @@ fun WidgetCustomizationScreen(
                             Color(0xFF4A4A4F).copy(alpha = 0.72f)
                         } else {
                             Color.White.copy(alpha = 0.74f)
-                        }
+                        },
+                        lightBackdrop = lightRenderer != null,
+                        lightShadow = lightRenderer != null,
+                        surfaceSheen = lightSheen.takeIf { lightRenderer != null }
                     )
                     }
                 }
-            }
-            item {
-                SettingsActionRow(
-                    title = "手动添加方法",
-                    subtitle = "桌面没有响应时，也可以从小组件菜单添加",
-                    buttonText = "查看", iconRes = R.drawable.ic_courses,
-                    backdrop = backdrop, onClick = { showManualWidgetHelp = true }
-                )
             }
             item {
                 Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
@@ -621,7 +656,9 @@ private fun WidgetRemoteViewsPreview(
     transparentBackground: Boolean = false,
     onBoundsChanged: (Rect) -> Unit = {},
     onReady: () -> Unit = {},
-    onRemoteViewsReady: (RemoteViews) -> Unit = {}
+    onRemoteViewsReady: (RemoteViews) -> Unit = {},
+    captureForLight: Boolean = false,
+    onLightBitmap: (Bitmap) -> Unit = {}
 ) {
     val context = LocalContext.current
     val renderSize = remember(type) { canonicalWidgetPreviewSize(type) }
@@ -629,6 +666,9 @@ private fun WidgetRemoteViewsPreview(
     var remoteViews by remember(type) { mutableStateOf<RemoteViews?>(null) }
     val latestOnReady = rememberUpdatedState(onReady)
     val latestOnRemoteViewsReady = rememberUpdatedState(onRemoteViewsReady)
+    val latestCaptureForLight = rememberUpdatedState(captureForLight)
+    val latestOnLightBitmap = rememberUpdatedState(onLightBitmap)
+    val lightCapture = remember(type) { WidgetLightCaptureState() }
     LaunchedEffect(type, appearance, state, transparentBackground, systemUiMode) {
         // Slider/crop gestures can emit dozens of appearance snapshots per second. Keep the
         // last valid preview on screen and collapse that burst into one expensive bitmap pass.
@@ -725,7 +765,7 @@ private fun WidgetRemoteViewsPreview(
     BoxWithConstraints(
         modifier = modifier
             .then(previewFrame)
-            .onGloballyPositioned { onBoundsChanged(it.boundsInWindow()) }
+            .onGloballyPositioned { onBoundsChanged(it.boundsInWindow(clipBounds = false)) }
             .squircleClip(logicalCornerRadius),
         contentAlignment = Alignment.Center
     ) {
@@ -742,7 +782,10 @@ private fun WidgetRemoteViewsPreview(
             },
             update = { host ->
                 val remote = remoteViews ?: return@AndroidView
-                if (host.tag !== remote) {
+                val remoteChanged = host.tag !== remote
+                val becameLightSource = captureForLight && !lightCapture.active
+                lightCapture.active = captureForLight
+                if (remoteChanged) {
                     runCatching {
                         if (host.childCount == 1 && (host.tag as? RemoteViews)?.layoutId == remote.layoutId) {
                             remote.reapply(host.context, host.getChildAt(0))
@@ -760,6 +803,17 @@ private fun WidgetRemoteViewsPreview(
                         host.tag = remote
                     }.onFailure {
                         android.util.Log.e("WidgetPreview", "Failed to apply ${type.key} preview", it)
+                    }
+                }
+                if (captureForLight && (remoteChanged || becameLightSource)) {
+                    host.doOnLayout {
+                        if (latestCaptureForLight.value && host.tag === remote && host.width > 0 && host.height > 0) {
+                            runCatching {
+                                val pixels = Bitmap.createBitmap(host.width, host.height, Bitmap.Config.ARGB_8888)
+                                host.draw(AndroidCanvas(pixels))
+                                latestOnLightBitmap.value(pixels)
+                            }.onFailure { android.util.Log.w("WidgetPreview", "Cannot capture widget card light", it) }
+                        }
                     }
                 }
             },

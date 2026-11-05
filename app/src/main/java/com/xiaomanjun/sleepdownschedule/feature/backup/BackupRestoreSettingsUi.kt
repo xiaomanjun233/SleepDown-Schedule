@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,7 +43,7 @@ import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.identity.AppIdentity
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceSection
@@ -159,14 +160,9 @@ fun BackupRestoreSettingsScreen(
         source?.let(onOpenPreview)
     }
 
-    LazyColumn(
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
-            top = topPadding,
-            bottom = DockScrollPadding
-        ),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    SleepDownSecondaryPageList(
+        contentTopPadding = topPadding,
+        contentBottomPadding = detailContentBottomPadding(),
     ) {
         item(key = "backup-scope") {
             BackupGuideCarousel(
@@ -374,14 +370,9 @@ fun BackupRestorePreviewScreen(
         }
     }
 
-    LazyColumn(
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
-            top = topPadding,
-            bottom = DockScrollPadding
-        ),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    SleepDownSecondaryPageList(
+        contentTopPadding = topPadding,
+        contentBottomPadding = detailContentBottomPadding(),
     ) {
         if (busyLabel != null || statusMessage != null) {
             item(key = "backup-preview-status") {

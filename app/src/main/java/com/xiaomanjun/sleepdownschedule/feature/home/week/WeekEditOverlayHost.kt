@@ -28,6 +28,8 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -55,6 +57,7 @@ internal fun WeekEditOverlayHost(
     liftProgress: Float,
     rotation: Float,
     gestureActive: Boolean,
+    pointerPosition: Offset,
     gridOffsetY: Float,
     gridScrollCompensationY: Float,
     heightPx: Float,
@@ -99,7 +102,9 @@ internal fun WeekEditOverlayHost(
         x = left + req.sourceBounds.width / 2f,
         y = top + heightPx / 2f - liftPx * liftProgress
     )
-    val cardGlowPressed = gestureActive || liftProgress > 0.01f
+    val cardGlowPressed = gestureActive
+    val nativeCourse = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode.current?.enabled == true
+    val cardCoordinates = remember(req) { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(1) }
     val cardGlowDiameterDp = with(density) { (cardGlowRadiusPx * 2f).toDp() }
     val target = when (req.mode) {
         WeekEditOverlayMode.Move -> weekCourseEditTarget(
@@ -149,7 +154,7 @@ internal fun WeekEditOverlayHost(
             .fillMaxSize()
             .zIndex(90f)
     ) {
-        WeekEditCardGlow(
+        if (!nativeCourse) WeekEditCardGlow(
             config = config,
             pressed = cardGlowPressed, radiusPx = cardGlowRadiusPx,
             spotAlpha = 0.068f, fallbackAlpha = 0.046f,
@@ -180,6 +185,7 @@ internal fun WeekEditOverlayHost(
                 .offset { IntOffset(left.roundToInt(), top.roundToInt()) }
                 .width(widthDp)
                 .height(heightDp)
+                .onGloballyPositioned { cardCoordinates[0] = it }
                 .graphicsLayer {
                     // A resize handle owns only the lower edge: keep the top edge and width fixed
                     // instead of applying the move gesture's two-axis lifted scale around the
@@ -204,7 +210,15 @@ internal fun WeekEditOverlayHost(
                 course = req.course,
                 modifier = Modifier.fillMaxSize(),
                 shape = cardShape,
-                followTouch = false,
+                followTouch = true,
+                externalTouch = {
+                    val coordinates = cardCoordinates[0]?.takeIf { it.isAttached }
+                    com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSurfaceTouch(
+                        coordinates?.localPositionOf(coordinates.findRootCoordinates(), pointerPosition)
+                            ?: Offset(req.sourceBounds.width / 2f, heightPx / 2f),
+                        gestureActive
+                    )
+                },
                 onClick = null
             ) {
                 WeekCourseOverlayCardContent(req.course, config)

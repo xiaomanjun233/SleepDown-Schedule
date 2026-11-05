@@ -165,7 +165,7 @@ object ShiguangWarehouse {
         val warehouseAdapters = (officialAdapters.filterNot { (it.school.id to it.adapterId) in testIds } + testAdapters)
             .filter { it.category in OfficialCategories }
             .sortedWith(compareBy<EduAdapter> { it.school.initial }.thenBy { it.school.name }.thenBy { it.adapterName })
-        return listOf(aiEduImportAdapter()) + warehouseAdapters
+        return listOf(aiEduImportAdapter()) + LocalEduAdapterStore.load(context) + warehouseAdapters
     }
 
     internal fun loadBundledAdapters(context: Context): List<EduAdapter> {
@@ -203,6 +203,7 @@ object ShiguangWarehouse {
         BuildConfig.SLEEPDOWN_LOCAL_EDU_TEST && adapter.warehouseGeneration == TestGeneration
 
     suspend fun resolveScript(context: Context, adapter: EduAdapter): String = withContext(Dispatchers.IO) {
+        if (adapter.isSelfUseAdapter()) return@withContext LocalEduAdapterStore.source(context, adapter)
         val relativePath = ShiguangWarehouseUpdater.resourceRelativePath(adapter)
         if (isLocalTestAdapter(adapter)) {
             return@withContext context.assets.open("$TestRoot/resources/$relativePath").bufferedReader().use { it.readText() }

@@ -26,7 +26,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun AutoRefreshReviewHost(config: ScheduleConfigEntity, backdrop: Backdrop?, schedules: List<ScheduleProfileEntity>,
-    enabled: Boolean = true, openRequest: Int = 0) {
+    enabled: Boolean = true, openRequest: Int = 0,
+    confirmReview: suspend (android.content.Context, String, Set<Int>, Boolean) -> String = AutoRefreshScheduleCoordinator::confirmReview) {
     val context = LocalContext.current
     val pending by AutoRefreshReviewStore.observe(context).collectAsState()
     val profile by AutoRefreshScheduleStore.observe(context).collectAsState()
@@ -66,7 +67,7 @@ internal fun AutoRefreshReviewHost(config: ScheduleConfigEntity, backdrop: Backd
                             error = null
                             scope.launch {
                                 try {
-                                    AutoRefreshScheduleCoordinator.confirmReview(context, review.id, selected, useTerm)
+                                    confirmReview(context, review.id, selected, useTerm)
                                 } catch (cancelled: CancellationException) { throw cancelled }
                                 catch (failure: Exception) { error = failure.message ?: "保存失败，请重试" }
                                 finally { saving = false }

@@ -16,7 +16,7 @@ import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
-import top.yukonga.miuix.kmp.basic.NumberPicker
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker as NumberPicker
 import top.yukonga.miuix.kmp.basic.NumberPickerDefaults
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 
@@ -45,7 +45,7 @@ internal fun PeriodQuickNumberPicker(
     val foreground = LocalContentColor.current
     BoxWithConstraints(modifier) {
         val fontScale = LocalDensity.current.fontScale
-        val textStyle = style ?: MiuixTheme.textStyles.title1.copy(fontSize = when {
+        val textStyle = style ?: MaterialTheme.typography.headlineSmall.copy(fontSize = when {
             maxWidth < 90.dp || fontScale > 1.3f -> 17.sp
             maxWidth < 140.dp || fontScale > 1.1f -> 20.sp
             else -> 25.sp

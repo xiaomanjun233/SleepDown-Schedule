@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
@@ -150,7 +151,17 @@ fun EduSchoolPickerScreen(
     onSelect: (EduAdapter) -> Unit
 ) {
     val context = LocalContext.current
-    val adapters = availableAdapters ?: remember(warehouseGeneration) {
+    val localScope = rememberCoroutineScope()
+    var localVersion by remember { mutableIntStateOf(0) }
+    var localSelection by remember { mutableStateOf<EduAdapter?>(null) }
+    var editSource by remember { mutableStateOf<String?>(null) }
+    var localError by remember { mutableStateOf<String?>(null) }
+    var confirmLocalDelete by remember { mutableStateOf(false) }
+    fun select(adapter: EduAdapter) {
+        if (adapter.isSelfUseAdapter()) { localSelection = adapter; localError = null }
+        else onSelect(adapter)
+    }
+    val adapters = availableAdapters ?: remember(warehouseGeneration, localVersion) {
         runCatching { ShiguangWarehouse.loadVisibleAdapters(context) }
             .getOrDefault(emptyList())
     }
@@ -183,7 +194,7 @@ fun EduSchoolPickerScreen(
         onSelect = { school ->
             val matches = adapters.filter { it.school.id == school.id }
             if (matches.size == 1) {
-                onSelect(matches.single())
+                select(matches.single())
             } else if (matches.isNotEmpty()) {
                 adapterChoices = matches
             }
@@ -208,7 +219,7 @@ fun EduSchoolPickerScreen(
                     onClick = {
                         selectedAdapter?.let { adapter ->
                             adapterChoices = null
-                            onSelect(adapter)
+                            select(adapter)
                         }
                     }
                 )
@@ -232,6 +243,45 @@ fun EduSchoolPickerScreen(
                     }
                 }
             }
+        )
+    }
+    localSelection?.let { selected ->
+        LiquidAlertDialog(
+            title = if (editSource != null) "编辑自用适配" else selected.school.name,
+            message = localError ?: if (confirmLocalDelete) "删除此本地适配？不会影响已经导入的课程。"
+                else if (editSource != null) "按拾光 Bridge 规范编辑，保存后打开教务页重新测试。"
+                else "本地 · 自用适配",
+            config = state.config, backdrop = backdrop,
+            onDismissRequest = { localSelection = null; editSource = null; confirmLocalDelete = false },
+            messageMaxHeight = 420.dp,
+            scrollableMessageContent = true,
+            messageContent = if (editSource != null) { {
+                DialogCapsuleField(value = editSource.orEmpty(), onValueChange = { editSource = it; localError = null },
+                    placeholder = "拾光适配脚本", config = state.config, minLines = 10,
+                    modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp))
+            } } else null,
+            actions = if (confirmLocalDelete) listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = { confirmLocalDelete = false }),
+                LiquidAlertAction("删除", LiquidAlertActionStyle.Primary, onClick = {
+                    LocalEduAdapterStore.delete(context, selected); localVersion++; localSelection = null; confirmLocalDelete = false
+                })) else if (editSource != null) listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = { editSource = null }),
+                LiquidAlertAction("保存并测试", LiquidAlertActionStyle.Primary, dismissOnClick = false, onClick = {
+                    localScope.launch {
+                        runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            LocalEduAdapterStore.save(context, selected.school.name, selected.importUrl, editSource.orEmpty(), selected.adapterId)
+                        } }.onSuccess { updated -> localVersion++; localSelection = null; editSource = null; onSelect(updated) }
+                            .onFailure { localError = it.message ?: "保存失败" }
+                    }
+                })) else listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = { localSelection = null }),
+                LiquidAlertAction("编辑", LiquidAlertActionStyle.Secondary, dismissOnClick = false, onClick = {
+                    localScope.launch { runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        LocalEduAdapterStore.source(context, selected)
+                    } }.onSuccess { editSource = it }.onFailure { localError = "脚本读取失败" } }
+                }),
+                LiquidAlertAction("删除", LiquidAlertActionStyle.Secondary, dismissOnClick = false, onClick = { confirmLocalDelete = true }),
+                LiquidAlertAction("打开教务", LiquidAlertActionStyle.Primary, onClick = { localSelection = null; onSelect(selected) }))
         )
     }
 }
@@ -317,8 +367,11 @@ fun EduSchoolIndexedSelectScreen(
         }
             .sortedBy { it.school.id }
     }
+    val localSchools = remember(schoolGroups) {
+        schoolGroups.filter { group -> group.adapters.any(EduAdapter::isSelfUseAdapter) }
+    }
     val indexedSchools = remember(schoolGroups) {
-        schoolGroups.filterNot { it in aiEduSchools || it in pinnedSchools }
+        schoolGroups.filterNot { it in aiEduSchools || it in pinnedSchools || it in localSchools }
     }
     val grouped = remember(indexedSchools) {
         indexedSchools
@@ -326,10 +379,10 @@ fun EduSchoolIndexedSelectScreen(
             .toSortedMap()
     }
     val letters = remember(grouped) { grouped.keys.toList() }
-    val sectionPositions = remember(grouped, aiEduSchools, pinnedSchools) {
+    val sectionPositions = remember(grouped, aiEduSchools, pinnedSchools, localSchools) {
         val aiSectionSize = if (aiEduSchools.isEmpty()) 0 else 2
         val pinnedSectionSize = if (pinnedSchools.isEmpty()) 0 else 2
-        var index = aiSectionSize + pinnedSectionSize
+        var index = aiSectionSize + pinnedSectionSize + if (localSchools.isEmpty()) 0 else 2
         buildMap {
             grouped.forEach { (letter, _) ->
                 put(letter, index)
@@ -501,6 +554,13 @@ fun EduSchoolIndexedSelectScreen(
                                 adapterBadge = adapterBadge,
                                 onSelect = onSelect
                             )
+                        }
+                    }
+                    if (localSchools.isNotEmpty()) {
+                        item(key = "local-edu-title") { GlassPreferenceCategory("我的适配 · 本地") }
+                        item(key = "local-edu-card") {
+                            EduSchoolGroupCard(schools = localSchools, state = state, backdrop = backdrop,
+                                adapterBadge = { "本地" }, onSelect = onSelect)
                         }
                     }
                     grouped.forEach { (letter, list) ->
@@ -824,11 +884,7 @@ private fun eduAdapterCategoryLabel(category: String): String = when (category.u
 
 private val EduSearchVerticalOverscan = 18.dp
 private val EduSearchHorizontalOverscan = 16.dp
-private val LightEduSearchDockShadow = Shadow(
-    radius = 8.dp,
-    offset = DpOffset(0.dp, 2.dp),
-    color = ComposeColor.Black.copy(alpha = 0.10f)
-)
+private val LightEduSearchDockShadow = com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidSearchStyle.shadow
 
 @Composable
 private fun EduSchoolSearchDock(
@@ -983,16 +1039,12 @@ fun SchoolSearchField(
         // exposes its rectangular allocation boundary. Stable open/closed states stay layer-free.
         Modifier
     }
-    val searchBlurRadius = 5.dp
-    val searchLensHeight = 14.dp
-    val searchLensAmount = 24.dp
-    val searchButtonHeight = 44.dp
-    val searchSurfaceColor = if (appUsesDarkTheme(config)) {
-        // 深色模式：搜索胶囊采用黑色玻璃基底。
-        ComposeColor(0xFF16181D).copy(alpha = 0.78f)
-    } else {
-        ComposeColor.White.copy(alpha = 0.22f)
-    }
+    val searchStyle = com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidSearchStyle
+    val searchBlurRadius = searchStyle.blur
+    val searchLensHeight = searchStyle.lensHeight
+    val searchLensAmount = searchStyle.lensAmount
+    val searchButtonHeight = searchStyle.height
+    val searchSurfaceColor = searchStyle.surface(appUsesDarkTheme(config))
     val closeSearch: () -> Unit = {
         focusManager.clearFocus(force = true)
         keyboardController?.hide()
@@ -1275,9 +1327,16 @@ private fun validateEduBridgePrompt(
 
 @Composable
 internal fun EduBridgeInteractionDialog(
+    request: EduBridgeInteractionRequest?, bridge: ShiguangBridgeHost, state: AppState,
+    backdrop: Backdrop?, onFinished: () -> Unit,
+    resolveInteraction: (String, String) -> Unit = bridge::resolveInteraction
+) = EduBridgeInteractionDialog(request, bridge, state.config, backdrop, onFinished, resolveInteraction)
+
+@Composable
+internal fun EduBridgeInteractionDialog(
     request: EduBridgeInteractionRequest?,
     bridge: ShiguangBridgeHost,
-    state: AppState,
+    config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     onFinished: () -> Unit,
     resolveInteraction: (String, String) -> Unit = bridge::resolveInteraction
@@ -1298,7 +1357,7 @@ internal fun EduBridgeInteractionDialog(
                     }
                 ),
                 backdrop = backdrop,
-                config = state.config,
+                config = config,
                 onDismissRequest = {
                     resolveInteraction(request.requestId, "false")
                     onFinished()
@@ -1341,7 +1400,7 @@ internal fun EduBridgeInteractionDialog(
                     )
                 ),
                 backdrop = backdrop,
-                config = state.config,
+                config = config,
                 onDismissRequest = ::cancel,
                 messageContent = {
                     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1359,7 +1418,7 @@ internal fun EduBridgeInteractionDialog(
                                 validationError = null
                             },
                             placeholder = request.message.ifBlank { "请输入" },
-                            config = state.config,
+                            config = config,
                             keyboardType = if (credentialType == EduPromptCredentialType.Password) KeyboardType.Password else KeyboardType.Text,
                             modifier = Modifier.fillMaxWidth().semantics {
                                 when (credentialType) {
@@ -1397,7 +1456,7 @@ internal fun EduBridgeInteractionDialog(
                         )
                     ),
                     backdrop = backdrop,
-                    config = state.config,
+                    config = config,
                     onDismissRequest = ::cancel
                 )
                 return
@@ -1421,7 +1480,7 @@ internal fun EduBridgeInteractionDialog(
                 completion = action
                 visible = false
             }
-            val pickerForeground = appPanelForegroundColor(state.config)
+            val pickerForeground = appPanelForegroundColor(config)
             val pickerColors = top.yukonga.miuix.kmp.basic.NumberPickerDefaults.colors(
                 selectedTextColor = pickerForeground,
                 unselectedTextColor = pickerForeground.copy(alpha = 0.34f),
@@ -1438,7 +1497,7 @@ internal fun EduBridgeInteractionDialog(
                     action?.invoke()
                 },
                 backdrop = backdrop,
-                config = state.config,
+                config = config,
                 contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
             ) {
                 Text(
@@ -1472,7 +1531,7 @@ internal fun EduBridgeInteractionDialog(
                         label = "取消",
                         enabled = true,
                         backdrop = backdrop,
-                        config = state.config,
+                        config = config,
                         modifier = Modifier.weight(1f),
                         height = SleepDownDesignTokens.CenteredDialog.ActionHeight
                     ) { closeThen(::cancel) }
@@ -1480,7 +1539,7 @@ internal fun EduBridgeInteractionDialog(
                         label = "完成",
                         enabled = selectedIndex in request.options.indices,
                         backdrop = backdrop,
-                        config = state.config,
+                        config = config,
                         modifier = Modifier.weight(1f),
                         primary = true,
                         height = SleepDownDesignTokens.CenteredDialog.ActionHeight

@@ -66,7 +66,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TransformOrigin
@@ -132,7 +134,7 @@ sealed interface CustomizeUiState {
     data object ExitingPicker : CustomizeUiState
 }
 
-enum class ScheduleShareType { TOKEN, ICS }
+enum class ScheduleShareType { SHORT_CODE, JSON, ICS }
 
 data class QuickScheduleDraft(
     val scheduleId: Int,
@@ -710,11 +712,33 @@ fun SchedulePickerOverlay(
     var deleteConfirmTarget by remember { mutableStateOf<ScheduleProfileEntity?>(null) }
     var showShareOptions by remember { mutableStateOf(false) }
     var targetCardBounds by remember { mutableStateOf<Rect?>(null) }
+    // 凝光 only: the centred card lights the button row below it, mirroring the ColorOS
+    // personalisation page. The visible light is the card's own snapshot bitmap.
+    val cardGlowEnabled = rememberScheduleManagerGlowEnabled()
+    var pickerOrigin by remember { mutableStateOf(Offset.Zero) }
+    var lightReceiverBounds by remember { mutableStateOf(Rect.Zero) }
+    // The light switches on after a card settles and drops out before the next one arrives, which
+    // is also what keeps it from lingering while the stack is swiped.
     val renameFocusRequester = remember { FocusRequester() }
     val softwareKeyboardController = LocalSoftwareKeyboardController.current
     val renameEditing = pickerState.renamingScheduleId != null
     val phaseInputEnabled = !pickerState.interactionsLocked
     val pagerInputEnabled = phaseInputEnabled && pickerState.deletingScheduleId == null && !renameEditing
+    val glowSettled = cardGlowEnabled &&
+        pagerInputEnabled &&
+        !pagerState.isScrollInProgress &&
+        pickerState.animatedTargetScheduleId == null &&
+        orderedProfiles.getOrNull(pagerState.settledPage)?.id == selectedId &&
+        pickerState.phase is CustomizeUiState.Picker
+    val glowAnimation = rememberCardLightAnimation(glowSettled, selectedId)
+    // Second half of the original button: ColorOS samples the colour band behind its capsule and
+    // stacks `all_theme_button_shape_background` (#4DFFFFFF → #1AFFFFFF, 270°) on the material.
+    // The wash remains when the card light fades, keeping the controls visible during paging.
+    val pickerButtonSheen: (() -> Brush?)? = if (cardGlowEnabled) remember {
+        val wash = Brush.verticalGradient(listOf(Color(0x4DFFFFFF), Color(0x1AFFFFFF)))
+        val sheen: () -> Brush? = { wash }
+        sheen
+    } else null
 
     fun cancelRename() {
         pickerState.renamingScheduleId = null
@@ -778,6 +802,7 @@ fun SchedulePickerOverlay(
     BoxWithConstraints(
         modifier
             .fillMaxSize()
+            .onGloballyPositioned { pickerOrigin = it.localToRoot(Offset.Zero) }
             .zIndex(100f)
     ) {
         val density = LocalDensity.current
@@ -830,6 +855,25 @@ fun SchedulePickerOverlay(
                     })
                 }
         )
+
+        // Use the whole viewport so the native light can reach the controls below the pager.
+        if (cardGlowEnabled) {
+            val glowSnapshot = if (pickerState.currentSnapshotScheduleId == selectedId) {
+                pickerState.currentSnapshot
+            } else {
+                pickerState.snapshots[selectedId]
+            }
+            ScheduleCardGlow(
+                bitmap = glowSnapshot,
+                cardBounds = {
+                    (targetCardBounds ?: Rect.Zero).translate(-pickerOrigin.x, -pickerOrigin.y)
+                },
+                strength = { glowAnimation.opacity.value * pickerState.chromeProgress.value },
+                revealProgress = { glowAnimation.reveal.value },
+                receiverBounds = { lightReceiverBounds.translate(-pickerOrigin.x, -pickerOrigin.y) },
+                modifier = Modifier.matchParentSize()
+            )
+        }
 
         Column(
             Modifier
@@ -893,7 +937,12 @@ fun SchedulePickerOverlay(
                 ) { if (renameEditing) commitRename() else onApply(selectedId) }
             }
 
-            BoxWithConstraints(Modifier.weight(1f).fillMaxSize(), contentAlignment = Alignment.Center) {
+            BoxWithConstraints(
+                Modifier
+                    .weight(1f)
+                    .fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
                 // The centered card stays in the right pane, while the pager's viewport spans
                 // the whole window so preceding cards can pass behind the floating sidebar.
                 val endPadding = if (landscape) (rightPanelWidth - cardWidth) / 2 + contentEndInset + 12.dp
@@ -1040,59 +1089,11 @@ fun SchedulePickerOverlay(
                     .fillMaxWidth().height(if (landscape) 108.dp else 138.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                val dotSize = 7.dp
-                val dotSpacing = 9.dp
-                val indicatorPadding = 10.dp
-                val indicatorWidth = indicatorPadding * 2 +
-                    dotSize * orderedProfiles.size +
-                    dotSpacing * (orderedProfiles.size - 1).coerceAtLeast(0)
-                val continuousPage = (
-                    pagerState.currentPage + pagerState.currentPageOffsetFraction
-                    ).coerceIn(0f, (orderedProfiles.size - 1).coerceAtLeast(0).toFloat())
-                Box(
-                    Modifier
-                        .height(38.dp)
-                        .offset(y = 7.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Box(
-                        Modifier
-                            .width(indicatorWidth)
-                            .height(25.dp)
-                            .clip(Capsule())
-                            .background(Color.White.copy(alpha = 0.13f))
-                    ) {
-                        Row(
-                            Modifier
-                                .align(Alignment.Center)
-                                .padding(horizontal = indicatorPadding),
-                            horizontalArrangement = Arrangement.spacedBy(dotSpacing),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            orderedProfiles.forEachIndexed { index, _ ->
-                                Box(
-                                    Modifier
-                                        .size(dotSize)
-                                        .clip(Capsule())
-                                        .background(Color.Gray.copy(alpha = 0.72f))
-                                        .clickable(enabled = pagerInputEnabled) {
-                                            scope.launch { pagerState.animateScrollToPage(index) }
-                                        }
-                                )
-                            }
-                        }
-                        val step = dotSize + dotSpacing
-                        Box(
-                            Modifier
-                                .align(Alignment.CenterStart)
-                                .offset(x = indicatorPadding - 1.dp + step * continuousPage)
-                                .size(9.dp)
-                                .clip(Capsule())
-                                .background(Color.White)
-                        )
-                    }
+                Box(Modifier.height(38.dp).offset(y = 7.dp), contentAlignment = Alignment.Center) {
+                    SleepDownPagerIndicator(pagerState, orderedProfiles.size, enabled = pagerInputEnabled)
                 }
-                BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 24.dp), contentAlignment = Alignment.Center) {
+                BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 24.dp)
+                    .onGloballyPositioned { lightReceiverBounds = it.boundsInRoot() }, contentAlignment = Alignment.Center) {
                     val compact = maxWidth < 360.dp
                     val customizeWidth = if (compact) 160.dp else 176.dp
                     val buttonSize = if (compact) 48.dp else 52.dp
@@ -1104,6 +1105,7 @@ fun SchedulePickerOverlay(
                         backdrop = managerBackdrop,
                         config = visualConfig,
                         tint = Color(0xFF34C759),
+                        sheen = pickerButtonSheen,
                         modifier = Modifier.align(Alignment.Center).offset(x = -sideOffset).size(buttonSize)
                     ) { showShareOptions = true }
                     PickerTextButton(
@@ -1111,6 +1113,7 @@ fun SchedulePickerOverlay(
                         pagerInputEnabled,
                         managerBackdrop,
                         visualConfig,
+                        sheen = pickerButtonSheen,
                         modifier = Modifier.width(customizeWidth)
                     ) {
                         onCustomize(selectedId)
@@ -1122,6 +1125,7 @@ fun SchedulePickerOverlay(
                         backdrop = managerBackdrop,
                         config = visualConfig,
                         tint = MaterialTheme.colorScheme.primary,
+                        sheen = pickerButtonSheen,
                         modifier = Modifier.align(Alignment.Center).offset(x = sideOffset).size(buttonSize)
                     ) { onCreate() }
                 }
@@ -1218,25 +1222,63 @@ fun SchedulePickerOverlay(
             onDismissRequest = { deleteConfirmTarget = null }
         )
     }
-    if (showShareOptions) {
-        LiquidAlertDialog(
-            title = "分享课表",
-            message = "选择分享 SleepDown 课表口令，或导出可被日历应用识别的 ICS 文件。",
-            actions = listOf(
-                LiquidAlertAction("分享课表口令", LiquidAlertActionStyle.Primary) {
-                    showShareOptions = false
-                    onShare(selectedId, ScheduleShareType.TOKEN)
-                },
-                LiquidAlertAction("分享 ICS 文件", LiquidAlertActionStyle.Secondary) {
-                    showShareOptions = false
-                    onShare(selectedId, ScheduleShareType.ICS)
-                },
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showShareOptions = false }
-            ),
-            backdrop = dialogBackdrop,
-            config = allState.allConfigs.firstOrNull { it.id == selectedId } ?: defaultConfig(selectedId),
-            onDismissRequest = { showShareOptions = false }
-        )
+    val shareConfig = allState.allConfigs.firstOrNull { it.id == selectedId } ?: defaultConfig(selectedId)
+    SleepDownPickerDialog(
+        show = showShareOptions,
+        title = "分享课表",
+        onDismissRequest = { showShareOptions = false },
+        backdrop = dialogBackdrop,
+        config = shareConfig,
+        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+        contentSpacing = 12.dp,
+        blurRadius = 10.dp
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            QuickSheetLiquidAction(
+                label = "分享短口令",
+                enabled = true,
+                backdrop = dialogBackdrop,
+                config = shareConfig,
+                modifier = Modifier.fillMaxWidth(),
+                primary = true,
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                showShareOptions = false
+                onShare(selectedId, ScheduleShareType.SHORT_CODE)
+            }
+            QuickSheetLiquidAction(
+                label = "分享 JSON 文件",
+                enabled = true,
+                backdrop = dialogBackdrop,
+                config = shareConfig,
+                modifier = Modifier.fillMaxWidth(),
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                showShareOptions = false
+                onShare(selectedId, ScheduleShareType.JSON)
+            }
+            QuickSheetLiquidAction(
+                label = "分享 ICS 文件",
+                enabled = true,
+                backdrop = dialogBackdrop,
+                config = shareConfig,
+                modifier = Modifier.fillMaxWidth(),
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                showShareOptions = false
+                onShare(selectedId, ScheduleShareType.ICS)
+            }
+            QuickSheetLiquidAction(
+                label = "取消",
+                enabled = true,
+                backdrop = dialogBackdrop,
+                config = shareConfig,
+                modifier = Modifier.fillMaxWidth(),
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                showShareOptions = false
+            }
+        }
     }
 }
 
@@ -1282,6 +1324,7 @@ private fun PickerIconLiquidButton(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     tint: Color,
+    sheen: (() -> Brush?)? = null,
     modifier: Modifier,
     onClick: () -> Unit
 ) {
@@ -1313,7 +1356,15 @@ private fun PickerIconLiquidButton(
 }
 
 @Composable
-private fun PickerTextButton(label: String, enabled: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun PickerTextButton(
+    label: String,
+    enabled: Boolean,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    sheen: (() -> Brush?)? = null,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     val latestEnabled by rememberUpdatedState(enabled)
     val latestOnClick by rememberUpdatedState(onClick)
     val buttonModifier = if (modifier == Modifier) Modifier.width(176.dp) else modifier
@@ -1327,6 +1378,8 @@ private fun PickerTextButton(label: String, enabled: Boolean, backdrop: Backdrop
             height = 52.dp,
             // This overlay deliberately uses white text in both application themes.
             nativeDarkOverride = true,
+            surfaceSheen = sheen,
+            nativeLightBackdrop = sheen != null,
             blurRadius = 10.dp,
             lensHeight = 26.dp,
             lensAmount = 34.dp,

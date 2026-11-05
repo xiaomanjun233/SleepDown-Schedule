@@ -32,6 +32,8 @@ object AgentSettingRegistry {
     private val periodTimeKey = Regex("PERIOD_(\\d+)_TIME")
     val definitions = listOf(
         AgentSettingDefinition("SCHEDULE_NAME", "当前课表名称", "1到30个字符", "SCHEDULE_MANAGER"),
+        AgentSettingDefinition("TIME_SLOT_COURSES", "特殊课程（早读、午休等固定时段；不参与普通课程统计）",
+            "JSON局部补丁：{upsert:[{id,name,startTime,endTime,afterPeriod,weekdays,periodIndices,customPeriodTimes,displayMode,location,note,startWeek,endWeek}],deleteIds:[id]}；已有id仅传需改字段；新增需id/name/startTime/endTime；displayMode=INDEPENDENT/SMART；先读当前值，保留未改项", "SCHEDULE"),
         AgentSettingDefinition("TOTAL_WEEKS", "学期总周数", "1..60整数", "SCHEDULE"),
         AgentSettingDefinition("TERM_START_DATE", "学期开始日期", "yyyy-MM-dd", "SCHEDULE"),
         AgentSettingDefinition("HIDE_EMPTY_WEEKENDS", "隐藏没有课程的周末", "true/false", "SCHEDULE"),
@@ -146,6 +148,7 @@ object AgentSettingRegistry {
         date: LocalDate = LocalDate.now()
     ): Map<String, String> = linkedMapOf(
         "SCHEDULE_NAME" to scheduleName.orEmpty(),
+        "TIME_SLOT_COURSES" to config.timeSlotCoursesJson.ifBlank { "[]" },
         "TOTAL_WEEKS" to config.totalWeeks.toString(),
         "CURRENT_WEEK" to effectiveCurrentWeek(config).toString(),
         "TERM_START_DATE" to config.termStartDate.orEmpty(),
@@ -217,6 +220,7 @@ object AgentSettingRegistry {
         if (definitions.none { it.key == key } && !periodTimeKey.matches(key)) return null
         val raw = rawValue?.trim()?.takeIf { it.isNotEmpty() } ?: return null
         val normalized = when (key) {
+            "TIME_SLOT_COURSES" -> normalizeSpecialCoursePatch(raw)
             "SCHEDULE_NAME" -> raw.take(30).takeIf { it.isNotBlank() }
             else -> if (periodTimeKey.matches(key)) normalizePeriodRange(raw) else when (key) {
             "TOTAL_WEEKS" -> raw.intIn(1, 60)
@@ -293,6 +297,8 @@ object AgentSettingRegistry {
     }
 
     fun apply(config: ScheduleConfigEntity, key: String?, value: String?): ScheduleConfigEntity? = when (key) {
+        "TIME_SLOT_COURSES" -> value?.let { applySpecialCoursePatch(config.timeSlotCoursesJson, it) }
+            ?.let { config.copy(timeSlotCoursesJson = it) }
         "TOTAL_WEEKS" -> value?.toIntOrNull()?.let { total -> config.copy(totalWeeks = total, currentWeek = config.currentWeek.coerceAtMost(total)) }
         // Current teaching week is derived; old pending plans cannot switch back to manual mode.
         "CURRENT_WEEK", "AUTO_CURRENT_WEEK" -> null

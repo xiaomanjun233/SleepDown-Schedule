@@ -20,21 +20,21 @@ internal object AutoRefreshWebSession {
         for (cookie in profile.cookies) {
             if (origin(cookie.url) == null) continue
             // A live browser session may be newer than the encrypted snapshot.
-            // Compare values, not names: a rotated or expired live cookie must not keep the
-            // retained session out of the jar. Equal values are the only case worth skipping.
+            // Never replace a newer login in the process-wide jar with an older snapshot.
             val current = manager.getCookie(cookie.url).orEmpty().split(';')
                 .map(String::trim).filter { it.contains('=') }
                 .associate { it.substringBefore('=').trim() to it.substringAfter('=', "").trim() }
             for (entry in cookie.value.split(';').map(String::trim).filter { it.contains('=') }) {
-                if (current[entry.substringBefore('=').trim()] == entry.substringAfter('=', "").trim()) continue
+                if (entry.substringBefore('=').trim() in current) continue
                 // CookieManager cannot report attributes; keep Secure for https sessions so the
                 // server still receives the restored cookie. Path stays "/" as a safe superset.
-                val secure = if (cookie.url.startsWith("https", true) && !entry.contains("secure", true)) "; Secure" else ""
-                suspendCancellableCoroutine<Unit> { continuation ->
-                    manager.setCookie(cookie.url, "$entry; Path=/$secure") {
-                        if (continuation.isActive) continuation.resume(Unit)
+                val secure = if (cookie.url.startsWith("https://", true)) "; Secure" else ""
+                val restored = suspendCancellableCoroutine<Boolean> { continuation ->
+                    manager.setCookie(cookie.url, "$entry; Path=/$secure") { accepted ->
+                        if (continuation.isActive) continuation.resume(accepted)
                     }
                 }
+                check(restored) { "教务登录凭证恢复失败，请重新登录" }
             }
         }
         manager.flush()
@@ -155,12 +155,11 @@ internal object AutoRefreshWebSession {
             if (sessionStorage.getItem(marker)) { bridge.postMessage('done'); return; }
             sessionStorage.setItem(marker, '1');
             var values = $valuesJson;
-            // A live token in either store wins over the whole retained credential snapshot.
-            // Restore every key independently: one stale live token must not block the rest.
+            // A rotated live credential wins, including when the portal moved it between stores.
             Object.keys(values).forEach(function(key) {
                 var name = key.slice(key.indexOf(':') + 1);
                 var storage = key.indexOf('local:') === 0 ? localStorage : sessionStorage;
-                if (storage.getItem(name) === values[key]) return;
+                if (localStorage.getItem(name) || sessionStorage.getItem(name)) return;
                 storage.setItem(name, values[key]);
             });
             var savedName = ${windowName?.let(JSONObject::quote) ?: "null"};

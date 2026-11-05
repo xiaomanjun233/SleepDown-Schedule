@@ -172,7 +172,7 @@ internal fun EduImportActivityScreen(
     EduBridgeInteractionDialog(
         request = bridgeInteraction,
         bridge = bridge,
-        state = state,
+        config = state.config,
         backdrop = backdrop,
         onFinished = { bridgeInteraction = null }
     )
@@ -593,8 +593,8 @@ private fun EduImportGuideMorphOverlay(
                     indication = null, enabled = visible && !expanded, onClick = onExpand
                 )
         ) {
-            TopAssistantSurface(backdrop, config, cardShape, solidShade = geometryProgress > 0.96f, modifier = Modifier.fillMaxSize(),
-                glow = expanded, nativeMaterial = true) {
+            TopAssistantSurface(backdrop, config, cardShape, solidShade = geometryProgress < 0.04f, modifier = Modifier.fillMaxSize(),
+                glow = expanded && geometryProgress >= 0.04f, nativeMaterial = true) {
             Box(Modifier.fillMaxSize().clip(cardShape)) {
                 Row(
                     modifier = Modifier
@@ -774,6 +774,7 @@ private fun EduImportBrowserScreen(
     val buttonBackdrop = webContentBackdrop
     val backgroundPermissionGate = rememberAiImportBackgroundPermissionGate()
     var addressText by remember(currentUrl) { mutableStateOf(currentUrl) }
+    var loginEntryUrl by remember(adapter) { mutableStateOf(adapter.importUrl.takeIf { eduOrigin(it) != null }.orEmpty()) }
     var canGoBack by remember { mutableStateOf(false) }
     var canGoForward by remember { mutableStateOf(false) }
     var desktopMode by remember(adapter) { mutableStateOf(initialDesktopMode) }
@@ -781,10 +782,7 @@ private fun EduImportBrowserScreen(
     var originalScriptLoading by remember { mutableStateOf(false) }
     var originalDocumentVersion by remember { mutableIntStateOf(0) }
     val originalScriptRunning by bridge.running.collectAsState()
-    var attemptedGenericDocumentKey by remember(adapter) { mutableStateOf<String?>(null) }
-    var aiProgress by remember { mutableStateOf<AiEduImportProgress?>(null) }
-    var isScreenCapturing by remember { mutableStateOf(false) }
-    var screenCaptureStatus by remember { mutableStateOf<String?>(null) }
+    var localAdapterChoices by remember(adapter) { mutableStateOf<List<EduAdapter>?>(null) }
     var popupWebView by remember(adapter) { mutableStateOf<WebView?>(null) }
     val webCompatDelegates = remember(adapter) { mutableMapOf<WebView, WebCompatDelegate>() }
     var webViewGeneration by remember(adapter) { mutableIntStateOf(0) }
@@ -824,7 +822,6 @@ private fun EduImportBrowserScreen(
         val completed = taskProgress?.takeIf {
             it.taskId.isNotBlank() && it.routeLabel == "AI教务导入" && it.finished
         } ?: return@LaunchedEffect
-        aiProgress = completed
         aiParsing = false
         onMessage(completed.error ?: completed.liveSummary.ifBlank { completed.steps.lastOrNull().orEmpty() })
     }
@@ -843,346 +840,79 @@ private fun EduImportBrowserScreen(
             return
         }
         onUrlChange(normalizedUrl)
+        loginEntryUrl = normalizedUrl
         (popupWebView ?: webView)?.loadUrl(normalizedUrl)
     }
 
-    fun appendAiStep(step: String) {
-        val next = (aiProgress ?: AiEduImportProgress()).let {
-            it.copy(steps = it.steps + step)
+    fun runLocalAdapter(selected: EduAdapter) {
+        if (originalScriptLoading || originalScriptRunning) return
+        val target = popupWebView ?: webView ?: return
+        val documentVersion = originalDocumentVersion
+        originalScriptLoading = true
+        onMessage("已找到本机适配「${selected.displayName}」，直接抓取，不消耗 AI 额度")
+        scope.launch {
+            try {
+                val script = ShiguangWarehouse.resolveScript(context, selected)
+                if (documentVersion != originalDocumentVersion || target !== (popupWebView ?: webView)) {
+                    onMessage("页面已变化，请加载完成后重新导入")
+                    return@launch
+                }
+                bridge.bindWebView(target)
+                bridge.beginTask(state.config, state.periods, allowImportedBellTimes = true)
+                target.injectShiguangRuntime(desktopMode)
+                target.evaluateJavascript(isolatedShiguangScript(script)) { started ->
+                    if (started != "\"started\"") {
+                        bridge.finishExecution()
+                        onMessage("本机适配未能启动，请刷新教务页面后重试")
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                bridge.finishExecution()
+                onMessage("本机适配加载失败，请更新适配资源或检查网络后重试")
+            } finally { originalScriptLoading = false }
         }
-        aiProgress = next
-        AiEduImportProgressSession.update(next)
     }
 
-    fun setAiProgress(progress: AiEduImportProgress?) {
-        aiProgress = progress
-        AiEduImportProgressSession.update(progress)
-    }
-
-    fun runAiEduImport(forceFallback: Boolean = false) {
+    fun runAiEduImport() {
         val target = popupWebView ?: webView
         if (target == null) {
             onMessage("网页还没有加载完成")
             return
         }
-        if (aiParsing) return
-        val routeLabel = "AI教务导入"
-        fun cancelAiImport(message: String = "已取消 AI 教务导入") {
-            AiEduImportProgressSession.clearActions()
-            setAiProgress(aiProgress?.copy(
-                steps = aiProgress?.steps.orEmpty() + "用户取消",
-                awaitingConfirmation = false,
-                finished = true
-            ))
-            onMessage(message)
-            aiParsing = false
+        if (aiParsing || originalScriptLoading || originalScriptRunning) return
+        // This check precedes settings, capture, routing and every model request. Reload the
+        // catalogue on each invocation so downloaded updates and newly saved scripts count.
+        val localMatches = matchingLocalEduAdapters(target.url.orEmpty(), ShiguangWarehouse.loadVisibleAdapters(context))
+        if (localMatches.isNotEmpty()) {
+            if (localMatches.size == 1) runLocalAdapter(localMatches.single())
+            else {
+                localAdapterChoices = localMatches
+                onMessage("本机已有可用适配，请选择后直接抓取，不消耗 AI 额度")
+            }
+            return
         }
-
-        fun sendCaptureToAi(capture: EduPageCaptureResult, settings: AiImportSettings, includePageText: Boolean = true) {
-            aiParsing = true
-            val pageUrl = target.url?.takeIf { it.isNotBlank() } ?: currentUrl
-            val aiPageText = buildString {
-                appendLine("当前教务页面来源：${redactAiUrl(pageUrl).ifBlank { "未知" }}")
-                appendLine("仅使用当前页面明确列出的课程和时间；不要根据学校名称推算作息。")
-                appendLine()
-                if (includePageText) {
-                    append(capture.text)
-                } else {
-                    appendLine("用户选择只发送截图，DOM 文本未发送；请以截图中的课表结构、表头、时间轴和课程块为准。")
-                }
-            }
-            AiEduImportProgressSession.clearActions()
-            setAiProgress(aiProgress?.copy(
-                awaitingConfirmation = false,
-                requestSent = false,
-                confirmActionLabel = "",
-                secondaryConfirmActionLabel = "",
-                screenModeActionLabel = "",
-                steps = aiProgress?.steps.orEmpty() + (if (includePageText) {
-                    "用户确认发送给 AI"
-                } else {
-                    "用户确认只发送截图给 AI"
-                })
-            ))
-            val initial = checkNotNull(aiProgress).copy(
-                requestPreview = aiEduRequestPreview(settings, aiPageText.length)
-            )
-            onMessage("AI 正在解析当前教务页面...")
-            AiImportTaskManager.startCapturedPageImport(
-                context = context,
-                text = aiPageText,
-                screenshots = capture.screenshots,
-                sourceName = routeLabel,
-                warnings = capture.warnings,
-                settings = settings,
-                scheduleConfig = state.config,
-                initialProgress = initial
-            )
-        }
-
-        fun prepareCapturePreview(capture: EduPageCaptureResult, settings: AiImportSettings, screenMode: Boolean) {
-            aiParsing = false
-            val supportsVision = AiProviderPresets.supportsImageInput(settings.profile)
-            val pageIssue = inspectEduPageCapture(capture.text)
-            val isLoginPage = pageIssue?.step?.contains("登录") == true
-            val pageText = (capture.diagnosticsText + "\n\n" + capture.text).take(60_000)
-            if (isLoginPage) {
-                AiEduImportProgressSession.clearActions()
-                setAiProgress(aiProgress?.copy(
-                    steps = aiProgress?.steps.orEmpty() + pageIssue.step,
-                    pageText = pageText,
-                    error = pageIssue.message,
-                    finished = true
-                ))
-                onMessage(pageIssue.message)
-                aiParsing = false
-                return
-            }
-            if (capture.screenshots.isNotEmpty() && !supportsVision) {
-                AiEduImportProgressSession.clearActions()
-                val message = "已生成截图兜底，但当前模型不支持视觉输入。请换视觉模型，或手动进入可复制文本课表页。"
-                setAiProgress(aiProgress?.copy(
-                    steps = aiProgress?.steps.orEmpty() + "当前模型不支持识屏",
-                    pageText = pageText,
-                    error = message,
-                    finished = true
-                ))
-                onMessage(message)
-                aiParsing = false
-                return
-            }
-            val warningStep = when {
-                pageIssue != null && supportsVision -> "页面文本不够像课表，请确认是否改用识屏模式"
-                pageIssue != null -> pageIssue.step
-                capture.screenshots.isNotEmpty() -> "已准备页面文本和识屏截图，等待确认发送"
-                else -> "已抓取页面文本，等待确认发送"
-            }
-            val confirmLabel = when {
-                capture.screenshots.isNotEmpty() -> "发送截图+文本"
-                else -> "确认发送文本"
-            }
-            val secondaryConfirmLabel = if (capture.screenshots.isNotEmpty()) "只发送截图" else ""
-            val screenLabel = if (!screenMode && supportsVision) "进入高清识屏" else ""
-            setAiProgress(aiProgress?.copy(
-                steps = aiProgress?.steps.orEmpty() + warningStep,
-                pageText = pageText,
-                hasReadablePageText = capture.text.isNotBlank(),
-                screenshotPreviews = capture.screenshots.take(6),
-                userPrompt = "帮我按规则导入当前页面的课表",
-                attachmentTitle = when {
-                    capture.screenshots.isNotEmpty() && capture.text.isNotBlank() -> "课表页面内容"
-                    capture.screenshots.isNotEmpty() -> "课表页面截图"
-                    else -> "课表页面文字"
-                },
-                requestSent = false,
-                requestPreview = aiEduRequestPreview(settings, capture.text.length),
-                awaitingConfirmation = true,
-                confirmActionLabel = confirmLabel,
-                secondaryConfirmActionLabel = secondaryConfirmLabel,
-                screenModeActionLabel = screenLabel,
-                cancelActionLabel = "返回重抓",
-                finished = false,
-                error = null,
-                confirmationTitle = "",
-                confirmationMessage = "",
-                returnToBrowser = false
-            ))
-            AiEduImportProgressSession.setActions(
-                onConfirm = { sendCaptureToAi(capture, settings, includePageText = true) },
-                onSecondaryConfirm = if (secondaryConfirmLabel.isNotBlank()) {
-                    { sendCaptureToAi(capture, settings, includePageText = false) }
-                } else null,
-                onScreenMode = if (screenLabel.isNotBlank()) {
-                    {
-                        setAiProgress(aiProgress?.copy(
-                            steps = aiProgress?.steps.orEmpty() + "用户选择识屏模式",
-                            awaitingConfirmation = false,
-                            secondaryConfirmActionLabel = "",
-                            screenModeActionLabel = ""
-                        ))
-                        scope.launch {
-                            delay(420)
-                            isScreenCapturing = true
-                            screenCaptureStatus = "正在识屏截取，请保持页面不动..."
-                            withFrameNanos { }
-                            withFrameNanos { }
-                            delay(120)
-                            val screenCapture = runCatching {
-                                try {
-                                    captureEduPage(
-                                        webView = target,
-                                        maxScreenshots = 6,
-                                        forceScreenshots = true,
-                                        onScreenshotProgress = { index, total ->
-                                            screenCaptureStatus = "正在截取第 $index/$total 段"
-                                        }
-                                    )
-                                } finally {
-                                    isScreenCapturing = false
-                                    screenCaptureStatus = null
-                                }
-                            }.getOrElse {
-                                context.openRegisteredActivity(
-                                    TransitionRouteId.ImportToAiProgress,
-                                    Intent(context, AiEduImportProgressActivity::class.java)
-                                )
-                                AiEduImportProgressSession.clearActions()
-                                setAiProgress(aiProgress?.copy(
-                                    steps = aiProgress?.steps.orEmpty() + "识屏截图失败",
-                                    error = it.message ?: "识屏截图失败",
-                                    finished = true
-                                ))
-                                onMessage(it.message ?: "识屏截图失败")
-                                aiParsing = false
-                                return@launch
-                            }
-                            context.openRegisteredActivity(
-                                TransitionRouteId.ImportToAiProgress,
-                                Intent(context, AiEduImportProgressActivity::class.java)
-                            )
-                            prepareCapturePreview(screenCapture, settings, screenMode = true)
-                        }
-                    }
-                } else null,
-                onCancel = { cancelAiImport() }
-            )
-            onMessage(
-                if (capture.screenshots.isNotEmpty()) "已进入识屏预览，确认后才会发送给 AI。"
-                else "已抓取页面文本，请确认后再发送给 AI。"
-            )
-        }
-
-        suspend fun prepareTextFallback(message: String) {
-            aiParsing = true
-            setAiProgress(AiEduImportProgress(routeLabel = routeLabel,
-                steps = aiProgress?.steps.orEmpty() + message))
-            val capture = runCatching { captureEduPage(target, allowScreenshotFallback = false) }.getOrElse {
-                if (it is CancellationException) throw it
-                setAiProgress(aiProgress?.copy(
-                    steps = aiProgress?.steps.orEmpty() + "页面抓取失败",
-                    error = it.message ?: "页面抓取失败",
-                    finished = true
-                ))
-                onMessage(it.message ?: "页面抓取失败")
-                aiParsing = false
-                return
-            }
-            val captureStep = when (capture.mode) {
-                EduPageCaptureMode.TEXT_ONLY -> "已完成 DOM 深度抓取（${capture.text.length} 字符）"
-                EduPageCaptureMode.TEXT_PLUS_SCREENSHOT -> "已完成 DOM 抓取并生成截图兜底（${capture.screenshots.size} 张）"
-                EduPageCaptureMode.SCREENSHOT_ONLY -> "DOM 文本不足，已生成截图兜底（${capture.screenshots.size} 张）"
-            }
-            setAiProgress(aiProgress?.copy(
-                steps = aiProgress?.steps.orEmpty() + captureStep,
-                pageText = (capture.diagnosticsText + "\n\n" + capture.text).take(60_000)
-            ))
-            if (capture.warnings.isNotEmpty()) {
-                appendAiStep("页面诊断：${capture.warnings.joinToString("；").take(120)}")
-            }
-            val settings = AiImportSettingsStore.load(context)
-            appendAiStep(
-                if (capture.screenshots.isEmpty()) "已准备页面文本预览，等待用户确认"
-                else "已生成页面截图兜底，等待用户确认"
-            )
-            prepareCapturePreview(capture, settings, screenMode = capture.screenshots.isNotEmpty())
-        }
-
-        fun prepareAdapterPreview(candidate: AiEduCandidate, available: List<EduAdapter>) {
-            aiParsing = false
-            val selected = candidate.tool.findAdapter(available) ?: return
-            setAiProgress(AiEduImportProgress(
-                routeLabel = routeLabel,
-                steps = aiProgress?.steps.orEmpty() + "已匹配${candidate.tool.label}通用教务工具",
-                attachmentTitle = "教务系统识别",
-                confirmationTitle = "使用${candidate.tool.label}通用导入",
-                confirmationMessage = "当前页面符合现有通用工具的结构。工具会直接读取课程，并进入导入预览；无需将课程全文交给模型。也可以改用文本解析。",
-                awaitingConfirmation = true,
-                confirmActionLabel = "使用通用工具",
-                secondaryConfirmActionLabel = "改用文本解析"
-            ))
-            AiEduImportProgressSession.setActions(
-                onConfirm = {
-                    aiParsing = true
-                    setAiProgress(aiProgress?.copy(awaitingConfirmation = false))
-                    scope.launch {
-                        attemptedGenericDocumentKey = candidate.documentKey
-                        val started = try {
-                            executeAiEduAdapter(context, target, bridge, candidate, selected,
-                                state.config, state.periods, desktopMode)
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (_: Exception) { false }
-                        if (started) {
-                            setAiProgress(aiProgress?.copy(finished = true, returnToBrowser = true))
-                            aiParsing = false
-                            onMessage("已使用${candidate.tool.label}通用工具；若未成功，可再次点击 AI 导入使用文本解析。")
-                        } else {
-                            prepareTextFallback("页面已变化或通用工具无法执行，建议核对当前页面文本")
-                        }
-                    }
-                },
-                onSecondaryConfirm = { scope.launch { prepareTextFallback("已选择文本解析") } },
-                onCancel = { cancelAiImport() }
-            )
-        }
-
+        val settings = AiImportSettingsStore.loadForRuntime(context) ?: AiImportSettingsStore.load(context)
+        val documentVersion = originalDocumentVersion
+        val entry = eduWorkspaceEntryText(target.url.orEmpty(), target.title.orEmpty())
+        aiParsing = true
         AiEduImportProgressSession.clearActions()
         AiEduImportProgressSession.setPreviewDraft(null)
-        setAiProgress(AiEduImportProgress(routeLabel = routeLabel, steps = listOf("准备识别当前教务页面")))
-        context.openRegisteredActivity(
-            TransitionRouteId.ImportToAiProgress,
-            Intent(context, AiEduImportProgressActivity::class.java)
-        )
-        aiParsing = true
-        scope.launch {
-            val fingerprint = if (forceFallback) null else try {
-                captureAiEduFingerprint(target)
-            } catch (cancelled: kotlinx.coroutines.TimeoutCancellationException) {
-                null
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: Exception) { null }
-            val available = withContext(Dispatchers.IO) { ShiguangWarehouse.loadVisibleAdapters(context) }
-            val usable = fingerprint?.copy(candidates = fingerprint.candidates.filter {
-                it.documentKey != attemptedGenericDocumentKey && it.tool.findAdapter(available) != null
-            })
-            if (usable == null || usable.candidates.isEmpty()) {
-                prepareTextFallback("未匹配可用的通用工具，建议解析页面文本")
-                return@launch
-            }
-            usable.localMatch?.let {
-                prepareAdapterPreview(it, available)
-                return@launch
-            }
-            val settings = AiImportSettingsStore.load(context)
-            setAiProgress(aiProgress?.copy(
-                pageText = usable.modelInput(),
-                attachmentTitle = "教务页面特征",
-                confirmationTitle = "识别适合的导入方式",
-                confirmationMessage = "发现可能适用的通用教务工具。可以只发送少量页面结构特征进行判断，不发送课程全文或截图；也可以直接使用文本解析。",
-                awaitingConfirmation = true,
-                confirmActionLabel = "识别教务系统",
-                secondaryConfirmActionLabel = "直接解析文本"
-            ))
-            AiEduImportProgressSession.setActions(
-                onConfirm = {
-                    aiParsing = true
-                    val taskId = AiImportTaskManager.startEduRouting(context, usable, settings,
-                        checkNotNull(aiProgress).copy(routeLabel = "教务系统识别"))
-                    scope.launch routingResult@{
-                        val result = AiEduImportProgressSession.progress.first {
-                            it?.taskId != taskId || it.finished
-                        }?.takeIf { it.taskId == taskId } ?: return@routingResult
-                        aiProgress = result
-                        val candidate = parseAiEduRoutingDecision(result.aiOutput, usable)
-                        if (candidate != null) prepareAdapterPreview(candidate, available)
-                        else prepareTextFallback("通用教务判断不充分，建议解析页面文本")
-                    }
-                },
-                onSecondaryConfirm = { scope.launch { prepareTextFallback("已选择文本解析") } },
-                onCancel = { cancelAiImport() }
-            )
+        val workspace = AiEduWorkspace(context, target, bridge, state.config, state.periods, desktopMode,
+            entryUrl = loginEntryUrl.takeIf { it.isNotBlank() }) {
+            documentVersion == originalDocumentVersion && target === (popupWebView ?: webView)
         }
+        val taskId = AiImportTaskManager.startCapturedPageImport(
+            context = context, text = entry, screenshots = emptyList(), sourceName = "AI教务导入",
+            warnings = emptyList(), settings = settings, scheduleConfig = state.config,
+            initialProgress = AiEduImportProgress(routeLabel = "AI教务导入",
+                steps = listOf("已连接当前教务网页"), pageText = entry, attachmentTitle = "教务网页",
+                userPrompt = "检查当前教务，优先从真实接口获取完整学期课表"),
+            eduWorkspace = workspace
+        )
+        onMessage("AI 正在检查当前网页与取课接口…")
+        context.openRegisteredActivity(TransitionRouteId.ImportToAiProgress,
+            Intent(context, AiEduImportProgressActivity::class.java).putExtra(AiImportTaskManager.EXTRA_TASK_ID, taskId))
     }
 
     fun runOriginalImportScript() {
@@ -1238,6 +968,7 @@ private fun EduImportBrowserScreen(
     }
 
     fun releaseWebCompat(target: WebView, rendererGone: Boolean = false) {
+        AiEduBrowserSessions.release(target)
         webCompatDelegates.remove(target)?.dispose(rendererGone)
     }
 
@@ -1558,6 +1289,7 @@ private fun EduImportBrowserScreen(
             webCompatDelegates.values.forEach { it.dispose() }
             webCompatDelegates.clear()
             popupWebView?.let { popup ->
+                AiEduBrowserSessions.release(popup)
                 popup.uninstallShiguangRuntime()
                 (popup.parent as? ViewGroup)?.removeView(popup)
                 popup.releaseSleepDownWebView(clearResourceCache = false)
@@ -1566,7 +1298,7 @@ private fun EduImportBrowserScreen(
         }
     }
 
-    val guideStatusText = if (primaryAction != null) message else eduImportIslandStatus(screenCaptureStatus ?: message)
+    val guideStatusText = if (primaryAction != null) message else eduImportIslandStatus(message)
     LaunchedEffect(importGuideVisible, guideStatusText) {
         if (importGuideVisible && !guideStatusText.isNullOrBlank()) {
             importGuideExpanded = true
@@ -1649,11 +1381,12 @@ private fun EduImportBrowserScreen(
                         .graphicsLayer {
                             compositingStrategy = CompositingStrategy.Offscreen
                         },
-                    factory = { createEduWebView(it) },
+                    factory = { EduBrowserWebViewHost(it, createEduWebView(it)) },
                     // Navigation remains event-driven; observed page URLs never feed back into
                     // loadUrl from recomposition.
                     update = {},
-                    onRelease = { released ->
+                    onRelease = { host ->
+                        val released = host.browser
                         releaseWebCompat(released)
                         if (released === webView) {
                             onWebView(null)
@@ -1673,9 +1406,10 @@ private fun EduImportBrowserScreen(
                             .graphicsLayer {
                                 compositingStrategy = CompositingStrategy.Offscreen
                             },
-                        factory = { popup },
+                        factory = { EduBrowserWebViewHost(it, popup) },
                         update = {},
-                        onRelease = { released ->
+                        onRelease = { host ->
+                            val released = host.browser
                             releaseWebCompat(released)
                             if (released === popupWebView) {
                                 popupWebView = null
@@ -1704,7 +1438,6 @@ private fun EduImportBrowserScreen(
             }
         }
 
-        if (!isScreenCapturing) {
             EduBrowserDock(
                 config = state.config,
                 backdrop = buttonBackdrop,
@@ -1753,7 +1486,7 @@ private fun EduImportBrowserScreen(
                 onOriginalImport = { runOriginalImportScript() },
                 onAiImport = {
                     backgroundPermissionGate.continueWithPermissionTip {
-                        runAiEduImport(forceFallback = !adapter.isAiEduImportTool())
+                        runAiEduImport()
                     }
                 },
                 desktopMode = desktopMode,
@@ -1770,6 +1503,7 @@ private fun EduImportBrowserScreen(
                 onHistoryExpandedChange = { dockHistoryExpanded = it },
                 onHistorySelected = { entry ->
                     EduLoginHistoryStore.restoreCookies(entry)
+                    loginEntryUrl = entry.url
                     addressText = entry.url
                     onUrlChange(entry.url)
                     dockHistoryExpanded = false
@@ -1781,7 +1515,6 @@ private fun EduImportBrowserScreen(
                     .navigationBarsPadding()
                     .padding(top = 12.dp, bottom = 18.dp)
             )
-        }
         if (!importGuideMountedAtRoot) {
             EduImportGuideMorphOverlay(
                 adapter = adapter,
@@ -1802,5 +1535,24 @@ private fun EduImportBrowserScreen(
         backdrop = buttonBackdrop,
         config = state.config
     )
+    localAdapterChoices?.let { choices ->
+        LiquidAlertDialog(
+            title = "使用本机适配",
+            message = "发现 ${choices.size} 个适配，无需发送给 AI。请选择当前使用的教务入口。",
+            actions = listOf(LiquidAlertAction(label = "取消", style = LiquidAlertActionStyle.Cancel,
+                onClick = { localAdapterChoices = null })),
+            backdrop = buttonBackdrop, config = state.config,
+            onDismissRequest = { localAdapterChoices = null },
+            messageContent = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    choices.forEach { selected ->
+                        LiquidDialogChoiceCard(title = selected.displayName, selected = false,
+                            config = state.config, description = if (selected.isSelfUseAdapter()) "本地 · 我的适配" else "拾光适配资源",
+                            onClick = { localAdapterChoices = null; runLocalAdapter(selected) })
+                    }
+                }
+            }, scrollableMessageContent = true, isSelector = true
+        )
+    }
 }
 

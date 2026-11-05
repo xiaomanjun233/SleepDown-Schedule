@@ -24,6 +24,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.settingsPreferencePadding
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -51,7 +52,7 @@ import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogLiquidButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
@@ -445,7 +446,7 @@ fun AiImportSettingsSection(
     Box(Modifier.fillMaxSize()) {
     SleepDownSecondaryPageList(
         contentTopPadding = topPadding,
-        contentBottomPadding = DockScrollPadding,
+        contentBottomPadding = detailContentBottomPadding(),
         modifier = Modifier.fillMaxSize().glassBackdropProducer(contentBackdrop)
     ) {
         item(key = "ai-provider") {
@@ -535,7 +536,7 @@ fun AiImportSettingsSection(
                 backdrop = backdrop,
                 config = state.config,
                 modifier = Modifier.fillMaxWidth(),
-                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                insideMargin = settingsPreferencePadding(),
                 maxHeight = 300.dp,
                 onExpandedChange = {},
                 onSelectedIndexChange = { index ->
@@ -595,7 +596,7 @@ fun AiImportSettingsSection(
                 backdrop = backdrop,
                 config = state.config,
                 modifier = Modifier.fillMaxWidth(),
-                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                insideMargin = settingsPreferencePadding(),
                 maxHeight = 318.dp,
                 onExpandedChange = { if (it) refreshOfficialModels() },
                 onSelectedIndexChange = onModelOptionSelected
@@ -648,7 +649,7 @@ fun AiImportSettingsSection(
                 backdrop = backdrop,
                 config = state.config,
                 modifier = Modifier.fillMaxWidth(),
-                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                insideMargin = settingsPreferencePadding(),
                 maxHeight = 300.dp,
                 onExpandedChange = {},
                 onSelectedIndexChange = { index ->
@@ -682,7 +683,7 @@ fun AiImportSettingsSection(
             backdrop = backdrop,
             config = state.config,
             modifier = Modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            insideMargin = settingsPreferencePadding(),
             maxHeight = 260.dp,
             onExpandedChange = {},
             onSelectedIndexChange = { index ->
@@ -705,7 +706,7 @@ fun AiImportSettingsSection(
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("连接测试", modifier = Modifier.weight(1f),
-                    style = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.headline1,
+                    style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Medium)
                 var testing by remember { mutableStateOf(false) }
                 DialogLiquidButton(
@@ -889,7 +890,7 @@ private fun AiProviderPickerRow(
         backdrop = backdrop,
         config = config,
         modifier = Modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        insideMargin = settingsPreferencePadding(),
         maxHeight = 318.dp,
         expanded = expanded,
         onExpandedChange = onExpandedChange,

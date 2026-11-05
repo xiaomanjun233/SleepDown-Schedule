@@ -6,6 +6,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsEnabled
+import androidx.compose.material3.MaterialTheme
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidToggle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeSwitchRenderer
@@ -32,6 +35,7 @@ fun LiquidControlToggle(
             backdrop = backdrop,
             compact = compact,
             enabled = enabled,
+            lightStyle = (MaterialTheme.colorScheme.background.luminance() >= .5f).takeIf { LocalCouiSettingsEnabled.current },
             modifier = modifier.graphicsLayer { this.alpha = alpha }
         )
     } else {

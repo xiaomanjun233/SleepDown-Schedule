@@ -164,6 +164,7 @@ fun NormalizedAiManualImportScreen(
     onCancel: () -> Unit,
     captureHistoryBackground: suspend () -> AiImportHistoryBackgroundCapture? = { null },
     initialFileUri: Uri? = null,
+    initialFileUris: List<Uri> = emptyList(),
     onInitialFileConsumed: () -> Unit = {},
     initialText: String? = null,
     onInitialTextConsumed: () -> Unit = {},
@@ -377,8 +378,29 @@ fun NormalizedAiManualImportScreen(
                         // Complex external calendars use the existing file confirmation flow;
                         // no model request is sent until the user confirms there.
                     }
+                    if (file.isJson) {
+                        val localJson = withContext(Dispatchers.Default) {
+                            runCatching {
+                                val text = file.bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF")
+                                if (!CanonicalScheduleJson.isCanonical(text)) null
+                                else ScheduleImportParser.parseStoredDraft(text, state.config).getOrThrow()
+                            }
+                        }
+                        val localDraft = localJson.getOrNull()
+                        if (localDraft != null) {
+                            aiParsing = false
+                            onParsed(localDraft)
+                            return@fileLoaded
+                        }
+                        if (localJson.isFailure) {
+                            error = localJson.exceptionOrNull()?.message ?: "SleepDown JSON 解析失败"
+                            aiParsing = false
+                            return@fileLoaded
+                        }
+                        // Other JSON files still use the AI text-extraction path below.
+                    }
                     val localTextPreviewResult = withContext(Dispatchers.Default) {
-                        runCatching { extractAiImportTextPreview(file) }
+                        runCatching { extractAiImportTextPreview(file, context) }
                     }
                     if ((file.isLocalTextDocument || file.isIcs) && localTextPreviewResult.isFailure) {
                         error = localTextPreviewResult.exceptionOrNull()?.message ?: "文件文字提取失败"
@@ -418,7 +440,7 @@ fun NormalizedAiManualImportScreen(
                     }
                     routeMessage = when {
                         localTextPreview != null -> "已在本机提取文字；确认后只发送文字，不上传原文件。"
-                        file.isPdf -> "PDF 未提取到足够文字；确认后将发送逐页转换的图片。"
+                        file.isPdf -> "PDF 会在本机按页处理，AI 可读取页面并裁切放大细节；确认后才会发送所需内容。"
                         file.isImage -> "图片已在本机压缩暂存；确认后才会发送给视觉模型。"
                         else -> "文件已在本机暂存；确认后才会发送给 AI。"
                     }
@@ -477,24 +499,88 @@ fun NormalizedAiManualImportScreen(
                 }
         }
     }
-    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let(::prepareImportFile)
+    fun prepareImportFiles(uris: List<Uri>) {
+        val selected = uris.distinct()
+        if (selected.isEmpty()) return
+        if (selected.size == 1) { prepareImportFile(selected.single()); return }
+        val settings = AiImportSettingsStore.load(context)
+        aiSettings = settings
+        error = null
+        routeMessage = null
+        aiParsing = true
+        scope.launch {
+            runCatching {
+                val files = loadAiImportFiles(context, selected)
+                val prepared = prepareAiImportBatch(context, files)
+                require(prepared.images.isEmpty() || AiProviderPresets.supportsImageInput(settings.profile)) {
+                    "这组文件包含图片，请先选择支持图片输入的模型"
+                }
+                selectedFileName = "${files.size} 个文件"
+                val initial = AiEduImportProgress(routeLabel = "文件导入", steps = listOf("已读取 ${files.size} 个文件，等待确认"),
+                    userPrompt = "综合这些文件，核对并导入完整课表", attachmentTitle = files.joinToString("、") { it.displayName },
+                    pageText = prepared.text, screenshotPreviews = prepared.images, awaitingConfirmation = true,
+                    confirmActionLabel = "确认发送并解析", cancelActionLabel = "取消")
+                AiEduImportProgressSession.clearActions()
+                AiEduImportProgressSession.update(initial)
+                AiEduImportProgressSession.setActions(onConfirm = {
+                    AiImportTaskManager.startFilesImport(context, files, settings, state.config,
+                        checkNotNull(AiEduImportProgressSession.progress.value).copy(steps = listOf("已确认发送 ${files.size} 个文件")))
+                }, onCancel = { aiParsing = false; routeMessage = "已取消，文件没有发送给 AI。" })
+                context.openRegisteredActivity(TransitionRouteId.ImportToAiProgress, Intent(context, AiEduImportProgressActivity::class.java))
+            }.onFailure { error = it.message ?: "文件读取失败"; aiParsing = false }
+        }
+    }
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        prepareImportFiles(uris)
     }
     val icsFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(::prepareImportFile)
     }
-    LaunchedEffect(initialFileUri) {
-        initialFileUri?.let { uri ->
+    LaunchedEffect(initialFileUri, initialFileUris) {
+        (listOfNotNull(initialFileUri) + initialFileUris).distinct().takeIf { it.isNotEmpty() }?.let { uris ->
             onInitialFileConsumed()
-            prepareImportFile(uri)
+            prepareImportFiles(uris)
         }
     }
     fun parseDraft() {
+        if (aiParsing) return
         val result = ScheduleImportParser.parse(jsonText, state.config, state.periods)
         result.onSuccess {
             error = null
             onParsed(it)
-        }.onFailure {
+        }.onFailure { localError ->
+            val shortCode = CloudShortCode.extractCode(jsonText)
+            if (shortCode != null) {
+                if (aiParsing) return@onFailure
+                error = null
+                routeMessage = "正在从云端获取短口令课表…"
+                aiParsing = true
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) { CloudShortCode.resolve(shortCode) }
+                    }.onSuccess { payload ->
+                        runCatching {
+                            withContext(Dispatchers.Default) {
+                                ScheduleImportParser.parse(payload, state.config, state.periods).getOrThrow()
+                            }
+                        }.onSuccess { draft ->
+                            aiParsing = false
+                            routeMessage = null
+                            error = null
+                            onParsed(draft)
+                        }.onFailure { parseError ->
+                            aiParsing = false
+                            routeMessage = null
+                            error = parseError.message ?: "短口令课表解析失败"
+                        }
+                    }.onFailure { networkError ->
+                        aiParsing = false
+                        routeMessage = null
+                        error = networkError.message ?: "短口令获取失败"
+                    }
+                }
+                return@onFailure
+            }
             val starLinkCode = extractStarLinkShareCode(jsonText)
             if (starLinkCode != null) {
                 error = null
@@ -523,7 +609,7 @@ fun NormalizedAiManualImportScreen(
                 error = null
                 showAiTokenRepairPrompt = true
             } else {
-                error = it.message ?: "口令解析失败"
+                error = localError.message ?: "口令解析失败"
             }
         }
     }
@@ -899,7 +985,7 @@ private fun AiManualImportDialogContent(
                     DialogCapsuleField(
                         value = jsonText,
                         onValueChange = onJsonTextChange,
-                        placeholder = "粘贴 SleepDown / WakeUp / 星链口令或 AI 返回内容",
+                        placeholder = "粘贴 SleepDown 课表口令/短口令、WakeUp/星链口令或 AI 返回内容",
                         config = state.config,
                         minLines = 5,
                         cornerRadius = 16.dp,
@@ -924,7 +1010,7 @@ private fun AiManualImportDialogContent(
                                 if (mode == 1) {
                                     "选择标准 .ics 日历文件后，应用会在本机识别课程时间、重复规则和时区，并直接进入导入预览。"
                                 } else {
-                                    "支持 PDF、图片、XLSX、CSV、DOCX、PPTX、ODS、TXT、Markdown、JSON、XML 和 HTML。"
+                                    "支持 PDF、图片、XLSX、CSV、DOCX、PPTX、ODS、TXT、Markdown、JSON、XML 和 HTML。SleepDown 课表 JSON 会直接在本机导入。"
                                 },
                                 color = textColor.copy(alpha = 0.86f),
                                 style = MaterialTheme.typography.bodyMedium,

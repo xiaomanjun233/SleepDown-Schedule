@@ -8,6 +8,7 @@ import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import androidx.work.BackoffPolicy
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.TodayCoursesWidgetProvider
@@ -26,8 +27,16 @@ import java.util.concurrent.TimeUnit
 internal data class AutoRefreshOutcome(
     val success: Boolean,
     val message: String,
-    val profile: AutoRefreshScheduleProfile? = null
+    val profile: AutoRefreshScheduleProfile? = null,
+    val retryable: Boolean = false
 )
+
+/** Only transient transport failures get bounded retries; expired login needs user action. */
+internal fun autoRefreshWorkResult(outcome: AutoRefreshOutcome, attempt: Int): androidx.work.ListenableWorker.Result = when {
+    outcome.success -> androidx.work.ListenableWorker.Result.success()
+    outcome.retryable && attempt < 2 -> androidx.work.ListenableWorker.Result.retry()
+    else -> androidx.work.ListenableWorker.Result.failure()
+}
 
 internal object AutoRefreshScheduleCoordinator {
     private val refreshMutex = Mutex()
@@ -92,7 +101,8 @@ internal object AutoRefreshScheduleCoordinator {
             AutoRefreshOutcome(true, connected.lastResult, connected)
         }.getOrElse { error ->
             if (error is CancellationException && error !is TimeoutCancellationException) throw error
-            recordFailure(context, provisional, error.message ?: "登录态校验失败，请确认已进入教务系统")
+            recordFailure(context, provisional, error.message ?: "登录态校验失败，请确认已进入教务系统",
+                retryable = error is TimeoutCancellationException || error is java.io.IOException)
         }
     }
 
@@ -174,7 +184,8 @@ internal object AutoRefreshScheduleCoordinator {
                 context,
                 profile,
                 error.message?.takeIf(String::isNotBlank)
-                    ?: "刷新失败，请检查网络、账号或教务系统状态"
+                    ?: "刷新失败，请检查网络、账号或教务系统状态",
+                retryable = error is TimeoutCancellationException || error is java.io.IOException
             )
         }
     }
@@ -239,7 +250,8 @@ internal object AutoRefreshScheduleCoordinator {
     private fun recordFailure(
         context: Context,
         profile: AutoRefreshScheduleProfile,
-        message: String
+        message: String,
+        retryable: Boolean = false
     ): AutoRefreshOutcome {
         val friendly = when {
             message.contains("timed out", ignoreCase = true) ->
@@ -253,7 +265,7 @@ internal object AutoRefreshScheduleCoordinator {
                 } else current
             }
         }
-        return AutoRefreshOutcome(false, friendly, AutoRefreshScheduleStore.load(context))
+        return AutoRefreshOutcome(false, friendly, AutoRefreshScheduleStore.load(context), retryable)
     }
 }
 
@@ -292,8 +304,7 @@ class AutoRefreshScheduleWorker(
     override suspend fun doWork(): Result {
         val profile = AutoRefreshScheduleStore.load(applicationContext)
         if (profile?.automaticRefreshEnabled != true) return Result.success()
-        AutoRefreshScheduleCoordinator.refreshSaved(applicationContext)
-        return Result.success()
+        return autoRefreshWorkResult(AutoRefreshScheduleCoordinator.refreshSaved(applicationContext), runAttemptCount)
     }
 
     companion object {
@@ -319,6 +330,7 @@ class AutoRefreshScheduleWorker(
             }
             val minutes = AutoRefreshFrequency.normalize(profile.frequencyMinutes)
             val request = PeriodicWorkRequestBuilder<AutoRefreshScheduleWorker>(minutes, TimeUnit.MINUTES)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.MINUTES)
                 .setConstraints(
                     Constraints.Builder()
                         .setRequiredNetworkType(NetworkType.CONNECTED)

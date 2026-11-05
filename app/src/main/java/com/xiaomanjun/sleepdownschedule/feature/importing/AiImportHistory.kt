@@ -78,6 +78,10 @@ object AiImportHistoryStore {
         return loaded.entries
     }
 
+    /** Only the opened conversation hydrates images; history lists never decode every attachment. */
+    @Synchronized fun loadEntry(context: Context, id: String): AiImportHistoryEntry? =
+        load(context).firstOrNull { it.id == id }?.let { it.copy(context = readContext(context, id, includeImages = true)) }
+
     /** Read-only history path for backup; unlike load(), it never prunes or rewrites preferences. */
     @Synchronized fun loadForBackup(context: Context): List<AiImportHistoryEntry> = loadInternal(context).entries
 
@@ -102,6 +106,15 @@ object AiImportHistoryStore {
                     "AI history context asset 路径不在目标目录: ${entry.id}"
                 }
                 require(file.isFile) { "AI history context asset 不存在: ${entry.id}" }
+                val root = JSONObject(file.readText(Charsets.UTF_8))
+                val images = root.optJSONArray("screenshotPreviews") ?: JSONArray()
+                for (index in 0 until images.length()) {
+                    val image = images.optJSONObject(index) ?: continue
+                    val imageAssetId = image.optString("assetId").takeIf { it.matches(Regex("asset_[A-Za-z0-9_-]+")) } ?: continue
+                    val source = contextFilesByAssetId[imageAssetId] ?: continue
+                    val expectedImage = File(expected.parentFile, "${entry.id}-image-$imageAssetId.img")
+                    require(source.canonicalFile == expectedImage.canonicalFile && source.isFile) { "导入历史图片路径无效" }
+                }
             }
         }
         val array = JSONArray().apply {
@@ -130,7 +143,8 @@ object AiImportHistoryStore {
 
     @Synchronized fun cleanupUnreferencedContextFiles(context: Context, retainedIds: Set<String>) {
         contextDirectory(context).listFiles()?.forEach { file ->
-            if (file.extension == "json" && file.nameWithoutExtension !in retainedIds) file.delete()
+            val owner = if (file.extension == "json") file.nameWithoutExtension else AiImportHistoryImages.owner(file.name)
+            if (owner != null && owner !in retainedIds) file.delete()
         }
     }
 
@@ -226,12 +240,10 @@ object AiImportHistoryStore {
                 )
             }
         }
-        context.getSharedPreferences(PrefsName, Context.MODE_PRIVATE).edit().putString(KeyEntries, array.toString()).apply()
         entries.forEach { entry -> entry.context?.let { writeContext(context, entry.id, it) } }
+        context.getSharedPreferences(PrefsName, Context.MODE_PRIVATE).edit().putString(KeyEntries, array.toString()).apply()
         val retainedIds = entries.mapTo(mutableSetOf()) { it.id }
-        contextDirectory(context).listFiles()?.forEach { file ->
-            if (file.extension == "json" && file.nameWithoutExtension !in retainedIds) file.delete()
-        }
+        cleanupUnreferencedContextFiles(context, retainedIds)
     }
 
     private fun contextDirectory(context: Context): File =
@@ -246,20 +258,34 @@ object AiImportHistoryStore {
 
     private fun writeContext(context: Context, id: String, progress: AiEduImportProgress) {
         val target = contextFile(context, id) ?: return
-        runCatching {
-            val temporary = File(target.parentFile, "${target.name}.tmp")
-            temporary.writeText(progressToJson(progress).toString(), Charsets.UTF_8)
-            if (!temporary.renameTo(target)) {
-                target.writeText(temporary.readText(Charsets.UTF_8), Charsets.UTF_8)
-                temporary.delete()
-            }
+        val previous = target.takeIf { it.isFile }?.let { runCatching { JSONObject(it.readText(Charsets.UTF_8)) }.getOrNull() }
+        val previousProgress = previous?.let { runCatching { progressFromJson(it) }.getOrNull() }
+        val images = if (progress.screenshotPreviews.isNotEmpty()) {
+            AiImportHistoryImages.persist(checkNotNull(target.parentFile), id, progress.screenshotPreviews)
+        } else if (previousProgress != null && (previousProgress.taskId == progress.taskId || sameCheckpointLineage(previousProgress, progress))) {
+            previous?.optJSONArray("screenshotPreviews") ?: JSONArray()
+        } else JSONArray()
+        val root = progressToJson(progress, MaxAiImportContextBytes - images.toString().toByteArray(Charsets.UTF_8).size)
+        root.put("screenshotPreviews", images)
+        writeHistoryAsset(target, root.toString().toByteArray(Charsets.UTF_8))
+        val retained = (0 until images.length()).mapNotNull { index ->
+            images.optJSONObject(index)?.let { AiImportHistoryImages.name(id, it) }
+        }.toSet()
+        target.parentFile?.listFiles()?.forEach { file ->
+            if (AiImportHistoryImages.owner(file.name) == id && file.name !in retained) file.delete()
         }
     }
 
-    private fun readContext(context: Context, id: String): AiEduImportProgress? =
+    private fun readContext(context: Context, id: String, includeImages: Boolean = false): AiEduImportProgress? =
         contextFile(context, id, ensureDirectory = false)
             ?.takeIf { it.isFile && it.length() <= MaxAiImportContextBytes }
-            ?.let { file -> runCatching { progressFromJson(JSONObject(file.readText(Charsets.UTF_8))) }.getOrNull() }
+            ?.let { file -> runCatching {
+                val root = JSONObject(file.readText(Charsets.UTF_8))
+                val progress = progressFromJson(root)
+                if (!includeImages) progress.copy(screenshotPreviews = emptyList()) else progress.copy(
+                    screenshotPreviews = progress.screenshotPreviews + AiImportHistoryImages.load(
+                        checkNotNull(file.parentFile), id, root.optJSONArray("screenshotPreviews") ?: JSONArray()))
+            }.getOrNull() }
 
     private data class LoadedHistory(
         val entries: List<AiImportHistoryEntry>,
@@ -291,14 +317,14 @@ private fun validatedHistoryPayload(draft: ImportDraft): String {
     }
 }
 
-/** New history never stores raw screenshots; old optional image contexts remain readable. */
-internal fun progressToJson(progress: AiEduImportProgress): JSONObject {
+/** Source pictures are stored separately by the history store; this text snapshot remains bounded. */
+internal fun progressToJson(progress: AiEduImportProgress, maxBytes: Int = MaxAiImportContextBytes): JSONObject {
     val checkpointBounded = boundedCheckpointProgress(progress)
     var bounded = checkpointBounded.copy(
         taskId = progress.taskId.take(128),
         checkpointLineageId = progress.checkpointLineageId.take(128),
         steps = progress.steps.takeLast(100).map { historyText(it, 500) },
-        activityReports = progress.activityReports.takeLast(12).map { it.copy(text = historyText(it.text, 180)) },
+        activityReports = progress.activityReports.takeLast(MaxAiImportReports).map(::normalizeAiImportReport),
         screenshotPreviews = emptyList(),
         routeLabel = historyText(progress.routeLabel, 300),
         requestPreview = historyText(progress.requestPreview, 16_384),
@@ -320,7 +346,7 @@ internal fun progressToJson(progress: AiEduImportProgress): JSONObject {
         checkpointNotice = checkpointBounded.checkpointNotice?.let { historyText(it, 1_024) }
     )
     var result = progressJson(bounded)
-    while (result.toString().toByteArray(Charsets.UTF_8).size > MaxAiImportContextBytes) {
+    while (result.toString().toByteArray(Charsets.UTF_8).size > maxBytes) {
         bounded = if (bounded.conversationTurns.isNotEmpty()) bounded.copy(conversationTurns = bounded.conversationTurns.drop(1))
         else {
             check(bounded.requestPreview.isNotEmpty() || bounded.pageText.isNotEmpty() ||
@@ -343,15 +369,30 @@ internal fun boundedImportConversationTurns(turns: List<AiEduImportConversationT
         aiOutput = historyText(it.aiOutput, 16_384), assistantMessage = historyText(it.assistantMessage, 4_096),
         artifactPayload = it.artifactPayload.takeIf { payload ->
             payload.toByteArray(Charsets.UTF_8).size <= AiImportCheckpoint.MaxPayloadBytes
-        }.orEmpty(), status = historyText(it.status, 500)) }
+        }.orEmpty(), status = historyText(it.status, 500),
+        activityReports = it.activityReports.takeLast(MaxAiImportReports).map { report ->
+            normalizeAiImportReport(report)
+        }) }
+
+private fun importReportsJson(reports: List<AiImportReport>) = JSONArray().apply {
+    reports.takeLast(MaxAiImportReports).forEach { put(JSONObject().put("text", it.text).put("kind", it.kind.name)) }
+}
+
+private fun importReportsFromJson(reports: JSONArray?): List<AiImportReport> = buildList {
+    if (reports == null) return@buildList
+    for (index in maxOf(0, reports.length() - MaxAiImportReports) until reports.length()) {
+        val report = reports.optJSONObject(index) ?: continue
+        val kind = runCatching { AiImportReportKind.valueOf(report.optString("kind")) }.getOrNull() ?: continue
+        val normalized = normalizeAiImportReport(AiImportReport(report.optString("text"), kind))
+        if (normalized.text.isNotBlank()) add(normalized)
+    }
+}
 
 private fun progressJson(progress: AiEduImportProgress): JSONObject = JSONObject()
     .put("schemaVersion", 3)
     .put("taskId", progress.taskId)
     .put("steps", JSONArray(progress.steps))
-    .put("activityReports", JSONArray().apply { progress.activityReports.forEach { report ->
-        put(JSONObject().put("text", report.text).put("kind", report.kind.name))
-    } })
+    .put("activityReports", importReportsJson(progress.activityReports))
     .put("routeLabel", progress.routeLabel)
     .put("requestPreview", progress.requestPreview)
     .put("pageText", progress.pageText)
@@ -399,6 +440,7 @@ private fun progressJson(progress: AiEduImportProgress): JSONObject = JSONObject
                     .put("artifactPayload", turn.artifactPayload)
                     .put("status", turn.status)
                     .put("assistantMessage", turn.assistantMessage)
+                    .put("activityReports", importReportsJson(turn.activityReports))
             )
         }
     })
@@ -415,15 +457,7 @@ internal fun progressFromJson(root: JSONObject): AiEduImportProgress {
         steps = buildList {
             for (index in 0 until stepsJson.length()) add(stepsJson.optString(index))
         },
-        activityReports = root.optJSONArray("activityReports")?.let { reports ->
-            buildList {
-                for (index in maxOf(0, reports.length() - 12) until reports.length()) {
-                    val report = reports.optJSONObject(index) ?: continue
-                    val kind = runCatching { AiImportReportKind.valueOf(report.optString("kind")) }.getOrNull() ?: continue
-                    add(AiImportReport(report.optString("text").take(180), kind))
-                }
-            }
-        }.orEmpty(),
+        activityReports = importReportsFromJson(root.optJSONArray("activityReports")),
         routeLabel = root.optString("routeLabel"),
         requestPreview = root.optString("requestPreview"),
         pageText = root.optString("pageText"),
@@ -488,7 +522,8 @@ internal fun progressFromJson(root: JSONObject): AiEduImportProgress {
                         aiOutput = turn.optString("aiOutput"),
                         artifactPayload = turn.optString("artifactPayload"),
                         status = turn.optString("status", "已完成"),
-                        assistantMessage = turn.optString("assistantMessage")
+                        assistantMessage = turn.optString("assistantMessage"),
+                        activityReports = importReportsFromJson(turn.optJSONArray("activityReports"))
                     )
                 )
             }

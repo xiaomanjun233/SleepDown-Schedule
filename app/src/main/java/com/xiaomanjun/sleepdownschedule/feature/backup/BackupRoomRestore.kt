@@ -322,11 +322,8 @@ object BackupRoomRestoreMapper {
                     source.first
                 }
                 val attachmentIds = message.attachmentAssetIds.distinct()
-                require(attachmentIds.size <= 1) {
-                    "一个 Agent message 不能恢复多个 attachment marker: ${message.id}"
-                }
                 val plainContent = parseAgentMessageContent(message.content).text
-                val attachmentFileName = attachmentIds.singleOrNull()?.let { assetId ->
+                val attachmentFileNames = attachmentIds.mapNotNull { assetId ->
                     val asset = assetsById[assetId] ?: error("Agent message 引用了不存在的 asset: $assetId")
                     val descriptor = descriptorsById[assetId] ?: error("Agent attachment 缺少 manifest descriptor")
                     require(asset.purpose == BackupAssetPurpose.AGENT_ATTACHMENT &&
@@ -341,11 +338,7 @@ object BackupRoomRestoreMapper {
                     scheduleId = targetScheduleId,
                     sessionDate = session?.date ?: message.sessionDate,
                     role = message.role,
-                    content = if (attachmentFileName == null) {
-                        plainContent
-                    } else {
-                        agentMessageContent(plainContent, attachmentFileName)
-                    },
+                    content = agentMessageContent(plainContent, attachmentFileNames),
                     createdAt = message.createdAt,
                     status = message.status
                 )

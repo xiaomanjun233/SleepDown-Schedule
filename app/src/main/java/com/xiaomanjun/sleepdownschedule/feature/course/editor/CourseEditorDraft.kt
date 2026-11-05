@@ -292,23 +292,8 @@ internal fun weeksInEditorRange(
     return (start..end).filterNot(excludedWeeks::contains)
 }
 
-internal fun compactWeekSelectionLabel(weeks: List<Int>): String {
-    val sorted = weeks.distinct().sorted()
-    if (sorted.isEmpty()) return "未选择"
-    val ranges = buildList {
-        var start = sorted.first()
-        var previous = start
-        sorted.drop(1).forEach { week ->
-            if (week != previous + 1) {
-                add(if (start == previous) "$start" else "$start–$previous")
-                start = week
-            }
-            previous = week
-        }
-        add(if (start == previous) "$start" else "$start–$previous")
-    }
-    return "第${ranges.joinToString("、")}周"
-}
+internal fun compactWeekSelectionLabel(weeks: List<Int>): String =
+    com.xiaomanjun.sleepdownschedule.domain.schedule.compactWeeksLabel(weeks)
 
 internal fun compactWeekdaySelectionLabel(weekdays: Collection<Int>): String {
     val labels = weekdays.filter { it in 1..7 }.distinct().sorted().map(::weekdayLabel)

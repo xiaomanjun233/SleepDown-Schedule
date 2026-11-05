@@ -15,7 +15,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
 import com.xiaomanjun.sleepdownschedule.model.*
 import java.time.LocalDate
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 @Composable
 internal fun TimetableDateRulesDialog(state: AppState, backdrop: Backdrop?, saving: Boolean, error: String?,
@@ -27,10 +26,10 @@ internal fun TimetableDateRulesDialog(state: AppState, backdrop: Backdrop?, savi
     val foreground = sleepDownPanelForegroundColor(config)
     fun update(index: Int, rule: TimetableDateRuleEntity) { rules = rules.toMutableList().also { it[index] = rule } }
     MaterialTheme(typography = MaterialTheme.typography.copy(
-        titleMedium = MiuixTheme.textStyles.main,
-        bodyMedium = MiuixTheme.textStyles.body1,
-        bodySmall = MiuixTheme.textStyles.footnote1,
-        labelLarge = MiuixTheme.textStyles.button
+        titleMedium = MaterialTheme.typography.titleMedium,
+        bodyMedium = MaterialTheme.typography.bodyMedium,
+        bodySmall = MaterialTheme.typography.labelMedium,
+        labelLarge = MaterialTheme.typography.labelLarge
     )) {
     LiquidAlertDialog(title = "日期作息", message = "", backdrop = backdrop, config = config,
         onDismissRequest = { if (!saving && selectingRule == null) onDismiss() }, scrollableMessageContent = true,
@@ -48,7 +47,7 @@ internal fun TimetableDateRulesDialog(state: AppState, backdrop: Backdrop?, savi
                     Surface(shape = RoundedCornerShape(20.dp), color = foreground.copy(alpha = 0.05f)) {
                     Column(Modifier.fillMaxWidth().padding(8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text("安排 ${index + 1}", Modifier.padding(start = 14.dp, top = 8.dp),
-                            style = MiuixTheme.textStyles.footnote1, color = foreground.copy(alpha = 0.65f))
+                            style = MaterialTheme.typography.labelMedium, color = foreground.copy(alpha = 0.65f))
                         SettingsPickerValueRow("使用作息",
                             schemes.firstOrNull { it.id == rule.schemeId }?.name ?: "请选择作息",
                             modifier = Modifier.clip(Capsule()),
