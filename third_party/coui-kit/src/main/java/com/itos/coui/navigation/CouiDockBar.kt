@@ -1,12 +1,17 @@
 package com.itos.coui.navigation
 
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,7 +57,22 @@ import com.itos.coui.motion.rememberCouiPressMotion
 import com.itos.coui.motion.rememberCouiTouchMotion
 import com.itos.coui.topappbar.CouiTopAppBarButtonDefaults
 import com.itos.coui.theme.CouiIcon as Icon
+import kotlin.math.PI
 import kotlin.math.roundToInt
+
+/** 与 Demo/CouiBottomBar 相同的附件弹簧：response 0.55s、damping 0.65。 */
+private const val CouiDockFabExpansionResponse = 0.55f
+private const val CouiDockFabExpansionDamping = 1f - 0.35f
+private val CouiDockFabExpansionStiffness =
+    ((2.0 * PI / CouiDockFabExpansionResponse) * (2.0 * PI / CouiDockFabExpansionResponse)).toFloat()
+
+object CouiDockDefaults {
+    val menuWidth = 232.dp
+    val plusSize = 56.dp
+    val plusGap = 12.dp
+    val plusSlot = plusSize + plusGap
+    val barHeight = 56.dp
+}
 
 /** 右附件 FAB 的颜色、图标和跟手光；材质/投影来自 COUI FabDefaults。 */
 data class CouiDockPlusStyle(
@@ -116,9 +136,7 @@ fun CouiDockBar(
     plusStyle: CouiDockPlusStyle,
     plusVisible: Boolean,
     plusEnabled: Boolean,
-    plusAlpha: Float,
-    menuWidth: Dp,
-    plusSlot: Dp,
+    menuWidth: Dp = CouiDockDefaults.menuWidth,
     onSelection: (Int) -> Unit,
     onPlusClick: (Rect) -> Unit,
 ) {
@@ -136,10 +154,37 @@ fun CouiDockBar(
     val plusMotion = rememberCouiTouchMotion(plusEnabled)
     val plusPress = rememberCouiPressMotion()
     var plusBounds by remember { mutableStateOf(Rect.Zero) }
+    val expansionSpec = spring<Dp>(
+        dampingRatio = CouiDockFabExpansionDamping,
+        stiffness = CouiDockFabExpansionStiffness,
+    )
+    val rawPlusSlot by animateDpAsState(
+        targetValue = if (plusVisible) CouiDockDefaults.plusSlot else 0.dp,
+        animationSpec = expansionSpec,
+        label = "CouiDockPlusSlot",
+    )
+    // The COUI expansion spring overshoots; the dock width must not cross the menu width.
+    val plusSlot = rawPlusSlot.coerceAtLeast(0.dp)
+    val plusAlpha by animateFloatAsState(
+        targetValue = if (plusEnabled) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = CouiDockFabExpansionDamping,
+            stiffness = CouiDockFabExpansionStiffness,
+        ),
+        label = "CouiDockPlusAlpha",
+    )
+    val plusScale by animateFloatAsState(
+        targetValue = if (plusVisible) 1f else 0.5f,
+        animationSpec = spring(
+            dampingRatio = CouiDockFabExpansionDamping,
+            stiffness = CouiDockFabExpansionStiffness,
+        ),
+        label = "CouiDockPlusScale",
+    )
     val menuWidthPx = with(density) { menuWidth.toPx() }
     val plusSlotPx = with(density) { plusSlot.toPx() }
-    val plusSizePx = with(density) { 56.dp.toPx() }
-    val heightPx = with(density) { 56.dp.toPx() }
+    val plusSizePx = with(density) { CouiDockDefaults.plusSize.toPx() }
+    val heightPx = with(density) { CouiDockDefaults.barHeight.toPx() }
     val plusX = menuWidthPx + plusSlotPx - plusSizePx
     val alpha = plusAlpha.coerceIn(0f, 1f)
     val extension = with(density) { 4.dp.roundToPx() }
@@ -171,25 +216,26 @@ fun CouiDockBar(
             Offset(plusX + plusMotion.translationX.value, plusMotion.translationY.value),
             Size(plusSizePx, heightPx),
         ),
-        scaleX = plusMotion.scaleX.value + plusPress.scale.value - 1f,
-        scaleY = plusMotion.scaleY.value + plusPress.scale.value - 1f,
+        scaleX = (plusMotion.scaleX.value + plusPress.scale.value - 1f) * plusScale.coerceAtLeast(0f),
+        scaleY = (plusMotion.scaleY.value + plusPress.scale.value - 1f) * plusScale.coerceAtLeast(0f),
         cornerWeight = 2f,
         alpha = alpha,
         visible = alpha > 0.001f,
     )
 
     Box(
-        modifier = modifier.couiFloatingPair(
-            backdrop = backdrop,
-            renderer = renderer,
-            materials = materials,
-            shadows = shadows,
-            shapes = shapes,
-            contentLayers = contentLayers,
-            contourGlowEnabled = contour,
-        ) { listOf(menuSurface(), plusSurface()) },
+        modifier = modifier.width(menuWidth + plusSlot).height(CouiDockDefaults.barHeight)
+            .couiFloatingPair(
+                backdrop = backdrop,
+                renderer = renderer,
+                materials = materials,
+                shadows = shadows,
+                shapes = shapes,
+                contentLayers = contentLayers,
+                contourGlowEnabled = contour,
+            ) { listOf(menuSurface(), plusSurface()) },
     ) {
-        Box(Modifier.size(menuWidth, 56.dp)) {
+        Box(Modifier.size(menuWidth, CouiDockDefaults.barHeight)) {
             CouiDockMenuContent(
                 modifier = Modifier.fillMaxSize(),
                 contentLayer = menuContentLayer,
@@ -202,7 +248,7 @@ fun CouiDockBar(
             )
         }
         Box(
-            Modifier.offset { IntOffset(plusX.roundToInt(), 0) }.size(56.dp)
+            Modifier.offset { IntOffset(plusX.roundToInt(), 0) }.size(CouiDockDefaults.plusSize)
                 .graphicsLayer { this.alpha = alpha }
                 .onGloballyPositioned { plusBounds = it.boundsInRoot() },
         ) {
@@ -211,6 +257,7 @@ fun CouiDockBar(
                 contentLayer = plusContentLayer,
                 style = plusStyle,
                 enabled = plusEnabled && plusVisible,
+                scale = plusScale,
                 motion = plusMotion,
                 press = plusPress,
                 onOpenMenu = { onPlusClick(plusBounds) },
@@ -226,6 +273,7 @@ internal fun CouiDockPlusContent(
     contentLayer: GraphicsLayer,
     style: CouiDockPlusStyle,
     enabled: Boolean,
+    scale: Float,
     motion: CouiTouchMotion,
     press: CouiPressMotion,
     onOpenMenu: () -> Unit,
@@ -242,8 +290,8 @@ internal fun CouiDockPlusContent(
         modifier.graphicsLayer {
             translationX = motion.translationX.value
             translationY = motion.translationY.value
-            scaleX = motion.scaleX.value + press.scale.value - 1f
-            scaleY = motion.scaleY.value + press.scale.value - 1f
+            scaleX = (motion.scaleX.value + press.scale.value - 1f) * scale.coerceAtLeast(0f)
+            scaleY = (motion.scaleY.value + press.scale.value - 1f) * scale.coerceAtLeast(0f)
         }.couiTouchMotion(motion, enabled, cancelOnConsumedMove = false, consumeDrag = true)
             .couiPressMotion(press, enabled).then(lightInput)
             .drawWithContent { contentLayer.record { this@drawWithContent.drawContent() } }

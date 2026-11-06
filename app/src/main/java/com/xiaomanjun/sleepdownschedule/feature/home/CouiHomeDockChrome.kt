@@ -1,19 +1,13 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
 import android.os.Build
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -41,6 +35,7 @@ import com.itos.coui.backdrop.CouiBackdrop
 import com.itos.coui.effect.CouiFloatingRenderer
 import com.itos.coui.effect.LocalCouiContourGlowEnabled
 import com.itos.coui.navigation.CouiDockBar
+import com.itos.coui.navigation.CouiDockDefaults
 import com.itos.coui.navigation.CouiDockItem
 import com.itos.coui.navigation.CouiDockPlusStyle
 import com.itos.coui.navigation.CouiDockStyle
@@ -55,16 +50,7 @@ import com.xiaomanjun.sleepdownschedule.platform.coloros.ColorOsNativeUi
 import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
 import com.xiaomanjun.sleepdownschedule.platform.coloros.rememberCouiDockAccent
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.PI
 import kotlinx.coroutines.launch
-
-/** COUI `CouiFabExpansion` 的弹簧：response 0.55s、damping 0.65，避免比原厂附件动画更快。 */
-private const val CouiDockFabExpansionResponse = 0.55f
-private const val CouiDockFabExpansionDamping = 1f - 0.35f
-private val CouiDockFabExpansionStiffness =
-    ((2.0 * PI / CouiDockFabExpansionResponse) * (2.0 * PI / CouiDockFabExpansionResponse)).toFloat()
-/** COUI 原版 3×70dp 上限；本应用标签较短，收窄到 220dp 保持默认底栏紧凑。 */
-private val CouiDockMenuDefaultWidth = 220.dp
 
 /**
  * 独立的 COUI 导航胶囊 + FAB。两个主体共享采样、材质、阴影和融球链路；
@@ -146,24 +132,6 @@ internal fun CouiHomeDock(
     }
     val plusVisible = selectedIndex < 2
     val plusEnabled = plusVisible && !buttonHidden
-    val rawPlusSlot by animateDpAsState(
-        targetValue = if (plusVisible) 68.dp else 0.dp,
-        animationSpec = spring(
-            dampingRatio = CouiDockFabExpansionDamping,
-            stiffness = CouiDockFabExpansionStiffness,
-        ),
-        label = "CouiDockPlusSlot",
-    )
-    // The COUI attachment spring overshoots; the dock width must never cross the menu width.
-    val plusSlot = rawPlusSlot.coerceAtLeast(0.dp)
-    val plusAlpha by animateFloatAsState(
-        targetValue = if (plusEnabled) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = CouiDockFabExpansionDamping,
-            stiffness = CouiDockFabExpansionStiffness,
-        ),
-        label = "CouiDockPlusAlpha",
-    )
     val systemBottom = WindowInsets.navigationBarsIgnoringVisibility.getBottom(density)
     val bottomInset = with(density) { systemBottom.toDp() }
     val imeCompensation = dockImeCompensationPx(WindowInsets.ime.getBottom(density), systemBottom)
@@ -207,29 +175,26 @@ internal fun CouiHomeDock(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val available = (maxWidth - 36.dp).coerceAtLeast(0.dp)
-        val dockWidth = minOf(CouiDockMenuDefaultWidth, (available - 68.dp).coerceAtLeast(120.dp))
-        Box(
-            Modifier.align(Alignment.BottomCenter)
+        val dockWidth = minOf(
+            CouiDockDefaults.menuWidth,
+            (available - CouiDockDefaults.plusSlot).coerceAtLeast(120.dp),
+        )
+        CouiDockBar(
+            modifier = Modifier.align(Alignment.BottomCenter)
                 .padding(bottom = bottomInset + 8.dp)
-                .graphicsLayer { translationY = imeCompensation.toFloat() }
-        ) {
-            CouiDockBar(
-                modifier = Modifier.width(dockWidth + plusSlot).height(56.dp),
-                backdrop = backdrop,
-                renderer = renderer,
-                items = items,
-                selectedIndex = selectedIndex.coerceIn(0, 2),
-                style = dockStyle,
-                plusStyle = plusStyle,
-                plusVisible = plusVisible,
-                plusEnabled = plusEnabled,
-                plusAlpha = plusAlpha,
-                menuWidth = dockWidth,
-                plusSlot = plusSlot,
-                onSelection = onSelect,
-                onPlusClick = ::openPlusMenu,
-            )
-        }
+                .graphicsLayer { translationY = imeCompensation.toFloat() },
+            backdrop = backdrop,
+            renderer = renderer,
+            items = items,
+            selectedIndex = selectedIndex.coerceIn(0, 2),
+            style = dockStyle,
+            plusStyle = plusStyle,
+            plusVisible = plusVisible,
+            plusEnabled = plusEnabled,
+            menuWidth = dockWidth,
+            onSelection = onSelect,
+            onPlusClick = ::openPlusMenu,
+        )
     }
     return true
 }
