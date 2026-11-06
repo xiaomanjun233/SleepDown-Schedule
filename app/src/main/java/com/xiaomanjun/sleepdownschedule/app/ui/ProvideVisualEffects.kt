@@ -10,8 +10,6 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.material.VisualEffectsState
 import com.xiaomanjun.sleepdownschedule.data.preferences.VisualEffectsPreferences
-import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
-import com.xiaomanjun.sleepdownschedule.model.effectiveVisualEffectMode
 import com.xiaomanjun.sleepdownschedule.platform.coloros.ColorOsNativeUi
 import com.xiaomanjun.sleepdownschedule.platform.coloros.ProvideColorOsMaterials
 
@@ -20,17 +18,16 @@ internal fun ProvideVisualEffects(content: @Composable () -> Unit) {
     val context = LocalContext.current.applicationContext
     val preferences = remember(context) { VisualEffectsPreferences.get(context) }
     val selected by preferences.mode.collectAsStateWithLifecycle()
-    val available = remember(context) { ColorOsNativeUi.source(context) != null }
+    // Private ColorOS controls retain their own capability check; the selectable mode does not.
+    val nativeAvailable = remember(context) { ColorOsNativeUi.source(context) != null }
     val couiKitAvailable = Build.VERSION.SDK_INT >= 34
-    val state = remember(selected, available, couiKitAvailable, preferences) {
+    val state = remember(selected, nativeAvailable, couiKitAvailable, preferences) {
         VisualEffectsState(
             selectedMode = selected,
-            effectiveMode = effectiveVisualEffectMode(selected, available),
-            colorOsAvailable = available,
+            effectiveMode = selected,
+            colorOsAvailable = nativeAvailable,
             couiKitAvailable = couiKitAvailable,
-        ) { mode ->
-            if (mode == VisualEffectMode.LiquidGlass || available) preferences.select(mode)
-        }
+        ) { mode -> preferences.select(mode) }
     }
     CompositionLocalProvider(LocalVisualEffects provides state) {
         ProvideColorOsMaterials(enabled = state.usesNativeControls, content = content)

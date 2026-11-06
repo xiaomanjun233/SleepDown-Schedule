@@ -123,24 +123,22 @@ fun GeneralSettingsScreen(
                             applyChange(draft.copy(followSystemDarkMode = it, darkMode = effectiveDarkMode))
                         }
                     )
-                    if (effects.colorOsAvailable) {
-                        SettingsDivider()
-                        SleepDownLiquidDropdownPreference(
-                            title = "视效模式",
-                            summary = if (effects.usesNativeControls) "使用 ColorOS 17 系统控件与凝光材质" else "使用液态玻璃材质",
-                            items = listOf(VisualEffectMode.LiquidGlass.label, VisualEffectMode.ColorOsGlow.label),
-                            selectedIndex = if (effects.usesNativeControls) 1 else 0,
-                            backdrop = backdrop,
-                            config = visualConfig,
-                            onSelectedIndexChange = { index ->
-                                val mode = if (index == 1) VisualEffectMode.ColorOsGlow else VisualEffectMode.LiquidGlass
-                                if (mode == VisualEffectMode.ColorOsGlow && effects.selectedMode != mode) {
-                                    onUpdateConfig(state.config.withGeneralSettingsFrom(draft).switchCourseCardGlassMode(true))
-                                }
-                                effects.selectMode(mode)
+                    SettingsDivider()
+                    SleepDownLiquidDropdownPreference(
+                        title = "视效模式",
+                        summary = if (effects.glowEnabled) "凝光材质与触摸反馈" else "使用液态玻璃材质",
+                        items = listOf(VisualEffectMode.LiquidGlass.label, VisualEffectMode.ColorOsGlow.label),
+                        selectedIndex = if (effects.glowEnabled) 1 else 0,
+                        backdrop = backdrop,
+                        config = visualConfig,
+                        onSelectedIndexChange = { index ->
+                            val mode = if (index == 1) VisualEffectMode.ColorOsGlow else VisualEffectMode.LiquidGlass
+                            if (mode == VisualEffectMode.ColorOsGlow && effects.selectedMode != mode) {
+                                onUpdateConfig(state.config.withGeneralSettingsFrom(draft).switchCourseCardGlassMode(true))
                             }
-                        )
-                    }
+                            effects.selectMode(mode)
+                        }
+                    )
                     if (!effects.usesNativeControls) {
                     SettingsDivider()
                     SleepDownLiquidDropdownPreference(

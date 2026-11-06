@@ -1,7 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.platform.coloros
 
 import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
-import com.xiaomanjun.sleepdownschedule.model.effectiveVisualEffectMode
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -9,21 +8,16 @@ import org.junit.Test
 
 class VisualEffectModeTest {
     @Test
-    fun missingOrFuturePreferenceKeepsLiquidGlass() {
-        assertEquals(VisualEffectMode.LiquidGlass, VisualEffectMode.fromId(null))
-        assertEquals(VisualEffectMode.LiquidGlass, VisualEffectMode.fromId("unknown"))
+    fun missingPreferenceDefaultsToGlowWhileSavedValuesStay() {
+        assertEquals(VisualEffectMode.ColorOsGlow, VisualEffectMode.fromId(null))
+        assertEquals(VisualEffectMode.ColorOsGlow, VisualEffectMode.fromId("unknown"))
+        assertEquals(VisualEffectMode.LiquidGlass, VisualEffectMode.fromId("liquid_glass"))
+        assertEquals(VisualEffectMode.ColorOsGlow, VisualEffectMode.fromId("coloros_glow"))
         VisualEffectMode.entries.forEach { assertEquals(it, VisualEffectMode.fromId(it.id)) }
     }
 
     @Test
-    fun unavailableBackendDoesNotApplySavedNativeMode() {
-        assertEquals(VisualEffectMode.LiquidGlass, effectiveVisualEffectMode(VisualEffectMode.ColorOsGlow, false))
-        assertEquals(VisualEffectMode.ColorOsGlow, effectiveVisualEffectMode(VisualEffectMode.ColorOsGlow, true))
-        assertEquals(VisualEffectMode.LiquidGlass, effectiveVisualEffectMode(VisualEffectMode.LiquidGlass, true))
-    }
-
-    @Test
-    fun nativeModeRequiresChannelDeviceAndConfirmedOsVersion() {
+    fun privateNativeControlsKeepTheirOwnCapabilityCheck() {
         assertTrue(supportsColorOsGlow(true, "OPPO", 36, "V17.0"))
         assertTrue(supportsColorOsGlow(true, "OnePlus", 36, "17.0.1"))
         assertFalse(supportsColorOsGlow(false, "OPPO", 36, "17.0"))

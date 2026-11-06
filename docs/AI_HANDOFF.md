@@ -1,6 +1,34 @@
 # 当前工作交接
 
-## 2026-11-06 新任务：保存 PR 基线并迁移统一渲染框架
+## 2026-11-06 当前：COUI Dock 迁移与默认凝光
+
+用户要求从 `d5176dc5` 建立独立分支 `codex/couikit-dock`，保留当前交接修改和本地素材；把反射加载的系统 `COUIBottomFloatingNavigationBar` 迁到 `third_party/coui-kit` 的独立导航胶囊，Android 14+ 使用新 Dock，加号保留现有实现、菜单和位置联动，本轮不绘制融合连接；同时开放跨品牌凝光模式、未保存偏好默认凝光、已保存选择保持不变，并交付本地构建产物。只做本地构建，不自动安装、推送或发布；未修改课程数据或数据库。
+
+- 已从 `d5176dc5` 建立 `codex/couikit-dock`，包含 `Dock 迁移` 与 `默认模式调整` 两个提交；工作树仅余未跟踪 `output/`，不提交它。
+- 新增 `third_party/coui-kit/.../navigation/CouiDockCapsule.kt`，来源为 E 盘 `CouiBottomBar.kt` 中间菜单主体，使用 `CouiFloatingRenderer.standalone()`、`CouiBackdrop`、`CouiFloatingSurfaces`、`CouiTouchMotion`/`CouiPressMotion` 和跟手光；不含附件、融合或安全区。文件哈希与来源见 `third_party/coui-kit/SLEEPDOWN_INTEGRATION.md`。
+- `CouiFloatingMaterial` 增加 `sampleBrightness`，只压暗采样输入，颜色层保持；浅色壁纸 0.94，深色 1。`couiNavigationReleaseTarget` 修正为系统 CANCEL 不提交，拖回当前项不重复提交。
+- 新增 `glass/HomeDockBackdrop.kt`：完整页面作为单一 COUI 采样源，Dock 是同级后绘制消费者；源位于既有 `screenGraphicsLayer` 录制范围，因此继续进入整页快照和转场。
+- 新增 `feature/home/CouiHomeDockChrome.kt`：独立 Dock 宿主；加号优先使用现有 ColorOS 原生 FAB，否则使用现有 Compose 加号；设置页收起槽位、菜单打开时淡出并保留锚点。`NativeHomeDockChrome` 的路由为 COUI Dock → 既有原生 → 既有液态。
+- 视效状态拆为凝光启用、COUI 可用（Android 14+）、私有 ColorOS 控件可用；模式选择不再依赖品牌、ColorOS 版本或实验渠道。默认凝光，已保存 `liquid_glass` / `coloros_glow` 原值保留。设置说明改为“凝光材质与触摸反馈”。
+- 参数对照、系统/应用覆盖来源、Kit 映射和验证记录在 [本轮报告](reports/2026-11-06-couikut-dock-migration.md)。
+- 验证：`compileGithubReleaseKotlin` 通过；`:sleepdown-coui:testDebugUnitTest` 通过；定向 `VisualEffectsPreferencesTest`、`VisualEffectsCapabilityTest`、`VisualEffectModeTest`、`ColorOsDockCompositionTest`、`SettingsHomeVisualTest`、`AboutSettingsUiTest`、`ScheduleDetailPageUiTest` 通过。最终 `assembleGithubRelease` 通过（1m57s，R8、资源压缩、lintVital、打包与签名）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-dock-20261106-dbcd182c.apk`，7,676,200 字节，SHA-256 `DBCD182C9432E29B93E59F4F5580EAC0425F7CE3BDF8712BD8D3EF4B4903C7C6`，V2 证书 `0f2b50df…`；精确 mapping 同目录 `-mapping.txt`，SHA-256 `3119CF778BF941AE4F3C61DD15F062C055DC7567D1D6BFAEE88F5E01393378CA`。构建基于 `codex/couikit-dock` 两个提交，最终代码树与 APK 一致。
+- 尚未完成：真机 GPU/阴影/跟手光验收；加号与胶囊的融合连接留待下一步；非 ColorOS 设备未迁移控件仍走液态材质。没有安装、推送、PR、标签或发布。
+
+## 2026-11-06 此前：用户取消统一渲染迁移，回退并清理
+
+用户明确要求“回到`d5176dc5`”，保留该提交已有的二级界面；随后要求撤回内容全部删除，并清理无用文件、中间包和日志。统一渲染、着色器及本轮COUI迁移任务已取消，不沿下方历史计划续做。当前分支仍为`codex/unified-coui-rendering`，HEAD为`d5176dc5c63133050905d17317f98b8c26751e4a`；除本交接记录外，受版本管理的源码和暂存区与该提交一致，没有提交或远端写入。
+
+按用户“先装回去基线最后一个包”的要求，已重新覆盖安装`326fde9c`，即`tmp/review-apks/SleepDown-1.2.8-beta2-c17-about-widget-20261106-326fde9c.apk`。SHA-256为`326fde9cc64de04b41ed6a49f3a1a21304a39c663cdcf19f79cd5e98af5e1fa6`，V2签名通过，`1.2.8_beta2 / versionCode36`。SDK37.0.1客户端及SDK来源5038服务，USB目标`3B15AE023YL00000 / PLJ110 / Android17 / API37`，覆盖安装Success，手机实际APK哈希一致，更新时间2026-11-06 17:51:44（上海时间），保留应用数据、未启动。当前设备通道须下次重新发现，不能沿历史5037硬编码。基线APK、精确mapping和本地交付元数据保留。
+
+用户明确不要恢复副本：本轮stash `27a2433894e209084587023404e554574968bdc6`、其独有的450个松散对象、两份回滚补丁目录、实验脚本、探测输入和失败包均已删除，不再有这轮恢复快照。第一阶段清理106个中间APK、463份日志、对应旧mapping、构建输出和旧缓存，文件总量约16.8GiB。其他stash、现用依赖、私有后端、签名/配置、用户素材以及基线包与正式包保留；未清空整个tmp，未改现用依赖源码。一次批量清理因自动审批担心rendering仍为源码模块而被拦截，核对当前settings已无该模块、目录只剩build后，采用仅删除构建产物的较窄方案完成。没有重新构建或运行测试。
+
+用户追加清理确认废弃的旧分支、文件夹并检查C盘。第二阶段删除40个本地分支：39个提交均已进入d5176dc5，贡献流程分支的5个补丁均有等价实现；删除13个无独有修改的旧工作树（其中4个在C盘）和9个孤立名称目录。main、当前分支、rescue-import-materials和chrome-wallpaper-dark保留；未改远端分支。仍有独有提交的工作树保留，C盘coui-settings-min26的2项修改、native-card-light的1项修改核对仍在。另清理C盘29个构建/缓存目录、41345个文件和4998个旧空临时目录，3个占用中的临时项跳过。C盘可用从约5.14GiB升至7.24GiB。
+
+用户曾要求把Codex图片、聊天及缓存迁往D盘，随后明确“先不迁移”。仅做过只读目录/进程与官方文档检查，没有创建D盘迁移目录、目录联接、后台迁移脚本或改变CODEX_HOME。保持暂停，不自行续迁。之后用户明确“图片可以直接删”：已删除`C:/Users/23085/.codex/generated_images`的1324个文件，约1.767GiB，C盘可用约9.02GiB；聊天数据库、sessions/archived_sessions、插件、现用运行时，以及项目`output/imagegen/sleepdown-about-hero-c17.png`和应用资源保留。截图存储页“其他”包含这些独立本地文件，不能把它整体认作可删缓存；本机大项还包括约3.4GiB的thread_history_1.sqlite。
+
+全库Git校验曾发现历史提交56f7dde8的交接文档对象6320afc4a760bf1641327bf4c5afd54840061a25缺失。已用`git fetch --no-tags --no-write-fetch-head origin <精确对象哈希>`从现有远端取回原对象，不写分支或猜测文档内容；随后`git fsck --connectivity-only --no-dangling`通过。当前d5176dc5源码比对通过，唯一受版本管理的差异是本交接记录。
+
+## 2026-11-06 此前计划（已取消）：保存 PR 基线并迁移统一渲染框架
 
 用户在本轮明确要求：安装完成后保留现有更改并上传 PR，再以该基线建立可回滚的独立分支；统一 Kyant 液态玻璃与最新 COUI-Kit 的采样渲染链路，保留现有玻璃观感，布局共用、材质和触摸反馈区分；逐项核对凝光现有系统类，按 COUI 最新指南移植并推广到其他机型，缺失组件参考 E 盘 ColorOS 完整反编译包。用户最后明确覆盖了即时删除要求：原实现保留，等其明早核验后才逐步删除无用旧代码；已借用 Miuix 按实际用途保留。没有合并或发布授权，没有协作 Agent 授权。
 
