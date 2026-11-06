@@ -10,9 +10,10 @@
 - 跟手光拆为浅/深：菜单 2.0/0.3，FAB 1.2/0.5（COUI 预设 `OpaqueSmall2` 1.0/0.15，`OpaqueSmall1` 0.6/0.5）。修正旧实现 `intensity=2f` 同时覆盖深色导致菜单深色为 2.0 的问题。
 - 微调：FAB 采样模糊与胶囊一致（25px）；`CouiDockBar` 改为 Demo 式组合控件，宿主只传可见/启用/宽度和回调，槽位、淡出、0.5 隐藏缩放和 0.55s/0.65 弹簧都在组件内部；默认三项菜单 232dp。
 - 新增 COUI Button：`button/CouiButton.kt` 提供文本 `CouiButton` 和内容槽 `CouiCapsuleButton`；`CouiTextKind.Button` 补齐；`CouiCapsuleButtonRenderer` 在凝光 + Android 14+ 接现有胶囊按钮，先 COUI、再原生、再液态；保留原生投光请求。
-- 参数和来源记录在 [本轮报告](reports/2026-11-06-couikut-dock-fab.md)；Kit 哈希和接入说明在 `third_party/coui-kit/SLEEPDOWN_INTEGRATION.md`。
-- 验证：`compileGithubReleaseKotlin` 通过；`:sleepdown-coui:testDebugUnitTest` 通过；定向 `ColorOsDockCompositionTest`、`VisualEffectsCapabilityTest` 通过。最终 `assembleGithubRelease` 通过（3m54s，R8、资源压缩、lintVital、打包与签名）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-dock-fab-buttons-20261106-f4f0d860.apk`，7,676,200 字节，SHA-256 `F4F0D86091C6275C1ADBE60D150F5FD126536E5B5AAE040DA1D170600F6D2F8B`，V2 证书 `0f2b50df…`；精确 mapping 同目录 `-mapping.txt`，156,061,025 字节，SHA-256 `1F9ABA426D800D046731664C851589D9A8749F1A5F34E29AB9ACDD3DBDA33EB5`。构建内嵌 revision 为 `3ca63b9a`（组合底栏 + Button 代码提交），其后的交接/报告文档提交不改变 APK。
-- 尚未完成：真机核对双主体融合、0.5 缩放与 0.55s 弹簧、FAB 阴影、菜单返回位置、设置页收放、深色跟手光、232dp 菜单宽度，以及 COUI Button 的内容槽/轮廓/禁用态。没有安装、推送、PR、标签或发布。
+- 新增 `CouiValueSlider` / `CouiValueSwitch`：滑条保留 preview/commit/cancel、1.5% snap 吸附、14dp 轨道 marker 和垂直滚动让位；开关使用 Kit 44×24、宿主强调色和 compact 0.8 缩放。分发为 COUI → ColorOS → 液态。
+- 参数和来源记录在 [本轮报告](reports/2026-11-06-couikut-dock-fab.md)；开关/滑条记录在 [Switch/Slider 报告](reports/2026-11-06-couikut-switch-slider.md)；Kit 哈希和接入说明在 `third_party/coui-kit/SLEEPDOWN_INTEGRATION.md`。
+- 验证：`compileGithubReleaseKotlin` 通过；`:sleepdown-coui:testDebugUnitTest` 通过；定向 `ColorOsDockCompositionTest`、`VisualEffectsCapabilityTest`、`CouiValueControlsRouteTest` 通过。最终 `assembleGithubRelease` 通过（5m37s，R8、资源压缩、lintVital、打包与签名）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-switch-slider-20261106-cb0b1670.apk`，7,692,584 字节，SHA-256 `CB0B16705491FE33C668B6BC163773B0BE07A19D0A322E170E8BC14E948EF7C5`，V2 证书 `0f2b50df…`；精确 mapping 同目录 `-mapping.txt`，156,296,338 字节，SHA-256 `5EC5CB90FD49054361D8BC2D04E0FD978F4A50098AE79C7D902CE34192AD688E`。构建内嵌 revision 为 `652ac337`（Switch/Slider 代码提交），其后的交接/报告文档提交不改变 APK。
+- 尚未完成：真机核对双主体融合、0.5 缩放与 0.55s 弹簧、FAB 阴影、菜单返回位置、设置页收放、深色跟手光、232dp 菜单宽度、COUI Button 内容槽/轮廓/禁用态，以及开关/滑条的拖动、fling、snap、垂直滚动让位和 compact。没有安装、推送、PR、标签或发布。
 
 ## 2026-11-06 此前：COUI Dock 迁移与默认凝光
 

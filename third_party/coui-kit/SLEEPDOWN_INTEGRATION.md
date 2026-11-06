@@ -77,3 +77,20 @@ Mesh 阴影初始化的 `IllegalArgumentException` 在内部组件入口记录�
 - 上游依据 `E:\COUI\COUI-Kit\coui\src\main\java\com\itos\coui\button\CouiButton.kt`：`66FB3A4C1F2E27E422D0A618A0E844D04B8825C55FD04C662CFD4031ABCC81EE`
 
 Button 组件的 RuntimeShader 轮廓在 API 33+ 启用，旧平台保留普通填色、状态和运动；失败按 Kit 契约向上传播。硬件轮廓、跟手光和内容槽布局需真机验收。
+
+## 2026-11-06 Switch 与 Slider 接入
+
+- 复用现有 `switch/Switch.kt` 与 `slider/Slider.kt`，不复制轨道、thumb、拖动或 snap 算法。
+- SleepDown 的 `CouiValueControls.kt` 将 `NativeSwitchRequest` / `NativeSliderRequest` 映射到 Kit：
+  - Switch：44×24 视觉、18dp thumb、48dp 最小点击区；宿主强调色；compact 0.8 缩放。
+  - Slider：宿主 preview/commit/cancel 事务、1.5% snapValue 吸附、14dp 轨道 inset 的 2.5dp marker、垂直滚动让位。
+- `ProvideColorOsMaterials` 的分发为 COUI → ColorOS 原生 → 液态；未启用 COUI 时保持原分发。
+
+本轮使用文件哈希（SHA-256）：
+
+- `switch/Switch.kt`：`897FAEBC8D70DAABA060076451883AF06B8C95D169FAF6AB29D5CFABD78E0623`
+- `slider/Slider.kt`：`8136E732A31FF51D9C3AACFEB2EAB483A440755C816A3206A376C03FCBE4FCCF`
+- `slider/CouiSliderDefaults.kt`：`A754A74D400F65102F5801B8ED88249AE3A524C39C00AA6377DF4448EDE25E88`
+- `slider/CouiSliderRenderer.kt`：`FF85375C8A55A524C97B1A3FF3DAE60FE3B864B73C1B5BA1CA3B3CAEB38D9C86`
+
+Switch/Slider 的实际拖动、fling、吸附和紧凑尺寸需真机验收。
