@@ -1,6 +1,18 @@
 # 当前工作交接
 
-## 2026-11-06 当前：COUI Dock 迁移与默认凝光
+## 2026-11-06 当前：COUI 底栏 FAB 与深色跟手光
+
+用户要求在 COUI Dock 迁移基础上，把底栏 FAB 加号键也换到 COUI-Kit，并降低深色模式跟手光浓度。已从 `5ad124a9` 建立 `codex/couikit-dock-fab`；只做本地构建，不自动安装、推送、PR 或发布；未改课程数据或数据库。
+
+- 新增 `third_party/coui-kit/.../navigation/CouiDockBar.kt`：胶囊 + FAB 双主体，`CouiFloatingRenderer.pair()`、`CouiFabDefaults`、`couiFloatingPair`；FAB 槽位 68dp→0、淡出、点击 bounds 和菜单返回由宿主管理。菜单内容抽取为 `CouiDockMenuContent`，独立胶囊与融合底栏共用。
+- `CouiHomeDockChrome` 的加号不再创建原生 `NativeFab` 或 Compose 加号，改用 `CouiDockBar` 的 COUI FAB；点击仍用 PixelCopy 生成圆形返回层，菜单锚点/隐藏/返回交接保持。
+- 融合：FAB 随 slot 左移进入胶囊，pair shader 在重叠时融合；本步恢复双主体融合，不改变既有菜单 host。
+- 跟手光拆为浅/深：菜单 2.0/0.3，FAB 1.2/0.5（COUI 预设 `OpaqueSmall2` 1.0/0.15，`OpaqueSmall1` 0.6/0.5）。修正旧实现 `intensity=2f` 同时覆盖深色导致菜单深色为 2.0 的问题。
+- 参数和来源记录在 [本轮报告](reports/2026-11-06-couikut-dock-fab.md)；Kit 哈希和接入说明在 `third_party/coui-kit/SLEEPDOWN_INTEGRATION.md`。
+- 验证：`compileGithubReleaseKotlin` 通过；`:sleepdown-coui:testDebugUnitTest` 通过；定向 `ColorOsDockCompositionTest`、`VisualEffectsCapabilityTest` 通过。最终 `assembleGithubRelease` 通过（1m56s，R8、资源压缩、lintVital、打包与签名）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-dock-fab-20261106-c7c6a30a.apk`，7,676,200 字节，SHA-256 `C7C6A30A26C61FB165AB11FEA1ED2509D85CC5E1CA3581395342684A1ACC3AB6`，V2 证书 `0f2b50df…`；精确 mapping 同目录 `-mapping.txt`，155,917,837 字节，SHA-256 `0DB170EC2499E9E4461D5A58242E2F644C91F0911FE320664F7783D62248D3B7`。构建内嵌 revision 为 `03a5496d`（FAB 代码提交），其后的交接/报告文档提交不改变 APK。
+- 尚未完成：真机核对双主体融合、FAB 阴影、菜单返回位置、设置页收放和深色跟手光最终像素。没有安装、推送、PR、标签或发布。
+
+## 2026-11-06 此前：COUI Dock 迁移与默认凝光
 
 用户要求从 `d5176dc5` 建立独立分支 `codex/couikit-dock`，保留当前交接修改和本地素材；把反射加载的系统 `COUIBottomFloatingNavigationBar` 迁到 `third_party/coui-kit` 的独立导航胶囊，Android 14+ 使用新 Dock，加号保留现有实现、菜单和位置联动，本轮不绘制融合连接；同时开放跨品牌凝光模式、未保存偏好默认凝光、已保存选择保持不变，并交付本地构建产物。只做本地构建，不自动安装、推送或发布；未修改课程数据或数据库。
 
