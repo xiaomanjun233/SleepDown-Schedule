@@ -3,7 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.home
 import android.os.Build
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -55,7 +55,16 @@ import com.xiaomanjun.sleepdownschedule.platform.coloros.ColorOsNativeUi
 import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
 import com.xiaomanjun.sleepdownschedule.platform.coloros.rememberCouiDockAccent
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.PI
 import kotlinx.coroutines.launch
+
+/** COUI `CouiFabExpansion` 的弹簧：response 0.55s、damping 0.65，避免比原厂附件动画更快。 */
+private const val CouiDockFabExpansionResponse = 0.55f
+private const val CouiDockFabExpansionDamping = 1f - 0.35f
+private val CouiDockFabExpansionStiffness =
+    ((2.0 * PI / CouiDockFabExpansionResponse) * (2.0 * PI / CouiDockFabExpansionResponse)).toFloat()
+/** COUI 原版 3×70dp 上限；本应用标签较短，收窄到 220dp 保持默认底栏紧凑。 */
+private val CouiDockMenuDefaultWidth = 220.dp
 
 /**
  * 独立的 COUI 导航胶囊 + FAB。两个主体共享采样、材质、阴影和融球链路；
@@ -137,14 +146,22 @@ internal fun CouiHomeDock(
     }
     val plusVisible = selectedIndex < 2
     val plusEnabled = plusVisible && !buttonHidden
-    val plusSlot by animateDpAsState(
+    val rawPlusSlot by animateDpAsState(
         targetValue = if (plusVisible) 68.dp else 0.dp,
-        animationSpec = tween(220),
+        animationSpec = spring(
+            dampingRatio = CouiDockFabExpansionDamping,
+            stiffness = CouiDockFabExpansionStiffness,
+        ),
         label = "CouiDockPlusSlot",
     )
+    // The COUI attachment spring overshoots; the dock width must never cross the menu width.
+    val plusSlot = rawPlusSlot.coerceAtLeast(0.dp)
     val plusAlpha by animateFloatAsState(
         targetValue = if (plusEnabled) 1f else 0f,
-        animationSpec = tween(180),
+        animationSpec = spring(
+            dampingRatio = CouiDockFabExpansionDamping,
+            stiffness = CouiDockFabExpansionStiffness,
+        ),
         label = "CouiDockPlusAlpha",
     )
     val systemBottom = WindowInsets.navigationBarsIgnoringVisibility.getBottom(density)
@@ -190,7 +207,7 @@ internal fun CouiHomeDock(
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val available = (maxWidth - 36.dp).coerceAtLeast(0.dp)
-        val dockWidth = minOf(250.dp, (available - 68.dp).coerceAtLeast(120.dp))
+        val dockWidth = minOf(CouiDockMenuDefaultWidth, (available - 68.dp).coerceAtLeast(120.dp))
         Box(
             Modifier.align(Alignment.BottomCenter)
                 .padding(bottom = bottomInset + 8.dp)

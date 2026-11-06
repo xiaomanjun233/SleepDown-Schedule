@@ -146,7 +146,12 @@ fun CouiDockBar(
     val materials = remember(style.material, plusStyle.material, extension) {
         listOf(
             style.material.copy(index = 1, extension = extension),
-            plusStyle.material.copy(index = 2, extension = extension),
+            // The FAB is the dock's right attachment; keep its sampled blur equal to the capsule.
+            plusStyle.material.copy(
+                index = 2,
+                extension = extension,
+                blurRadius = style.material.blurRadius,
+            ),
         )
     }
     val shadows = remember(style.shadow, plusStyle.shadow) { listOf(style.shadow, plusStyle.shadow) }
