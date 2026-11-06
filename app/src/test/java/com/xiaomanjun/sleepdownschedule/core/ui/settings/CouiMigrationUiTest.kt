@@ -136,6 +136,13 @@ class CouiMigrationUiTest {
         compose.runOnIdle { assertTrue(commits.isEmpty()) }
         segment.performTouchInput { cancel() }
         compose.runOnIdle { assertTrue(commits.isEmpty()) }
+        segment.performTouchInput {
+            down(first)
+            moveTo(first + androidx.compose.ui.geometry.Offset(0f, 80 * pixelsPerDp))
+            moveTo(second)
+            up()
+        }
+        compose.runOnIdle { assertTrue("Vertical handoff must not commit a later horizontal preview", commits.isEmpty()) }
         segment.performTouchInput { down(first); moveTo(second); up() }
         compose.runOnIdle { assertEquals(listOf(1), commits) }
     }

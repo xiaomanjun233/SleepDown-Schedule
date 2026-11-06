@@ -198,7 +198,7 @@ fun CouiSegmentedControl(
                             val change = event.changes.firstOrNull { it.id == down.id } ?: break
                             val delta = change.position - down.position
                             if (change.isConsumed && delta.getDistance() > 0f) { cancelled = true; break }
-                            if (!dragging && abs(delta.y) > viewConfiguration.touchSlop && abs(delta.y) > abs(delta.x)) {
+                            if (abs(delta.y) > viewConfiguration.touchSlop && abs(delta.y) > abs(delta.x)) {
                                 cancelled = true; break
                             }
                             if (dragging && change.pressed) {
