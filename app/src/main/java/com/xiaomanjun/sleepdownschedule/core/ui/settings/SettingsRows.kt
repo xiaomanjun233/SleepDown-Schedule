@@ -590,6 +590,7 @@ fun SettingsActionButton(
             modifier = if (badgeText == null) actionModifier else actionModifier.heightIn(min = 42.dp),
             height = if (badgeText == null) 42.dp else Dp.Unspecified,
             tint = tint,
+            nativePrimaryColor = if (monochrome) ComposeColor.Unspecified else tint,
             surfaceColor = tint.copy(
                 alpha = when {
                     destructive -> 0.86f

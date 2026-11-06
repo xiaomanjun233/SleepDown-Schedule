@@ -101,6 +101,7 @@ fun CouiButton(
     enabled: Boolean = true,
     style: CouiButtonStyle = CouiButtonStyle.Secondary,
     colors: CouiButtonColors? = null,
+    backgroundModifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource? = null,
 ) {
     val resolvedColors = colors ?: if (style == CouiButtonStyle.Secondary) CouiButtonDefaults.secondaryColors(dark)
@@ -121,7 +122,7 @@ fun CouiButton(
         translationY = motion.translationY.value
     }.couiTouchMotion(motion, enabled, cancelOnConsumedMove = true)
         .couiPressMotion(press, enabled, cancelOnConsumedMove = true).then(lightInput)
-        .clip(CouiButtonDefaults.shape).drawWithContent {
+        .clip(CouiButtonDefaults.shape).then(backgroundModifier).drawWithContent {
             drawContent()
             drawLight?.invoke(this)
         }.couiButtonSurface(
@@ -159,6 +160,7 @@ fun CouiCapsuleButton(
     shape: Shape = CouiButtonDefaults.shape,
     preserveMaterialWhenDisabled: Boolean = false,
     surfaceSheen: (() -> Brush?)? = null,
+    backgroundModifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource? = null,
     content: @Composable RowScope.() -> Unit,
 ) {
@@ -172,14 +174,15 @@ fun CouiCapsuleButton(
         cancelOnConsumedMove = true,
     )
     Box(
-        modifier = modifier.height(height).graphicsLayer {
+        modifier = modifier.then(if (height != Dp.Unspecified) Modifier.height(height)
+            else Modifier.heightIn(min = CouiButtonDefaults.minHeight)).graphicsLayer {
             scaleX = motion.scaleX.value + press.scale.value - 1f
             scaleY = motion.scaleY.value + press.scale.value - 1f
             translationX = motion.translationX.value
             translationY = motion.translationY.value
         }.couiTouchMotion(motion, enabled, cancelOnConsumedMove = true)
             .couiPressMotion(press, enabled, cancelOnConsumedMove = true).then(lightInput)
-            .clip(shape).drawWithContent {
+            .clip(shape).then(backgroundModifier).drawWithContent {
                 drawContent()
                 drawLight?.invoke(this)
             }.couiButtonSurface(
@@ -194,7 +197,7 @@ fun CouiCapsuleButton(
         propagateMinConstraints = true,
     ) {
         Row(
-            Modifier.fillMaxHeight().padding(contentPadding),
+            (if (height != Dp.Unspecified) Modifier.fillMaxHeight() else Modifier).padding(contentPadding),
             horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically,
             content = content,

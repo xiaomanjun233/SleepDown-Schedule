@@ -29,7 +29,11 @@ internal data class NativeCapsuleButtonRequest(
      * Wash drawn over the material and under the content, already clipped to the capsule.
      * Evaluated during draw so animated light spills do not recompose the button.
      */
-    val surfaceSheen: (() -> Brush?)? = null
+    val surfaceSheen: (() -> Brush?)? = null,
+    /** 调用方已排除按钮本身的背景源；不能改为采样包含按钮的窗口祖先。 */
+    val backdrop: com.kyant.backdrop.Backdrop? = null,
+    val shape: androidx.compose.ui.graphics.Shape? = null,
+    val customGestureRegion: Boolean = false
 )
 
 internal val LocalNativeCapsuleButtonRenderer = compositionLocalOf<

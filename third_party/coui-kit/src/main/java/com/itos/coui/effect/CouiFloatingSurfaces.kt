@@ -1,9 +1,6 @@
 package com.itos.coui.effect
 
 import android.graphics.BlendMode
-import android.graphics.BlendModeColorFilter
-import android.graphics.ColorMatrix
-import android.graphics.ColorMatrixColorFilter
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.graphics.Shader
@@ -201,25 +198,7 @@ private fun Modifier.floatingSurfaces(
     val capsuleOutlines = remember(renderer) {
         arrayOfNulls<Pair<Size, Outline>>(renderer.surfaceCount)
     }
-    val materialInputs = remember(materials) {
-        materials.map { material ->
-            // 顶栏默认半径为零, 仍须保留采样及两层混色。
-            val brightness = material.sampleBrightness.coerceIn(0f, 1f)
-            // Native COUIMaterialBlurEffect dims the source, then blurs that result; color layers stay intact.
-            val exposure = if (brightness < 1f) RenderEffect.createColorFilterEffect(
-                ColorMatrixColorFilter(ColorMatrix().apply { setScale(brightness, brightness, brightness, 1f) })
-            ) else null
-            val sampled = when {
-                material.blurRadius == 0f -> exposure ?: RenderEffect.createOffsetEffect(0f, 0f)
-                exposure != null -> RenderEffect.createBlurEffect(material.blurRadius, material.blurRadius,
-                    exposure, Shader.TileMode.MIRROR)
-                else -> RenderEffect.createBlurEffect(material.blurRadius, material.blurRadius,
-                    Shader.TileMode.MIRROR)
-            }
-            val color1 = RenderEffect.createColorFilterEffect(BlendModeColorFilter(material.firstColor.toArgb(), material.firstBlendMode), sampled)
-            RenderEffect.createColorFilterEffect(BlendModeColorFilter(material.secondColor.toArgb(), material.secondBlendMode), color1)
-        }
-    }
+    val materialInputs = remember(materials) { materials.map(::couiControlMaterialEffect) }
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null, neverEqualPolicy()) }
     return onGloballyPositioned { coordinates = it }.drawWithCache {
         val target = coordinates

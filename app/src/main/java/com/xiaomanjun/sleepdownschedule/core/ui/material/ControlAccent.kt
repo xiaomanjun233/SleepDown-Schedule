@@ -6,4 +6,4 @@ import androidx.compose.ui.graphics.Color
 
 @Composable
 internal fun controlAccentColor(liquidGlassColor: Color): Color =
-    if (LocalVisualEffects.current.usesNativeControls) MaterialTheme.colorScheme.primary else liquidGlassColor
+    if (LocalVisualEffects.current.glowEnabled) MaterialTheme.colorScheme.primary else liquidGlassColor

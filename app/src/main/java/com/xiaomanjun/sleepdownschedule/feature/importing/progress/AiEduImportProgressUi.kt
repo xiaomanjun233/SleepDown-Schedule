@@ -1143,7 +1143,7 @@ internal fun AiEduHistorySwipeRow(
                         .fillMaxSize()
                         .padding(horizontal = 16.dp)
                         .clip(RoundedRectangle(18.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.42f))
+                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
                         .onGloballyPositioned {
                             val bounds = it.boundsInWindow()
                             if (bounds != cardBounds) {

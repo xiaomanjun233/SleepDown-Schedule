@@ -7,6 +7,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.semantics.Role
@@ -25,6 +26,7 @@ import top.yukonga.miuix.kmp.basic.BasicComponentColors
 import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 
 internal val LocalCouiSettingsEnabled = staticCompositionLocalOf { false }
+internal val LocalSettingsDialogConfig = staticCompositionLocalOf<ScheduleConfigEntity?> { null }
 internal val LocalCouiLiquidMaterial = staticCompositionLocalOf { false }
 internal val LocalCouiSettingsListLayout = staticCompositionLocalOf { false }
 internal val LocalCouiSettingsGroupHasHeader = staticCompositionLocalOf { false }
@@ -48,29 +50,31 @@ internal fun settingsPreferencePadding(compact: Boolean = false): PaddingValues 
 internal fun CouiSettingsTheme(config: ScheduleConfigEntity, content: @Composable () -> Unit) {
     val enabled = true
     val dark = appUsesDarkTheme(config)
-    val liquid = !LocalVisualEffects.current.usesNativeControls
+    val liquid = !LocalVisualEffects.current.glowEnabled
     val accent = MaterialTheme.colorScheme.primary
     val colors = settingsCouiColorScheme(dark, accent, MaterialTheme.colorScheme.onPrimary)
+    // M3 surface 角色是可独立复用的不透明底色；不能把 COUI 的白色透明叠层直接传出。
+    val cardSurface = colors.container.compositeOver(colors.background)
     val inverse = if (dark) CouiPresets.Light else CouiPresets.Dark
     // 与 DemoTheme 的 native 分支一致：混用的 M3 内容槽也消费同一组颜色角色。
     val hostColors = if (enabled) MaterialTheme.colorScheme.copy(
         primary = colors.accent, onPrimary = colors.onAccent,
-        primaryContainer = colors.container, onPrimaryContainer = colors.onSurface,
+        primaryContainer = cardSurface, onPrimaryContainer = colors.onSurface,
         inversePrimary = inverse.accent,
         secondary = colors.onSurfaceVariant, onSecondary = colors.surface,
-        secondaryContainer = colors.container, onSecondaryContainer = colors.onSurface,
+        secondaryContainer = cardSurface, onSecondaryContainer = colors.onSurface,
         tertiary = colors.accentOnSurface, onTertiary = colors.onAccent,
         tertiaryContainer = colors.surface, onTertiaryContainer = colors.onSurface,
         background = colors.background, onBackground = colors.onSurface,
         surface = colors.surface, onSurface = colors.onSurface,
-        surfaceVariant = colors.container, onSurfaceVariant = colors.onSurfaceVariant,
+        surfaceVariant = cardSurface, onSurfaceVariant = colors.onSurfaceVariant,
         surfaceTint = Color.Transparent,
         inverseSurface = inverse.surface, inverseOnSurface = inverse.onSurface,
         outline = colors.onSurfaceVariant, outlineVariant = colors.outlineVariant,
-        surfaceBright = colors.container, surfaceDim = colors.background,
+        surfaceBright = cardSurface, surfaceDim = colors.background,
         surfaceContainer = colors.background, surfaceContainerLow = colors.surface,
-        surfaceContainerLowest = colors.background, surfaceContainerHigh = colors.container,
-        surfaceContainerHighest = colors.container,
+        surfaceContainerLowest = colors.background, surfaceContainerHigh = cardSurface,
+        surfaceContainerHighest = cardSurface,
     ) else MaterialTheme.colorScheme
     val hostTypography = if (enabled) MaterialTheme.typography.copy(
         titleLarge = com.itos.coui.text.rememberCouiTextStyle(CouiTextKind.SectionTitle),
@@ -87,6 +91,7 @@ internal fun CouiSettingsTheme(config: ScheduleConfigEntity, content: @Composabl
     CouiTheme(darkTheme = dark, colorScheme = colors) {
         CompositionLocalProvider(
             LocalCouiSettingsEnabled provides enabled,
+            LocalSettingsDialogConfig provides config,
             LocalCouiLiquidMaterial provides liquid,
             LocalCouiMaterialEnabled provides (enabled && !liquid && Build.VERSION.SDK_INT >= 31),
             content = content

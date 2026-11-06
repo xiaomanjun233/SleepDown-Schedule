@@ -66,6 +66,8 @@ class LiquidButtonPressSnapshot {
         internal set
 }
 
+private val AcceptAllButtonGestures: (Size, Offset) -> Boolean = { _, _ -> true }
+
 @Composable
 fun LiquidButton(
     onClick: () -> Unit,
@@ -92,7 +94,7 @@ fun LiquidButton(
     surfaceEnabled: Boolean = true,
     pressSnapshot: LiquidButtonPressSnapshot? = null,
     sharedInteractiveHighlight: InteractiveHighlight? = null,
-    interactionEnabledAt: (size: Size, offset: Offset) -> Boolean = { _, _ -> true },
+    interactionEnabledAt: (size: Size, offset: Offset) -> Boolean = AcceptAllButtonGestures,
     flatOpacity: Float? = null,
     enabled: Boolean = true,
     nativeDarkOverride: Boolean? = null,
@@ -106,16 +108,19 @@ fun LiquidButton(
      * Evaluated in the draw phase; null leaves the existing material untouched.
      */
     surfaceSheen: (() -> Brush?)? = null,
+    /** 显式按钮角色的主题色；Unspecified 表示中性，null 保留旧调用推断。 */
+    nativePrimaryColor: Color? = null,
     content: @Composable RowScope.() -> Unit
 ) {
     // Compatibility entry for existing feature buttons. Surface-only hosts (menus, fields,
     // shared gesture shells) retain their own geometry and do not become native click targets.
     val nativeRenderer = LocalNativeCapsuleButtonRenderer.current
     if (surfaceEnabled && (clickTargetEnabled || !enabled) && nativeRenderer != null) {
-        val accent = listOf(surfaceColor, tint).firstOrNull { color ->
+        val inferredAccent = listOf(tint, surfaceColor).firstOrNull { color ->
             color.isSpecified && color.alpha > 0f &&
                 maxOf(color.red, color.green, color.blue) - minOf(color.red, color.green, color.blue) > 0.12f
-        } ?: Color.Unspecified
+        }?.copy(alpha = 1f) ?: Color.Unspecified
+        val accent = nativePrimaryColor?.let { if (it.isSpecified) it.copy(alpha = 1f) else it } ?: inferredAccent
         val dark = nativeDarkOverride ?: if (!accent.isSpecified && surfaceColor.isSpecified && surfaceColor.alpha > 0f)
             surfaceColor.luminance() < 0.5f else MaterialTheme.colorScheme.background.luminance() < 0.5f
         if (nativeRenderer(NativeCapsuleButtonRequest(onClick, modifier, height, contentPadding, dark,
@@ -123,7 +128,8 @@ fun LiquidButton(
                 preserveMaterialWhenDisabled = preserveMaterialWhenDisabled,
                 lightBackdrop = nativeLightBackdrop,
                 cardLightShadow = nativeLightShadow,
-                surfaceSheen = surfaceSheen), content)) {
+                surfaceSheen = surfaceSheen, backdrop = backdrop, shape = shape,
+                customGestureRegion = interactionEnabledAt !== AcceptAllButtonGestures), content)) {
             pressSnapshot?.progress = 0f
             return
         }
