@@ -1,17 +1,18 @@
 # 当前工作交接
 
-## 2026-11-06 当前：COUI 底栏 FAB 与深色跟手光
+## 2026-11-06 当前：COUI 组合底栏、Button 与深色跟手光
 
-用户要求在 COUI Dock 迁移基础上，把底栏 FAB 加号键也换到 COUI-Kit，并降低深色模式跟手光浓度。已从 `5ad124a9` 建立 `codex/couikit-dock-fab`；只做本地构建，不自动安装、推送、PR 或发布；未改课程数据或数据库。
+用户要求在 COUI Dock 迁移基础上，把底栏 FAB 加号键也换到 COUI-Kit，并降低深色模式跟手光浓度；随后要求按 Demo 写法把胶囊与 FAB 合成一个组合控件、接入 button 型控件，并把默认 Dock 略缩短。已从 `5ad124a9` 建立 `codex/couikit-dock-fab`；只做本地构建，不自动安装、推送、PR 或发布；未改课程数据或数据库。
 
 - 新增 `third_party/coui-kit/.../navigation/CouiDockBar.kt`：胶囊 + FAB 双主体，`CouiFloatingRenderer.pair()`、`CouiFabDefaults`、`couiFloatingPair`；FAB 槽位 68dp→0、淡出、点击 bounds 和菜单返回由宿主管理。菜单内容抽取为 `CouiDockMenuContent`，独立胶囊与融合底栏共用。
 - `CouiHomeDockChrome` 的加号不再创建原生 `NativeFab` 或 Compose 加号，改用 `CouiDockBar` 的 COUI FAB；点击仍用 PixelCopy 生成圆形返回层，菜单锚点/隐藏/返回交接保持。
 - 融合：FAB 随 slot 左移进入胶囊，pair shader 在重叠时融合；本步恢复双主体融合，不改变既有菜单 host。
 - 跟手光拆为浅/深：菜单 2.0/0.3，FAB 1.2/0.5（COUI 预设 `OpaqueSmall2` 1.0/0.15，`OpaqueSmall1` 0.6/0.5）。修正旧实现 `intensity=2f` 同时覆盖深色导致菜单深色为 2.0 的问题。
-- 微调：FAB 采样模糊与胶囊一致（25px）；FAB 收放改用 `CouiFabExpansion` 的 0.55s/0.65 弹簧（替代 220/180ms tween）；默认三项菜单由 250dp 收窄到 220dp。
+- 微调：FAB 采样模糊与胶囊一致（25px）；`CouiDockBar` 改为 Demo 式组合控件，宿主只传可见/启用/宽度和回调，槽位、淡出、0.5 隐藏缩放和 0.55s/0.65 弹簧都在组件内部；默认三项菜单 232dp。
+- 新增 COUI Button：`button/CouiButton.kt` 提供文本 `CouiButton` 和内容槽 `CouiCapsuleButton`；`CouiTextKind.Button` 补齐；`CouiCapsuleButtonRenderer` 在凝光 + Android 14+ 接现有胶囊按钮，先 COUI、再原生、再液态；保留原生投光请求。
 - 参数和来源记录在 [本轮报告](reports/2026-11-06-couikut-dock-fab.md)；Kit 哈希和接入说明在 `third_party/coui-kit/SLEEPDOWN_INTEGRATION.md`。
-- 验证：`compileGithubReleaseKotlin` 通过；`:sleepdown-coui:testDebugUnitTest` 通过；定向 `ColorOsDockCompositionTest`、`VisualEffectsCapabilityTest` 通过。微调后 `assembleGithubRelease` 通过（3m19s，R8、资源压缩、lintVital、打包与签名）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-dock-fab-tweaks-20261106-f31a63ae.apk`，7,676,200 字节，SHA-256 `F31A63AEE4A9AC15A4B047139D4280BED78B71CC2068E3008C05EBFEE0A0893A`，V2 证书 `0f2b50df…`；精确 mapping 同目录 `-mapping.txt`，155,918,571 字节，SHA-256 `0A8123D1ABEBC24CB77E0DB50B06DF78A829813AE02B352B0B4EF589237420F4`。构建内嵌 revision 为 `3bb79d01`（FAB 微调代码提交），其后的交接/报告文档提交不改变 APK。
-- 尚未完成：真机核对双主体融合、FAB 阴影、菜单返回位置、设置页收放、深色跟手光和 220dp 菜单宽度最终显示。没有安装、推送、PR、标签或发布。
+- 验证：`compileGithubReleaseKotlin` 通过；`:sleepdown-coui:testDebugUnitTest` 通过；定向 `ColorOsDockCompositionTest`、`VisualEffectsCapabilityTest` 通过。最终 `assembleGithubRelease` 通过（3m54s，R8、资源压缩、lintVital、打包与签名）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-dock-fab-buttons-20261106-f4f0d860.apk`，7,676,200 字节，SHA-256 `F4F0D86091C6275C1ADBE60D150F5FD126536E5B5AAE040DA1D170600F6D2F8B`，V2 证书 `0f2b50df…`；精确 mapping 同目录 `-mapping.txt`，156,061,025 字节，SHA-256 `1F9ABA426D800D046731664C851589D9A8749F1A5F34E29AB9ACDD3DBDA33EB5`。构建内嵌 revision 为 `3ca63b9a`（组合底栏 + Button 代码提交），其后的交接/报告文档提交不改变 APK。
+- 尚未完成：真机核对双主体融合、0.5 缩放与 0.55s 弹簧、FAB 阴影、菜单返回位置、设置页收放、深色跟手光、232dp 菜单宽度，以及 COUI Button 的内容槽/轮廓/禁用态。没有安装、推送、PR、标签或发布。
 
 ## 2026-11-06 此前：COUI Dock 迁移与默认凝光
 

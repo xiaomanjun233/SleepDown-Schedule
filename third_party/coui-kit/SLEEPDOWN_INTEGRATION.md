@@ -54,10 +54,26 @@ Mesh 阴影初始化的 `IllegalArgumentException` 在内部组件入口记录�
 
 本轮文件哈希（SHA-256）：
 
-- `navigation/CouiDockBar.kt`：`3E60491654DFB5B467132C7F901B35AEBCFFF1D48FCDF396A9E31F919155DF57`
 - `navigation/CouiDockCapsule.kt`（抽取共享菜单后）：`FFBB1BEAF5C09892C1E1BDFE5B96C73C53A855281D1249AC1A60C1A4FA744AC5`
 - `navigation/CouiFabExpansion.kt`：`D2724622EC85847B57297693C2DBCC88797872B91F7B02D3C1EB2BF7E601F8E5`
 - `effect/CouiFloatingSurfaces.kt`：`B651B53C218642B91EBCC75CBE47BF156CD7E57603798FBB4BB28E04D1897F5B`
 - 上游依据 `E:\COUI\COUI-Kit\coui\src\main\java\com\itos\coui\floatingactionbutton\CouiFab.kt`：`66FB3A4C1F2E27E422D0A618A0E844D04B8825C55FD04C662CFD4031ABCC81EE`
 
 `CouiDockBar` 仍是 API 34+ 的可选入口；渲染失败由宿主记录并回退既有原生/液态 Dock。融合、阴影和深色跟手光需真机 GPU 验收。
+
+## 2026-11-06 组合底栏与 Button 控件
+
+- `CouiDockBar` 改为 Demo 式的组合控件：宿主只传 `plusVisible`、`plusEnabled`、`menuWidth` 和回调；FAB 槽位、宽度、淡出、0.5 隐藏缩放以及 0.55s/0.65 弹簧都在组件内部完成。`CouiDockDefaults` 提供 232dp 菜单、56dp FAB、12dp 间距和 56dp 高度。
+- 新增 `button/CouiButton.kt`，来源为 E 盘 `coui/src/main/java/com/itos/coui/button/CouiButton.kt`。保留 `CouiButton` 文本入口，并增加 `CouiCapsuleButton` 内容槽入口；二者共用 `CouiButtonDefaults`、`couiButtonSurface`、轮廓、按压和跟手光。`couiButtonSurface` 增加 `surfaceSheen` 绘制。
+- `text/Text.kt` 增加 `CouiTextKind.Button`（16sp medium，1.35 字体缩放上限，1.2/1.1579 行距），供文本按钮使用。
+- SleepDown 的 `CouiCapsuleButtonRenderer` 将现有 `NativeCapsuleButtonRequest` 映射到 COUI 按钮：主色 -> Primary，中性 -> Secondary(material=true)；高度、内边距、形状、禁用材质和 sheen 沿用请求。`lightBackdrop`/`cardLightShadow` 请求返回 false，继续走 ColorOS 原生或液态实现。
+- `ProvideColorOsMaterials` 在凝光 + Android 14+ 时先尝试 COUI 按钮，再回退原生；未启用 COUI 时保持原分发。
+
+文件哈希（SHA-256）：
+
+- `navigation/CouiDockBar.kt`：`5F10279B8A3B5D54D61A71BE584689A89D9F5BC98CBDBE76C8199A42D0088373`
+- `button/CouiButton.kt`：`119C459261D6489B7FBF804E0A6E8B5B081D9B1C0A2CD404DC0F3CFE8E56B878`
+- `text/Text.kt`：`42947776320FE670A402A5245E8A87D31E5E165468FBF397B35A0CCDE4A5673E`
+- 上游依据 `E:\COUI\COUI-Kit\coui\src\main\java\com\itos\coui\button\CouiButton.kt`：`66FB3A4C1F2E27E422D0A618A0E844D04B8825C55FD04C662CFD4031ABCC81EE`
+
+Button 组件的 RuntimeShader 轮廓在 API 33+ 启用，旧平台保留普通填色、状态和运动；失败按 Kit 契约向上传播。硬件轮廓、跟手光和内容槽布局需真机验收。
