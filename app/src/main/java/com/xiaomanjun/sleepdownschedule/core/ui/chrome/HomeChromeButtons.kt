@@ -269,6 +269,7 @@ internal fun HomeIconButtonVisual(
             modifier = modifier,
             height = 42.dp,
             tint = if (accentColor.isSpecified) accentColor else ComposeColor.Unspecified,
+            nativePrimaryColor = accentColor,
             surfaceColor = buttonSurfaceColor,
             contentPadding = PaddingValues(0.dp),
             blurRadius = homeChromeBlur(HomeHeaderGlassBlur, config),
