@@ -26,6 +26,7 @@ enum class CouiTextKind(internal val size: Float, internal val family: String, i
     Toolbar(18f, "sans-serif-medium", 550),
     PageTitle(24f, "sans-serif-semibold", 600),
     SectionTitle(18f, "sans-serif-medium", 600),
+    Button(16f, "sans-serif-medium", 500),
     Body(15f, "sans-serif", 400),
     HomeTitle(40f, "sans-serif-semibold", 700),
     Search(15f, "sans-serif", 400),
@@ -75,11 +76,14 @@ private fun couiTextSize(kind: CouiTextKind, configuration: Configuration, spToP
         val base = (pixels / configuration.fontScale).roundToInt()
         return base * if (configuration.fontScale < 1.15f) 1f else 1.15f
     }
+    // COUIButton -> COUIChangeTextUtil.adaptFontSize(G4).
+    if (kind == CouiTextKind.Button) return couiAdaptFontSize(pixels, configuration, 1.35f)
     return pixels
 }
 
 private fun couiLineSpacing(kind: CouiTextKind): Float = when (kind) {
     CouiTextKind.Category -> 1f
+    CouiTextKind.Button -> if (Build.VERSION.SDK_INT >= 35) 1.1579f else 1.2f
     CouiTextKind.GroupTitle -> if (Build.VERSION.SDK_INT >= 35) 1.143f else 1f
     CouiTextKind.Description -> if (Build.VERSION.SDK_INT >= 35) 1.143f else 1f
     CouiTextKind.Stepper -> if (Build.VERSION.SDK_INT >= 35) 1.1429f else 1.15f

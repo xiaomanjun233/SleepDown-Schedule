@@ -19,7 +19,10 @@ internal data class VisualEffectsState(
     /** 未迁移控件继续走原有能力分发，只在私有系统控件可用时启用。 */
     val usesNativeControls: Boolean get() = glowEnabled && colorOsAvailable
 
-    val usesCouiDock: Boolean get() = glowEnabled && couiKitAvailable
+    /** 跨品牌 COUI 控件（Dock、FAB、按钮等）共用 Android 14+ 能力门控。 */
+    val usesCouiControls: Boolean get() = glowEnabled && couiKitAvailable
+
+    val usesCouiDock: Boolean get() = usesCouiControls
 }
 
 internal val LocalVisualEffects = staticCompositionLocalOf { VisualEffectsState() }

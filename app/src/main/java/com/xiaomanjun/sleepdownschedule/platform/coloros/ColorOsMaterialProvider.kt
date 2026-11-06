@@ -1,7 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.platform.coloros
 
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.Composable
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ControlMaterialRenderers
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCapsuleButtonRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ProvideControlMaterials
 
 private val ColorOsRenderers = ControlMaterialRenderers(
@@ -23,14 +25,30 @@ private val ColorOsRenderers = ControlMaterialRenderers(
 )
 
 @Composable
-internal fun ProvideColorOsMaterials(enabled: Boolean, content: @Composable () -> Unit) {
+internal fun ProvideColorOsMaterials(
+    enabled: Boolean,
+    couiControlsEnabled: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    val buttonRenderer: (@Composable (NativeCapsuleButtonRequest, @Composable RowScope.() -> Unit) -> Boolean)? =
+        when {
+            couiControlsEnabled -> { request, buttonContent ->
+                if (CouiCapsuleButtonRenderer(request, buttonContent)) true
+                else if (enabled) ColorOsCapsuleButton(request, buttonContent) else false
+            }
+            enabled -> { request, buttonContent -> ColorOsCapsuleButton(request, buttonContent) }
+            else -> null
+        }
     val renderers = if (enabled) {
-        ColorOsRenderers
+        ColorOsRenderers.copy(button = buttonRenderer)
     } else {
         // Liquid glass still uses the native outer stroke on capable devices; every other native
         // capability stays disabled.
-        ControlMaterialRenderers.LiquidGlass.copy(strokeOverlay = ColorOsRenderers.strokeOverlay,
-            pageIndicator = ColorOsRenderers.pageIndicator)
+        ControlMaterialRenderers.LiquidGlass.copy(
+            button = buttonRenderer,
+            strokeOverlay = ColorOsRenderers.strokeOverlay,
+            pageIndicator = ColorOsRenderers.pageIndicator,
+        )
     }
     ProvideControlMaterials(
         renderers = renderers,

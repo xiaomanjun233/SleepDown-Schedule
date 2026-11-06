@@ -15,6 +15,7 @@ class VisualEffectsCapabilityTest {
             couiKitAvailable = true,
         )
         assertTrue(state.glowEnabled)
+        assertTrue(state.usesCouiControls)
         assertTrue(state.usesCouiDock)
         assertFalse(state.usesNativeControls)
     }

@@ -30,6 +30,10 @@ internal fun ProvideVisualEffects(content: @Composable () -> Unit) {
         ) { mode -> preferences.select(mode) }
     }
     CompositionLocalProvider(LocalVisualEffects provides state) {
-        ProvideColorOsMaterials(enabled = state.usesNativeControls, content = content)
+        ProvideColorOsMaterials(
+            enabled = state.usesNativeControls,
+            couiControlsEnabled = state.usesCouiControls,
+            content = content,
+        )
     }
 }
