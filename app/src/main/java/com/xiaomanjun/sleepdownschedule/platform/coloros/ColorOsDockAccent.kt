@@ -30,7 +30,6 @@ private const val DefaultThemeAccent = 0xFF007AFF.toInt()
 @Composable
 internal fun rememberColorOsThemeAccent(config: ScheduleConfigEntity, dark: Boolean): Int {
     val host = LocalContext.current.applicationContext
-    if (rememberColorOsSource() == null) return DefaultThemeAccent
     val uri = config.wallpaperUri?.takeIf { it.isNotBlank() }
     val resource = if (config.defaultWallpaperStyle == DefaultWallpaperStyle.KANBAN)
         if (dark) R.drawable.default_wallpaper_dark else R.drawable.default_wallpaper_light else 0
@@ -77,6 +76,15 @@ internal fun rememberColorOsHomeAccents(
 /** The Dock has its own tinted material. Raw wallpaper luminance is not its surface tone. */
 internal fun colorOsHomeAccents(seed: Int, dockDark: Boolean): ColorOsHomeAccents =
     ColorOsHomeAccents(seed, colorOsContrastingAccent(seed, if (dockDark) Color.BLACK else Color.WHITE))
+
+/** 跨品牌 COUI Dock 也沿用墙纸强调色；不要求私有 ColorOS 资源可用。 */
+@Composable
+internal fun rememberCouiDockAccent(config: ScheduleConfigEntity, wallpaperDark: Boolean, dockDark: Boolean): Int {
+    val wallpaperAccent = rememberColorOsThemeAccent(config, wallpaperDark)
+    return remember(wallpaperAccent, dockDark) {
+        colorOsContrastingAccent(wallpaperAccent, if (dockDark) Color.BLACK else Color.WHITE)
+    }
+}
 
 /** Course palettes discard dark swatches; chrome must extract its own hue before brightening it. */
 internal fun colorOsWallpaperAccent(bitmap: Bitmap?): Int? {

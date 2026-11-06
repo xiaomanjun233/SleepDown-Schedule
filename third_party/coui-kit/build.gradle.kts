@@ -30,4 +30,5 @@ dependencies {
         version { strictly("1.0.0") }
     }
     implementation("androidx.core:core-ktx:1.19.1")
+    testImplementation("junit:junit:4.13.2")
 }

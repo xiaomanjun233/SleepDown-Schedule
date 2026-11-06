@@ -231,7 +231,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.DockBackdropContinuityPatch
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeBackgroundBlurLayer
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeBackgroundZoomLayer
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeDialog
-import com.xiaomanjun.sleepdownschedule.feature.home.HomeDockChrome
+import com.xiaomanjun.sleepdownschedule.feature.home.ParallelHomeDock
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeImportButtonReturnVisual
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeJumpWeekDialog
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeSidebar
@@ -362,7 +362,9 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassSamplingLink
 import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNode
 import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNodeRole
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.dockPageSource
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberDockPageBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSceneState
@@ -2556,10 +2558,16 @@ fun CourseScheduleAppUi(
                 drawContent()
             }
     ) {
-        val nativeHomeDockAvailable = nativeVisuals
+        val dockPageBackdrop = rememberDockPageBackdrop()
         val dockVisible = !homeAdaptiveMetrics.isLargeScreen && (screen is Screen.Home || screen is Screen.Config)
+        val couiDockEnabled =
+            com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiDock && dockVisible
         val dockSelectedIndex = if (screen is Screen.Config) 2 else if (homeMode == HomeMode.Day) 0 else 1
         val dockConfig = if (screen is Screen.Home) visualState.config else state.config
+        val dockDark = if (screen is Screen.Home) homeChromeDark else appUsesDarkTheme(state.config)
+        val dockForeground = if (screen is Screen.Home) homeChromeForeground else null
+        val dockSampleBrightness =
+            if (screen is Screen.Home && homeChromeHasWallpaper && !homeChromeDark) 0.94f else 1f
         val dockButtonHidden = homeMenuFromDock && addButtonHidden
         Box(
             modifier = Modifier
@@ -2631,6 +2639,11 @@ fun CourseScheduleAppUi(
                         if (needsCapture) drawLayer(screenGraphicsLayer) else drawContent()
                     }
                 }
+        ) {
+        Box(
+            modifier = Modifier.fillMaxSize().then(
+                if (couiDockEnabled) Modifier.dockPageSource(dockPageBackdrop) else Modifier
+            )
         ) {
         CompositionLocalProvider(
             LocalHomeAdaptiveMetrics provides sidebarContentMetrics,
@@ -3050,21 +3063,11 @@ fun CourseScheduleAppUi(
                 showScheduleEntryPill = false
                 if (pickerState.phase is CustomizeUiState.ShowingEntryButton) pickerState.phase = CustomizeUiState.Home
             }
-            if (!nativeHomeDockAvailable) HomeDockChrome(
-                visible = dockVisible,
-                selectedIndex = dockSelectedIndex,
-                config = dockConfig,
-                backdrop = chromeBackdrop,
-                phase = startupPhase,
-                buttonHidden = dockButtonHidden,
-                onSelect = dockSelect,
-                onOpenMenu = dockOpenMenu,
-                modifier = Modifier.align(Alignment.BottomStart).zIndex(100f)
-            )
         }
         }
 
     } // end course/frozen locals
+        } // end dock page source
 
     // Capture the complete page, including its native Dock, at full size before the outer
     // shortcut blur downsamples it. Native material corners must not first render into the
@@ -3072,19 +3075,26 @@ fun CourseScheduleAppUi(
     // The Compose fallback captures backdrop/config state that the native Dock never uses.
     // Keep that changing closure behind State, so it cannot invalidate the native host.
     val nativeDockFallback = rememberUpdatedState<@Composable () -> Unit> {
-        HomeDockChrome(dockVisible, dockSelectedIndex, dockConfig,
-            chromeBackdrop, startupPhase, dockButtonHidden, dockSelect, dockOpenMenu)
+        // The route host already applies DockEntranceContainer; keep only the shared liquid dock.
+        ParallelHomeDock(dockSelectedIndex, dockConfig, chromeBackdrop, dockSelect, dockOpenMenu,
+            buttonHidden = dockButtonHidden)
     }
-    if (nativeHomeDockAvailable) com.xiaomanjun.sleepdownschedule.feature.home.NativeHomeDockChrome(
+    com.xiaomanjun.sleepdownschedule.feature.home.NativeHomeDockChrome(
         visible = dockVisible,
         selectedIndex = dockSelectedIndex,
         dark = if (screen is Screen.Home) appDarkTheme else appUsesDarkTheme(state.config),
+        dockDark = dockDark,
+        dockForeground = dockForeground,
+        dockSampleBrightness = dockSampleBrightness,
         buttonHidden = dockButtonHidden,
+        config = dockConfig,
+        couiBackdrop = dockPageBackdrop.takeIf { couiDockEnabled },
+        plusBackdrop = chromeBackdrop,
         onSelect = dockSelect,
         onOpenMenu = dockOpenMenu,
         phase = startupPhase,
         fallback = nativeDockFallback,
-        modifier = Modifier.align(Alignment.BottomStart)
+        modifier = Modifier.align(Alignment.BottomStart).zIndex(100f)
     )
     } // end cached page content, including native Dock
 

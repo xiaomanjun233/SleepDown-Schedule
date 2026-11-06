@@ -49,7 +49,8 @@ class AboutSettingsUiTest {
         RuntimeEnvironment.getApplication().applicationInfo.nonLocalizedLabel = "SleepDown课程表"
         compose.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(effectiveMode = VisualEffectMode.ColorOsGlow)) {
+                CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
+                    effectiveMode = VisualEffectMode.ColorOsGlow, colorOsAvailable = true)) {
                     var page by remember { mutableStateOf(SettingsPage.About) }
                     CouiSettingsPageScaffold(page.title(), config, showBack = true,
                         onBack = { page = SettingsPage.About }) { _, source ->

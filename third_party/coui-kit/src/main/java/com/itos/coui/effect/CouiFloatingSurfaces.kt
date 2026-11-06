@@ -2,6 +2,8 @@ package com.itos.coui.effect
 
 import android.graphics.BlendMode
 import android.graphics.BlendModeColorFilter
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.graphics.Shader
@@ -62,6 +64,8 @@ data class CouiFloatingMaterial(
     val themeTint: Color = Color.Transparent,
     val edgeWidthDp: Float = 2.5f,
     val innerGlowScale: Float = 1f,
+    /** 只压暗采样输入; 两层颜色及混合模式保持原值。 */
+    val sampleBrightness: Float = 1f,
 )
 
 /** 长度均为像素; lightZ=0 保留原厂 renderer 默认高度, smoothCorner 对应底栏的 fullsmooth Outline。 */
@@ -200,12 +204,19 @@ private fun Modifier.floatingSurfaces(
     val materialInputs = remember(materials) {
         materials.map { material ->
             // 顶栏默认半径为零, 仍须保留采样及两层混色。
-            val blur = if (material.blurRadius == 0f) {
-                RenderEffect.createOffsetEffect(0f, 0f)
-            } else {
-                RenderEffect.createBlurEffect(material.blurRadius, material.blurRadius, Shader.TileMode.MIRROR)
+            val brightness = material.sampleBrightness.coerceIn(0f, 1f)
+            // Native COUIMaterialBlurEffect dims the source, then blurs that result; color layers stay intact.
+            val exposure = if (brightness < 1f) RenderEffect.createColorFilterEffect(
+                ColorMatrixColorFilter(ColorMatrix().apply { setScale(brightness, brightness, brightness, 1f) })
+            ) else null
+            val sampled = when {
+                material.blurRadius == 0f -> exposure ?: RenderEffect.createOffsetEffect(0f, 0f)
+                exposure != null -> RenderEffect.createBlurEffect(material.blurRadius, material.blurRadius,
+                    exposure, Shader.TileMode.MIRROR)
+                else -> RenderEffect.createBlurEffect(material.blurRadius, material.blurRadius,
+                    Shader.TileMode.MIRROR)
             }
-            val color1 = RenderEffect.createColorFilterEffect(BlendModeColorFilter(material.firstColor.toArgb(), material.firstBlendMode), blur)
+            val color1 = RenderEffect.createColorFilterEffect(BlendModeColorFilter(material.firstColor.toArgb(), material.firstBlendMode), sampled)
             RenderEffect.createColorFilterEffect(BlendModeColorFilter(material.secondColor.toArgb(), material.secondBlendMode), color1)
         }
     }

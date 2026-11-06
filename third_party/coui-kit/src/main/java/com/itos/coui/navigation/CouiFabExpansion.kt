@@ -132,11 +132,13 @@ internal fun couiFabOverlapAlpha(ratio: Float): Float =
     if (ratio > 0.5f) 1f - (ratio - 0.5f) / 0.5f else 1f
 
 // 对应 Base 的 UP 子项 click, 再接 NavigationBarMenuView 的 pending dispatch。
+// 系统 ACTION_CANCEL 表示这次触摸会话已作废, 不得再提交滑选或点击。
 internal fun couiNavigationReleaseTarget(
     preview: Int, pending: Int?, down: Int?, up: Int?, cancelled: Boolean,
 ): Int? {
-    if (!cancelled && up != null && up != down && up != preview) return up
+    if (cancelled) return null
+    if (up != null && up != down && up != preview) return up
     if (pending != null && pending == preview) return pending
-    if (!cancelled && up != null && up == down && up != preview) return up
+    if (up != null && up == down && up != preview) return up
     return null
 }

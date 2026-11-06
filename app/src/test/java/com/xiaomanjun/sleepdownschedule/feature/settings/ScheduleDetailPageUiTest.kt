@@ -57,7 +57,7 @@ class ScheduleDetailPageUiTest {
         var changes = 0
         compose.setContent {
             CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
-                effectiveMode = VisualEffectMode.ColorOsGlow)) {
+                effectiveMode = VisualEffectMode.ColorOsGlow, colorOsAvailable = true)) {
                 CouiSettingsPageScaffold(title = "通知设置", config = config, showBack = true) { _, source ->
                     ScheduleSettingsContent(section = SettingsSection.Notifications,
                         state = AppState(config = config), backdrop = source,
@@ -110,7 +110,8 @@ class ScheduleDetailPageUiTest {
         var dateCommits = 0
         compose.setContent {
             CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
-                effectiveMode = if (native) VisualEffectMode.ColorOsGlow else VisualEffectMode.LiquidGlass)) {
+                effectiveMode = if (native) VisualEffectMode.ColorOsGlow else VisualEffectMode.LiquidGlass,
+                colorOsAvailable = native)) {
             CouiSettingsPageScaffold(title = "当前课表详细设置", config = config, showBack = true) { _, pageBackdrop ->
                 ScheduleSettingsContentFixed(
                     state = state, backdrop = pageBackdrop.takeIf { Build.VERSION.SDK_INT >= 31 },

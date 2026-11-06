@@ -15,3 +15,28 @@
 用户截图核对后的设置装配：宿主独立使用 Settings 的卡片色 `#1AFFFFFF`（夜间叠黑），不将通用 Dark.container 的 `#333333` 当作设置底色。Group 增加可选 Shape 参数，默认形状不变；宿主普通设置卡片根据 Settings 17 cardlist 消费者选用 24dp/2.5，菜单、搜索等保留自身预设。页面用途决定目录/表单行高；没有替换或全局修改上游圆角算法。
 
 Mesh 阴影初始化的 `IllegalArgumentException` 在内部组件入口记录诊断并关闭本进程重复创建：菜单复用已有普通阴影，浮动组件保留背景、文字与交互。支持 Mesh 的设备继续使用原 renderer。此兼容保护没有修改公开严格构造器或着色器算法；JVM 测试环境也缺少 MeshSpecification native shadow，不能据其降级测试声称实机 GPU 效果已验收。
+
+## 2026-11-06 SleepDown 独立导航胶囊
+
+来源仍为 `ItosEO/COUI-Kit` 固定提交 `af952eb6b2288a60652277cba2fb64a54a68aeb7`，远端分支 `codex/demo-component-coverage-20261104`。E 盘本地开发克隆 `E:\COUI\COUI-Kit` 未由本项目修改。
+
+新增 `navigation/CouiDockCapsule.kt`，以 E 盘 `coui/src/main/java/com/itos/coui/navigation/CouiBottomBar.kt` 的中间菜单主体为依据，去掉左右附件、融合节点和窗口安全区，改用 `CouiFloatingRenderer.standalone()` 与 `couiFloatingSurface`。公开入口只接收 modifier、`CouiBackdrop`、独立 renderer、导航项、选中索引、`CouiDockStyle` 和选择回调；宿主负责加号、菜单、返回交接和底部 inset。
+
+材质采用 COUI 17 `TYPE_FRAMEWORK_BOTTOM_BAR` 系统预设，而不是旧 `NavigationBar` 的浅色 `#A3666666/#80F0F0F0`：
+
+- 浅色：25px，`#B3666666 / COLOR_DODGE`，`#99F5F5F5 / LUMINOSITY`
+- 深色：25px，`#80666666 / OVERLAY`，`#B3262626 / LUMINOSITY`
+
+`CouiFloatingMaterial` 增加 `sampleBrightness`，只压暗采样输入；颜色层和混合模式保持原值，默认 `1f` 不改变既有调用。SleepDown 宿主在浅色壁纸下传 `0.94`，深色传 `1f`。
+
+`couiNavigationReleaseTarget` 修正为系统 CANCEL 直接返回 `null`；滑选拖回当前项不会重复提交。新增 `src/test` 的 `CouiNavigationReleaseTargetTest` 覆盖点击、滑选和取消。
+
+本轮文件哈希（SHA-256）：
+
+- `navigation/CouiDockCapsule.kt`：`99D1763D1509497F66EB61D81240543925CD0BD3DA9CD0C29703236051CE5F85`
+- `navigation/CouiFabExpansion.kt`：`D2724622EC85847B57297693C2DBCC88797872B91F7B02D3C1EB2BF7E601F8E5`
+- `effect/CouiFloatingSurfaces.kt`：`B651B53C218642B91EBCC75CBE47BF156CD7E57603798FBB4BB28E04D1897F5B`
+- `navigation/NavigationBar.kt`（既有兼容修订，未替换）：`5FB99AC44BDB68251C5FEF788C86BB75FB31F63B5AAD5A3F95924C3B8590B49C`
+- 上游依据 `E:\COUI\COUI-Kit\coui\src\main\java\com\itos\coui\navigation\CouiBottomBar.kt`：`FF57711F133B86F1A32E00D8054E870FC01B86197BFD4FEEB41E78A5DDADA5AB`
+
+注意：`CouiDockCapsule` 不包含附件、融合连接或系统安全区；这些仍由 SleepDown 宿主管理。硬件 shader、阴影和触摸最终像素需在真机验收。

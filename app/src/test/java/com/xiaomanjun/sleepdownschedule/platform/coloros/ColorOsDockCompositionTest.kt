@@ -20,8 +20,13 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.core.performance.StartupPhase
+import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCourseCardMode
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
+import com.xiaomanjun.sleepdownschedule.core.ui.material.VisualEffectsState
+import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
+import com.itos.coui.backdrop.rememberCouiBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
@@ -58,14 +63,21 @@ class ColorOsDockCompositionTest {
         compose.setContent {
             SideEffect { providerCommits++ }
             val fallback = rememberUpdatedState<@Composable () -> Unit> { Box(Modifier.size(64.dp)) }
+            val plusBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "dock-plus-test-1")
             CompositionLocalProvider(LocalNativeCourseCardMode provides mode) {
                 NativeCoursePreviewConsumer(receive)
-                NativeHomeDockChrome(true, 1, false, false,
-                    select, menu, fallback, StartupPhase.FullQuality)
+                NativeHomeDockChrome(
+                    visible = true, selectedIndex = 1, dark = false,
+                    dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
+                    buttonHidden = false, config = defaultConfig(),
+                    couiBackdrop = null, plusBackdrop = plusBackdrop,
+                    onSelect = select, onOpenMenu = menu,
+                    fallback = fallback, phase = StartupPhase.FullQuality
+                )
             }
         }
         compose.waitForIdle()
-        fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Native dock commit:") }
+        fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Dock commit:") }
         val initial = commits()
         val initialProvider = providerCommits
         assertTrue(initial > 0)
@@ -76,6 +88,36 @@ class ColorOsDockCompositionTest {
         assertEquals(1f to 48f, received)
         assertEquals(initialProvider, providerCommits)
         assertEquals(initial, commits())
+    }
+
+    @Test @Config(sdk = [33])
+    fun oldSystemFallsBackEvenWhenCouiKitIsMarkedAvailable() {
+        var fallbackRendered = 0
+        val select: (Int) -> Unit = {}
+        val menu: (Rect, GraphicsLayer) -> Unit = { _, _ -> }
+        compose.setContent {
+            val plusBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "dock-plus-test-33")
+            val pageBackdrop = rememberCouiBackdrop(diagnosticName = "dock-page-test-33")
+            val fallback = rememberUpdatedState<@Composable () -> Unit> {
+                SideEffect { fallbackRendered++ }
+            }
+            CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
+                effectiveMode = VisualEffectMode.ColorOsGlow,
+                colorOsAvailable = false,
+                couiKitAvailable = true,
+            )) {
+                NativeHomeDockChrome(
+                    visible = true, selectedIndex = 1, dark = false,
+                    dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
+                    buttonHidden = false, config = defaultConfig(),
+                    couiBackdrop = pageBackdrop, plusBackdrop = plusBackdrop,
+                    onSelect = select, onOpenMenu = menu,
+                    fallback = fallback, phase = StartupPhase.FullQuality
+                )
+            }
+        }
+        compose.waitForIdle()
+        assertTrue("Android 13 must keep the existing dock", fallbackRendered > 0)
     }
 
     @Test fun changingBackgroundCapturedByFallbackDoesNotCommitDockHostAgain() {
@@ -91,11 +133,18 @@ class ColorOsDockCompositionTest {
                 Box(Modifier.size(64.dp))
                 SideEffect { renderedFallbackRevision = revision }
             }
-            NativeHomeDockChrome(true, 1, false, false,
-                select, menu, fallback, StartupPhase.FullQuality)
+            val plusBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "dock-plus-test-2")
+            NativeHomeDockChrome(
+                visible = true, selectedIndex = 1, dark = false,
+                dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
+                buttonHidden = false, config = defaultConfig(),
+                couiBackdrop = null, plusBackdrop = plusBackdrop,
+                onSelect = select, onOpenMenu = menu,
+                fallback = fallback, phase = StartupPhase.FullQuality
+            )
         }
         compose.waitForIdle()
-        fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Native dock commit:") }
+        fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Dock commit:") }
         val initial = commits()
         assertTrue(initial > 0)
         for (revision in 1..12) {
@@ -121,12 +170,18 @@ class ColorOsDockCompositionTest {
             val fallback = rememberUpdatedState<@Composable () -> Unit> { Box(Modifier.size(64.dp)) }
             CompositionLocalProvider(LocalSharedCourseBackdrop provides shared) {
                 CourseSamplerConsumer(receive)
-                NativeHomeDockChrome(true, 1, false, false,
-                    select, menu, fallback, StartupPhase.FullQuality)
+                NativeHomeDockChrome(
+                    visible = true, selectedIndex = 1, dark = false,
+                    dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
+                    buttonHidden = false, config = defaultConfig(),
+                    couiBackdrop = null, plusBackdrop = source,
+                    onSelect = select, onOpenMenu = menu,
+                    fallback = fallback, phase = StartupPhase.FullQuality
+                )
             }
         }
         compose.waitForIdle()
-        fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Native dock commit:") }
+        fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Dock commit:") }
         val initial = commits()
         assertTrue(initial > 0)
         for (value in 5..16) {

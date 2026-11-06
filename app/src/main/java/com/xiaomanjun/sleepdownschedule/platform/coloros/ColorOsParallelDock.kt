@@ -57,10 +57,16 @@ import java.lang.reflect.Method
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.launch
 
-private class NativeFab(val root: ViewGroup, val main: View, val icon: ImageView, val setClick: Method,
-    private val source: ColorOsNativeUi.Source, private var accent: Int, private var neutral: Boolean,
-    private var foreground: Int?) {
+internal class NativeFab(val root: ViewGroup, val main: View, val icon: ImageView, val setClick: Method,
+    val listener: Any, private val source: ColorOsNativeUi.Source, private var accent: Int,
+    private var neutral: Boolean, private var foreground: Int?, private var enabled: Boolean = true) {
     fun dispose() { setClick.invoke(root, null) }
+
+    fun setEnabled(wanted: Boolean) {
+        if (enabled == wanted) return
+        enabled = wanted
+        setClick.invoke(root, if (wanted) listener else null)
+    }
 
     fun refreshAppearance() {
         root.javaClass.getMethod("onConfigurationChanged", android.content.res.Configuration::class.java)
@@ -97,7 +103,7 @@ private class NativeFab(val root: ViewGroup, val main: View, val icon: ImageView
     }
 }
 
-private fun createNativeFab(
+internal fun createNativeFab(
     source: ColorOsNativeUi.Source, context: Context, host: Context, accent: Int,
     neutral: Boolean, foreground: Int?, onClick: (() -> Unit)?
 ): NativeFab {
@@ -112,16 +118,18 @@ private fun createNativeFab(
     type.getMethod("setIsFloatingButtonExpandEnable", Boolean::class.javaPrimitiveType).invoke(root, false)
     val listenerName = "${ColorOsNativeUi.FloatingButton}\$OnFloatingButtonClickListener"
     val setClick = type.getMethod("setFloatingButtonClickListener", source.load(listenerName))
-    setClick.invoke(root, source.listener(listenerName) { name, _ ->
+    val listener = source.listener(listenerName) { name, _ ->
         if (name == "onClick") onClick?.invoke()
         null
-    })
+    }
+    setClick.invoke(root, listener)
     icon.contentDescription = "添加与导入"
     icon.isClickable = onClick != null
     icon.isFocusable = onClick != null
     root.clipChildren = false
     root.clipToPadding = false
-    return NativeFab(root, main, icon, setClick, source, accent, neutral, foreground).also { fab ->
+    return NativeFab(root, main, icon, setClick, listener, source, accent, neutral, foreground,
+        enabled = onClick != null).also { fab ->
         fab.updateAccent(accent, force = true)
         source.bindFollowLightIntensity(root, afterMaterialApplied = fab::refreshMaterial)
     }
@@ -306,7 +314,7 @@ internal fun ColorOsParallelHomeDock(
 }
 
 /** Resolves the hosting Activity through arbitrary context wrappers. */
-private tailrec fun android.content.Context.findActivityOrNull(): android.app.Activity? = when (this) {
+internal tailrec fun android.content.Context.findActivityOrNull(): android.app.Activity? = when (this) {
     is android.app.Activity -> this
     is android.content.ContextWrapper -> baseContext.findActivityOrNull()
     else -> null

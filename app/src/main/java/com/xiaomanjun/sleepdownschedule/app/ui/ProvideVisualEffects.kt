@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.app.ui
 
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -20,8 +21,14 @@ internal fun ProvideVisualEffects(content: @Composable () -> Unit) {
     val preferences = remember(context) { VisualEffectsPreferences.get(context) }
     val selected by preferences.mode.collectAsStateWithLifecycle()
     val available = remember(context) { ColorOsNativeUi.source(context) != null }
-    val state = remember(selected, available, preferences) {
-        VisualEffectsState(selected, effectiveVisualEffectMode(selected, available), available) { mode ->
+    val couiKitAvailable = Build.VERSION.SDK_INT >= 34
+    val state = remember(selected, available, couiKitAvailable, preferences) {
+        VisualEffectsState(
+            selectedMode = selected,
+            effectiveMode = effectiveVisualEffectMode(selected, available),
+            colorOsAvailable = available,
+            couiKitAvailable = couiKitAvailable,
+        ) { mode ->
             if (mode == VisualEffectMode.LiquidGlass || available) preferences.select(mode)
         }
     }
