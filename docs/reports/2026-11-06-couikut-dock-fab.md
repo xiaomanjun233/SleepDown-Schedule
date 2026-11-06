@@ -10,6 +10,7 @@
 - 胶囊与 FAB 使用 `CouiFloatingRenderer.pair()` 的双主体链路，恢复重叠时的融合连接。
 - 保留现有菜单、锚点、返回位置和设置页收放；加号仍由宿主控制，不在库内提交导航。
 - 深色模式跟手光改为浅/深分别配置，降低菜单和 FAB 的深色强度。
+- 后续微调：FAB 采样模糊与胶囊一致（25px）；FAB 收放动画对齐原版 `CouiFabExpansion` 弹簧；默认三项菜单从 250dp 收窄到 220dp。
 
 ## 2. 系统 FAB 参数
 
@@ -39,8 +40,9 @@
   - 要求 `CouiFloatingRenderer.pair()` 和 API 34。
   - 两个表面为菜单 `material.index=1`、FAB `material.index=2`，扩展 4dp。
   - 菜单和 FAB 分别拥有内容层、触摸/按压和 spotlight；FAB 材质由 `CouiFabDefaults.material/shadow` 生成，使用墙纸强调色。
-  - `plusSlot` 由宿主动画控制：主页 68dp（12dp 间距 + 56dp FAB），设置页 0dp；FAB 随 slot 左移进入胶囊，pair shader 在重叠时融合。
-  - `plusAlpha` 控制菜单打开/设置页淡出；FAB 节点和直接跟手光一起淡出。
+  - `plusSlot` 由宿主动画控制：主页 68dp（12dp 间距 + 56dp FAB），设置页 0dp；FAB 随 slot 左移进入胶囊，pair shader 在重叠时融合。动画参数对齐 `CouiFabExpansion`：response 0.55s、damping 0.65、stiffness `(2π/0.55)²`，替代先前的 220ms tween；slot 负向过冲被夹到 0。
+  - `plusAlpha` 控制菜单打开/设置页淡出，使用同一弹簧；FAB 节点和直接跟手光一起淡出。
+  - FAB 材质的 `blurRadius` 强制等于菜单胶囊，SleepDown 当前为 25px；不再沿用 `CouiFabDefaults` 的 10px。
   - 加号点击回调携带根坐标 bounds，宿主继续做菜单锚点、返回快照和返回交接。
 - `CouiDockCapsule.kt` 抽取 `CouiDockMenuContent`，供独立胶囊与双主体底栏复用；独立胶囊行为不变。
 - `CouiDockStyle` 的单一 `followLightIntensity` 拆为 `lightFollowLightIntensity` / `darkFollowLightIntensity`，null 表示沿用 COUI 预设。
@@ -61,8 +63,9 @@
 - renderer 改为 `CouiFloatingRenderer.pair()`；创建失败继续记录原因并回到既有原生/液态 Dock。
 - 加号使用 `CouiDockBar` 的 COUI FAB，不再创建原生 `NativeFab` 或 Compose `SleepDownFloatingAddButton`。
 - 保留 `plusSlot`/`plusAlpha` 的收放时机：
-  - 设置页收为 0，胶囊居中，FAB 左移并淡出。
+  - 设置页收为 0，胶囊居中，FAB 左移并淡出；用 COUI `CouiFabExpansion` 的 0.55s/0.65 弹簧，避免比原厂附件动画更快。
   - 菜单打开时槽位保留、FAB 淡出并禁用点击，避免菜单锚点漂移。
+- 默认三项菜单宽度设为 220dp（COUI 系统最大 250dp）；本应用标签较短，收窄后仍保留 12dp 内边距和 8dp 项间距。
 - 点击 FAB 仍通过 PixelCopy 获取实际合成像素，生成圆形返回层并交给现有菜单 host；加号 bounds 继续作为菜单锚点。
 - 深浅壁纸、无壁纸、明暗主题、底部导航区、IME 的处理沿用上一步。
 
@@ -75,7 +78,7 @@
 - `testGithubDebugUnitTest` 定向：
   - `ColorOsDockCompositionTest`：4 项通过，包含旧系统回退和既有 Dock 组合边界。
   - `VisualEffectsCapabilityTest`：通过。
-- `assembleGithubRelease`：通过（1m56s，R8、资源压缩、lintVital、打包与签名）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-dock-fab-20261106-c7c6a30a.apk`，7,676,200 字节，SHA-256 `C7C6A30A26C61FB165AB11FEA1ED2509D85CC5E1CA3581395342684A1ACC3AB6`；V2 签名通过，证书 SHA-256 仍为 `0f2b50df…`。精确 mapping 同目录同名 `-mapping.txt`，155,917,837 字节，SHA-256 `0DB170EC2499E9E4461D5A58242E2F644C91F0911FE320664F7783D62248D3B7`。`com.xiaomanjun.sleepdownschedule / 1.2.8_beta2 / versionCode 36`，minSdk 26，targetSdk 36。构建内嵌 revision 为 `03a5496d`（FAB 代码提交）。
+- `assembleGithubRelease`：通过（微调后 3m19s，R8、资源压缩、lintVital、打包与签名）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-dock-fab-tweaks-20261106-f31a63ae.apk`，7,676,200 字节，SHA-256 `F31A63AEE4A9AC15A4B047139D4280BED78B71CC2068E3008C05EBFEE0A0893A`；V2 签名通过，证书 SHA-256 仍为 `0f2b50df…`。精确 mapping 同目录同名 `-mapping.txt`，155,918,571 字节，SHA-256 `0A8123D1ABEBC24CB77E0DB50B06DF78A829813AE02B352B0B4EF589237420F4`。`com.xiaomanjun.sleepdownschedule / 1.2.8_beta2 / versionCode 36`，minSdk 26，targetSdk 36。构建内嵌 revision 为 `3bb79d01`（FAB 微调代码提交）。
 
 未执行 / 未证实：
 

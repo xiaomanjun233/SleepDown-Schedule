@@ -50,10 +50,11 @@ Mesh 阴影初始化的 `IllegalArgumentException` 在内部组件入口记录�
 - 菜单内容从 `CouiDockCapsule` 抽取为 `CouiDockMenuContent`，独立胶囊与融合底栏共用；没有复制导航手势和选中提交逻辑。
 - 加号槽位、菜单锚点、返回快照和隐藏仍由 SleepDown 宿主管理；库不创建菜单、不读取窗口 inset、不提交业务导航。
 - `CouiDockStyle` 的跟手光拆为浅色/深色两个可选覆盖值；null 沿用 COUI 预设。SleepDown 使用菜单 2.0/0.3、FAB 1.2/0.5，修正旧实现把深色 `intensity` 覆盖为 2.0 的问题。
+- `CouiDockBar` 的 FAB 材质采样模糊改为与胶囊 `style.material.blurRadius` 相同；FAB 槽位仍由宿主动画，SleepDown 已对齐 `CouiFabExpansion` 的 response 0.55s / damping 0.65 弹簧，并将默认三项菜单从 250dp 收窄到 220dp。
 
 本轮文件哈希（SHA-256）：
 
-- `navigation/CouiDockBar.kt`：`B3CBC8E8D195E76D9974F50C41B4412C8A0D50C3561B500641AEAB8DA4D7BCFE`
+- `navigation/CouiDockBar.kt`：`3E60491654DFB5B467132C7F901B35AEBCFFF1D48FCDF396A9E31F919155DF57`
 - `navigation/CouiDockCapsule.kt`（抽取共享菜单后）：`FFBB1BEAF5C09892C1E1BDFE5B96C73C53A855281D1249AC1A60C1A4FA744AC5`
 - `navigation/CouiFabExpansion.kt`：`D2724622EC85847B57297693C2DBCC88797872B91F7B02D3C1EB2BF7E601F8E5`
 - `effect/CouiFloatingSurfaces.kt`：`B651B53C218642B91EBCC75CBE47BF156CD7E57603798FBB4BB28E04D1897F5B`
