@@ -66,9 +66,10 @@ fun Dialog(
     backdrop: CouiBackdrop? = null,
     properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false),
     visible: Boolean? = null,
+    onDismissFinished: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit = {},
 ) {
-    CouiDialogWindow(modifier, onDismissRequest, colors, dark, placement, shape, cornerRadius, properties, material, backdrop, visible) {
+    CouiDialogWindow(modifier, onDismissRequest, colors, dark, placement, shape, cornerRadius, properties, material, backdrop, visible, onDismissFinished) {
         val configuration = LocalConfiguration.current
         var messageLines by remember(message) { mutableIntStateOf(1) }
         var stacked by remember { mutableIntStateOf(if (neutralAction != null) 1 else 0) }
@@ -100,7 +101,7 @@ fun Dialog(
 }
 
 @Composable
-private fun DialogActions(confirm: CouiDialogAction, dismiss: CouiDialogAction?, neutral: CouiDialogAction?,
+internal fun DialogActions(confirm: CouiDialogAction, dismiss: CouiDialogAction?, neutral: CouiDialogAction?,
     colors: CouiDialogColors, dark: Boolean, material: Boolean, onStacked: (Boolean) -> Unit) {
     val horizontal = listOfNotNull(dismiss, neutral, confirm)
     val vertical = listOfNotNull(neutral, confirm, dismiss)

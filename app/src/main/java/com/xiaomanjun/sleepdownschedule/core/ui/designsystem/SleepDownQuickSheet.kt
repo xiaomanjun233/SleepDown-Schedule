@@ -156,10 +156,11 @@ fun SleepDownPickerDialog(
     scrollableContent: Boolean = false,
     smoothContentResize: Boolean = false,
     bottomActions: (@Composable () -> Unit)? = null,
+    actions: List<LiquidAlertAction>? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val foreground = sleepDownPanelForegroundColor(config)
-    val body: @Composable () -> Unit = {
+    val body: @Composable (Boolean) -> Unit = { includeChrome ->
         val nativeStyle = LocalNativePickerStyle.current.takeIf { LocalNativeDialogSurface.current }
         val titleStyle = nativeStyle?.let { MaterialTheme.typography.titleLarge.copy(
             fontSize = it.titleSize, lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified,
@@ -169,15 +170,14 @@ fun SleepDownPickerDialog(
             androidx.compose.material3.LocalContentColor provides foreground
         ) {
             Column(
-                modifier = Modifier
-                    .padding(contentPadding)
+                modifier = if (includeChrome) Modifier.padding(contentPadding)
                     .padding(
                         top = SleepDownDesignTokens.QuickSheet.PickerVerticalInset -
                             SleepDownDesignTokens.CenteredDialog.AlertVerticalPadding
-                    ),
+                    ) else Modifier,
                 verticalArrangement = Arrangement.spacedBy(contentSpacing)
             ) {
-                Row(
+                if (includeChrome) Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -209,7 +209,7 @@ fun SleepDownPickerDialog(
                         titleAction?.invoke()
                     }
                 }
-                val bodyModifier = if (scrollableContent) {
+                val bodyModifier = if (scrollableContent && includeChrome) {
                     Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
                 } else Modifier
                 if (contentTransitionKey == null) {
@@ -226,16 +226,17 @@ fun SleepDownPickerDialog(
                         }
                     }
                 }
-                bottomActions?.invoke()
+                if (includeChrome) {
+                    bottomActions?.invoke()
+                    actions?.let { LiquidAlertActions(it, backdrop, config) }
+                }
             }
         }
     }
-    if (com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsEnabled.current) {
-        com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsContentDialog(
-            show, onDismissRequest, onDismissFinished, body)
-        return
-    }
-    if (NativePickerDialog(show, config, onDismissRequest, onDismissFinished, body)) return
+    if (LocalPickerDialogRenderer.current?.invoke(PickerDialogRequest(
+            show, title, appUsesDarkTheme(config), onDismissRequest, onDismissFinished,
+            titleAction, actions, bottomActions, scrollableContent, { body(false) })) == true) return
+    if (NativePickerDialog(show, config, onDismissRequest, onDismissFinished, { body(true) })) return
     val visuals = rememberCenteredDialogVisuals(
         backdrop = backdrop,
         config = config,
@@ -266,7 +267,7 @@ fun SleepDownPickerDialog(
             SleepDownDesignTokens.CenteredDialog.ContentPadding,
             SleepDownDesignTokens.CenteredDialog.AlertVerticalPadding
         ),
-        content = body
+        content = { body(true) }
     )
 }
 
@@ -725,7 +726,8 @@ internal fun QuickSheetLiquidAction(
             contentPadding = PaddingValues(horizontal = 14.dp),
             dark = appUsesDarkTheme(config),
             enabled = enabled,
-            primaryColor = if (primary) MaterialTheme.colorScheme.primary else Color.Unspecified
+            primaryColor = if (primary) MaterialTheme.colorScheme.primary else Color.Unspecified,
+            backdrop = backdrop
         )) {
             Text(label, color = when {
                 primary -> Color.White

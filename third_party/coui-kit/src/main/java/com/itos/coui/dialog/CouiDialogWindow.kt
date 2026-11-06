@@ -80,9 +80,14 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import com.itos.coui.R
 import com.itos.coui.backdrop.CouiBackdrop
+import com.itos.coui.backdrop.rememberCouiBackdrop
+import com.itos.coui.backdrop.couiBackdrop
+import com.itos.coui.backdrop.LocalCouiSurfaceBackdrop
+import androidx.compose.runtime.CompositionLocalProvider
 import com.itos.coui.effect.LocalCouiContourGlowEnabled
 import com.itos.coui.effect.rememberCouiMaterialEffect
 import com.itos.coui.menu.LocalCouiMenuBackdrop
+import com.itos.coui.menu.ProvideCouiMenuBackdrop
 import com.itos.coui.menu.rememberCouiKawaseBlur
 import com.itos.coui.shape.CouiShape
 import com.itos.coui.shape.resolveCouiCornerRadius
@@ -110,6 +115,7 @@ internal fun CouiDialogWindow(
     material: CouiDialogMaterial? = null,
     backdrop: CouiBackdrop? = null,
     visible: Boolean? = null,
+    onDismissFinished: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val hostView = LocalView.current
@@ -117,11 +123,14 @@ internal fun CouiDialogWindow(
     val scale = remember { Animatable(.8f) }
     val translation = remember { Animatable(0f, visibilityThreshold = .5f) }
     var retained by remember { mutableStateOf(false) }
+    var entranceRequested by remember { mutableStateOf(visible == true) }
     var motionStarted by remember { mutableStateOf(false) }
     var windowSize by remember { mutableStateOf(IntSize.Zero) }
+    val latestFinished = rememberUpdatedState(onDismissFinished)
     LaunchedEffect(visible) {
         if (visible == null) return@LaunchedEffect
         if (visible) {
+            entranceRequested = true
             val fresh = !retained
             retained = true
             // 窗口完成测量并提交初始画面后才计时，避免创建窗口消耗入场的前半段。
@@ -134,7 +143,10 @@ internal fun CouiDialogWindow(
             withFrameNanos { }
             motionStarted = true
         } else if (!motionStarted) {
+            val wasRetained = retained || entranceRequested
             retained = false
+            entranceRequested = false
+            if (wasRetained) latestFinished.value?.invoke()
             return@LaunchedEffect
         }
         coroutineScope {
@@ -161,6 +173,8 @@ internal fun CouiDialogWindow(
         if (!visible) {
             retained = false
             motionStarted = false
+            entranceRequested = false
+            latestFinished.value?.invoke()
         }
     }
     if (visible != null && !visible && !retained) return
@@ -266,32 +280,34 @@ internal fun CouiDialogWindow(
         val viewport = if (ownsImePosition) Modifier.fillMaxSize().windowInsetsPadding(
             WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
         else Modifier.widthIn(max = CouiDialogDefaults.maxWidth).fillMaxWidth()
-        BoxWithConstraints(viewport.onGloballyPositioned {
-            outerCoordinates = it
-        }
-            .pointerInput(properties.dismissOnClickOutside, touchExploration) {
-                if (properties.dismissOnClickOutside && !touchExploration) detectTapGestures { point ->
-                    val outer = outerCoordinates
-                    val card = cardCoordinates
-                    if (outer != null && card != null && outer.isAttached && card.isAttached &&
-                        !Rect(0f, 0f, card.size.width.toFloat(), card.size.height.toFloat())
-                            .contains(card.localPositionOf(outer, point))) dismiss.value()
+        ProvideCouiMenuBackdrop { windowSource ->
+            BoxWithConstraints(viewport.then(windowSource).onGloballyPositioned {
+                outerCoordinates = it
+            }
+                .pointerInput(properties.dismissOnClickOutside, touchExploration) {
+                    if (properties.dismissOnClickOutside && !touchExploration) detectTapGestures { point ->
+                        val outer = outerCoordinates
+                        val card = cardCoordinates
+                        if (outer != null && card != null && outer.isAttached && card.isAttached &&
+                            !Rect(0f, 0f, card.size.width.toFloat(), card.size.height.toFloat())
+                                .contains(card.localPositionOf(outer, point))) dismiss.value()
+                    }
+                }, contentAlignment = if (ownsImePosition && placement == CouiDialogPlacement.Bottom)
+                    Alignment.BottomCenter else Alignment.Center) {
+                val padding = if (placement == CouiDialogPlacement.Bottom) bottomPadding else 0.dp
+                val availableHeight = if (ownsImePosition)
+                    (this.maxHeight - with(density) { imeOffset.toDp() } - padding).coerceAtLeast(0.dp)
+                else maxCardHeight
+                val imeTranslation = if (placement == CouiDialogPlacement.Bottom) imeOffset else imeOffset / 2f
+                // maxWidth 包含左右留白；入场距离只取卡片外框高度，不取全屏窗口高度。
+                Box(Modifier.widthIn(max = CouiDialogDefaults.maxWidth).fillMaxWidth()
+                    .onGloballyPositioned { windowSize = it.size }
+                    .padding(horizontal = CouiDialogDefaults.horizontalMargin).padding(bottom = padding)) {
+                    DialogCard(modifier.fillMaxWidth().heightIn(max = minOf(maxCardHeight, availableHeight)),
+                        material, windowBackdrop, colors, shape, edge, dark, radiusPx, edgeWeight,
+                        frameScale, frameTranslation?.minus(imeTranslation), frameAlpha,
+                        with(density) { bottomPadding.toPx() }, { cardCoordinates = it }, content)
                 }
-            }, contentAlignment = if (ownsImePosition && placement == CouiDialogPlacement.Bottom)
-                Alignment.BottomCenter else Alignment.Center) {
-            val padding = if (placement == CouiDialogPlacement.Bottom) bottomPadding else 0.dp
-            val availableHeight = if (ownsImePosition)
-                (this.maxHeight - with(density) { imeOffset.toDp() } - padding).coerceAtLeast(0.dp)
-            else maxCardHeight
-            val imeTranslation = if (placement == CouiDialogPlacement.Bottom) imeOffset else imeOffset / 2f
-            // maxWidth 包含左右留白；入场距离只取卡片外框高度，不取全屏窗口高度。
-            Box(Modifier.widthIn(max = CouiDialogDefaults.maxWidth).fillMaxWidth()
-                .onGloballyPositioned { windowSize = it.size }
-                .padding(horizontal = CouiDialogDefaults.horizontalMargin).padding(bottom = padding)) {
-                DialogCard(modifier.fillMaxWidth().heightIn(max = minOf(maxCardHeight, availableHeight)),
-                    material, windowBackdrop, colors, shape, edge, dark, radiusPx, edgeWeight,
-                    frameScale, frameTranslation?.minus(imeTranslation), frameAlpha,
-                    with(density) { bottomPadding.toPx() }, { cardCoordinates = it }, content)
             }
         }
     }
@@ -325,37 +341,44 @@ private fun DialogCard(
     val recordingDensity = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val edgePaint = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
+    val surfaceBackdrop = rememberCouiBackdrop(diagnosticName = "dialog-surface")
+    SideEffect { surfaceBackdrop.setIsolateWhenIdle(false) }
     var coordinates: LayoutCoordinates? by remember { mutableStateOf(null, neverEqualPolicy()) }
     // 外层只记录到位后的锚点；动画仅作用于内层，采样显式应用同一变换的逆矩阵。
     Box(modifier.onGloballyPositioned { coordinates = it }) {
-    Box(Modifier.fillMaxWidth().graphicsLayer {
-        transformOrigin = TransformOrigin(0f, 0f)
-        scaleX = frameScale
-        scaleY = frameScale
-        translationX = size.width * (1f - frameScale) / 2f
-        translationY = size.height * (1f - frameScale) / 2f + (frameTranslationY ?: (size.height + bottomPaddingPx))
-        alpha = frameAlpha
-    }.onGloballyPositioned(onCardPositioned).clip(shape).drawBehind {
-        val sampleTranslation = Offset(size.width * (1f - frameScale) / 2f,
-            size.height * (1f - frameScale) / 2f + (frameTranslationY ?: (size.height + bottomPaddingPx)))
-        val target = coordinates
-        if (Build.VERSION.SDK_INT >= 33 && blur != null && materialEffect != null &&
-            target != null && target.isAttached && size.width > 0f && size.height > 0f) {
-            layer.renderEffect = materialEffect.asComposeRenderEffect()
-            layer.record(recordingDensity, layoutDirection,
-                IntSize(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))) {
-                blur.draw(this, target, frameScale, sampleTranslation)
-            }
-            drawLayer(layer)
-        } else drawRect(colors.surface)
-        // 原厂 RootLayout.onDraw 先画白光，再由 dispatchDraw 绘制文字与按钮。
-        if (Build.VERSION.SDK_INT >= 33) edge?.let { renderer ->
-            drawIntoCanvas { canvas ->
-                canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, edgePaint.apply { shader = renderer.shader(size, density, radiusPx, edgeWeight,
-                        Color.Transparent, if (dark) .03f else .4f, if (dark) .3f else .6f, 1f,
-                        (if (dark) 2f else 4f) * density) })
+        Box(Modifier.fillMaxWidth().graphicsLayer {
+            transformOrigin = TransformOrigin(0f, 0f)
+            scaleX = frameScale
+            scaleY = frameScale
+            translationX = size.width * (1f - frameScale) / 2f
+            translationY = size.height * (1f - frameScale) / 2f + (frameTranslationY ?: (size.height + bottomPaddingPx))
+            alpha = frameAlpha
+        }.onGloballyPositioned(onCardPositioned).clip(shape)) {
+            CompositionLocalProvider(LocalCouiSurfaceBackdrop provides surfaceBackdrop.takeIf { material != null }) {
+                Box(Modifier.matchParentSize().couiBackdrop(surfaceBackdrop).drawBehind {
+                    val sampleTranslation = Offset(size.width * (1f - frameScale) / 2f,
+                        size.height * (1f - frameScale) / 2f + (frameTranslationY ?: (size.height + bottomPaddingPx)))
+                    val target = coordinates
+                    if (Build.VERSION.SDK_INT >= 33 && blur != null && materialEffect != null &&
+                        target != null && target.isAttached && size.width > 0f && size.height > 0f) {
+                        layer.renderEffect = materialEffect.asComposeRenderEffect()
+                        layer.record(recordingDensity, layoutDirection,
+                            IntSize(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))) {
+                            blur.draw(this, target, frameScale, sampleTranslation)
+                        }
+                        drawLayer(layer)
+                    } else drawRect(colors.surface)
+                    // 原厂 RootLayout.onDraw 先画白光，再由 dispatchDraw 绘制文字与按钮。
+                    if (Build.VERSION.SDK_INT >= 33) edge?.let { renderer ->
+                        drawIntoCanvas { canvas ->
+                            canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, edgePaint.apply { shader = renderer.shader(size, density, radiusPx, edgeWeight,
+                                    Color.Transparent, if (dark) .03f else .4f, if (dark) .3f else .6f, 1f,
+                                    (if (dark) 2f else 4f) * density) })
+                        }
+                    }
+                })
+                content()
             }
         }
-    }, content = content)
     }
 }

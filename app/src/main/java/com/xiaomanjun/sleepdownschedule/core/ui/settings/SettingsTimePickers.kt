@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.settings
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
@@ -25,6 +28,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
@@ -80,7 +84,8 @@ fun SettingsDatePickerRow(
     onValueChange: (String) -> Unit,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    yearRange: IntRange = 2000..2100
 ) {
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     var showPicker by remember { mutableStateOf(false) }
@@ -100,27 +105,28 @@ fun SettingsDatePickerRow(
         onDismissRequest = { showPicker = false },
         backdrop = popupBackdrop,
         config = config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
+        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
+        actions = listOf(
+            LiquidAlertAction("取消",
+                LiquidAlertActionStyle.Cancel, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    showPicker = false
+                }),
+            LiquidAlertAction("确定",
+                LiquidAlertActionStyle.Primary, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    val maxDay = java.time.YearMonth.of(pickerYear, pickerMonth).lengthOfMonth()
+                    onValueChange(formatScheduleDate(LocalDate.of(pickerYear, pickerMonth, pickerDay.coerceAtMost(maxDay))))
+                    showPicker = false
+                })
+        )
     ) {
         SettingsDatePickerContent(
             year = pickerYear, month = pickerMonth, day = pickerDay,
             onYearChange = { pickerYear = it }, onMonthChange = { pickerMonth = it },
-            onDayChange = { pickerDay = it }
+            onDayChange = { pickerDay = it }, yearRange = yearRange
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)) {
-            QuickSheetLiquidAction(
-                "取消", true, popupBackdrop, config,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) { showPicker = false }
-            QuickSheetLiquidAction(
-                "确定", true, popupBackdrop, config, primary = true,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
-                val maxDay = java.time.YearMonth.of(pickerYear, pickerMonth).lengthOfMonth()
-                onValueChange(formatScheduleDate(LocalDate.of(pickerYear, pickerMonth, pickerDay.coerceAtMost(maxDay))))
-                showPicker = false
-            }
-        }
+
     }
 }
 
@@ -136,9 +142,21 @@ internal fun SettingsDatePickerContent(
     onYearChange: (Int) -> Unit,
     onMonthChange: (Int) -> Unit,
     onDayChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    yearRange: IntRange = 2000..2100
 ) {
     val maxDay = java.time.YearMonth.of(year, month).lengthOfMonth()
+    if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
+        com.itos.coui.picker.CalendarPicker(modifier = modifier.fillMaxWidth(),
+            value = LocalDate.of(year, month, day.coerceIn(1, maxDay)),
+            minDate = LocalDate.of(yearRange.first, 1, 1), maxDate = LocalDate.of(yearRange.last, 12, 31),
+            dark = MaterialTheme.colorScheme.background.luminance() < 0.5f,
+            accent = MaterialTheme.colorScheme.primary,
+            onValueChange = { date ->
+                onYearChange(date.year); onMonthChange(date.monthValue); onDayChange(date.dayOfMonth)
+            })
+        return
+    }
     LaunchedEffect(maxDay) {
         if (day > maxDay) onDayChange(maxDay)
     }
@@ -163,7 +181,7 @@ internal fun SettingsDatePickerContent(
             SettingsNumberPicker(
                 value = year,
                 onValueChange = onYearChange,
-                range = 2000..2100,
+                range = yearRange,
                 visibleItemCount = 3,
                 label = { "${it}年" },
                 textStyle = pickerTextStyle,
@@ -222,28 +240,26 @@ fun SettingsTimePickerRow(
         onDismissRequest = { showPicker = false },
         backdrop = popupBackdrop,
         config = config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
+        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
+        actions = listOf(
+            LiquidAlertAction("取消",
+                LiquidAlertActionStyle.Cancel, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    showPicker = false
+                }),
+            LiquidAlertAction("确定",
+                LiquidAlertActionStyle.Primary, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    onValueChange("%02d:%02d".format(selectedMinute / 60, selectedMinute % 60))
+                    showPicker = false
+                })
+        )
     ) {
             SettingsTimePickerContent(selectedMinute, safeMinimum..safeMaximum) {
                 pickerHour = it / 60
                 pickerMinute = it % 60
             }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
-            ) {
-                QuickSheetLiquidAction(
-                    "取消", true, popupBackdrop, config,
-                    modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-                ) { showPicker = false }
-                QuickSheetLiquidAction(
-                    "确定", true, popupBackdrop, config, primary = true,
-                    modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-                ) {
-                    onValueChange("%02d:%02d".format(selectedMinute / 60, selectedMinute % 60))
-                    showPicker = false
-                }
-            }
+
     }
 }
 
@@ -274,25 +290,23 @@ internal fun SettingsMinutePickerRow(
         onDismissRequest = { showPicker = false },
         backdrop = popupBackdrop,
         config = config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
+        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
+        actions = listOf(
+            LiquidAlertAction("取消",
+                LiquidAlertActionStyle.Cancel, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    showPicker = false
+                }),
+            LiquidAlertAction("确定",
+                LiquidAlertActionStyle.Primary, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    onValueChange(pickerValue)
+                    showPicker = false
+                })
+        )
     ) {
         SettingsMinutePickerContent(pickerValue, { pickerValue = it }, range)
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
-        ) {
-            QuickSheetLiquidAction(
-                "取消", true, popupBackdrop, config,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) { showPicker = false }
-            QuickSheetLiquidAction(
-                "确定", true, popupBackdrop, config, primary = true,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
-                onValueChange(pickerValue)
-                showPicker = false
-            }
-        }
+
     }
 }
 

@@ -59,6 +59,7 @@ import java.lang.reflect.Proxy
 /** Native COUI owns the window, surface, scrolling message, button layout and touch feedback. */
 @Composable
 internal fun ColorOsAlertDialog(request: NativeAlertRequest): Boolean {
+    if (request.isSelector) return false
     val native = rememberNativeContext(request.dark) ?: return false
     val source = native.first
     val context = native.second
@@ -425,10 +426,11 @@ private class NativeFormDismissGuard(dialog: AndroidDialog, source: ColorOsNativ
 
 @Composable
 internal fun ColorOsNameDialog(title: String, initialName: String, dark: Boolean, maxLength: Int?,
-    onDismiss: () -> Unit, onConfirm: (String) -> Unit): Boolean {
+    onDismiss: () -> Unit, onConfirm: (String) -> Unit, onDraftChange: (String) -> Unit): Boolean {
     val native = rememberNativeContext(dark) ?: return false
-    var value by remember(initialName) { mutableStateOf(initialName) }
-    val edit = remember(native, initialName, maxLength, dark) {
+    var value by remember { mutableStateOf(initialName) }
+    val draftChange = rememberUpdatedState(onDraftChange)
+    val edit = remember(native, maxLength, dark) {
         ColorOsNativeUi.prepare("create a native schedule name field") {
             native.first.updateTheme(native.second, dark)
             (native.first.load("com.coui.appcompat.edittext.COUIEditText").getConstructor(Context::class.java)
@@ -448,7 +450,10 @@ internal fun ColorOsNameDialog(title: String, initialName: String, dark: Boolean
             val watcher = object : android.text.TextWatcher {
                 override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
                 override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                    if (s?.toString() != current.value) value = s?.toString().orEmpty()
+                    if (s?.toString() != current.value) {
+                        value = s?.toString().orEmpty()
+                        draftChange.value(value)
+                    }
                 }
                 override fun afterTextChanged(s: android.text.Editable?) = Unit
             }

@@ -4,7 +4,6 @@ import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 
-import com.xiaomanjun.sleepdownschedule.feature.agent.*
 
 import android.app.Notification
 import android.app.NotificationChannel

@@ -41,7 +41,8 @@ fun LiquidOptionTabs(
     if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeSegmentRenderer.current?.invoke(
             com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSegmentRequest(
                 labels, selectedIndex, onSelected, Modifier.width(width),
-                dark = if (followAppTheme) appUsesDarkTheme(config) else !glassUsesLightStyle(config)
+                dark = if (followAppTheme) appUsesDarkTheme(config) else !glassUsesLightStyle(config),
+                backdrop = backdrop
             )) == true) return
     if (backdrop != null) {
         val tabContentColor = if (followAppTheme) {

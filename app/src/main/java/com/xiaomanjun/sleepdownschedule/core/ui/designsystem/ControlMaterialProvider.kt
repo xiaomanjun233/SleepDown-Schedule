@@ -12,6 +12,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialContro
 internal data class ControlMaterialRenderers(
     val home: HomeMaterialControls = object : HomeMaterialControls {},
     val alert: (@Composable (NativeAlertRequest) -> Boolean)? = null,
+    val pickerDialog: (@Composable (PickerDialogRequest) -> Boolean)? = null,
     val button: (@Composable (NativeCapsuleButtonRequest, @Composable RowScope.() -> Unit) -> Boolean)? = null,
     val followLight: (@Composable (NativeFollowLightRequest) -> Boolean)? = null,
     val courseCard: (@Composable (NativeCourseCardRequest, @Composable () -> Unit) -> Boolean)? = null,
@@ -46,6 +47,7 @@ internal fun ProvideControlMaterials(
     CompositionLocalProvider(
         LocalHomeMaterialControls provides renderers.home,
         LocalNativeAlertRenderer provides renderers.alert,
+        LocalPickerDialogRenderer provides renderers.pickerDialog,
         LocalNativeCapsuleButtonRenderer provides renderers.button,
         LocalNativeFollowLightRenderer provides renderers.followLight,
         LocalNativeCourseCardMode provides courseCardMode,

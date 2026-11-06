@@ -33,7 +33,8 @@ internal object ColorOsHomeMaterialControls : HomeMaterialControls {
 
     @Composable
     override fun NameDialog(title: String, initialName: String, dark: Boolean, maxLength: Int?,
-        onDismiss: () -> Unit, onConfirm: (String) -> Unit) = ColorOsNameDialog(title, initialName, dark, maxLength, onDismiss, onConfirm)
+        onDismiss: () -> Unit, onConfirm: (String) -> Unit, onDraftChange: (String) -> Unit) =
+        ColorOsNameDialog(title, initialName, dark, maxLength, onDismiss, onConfirm, onDraftChange)
 
     @Composable
     override fun ShortcutMenu(session: Any, bounds: Rect, dark: Boolean, actions: List<AddMenuAction>,

@@ -6,6 +6,11 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ControlMaterialRend
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCapsuleButtonRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSliderRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSwitchRequest
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeAlertRequest
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSegmentRequest
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.PickerDialogRequest
+import com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialControls
+import androidx.compose.runtime.remember
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ProvideControlMaterials
 
 private val ColorOsRenderers = ControlMaterialRenderers(
@@ -32,6 +37,27 @@ internal fun ProvideColorOsMaterials(
     couiControlsEnabled: Boolean = false,
     content: @Composable () -> Unit,
 ) {
+    val baseHome = if (enabled) ColorOsHomeMaterialControls else ControlMaterialRenderers.LiquidGlass.home
+    val homeControls = remember(baseHome, couiControlsEnabled, enabled) {
+        if (!couiControlsEnabled) baseHome else object : HomeMaterialControls by baseHome {
+            @Composable override fun NameDialog(title: String, initialName: String, dark: Boolean, maxLength: Int?,
+                onDismiss: () -> Unit, onConfirm: (String) -> Unit, onDraftChange: (String) -> Unit): Boolean =
+                CouiNameDialog(title, initialName, dark, maxLength, onDismiss, onConfirm, onDraftChange) ||
+                    (enabled && ColorOsNameDialog(title, initialName, dark, maxLength, onDismiss, onConfirm, onDraftChange))
+        }
+    }
+    val alertRenderer: (@Composable (NativeAlertRequest) -> Boolean)? = when {
+        couiControlsEnabled -> { request -> CouiAlertDialog(request) || (enabled && ColorOsAlertDialog(request)) }
+        enabled -> { request -> ColorOsAlertDialog(request) }
+        else -> null
+    }
+    val pickerRenderer: (@Composable (PickerDialogRequest) -> Boolean)? =
+        if (couiControlsEnabled) { request -> CouiPickerDialog(request) } else null
+    val segmentRenderer: (@Composable (NativeSegmentRequest) -> Boolean)? = when {
+        couiControlsEnabled -> { request -> CouiSegments(request) || (enabled && ColorOsSegments(request)) }
+        enabled -> { request -> ColorOsSegments(request) }
+        else -> null
+    }
     val buttonRenderer: (@Composable (NativeCapsuleButtonRequest, @Composable RowScope.() -> Unit) -> Boolean)? =
         when {
             couiControlsEnabled -> { request, buttonContent ->
@@ -57,6 +83,7 @@ internal fun ProvideColorOsMaterials(
     }
     val renderers = if (enabled) {
         ColorOsRenderers.copy(
+            home = homeControls, alert = alertRenderer, pickerDialog = pickerRenderer, segments = segmentRenderer,
             button = buttonRenderer,
             slider = sliderRenderer,
             switch = switchRenderer,
@@ -65,6 +92,7 @@ internal fun ProvideColorOsMaterials(
         // Liquid glass still uses the native outer stroke on capable devices; every other native
         // capability stays disabled.
         ControlMaterialRenderers.LiquidGlass.copy(
+            home = homeControls, alert = alertRenderer, pickerDialog = pickerRenderer, segments = segmentRenderer,
             button = buttonRenderer,
             slider = sliderRenderer,
             switch = switchRenderer,

@@ -53,29 +53,26 @@ internal fun AutoRefreshReviewHost(config: ScheduleConfigEntity, backdrop: Backd
             title = "课表有 ${review.count} 处不同",
             onDismissRequest = { if (!saving) deferredId = review.id },
             backdrop = backdrop, config = config,
-            bottomActions = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    error?.let { Text(it, color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall) }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        QuickSheetLiquidAction("稍后", !saving, backdrop, config, Modifier.weight(1f),
-                            height = SleepDownDesignTokens.CenteredDialog.ActionHeight) { deferredId = review.id }
-                        QuickSheetLiquidAction(if (saving) "保存中…" else "确认选择", !saving, backdrop, config,
-                            Modifier.weight(1f), primary = true,
-                            height = SleepDownDesignTokens.CenteredDialog.ActionHeight) {
-                            saving = true
-                            error = null
-                            scope.launch {
-                                try {
-                                    confirmReview(context, review.id, selected, useTerm)
-                                } catch (cancelled: CancellationException) { throw cancelled }
-                                catch (failure: Exception) { error = failure.message ?: "保存失败，请重试" }
-                                finally { saving = false }
-                            }
+            actions = listOf(
+                LiquidAlertAction("稍后",
+                    LiquidAlertActionStyle.Secondary, enabled = !saving,
+                    dismissOnClick = false, onClick = action@{
+                        deferredId = review.id
+                    }),
+                LiquidAlertAction(if (saving) "保存中…" else "确认选择",
+                    LiquidAlertActionStyle.Primary, enabled = !saving,
+                    dismissOnClick = false, onClick = action@{
+                        saving = true
+                        error = null
+                        scope.launch {
+                            try {
+                                confirmReview(context, review.id, selected, useTerm)
+                            } catch (cancelled: CancellationException) { throw cancelled }
+                            catch (failure: Exception) { error = failure.message ?: "保存失败，请重试" }
+                            finally { saving = false }
                         }
-                    }
-                }
-            }
+                    })
+            )
         ) {
             val scheduleName = schedules.firstOrNull { it.id == review.scheduleId }?.name ?: "已绑定课表"
             Text("$scheduleName · ${review.schoolName}\n更新尚未保存。稍后可在自动刷新设置中继续核对。",

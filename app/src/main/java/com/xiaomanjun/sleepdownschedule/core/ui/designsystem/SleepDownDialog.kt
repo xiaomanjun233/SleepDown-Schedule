@@ -550,14 +550,9 @@ fun LiquidAlertDialog(
     isSelector: Boolean = false,
     messageContent: (@Composable () -> Unit)? = null
 ) {
-    if (com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsEnabled.current) {
-        com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsAlert(title, message, actions,
-            onDismissRequest, scrollableMessageContent, messageMaxHeight, messageContent)
-        return
-    }
-    if (!isSelector && LocalNativeAlertRenderer.current?.invoke(NativeAlertRequest(
+    if (LocalNativeAlertRenderer.current?.invoke(NativeAlertRequest(
             title, message, actions, appUsesDarkTheme(config), onDismissRequest,
-            messageMaxHeight, scrollableMessageContent, messageContent
+            messageMaxHeight, scrollableMessageContent, messageContent, isSelector = isSelector
         )) == true) return
     val completeUnderlayBackdrop = LocalCenteredDialogSceneBackdrop.current ?: backdrop
     var visible by remember { mutableStateOf(true) }
@@ -632,7 +627,8 @@ private fun LiquidAlertActionButton(
     if (LocalNativeCapsuleButtonRenderer.current?.invoke(NativeCapsuleButtonRequest(
             action.onClick, modifier, SleepDownDesignTokens.CenteredDialog.ActionHeight,
             PaddingValues(horizontal = 16.dp), appUsesDarkTheme(config), action.enabled,
-            if (action.style == LiquidAlertActionStyle.Primary) MaterialTheme.colorScheme.primary else Color.Unspecified
+            if (action.style == LiquidAlertActionStyle.Primary) MaterialTheme.colorScheme.primary else Color.Unspecified,
+            backdrop = backdrop
         )) {
             Text(action.label, color = when (action.style) {
                 LiquidAlertActionStyle.Primary -> Color.White
@@ -778,7 +774,7 @@ fun DialogLiquidButton(
                 destructiveFilled -> Color(0xFFFF453A)
                 role == DialogButtonRole.Confirm -> MaterialTheme.colorScheme.primary
                 else -> Color.Unspecified
-            }
+            }, backdrop = backdrop
         )) {
             androidx.compose.runtime.CompositionLocalProvider(
                 androidx.compose.material3.LocalContentColor provides nativeTextColor

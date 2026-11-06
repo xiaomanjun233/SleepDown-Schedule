@@ -197,71 +197,74 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
         title = "助手记忆",
         onDismissRequest = { showMemoryEditor = false },
         backdrop = popupBackdrop,
-        config = state.config
-    ) {
-            Text(
-                "这里保存的是助手可跨天使用的简短长期记忆；你可以直接修改；关闭记忆后内容会保留，但不会再注入对话或由助手更新",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            MaterialOutlinedTextField(
-                value = memoryDraft,
-                onValueChange = { memoryDraft = it.take(1200) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 180.dp, max = 300.dp),
-                placeholder = {
-                    Text("例如：默认只修改本周；跨校区课程之间预留 30 分钟")
-                },
-                minLines = 6,
-                maxLines = 10,
-                shape = RoundedRectangle(24.dp)
-            )
-            Text(
-                "${memoryDraft.length}/1200",
-                modifier = Modifier.align(Alignment.End),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+        config = state.config,
+        bottomActions = {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
             ) {
-                QuickSheetLiquidAction(
-                    label = "清空",
-                    enabled = true,
-                    backdrop = popupBackdrop,
-                    config = state.config,
-                    destructive = true,
-                    modifier = Modifier.weight(1f),
-                    height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-                ) {
-                    memoryDraft = ""
-                }
-                QuickSheetLiquidAction(
-                    label = "取消",
-                    enabled = true,
-                    backdrop = popupBackdrop,
-                    config = state.config,
-                    modifier = Modifier.weight(1f),
-                    height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-                ) {
-                    showMemoryEditor = false
-                }
-                QuickSheetLiquidAction(
-                    label = "保存",
-                    enabled = true,
-                    backdrop = popupBackdrop,
-                    config = state.config,
-                    primary = true,
-                    modifier = Modifier.weight(1f),
-                    height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-                ) {
-                    DayAgentPreferences.saveMemory(context, memoryDraft)
-                    memoryText = DayAgentPreferences.memory(context)
-                    memoryDraft = memoryText
-                    showMemoryEditor = false
-                }
+            QuickSheetLiquidAction(
+                label = "清空",
+                enabled = true,
+                backdrop = popupBackdrop,
+                config = state.config,
+                destructive = true,
+                modifier = Modifier.weight(1f),
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                memoryDraft = ""
             }
+            QuickSheetLiquidAction(
+                label = "取消",
+                enabled = true,
+                backdrop = popupBackdrop,
+                config = state.config,
+                modifier = Modifier.weight(1f),
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                showMemoryEditor = false
+            }
+            QuickSheetLiquidAction(
+                label = "保存",
+                enabled = true,
+                backdrop = popupBackdrop,
+                config = state.config,
+                primary = true,
+                modifier = Modifier.weight(1f),
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                DayAgentPreferences.saveMemory(context, memoryDraft)
+                memoryText = DayAgentPreferences.memory(context)
+                memoryDraft = memoryText
+                showMemoryEditor = false
+            }
+        }
+    }
+) {
+        Text(
+            "这里保存的是助手可跨天使用的简短长期记忆；你可以直接修改；关闭记忆后内容会保留，但不会再注入对话或由助手更新",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        MaterialOutlinedTextField(
+            value = memoryDraft,
+            onValueChange = { memoryDraft = it.take(1200) },
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = 180.dp, max = 300.dp),
+            placeholder = {
+                Text("例如：默认只修改本周；跨校区课程之间预留 30 分钟")
+            },
+            minLines = 6,
+            maxLines = 10,
+            shape = RoundedRectangle(24.dp)
+        )
+        Text(
+            "${memoryDraft.length}/1200",
+            modifier = Modifier.align(Alignment.End),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
     }
 }

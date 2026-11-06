@@ -600,11 +600,14 @@ private fun QuickScheduleSettingsSheetSession(
         LaunchedEffect(maxDay) {
             if (dateDay > maxDay) dateDay = maxDay
         }
-        Row(
+        if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
+            com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDatePickerContent(
+                dateYear, dateMonth, dateDay, { dateYear = it }, { dateMonth = it }, { dateDay = it })
+        } else Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            top.yukonga.miuix.kmp.basic.NumberPicker(
+            com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker(
                 value = dateYear,
                 onValueChange = { dateYear = it },
                 range = 2000..2100,
@@ -614,7 +617,7 @@ private fun QuickScheduleSettingsSheetSession(
                     else top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1,
                 modifier = Modifier.weight(1.25f)
             )
-            top.yukonga.miuix.kmp.basic.NumberPicker(
+            com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker(
                 value = dateMonth,
                 onValueChange = { dateMonth = it },
                 range = 1..12,
@@ -624,7 +627,7 @@ private fun QuickScheduleSettingsSheetSession(
                     else top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1,
                 modifier = Modifier.weight(1f)
             )
-            top.yukonga.miuix.kmp.basic.NumberPicker(
+            com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker(
                 value = dateDay.coerceAtMost(maxDay),
                 onValueChange = { dateDay = it },
                 range = 1..maxDay,

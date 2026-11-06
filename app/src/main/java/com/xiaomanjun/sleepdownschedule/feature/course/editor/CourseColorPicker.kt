@@ -68,7 +68,36 @@ internal fun CourseColorPicker(
         renderInRootScaffold = renderInRootScaffold,
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
         contentSpacing = 14.dp,
-        blurRadius = 10.dp
+        blurRadius = 10.dp,
+        bottomActions = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
+            ) {
+                QuickSheetLiquidAction(
+                    label = "取消",
+                    enabled = true,
+                    backdrop = backdrop,
+                    config = config,
+                    modifier = Modifier.weight(1f),
+                    height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
+                    onClick = onDismissRequest
+                )
+                QuickSheetLiquidAction(
+                    label = "确定",
+                    enabled = true,
+                    backdrop = backdrop,
+                    config = config,
+                    primary = true,
+                    modifier = Modifier.weight(1f),
+                    height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
+                    onClick = {
+                        onColorSelected(pendingColor)
+                        onDismissRequest()
+                    }
+                )
+            }
+        }
     ) {
         CompositionLocalProvider(LocalContentColor provides foreground) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -127,33 +156,7 @@ internal fun CourseColorPicker(
                         indicatorRadius = 10.dp
                     )
                 }
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
-                ) {
-                    QuickSheetLiquidAction(
-                        label = "取消",
-                        enabled = true,
-                        backdrop = backdrop,
-                        config = config,
-                        modifier = Modifier.weight(1f),
-                        height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
-                        onClick = onDismissRequest
-                    )
-                    QuickSheetLiquidAction(
-                        label = "确定",
-                        enabled = true,
-                        backdrop = backdrop,
-                        config = config,
-                        primary = true,
-                        modifier = Modifier.weight(1f),
-                        height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
-                        onClick = {
-                            onColorSelected(pendingColor)
-                            onDismissRequest()
-                        }
-                    )
-                }
+
             }
         }
     }

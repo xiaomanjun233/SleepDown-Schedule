@@ -52,6 +52,14 @@ fun SettingsTextFieldRow(
     // 数字列不占用长文本输入宽度，避免二级页标题在窄窗口和大字体下换行。
     val fieldWidth = if (keyboardType == KeyboardType.Number) 64.dp else 170.dp
     if (isTimePicker || isDatePicker) {
+        val dialogConfig = LocalSettingsDialogConfig.current
+        if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls && dialogConfig != null) {
+            if (isDatePicker) SettingsDatePickerRow(title, value, onValueChange,
+                LocalSettingsPopupBackdrop.current, dialogConfig, enabled, yearRange = 1900..2100)
+            else SettingsTimePickerRow(title, value, onValueChange,
+                LocalSettingsPopupBackdrop.current, dialogConfig, enabled)
+            return
+        }
         SettingsPickerValueRow(
             title = title,
             value = value,

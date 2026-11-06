@@ -33,7 +33,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsPickerValueRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTimePickerContent
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsToggleRow
 import java.time.LocalTime
-import top.yukonga.miuix.kmp.basic.NumberPicker
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker as NumberPicker
 import top.yukonga.miuix.kmp.basic.NumberPickerDefaults
 
 private enum class LessonClockField(val title: String) {

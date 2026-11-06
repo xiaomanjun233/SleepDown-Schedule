@@ -35,7 +35,8 @@ internal interface HomeMaterialControls {
 
     @Composable
     fun NameDialog(title: String, initialName: String, dark: Boolean, maxLength: Int?,
-        onDismiss: () -> Unit, onConfirm: (String) -> Unit): Boolean = false
+        onDismiss: () -> Unit, onConfirm: (String) -> Unit,
+        onDraftChange: (String) -> Unit = {}): Boolean = false
 
     @Composable
     fun ShortcutMenu(session: Any, bounds: Rect, dark: Boolean, actions: List<AddMenuAction>,

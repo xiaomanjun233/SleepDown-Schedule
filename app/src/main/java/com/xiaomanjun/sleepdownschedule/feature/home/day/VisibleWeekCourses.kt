@@ -8,7 +8,6 @@ import androidx.compose.runtime.setValue
 import androidx.core.graphics.get
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.domain.schedule.isHiddenByPeriodAlignment
 import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
 import com.xiaomanjun.sleepdownschedule.parityMatches
 import com.xiaomanjun.sleepdownschedule.scheduleWeekStartDate

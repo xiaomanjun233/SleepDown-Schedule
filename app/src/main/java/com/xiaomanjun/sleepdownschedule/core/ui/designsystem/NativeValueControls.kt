@@ -28,7 +28,8 @@ internal data class NativeSegmentRequest(
     // Composite navigation owns its shell, light and deformation; this draws tabs/indicator.
     val containerSurfaceEnabled: Boolean = true,
     // Navigation must not disable the native rail by switching pages halfway through a drag.
-    val commitOnRelease: Boolean = false
+    val commitOnRelease: Boolean = false,
+    val backdrop: com.kyant.backdrop.Backdrop? = null
 )
 
 internal val LocalNativeSliderRenderer = compositionLocalOf<(@Composable (NativeSliderRequest) -> Boolean)?> { null }

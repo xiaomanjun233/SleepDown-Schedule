@@ -20,7 +20,8 @@ internal data class NativeAlertRequest(
     val deferDismissUntilHost: Boolean = false,
     val onDismissFinished: (() -> Unit)? = null,
     val contentPadding: PaddingValues = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-    val windowWidth: Dp? = null
+    val windowWidth: Dp? = null,
+    val isSelector: Boolean = false
 )
 
 internal val LocalNativeAlertRenderer = compositionLocalOf<(@Composable (NativeAlertRequest) -> Boolean)?> { null }

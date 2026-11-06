@@ -1498,7 +1498,16 @@ internal fun EduBridgeInteractionDialog(
                 },
                 backdrop = backdrop,
                 config = config,
-                contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
+                contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
+                actions = listOf(
+                    LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, dismissOnClick = false) {
+                        closeThen(::cancel)
+                    },
+                    LiquidAlertAction("完成", LiquidAlertActionStyle.Primary,
+                        enabled = selectedIndex in request.options.indices, dismissOnClick = false) {
+                        closeThen(::submit)
+                    }
+                )
             ) {
                 Text(
                     "请选择一项",
@@ -1507,7 +1516,7 @@ internal fun EduBridgeInteractionDialog(
                     style = MaterialTheme.typography.bodySmall,
                     textAlign = TextAlign.Center
                 )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
+                com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker(
                     value = selectedIndex,
                     onValueChange = { selectedIndex = it },
                     range = request.options.indices,
@@ -1523,28 +1532,7 @@ internal fun EduBridgeInteractionDialog(
                         .fillMaxWidth()
                         .height(138.dp)
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
-                ) {
-                    QuickSheetLiquidAction(
-                        label = "取消",
-                        enabled = true,
-                        backdrop = backdrop,
-                        config = config,
-                        modifier = Modifier.weight(1f),
-                        height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-                    ) { closeThen(::cancel) }
-                    QuickSheetLiquidAction(
-                        label = "完成",
-                        enabled = selectedIndex in request.options.indices,
-                        backdrop = backdrop,
-                        config = config,
-                        modifier = Modifier.weight(1f),
-                        primary = true,
-                        height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-                    ) { closeThen(::submit) }
-                }
+
             }
         }
     }

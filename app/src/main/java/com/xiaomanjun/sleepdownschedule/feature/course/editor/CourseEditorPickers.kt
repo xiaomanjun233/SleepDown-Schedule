@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.editor
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+
 import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeCoursePeriodTimes
 
 import androidx.compose.animation.animateColorAsState
@@ -496,7 +499,60 @@ internal fun CourseEditorPickerOverlay(
         config = config,
         renderInRootScaffold = renderInRootScaffold,
         contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
-        blurRadius = 14.dp
+        blurRadius = 14.dp,
+        actions = listOf(
+            LiquidAlertAction("取消",
+                LiquidAlertActionStyle.Cancel, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    onDismiss()
+                }),
+            LiquidAlertAction("确定",
+                LiquidAlertActionStyle.Primary, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    when (request) {
+                        is CourseEditorPickerRequest.Wheel -> request.onConfirm(
+                            startIndex,
+                            endIndex.takeIf { request.endIndex != null }
+                        )
+                        is CourseEditorPickerRequest.Grid -> request.onConfirm(selectedIndices)
+                        is CourseEditorPickerRequest.Period -> {
+                            if (timeMode == CourseEditorTimeMode.Lessons) {
+                                val times = try { lessonClock.times(request.periodIndices, request.availablePeriodIndices) }
+                                catch (error: IllegalArgumentException) {
+                                    timeError = error.message
+                                    return@action
+                                }
+                                customCourseStartError(times.first().start.toString(), encodeCoursePeriodTimes(times), request.minimumStartTime)?.let {
+                                    timeError = it
+                                    return@action
+                                }
+                                request.onConfirmLessonTimes(times)
+                            } else if (timeMode == CourseEditorTimeMode.Range) {
+                                val start = LocalTime.of(startHour, startMinute)
+                                val end = LocalTime.of(endHour, endMinute)
+                                customCourseStartError(start.toString(), null, request.minimumStartTime)?.let {
+                                    timeError = it
+                                    return@action
+                                }
+                                if (!end.isAfter(start)) {
+                                    timeError = "结束时间必须晚于开始时间"
+                                    return@action
+                                }
+                                if (start != initialCustomStart || end != initialCustomEnd || request.customStartTime == null || !request.customPeriodTimes.isNullOrBlank()) {
+                                    request.onConfirmCustomTime(start.toString(), end.toString())
+                                }
+                            } else {
+                                // Merely opening/confirming a matching imported clock must not
+                                // erase its original campus/building time or source numbering.
+                                if (!request.customTimeMatchesPeriods || startIndex != request.startIndex || endIndex != request.endIndex) {
+                                    request.onConfirmPeriods(startIndex, endIndex)
+                                }
+                            }
+                        }
+                    }
+                    onDismiss()
+                })
+        )
     ) {
         CompositionLocalProvider(LocalContentColor provides pickerContentColor) {
         Column(
@@ -537,7 +593,7 @@ internal fun CourseEditorPickerOverlay(
                         disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
                     )
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)) {
-                        top.yukonga.miuix.kmp.basic.NumberPicker(
+                        com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker(
                             value = startIndex,
                             onValueChange = {
                                 startIndex = it
@@ -551,7 +607,7 @@ internal fun CourseEditorPickerOverlay(
                             modifier = Modifier.weight(1f)
                         )
                         if (wheelRequest.endIndex != null) {
-                            top.yukonga.miuix.kmp.basic.NumberPicker(
+                            com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker(
                                 value = endIndex,
                                 onValueChange = { endIndex = it },
                                 range = startIndex..wheelRequest.labels.lastIndex,
@@ -603,7 +659,7 @@ internal fun CourseEditorPickerOverlay(
                                 Triple(endHour, 0..23, { value: Int -> endHour = value; timeError = null }),
                                 Triple(endMinute, 0..59, { value: Int -> endMinute = value; timeError = null })
                             ).forEachIndexed { index, (value, range, onValueChange) ->
-                                top.yukonga.miuix.kmp.basic.NumberPicker(
+                                com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker(
                                     value = value,
                                     onValueChange = onValueChange,
                                     range = range,
@@ -622,7 +678,7 @@ internal fun CourseEditorPickerOverlay(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)
                         ) {
-                            top.yukonga.miuix.kmp.basic.NumberPicker(
+                            com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker(
                                 value = startIndex,
                                 onValueChange = {
                                     startIndex = it
@@ -635,7 +691,7 @@ internal fun CourseEditorPickerOverlay(
                                 textStyle = pickerTextStyle,
                                 modifier = Modifier.weight(1f)
                             )
-                            top.yukonga.miuix.kmp.basic.NumberPicker(
+                            com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker(
                                 value = endIndex,
                                 onValueChange = { endIndex = it },
                                 range = startIndex..(periodBounds?.endIndexUpperBound
@@ -669,56 +725,7 @@ internal fun CourseEditorPickerOverlay(
                 )
             }
             }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
-            ) {
-                QuickSheetLiquidAction("取消", true, backdrop, config, modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight) { onDismiss() }
-                QuickSheetLiquidAction("确定", true, backdrop, config, primary = true, modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight) {
-                    when (request) {
-                        is CourseEditorPickerRequest.Wheel -> request.onConfirm(
-                            startIndex,
-                            endIndex.takeIf { request.endIndex != null }
-                        )
-                        is CourseEditorPickerRequest.Grid -> request.onConfirm(selectedIndices)
-                        is CourseEditorPickerRequest.Period -> {
-                            if (timeMode == CourseEditorTimeMode.Lessons) {
-                                val times = try { lessonClock.times(request.periodIndices, request.availablePeriodIndices) }
-                                catch (error: IllegalArgumentException) {
-                                    timeError = error.message
-                                    return@QuickSheetLiquidAction
-                                }
-                                customCourseStartError(times.first().start.toString(), encodeCoursePeriodTimes(times), request.minimumStartTime)?.let {
-                                    timeError = it
-                                    return@QuickSheetLiquidAction
-                                }
-                                request.onConfirmLessonTimes(times)
-                            } else if (timeMode == CourseEditorTimeMode.Range) {
-                                val start = LocalTime.of(startHour, startMinute)
-                                val end = LocalTime.of(endHour, endMinute)
-                                customCourseStartError(start.toString(), null, request.minimumStartTime)?.let {
-                                    timeError = it
-                                    return@QuickSheetLiquidAction
-                                }
-                                if (!end.isAfter(start)) {
-                                    timeError = "结束时间必须晚于开始时间"
-                                    return@QuickSheetLiquidAction
-                                }
-                                if (start != initialCustomStart || end != initialCustomEnd || request.customStartTime == null || !request.customPeriodTimes.isNullOrBlank()) {
-                                    request.onConfirmCustomTime(start.toString(), end.toString())
-                                }
-                            } else {
-                                // Merely opening/confirming a matching imported clock must not
-                                // erase its original campus/building time or source numbering.
-                                if (!request.customTimeMatchesPeriods || startIndex != request.startIndex || endIndex != request.endIndex) {
-                                    request.onConfirmPeriods(startIndex, endIndex)
-                                }
-                            }
-                        }
-                    }
-                    onDismiss()
-                }
-            }
+
         }
         }
     }

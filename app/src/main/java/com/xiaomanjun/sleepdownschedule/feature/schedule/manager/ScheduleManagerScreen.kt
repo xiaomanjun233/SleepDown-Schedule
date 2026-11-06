@@ -215,9 +215,10 @@ fun ScheduleNameDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    if (LocalHomeMaterialControls.current.NameDialog(
-            title, initialName, appUsesDarkTheme(config), null, onDismiss, onConfirm)) return
     var name by remember { mutableStateOf(initialName) }
+    if (LocalHomeMaterialControls.current.NameDialog(
+            title, name, appUsesDarkTheme(config), null, onDismiss, onConfirm,
+            onDraftChange = { name = it })) return
     val textColor = glassForegroundColor(config)
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CenterLiquidDialog(backdrop = backdrop, config = config) {

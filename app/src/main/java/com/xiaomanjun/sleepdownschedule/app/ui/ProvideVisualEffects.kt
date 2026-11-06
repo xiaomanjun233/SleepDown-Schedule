@@ -5,6 +5,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.Modifier
+import com.itos.coui.menu.ProvideCouiMenuBackdrop
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
@@ -33,7 +37,14 @@ internal fun ProvideVisualEffects(content: @Composable () -> Unit) {
         ProvideColorOsMaterials(
             enabled = state.usesNativeControls,
             couiControlsEnabled = state.usesCouiControls,
-            content = content,
+            content = {
+                if (state.usesCouiControls) {
+                    // 整窗源供独立 Dialog 使用；同窗口内的普通按钮只消费调用方自己的背景域。
+                    ProvideCouiMenuBackdrop(isolateContent = false) { source ->
+                        Box(Modifier.fillMaxSize().then(source)) { content() }
+                    }
+                } else content()
+            },
         )
     }
 }

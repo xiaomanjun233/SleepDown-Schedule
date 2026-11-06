@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import com.itos.coui.picker.WheelPicker
 import com.itos.coui.picker.CouiPickerDefaults
 import top.yukonga.miuix.kmp.basic.NumberPickerColors
@@ -18,12 +19,13 @@ internal fun SettingsNumberPicker(value: Int, onValueChange: (Int) -> Unit,
     wrapAround: Boolean = false, visibleItemCount: Int = 3,
     label: (Int) -> String = Int::toString,
     colors: NumberPickerColors = NumberPickerDefaults.colors(),
-    textStyle: TextStyle = MiuixTheme.textStyles.title1) {
-    if (LocalCouiSettingsEnabled.current) {
+    textStyle: TextStyle = MiuixTheme.textStyles.title1,
+    itemHeight: Dp = NumberPickerDefaults.ItemHeight) {
+    if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
         WheelPicker(modifier = modifier.height(CouiPickerDefaults.height), value = value.coerceIn(range),
-            onValueChange = onValueChange, valueRange = range, label = "", formatter = label,
+            onValueChange = onValueChange, valueRange = range, label = "选择${label(value)}", formatter = label,
             enabled = enabled, wrap = wrapAround, verticalFading = true)
     } else top.yukonga.miuix.kmp.basic.NumberPicker(value = value, onValueChange = onValueChange,
         modifier = modifier, range = range, enabled = enabled, wrapAround = wrapAround,
-        visibleItemCount = visibleItemCount, label = label, colors = colors, textStyle = textStyle)
+        visibleItemCount = visibleItemCount, label = label, colors = colors, textStyle = textStyle, itemHeight = itemHeight)
 }

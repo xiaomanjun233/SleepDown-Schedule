@@ -1216,10 +1216,10 @@ fun ScheduleRenameDialog(
     onCancel: () -> Unit,
     onSave: (String) -> Unit
 ) {
-    if (LocalHomeMaterialControls.current.NameDialog(
-            "重命名课表", profile.name, appUsesDarkTheme(config), 24, onCancel,
-            { onSave(it.ifBlank { "未命名课表" }) })) return
     var name by remember(profile.id) { mutableStateOf(profile.name) }
+    if (LocalHomeMaterialControls.current.NameDialog(
+            "重命名课表", name, appUsesDarkTheme(config), 24, onCancel,
+            { onSave(it.ifBlank { "未命名课表" }) }, onDraftChange = { name = it })) return
     Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         CenterLiquidDialog(backdrop = backdrop, config = config) {
             LiquidDialogHeader(

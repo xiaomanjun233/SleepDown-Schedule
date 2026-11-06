@@ -5,11 +5,14 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalView
+import android.view.View
 import com.itos.coui.backdrop.CouiBackdrop
 import com.itos.coui.backdrop.couiBackdrop
 import com.itos.coui.backdrop.rememberCouiBackdrop
 
 internal val LocalCouiMenuBackdrop = staticCompositionLocalOf<CouiBackdrop?> { null }
+private val LocalCouiMenuWindow = staticCompositionLocalOf<View?> { null }
 
 /** 当前窗口已提供的采样源；不新建源或持有其消费引用，未提供时为 null。 */
 @Composable
@@ -33,9 +36,15 @@ fun ProvideCouiMenuBackdrop(
     isolateContent: Boolean,
     content: @Composable (Modifier) -> Unit,
 ) {
-    val backdrop = rememberCouiBackdrop(parent = LocalCouiMenuBackdrop.current, diagnosticName = "menu-window")
+    val parent = LocalCouiMenuBackdrop.current
+    val view = LocalView.current
+    if (parent != null && LocalCouiMenuWindow.current?.rootView === view.rootView) {
+        content(Modifier)
+        return
+    }
+    val backdrop = rememberCouiBackdrop(parent = parent, diagnosticName = "menu-window")
     SideEffect { backdrop.setIsolateWhenIdle(isolateContent) }
-    CompositionLocalProvider(LocalCouiMenuBackdrop provides backdrop) {
+    CompositionLocalProvider(LocalCouiMenuBackdrop provides backdrop, LocalCouiMenuWindow provides view) {
         content(Modifier.couiBackdrop(backdrop))
     }
 }

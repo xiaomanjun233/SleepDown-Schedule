@@ -88,10 +88,11 @@ fun InputDialog(
     autoFocus: Boolean = true,
     properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true),
     visible: Boolean? = null,
+    onDismissFinished: (() -> Unit)? = null,
 ) {
     InputDialogFrame(modifier, value.text, { onValueChange(TextFieldValue("", TextRange.Zero)) },
         onDismissRequest, confirmAction, dark, accent, clearContentDescription, title, message, placeholder,
-        counter, counterIsError, dismissAction, placement, colors, material, backdrop, autoFocus, properties, visible) { field, style ->
+        counter, counterIsError, dismissAction, placement, colors, material, backdrop, autoFocus, properties, visible, onDismissFinished) { field, style ->
         BasicTextField(value, onValueChange, modifier = field, singleLine = true, enabled = visible != false,
             textStyle = style, cursorBrush = SolidColor(accent))
     }
@@ -124,10 +125,11 @@ fun InputDialog(
     properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true),
     inputTransformation: InputTransformation? = null,
     visible: Boolean? = null,
+    onDismissFinished: (() -> Unit)? = null,
 ) {
     InputDialogFrame(modifier, state.text.toString(), { state.edit { replace(0, length, "") } },
         onDismissRequest, confirmAction, dark, accent, clearContentDescription, title, message, placeholder,
-        counter, counterIsError, dismissAction, placement, colors, material, backdrop, autoFocus, properties, visible) { field, style ->
+        counter, counterIsError, dismissAction, placement, colors, material, backdrop, autoFocus, properties, visible, onDismissFinished) { field, style ->
         BasicTextField(state = state, modifier = field, textStyle = style, cursorBrush = SolidColor(accent), enabled = visible != false,
             lineLimits = TextFieldLineLimits.SingleLine, inputTransformation = inputTransformation)
     }
@@ -156,6 +158,7 @@ private fun InputDialogFrame(
     autoFocus: Boolean,
     properties: DialogProperties,
     visible: Boolean?,
+    onDismissFinished: (() -> Unit)?,
     editor: @Composable (Modifier, TextStyle) -> Unit,
 ) {
     require(properties.decorFitsSystemWindows) { "输入型弹窗需保留 decorFitsSystemWindows=true，由预设统一处理键盘避让" }
@@ -164,7 +167,8 @@ private fun InputDialogFrame(
     CompositionLocalProvider(LocalCouiDialogSoftInputMode provides softInputMode) {
         Dialog(modifier = modifier, onDismissRequest = onDismissRequest, confirmAction = confirmAction,
             dark = dark, title = title, dismissAction = dismissAction, placement = placement,
-            colors = colors, material = material, backdrop = backdrop, properties = properties, visible = visible) {
+            colors = colors, material = material, backdrop = backdrop, properties = properties, visible = visible,
+            onDismissFinished = onDismissFinished) {
             // SingleInput 属于 BottomAssignment：正文到 customPanel 是 4dp，不沿用普通警告的 16dp。
             if (!message.isNullOrEmpty()) DialogText(Modifier.fillMaxWidth()
                 .padding(horizontal = CouiDialogDefaults.contentPadding)

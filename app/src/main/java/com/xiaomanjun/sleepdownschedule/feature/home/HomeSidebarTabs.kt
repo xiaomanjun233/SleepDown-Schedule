@@ -84,7 +84,8 @@ internal fun HomeSidebarTabBar(
                     height = 40.dp,
                     enabled = enabled,
                     containerSurfaceEnabled = false,
-                    commitOnRelease = true
+                    commitOnRelease = true,
+                    backdrop = backdrop
                 )
             ) == true
             if (!nativeTabs) {
