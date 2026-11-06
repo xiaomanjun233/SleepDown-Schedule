@@ -40,3 +40,23 @@ Mesh 阴影初始化的 `IllegalArgumentException` 在内部组件入口记录�
 - 上游依据 `E:\COUI\COUI-Kit\coui\src\main\java\com\itos\coui\navigation\CouiBottomBar.kt`：`FF57711F133B86F1A32E00D8054E870FC01B86197BFD4FEEB41E78A5DDADA5AB`
 
 注意：`CouiDockCapsule` 不包含附件、融合连接或系统安全区；这些仍由 SleepDown 宿主管理。硬件 shader、阴影和触摸最终像素需在真机验收。
+
+## 2026-11-06 底栏 FAB 与双主体融合
+
+在 `navigation/CouiDockBar.kt` 增加胶囊 + FAB 的双主体入口：
+
+- 依据 E 盘 `coui/src/main/java/com/itos/coui/navigation/CouiBottomBar.kt` 的右附件装配和 `coui/src/main/java/com/itos/coui/floatingactionbutton/CouiFab.kt` 的 FAB 材质/触摸；使用 `CouiFloatingRenderer.pair()`、`CouiFloatingSurfaces`、`CouiFabDefaults` 与 `couiFloatingPair`。
+- 两个表面 index 分别为 1 和 2，extension 4dp；FAB 颜色取宿主墙纸强调色，图标、描述、浅/深跟手光、形状由 `CouiDockPlusStyle` 提供。
+- 菜单内容从 `CouiDockCapsule` 抽取为 `CouiDockMenuContent`，独立胶囊与融合底栏共用；没有复制导航手势和选中提交逻辑。
+- 加号槽位、菜单锚点、返回快照和隐藏仍由 SleepDown 宿主管理；库不创建菜单、不读取窗口 inset、不提交业务导航。
+- `CouiDockStyle` 的跟手光拆为浅色/深色两个可选覆盖值；null 沿用 COUI 预设。SleepDown 使用菜单 2.0/0.3、FAB 1.2/0.5，修正旧实现把深色 `intensity` 覆盖为 2.0 的问题。
+
+本轮文件哈希（SHA-256）：
+
+- `navigation/CouiDockBar.kt`：`B3CBC8E8D195E76D9974F50C41B4412C8A0D50C3561B500641AEAB8DA4D7BCFE`
+- `navigation/CouiDockCapsule.kt`（抽取共享菜单后）：`FFBB1BEAF5C09892C1E1BDFE5B96C73C53A855281D1249AC1A60C1A4FA744AC5`
+- `navigation/CouiFabExpansion.kt`：`D2724622EC85847B57297693C2DBCC88797872B91F7B02D3C1EB2BF7E601F8E5`
+- `effect/CouiFloatingSurfaces.kt`：`B651B53C218642B91EBCC75CBE47BF156CD7E57603798FBB4BB28E04D1897F5B`
+- 上游依据 `E:\COUI\COUI-Kit\coui\src\main\java\com\itos\coui\floatingactionbutton\CouiFab.kt`：`66FB3A4C1F2E27E422D0A618A0E844D04B8825C55FD04C662CFD4031ABCC81EE`
+
+`CouiDockBar` 仍是 API 34+ 的可选入口；渲染失败由宿主记录并回退既有原生/液态 Dock。融合、阴影和深色跟手光需真机 GPU 验收。

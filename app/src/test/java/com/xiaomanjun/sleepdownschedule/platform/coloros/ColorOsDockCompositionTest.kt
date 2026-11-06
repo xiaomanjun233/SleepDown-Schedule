@@ -63,14 +63,13 @@ class ColorOsDockCompositionTest {
         compose.setContent {
             SideEffect { providerCommits++ }
             val fallback = rememberUpdatedState<@Composable () -> Unit> { Box(Modifier.size(64.dp)) }
-            val plusBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "dock-plus-test-1")
             CompositionLocalProvider(LocalNativeCourseCardMode provides mode) {
                 NativeCoursePreviewConsumer(receive)
                 NativeHomeDockChrome(
                     visible = true, selectedIndex = 1, dark = false,
                     dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
                     buttonHidden = false, config = defaultConfig(),
-                    couiBackdrop = null, plusBackdrop = plusBackdrop,
+                    couiBackdrop = null,
                     onSelect = select, onOpenMenu = menu,
                     fallback = fallback, phase = StartupPhase.FullQuality
                 )
@@ -96,7 +95,6 @@ class ColorOsDockCompositionTest {
         val select: (Int) -> Unit = {}
         val menu: (Rect, GraphicsLayer) -> Unit = { _, _ -> }
         compose.setContent {
-            val plusBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "dock-plus-test-33")
             val pageBackdrop = rememberCouiBackdrop(diagnosticName = "dock-page-test-33")
             val fallback = rememberUpdatedState<@Composable () -> Unit> {
                 SideEffect { fallbackRendered++ }
@@ -110,7 +108,7 @@ class ColorOsDockCompositionTest {
                     visible = true, selectedIndex = 1, dark = false,
                     dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
                     buttonHidden = false, config = defaultConfig(),
-                    couiBackdrop = pageBackdrop, plusBackdrop = plusBackdrop,
+                    couiBackdrop = pageBackdrop,
                     onSelect = select, onOpenMenu = menu,
                     fallback = fallback, phase = StartupPhase.FullQuality
                 )
@@ -133,12 +131,11 @@ class ColorOsDockCompositionTest {
                 Box(Modifier.size(64.dp))
                 SideEffect { renderedFallbackRevision = revision }
             }
-            val plusBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "dock-plus-test-2")
             NativeHomeDockChrome(
                 visible = true, selectedIndex = 1, dark = false,
                 dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
                 buttonHidden = false, config = defaultConfig(),
-                couiBackdrop = null, plusBackdrop = plusBackdrop,
+                couiBackdrop = null,
                 onSelect = select, onOpenMenu = menu,
                 fallback = fallback, phase = StartupPhase.FullQuality
             )
@@ -174,7 +171,7 @@ class ColorOsDockCompositionTest {
                     visible = true, selectedIndex = 1, dark = false,
                     dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
                     buttonHidden = false, config = defaultConfig(),
-                    couiBackdrop = null, plusBackdrop = source,
+                    couiBackdrop = null,
                     onSelect = select, onOpenMenu = menu,
                     fallback = fallback, phase = StartupPhase.FullQuality
                 )

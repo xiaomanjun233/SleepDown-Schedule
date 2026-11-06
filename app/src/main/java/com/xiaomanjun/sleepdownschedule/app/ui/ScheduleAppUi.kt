@@ -3089,7 +3089,6 @@ fun CourseScheduleAppUi(
         buttonHidden = dockButtonHidden,
         config = dockConfig,
         couiBackdrop = dockPageBackdrop.takeIf { couiDockEnabled },
-        plusBackdrop = chromeBackdrop,
         onSelect = dockSelect,
         onOpenMenu = dockOpenMenu,
         phase = startupPhase,

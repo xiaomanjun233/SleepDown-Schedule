@@ -8,7 +8,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import com.itos.coui.backdrop.CouiBackdrop
-import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.performance.DockEntranceContainer
 import com.xiaomanjun.sleepdownschedule.core.performance.StartupPhase
@@ -27,7 +26,6 @@ internal fun NativeHomeDockChrome(
     buttonHidden: Boolean,
     config: ScheduleConfigEntity,
     couiBackdrop: CouiBackdrop?,
-    plusBackdrop: Backdrop,
     onSelect: (Int) -> Unit, onOpenMenu: (Rect, GraphicsLayer) -> Unit,
     fallback: State<@Composable () -> Unit>,
     phase: StartupPhase,
@@ -51,7 +49,6 @@ internal fun NativeHomeDockChrome(
                 buttonHidden = buttonHidden,
                 config = config,
                 backdrop = couiBackdrop,
-                plusBackdrop = plusBackdrop,
                 onSelect = onSelect,
                 onOpenMenu = onOpenMenu,
             )

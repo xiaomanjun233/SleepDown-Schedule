@@ -4,7 +4,6 @@ import android.graphics.BlendMode
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -47,7 +47,6 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.role
@@ -70,6 +69,8 @@ import com.itos.coui.effect.couiFloatingSurface
 import com.itos.coui.effect.couiNavigationFeedback
 import com.itos.coui.effect.rememberCouiSpotlight
 import com.itos.coui.input.isCouiTouchCancelled
+import com.itos.coui.motion.CouiPressMotion
+import com.itos.coui.motion.CouiTouchMotion
 import com.itos.coui.motion.couiPressMotion
 import com.itos.coui.motion.couiTouchMotion
 import com.itos.coui.motion.rememberCouiPressMotion
@@ -101,11 +102,15 @@ data class CouiDockStyle(
     val itemSpacing: Dp = 8.dp,
     val iconTopPadding: Dp = 4.dp,
     val iconTitleGap: Dp = 2.dp,
-    /** 宿主原有 2× 跟手光通过这里保留；1f 即 COUI 预设原始强度。 */
-    val followLightIntensity: Float = 1f,
+    /** null 表示沿用 COUI 预设；浅色/深色可分别覆盖。 */
+    val lightFollowLightIntensity: Float? = null,
+    val darkFollowLightIntensity: Float? = null,
     /** 跟手光颜色独立于材质边缘/内光晕，默认与预设一致。 */
     val spotLightColor: Color = Color.White,
 ) {
+    internal fun followLightIntensity(): Float? =
+        if (dark) darkFollowLightIntensity else lightFollowLightIntensity
+
     companion object {
         /**
          * COUI 17 底栏预设的宿主可直接复用的材质/投影；颜色层保持系统预设，
@@ -121,7 +126,8 @@ data class CouiDockStyle(
             themeTint: Color = Color.Transparent,
             sampleBrightness: Float = 1f,
             contourGlowEnabled: Boolean = true,
-            followLightIntensity: Float = 1f,
+            lightFollowLightIntensity: Float? = null,
+            darkFollowLightIntensity: Float? = null,
             spotLightColor: Color = Color.White,
         ): CouiDockStyle {
             val material = CouiFloatingMaterial(
@@ -168,7 +174,8 @@ data class CouiDockStyle(
                     sdf = px(10.4f, density),
                     smoothCorner = true,
                 ),
-                followLightIntensity = followLightIntensity,
+                lightFollowLightIntensity = lightFollowLightIntensity,
+                darkFollowLightIntensity = darkFollowLightIntensity,
                 spotLightColor = spotLightColor,
             )
         }
@@ -192,25 +199,11 @@ fun CouiDockCapsule(
 ) {
     require(items.isNotEmpty() && selectedIndex in items.indices)
     require(renderer.standalone) { "独立导航胶囊必须使用 CouiFloatingRenderer.standalone()" }
-    val density = LocalDensity.current
     val contour = LocalCouiContourGlowEnabled.current
     val contentLayer: GraphicsLayer = rememberGraphicsLayer()
     val motion = rememberCouiTouchMotion(true)
     val press = rememberCouiPressMotion()
-    val (lightInput, drawLight) = rememberCouiSpotlight(
-        interactive = true,
-        preset = SpotlightPreset.OpaqueSmall2,
-        dark = style.dark,
-        intensity = style.followLightIntensity,
-        color = style.spotLightColor,
-    )
     var boundsSize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
-    var previewSelection by remember { mutableIntStateOf(selectedIndex) }
-    val currentSelection by rememberUpdatedState(selectedIndex)
-    val onSelect by rememberUpdatedState(onSelection)
-    LaunchedEffect(selectedIndex) { previewSelection = selectedIndex }
-    val itemBounds = remember(items.size) { mutableMapOf<Int, Rect>() }
-    var menuCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     Box(
         modifier = modifier
@@ -234,123 +227,161 @@ fun CouiDockCapsule(
                 )
             },
     ) {
-        Box(
-            Modifier.fillMaxSize().graphicsLayer {
-                translationX = motion.translationX.value
-                translationY = motion.translationY.value
-                scaleX = motion.scaleX.value + press.scale.value - 1f
-                scaleY = motion.scaleY.value + press.scale.value - 1f
-            }.couiTouchMotion(motion, true, cancelOnConsumedMove = false, consumeDrag = true)
-                .couiPressMotion(press).then(lightInput)
-                .drawWithContent { contentLayer.record { this@drawWithContent.drawContent() } }
-                .clip(style.shape).drawBehind { drawLight?.invoke(this) },
-        ) {
-            Row(
-                Modifier.fillMaxSize().selectableGroup()
-                    .onGloballyPositioned { menuCoordinates = it }
-                    .pointerInput(items.size) {
-                        var active: PointerId? = null
-                        var pending: Int? = null
-                        var downItem: Int? = null
-                        fun hit(position: Offset): Int? =
-                            itemBounds.entries.firstOrNull { it.value.contains(position) }?.key
-                        fun finish(cancelled: Boolean, position: Offset?) {
-                            val target = couiNavigationReleaseTarget(
-                                previewSelection, pending, downItem, position?.let(::hit), cancelled,
-                            )
-                            if (target != null) {
-                                previewSelection = target
-                                // 程序同步或拖回当前项都不是新的导航，不能重复提交。
-                                if (target != currentSelection) onSelect(target)
-                            }
-                            active = null
-                            pending = null
-                            downItem = null
+        CouiDockMenuContent(
+            modifier = Modifier.fillMaxSize(),
+            contentLayer = contentLayer,
+            style = style,
+            items = items,
+            selectedIndex = selectedIndex,
+            onSelection = onSelection,
+            motion = motion,
+            press = press,
+        )
+    }
+}
+
+/** 胶囊和融合底栏共用的菜单内容；外层负责独立或双主体表面。 */
+@Composable
+internal fun CouiDockMenuContent(
+    modifier: Modifier,
+    contentLayer: GraphicsLayer,
+    style: CouiDockStyle,
+    items: List<CouiDockItem>,
+    selectedIndex: Int,
+    onSelection: (Int) -> Unit,
+    motion: CouiTouchMotion,
+    press: CouiPressMotion,
+) {
+    val (lightInput, drawLight) = rememberCouiSpotlight(
+        interactive = true,
+        preset = SpotlightPreset.OpaqueSmall2,
+        dark = style.dark,
+        intensity = style.followLightIntensity(),
+        color = style.spotLightColor,
+    )
+    var previewSelection by remember { mutableIntStateOf(selectedIndex) }
+    val currentSelection by rememberUpdatedState(selectedIndex)
+    val onSelect by rememberUpdatedState(onSelection)
+    LaunchedEffect(selectedIndex) { previewSelection = selectedIndex }
+    val itemBounds = remember(items.size) { mutableMapOf<Int, Rect>() }
+    var menuCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+
+    Box(
+        modifier.graphicsLayer {
+            translationX = motion.translationX.value
+            translationY = motion.translationY.value
+            scaleX = motion.scaleX.value + press.scale.value - 1f
+            scaleY = motion.scaleY.value + press.scale.value - 1f
+        }.couiTouchMotion(motion, true, cancelOnConsumedMove = false, consumeDrag = true)
+            .couiPressMotion(press).then(lightInput)
+            .drawWithContent { contentLayer.record { this@drawWithContent.drawContent() } }
+            .clip(style.shape).drawBehind { drawLight?.invoke(this) },
+    ) {
+        Row(
+            Modifier.fillMaxSize().selectableGroup()
+                .onGloballyPositioned { menuCoordinates = it }
+                .pointerInput(items.size) {
+                    var active: PointerId? = null
+                    var pending: Int? = null
+                    var downItem: Int? = null
+                    fun hit(position: Offset): Int? =
+                        itemBounds.entries.firstOrNull { it.value.contains(position) }?.key
+                    fun finish(cancelled: Boolean, position: Offset?) {
+                        val target = couiNavigationReleaseTarget(
+                            previewSelection, pending, downItem, position?.let(::hit), cancelled,
+                        )
+                        if (target != null) {
+                            previewSelection = target
+                            // 程序同步或拖回当前项都不是新的导航，不能重复提交。
+                            if (target != currentSelection) onSelect(target)
                         }
-                        try {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val event = awaitPointerEvent(PointerEventPass.Main)
-                                    if (event.isCouiTouchCancelled()) {
-                                        finish(true, null)
-                                        continue
-                                    }
-                                    val tracked = event.changes.firstOrNull { it.id == active }
-                                    val pointer = tracked?.takeIf { it.pressed }
-                                        ?: event.changes.firstOrNull { it.pressed }
-                                        ?: tracked ?: continue
-                                    if (active == null) {
-                                        downItem = hit(pointer.position)
-                                    } else if (pointer.pressed && pointer.position != pointer.previousPosition) {
-                                        hit(pointer.position)?.let { index ->
-                                            if (previewSelection != index) {
-                                                previewSelection = index
-                                                pending = index
-                                            }
+                        active = null
+                        pending = null
+                        downItem = null
+                    }
+                    try {
+                        awaitPointerEventScope {
+                            while (true) {
+                                val event = awaitPointerEvent(PointerEventPass.Main)
+                                if (event.isCouiTouchCancelled()) {
+                                    finish(true, null)
+                                    continue
+                                }
+                                val tracked = event.changes.firstOrNull { it.id == active }
+                                val pointer = tracked?.takeIf { it.pressed }
+                                    ?: event.changes.firstOrNull { it.pressed }
+                                    ?: tracked ?: continue
+                                if (active == null) {
+                                    downItem = hit(pointer.position)
+                                } else if (pointer.pressed && pointer.position != pointer.previousPosition) {
+                                    hit(pointer.position)?.let { index ->
+                                        if (previewSelection != index) {
+                                            previewSelection = index
+                                            pending = index
                                         }
                                     }
-                                    active = pointer.id
-                                    if (!pointer.pressed) finish(false, pointer.position)
-                                    event.changes.forEach { it.consume() }
                                 }
+                                active = pointer.id
+                                if (!pointer.pressed) finish(false, pointer.position)
+                                event.changes.forEach { it.consume() }
                             }
-                        } finally {
-                            // 节点移除不等于原厂 ACTION_CANCEL, 离开页面时不提交导航。
-                            previewSelection = currentSelection
                         }
-                    }.padding(horizontal = style.horizontalPadding),
-                horizontalArrangement = Arrangement.spacedBy(style.itemSpacing),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                items.forEachIndexed { index, item ->
-                    val isSelected = previewSelection == index
-                    val interactionSource = remember { MutableInteractionSource() }
-                    Box(
-                        Modifier.weight(1f).height(style.itemHeight)
-                            .onGloballyPositioned { node ->
-                                menuCoordinates?.let { itemBounds[index] = it.localBoundingBoxOf(node, false) }
+                    } finally {
+                        // 节点移除不等于原厂 ACTION_CANCEL, 离开页面时不提交导航。
+                        previewSelection = currentSelection
+                    }
+                }.padding(horizontal = style.horizontalPadding),
+            horizontalArrangement = Arrangement.spacedBy(style.itemSpacing),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            items.forEachIndexed { index, item ->
+                val isSelected = previewSelection == index
+                val interactionSource = remember { MutableInteractionSource() }
+                Box(
+                    Modifier.weight(1f).height(style.itemHeight)
+                        .onGloballyPositioned { node ->
+                            menuCoordinates?.let { itemBounds[index] = it.localBoundingBoxOf(node, false) }
+                        }
+                        .semantics(mergeDescendants = true) {
+                            role = Role.Tab
+                            selected = isSelected
+                            onClick {
+                                if (index != currentSelection) onSelect(index)
+                                true
                             }
-                            .semantics(mergeDescendants = true) {
-                                role = Role.Tab
-                                selected = isSelected
-                                onClick {
-                                    if (index != currentSelection) onSelect(index)
-                                    true
-                                }
-                            }.onKeyEvent {
-                                if (it.type == KeyEventType.KeyUp &&
-                                    (it.key == Key.Enter || it.key == Key.Spacebar)
-                                ) {
-                                    if (index != currentSelection) onSelect(index)
-                                    true
-                                } else false
-                            }.focusable(interactionSource = interactionSource),
-                        contentAlignment = Alignment.Center,
+                        }.onKeyEvent {
+                            if (it.type == KeyEventType.KeyUp &&
+                                (it.key == Key.Enter || it.key == Key.Spacebar)
+                            ) {
+                                if (index != currentSelection) onSelect(index)
+                                true
+                            } else false
+                        }.focusable(interactionSource = interactionSource),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Column(
+                        Modifier.fillMaxSize()
+                            .couiNavigationFeedback(style.dark, interactionSource)
+                            .padding(top = style.iconTopPadding),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Top,
                     ) {
-                        Column(
-                            Modifier.fillMaxSize()
-                                .couiNavigationFeedback(style.dark, interactionSource)
-                                .padding(top = style.iconTopPadding),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Top,
-                        ) {
-                            Icon(
-                                modifier = Modifier.size(style.iconSize),
-                                imageVector = item.icon,
-                                contentDescription = null,
-                                tint = if (isSelected) style.selectedColor else style.unselectedColor,
-                            )
-                            Spacer(Modifier.height(style.iconTitleGap))
-                            Text(
-                                text = item.title,
-                                color = if (isSelected) style.selectedColor else style.unselectedColor,
-                                fontSize = style.labelSize,
-                                lineHeight = style.labelLineHeight,
-                                fontWeight = style.labelWeight,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                        }
+                        Icon(
+                            modifier = Modifier.size(style.iconSize),
+                            imageVector = item.icon,
+                            contentDescription = null,
+                            tint = if (isSelected) style.selectedColor else style.unselectedColor,
+                        )
+                        Spacer(Modifier.height(style.iconTitleGap))
+                        Text(
+                            text = item.title,
+                            color = if (isSelected) style.selectedColor else style.unselectedColor,
+                            fontSize = style.labelSize,
+                            lineHeight = style.labelLineHeight,
+                            fontWeight = style.labelWeight,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
                     }
                 }
             }
