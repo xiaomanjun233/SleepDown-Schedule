@@ -1,5 +1,17 @@
 # 当前工作交接
 
+## 2026-11-07 当前：COUI 上游同步、Dialog／Picker 与颜色修复
+
+本轮用户明确要求实现 Dialog 迁移计划，并追加采样层级审查、通知悬浮按钮布局、按钮主题色、首页长按管理按钮模糊、课程管理／导入历史深色卡片修复。基线 `61246c07`，当前分支 `codex/couikit-dialog`；版本保持 `1.2.8_beta2` / 36、minSdk 26。授权仅本地实现、提交及签名 APK／精确 mapping 交付，不自动安装、推送、PR 或发布。保留原有未跟踪 `output/`、其他工作树与 stash。
+
+- 上游实际从 GitHub `ItosEO/COUI-Kit main` 获取并固定 `520478b9305780b078bed1096ce68f727c594f14`，以 `af952eb6` 三方同步运行源码、资源与许可证，保留宿主兼容及 Dock/Button 扩展，没有用 E 盘开发工作区代替上游。
+- 本地回退提交：`a815ad9b` 上游同步；`5a43a77a` 胶囊分段组件；`f730e802` 按钮采样、布局、主题色与深色卡片；`3013f7b1` Dialog／Picker、命名草稿及宿主接入；`c6e62a5c` 首页和课表强调按钮显式主色角色；`e240e16d` 分段纵向手势取消。没有远端写入。
+- 公共 Dialog 按所选模式分发：凝光 Android 14+ 跨品牌使用 Kit；液态保留原外壳和选择器。移除设置作用域强制 COUI 分支，标准 Alert、Input 和自定义内容均委托 Kit 窗口；操作区固定、实际退出完成交接，命名草稿由业务入口持有。凝光滚轮／完整日期使用 WheelPicker／CalendarPicker，保留原范围和保存语义。
+- 采样审查：Dock 仍使用完整页面源和后绘制同级消费者，保留已验收参数；Switch／Slider 不增加页面采样。普通按钮使用调用方背景；Dialog 消费下层完整窗口，内部按钮／分段只消费纯表面 sibling 源，完整 Dialog 窗口源供下一层弹窗。同窗口源去重，空闲 Auto，Kit retain 管理实际消费。
+- 已修复通知带徽标按钮异常撑高、按钮主色透明度及灰色主题角色、长按首页管理按钮漏采样。设置的透明 container 先合成到页面底色，再作为不透明 M3 卡片角色传出；导入历史去掉错误的二次透明度。课程管理与导入历史深色底色均走公共修复。
+- 上游同步及中间接入 Release Kotlin 编译通过；19 项定向回归通过，命名草稿补充后 7 项迁移 UI 回归通过。最终 `e240e16d` 的首次串行验证在应用测试前因 Gradle daemon JVM 内存抖动中止，不是代码失败；随后以 `--no-daemon --max-workers=1` 完成正式构建（5m52s）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-dialog-20261107-2a481549.apk`，7,808,596 字节，SHA-256 `2A48154923EDADA0E1BEE72BDE13AB577200D48875B397E96F601CB2ABD49C8D`，V2 证书 `0f2b50df…`；精确 mapping 同目录 `-mapping.txt`，160,979,778 字节，SHA-256 `1865F2C845510C1C83E07F34625BDD71800006356A32B4C62D67E3357C779302`。构建内嵌 revision `e240e16d`。最终 `CouiMigrationUiTest` 7 项通过（含纵向手势交接用例），0 失败／错误／跳过。细节与实际命令／日志见[本轮报告](reports/2026-11-07-couikit-dialog-migration.md)。
+- 尚需真机验收本轮 Dialog／Picker、嵌套采样、按钮模糊、深浅卡片、分段动态效果，以及大字体／横屏／IME。Robolectric 图已核对通知按钮位置和高度，不能代替 GPU 像素、OEM 振动或性能验收。未安装或连接设备验收。
+
 ## 2026-11-06 当前：COUI 组合底栏、Button 与深色跟手光
 
 用户要求在 COUI Dock 迁移基础上，把底栏 FAB 加号键也换到 COUI-Kit，并降低深色模式跟手光浓度；随后要求按 Demo 写法把胶囊与 FAB 合成一个组合控件、接入 button 型控件，并把默认 Dock 略缩短。已从 `5ad124a9` 建立 `codex/couikit-dock-fab`；只做本地构建，不自动安装、推送、PR 或发布；未改课程数据或数据库。
