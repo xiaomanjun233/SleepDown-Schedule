@@ -4,6 +4,8 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.Composable
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ControlMaterialRenderers
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCapsuleButtonRequest
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSliderRequest
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSwitchRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ProvideControlMaterials
 
 private val ColorOsRenderers = ControlMaterialRenderers(
@@ -39,13 +41,33 @@ internal fun ProvideColorOsMaterials(
             enabled -> { request, buttonContent -> ColorOsCapsuleButton(request, buttonContent) }
             else -> null
         }
+    val sliderRenderer: (@Composable (NativeSliderRequest) -> Boolean)? = when {
+        couiControlsEnabled -> { request ->
+            if (CouiValueSlider(request)) true else if (enabled) ColorOsSlider(request) else false
+        }
+        enabled -> { request -> ColorOsSlider(request) }
+        else -> null
+    }
+    val switchRenderer: (@Composable (NativeSwitchRequest) -> Boolean)? = when {
+        couiControlsEnabled -> { request ->
+            if (CouiValueSwitch(request)) true else if (enabled) ColorOsSwitch(request) else false
+        }
+        enabled -> { request -> ColorOsSwitch(request) }
+        else -> null
+    }
     val renderers = if (enabled) {
-        ColorOsRenderers.copy(button = buttonRenderer)
+        ColorOsRenderers.copy(
+            button = buttonRenderer,
+            slider = sliderRenderer,
+            switch = switchRenderer,
+        )
     } else {
         // Liquid glass still uses the native outer stroke on capable devices; every other native
         // capability stays disabled.
         ControlMaterialRenderers.LiquidGlass.copy(
             button = buttonRenderer,
+            slider = sliderRenderer,
+            switch = switchRenderer,
             strokeOverlay = ColorOsRenderers.strokeOverlay,
             pageIndicator = ColorOsRenderers.pageIndicator,
         )
