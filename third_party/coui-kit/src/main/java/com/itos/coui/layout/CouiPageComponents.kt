@@ -64,7 +64,7 @@ object CouiPageDefaults {
         (if (dark) CouiPresets.Dark else CouiPresets.Light).pageColors().copy(accent = accent)
 }
 
-private fun CouiColorScheme.pageColors() = CouiPageColors(background, container, onSurface,
+private fun CouiColorScheme.pageColors() = CouiPageColors(background, card, onSurface,
     onSurfaceVariant, onSurface.copy(alpha = .3f), accent, outlineVariant)
 
 /**

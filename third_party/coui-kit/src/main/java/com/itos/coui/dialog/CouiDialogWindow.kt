@@ -11,18 +11,39 @@ import android.os.Build
 import android.view.Gravity
 import android.view.Window
 import android.view.WindowManager
+import android.view.animation.AnimationUtils
 import android.view.accessibility.AccessibilityManager
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.imeAnimationTarget
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.tappableElementIgnoringVisibility
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.coroutineScope
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
@@ -54,7 +75,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.Dialog as ComposeDialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import com.itos.coui.R
@@ -76,6 +97,7 @@ internal val LocalCouiDialogSoftInputMode = staticCompositionLocalOf<Int?> { nul
  * 不提供 Tiny、列表、推荐按钮和拖拽面板。
  */
 @Composable
+@OptIn(ExperimentalLayoutApi::class)
 internal fun CouiDialogWindow(
     modifier: Modifier = Modifier,
     onDismissRequest: () -> Unit,
@@ -87,8 +109,65 @@ internal fun CouiDialogWindow(
     properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false),
     material: CouiDialogMaterial? = null,
     backdrop: CouiBackdrop? = null,
+    visible: Boolean? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
+    val hostView = LocalView.current
+    val opacity = remember { Animatable(0f) }
+    val scale = remember { Animatable(.8f) }
+    val translation = remember { Animatable(0f, visibilityThreshold = .5f) }
+    var retained by remember { mutableStateOf(false) }
+    var motionStarted by remember { mutableStateOf(false) }
+    var windowSize by remember { mutableStateOf(IntSize.Zero) }
+    LaunchedEffect(visible) {
+        if (visible == null) return@LaunchedEffect
+        if (visible) {
+            val fresh = !retained
+            retained = true
+            // 窗口完成测量并提交初始画面后才计时，避免创建窗口消耗入场的前半段。
+            snapshotFlow { windowSize }.first { it.height > 0 }
+            if (fresh) {
+                scale.snapTo(.8f)
+                opacity.snapTo(0f)
+                translation.snapTo(windowSize.height.toFloat())
+            }
+            withFrameNanos { }
+            motionStarted = true
+        } else if (!motionStarted) {
+            retained = false
+            return@LaunchedEffect
+        }
+        coroutineScope {
+            if (placement == CouiDialogPlacement.Bottom) {
+                // 原厂 TranslateAnimation 的进入是 100% self，退出是 100% parent。
+                // WindowState.startAnimation 以 DisplayInfo.appHeight 初始化 parentHeight。
+                val target = if (visible) 0f else {
+                    val appSize = android.graphics.Point()
+                    @Suppress("DEPRECATION")
+                    checkNotNull(hostView.display).getSize(appSize)
+                    appSize.y.toFloat()
+                }
+                translation.animateTo(target, tween(CouiDialogDefaults.enterDuration,
+                    easing = if (visible) CouiDialogDefaults.enterEasing else CouiDialogDefaults.exitEasing))
+            } else {
+                if (visible) launch {
+                    scale.animateTo(1f, tween(CouiDialogDefaults.enterDuration, easing = CouiDialogDefaults.enterEasing))
+                }
+                opacity.animateTo(if (visible) 1f else 0f, tween(
+                    if (visible) CouiDialogDefaults.enterDuration else CouiDialogDefaults.centerExitDuration,
+                    easing = if (visible) CouiDialogDefaults.enterEasing else CouiDialogDefaults.exitEasing))
+            }
+        }
+        if (!visible) {
+            retained = false
+            motionStarted = false
+        }
+    }
+    if (visible != null && !visible && !retained) return
+    val frameScale = if (visible == null || placement == CouiDialogPlacement.Bottom) 1f else scale.value
+    val frameTranslation = if (visible == null || placement == CouiDialogPlacement.Center) 0f
+        else if (motionStarted) translation.value else null
+    val frameAlpha = if (visible == null || placement == CouiDialogPlacement.Bottom) 1f else opacity.value
     val windowBackdrop = backdrop ?: LocalCouiMenuBackdrop.current
     if (material != null) {
         check(Build.VERSION.SDK_INT >= 33) { "弹窗项目材质要求 Android 13 或更高版本" }
@@ -107,6 +186,7 @@ internal fun CouiDialogWindow(
     var touchExploration by remember(accessibility) { mutableStateOf(accessibility?.isTouchExplorationEnabled == true) }
     val dismiss = rememberUpdatedState(onDismissRequest)
     val softInputMode = LocalCouiDialogSoftInputMode.current
+    val ownsImePosition = visible != null && softInputMode != null
     val windowReference = remember { mutableStateOf<Window?>(null) }
     // 在组合阶段读取，首个 Dialog 子组合发布 Window 后会触发 owner 再次应用策略。
     val ownedWindow = windowReference.value
@@ -115,27 +195,39 @@ internal fun CouiDialogWindow(
         window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
         window.clearFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
         if (Build.VERSION.SDK_INT >= 31) window.setBackgroundBlurRadius(0)
-        window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
         window.setDimAmount(colors.dimAmount)
-        window.setWindowAnimations(if (placement == CouiDialogPlacement.Bottom)
+        // 撤销压暗请求才会触发系统淡出；保留标记并把强度设为 0 会跳过动画。
+        if (visible == false) {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        } else {
+            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+        }
+        window.setWindowAnimations(if (visible != null) 0 else if (placement == CouiDialogPlacement.Bottom)
             R.style.CouiDialogAnimation_Bottom else R.style.CouiDialogAnimation_Center)
-        softInputMode?.let(window::setSoftInputMode)
+        softInputMode?.let { mode ->
+            window.setSoftInputMode(if (ownsImePosition)
+                (mode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            else mode)
+        }
     }
     DisposableEffect(accessibility) {
         val listener = AccessibilityManager.TouchExplorationStateChangeListener { touchExploration = it }
         accessibility?.addTouchExplorationStateChangeListener(listener)
         onDispose { accessibility?.removeTouchExplorationStateChangeListener(listener) }
     }
-    Dialog(onDismissRequest = onDismissRequest, properties = DialogProperties(
+    ComposeDialog(onDismissRequest = onDismissRequest, properties = DialogProperties(
         dismissOnBackPress = properties.dismissOnBackPress,
         dismissOnClickOutside = properties.dismissOnClickOutside && !touchExploration,
         securePolicy = properties.securePolicy,
         usePlatformDefaultWidth = properties.usePlatformDefaultWidth,
-        decorFitsSystemWindows = properties.decorFitsSystemWindows,
+        decorFitsSystemWindows = properties.decorFitsSystemWindows && !ownsImePosition,
         windowTitle = properties.windowTitle,
         windowType = properties.windowType,
         windowToken = properties.windowToken,
     )) {
+        DisposableEffect(Unit) {
+            onDispose { windowSize = IntSize.Zero }
+        }
         val window = checkNotNull((LocalView.current.parent as? DialogWindowProvider)?.window) { "未找到对话框所属 Window" }
         SideEffect {
             windowReference.value = window
@@ -153,10 +245,30 @@ internal fun CouiDialogWindow(
         }
         val radiusPx = if (edge != null) with(LocalDensity.current) { shape.resolveCouiCornerRadius(cornerRadius).toPx() } else 0f
         val edgeWeight = (shape as? CouiShape)?.cornerWeight ?: CouiDialogDefaults.edgeWeight
+        val imeOffset = if (ownsImePosition) {
+            val target = WindowInsets.imeAnimationTarget.getBottom(density).toFloat()
+            val offset = remember { Animatable(target, visibilityThreshold = .5f) }
+            // WindowState.MoveAnimationSpec 使用系统的 quint 插值器和 mediumAnimTime。
+            val easing = remember(context) {
+                val interpolator = AnimationUtils.loadInterpolator(context, android.R.interpolator.decelerate_quint)
+                Easing { interpolator.getInterpolation(it) }
+            }
+            val duration = context.resources.getInteger(android.R.integer.config_mediumAnimTime)
+            LaunchedEffect(target, visible) {
+                // 退场时固定避让位置，避免键盘收起与卡片退出叠加两次下移。
+                if (visible != false) offset.animateTo(target, tween(duration, easing = easing))
+            }
+            offset.value
+        } else 0f
         var outerCoordinates: LayoutCoordinates? by remember { mutableStateOf(null) }
         var cardCoordinates: LayoutCoordinates? by remember { mutableStateOf(null) }
-        // maxWidth 是含 InsetDrawable 左右留白的外框宽度，不是可见卡片宽度。
-        Box(Modifier.widthIn(max = CouiDialogDefaults.maxWidth).fillMaxWidth().onGloballyPositioned { outerCoordinates = it }
+        // 实时输入弹窗固定窗口，只移动内部卡片；窗口合成层的位置无法用于当前帧采样。
+        val viewport = if (ownsImePosition) Modifier.fillMaxSize().windowInsetsPadding(
+            WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+        else Modifier.widthIn(max = CouiDialogDefaults.maxWidth).fillMaxWidth()
+        BoxWithConstraints(viewport.onGloballyPositioned {
+            outerCoordinates = it
+        }
             .pointerInput(properties.dismissOnClickOutside, touchExploration) {
                 if (properties.dismissOnClickOutside && !touchExploration) detectTapGestures { point ->
                     val outer = outerCoordinates
@@ -165,13 +277,22 @@ internal fun CouiDialogWindow(
                         !Rect(0f, 0f, card.size.width.toFloat(), card.size.height.toFloat())
                             .contains(card.localPositionOf(outer, point))) dismiss.value()
                 }
-            }.padding(horizontal = CouiDialogDefaults.horizontalMargin)
-            .padding(bottom = if (placement == CouiDialogPlacement.Bottom) bottomPadding else 0.dp),
-            contentAlignment = Alignment.Center) {
-                DialogCard(modifier.fillMaxWidth()
-                    .heightIn(max = maxCardHeight)
-                    .onGloballyPositioned { cardCoordinates = it },
-                    material, windowBackdrop, colors, shape, edge, dark, radiusPx, edgeWeight, content)
+            }, contentAlignment = if (ownsImePosition && placement == CouiDialogPlacement.Bottom)
+                Alignment.BottomCenter else Alignment.Center) {
+            val padding = if (placement == CouiDialogPlacement.Bottom) bottomPadding else 0.dp
+            val availableHeight = if (ownsImePosition)
+                (this.maxHeight - with(density) { imeOffset.toDp() } - padding).coerceAtLeast(0.dp)
+            else maxCardHeight
+            val imeTranslation = if (placement == CouiDialogPlacement.Bottom) imeOffset else imeOffset / 2f
+            // maxWidth 包含左右留白；入场距离只取卡片外框高度，不取全屏窗口高度。
+            Box(Modifier.widthIn(max = CouiDialogDefaults.maxWidth).fillMaxWidth()
+                .onGloballyPositioned { windowSize = it.size }
+                .padding(horizontal = CouiDialogDefaults.horizontalMargin).padding(bottom = padding)) {
+                DialogCard(modifier.fillMaxWidth().heightIn(max = minOf(maxCardHeight, availableHeight)),
+                    material, windowBackdrop, colors, shape, edge, dark, radiusPx, edgeWeight,
+                    frameScale, frameTranslation?.minus(imeTranslation), frameAlpha,
+                    with(density) { bottomPadding.toPx() }, { cardCoordinates = it }, content)
+            }
         }
     }
     // 位于 Dialog 调用之后，保证晚于其 updateParameters 的 SOFT_INPUT_MODE 重置；
@@ -190,6 +311,11 @@ private fun DialogCard(
     dark: Boolean,
     radiusPx: Float,
     edgeWeight: Float,
+    frameScale: Float,
+    frameTranslationY: Float?,
+    frameAlpha: Float,
+    bottomPaddingPx: Float,
+    onCardPositioned: (LayoutCoordinates) -> Unit,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val blur = if (material != null) rememberCouiKawaseBlur(checkNotNull(backdrop), colors.surface, material.blurRadius) else null
@@ -200,14 +326,25 @@ private fun DialogCard(
     val layoutDirection = LocalLayoutDirection.current
     val edgePaint = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
     var coordinates: LayoutCoordinates? by remember { mutableStateOf(null, neverEqualPolicy()) }
-    Box(modifier.clip(shape).onGloballyPositioned { coordinates = it }.drawBehind {
+    // 外层只记录到位后的锚点；动画仅作用于内层，采样显式应用同一变换的逆矩阵。
+    Box(modifier.onGloballyPositioned { coordinates = it }) {
+    Box(Modifier.fillMaxWidth().graphicsLayer {
+        transformOrigin = TransformOrigin(0f, 0f)
+        scaleX = frameScale
+        scaleY = frameScale
+        translationX = size.width * (1f - frameScale) / 2f
+        translationY = size.height * (1f - frameScale) / 2f + (frameTranslationY ?: (size.height + bottomPaddingPx))
+        alpha = frameAlpha
+    }.onGloballyPositioned(onCardPositioned).clip(shape).drawBehind {
+        val sampleTranslation = Offset(size.width * (1f - frameScale) / 2f,
+            size.height * (1f - frameScale) / 2f + (frameTranslationY ?: (size.height + bottomPaddingPx)))
         val target = coordinates
         if (Build.VERSION.SDK_INT >= 33 && blur != null && materialEffect != null &&
             target != null && target.isAttached && size.width > 0f && size.height > 0f) {
             layer.renderEffect = materialEffect.asComposeRenderEffect()
             layer.record(recordingDensity, layoutDirection,
                 IntSize(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))) {
-                blur.draw(this, target)
+                blur.draw(this, target, frameScale, sampleTranslation)
             }
             drawLayer(layer)
         } else drawRect(colors.surface)
@@ -220,4 +357,5 @@ private fun DialogCard(
             }
         }
     }, content = content)
+    }
 }

@@ -3,7 +3,6 @@ package com.itos.coui.topappbar
 import android.graphics.RenderEffect
 import android.graphics.Shader
 import androidx.annotation.RequiresApi
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
@@ -29,7 +28,6 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.SubcomposeLayout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.LayoutDirection
@@ -44,6 +42,7 @@ import com.itos.coui.motion.couiTouchMotion
 import com.itos.coui.motion.rememberCouiPressMotion
 import com.itos.coui.motion.rememberCouiTouchMotion
 import com.itos.coui.theme.ProvideCouiContent
+import com.itos.coui.input.couiMovingActionClick
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -59,6 +58,7 @@ internal fun TopAppBarSearchPair(
     enabled: Boolean,
     active: Boolean,
     deform: Boolean,
+    animating: Boolean,
     capsule: Boolean,
     contentRenderEffect: androidx.compose.ui.graphics.RenderEffect?,
     action: @Composable () -> Unit,
@@ -144,7 +144,7 @@ internal fun TopAppBarSearchPair(
                     .drawWithContent { actionLayer.record { this@drawWithContent.drawContent() } }
                     .clip(shape)
                     .then(if (!active) Modifier.clearAndSetSemantics {} else Modifier)
-                    .clickable(actionSource, indication = null, enabled = actionEnabled, role = Role.Button) { onActionClick?.invoke() }
+                    .couiMovingActionClick(actionSource, actionEnabled, animating) { onActionClick?.invoke() }
                     .padding(horizontal = CouiTopAppBarDefaults.searchActionPadding),
                     contentAlignment = Alignment.Center) {
                     Box(Modifier.graphicsLayer { alpha = fraction; renderEffect = actionBlur }) { action() }
@@ -177,8 +177,8 @@ internal fun TopAppBarSearchPair(
             }
         }.single().measure(Constraints.fixed(frame.inputBounds.width.roundToInt(), height))
         layout(constraints.maxWidth, height) {
-            // 搜索在上，取消在下；绘制与真实输入按相同顺序放置。
-            if (frame.actionAlpha > 0f) button.place(frame.actionBounds.left.roundToInt(), 0)
+            // 材质顺序由双主体 renderer 管理；已显露的动作优先接收触摸。
+            if (frame.actionAlpha > 0f) button.place(frame.actionBounds.left.roundToInt(), 0, zIndex = 1f)
             body.place(frame.inputBounds.left.roundToInt(), 0)
         }
     }

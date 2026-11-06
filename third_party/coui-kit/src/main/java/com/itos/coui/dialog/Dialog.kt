@@ -46,9 +46,10 @@ data class CouiDialogAction(val text: String, val onClick: () -> Unit, val enabl
  * 普通警告弹窗。两短按钮横排，单个、三个或放不下的按钮竖排。
  * content 可装配列表、输入和选择器；不提供推荐/AI Payment 专用按钮及原厂高内容标题合并协议。
  * CouiShape 自动提供轮廓半径；其他 Shape 使用材质时须显式提供 cornerRadius。
+ * visible 非空时由库保留退场窗口，调用须留在组合中；null 使用外层条件和系统窗口动画。
  */
 @Composable
-fun AlertDialog(
+fun Dialog(
     modifier: Modifier = Modifier,
     onDismissRequest: () -> Unit,
     confirmAction: CouiDialogAction,
@@ -64,9 +65,10 @@ fun AlertDialog(
     material: CouiDialogMaterial? = null,
     backdrop: CouiBackdrop? = null,
     properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false),
+    visible: Boolean? = null,
     content: @Composable ColumnScope.() -> Unit = {},
 ) {
-    CouiDialogWindow(modifier, onDismissRequest, colors, dark, placement, shape, cornerRadius, properties, material, backdrop) {
+    CouiDialogWindow(modifier, onDismissRequest, colors, dark, placement, shape, cornerRadius, properties, material, backdrop, visible) {
         val configuration = LocalConfiguration.current
         var messageLines by remember(message) { mutableIntStateOf(1) }
         var stacked by remember { mutableIntStateOf(if (neutralAction != null) 1 else 0) }

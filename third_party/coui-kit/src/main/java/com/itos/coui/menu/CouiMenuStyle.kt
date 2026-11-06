@@ -29,6 +29,9 @@ object CouiMenuDefaults {
     val radius = 28.dp
     val shape = CouiShape(radius)
     val itemShape = CouiShape(radius)
+    internal const val subMenuMergeThreshold = 0.2f
+    internal val subMenuEdgeFadeWidth = 4.dp
+    internal val subMenuEdgeFadeBlurRadius = 2.dp
 
     @Composable
     fun style(dark: Boolean = CouiTheme.isDark): CouiMenuStyle {

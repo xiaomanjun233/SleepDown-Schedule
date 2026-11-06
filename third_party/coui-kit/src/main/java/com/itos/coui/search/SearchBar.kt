@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import com.itos.coui.input.couiMovingActionClick
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -271,7 +272,7 @@ fun SearchBar(
             }
             .couiTouchMotion(touch, enabled && state.expanded && !state.running).couiPressMotion(press, enabled && state.expanded)
             .then(cancelLightInput).then(recordCancel).clip(shape).couiToolbarFeedback(dark, cancelSource, enabled && state.expanded)
-            .clickable(cancelSource, null, enabled = enabled && state.expanded, role = Role.Button, onClick = cancelSearch),
+            .couiMovingActionClick(cancelSource, enabled && state.expanded, state.running, cancelSearch),
             contentAlignment = Alignment.Center) {
             val textAlpha = (foreground.alpha * 255f * state.cancelProgress.coerceIn(0f, 1f)).roundToInt() / 255f
             val blur = (1f - state.cancelProgress).coerceAtLeast(0f) * CouiSearchBarDefaults.cancelContentBlurRadius
@@ -286,8 +287,8 @@ fun SearchBar(
         val button = children[1].measure(Constraints.fixed(cancelWidth, surfaceHeight))
         layout(constraints.maxWidth, constraints.maxHeight) {
             val y = (constraints.maxHeight - surfaceHeight) / 2
-            if (state.active) button.placeRelative(constraints.maxWidth - cancelWidth, y)
-            // 输入与语义也按取消在下、搜索在上的顺序放置。
+            if (state.active && state.cancelProgress > 0f)
+                button.placeRelative(constraints.maxWidth - cancelWidth, y, zIndex = 1f)
             body.placeRelative(0, y)
         }
     }

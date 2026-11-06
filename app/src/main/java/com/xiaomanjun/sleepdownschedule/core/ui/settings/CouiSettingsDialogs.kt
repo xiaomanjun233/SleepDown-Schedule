@@ -67,7 +67,7 @@ internal fun CouiSettingsAlert(title: String, message: String, actions: List<Liq
         ?: actions.firstOrNull { it.style != LiquidAlertActionStyle.Cancel } ?: actions.firstOrNull()
     val dismiss = actions.firstOrNull { it !== confirm && it.style == LiquidAlertActionStyle.Cancel }
     val neutral = actions.firstOrNull { it !== confirm && it !== dismiss }
-    AlertDialog(title = title, message = message.takeIf { messageContent == null },
+    com.itos.coui.dialog.Dialog(title = title, message = message.takeIf { messageContent == null },
         onDismissRequest = { close(onDismiss) }, placement = CouiDialogPlacement.Bottom,
         confirmAction = confirm?.couiAction() ?: CouiDialogAction("关闭", { close(onDismiss) }),
         dismissAction = dismiss?.couiAction(), neutralAction = neutral?.couiAction()) {

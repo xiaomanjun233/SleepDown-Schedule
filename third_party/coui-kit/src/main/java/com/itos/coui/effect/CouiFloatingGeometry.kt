@@ -8,7 +8,7 @@ import kotlin.math.min
 import kotlin.math.pow
 import kotlin.math.sign
 
-/** bounds 是未缩放的绘制坐标, 位移已计入 bounds, 缩放围绕中心。 */
+/** bounds 是未缩放的绘制坐标, 位移已计入 bounds, 缩放围绕中心。cornerRadius 使用像素, null 表示短边的一半。 */
 data class CouiFloatingSurface(
     val bounds: Rect,
     val scaleX: Float = 1f,
@@ -16,7 +16,20 @@ data class CouiFloatingSurface(
     val cornerWeight: Float = 1f,
     val alpha: Float = 1f,
     val visible: Boolean = true,
-)
+    val cornerRadius: Float? = null,
+) {
+    init {
+        require(cornerRadius == null || (cornerRadius.isFinite() && cornerRadius >= 0f)) {
+            "浮动表面的圆角半径必须是有限的非负值"
+        }
+    }
+
+    internal val resolvedCornerRadius: Float
+        get() {
+            val limit = (min(bounds.width, bounds.height) * 0.5f).coerceAtLeast(0f)
+            return cornerRadius?.coerceAtMost(limit) ?: limit
+        }
+}
 
 // Native 先按 index 排 influence, 再将当前主体插入自身槽位; 两侧都使用 index 2。
 internal fun floatingBallSlots(subject: Int, indices: List<Int>): List<Int> =
@@ -27,7 +40,7 @@ internal fun floatingBallSlots(subject: Int, indices: List<Int>): List<Int> =
 internal fun CouiFloatingSurface.ball(height: Float, origin: Offset): FloatArray = floatArrayOf(
     bounds.center.x - origin.x, height - bounds.center.y + origin.y,
     bounds.width * 0.5f, bounds.height * 0.5f,
-    min(bounds.width, bounds.height) * 0.5f, cornerWeight, 1f / scaleX, 1f / scaleY,
+    resolvedCornerRadius, cornerWeight, 1f / scaleX, 1f / scaleY,
 )
 
 internal fun CouiFloatingSurface.mapRect(rect: Rect): Rect = Rect(

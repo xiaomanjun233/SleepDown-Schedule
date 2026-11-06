@@ -1,6 +1,7 @@
 package com.itos.coui.dialog
 
 import android.os.Build
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
@@ -46,6 +47,11 @@ data class CouiDialogMaterial(
 
 /** Settings 17.0.0 普通、非 Tiny、无推荐按钮分支; 默认样式对应关闭背景模糊的 BottomWarning。 */
 object CouiDialogDefaults {
+    // COUI Dialog 的资源动画分支；系统声明式弹簧需要额外窗口标记，不能按同名资源推断启用。
+    internal const val enterDuration = 250
+    internal const val centerExitDuration = 150
+    internal val enterEasing = CubicBezierEasing(.3f, 0f, .1f, 1f)
+    internal val exitEasing = CubicBezierEasing(.3f, 0f, 1f, 1f)
     val cornerRadius = 45.dp
     val shape: Shape = CouiShape(cornerRadius, 3f)
     val maxWidth = 392.dp

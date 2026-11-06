@@ -61,19 +61,28 @@ class CouiMenuBlur internal constructor(
         }
     }
 
-    fun draw(scope: DrawScope, coordinates: LayoutCoordinates) {
+    fun draw(scope: DrawScope, coordinates: LayoutCoordinates) = draw(scope, coordinates, 1f, Offset.Zero)
+
+    /** coordinates 为未动画的锚点；变换与消费者的实际绘制使用同一帧数据。 */
+    internal fun draw(scope: DrawScope, coordinates: LayoutCoordinates, sampleScale: Float, translation: Offset) {
+        fun drawSource(target: DrawScope) {
+            target.withTransform({
+                scale(1f / sampleScale, 1f / sampleScale, Offset.Zero)
+                translate(-translation.x, -translation.y)
+            }) { backdrop.draw(this, coordinates) }
+        }
         val menuSize = scope.size
         if (!coordinates.isAttached || menuSize.width <= 0f || menuSize.height <= 0f) return
         if (radius == 0) {
             scope.drawRect(background)
-            backdrop.draw(scope, coordinates)
+            drawSource(scope)
             return
         }
         val origin = coordinates.localToScreen(Offset.Zero)
         val right = coordinates.localToScreen(Offset(menuSize.width, 0f))
         val bottom = coordinates.localToScreen(Offset(0f, menuSize.height))
-        val deviceWidth = (right - origin).getDistance()
-        val deviceHeight = (bottom - origin).getDistance()
+        val deviceWidth = (right - origin).getDistance() * sampleScale
+        val deviceHeight = (bottom - origin).getDistance() * sampleScale
         if (!deviceWidth.isFinite() || !deviceHeight.isFinite() || deviceWidth <= 0f || deviceHeight <= 0f) {
             scope.drawRect(background)
             return
@@ -92,7 +101,7 @@ class CouiMenuBlur internal constructor(
             withTransform({
                 scale(captureSize.width / menuSize.width, captureSize.height / menuSize.height, Offset.Zero)
             }) {
-                backdrop.draw(this, coordinates)
+                drawSource(this)
             }
         }
         recordBlurPasses(scope, blurSize)

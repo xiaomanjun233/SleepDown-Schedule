@@ -2,7 +2,7 @@
 
 来源：https://github.com/ItosEO/COUI-Kit
 
-固定提交：`af952eb6b2288a60652277cba2fb64a54a68aeb7`，远端分支 `codex/demo-component-coverage-20261104`。按官方源码模块接入方式保留核心源码和 MPL 2.0、第三方及图标来源声明；这是 SleepDown 的兼容接入副本，不代表上游支持 Android 8。
+当前上游基线：`520478b9305780b078bed1096ce68f727c594f14`，2026-11-07 从 GitHub `main` 获取。以原基线 `af952eb6b2288a60652277cba2fb64a54a68aeb7` 做三方同步，保留 SleepDown 的构建兼容、材质开关、Mesh 保护及 Dock/Button 扩展；没有使用 E 盘工作区替代上游。按官方源码模块接入方式保留核心源码和 MPL 2.0、第三方及图标来源声明；这是 SleepDown 的兼容接入副本，不代表上游支持 Android 8。
 
 宿主保留 minSdk 26。只在本应用已接入的设置路径支持旧系统：Android 12 以下不录制或采样材质背景，顶栏、分组和控件保留 COUI 几何及排版；需要更高系统的浮动按钮由宿主按版本提供同尺寸普通表面。未接入组件仍遵循源码的 RequiresApi，不得因为模块 minSdk 降低而无条件调用。
 

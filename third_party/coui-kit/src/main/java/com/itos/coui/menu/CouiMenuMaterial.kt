@@ -15,10 +15,19 @@ import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Matrix
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawOutline
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -27,13 +36,38 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.toSize
 import com.itos.coui.backdrop.CouiBackdrop
 import com.itos.coui.motion.CouiTouchMotion
 import com.itos.coui.shape.CouiCornerWeight
 import com.itos.coui.shape.CouiShape
+import kotlin.math.ceil
 
 /** 材质只处理背景, 菜单文字和状态层保持清晰。 */
-internal data class CouiMenuMaterial(val drawing: Modifier = Modifier, val input: Modifier = Modifier)
+internal data class CouiMenuMaterial(
+    val drawing: Modifier = Modifier,
+    val input: Modifier = Modifier,
+    val source: CouiMenuMaterialSource? = null,
+)
+
+/** 只复用面板材质，不能把父行文字或交互状态录入子面板。 */
+internal class CouiMenuMaterialSource(private val layer: GraphicsLayer, private val shape: Shape) {
+    private val matrix = Matrix()
+    private val path = Path()
+    var coordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
+
+    fun draw(scope: DrawScope, target: LayoutCoordinates) {
+        val source = coordinates ?: return
+        if (!source.isAttached || !target.isAttached || layer.size == IntSize.Zero) return
+        matrix.reset()
+        target.transformFrom(source, matrix)
+        path.reset()
+        path.addOutline(shape.createOutline(source.size.toSize(), scope.layoutDirection, scope))
+        scope.withTransform({ transform(matrix) }) {
+            clipPath(path) { drawLayer(layer) }
+        }
+    }
+}
 
 @Composable
 internal fun couiMenuMaterial(
@@ -46,6 +80,8 @@ internal fun couiMenuMaterial(
     inputTarget: ((Offset, Boolean) -> LayoutCoordinates?)? = null,
     transitionProgress: (() -> Float)? = null,
     parentTouchMotion: CouiTouchMotion? = null,
+    collapseBlend: (() -> Float)? = null,
+    mergeSource: CouiMenuMaterialSource? = null,
 ): CouiMenuMaterial {
     // 材质组合覆盖进入、退出和反向动画, 不按 expanded 提前释放背景。
     backdrop.RetainWhileComposed()
@@ -58,7 +94,20 @@ internal fun couiMenuMaterial(
     val runtimeShaderSupported = Build.VERSION.SDK_INT >= 33
     val blurredBackdrop = rememberCouiMenuBlur(backdrop, surface)
     val backgroundLayer = rememberGraphicsLayer()
+    val source = remember(backgroundLayer, shape) { CouiMenuMaterialSource(backgroundLayer, shape) }
     val density = LocalDensity.current
+    val mergeLayer = if (mergeSource != null) rememberGraphicsLayer() else null
+    val edgeFadeLayer = if (collapseBlend != null) rememberGraphicsLayer() else null
+    val edgeFadeWidth = CouiMenuDefaults.subMenuEdgeFadeWidth.value * density.density
+    val edgeFadeRadius = CouiMenuDefaults.subMenuEdgeFadeBlurRadius.value * density.density
+    val edgeFadePadding = ceil(edgeFadeWidth + 3f * edgeFadeRadius).toInt()
+    if (edgeFadeLayer != null) {
+        edgeFadeLayer.topLeft = IntOffset(-edgeFadePadding, -edgeFadePadding)
+        edgeFadeLayer.blendMode = BlendMode.DstOut
+        edgeFadeLayer.renderEffect = remember(edgeFadeRadius) {
+            BlurEffect(null, edgeFadeRadius, edgeTreatment = TileMode.Decal)
+        }
+    }
     val legacyBlurRadius = 12.dp.value * density.density
     val blurPadding = if (runtimeShaderSupported) 0 else legacyBlurRadius.toInt()
     val edgeRadiusPx = LocalCouiMenuStyle.current.resolvedRadius.value * density.density
@@ -82,9 +131,13 @@ internal fun couiMenuMaterial(
             clip = true
             compositingStrategy = CompositingStrategy.Offscreen
         }
-        .onGloballyPositioned { coordinates = it }
+        .onGloballyPositioned {
+            coordinates = it
+            source.coordinates = it
+        }
         .drawWithContent {
             transitionProgress?.invoke()
+            val blendProgress = collapseBlend?.invoke()?.coerceIn(0f, 1f) ?: 0f
             // 订阅外层变换, graphicsLayer 单独更新时也重新映射背景, 避免采样跟着菜单移动。
             val frame = motion.frame
             val scaleX = if (parentTouchMotion == null) frame.scale * touchMotion.scaleX.value else
@@ -120,6 +173,14 @@ internal fun couiMenuMaterial(
                     }
                 }
                 drawLayer(backgroundLayer)
+                if (mergeLayer != null && mergeSource != null && blendProgress > 0f) {
+                    mergeLayer.record(density, layoutDirection, IntSize(size.width.toInt(), size.height.toInt())) {
+                        mergeSource.draw(this, target)
+                    }
+                    // 子底色仍不透明；尾段用父面板同位置的材质替换，避免移除时整块变色。
+                    mergeLayer.alpha = blendProgress
+                    drawLayer(mergeLayer)
+                }
             }
             if (!runtimeShaderSupported) {
                 drawRect(mix, blendMode = BlendMode.Luminosity)
@@ -128,6 +189,21 @@ internal fun couiMenuMaterial(
             if (themeTintEnabled) {
                 // 只引入页面色相, 保留材质亮度, 不让前景参与混色。
                 drawRect(themeTint, blendMode = BlendMode.Color)
+            }
+            if (edgeFadeLayer != null && blendProgress > 0f) {
+                val outline = shape.createOutline(size, layoutDirection, density)
+                edgeFadeLayer.record(
+                    density = density,
+                    layoutDirection = layoutDirection,
+                    size = IntSize(size.width.toInt() + edgeFadePadding * 2, size.height.toInt() + edgeFadePadding * 2),
+                ) {
+                    translate(edgeFadePadding.toFloat(), edgeFadePadding.toFloat()) {
+                        drawOutline(outline, Color.Black, style = Stroke(edgeFadeWidth * 2f))
+                    }
+                }
+                edgeFadeLayer.alpha = blendProgress
+                // 只擦除当前离屏背景的轮廓窄带；文字、图标和跟手光在遮罩之后绘制。
+                drawLayer(edgeFadeLayer)
             }
             drawContent()
         }
@@ -139,5 +215,5 @@ internal fun couiMenuMaterial(
             drawSpotlight?.invoke(this)
             drawContent()
         }
-    return CouiMenuMaterial(drawing, spotlightInput)
+    return CouiMenuMaterial(drawing, spotlightInput, source)
 }

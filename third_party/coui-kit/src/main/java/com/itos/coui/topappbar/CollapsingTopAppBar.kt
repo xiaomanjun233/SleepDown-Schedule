@@ -46,7 +46,7 @@ fun CollapsingTopAppBar(
     backdrop: CouiBackdrop = checkNotNull(LocalCouiBackdrop.current) {
         "顶栏需要显式 backdrop 或 ProvideCouiBackdrop 作用域"
     },
-    backgroundColor: Color = Color.Transparent,
+    backgroundColor: Color = Color.Unspecified,
     dark: Boolean = CouiTheme.isDark,
     searchBar: (@Composable () -> Unit)? = null,
 ) {

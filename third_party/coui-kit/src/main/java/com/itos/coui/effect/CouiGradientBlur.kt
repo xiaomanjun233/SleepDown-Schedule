@@ -196,7 +196,7 @@ private fun gradientGaussianShader(kernelRadius: Int, gradientSpeed: Float?): St
     uniform float gradientHeight;
     uniform half2 in_blurOffset;
 
-    half4 sampleChild(float2 coord) {
+    float4 sampleChild(float2 coord) {
         return child.eval(clamp(coord, float2(0.5), inputSize - 0.5));
     }
 
@@ -213,17 +213,18 @@ private fun gradientGaussianShader(kernelRadius: Int, gradientSpeed: Float?): St
     }
 
     half4 main(float2 coord) {
-        half4 c = sampleChild(coord);
+        float4 c = sampleChild(coord);
         float position = clamp((coord.y - gradientTop) / gradientHeight, 0.0, 1.0);
         // 通用入口保留 smoothstep；显式原厂分支使用 1-pow(1-ratio,speed)。
         float ratio = ${if (gradientSpeed == null) "smoothstep(0.0, 1.0, 1.0 - position)" else "1.0 - pow(position, ${gradientSpeed})"};
         int radius = int(float(in_blurRadius) * ratio);
-        if (radius <= 1) return c;
+        if (radius <= 1) return half4(c);
         // 卷积结果恢复中心 alpha 后恒为零; 保留清晰端直通, 不截断低但非零的覆盖率。
         if (c.a == 0.0) return half4(0.0);
         float2 offset = float2(0.0);
         float sumWeight = 0.0;
-        half4 finalColor = half4(0.0);
+        // 颜色累加与覆盖率归一保持 float，避免 half 舍入随整数半径形成横向色带。
+        float4 finalColor = float4(0.0);
         for (int i = 1; i <= in_blurRadius; i++) {
             if (i > radius) break;
             float weight = getWeight(i, radius);
@@ -236,9 +237,9 @@ private fun gradientGaussianShader(kernelRadius: Int, gradientSpeed: Float?): St
         finalColor += c * (1.0 - sumWeight);
         // 屏幕外没有页面采样; 恢复有效颜色但不扩张中心覆盖度, 避免顶边变暗或补成不透明。
         if (finalColor.a <= 0.0) return half4(0.0);
-        finalColor = half4(finalColor.rgb * (c.a / finalColor.a), c.a);
+        finalColor = float4(finalColor.rgb * (c.a / finalColor.a), c.a);
         float noise = interleavedGradientNoise(coord + 0.5) - 0.5;
-        finalColor.rgb = clamp(finalColor.rgb + noise * c.a / 200.0, half3(0.0), half3(c.a));
-        return finalColor;
+        finalColor.rgb = clamp(finalColor.rgb + noise * c.a / 200.0, float3(0.0), float3(c.a));
+        return half4(finalColor);
     }
 """.trimIndent()

@@ -42,6 +42,7 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -56,13 +57,13 @@ import com.itos.coui.backdrop.CouiBackdrop
 import kotlinx.coroutines.flow.first
 
 /**
- * 单输入弹窗预设，复用 [AlertDialog] 的窗口、操作区与材质。
+ * 单输入弹窗预设，复用 [Dialog] 的窗口、操作区与材质。
  *
  * 对应 Settings 17 的 COUIAlertDialog.SingleInput / COUIInputView。value 包含宿主的草稿、
  * 选区和输入法组合区；输入过滤、counter 文案、counterIsError 与确认启用条件均由宿主持有。
  * 清除只回调空值，不提交确认。accent 用于焦点线和光标，clearContentDescription 由宿主本地化。
  * 默认等待窗口获焦后请求输入焦点和键盘；autoFocus=false 时由用户点击输入区进入编辑。
- * properties 必须保留 decorFitsSystemWindows=true；预设显式请求窗口 resize，勿再叠加 imePadding。
+ * properties 保留 decorFitsSystemWindows=true；键盘避让由预设处理，勿再叠加 imePadding。
  */
 @Composable
 fun InputDialog(
@@ -86,11 +87,12 @@ fun InputDialog(
     backdrop: CouiBackdrop? = null,
     autoFocus: Boolean = true,
     properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true),
+    visible: Boolean? = null,
 ) {
     InputDialogFrame(modifier, value.text, { onValueChange(TextFieldValue("", TextRange.Zero)) },
         onDismissRequest, confirmAction, dark, accent, clearContentDescription, title, message, placeholder,
-        counter, counterIsError, dismissAction, placement, colors, material, backdrop, autoFocus, properties) { field, style ->
-        BasicTextField(value, onValueChange, modifier = field, singleLine = true,
+        counter, counterIsError, dismissAction, placement, colors, material, backdrop, autoFocus, properties, visible) { field, style ->
+        BasicTextField(value, onValueChange, modifier = field, singleLine = true, enabled = visible != false,
             textStyle = style, cursorBrush = SolidColor(accent))
     }
 }
@@ -121,11 +123,12 @@ fun InputDialog(
     autoFocus: Boolean = true,
     properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = true),
     inputTransformation: InputTransformation? = null,
+    visible: Boolean? = null,
 ) {
     InputDialogFrame(modifier, state.text.toString(), { state.edit { replace(0, length, "") } },
         onDismissRequest, confirmAction, dark, accent, clearContentDescription, title, message, placeholder,
-        counter, counterIsError, dismissAction, placement, colors, material, backdrop, autoFocus, properties) { field, style ->
-        BasicTextField(state = state, modifier = field, textStyle = style, cursorBrush = SolidColor(accent),
+        counter, counterIsError, dismissAction, placement, colors, material, backdrop, autoFocus, properties, visible) { field, style ->
+        BasicTextField(state = state, modifier = field, textStyle = style, cursorBrush = SolidColor(accent), enabled = visible != false,
             lineLimits = TextFieldLineLimits.SingleLine, inputTransformation = inputTransformation)
     }
 }
@@ -152,22 +155,23 @@ private fun InputDialogFrame(
     backdrop: CouiBackdrop?,
     autoFocus: Boolean,
     properties: DialogProperties,
+    visible: Boolean?,
     editor: @Composable (Modifier, TextStyle) -> Unit,
 ) {
-    require(properties.decorFitsSystemWindows) { "输入型弹窗需保留 decorFitsSystemWindows=true，由窗口 resize 避让键盘" }
+    require(properties.decorFitsSystemWindows) { "输入型弹窗需保留 decorFitsSystemWindows=true，由预设统一处理键盘避让" }
     val softInputMode = WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE or
-        if (autoFocus) WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE else WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
+        if (autoFocus && visible != false) WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE else WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
     CompositionLocalProvider(LocalCouiDialogSoftInputMode provides softInputMode) {
-        AlertDialog(modifier = modifier, onDismissRequest = onDismissRequest, confirmAction = confirmAction,
+        Dialog(modifier = modifier, onDismissRequest = onDismissRequest, confirmAction = confirmAction,
             dark = dark, title = title, dismissAction = dismissAction, placement = placement,
-            colors = colors, material = material, backdrop = backdrop, properties = properties) {
+            colors = colors, material = material, backdrop = backdrop, properties = properties, visible = visible) {
             // SingleInput 属于 BottomAssignment：正文到 customPanel 是 4dp，不沿用普通警告的 16dp。
             if (!message.isNullOrEmpty()) DialogText(Modifier.fillMaxWidth()
                 .padding(horizontal = CouiDialogDefaults.contentPadding)
                 .padding(bottom = DialogInputDefaults.messageBottom), message, DialogTextKind.Message, colors.message)
             DialogInput(Modifier.fillMaxWidth().padding(horizontal = CouiDialogDefaults.contentPadding)
                 .padding(bottom = DialogInputDefaults.bottomMargin), text, onClear, dark, accent,
-                colors, placeholder, counter, counterIsError, clearContentDescription, autoFocus, editor)
+                colors, placeholder, counter, counterIsError, clearContentDescription, autoFocus, visible, editor)
         }
     }
 }
@@ -199,21 +203,25 @@ private fun DialogInput(
     counterIsError: Boolean,
     clearContentDescription: String,
     autoFocus: Boolean,
+    visible: Boolean?,
     editor: @Composable (Modifier, TextStyle) -> Unit,
 ) {
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
+    val focusManager = LocalFocusManager.current
     val windowInfo = LocalWindowInfo.current
     var focused by remember { mutableStateOf(false) }
     val focusLine = remember { Animatable(0f) }
     val hintColor = if (dark) Color(0x4DFFFFFF) else Color(0x42000000)
     val dividerColor = if (dark) Color(0x33FFFFFF) else Color(0x1F000000)
     val style = rememberDialogTextStyle(DialogTextKind.Input).copy(color = colors.title, textAlign = TextAlign.Start)
-    LaunchedEffect(autoFocus, windowInfo) {
-        if (autoFocus) {
+    LaunchedEffect(autoFocus, visible, windowInfo) {
+        if (visible == false) {
+            keyboard?.hide()
+            focusManager.clearFocus(force = true)
+        } else if (autoFocus) {
             snapshotFlow { windowInfo.isWindowFocused }.first { it }
-            focusRequester.requestFocus()
-            keyboard?.show()
+            if (focusRequester.requestFocus()) keyboard?.show()
         }
     }
     LaunchedEffect(focused) {

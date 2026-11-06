@@ -169,6 +169,7 @@ fun TopAppBarSearch(
                                 if (action != null) {
                                     TopAppBarSearchPair(fullWidth = fullWidth, progress = progress,
                                         enabled = enabled, active = active, deform = enabled && active && !state.motion.running,
+                                        animating = state.motion.running,
                                         capsule = state.motion.expanded, contentRenderEffect = blur,
                                         action = action, onActionClick = onActionClick, input = input)
                                 } else {

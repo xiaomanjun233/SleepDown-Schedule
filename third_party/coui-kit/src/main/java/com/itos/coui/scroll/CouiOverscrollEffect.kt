@@ -290,7 +290,8 @@ fun Modifier.couiVerticalScroll(
     overscrollEffect: CouiOverscrollEffect? = rememberCouiOverscrollEffect(),
     interactionSource: MutableInteractionSource? = null,
 ): Modifier {
-    val visual = if (enabled && overscrollEffect != null) Modifier.overscroll(overscrollEffect) else Modifier
+    // 禁用纵向输入时保留回弹节点，避免移除祖先触摸节点而取消子内容的当前手势。
+    val visual = if (overscrollEffect != null) Modifier.overscroll(overscrollEffect) else Modifier
     val flingBehavior = rememberCouiScrollFlingBehavior(overscrollEffect)
     // Foundation 的 canScroll=true 允许分发但不保证消费；边界运动在零内容范围时仍可消费。
     // 只开放输入门控，其余操作直接委托真实 state，共用同一互斥，不另建滚动状态。

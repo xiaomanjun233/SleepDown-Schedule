@@ -164,25 +164,36 @@ private fun AppBarLayout(
             else (padding + navigation.width + if (navigation.width > 0) gap else 0).toFloat()
         val compactEnd = padding + action.width + if (action.width > 0) gap else 0
         val expandedStart = CouiTopAppBarDefaults.expandedTitleStart.toPx()
-        // 带按钮时整段转场预留按钮宽度，标题上移经过操作行时也不会覆盖点击区域。
-        val start = if (large && navigation.width == 0)
-            expandedStart + (compactStart - expandedStart) * progress else compactStart
+        val curvedTitle = large && navigation.width > 0
+        // 弧线偏移在两端的位置与变化率均为零，保留标题原有的起步和收尾节奏。
+        val arcEnvelope = progress * (1f - progress)
+        val arcOffset = if (curvedTitle) 0.8f * arcEnvelope * arcEnvelope else 0f
+        val horizontalProgress = progress + arcOffset
+        val start = if (large)
+            expandedStart + (compactStart - expandedStart) * horizontalProgress else compactStart
         val end = if (large && action.width == 0) CouiCollapsingAppBarDefaults.titleOnlyStart.toPx()
             else compactEnd.toFloat()
         // 用缩放后的可见宽度限制标题，避免收起时覆盖导航或操作按钮。
         val titleWidth = ((width - start - end).coerceAtLeast(0f) / scale).roundToInt()
         val titleNode = nodes[2].measure(Constraints(maxWidth = titleWidth, maxHeight = (height / scale).toInt()))
         layout(width, height) {
-            navigation.placeRelative(padding, (toolbarHeight - navigation.height) / 2)
-            action.placeRelative(width - padding - action.width, (toolbarHeight - action.height) / 2)
+            val navigationY = (toolbarHeight - navigation.height) / 2
+            navigation.placeRelative(padding, navigationY, zIndex = 1f)
+            action.placeRelative(width - padding - action.width, (toolbarHeight - action.height) / 2, zIndex = 1f)
             val titleY = if (large) {
                 val expandedY = expanded - (CouiTopAppBarDefaults.expandedHeight -
                     CouiCollapsingAppBarDefaults.titleOnlyTop).toPx()
-                val collapsedY = range + (collapsed - titleNode.height * scale) / 2f
-                expandedY + (collapsedY - expandedY) * progress - offset
+                val collapsedY = (collapsed - titleNode.height * scale) / 2f
+                if (curvedTitle) {
+                    val verticalProgress = progress - arcOffset
+                    expandedY + (collapsedY - expandedY) * verticalProgress
+                } else {
+                    expandedY + (range + collapsedY - expandedY) * progress - offset
+                }
             } else (height - titleNode.height) / 2f
             titleNode.placeRelative(start.roundToInt(),
-                titleY.coerceIn(0f, (height - titleNode.height * scale).coerceAtLeast(0f)).roundToInt())
+                (if (curvedTitle) titleY.coerceAtLeast(0f) else
+                    titleY.coerceIn(0f, (height - titleNode.height * scale).coerceAtLeast(0f))).roundToInt())
         }
     }
 }

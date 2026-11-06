@@ -315,7 +315,7 @@ private fun Modifier.floatingSurfaces(
                                 setFloatUniform("u_offset", bounds.left - node.bounds.left, bounds.top - node.bounds.top)
                                 setFloatUniform("u_invScale", 1f / node.scaleX, 1f / node.scaleY)
                                 setFloatUniform("u_commonArray", floatArrayOf(0f, 0f, 0f, 0f, node.bounds.width,
-                                    node.bounds.height, min(node.bounds.width, node.bounds.height) * 0.5f, 0f, 0f, 0f, 0f, 0f))
+                                    node.bounds.height, node.resolvedCornerRadius, 0f, 0f, 0f, 0f, 0f))
                                 setFloatUniform("u_pyrolysisArray", floatArrayOf(shadow.causticColor.red, shadow.causticColor.green,
                                     shadow.causticColor.blue, shadow.causticColor.alpha * node.alpha, shadow.layout.left, shadow.layout.top,
                                     shadow.layout.right, shadow.layout.bottom, shadow.sdf, shadow.power, shadow.powerMix,
@@ -394,13 +394,17 @@ private fun Modifier.floatingSurfaces(
                     // 纯投影不录制 drawContent; 显式 Density 避免重定向外层作用域后形成循环引用。
                     layer.record(density = recordingDensity, layoutDirection = layoutDirection, size = recordSize) {
                         drawIntoCanvas { canvas ->
+                            val roundedRect = node.cornerRadius != null &&
+                                node.resolvedCornerRadius < min(bounds.width, bounds.height) * 0.5f
                             renderer.shadowRenderer?.draw(canvas.nativeCanvas, index, bounds.width, bounds.height,
                                 node.scaleX, node.scaleY, windowOrigin.x + layer.translationX,
                                 windowOrigin.y + layer.translationY, node.alpha, shadows[index].color.toArgb(),
                                 shadows[index].elevation, shadows[index].lightY,
                                 if (shadows[index].lightZ > 0f) shadows[index].lightZ else defaultLightZ,
                                 shadows[index].lightRadius,
-                                if (shadows[index].smoothCorner) CouiShadowOutline.SmoothCapsule else CouiShadowOutline.Oval)
+                                if (roundedRect) CouiShadowOutline.RoundRect
+                                else if (shadows[index].smoothCorner) CouiShadowOutline.SmoothCapsule else CouiShadowOutline.Oval,
+                                radius = node.resolvedCornerRadius, clipping = !roundedRect)
                         }
                     }
                 }

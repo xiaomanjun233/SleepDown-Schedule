@@ -39,7 +39,7 @@ object CouiCollapsingAppBarDefaults {
     val resultsStartOffset = 108.dp
     internal val titleOnlyBlurExtension = 8.dp
     internal val searchBlurExtension = 14.dp
-    internal const val referenceBlurRadiusPx = 30f
+    internal const val referenceBlurRadiusPx = 27f
     internal const val snapResponse = .25f
     internal val titleEasing = CubicBezierEasing(.33f, 0f, .67f, 1f)
 }

@@ -25,7 +25,6 @@ import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import com.itos.coui.theme.CouiTheme
-import com.itos.coui.topappbar.CouiTopAppBarButtonDefaults
 import com.itos.coui.theme.ProvideCouiContent
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.IntSize
@@ -45,7 +44,12 @@ import com.itos.coui.motion.couiPressMotion
 import com.itos.coui.motion.couiTouchMotion
 import com.itos.coui.motion.rememberCouiPressMotion
 import com.itos.coui.motion.rememberCouiTouchMotion
+import com.itos.coui.shape.CouiShape
 
+/**
+ * 使用 CouiShape 时, 裁剪与材质共用半径和权重, 普通投影使用相同半径的 caster。
+ * 相邻 FAB 可启用 foregroundComposition, 在不透明 SDR 背景上只叠加自身前景, 避免背景回填擦除兄弟节点。
+ */
 @RequiresApi(34)
 @Composable
 fun Fab(
@@ -56,15 +60,18 @@ fun Fab(
     renderer: CouiFloatingRenderer,
     onClick: (() -> Unit)? = null,
     dark: Boolean = CouiTheme.isDark,
-    shape: Shape = CouiTopAppBarButtonDefaults.circleShape,
+    shape: Shape = CouiFabDefaults.circleShape,
     material: CouiFloatingMaterial? = null,
     shadow: CouiFloatingShadow? = null,
+    foregroundComposition: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val contour = LocalCouiContourGlowEnabled.current
+    val density = LocalDensity.current.density
+    val couiShape = shape as? CouiShape
     val colors = CouiTheme.colorSchemeFor(dark)
     val resolvedMaterial = material ?: CouiFabDefaults.material(colors.accent, dark)
-    val resolvedShadow = shadow ?: CouiFabDefaults.shadow(resolvedMaterial.firstColor, LocalDensity.current.density, contour)
+    val resolvedShadow = shadow ?: CouiFabDefaults.shadow(resolvedMaterial.firstColor, density, contour)
     val contentLayer = rememberGraphicsLayer()
     val motion = rememberCouiTouchMotion(true)
     val press = rememberCouiPressMotion()
@@ -78,12 +85,13 @@ fun Fab(
     Box(
         modifier.size(56.dp).onSizeChanged { boundsSize = it }
             .couiFloatingSurface(backdrop, renderer, resolvedMaterial, resolvedShadow, shape,
-                contentLayer, contour) {
+                contentLayer, contour, foregroundComposition = foregroundComposition) {
                 CouiFloatingSurface(
                     Rect(Offset(motion.translationX.value, motion.translationY.value),
                         Size(boundsSize.width.toFloat(), boundsSize.height.toFloat())),
                     motion.scaleX.value + press.scale.value - 1f, motion.scaleY.value + press.scale.value - 1f,
-                    cornerWeight = 2f,
+                    cornerWeight = couiShape?.cornerWeight ?: 2f,
+                    cornerRadius = couiShape?.radius?.value?.times(density),
                 )
             },
     ) {

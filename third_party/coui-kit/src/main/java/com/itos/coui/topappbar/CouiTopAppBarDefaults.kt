@@ -38,7 +38,7 @@ object CouiTopAppBarDefaults {
         navigationIconColor: Color = Color.Unspecified, actionIconColor: Color = Color.Unspecified,
         dark: Boolean = CouiTheme.isDark): CouiTopAppBarColors {
         val scheme = CouiTheme.colorSchemeFor(dark)
-        return CouiTopAppBarColors(backgroundColor.takeOrElse { scheme.background },
+        return CouiTopAppBarColors(backgroundColor.takeOrElse { if (dark) Color.Black else Color.White },
             titleColor.takeOrElse { scheme.onSurface }, navigationIconColor.takeOrElse { scheme.onSurface },
             actionIconColor.takeOrElse { scheme.onSurface })
     }
@@ -51,7 +51,7 @@ object CouiTopAppBarDefaults {
     }
 
     val fadeHeight = 96.dp
-    val referenceBlurRadius = 12.dp
+    val referenceBlurRadius = 10.8.dp
     val bottomExtension = 12.dp
     internal val searchActionGap = 12.dp
     internal val searchActionMinWidth = 40.dp

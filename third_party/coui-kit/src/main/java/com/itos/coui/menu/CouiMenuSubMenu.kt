@@ -126,11 +126,13 @@ private class SubMenuState<T> {
     var childSize by mutableStateOf(IntSize.Zero)
     var layout by mutableStateOf<SubMenuLayout?>(null)
     var transferredPressProgress = 0f
+    var collapseStartY: Float? = null
 
     fun show(index: Int) {
         if (parentIndex != index) {
             childSize = IntSize.Zero
             resetProgressOnEnter = true
+            collapseStartY = null
         }
         entered = false
         mainNeedsDown = false
@@ -182,15 +184,20 @@ internal fun <T> CouiMenuWithSubMenu(
 
     LaunchedEffect(expanded, items) {
         // 列表变化不能将旧的按压目标提交给新的业务列表。
-        state.hide()
         main.selection.clear()
         child.selection.clear()
         if (expanded) {
+            state.hide()
+            state.progress.snapTo(0f)
+            state.parentIndex = null
+            state.collapseStartY = null
             childScroll.stopScroll(MutatePriority.PreventUserInput)
             childScroll.scrollTo(0)
         }
     }
-    LaunchedEffect(state.open, state.parentIndex) {
+    LaunchedEffect(expanded, state.open, state.parentIndex) {
+        // 整组退场取消子转场并保留当前形状; 只收子菜单才回到父行。
+        if (!expanded) return@LaunchedEffect
         // 先结束用户滚动, 避免归零操作因滚动优先级冲突而取消整段转场。
         childScroll.stopScroll(MutatePriority.PreventUserInput)
         if (state.open) {
@@ -222,7 +229,6 @@ internal fun <T> CouiMenuWithSubMenu(
 
     fun dismiss() {
         if (!expanded) return
-        state.hide()
         main.selection.clear()
         child.selection.clear()
         onDismissRequest()
@@ -272,7 +278,9 @@ internal fun <T> CouiMenuWithSubMenu(
     // COUI 前景光效保持整面板尺寸; overrideOutline 单独更新背景边界与投影透明度。
     val childShape = if (compact && layout != null) SubMenuClipShape(shape, layout, state.progress.value) else shape
     val childAlpha = {
-        if (state.layout == null) 0f else motion.frame.alpha * if (compact) 1f else state.progress.value
+        val progress = state.progress.value
+        val alpha = motion.frame.alpha * if (compact) 1f else progress
+        if (state.layout == null || (backdrop != null && !expanded && alpha <= 0.1f)) 0f else alpha
     }
     val childShadow = if (visible) rememberCouiMenuShadow(childShape, motion, childTouch,
         transitionProgress = { state.progress.value }, parentTouchMotion = mainTouch,
@@ -289,7 +297,12 @@ internal fun <T> CouiMenuWithSubMenu(
                     ((active && state.childTouchStartedDirectly) || child.contains(root, point))
                 ) child.surfaceCoordinates else null
             },
-            transitionProgress = { state.progress.value }, parentTouchMotion = mainTouch)
+            transitionProgress = { state.progress.value }, parentTouchMotion = mainTouch,
+            collapseBlend = if (compact) ({
+                val fraction = (state.progress.value / CouiMenuDefaults.subMenuMergeThreshold).coerceIn(0f, 1f)
+                1f - fraction * fraction * (3f - 2f * fraction)
+            }) else null,
+            mergeSource = mainMaterial.source.takeIf { compact })
     } else CouiMenuMaterial()
     val currentActivate by rememberUpdatedState(::activate)
     val currentCompact by rememberUpdatedState(compact)
@@ -615,8 +628,24 @@ internal fun <T> CouiMenuWithSubMenu(
                                     scaleY = sy + initialScale - 1f
                                     val delta = geometry?.pivotDelta ?: Offset.Zero
                                     translationX = frame.translation.x + mainTouch.translationX.value + childTouch.translationX.value + delta.x * (parentSx - 1f)
-                                    translationY = frame.translation.y + mainTouch.translationY.value + childTouch.translationY.value + delta.y * (parentSy - 1f) +
-                                        (geometry?.childStartY ?: 0f) * (1f - p)
+                                    val globalY = frame.translation.y + mainTouch.translationY.value + childTouch.translationY.value + delta.y * (parentSy - 1f)
+                                    if (compact && expanded && !state.open && geometry != null) {
+                                        val root = state.rootCoordinates
+                                        val content = main.contentCoordinates
+                                        val surface = main.surfaceCoordinates
+                                        val index = state.parentIndex
+                                        if (root?.isAttached == true && content?.isAttached == true &&
+                                            surface?.isAttached == true && index != null
+                                        ) {
+                                            val rowY = main.headerHeight + (main.itemTops.getOrNull(index) ?: 0)
+                                            val rowTop = max(root.localPositionOf(content, Offset(0f, rowY.toFloat())).y,
+                                                root.localPositionOf(surface, Offset.Zero).y)
+                                            // 回采父行当前可见位置, 再换到子面板未平移的坐标; 全局退场保留最后一次结果。
+                                            state.collapseStartY = rowTop - geometry.childPosition.y - globalY -
+                                                state.childSize.height * transformOrigin.pivotFractionY * (1f - sy) - sy * geometry.padding
+                                        }
+                                    }
+                                    translationY = globalY + (state.collapseStartY ?: geometry?.childStartY ?: 0f) * (1f - p)
                                     alpha = childAlpha()
                                     compositingStrategy = CompositingStrategy.ModulateAlpha
                                 }
@@ -714,7 +743,6 @@ private fun subMenuLayout(
         if (x <= main.x) 1f else 0f,
         (main.y + rowTop + with(density) { CouiMenuItemHeight.toPx() } / 2f - y) / childSize.height.coerceAtLeast(1),
     )
-    // shortcut: 收起使用布局父行位置, 未回采厂商动态可见矩形; 拖动收起对照有漂移时补齐。
     return SubMenuLayout(
         childPosition, width.toFloat() / mainSize.width.coerceAtLeast(1),
         TransformOrigin(pivotX, 0f), childOrigin,

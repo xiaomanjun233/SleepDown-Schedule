@@ -1,5 +1,6 @@
 package com.itos.coui.shape
 
+import android.util.LruCache
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Outline
@@ -17,12 +18,36 @@ import kotlin.math.sqrt
 
 /** Oplus cornerType=4 / weight=1 的 sdCapsule 零等值线。 */
 object CouiCapsuleShape : Shape {
+    // 只共享按精确像素尺寸缓存的只读采样点, Path 始终归各调用方独立持有。
+    private val quarterContours = LruCache<Size, List<Offset>>(16)
+
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
         val path = Path()
         if (size.width <= 0f || size.height <= 0f) return Outline.Generic(path)
+        val quarter = quarterContours[size] ?: buildQuarterContour(size).also {
+            quarterContours.put(size, it)
+        }
+        if (quarter.isEmpty()) return Outline.Generic(path)
         val halfX = size.width * 0.5
         val halfY = size.height * 0.5
-        if (capsuleSdf(0.0, 0.0, halfX, halfY) >= 0.0) return Outline.Generic(path)
+        path.moveTo((halfX + quarter.first().x).toFloat(), halfY.toFloat())
+        repeat(4) { quadrant ->
+            quarter.indices.forEach { i ->
+                val p = quarter[if (quadrant % 2 == 0) i else quarter.lastIndex - i]
+                val x = if (quadrant == 1 || quadrant == 2) -p.x else p.x
+                val y = if (quadrant >= 2) -p.y else p.y
+                path.lineTo((halfX + x).toFloat(), (halfY + y).toFloat())
+            }
+        }
+        path.close()
+        // shortcut: Path 沿原 SDF 取样, 公开抗锯齿不等于厂商 fwidth; 有同等 GPU 裁剪时替换。
+        return Outline.Generic(path)
+    }
+
+    private fun buildQuarterContour(size: Size): List<Offset> {
+        val halfX = size.width * 0.5
+        val halfY = size.height * 0.5
+        if (capsuleSdf(0.0, 0.0, halfX, halfY) >= 0.0) return emptyList()
         fun point(angle: Double): Offset {
             val x = cos(angle)
             val y = sin(angle)
@@ -48,18 +73,7 @@ object CouiCapsuleShape : Shape {
             }
         }
         append(0.0, quarter.first(), PI * 0.5, point(PI * 0.5), 0)
-        path.moveTo((halfX + quarter.first().x).toFloat(), halfY.toFloat())
-        repeat(4) { quadrant ->
-            quarter.indices.forEach { i ->
-                val p = quarter[if (quadrant % 2 == 0) i else quarter.lastIndex - i]
-                val x = if (quadrant == 1 || quadrant == 2) -p.x else p.x
-                val y = if (quadrant >= 2) -p.y else p.y
-                path.lineTo((halfX + x).toFloat(), (halfY + y).toFloat())
-            }
-        }
-        path.close()
-        // shortcut: Path 沿原 SDF 取样, 公开抗锯齿不等于厂商 fwidth; 有同等 GPU 裁剪时替换。
-        return Outline.Generic(path)
+        return quarter
     }
 
     private fun capsuleSdf(x: Double, y: Double, halfX: Double, halfY: Double): Double {

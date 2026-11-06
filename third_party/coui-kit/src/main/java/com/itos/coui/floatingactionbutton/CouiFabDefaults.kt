@@ -4,11 +4,16 @@ import android.graphics.BlendMode
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.unit.dp
 import com.itos.coui.effect.CouiFloatingMaterial
 import com.itos.coui.effect.CouiFloatingShadow
+import com.itos.coui.shape.CouiShape
 
 /** 有色 FAB 的固定配色、材质与投影预设; 自定义底色仍由宿主提供。 */
 object CouiFabDefaults {
+    val circleShape = CouiShape(999.dp, cornerWeight = 2f)
+    val roundedSquareShape = CouiShape(16.dp)
+
     fun containerColor(preset: CouiFabColor, dark: Boolean): Color = when (preset) {
         CouiFabColor.Notes -> Color(if (dark) 0xFFE5A100 else 0xFFFFB200)
         CouiFabColor.Phone -> Color(if (dark) 0xFF24B232 else 0xFF00BD13)
