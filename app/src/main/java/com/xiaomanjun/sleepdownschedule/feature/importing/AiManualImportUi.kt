@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -864,6 +865,8 @@ private fun AiManualImportDialogContent(
     onOpenHistoryEntry: (AiImportHistoryEntry, Rect) -> Unit,
     onPrimaryAction: () -> Unit
 ) {
+    val nativeHeading = LocalNativeDialogHeading.current
+    val nativeChrome = nativeHeading != null
     val nativeSurface = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSurface.current
     val materialForeground = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialForeground.current
         .takeUnless { it == ComposeColor.Unspecified }
@@ -888,9 +891,9 @@ private fun AiManualImportDialogContent(
     Column(
         Modifier
             .fillMaxWidth()
-            .height(panelHeight)
+            .then(if (nativeChrome) Modifier.heightIn(max = com.itos.coui.dialog.CouiDialogDefaults.maxHeight) else Modifier.height(panelHeight))
     ) {
-        LiquidDialogHeader(
+        if (nativeHeading != null) nativeHeading("口令/文件导入") else LiquidDialogHeader(
             title = "口令/文件导入",
             onDismiss = onCancel,
             backdrop = backdrop,
@@ -1080,45 +1083,52 @@ private fun AiManualImportDialogContent(
                 style = MaterialTheme.typography.bodySmall
             )
         }
-        LiquidDialogFooter {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
-                Box(
-                    Modifier.weight(1f).onGloballyPositioned {
-                        historyButtonBounds = it.boundsInWindow()
-                        onHistoryButtonBoundsChanged(historyButtonBounds)
-                    }
-                ) {
-                    // Keep the real button in the layout while the native transition owns it: a
-                    // placeholder of a different height would move the measured return bounds.
-                    DialogLiquidButton(
-                        backdrop = backdrop,
-                        label = "导入历史",
-                        role = DialogButtonRole.Cancel,
-                        iconRes = R.drawable.ic_history,
-                        modifier = Modifier.fillMaxWidth()
-                            .alpha(if (historySourceHidden) 0f else 1f)
-                            .then(historyButtonModifier),
-                        destructiveFilled = true,
-                        onClick = {
-                            if (!historySourceHidden && historyButtonBounds.width > 1f)
-                                onOpenHistory(historyButtonBounds)
-                        }
-                    )
+        val historyAction: @Composable (Modifier) -> Unit = { historyModifier ->
+            var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
+            Box(
+                historyModifier.onGloballyPositioned {
+                    historyButtonBounds = it.boundsInWindow()
+                    onHistoryButtonBoundsChanged(historyButtonBounds)
                 }
+            ) {
+                // Keep the real button in the layout while the native transition owns it: a
+                // placeholder of a different height would move the measured return bounds.
                 DialogLiquidButton(
                     backdrop = backdrop,
-                    label = when {
-                        aiParsing -> "解析中..."
-                        mode == 0 -> "解析并预览"
-                        mode == 1 -> "选择 ICS 文件"
-                        else -> "上传文件"
-                    },
-                    role = DialogButtonRole.Confirm,
-                    iconRes = R.drawable.ic_download,
-                    modifier = Modifier.weight(1f),
-                    onClick = onPrimaryAction
+                    label = "导入历史",
+                    role = DialogButtonRole.Cancel,
+                    iconRes = R.drawable.ic_history,
+                    modifier = Modifier.fillMaxWidth()
+                        .alpha(if (historySourceHidden) 0f else 1f)
+                        .then(historyButtonModifier),
+                    destructiveFilled = !nativeChrome,
+                    monochromeNeutral = nativeChrome,
+                    height = if (nativeChrome) com.itos.coui.dialog.CouiDialogDefaults.buttonHeight else 40.dp,
+                    onClick = {
+                        if (!historySourceHidden && historyButtonBounds.width > 1f)
+                            onOpenHistory(historyButtonBounds)
+                    }
                 )
+            }
+        }
+        val primaryLabel = when {
+            aiParsing -> "解析中..."
+            mode == 0 -> "解析并预览"
+            mode == 1 -> "选择 ICS 文件"
+            else -> "上传文件"
+        }
+        if (nativeChrome) {
+            historyAction(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
+            LiquidAlertActions(listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onCancel),
+                LiquidAlertAction(primaryLabel, LiquidAlertActionStyle.Primary, enabled = !aiParsing,
+                    dismissOnClick = false, onClick = onPrimaryAction)
+            ), backdrop, state.config)
+        } else LiquidDialogFooter {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                historyAction(Modifier.weight(1f))
+                DialogLiquidButton(backdrop = backdrop, label = primaryLabel, role = DialogButtonRole.Confirm,
+                    iconRes = R.drawable.ic_download, modifier = Modifier.weight(1f), onClick = onPrimaryAction)
             }
         }
     }

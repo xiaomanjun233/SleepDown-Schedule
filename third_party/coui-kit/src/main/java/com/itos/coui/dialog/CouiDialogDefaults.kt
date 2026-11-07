@@ -71,6 +71,10 @@ object CouiDialogDefaults {
         // getEffectiveBottomMargin 的非正调整量仍回到基础留白。
         if (adjusted > 0) adjusted else base
     }
+
+    /** 全屏输入窗口直接占据导航区；IME 高度已含导航区，动画期间只补尚未覆盖的部分。 */
+    internal fun inputBottomPaddingPx(navigationBarHeight: Int, imeOffset: Float, density: Density): Float =
+        with(density) { bottomMargin.toPx() } + (navigationBarHeight - imeOffset).coerceAtLeast(0f)
     val contentPadding = 24.dp
     val titleTop = 24.dp
     val titleBottom = 6.dp

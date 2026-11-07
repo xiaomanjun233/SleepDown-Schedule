@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
@@ -26,6 +28,7 @@ import top.yukonga.miuix.kmp.basic.BasicComponentColors
 import top.yukonga.miuix.kmp.basic.BasicComponentDefaults
 
 internal val LocalCouiSettingsEnabled = staticCompositionLocalOf { false }
+internal val LocalCouiSettingsRowShape = staticCompositionLocalOf<Shape?> { null }
 internal val LocalSettingsDialogConfig = staticCompositionLocalOf<ScheduleConfigEntity?> { null }
 internal val LocalCouiLiquidMaterial = staticCompositionLocalOf { false }
 internal val LocalCouiSettingsListLayout = staticCompositionLocalOf { false }
@@ -40,6 +43,8 @@ internal fun settingsCouiColorScheme(dark: Boolean, accent: Color, onAccent: Col
 
 @Composable
 internal fun settingsPreferencePadding(compact: Boolean = false): PaddingValues = when {
+    LocalCouiSettingsEnabled.current && LocalCouiSettingsRowShape.current != null ->
+        PaddingValues(horizontal = CouiPageDefaults.rowPadding, vertical = CouiPageDefaults.contentPadding)
     compact -> PaddingValues(horizontal = 4.dp, vertical = 8.dp)
     LocalCouiSettingsEnabled.current -> PaddingValues(horizontal = CouiPageDefaults.rowPadding,
         vertical = CouiPageDefaults.contentPadding)
@@ -157,8 +162,9 @@ internal fun SettingsBasicComponent(
             holdDownState = holdDownState, enabled = enabled, role = role, content = content)
         return
     }
+    val rowShape = LocalCouiSettingsRowShape.current
     val row: @Composable (Modifier) -> Unit = { rowModifier ->
-        Item(modifier = rowModifier, icon = startAction, iconSize = iconSize, contentPadding = insideMargin, onClick = onClick, enabled = enabled,
+        Item(modifier = (rowShape?.let { Modifier.clip(it) } ?: Modifier).then(rowModifier), icon = startAction, iconSize = iconSize, contentPadding = insideMargin, onClick = onClick, enabled = enabled,
             trailing = { endActions?.let { Row(content = it) } }) {
             Column(verticalArrangement = Arrangement.spacedBy(CouiPageDefaults.summarySpacing), content = content)
         }

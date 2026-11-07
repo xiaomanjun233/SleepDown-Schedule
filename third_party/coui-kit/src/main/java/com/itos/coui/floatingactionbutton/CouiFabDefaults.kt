@@ -35,6 +35,10 @@ object CouiFabDefaults {
             innerGlowAlpha = 0.3f,
         )
 
+    /** SleepDown 可选半透明强调表面；不改动 Demo 的默认有色 FAB。 */
+    fun translucentMaterial(color: Color, dark: Boolean, extension: Int = 0): CouiFloatingMaterial =
+        material(color.copy(alpha = if (dark) .50f else .55f), dark, extension).copy(blurRadius = 25f)
+
     fun shadow(color: Color, density: Float, contourGlowEnabled: Boolean): CouiFloatingShadow {
         fun pixelOffset(dp: Float): Float = (dp * density).toInt().toFloat()
         fun pixelSize(dp: Float): Float {

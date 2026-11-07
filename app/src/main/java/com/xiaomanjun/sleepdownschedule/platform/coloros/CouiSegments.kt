@@ -5,7 +5,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.foundation.background
 import androidx.compose.ui.graphics.Color
 import com.itos.coui.shape.CouiCapsuleShape
-import com.itos.coui.backdrop.LocalCouiSurfaceBackdrop
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSurface
 import com.itos.coui.segmentbutton.CouiSegmentedControl
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSegmentRequest
 import com.xiaomanjun.sleepdownschedule.glass.couiSegmentMaterial
@@ -13,7 +13,7 @@ import com.xiaomanjun.sleepdownschedule.glass.couiSegmentMaterial
 @Composable
 internal fun CouiSegments(request: NativeSegmentRequest): Boolean {
     if (request.labels.isEmpty()) return false
-    val sampled = (request.backdrop != null || LocalCouiSurfaceBackdrop.current != null) &&
+    val sampled = (request.backdrop != null && !LocalNativeDialogSurface.current) &&
         !com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
     CouiSegmentedControl(modifier = request.modifier, labels = request.labels,
         selectedIndex = request.selected.coerceIn(request.labels.indices), onSelected = request.onSelected,

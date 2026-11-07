@@ -26,6 +26,9 @@ internal data class NativeAlertRequest(
 
 internal val LocalNativeAlertRenderer = compositionLocalOf<(@Composable (NativeAlertRequest) -> Boolean)?> { null }
 internal val LocalNativeDialogSurface = compositionLocalOf { false }
+/** 特殊选择器仍使用同一 Kit 操作区；业务只提供动作。 */
+internal val LocalNativeDialogActionBar = compositionLocalOf<(@Composable (List<LiquidAlertAction>, androidx.compose.ui.Modifier) -> Unit)?> { null }
+internal val LocalNativeDialogHeading = compositionLocalOf<(@Composable (String) -> Unit)?> { null }
 internal val LocalNativeDialogWindow = compositionLocalOf<android.view.Window?> { null }
 /** Stable available page size; a wrap-content dialog must never size itself from its own height. */
 internal val LocalNativeDialogHostSize = compositionLocalOf<androidx.compose.ui.unit.IntSize?> { null }

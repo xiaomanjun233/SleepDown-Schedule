@@ -30,10 +30,13 @@ fun ProvideCouiMenuBackdrop(content: @Composable (Modifier) -> Unit) {
  * 此模式要求内容中的 Clear、DstIn 等目标混合在其所属组件内隔离。
  * 优先用于已核对的不透明静态页面根; 透明内容、缩放或分数位移须独立验证栅格化结果。
  * 不确定内容的合成要求时, 使用保留隔离的单参数入口。
+ * recordWhenIdle=false 仅用于独立弹窗的整窗源：没有消费者时直接绘制内容，
+ * 不额外录制整页；retain 会唤醒源并保留父链，退出结束后恢复直绘。
  */
 @Composable
 fun ProvideCouiMenuBackdrop(
     isolateContent: Boolean,
+    recordWhenIdle: Boolean = true,
     content: @Composable (Modifier) -> Unit,
 ) {
     val parent = LocalCouiMenuBackdrop.current
@@ -43,7 +46,10 @@ fun ProvideCouiMenuBackdrop(
         return
     }
     val backdrop = rememberCouiBackdrop(parent = parent, diagnosticName = "menu-window")
-    SideEffect { backdrop.setIsolateWhenIdle(isolateContent) }
+    SideEffect {
+        backdrop.setIsolateWhenIdle(isolateContent)
+        backdrop.setRecordWhenIdle(recordWhenIdle)
+    }
     CompositionLocalProvider(LocalCouiMenuBackdrop provides backdrop, LocalCouiMenuWindow provides view) {
         content(Modifier.couiBackdrop(backdrop))
     }

@@ -22,7 +22,7 @@ import com.itos.coui.theme.CouiTheme
 fun ContentDialog(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
-    placement: CouiDialogPlacement = CouiDialogPlacement.Center,
+    placement: CouiDialogPlacement = CouiDialogPlacement.Bottom,
     properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false),
     dark: Boolean = CouiTheme.isDark,
     colors: CouiDialogColors = CouiDialogDefaults.themeColors(dark),
@@ -50,15 +50,7 @@ fun ContentDialog(
             .pointerInput(visible) { if (visible == false) awaitPointerEventScope {
                 while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
             } }) {
-            if (!title.isNullOrBlank()) Row(Modifier.fillMaxWidth().padding(
-                start = CouiDialogDefaults.contentPadding, end = CouiDialogDefaults.contentPadding,
-                top = CouiDialogDefaults.titleTop, bottom = CouiDialogDefaults.titleBottom),
-                verticalAlignment = Alignment.CenterVertically) {
-                DialogText(Modifier.weight(1f).heightIn(max = CouiDialogDefaults.titleMaxHeight(
-                    LocalConfiguration.current.screenHeightDp)).verticalScroll(rememberScrollState()),
-                    title, DialogTextKind.Title, colors.title)
-                titleAction?.invoke()
-            }
+            if (!title.isNullOrBlank()) DialogHeading(title, colors, titleAction)
             Box(Modifier.weight(1f, fill = false).then(if (scrollable)
                 Modifier.verticalScroll(rememberScrollState()) else Modifier).padding(contentPadding), content = content)
             footer?.invoke()

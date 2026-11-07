@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.personalization
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -267,6 +270,10 @@ internal fun CourseColorEditorDialog(
         contentSpacing = 14.dp,
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
         blurRadius = 10.dp,
+        actions = if (stage == CourseColorDialogStage.Picker) listOf(
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismiss),
+            LiquidAlertAction("确认", LiquidAlertActionStyle.Primary, enabled = colors.isNotEmpty(), onClick = onConfirm)
+        ) else null,
         contentTransitionKey = stage,
         titleAction = {
             if (stage == CourseColorDialogStage.Picker) {
@@ -381,30 +388,7 @@ internal fun CourseColorEditorDialog(
                     cornerRadius = 16.dp,
                     indicatorRadius = 10.dp
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    QuickSheetLiquidAction(
-                        label = "取消",
-                        enabled = true,
-                        backdrop = backdrop,
-                        config = config,
-                        modifier = Modifier.weight(1f),
-                        height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
-                        onClick = onDismiss
-                    )
-                    QuickSheetLiquidAction(
-                        label = "确认",
-                        enabled = colors.isNotEmpty(),
-                        backdrop = backdrop,
-                        config = config,
-                        modifier = Modifier.weight(1f),
-                        primary = true,
-                        height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
-                        onClick = onConfirm
-                    )
-                }
+
             } else {
                 WallpaperPaletteSampler(
                     mode = mode,

@@ -118,7 +118,30 @@ internal fun PeriodSchemeCreationWizard(
         onDismissRequest = ::back,
         backdrop = backdrop, config = visualConfig,
         onDismissFinished = { created?.let(onCreated) ?: onDismiss() },
+        adjustForIme = page == CreationPickerPage.FORM,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
+        bottomActions = {
+            val shownPage = page
+            PeriodPickerActions(backdrop, visualConfig, onCancel = ::back,
+                cancelText = if (shownPage == CreationPickerPage.TIMING) "上一步" else "取消",
+                confirmText = when (shownPage) {
+                    CreationPickerPage.FORM -> "下一步"
+                    CreationPickerPage.TIMING -> "开始编辑"
+                    else -> "确定"
+                }, onConfirm = {
+                    error = null
+                    when (shownPage) {
+                        CreationPickerPage.FORM -> page = CreationPickerPage.TIMING
+                        CreationPickerPage.TIMING -> create()
+                        CreationPickerPage.COUNTS -> allocation = allocation.withCounts(pendingCounts)
+                        CreationPickerPage.STARTS -> starts = starts + constrainAutomaticPartStarts(targetConfig, template, pendingStarts)
+                        CreationPickerPage.DURATION -> duration = pendingMinutes
+                        CreationPickerPage.BREAK -> gap = pendingMinutes
+                    }
+                    if (shownPage == CreationPickerPage.DURATION || shownPage == CreationPickerPage.BREAK) page = CreationPickerPage.TIMING
+                    else if (shownPage == CreationPickerPage.COUNTS || shownPage == CreationPickerPage.STARTS) page = CreationPickerPage.FORM
+                })
+        },
         contentTransitionKey = page,
         contentForState = { displayed ->
             val shownPage = displayed as CreationPickerPage
@@ -177,25 +200,7 @@ internal fun PeriodSchemeCreationWizard(
                     }
                 }
                 error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
-                PeriodPickerActions(backdrop, visualConfig, onCancel = ::back,
-                    cancelText = if (shownPage == CreationPickerPage.TIMING) "上一步" else "取消",
-                    confirmText = when (shownPage) {
-                        CreationPickerPage.FORM -> "下一步"
-                        CreationPickerPage.TIMING -> "开始编辑"
-                        else -> "确定"
-                    }, onConfirm = {
-                        error = null
-                        when (shownPage) {
-                            CreationPickerPage.FORM -> page = CreationPickerPage.TIMING
-                            CreationPickerPage.TIMING -> create()
-                            CreationPickerPage.COUNTS -> allocation = allocation.withCounts(pendingCounts)
-                            CreationPickerPage.STARTS -> starts = starts + constrainAutomaticPartStarts(targetConfig, template, pendingStarts)
-                            CreationPickerPage.DURATION -> duration = pendingMinutes
-                            CreationPickerPage.BREAK -> gap = pendingMinutes
-                        }
-                        if (shownPage == CreationPickerPage.DURATION || shownPage == CreationPickerPage.BREAK) page = CreationPickerPage.TIMING
-                        else if (shownPage == CreationPickerPage.COUNTS || shownPage == CreationPickerPage.STARTS) page = CreationPickerPage.FORM
-                    })
+
             }
         }
     ) {}

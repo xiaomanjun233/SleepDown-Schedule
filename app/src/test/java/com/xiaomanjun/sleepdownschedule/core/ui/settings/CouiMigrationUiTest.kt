@@ -19,8 +19,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.*
 import com.itos.coui.menu.ProvideCouiMenuBackdrop
 import com.itos.coui.menu.rememberCouiWindowBackdrop
-import com.itos.coui.backdrop.LocalCouiSurfaceBackdrop
 import com.itos.coui.segmentbutton.CouiSegmentedControl
+import com.itos.coui.diagnostic.CouiRenderDiagnostics
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
@@ -47,6 +47,7 @@ class CouiMigrationUiTest {
 
     @Test fun badgeActionWrapsContentStaysAtTheBottomAndConsumesItsSuppliedBackdrop() {
         var samples = 0
+        val dialogSurface = mutableStateOf(false)
         var primary = Color.Unspecified
         val accent = Color(0xFF777777)
         val backdrop = object : Backdrop {
@@ -62,9 +63,11 @@ class CouiMigrationUiTest {
                     primary = request.primaryColor
                     CouiCapsuleButtonRenderer(request, content)
                 })) {
+                    CompositionLocalProvider(LocalNativeDialogSurface provides dialogSurface.value) {
                     Box(Modifier.fillMaxSize().testTag("page")) {
                         SettingsActionButton("测试实时活动", backdrop, {}, badgeText = "实验功能",
                             modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp, vertical = 18.dp).fillMaxWidth())
+                    }
                     }
                 }
             }
@@ -77,6 +80,9 @@ class CouiMigrationUiTest {
         compose.runOnIdle { assertEquals(accent, primary); assertTrue("Caller backdrop must be sampled", samples > 0) }
         com.xiaomanjun.sleepdownschedule.feature.settings.writeSettingsVisualArtifact(
             "coui-notification-floating-button.png", pixels)
+        compose.runOnIdle { dialogSurface.value = true; samples = 0 }
+        compose.onRoot().captureToImage()
+        compose.runOnIdle { assertEquals("Dialog buttons must not sample a stale page backdrop", 0, samples) }
     }
 
     @Test fun darkCardRolesAreOpaqueBeforeConsumersAdjustTheirAlpha() {
@@ -107,6 +113,112 @@ class CouiMigrationUiTest {
             }
         }
         compose.waitForIdle()
+    }
+
+    @Test fun idleWindowSourceDoesNotRecordThePageForUnrelatedControlAnimations() {
+        val show = mutableStateOf(false)
+        CouiRenderDiagnostics.enable { }
+        try {
+            compose.setContent {
+                MaterialTheme {
+                    ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
+                        Box(Modifier.fillMaxSize().testTag("idle-page").then(source)) {
+                            CouiPickerDialog(PickerDialogRequest(show.value, "选择", false,
+                                { show.value = false }, null, null, null, null, false) {
+                                androidx.compose.material3.Text("内容")
+                            })
+                        }
+                    }
+                }
+            }
+            compose.onNodeWithTag("idle-page").captureToImage()
+            var sourceId = ""
+            compose.runOnIdle {
+                val source = CouiRenderDiagnostics.snapshot().getJSONArray("sources").getJSONObject(0)
+                sourceId = source.getString("id")
+                assertEquals(0, source.getInt("recordCallbackCount"))
+            }
+            compose.runOnIdle { show.value = true }
+            compose.onNodeWithText("内容").assertExists()
+            compose.onNodeWithTag("idle-page").captureToImage()
+            compose.runOnIdle {
+                val sources = CouiRenderDiagnostics.snapshot().getJSONArray("sources")
+                val source = (0 until sources.length()).map { sources.getJSONObject(it) }.first { it.getString("id") == sourceId }
+                assertTrue(source.getInt("recordCallbackCount") > 0)
+                assertTrue(source.getInt("activeConsumers") > 0)
+            }
+            compose.runOnIdle { show.value = false }
+            compose.waitForIdle()
+            compose.runOnIdle {
+                val source = CouiRenderDiagnostics.snapshot().getJSONArray("sources").getJSONObject(0)
+                assertEquals(0, source.getInt("activeConsumers"))
+            }
+        } finally { CouiRenderDiagnostics.disable() }
+    }
+
+    @Test fun standardTimeDialogUsesDemoColumnWidthsAndActionHeight() {
+        var pixelsPerDp = 1f
+        compose.setContent {
+            pixelsPerDp = LocalDensity.current.density
+            MaterialTheme {
+                CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
+                    effectiveMode = VisualEffectMode.ColorOsGlow, couiKitAvailable = true)) {
+                    ProvideCouiMenuBackdrop { source ->
+                        Box(Modifier.fillMaxSize().then(source)) {
+                            CouiPickerDialog(PickerDialogRequest(true, "选择时间", false, {}, null, null,
+                                listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) {},
+                                    LiquidAlertAction("确定", LiquidAlertActionStyle.Primary) {}), null, false) {
+                                SettingsTimePickerContent(450, 0..1439) { }
+                            })
+                        }
+                    }
+                }
+            }
+        }
+        val hour = compose.onNodeWithContentDescription("小时").fetchSemanticsNode().boundsInRoot
+        val minute = compose.onNodeWithContentDescription("分钟").fetchSemanticsNode().boundsInRoot
+        val confirm = compose.onNode(hasText("确定") and hasClickAction()).fetchSemanticsNode().boundsInRoot
+        assertEquals(62 * pixelsPerDp, hour.width, 2f)
+        assertEquals(62 * pixelsPerDp, minute.center.x - hour.center.x, 2f)
+        assertEquals(135 * pixelsPerDp, hour.height, 2f)
+        assertEquals(44 * pixelsPerDp, confirm.height, 2f)
+        com.xiaomanjun.sleepdownschedule.feature.settings.writeSettingsVisualArtifact(
+            "coui-demo-time-dialog.png", compose.onNode(isDialog()).captureToImage().asAndroidBitmap())
+    }
+
+    @Test fun couiQuickSettingsUsesTheStandardWindowAndCanOpenANestedCalendar() {
+        val draft = mutableStateOf<com.xiaomanjun.sleepdownschedule.feature.schedule.picker.QuickScheduleDraft?>(
+            com.xiaomanjun.sleepdownschedule.feature.schedule.picker.QuickScheduleDraft(1, 20, 1, true, false, "2026-09-01"))
+        var saves = 0
+        compose.setContent {
+            MaterialTheme {
+                CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
+                    effectiveMode = VisualEffectMode.ColorOsGlow, couiKitAvailable = true)) {
+                    ProvideColorOsMaterials(enabled = false, couiControlsEnabled = true) {
+                        ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
+                            Box(Modifier.fillMaxSize().then(source)) {
+                                com.xiaomanjun.sleepdownschedule.feature.schedule.picker.QuickScheduleSettingsSheets(
+                                    draft.value, defaultConfig(), null, { draft.value = it }, { draft.value = null }, {},
+                                    { _, done -> saves++; done() }, suppressDetailedButton = true,
+                                    onDetailedSettings = { _, _, _, _ -> })
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("课表设置").assertExists()
+        com.xiaomanjun.sleepdownschedule.feature.settings.writeSettingsVisualArtifact(
+            "coui-demo-quick-settings.png", compose.onNode(isDialog()).captureToImage().asAndroidBitmap())
+        compose.onNodeWithText("学期开始日期").performClick()
+        compose.onNodeWithText("选择日期").assertExists()
+        compose.onAllNodes(isDialog()).assertCountEquals(2)
+        compose.onAllNodesWithText("取消").onLast().performClick()
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(0, saves) }
+        compose.onNodeWithText("完成").performClick()
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(1, saves) }
     }
 
     @Test fun rtlSegmentIndicatorFollowsSelectionAndCancelledDragDoesNotCommit() {
@@ -208,9 +320,9 @@ class CouiMigrationUiTest {
                     Box(Modifier.fillMaxSize().then(source)) {
                         CouiPickerDialog(PickerDialogRequest(show.value, "时间", false,
                             { show.value = false }, { completions++ }, null, null, null, false) {
-                            val surface = LocalCouiSurfaceBackdrop.current
                             val window = rememberCouiWindowBackdrop()
-                            SideEffect { assertNotNull(surface); assertNotSame(window, surface) }
+                            val nativeSurface = LocalNativeDialogSurface.current
+                            SideEffect { assertNotNull(window); assertTrue(nativeSurface) }
                             androidx.compose.material3.Text("选择草稿")
                         })
                     }

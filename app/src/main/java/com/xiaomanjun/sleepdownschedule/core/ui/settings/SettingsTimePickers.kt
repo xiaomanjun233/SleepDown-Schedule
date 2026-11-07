@@ -16,6 +16,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.padding
+import com.itos.coui.picker.WheelPicker
+import com.itos.coui.picker.CouiPickerDefaults
+import com.itos.coui.picker.couiPickerSelectionLines
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -321,6 +325,23 @@ internal fun SettingsTimePickerContent(
     val selectedHour = selectedMinute / 60
     val allowedMinuteRange = minuteRangeForHour(selectedHour, safeMinimum, safeMaximum)
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+                if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
+                    val dark = MaterialTheme.colorScheme.background.luminance() < .5f
+                    // DemoTimePicker 的 62dp 数字列、共享选中线与 12dp 上下留白；范围仍由业务约束。
+                    Row(Modifier.fillMaxWidth().couiPickerSelectionLines(MaterialTheme.colorScheme.outlineVariant, 16.dp)
+                        .padding(vertical = CouiPickerDefaults.padding),
+                        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        WheelPicker(Modifier.width(CouiPickerDefaults.columnWidth), value = selectedHour,
+                            onValueChange = { hour -> onValueChange(hour * 60 +
+                                (selectedMinute % 60).coerceIn(minuteRangeForHour(hour, safeMinimum, safeMaximum))) },
+                            valueRange = (safeMinimum / 60)..(safeMaximum / 60), label = "小时", dark = dark)
+                        WheelPicker(Modifier.width(CouiPickerDefaults.columnWidth), value = selectedMinute % 60,
+                            onValueChange = { onValueChange(selectedHour * 60 + it) }, valueRange = allowedMinuteRange,
+                            label = "分钟", dark = dark, wrap = allowedMinuteRange == 0..59,
+                            repeatIntervalMillis = 100, formatter = { "%02d".format(it) })
+                    }
+                    return@BoxWithConstraints
+                }
                 val pickerContentColor = LocalContentColor.current
                 val compact = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.15f
                 val pickerTextStyle = MaterialTheme.typography.headlineSmall.copy(

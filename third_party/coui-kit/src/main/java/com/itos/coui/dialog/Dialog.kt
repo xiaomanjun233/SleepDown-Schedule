@@ -77,13 +77,7 @@ fun Dialog(
         Column(Modifier.fillMaxWidth()) {
             // 对应正文/标题的滚动区与独立 buttonPanel；操作不随长文滚出窗口。
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())) {
-                if (!title.isNullOrEmpty()) Box(Modifier.fillMaxWidth().padding(
-                    start = CouiDialogDefaults.contentPadding, end = CouiDialogDefaults.contentPadding,
-                    top = CouiDialogDefaults.titleTop, bottom = CouiDialogDefaults.titleBottom)) {
-                    DialogText(text = title, kind = DialogTextKind.Title, color = colors.title, modifier = Modifier.fillMaxWidth()
-                        .heightIn(max = CouiDialogDefaults.titleMaxHeight(configuration.screenHeightDp))
-                        .verticalScroll(rememberScrollState()))
-                }
+                if (!title.isNullOrEmpty()) DialogHeading(title, colors)
                 if (!message.isNullOrEmpty()) DialogText(text = message, kind = DialogTextKind.Message, color = colors.message, modifier =
                     Modifier.fillMaxWidth().padding(horizontal = CouiDialogDefaults.contentPadding)
                         .padding(top = if (title.isNullOrEmpty() && !tall) CouiDialogDefaults.messageTopWithoutTitle else 0.dp,
@@ -98,6 +92,27 @@ fun Dialog(
             }
         }
     }
+}
+
+@Composable
+fun DialogHeading(title: String, colors: CouiDialogColors = CouiDialogDefaults.themeColors(),
+    trailing: (@Composable () -> Unit)? = null) {
+    Row(Modifier.fillMaxWidth().padding(start = CouiDialogDefaults.contentPadding,
+        end = CouiDialogDefaults.contentPadding, top = CouiDialogDefaults.titleTop,
+        bottom = CouiDialogDefaults.titleBottom), verticalAlignment = Alignment.CenterVertically) {
+        DialogText(text = title, kind = DialogTextKind.Title, color = colors.title,
+            modifier = Modifier.weight(1f).heightIn(max = CouiDialogDefaults.titleMaxHeight(
+                LocalConfiguration.current.screenHeightDp)).verticalScroll(rememberScrollState()))
+        trailing?.invoke()
+    }
+}
+
+@Composable
+fun DialogActionBar(confirmAction: CouiDialogAction, dismissAction: CouiDialogAction? = null,
+    neutralAction: CouiDialogAction? = null, dark: Boolean = com.itos.coui.theme.CouiTheme.isDark,
+    colors: CouiDialogColors = CouiDialogDefaults.themeColors(dark), material: Boolean = false,
+    modifier: Modifier = Modifier) {
+    Box(modifier) { DialogActions(confirmAction, dismissAction, neutralAction, colors, dark, material) { } }
 }
 
 @Composable

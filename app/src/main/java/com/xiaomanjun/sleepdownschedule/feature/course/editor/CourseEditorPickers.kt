@@ -640,7 +640,21 @@ internal fun CourseEditorPickerOverlay(
                             timeError = null
                         }
                     } else if (displayedTimeMode == CourseEditorTimeMode.Range) {
-                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
+                            Column {
+                                Text("开始", Modifier.padding(horizontal = 24.dp), color = pickerContentColor)
+                                val minimum = periodRequest.minimumStartTime?.let { it.hour * 60 + it.minute } ?: 0
+                                com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTimePickerContent(
+                                    startHour * 60 + startMinute, minimum..1439) {
+                                    startHour = it / 60; startMinute = it % 60; timeError = null
+                                }
+                                Text("结束", Modifier.padding(horizontal = 24.dp), color = pickerContentColor)
+                                com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTimePickerContent(
+                                    endHour * 60 + endMinute, 0..1439) {
+                                    endHour = it / 60; endMinute = it % 60; timeError = null
+                                }
+                            }
+                        } else Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                             Row(Modifier.fillMaxWidth()) {
                                 Text("开始", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, color = pickerContentColor.copy(alpha = 0.62f))
                                 Text("结束", modifier = Modifier.weight(1f), textAlign = TextAlign.Center, color = pickerContentColor.copy(alpha = 0.62f))

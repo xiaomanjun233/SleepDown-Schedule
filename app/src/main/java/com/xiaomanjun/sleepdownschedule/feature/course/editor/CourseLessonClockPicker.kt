@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.editor
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -141,50 +144,16 @@ internal fun CourseLessonClockPicker(
         onDismissRequest = { showPicker = false },
         backdrop = backdrop,
         config = config,
-        renderInRootScaffold = renderInRootScaffold
-    ) {
-        when (field) {
-            LessonClockField.START -> {
-                val firstMinute = minimumStartTime?.let { it.hour * 60 + it.minute } ?: 0
-                SettingsTimePickerContent(pendingValue.coerceIn(firstMinute, 1439), firstMinute..1439) { pendingValue = it }
-            }
-            LessonClockField.CLASS, LessonClockField.BREAK -> SettingsMinutePickerContent(
-                pendingValue, { pendingValue = it }, (if (field == LessonClockField.CLASS) 1 else 0)..1439,
-                Modifier.fillMaxWidth()
-            )
-            LessonClockField.COUNT -> {
-                val foreground = LocalContentColor.current
-                if (maximumCount > 0) {
-                NumberPicker(
-                    value = pendingValue.coerceIn(1, maximumCount),
-                    onValueChange = { pendingValue = it },
-                    range = 1..maximumCount,
-                    visibleItemCount = 3,
-                    label = { "$it 节" },
-                    colors = NumberPickerDefaults.colors(
-                        selectedTextColor = foreground,
-                        unselectedTextColor = foreground.copy(alpha = 0.34f)
-                    ),
-                    textStyle = MaterialTheme.typography.titleLarge.copy(color = foreground),
-                    modifier = Modifier.fillMaxWidth()
-                )
-                } else Text("当前作息没有可选择的节次", color = foreground)
-            }
-        }
-        if (field == LessonClockField.START && lessonIndex != null) {
-            QuickSheetLiquidAction("自动衔接", true, backdrop, config, modifier = Modifier.fillMaxWidth(),
-                height = SleepDownDesignTokens.CenteredDialog.ActionHeight) {
-                val index = requireNotNull(lessonIndex)
-                onChange(draft.withLesson(index, draft.lesson(index).copy(startOverride = "")))
-                showPicker = false
-            }
-        }
-        Row(Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)) {
-            QuickSheetLiquidAction("取消", true, backdrop, config, modifier = Modifier.weight(1f),
-                height = SleepDownDesignTokens.CenteredDialog.ActionHeight) { showPicker = false }
-            QuickSheetLiquidAction("确定", field != LessonClockField.COUNT || maximumCount > 0, backdrop, config, primary = true,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight) {
+        actions = listOfNotNull(
+            if (field == LessonClockField.START && lessonIndex != null)
+                LiquidAlertAction("自动衔接", LiquidAlertActionStyle.Secondary) {
+                    val index = requireNotNull(lessonIndex)
+                    onChange(draft.withLesson(index, draft.lesson(index).copy(startOverride = "")))
+                    showPicker = false
+                } else null,
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showPicker = false },
+            LiquidAlertAction("确定", LiquidAlertActionStyle.Primary,
+                enabled = field != LessonClockField.COUNT || maximumCount > 0) {
                 val index = lessonIndex
                 val time = LocalTime.of(pendingValue.coerceIn(0, 1439) / 60, pendingValue.coerceIn(0, 1439) % 60).toString()
                 val updated = when (field) {
@@ -205,6 +174,37 @@ internal fun CourseLessonClockPicker(
                 onChange(updated)
                 showPicker = false
             }
+        ),
+        renderInRootScaffold = renderInRootScaffold
+    ) {
+        when (field) {
+            LessonClockField.START -> {
+                val firstMinute = minimumStartTime?.let { it.hour * 60 + it.minute } ?: 0
+                SettingsTimePickerContent(pendingValue.coerceIn(firstMinute, 1439), firstMinute..1439) { pendingValue = it }
+            }
+            LessonClockField.CLASS, LessonClockField.BREAK -> SettingsMinutePickerContent(
+                pendingValue, { pendingValue = it }, (if (field == LessonClockField.CLASS) 1 else 0)..1439,
+                Modifier.fillMaxWidth()
+            )
+            LessonClockField.COUNT -> {
+                val foreground = LocalContentColor.current
+                if (maximumCount > 0) {
+                    NumberPicker(
+                        value = pendingValue.coerceIn(1, maximumCount),
+                        onValueChange = { pendingValue = it },
+                        range = 1..maximumCount,
+                        visibleItemCount = 3,
+                        label = { "$it 节" },
+                        colors = NumberPickerDefaults.colors(
+                            selectedTextColor = foreground,
+                            unselectedTextColor = foreground.copy(alpha = 0.34f)
+                        ),
+                        textStyle = MaterialTheme.typography.titleLarge.copy(color = foreground),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                } else Text("当前作息没有可选择的节次", color = foreground)
+            }
         }
+
     }
 }

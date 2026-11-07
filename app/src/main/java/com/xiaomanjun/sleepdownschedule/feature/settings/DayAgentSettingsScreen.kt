@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -198,49 +201,18 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
         onDismissRequest = { showMemoryEditor = false },
         backdrop = popupBackdrop,
         config = state.config,
-        bottomActions = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
-            ) {
-            QuickSheetLiquidAction(
-                label = "清空",
-                enabled = true,
-                backdrop = popupBackdrop,
-                config = state.config,
-                destructive = true,
-                modifier = Modifier.weight(1f),
-                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
-                memoryDraft = ""
-            }
-            QuickSheetLiquidAction(
-                label = "取消",
-                enabled = true,
-                backdrop = popupBackdrop,
-                config = state.config,
-                modifier = Modifier.weight(1f),
-                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
-                showMemoryEditor = false
-            }
-            QuickSheetLiquidAction(
-                label = "保存",
-                enabled = true,
-                backdrop = popupBackdrop,
-                config = state.config,
-                primary = true,
-                modifier = Modifier.weight(1f),
-                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
+        adjustForIme = true,
+        actions = listOf(
+            LiquidAlertAction("清空", LiquidAlertActionStyle.Destructive, dismissOnClick = false) { memoryDraft = "" },
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showMemoryEditor = false },
+            LiquidAlertAction("保存", LiquidAlertActionStyle.Primary) {
                 DayAgentPreferences.saveMemory(context, memoryDraft)
                 memoryText = DayAgentPreferences.memory(context)
                 memoryDraft = memoryText
                 showMemoryEditor = false
             }
-        }
-    }
-) {
+        )
+    ) {
         Text(
             "这里保存的是助手可跨天使用的简短长期记忆；你可以直接修改；关闭记忆后内容会保留，但不会再注入对话或由助手更新",
             style = MaterialTheme.typography.bodyMedium,

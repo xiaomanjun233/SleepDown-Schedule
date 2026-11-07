@@ -27,6 +27,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import com.itos.coui.effect.couiButtonFeedback
 import com.itos.coui.icons.CouiIcons
 import com.itos.coui.layout.Scaffold
@@ -145,7 +146,9 @@ internal fun CouiSettingsPageScaffold(
                 Box(Modifier.fillMaxSize()
                     .then(if (sampling) Modifier.glassBackdropProducer(backgroundSource) else Modifier)
                     .then(paneBackground.modifier))
-                Scaffold(modifier = Modifier.fillMaxSize().imePadding()
+                // 与 DemoApp 一致：弹窗持有输入时，下层页面不跟随键盘重新布局。
+                val imeAvoidance = if (LocalWindowInfo.current.isWindowFocused) Modifier.imePadding() else Modifier
+                Scaffold(modifier = Modifier.fillMaxSize().then(imeAvoidance)
                     .then(windowSource)
                     .then(if (sampling) Modifier.centeredDialogSceneProducer(scene) else Modifier),
                     containerColor = colors.background,
@@ -218,7 +221,8 @@ internal fun CouiSettingsPageScaffold(
                         LocalCouiSettingsContentPadding provides padding,
                     ) {
                         Box(Modifier.fillMaxSize()
-                            .then(if (sampling) Modifier.glassBackdropProducer(source) else Modifier)
+                            // COUI 顶栏已从 Scaffold 的正文源采样；液态才需要第二份 Kyant 正文源。
+                            .then(if (sampling && LocalCouiLiquidMaterial.current) Modifier.glassBackdropProducer(source) else Modifier)
                             .then(paneBackground.modifier)) { content(padding, backgroundSource) }
                     }
                 }

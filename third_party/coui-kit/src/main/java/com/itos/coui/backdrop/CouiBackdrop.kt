@@ -66,7 +66,8 @@ class CouiBackdrop internal constructor(
     private var sampleCount = 0L
     private var lastRecordMs = 0L
     private var isolateWhenIdle = true
-    private var activeConsumers = 0
+    private var activeConsumers by mutableIntStateOf(0)
+    private var recordWhenIdle by mutableStateOf(true)
     private val redrawSignal = mutableStateOf(Unit, neverEqualPolicy())
     private val sourceToTarget = Matrix()
     // 首次采样可能先于源绘制, 就绪状态必须唤醒已等待的消费者。
@@ -82,6 +83,8 @@ class CouiBackdrop internal constructor(
         isolateWhenIdle = isolate
         updateCompositingStrategy()
     }
+
+    internal fun setRecordWhenIdle(record: Boolean) { recordWhenIdle = record }
 
     /** 材质组合在退出动画期间仍须存在, 源及父链随该组合成对保留和释放。 */
     @Composable
@@ -101,6 +104,7 @@ class CouiBackdrop internal constructor(
     private fun release() {
         check(activeConsumers > 0) { "背景源消费者必须成对释放" }
         activeConsumers--
+        if (activeConsumers == 0 && !recordWhenIdle) recorded = false
         parent?.release()
         updateCompositingStrategy()
     }
@@ -144,6 +148,11 @@ class CouiBackdrop internal constructor(
 
     internal fun recordAndDraw(scope: ContentDrawScope) {
         if (CouiRenderDiagnostics.enabled) drawPassCount++
+        // 整窗源仅供独立弹窗消费；空闲时直接走原内容，避免每次局部形变重录整页。
+        if (!recordWhenIdle && activeConsumers == 0) {
+            scope.drawContent()
+            return
+        }
         scope.apply {
             // 使用 DrawScope 的 record 重定向 Canvas, 补底和 drawContent 共用同一份录制。
             layer.record {
@@ -160,6 +169,7 @@ class CouiBackdrop internal constructor(
     }
 
     internal fun invalidate() {
+        if (!recordWhenIdle && activeConsumers == 0) return
         redrawSignal.value = Unit
     }
 
@@ -189,6 +199,7 @@ class CouiBackdrop internal constructor(
         .put("compositingStrategy", layer.compositingStrategy.toString())
         .put("isolateWhenIdle", isolateWhenIdle)
         .put("activeConsumers", activeConsumers)
+        .put("recordWhenIdle", recordWhenIdle)
         .put("drawPassCount", drawPassCount)
         .put("recordCallbackCount", recordCallbackCount)
         .put("sampleCount", sampleCount)

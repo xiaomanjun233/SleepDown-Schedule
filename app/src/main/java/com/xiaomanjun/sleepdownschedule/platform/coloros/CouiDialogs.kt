@@ -50,6 +50,14 @@ private fun DialogCompletion(lifetime: CouiDialogLifetime, onFinished: (() -> Un
 private fun CouiDialogBody(hostSize: androidx.compose.ui.unit.IntSize, dark: Boolean, content: @Composable () -> Unit) {
     val window = (LocalView.current.parent as? DialogWindowProvider)?.window
     CompositionLocalProvider(LocalNativeDialogSurface provides true,
+        LocalNativeDialogHeading provides { title -> DialogHeading(title, CouiDialogDefaults.themeColors(dark)) },
+        LocalNativeDialogActionBar provides { original, modifier ->
+            val converted = couiActions(original.map { it.copy(dismissOnClick = false) }, null, dark)
+            val slots = actionSlots(original, converted)
+            slots[0]?.let { confirm -> DialogActionBar(confirm, slots[1], slots[2], dark,
+                material = !com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance,
+                modifier = modifier) }
+        },
         LocalNativeDialogHostSize provides hostSize, LocalNativeDialogWindow provides window,
         LocalNativePickerStyle provides NativePickerStyle(18.sp, FontWeight(550),
             CouiDialogDefaults.buttonHeight, 0.dp, 16.sp, FontWeight.Medium),
@@ -57,18 +65,18 @@ private fun CouiDialogBody(hostSize: androidx.compose.ui.unit.IntSize, dark: Boo
 }
 
 @Composable
-private fun couiActions(actions: List<LiquidAlertAction>, lifetime: CouiDialogLifetime, dark: Boolean): List<CouiDialogAction> {
+private fun couiActions(actions: List<LiquidAlertAction>, lifetime: CouiDialogLifetime?, dark: Boolean): List<CouiDialogAction> {
     val accent = MaterialTheme.colorScheme.primary.copy(alpha = 1f)
     val base = CouiDialogDefaults.colors(dark)
     return actions.map { action ->
         val colors = if (action.style == LiquidAlertActionStyle.Primary)
-            CouiDialogDefaults.primaryActionColors(accent) else CouiDialogActionColors(
+            CouiDialogDefaults.primaryActionColors(accent) else if (action.style == LiquidAlertActionStyle.Destructive) CouiDialogActionColors(
                 Color(if (dark) 0x33FFFFFF else 0xA6FFFFFF),
                 if (action.style == LiquidAlertActionStyle.Destructive) base.destructive else base.action,
-                Color(if (dark) 0x1AFFFFFF else 0x14000000), base.disabledAction)
+                Color(if (dark) 0x1AFFFFFF else 0x14000000), base.disabledAction) else null
         CouiDialogAction(action.label, {
             if (action.enabled) {
-                if (action.dismissOnClick) lifetime.close(action.onClick) else action.onClick()
+                if (action.dismissOnClick && lifetime != null) lifetime.close(action.onClick) else action.onClick()
             }
         }, action.enabled, if (action.style == LiquidAlertActionStyle.Primary)
             CouiDialogActionStyle.Primary else CouiDialogActionStyle.Secondary, colors)
@@ -113,27 +121,26 @@ internal fun CouiAlertDialog(request: NativeAlertRequest): Boolean {
             dismissAction = slots[1], neutralAction = slots[2],
             title = request.title.takeIf { it.isNotBlank() },
             message = request.message.takeIf { request.messageContent == null && it.isNotBlank() },
-            dark = request.dark, colors = CouiDialogDefaults.colors(request.dark),
+            dark = request.dark, colors = CouiDialogDefaults.themeColors(request.dark),
             material = material, backdrop = backdrop, visible = visible,
             onDismissFinished = { lifetime.finished = true }) {
             request.messageContent?.let { body ->
                 CouiDialogBody(hostSize, request.dark) {
-                    Box(Modifier.fillMaxWidth().heightIn(max = request.messageMaxHeight)
-                        .padding(horizontal = CouiDialogDefaults.contentPadding, vertical = 12.dp)) { body() }
+                    Box(Modifier.fillMaxWidth().padding(horizontal = CouiDialogDefaults.contentPadding)
+                        .padding(bottom = CouiDialogDefaults.messageBottom)) { body() }
                 }
             }
         }
         return true
     }
     ContentDialog(onDismissRequest = dismiss, dark = request.dark,
-        colors = CouiDialogDefaults.colors(request.dark), placement = CouiDialogPlacement.Bottom,
+        colors = CouiDialogDefaults.themeColors(request.dark), placement = CouiDialogPlacement.Bottom,
         material = material,
         backdrop = backdrop, visible = visible,
         onDismissFinished = { lifetime.finished = true },
         title = request.title.takeIf { it.isNotBlank() }, confirmAction = slots[0],
         dismissAction = slots[1], neutralAction = slots[2],
-        contentPadding = if (request.actions.isEmpty()) request.contentPadding else PaddingValues(
-            horizontal = CouiDialogDefaults.contentPadding, vertical = 12.dp),
+        contentPadding = PaddingValues(0.dp),
         adjustForIme = request.messageContent != null,
         scrollable = request.scrollableMessageContent || request.messageContent == null) {
         CouiDialogBody(hostSize, request.dark) {
@@ -157,17 +164,29 @@ internal fun CouiPickerDialog(request: PickerDialogRequest): Boolean {
     // Picker 的确认/取消由宿主修改 show；不能在手势返回时抢先销毁尚有未保存内容的窗口。
     val actions = couiActions(request.actions.orEmpty().map { it.copy(dismissOnClick = false) }, lifetime, request.dark)
     val slots = actionSlots(request.actions.orEmpty(), actions)
+    val material = CouiDialogDefaults.material(request.dark).takeUnless {
+        com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance }
+    // 与 DemoPickerDialog 一致：直接使用 Dialog 的标题、正文槽与固定操作区。
+    if (slots[0] != null && request.titleAction == null && request.bottomActions == null && !request.adjustForIme) {
+        com.itos.coui.dialog.Dialog(onDismissRequest = request.onDismiss, visible = request.show,
+            title = request.title, confirmAction = checkNotNull(slots[0]), dismissAction = slots[1], neutralAction = slots[2],
+            dark = request.dark, material = material, backdrop = backdrop,
+            colors = CouiDialogDefaults.themeColors(request.dark),
+            onDismissFinished = { lifetime.finished = true }) {
+            CouiDialogBody(hostSize, request.dark, request.content)
+        }
+        return true
+    }
     ContentDialog(onDismissRequest = request.onDismiss, dark = request.dark,
-        colors = CouiDialogDefaults.colors(request.dark), material = CouiDialogDefaults.material(request.dark).takeUnless {
-            com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance },
+        colors = CouiDialogDefaults.themeColors(request.dark), material = material,
         backdrop = backdrop, visible = request.show, placement = CouiDialogPlacement.Bottom,
         onDismissFinished = { lifetime.finished = true },
         title = request.title, titleAction = request.titleAction,
         confirmAction = slots[0], dismissAction = slots[1], neutralAction = slots[2],
-        contentPadding = PaddingValues(horizontal = CouiDialogDefaults.contentPadding, vertical = 12.dp),
-        scrollable = request.scrollable, adjustForIme = true, footer = request.bottomActions?.let { footer -> {
+        contentPadding = PaddingValues(0.dp),
+        scrollable = request.scrollable, adjustForIme = request.adjustForIme, footer = request.bottomActions?.let { footer -> {
             CouiDialogBody(hostSize, request.dark) {
-                Box(Modifier.padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp)) { footer() }
+                footer()
             }
         } }) {
         CouiDialogBody(hostSize, request.dark, request.content)
@@ -203,7 +222,7 @@ internal fun CouiNameDialog(title: String, initialName: String, dark: Boolean, m
         confirmAction = CouiDialogAction("完成", { lifetime.close { onConfirm(editor.text.toString().trim()) } },
             style = CouiDialogActionStyle.Primary, colors = CouiDialogDefaults.primaryActionColors(accent)),
         dismissAction = CouiDialogAction("取消", { lifetime.close(onDismiss) }),
-        colors = CouiDialogDefaults.colors(dark), material = CouiDialogDefaults.material(dark).takeUnless {
+        colors = CouiDialogDefaults.themeColors(dark), material = CouiDialogDefaults.material(dark).takeUnless {
             com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance },
         backdrop = backdrop, visible = !lifetime.closed, inputTransformation = transformation,
         onDismissFinished = { lifetime.finished = true })

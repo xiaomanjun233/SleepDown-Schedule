@@ -32,6 +32,14 @@ object CouiRenderDiagnostics {
         event("enable")
     }
 
+    fun disable() {
+        reset()
+        reporter = null
+        sources.clear()
+        probes.clear()
+        events.clear()
+    }
+
     fun event(message: String) {
         if (!enabled) return
         val entry = "${SystemClock.uptimeMillis()} $message"

@@ -121,7 +121,8 @@ internal fun CouiHomeDock(
             lightFollowLightIntensity = 1.2f,
             // Colored FAB keeps its own dark preset (0.5); don't force the 2× dark range.
             darkFollowLightIntensity = 0.5f,
-        )
+        ).let { base -> base.copy(material = com.itos.coui.floatingactionbutton.CouiFabDefaults.translucentMaterial(
+            selectedColor, effectiveDark, base.material.extension)) }
     }
     val items = remember {
         listOf(

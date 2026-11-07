@@ -104,7 +104,8 @@ internal fun HomeJumpWeekDialog(
             itemHeight = 46.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(138.dp)
+                .height(if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls)
+                    com.itos.coui.picker.CouiPickerDefaults.height + com.itos.coui.picker.CouiPickerDefaults.padding * 2 else 138.dp)
         )
 
     }

@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.editor
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -69,35 +72,13 @@ internal fun CourseColorPicker(
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
         contentSpacing = 14.dp,
         blurRadius = 10.dp,
-        bottomActions = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
-            ) {
-                QuickSheetLiquidAction(
-                    label = "取消",
-                    enabled = true,
-                    backdrop = backdrop,
-                    config = config,
-                    modifier = Modifier.weight(1f),
-                    height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
-                    onClick = onDismissRequest
-                )
-                QuickSheetLiquidAction(
-                    label = "确定",
-                    enabled = true,
-                    backdrop = backdrop,
-                    config = config,
-                    primary = true,
-                    modifier = Modifier.weight(1f),
-                    height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
-                    onClick = {
-                        onColorSelected(pendingColor)
-                        onDismissRequest()
-                    }
-                )
+        actions = listOf(
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismissRequest),
+            LiquidAlertAction("确定", LiquidAlertActionStyle.Primary) {
+                onColorSelected(pendingColor)
+                onDismissRequest()
             }
-        }
+        )
     ) {
         CompositionLocalProvider(LocalContentColor provides foreground) {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

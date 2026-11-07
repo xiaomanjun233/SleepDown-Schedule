@@ -322,6 +322,23 @@ private fun QuickScheduleSettingsSheetSession(
         showDatePicker = true
     }
 
+    fun confirmDateSelection() {
+        val safeDay = dateDay.coerceAtMost(daysInMonth(dateYear, dateMonth))
+        latestDraft()?.let {
+            val nextDate = "%04d-%02d-%02d".format(dateYear, dateMonth, safeDay)
+            val nextWeek = resolveScheduleCurrentWeek(
+                config.copy(weekStartsOnSunday = it.weekStartsOnSunday),
+                it.totalWeeks,
+                it.currentWeek,
+                nextDate,
+                it.autoCurrentWeek
+            )
+            currentWeekText = nextWeek.toString()
+            commitDraft(it.copy(termStartDate = nextDate, currentWeek = nextWeek))
+        }
+        showDatePicker = false
+    }
+
     fun saveAndDismiss() {
         val raw = latestDraft() ?: return
         if (saving) return
@@ -348,6 +365,8 @@ private fun QuickScheduleSettingsSheetSession(
                 enabled = !saving,
                 backdrop = backdrop,
                 config = config,
+                height = if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls)
+                    com.itos.coui.dialog.CouiDialogDefaults.buttonHeight else 38.dp,
                 onClick = ::saveAndDismiss
             )
         },
@@ -358,6 +377,8 @@ private fun QuickScheduleSettingsSheetSession(
                 backdrop = backdrop,
                 config = config,
                 primary = true,
+                height = if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls)
+                    com.itos.coui.dialog.CouiDialogDefaults.buttonHeight else 38.dp,
                 onClick = ::saveAndDismiss
             )
         },
@@ -553,6 +574,10 @@ private fun QuickScheduleSettingsSheetSession(
         config = config,
         renderInPlace = true,
         cornerRadius = if (nativeSheet) panelRadius else top.yukonga.miuix.kmp.layout.BottomSheetDefaults.cornerRadius,
+        actions = listOf(
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showDatePicker = false },
+            LiquidAlertAction("确定", LiquidAlertActionStyle.Primary, onClick = ::confirmDateSelection)
+        ),
         startAction = {
             QuickSheetLiquidAction(
                 label = "取消",
@@ -569,22 +594,7 @@ private fun QuickScheduleSettingsSheetSession(
                 backdrop = backdrop,
                 config = config,
                 primary = true,
-                onClick = {
-                    val safeDay = dateDay.coerceAtMost(daysInMonth(dateYear, dateMonth))
-                    latestDraft()?.let {
-                        val nextDate = "%04d-%02d-%02d".format(dateYear, dateMonth, safeDay)
-                        val nextWeek = resolveScheduleCurrentWeek(
-                            config.copy(weekStartsOnSunday = it.weekStartsOnSunday),
-                            it.totalWeeks,
-                            it.currentWeek,
-                            nextDate,
-                            it.autoCurrentWeek
-                        )
-                        currentWeekText = nextWeek.toString()
-                        commitDraft(it.copy(termStartDate = nextDate, currentWeek = nextWeek))
-                    }
-                    showDatePicker = false
-                }
+                onClick = ::confirmDateSelection
             )
         },
         onDismissRequest = { showDatePicker = false },
@@ -648,7 +658,14 @@ private fun QuickScheduleSettingsGroup(
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
     if (LocalNativeDialogSurface.current) {
-        Column(Modifier.fillMaxWidth(), content = content)
+        if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
+            com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsTheme(config) {
+                androidx.compose.runtime.CompositionLocalProvider(
+                    com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsRowShape provides com.itos.coui.shape.CouiCapsuleShape) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), content = content)
+                }
+            }
+        } else Column(Modifier.fillMaxWidth(), content = content)
     } else {
         SettingsGroup(
             backdrop = backdrop,

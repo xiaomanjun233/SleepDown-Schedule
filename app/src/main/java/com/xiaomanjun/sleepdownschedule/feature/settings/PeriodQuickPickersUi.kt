@@ -13,6 +13,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
+import com.itos.coui.picker.CouiPickerDefaults
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
@@ -76,17 +77,21 @@ internal fun PeriodQuickCountContent(
 ) {
     val total = parts.sumOf { counts.getValue(it) }
     val foreground = LocalContentColor.current
+    val couiControls = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
+    val wheelHeight = CouiPickerDefaults.height + CouiPickerDefaults.padding * 2
     Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
         Text("总节次", style = MaterialTheme.typography.labelMedium, color = foreground.copy(alpha = 0.66f))
         PeriodQuickNumberPicker(total, { onChange(allocateQuickPickerCounts(parts, counts, it)) },
-            parts.size..maxOf(40, total), { "${it}节" }, Modifier.fillMaxWidth().height(112.dp))
+            parts.size..maxOf(40, total), { "${it}节" }, Modifier.fillMaxWidth().height(
+                if (couiControls) wheelHeight else 112.dp))
         Text("时段分配", style = MaterialTheme.typography.labelMedium, color = foreground.copy(alpha = 0.66f))
         Row(Modifier.fillMaxWidth()) {
             parts.forEach { part ->
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(part.timelineLabel(), style = MaterialTheme.typography.labelMedium, color = foreground.copy(alpha = 0.66f))
                     if (part == parts.last()) {
-                        Box(Modifier.fillMaxWidth().height(140.dp), contentAlignment = Alignment.Center) {
+                        Box(Modifier.fillMaxWidth().height(
+                            if (couiControls) wheelHeight else 140.dp), contentAlignment = Alignment.Center) {
                             Text("${counts.getValue(part)}节", fontSize = if (parts.size > 2) 17.sp else 20.sp,
                                 color = foreground, fontWeight = FontWeight.SemiBold)
                         }

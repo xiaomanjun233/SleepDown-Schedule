@@ -873,6 +873,12 @@ private fun TimelinePartStartPicker(
     var pending by remember { mutableStateOf<PeriodTimelineSession?>(null) }
     SleepDownPickerDialog(visible, "${part.timelineLabel()}分段起点", { visible = false }, backdrop, visualConfig,
         onDismissFinished = { pending?.let(onChange) ?: onDismiss() },
+        bottomActions = {
+            PeriodPickerActions(backdrop, visualConfig, onCancel = { visible = false }, onConfirm = {
+                    pending = moveTimelinePartWithNeighbours(session, part, selected)
+                    visible = false
+            })
+        },
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)) {
         Column(verticalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.QuickSheet.PickerContentSpacing)) {
             SettingsTimePickerContent(selected, bounds) { selected = it }
@@ -889,10 +895,7 @@ private fun TimelinePartStartPicker(
             }
             Text(movementHint, fontSize = 12.sp,
                 color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.66f))
-            PeriodPickerActions(backdrop, visualConfig, onCancel = { visible = false }, onConfirm = {
-                    pending = moveTimelinePartWithNeighbours(session, part, selected)
-                    visible = false
-            })
+
         }
     }
 }
@@ -943,6 +946,24 @@ private fun TimelineBlockPicker(
         }, backdrop = backdrop, config = visualConfig,
         onDismissFinished = { pending?.let(onChange) ?: onDismiss() },
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
+        bottomActions = {
+            val shown = page
+            PeriodPickerActions(backdrop, visualConfig, onCancel = {
+                    if (shown == TimelinePickerPage.DETAILS || block.isBreak) visible = false else page = TimelinePickerPage.DETAILS
+                }, onConfirm = {
+                    when (shown) {
+                        TimelinePickerPage.DETAILS -> { pending = candidate; visible = false }
+                        TimelinePickerPage.START -> {
+                            candidate = shiftTimelineFirstLesson(candidate, block.part, selected)
+                            page = TimelinePickerPage.DETAILS
+                        }
+                        TimelinePickerPage.DURATION -> {
+                            candidate = resizeTimelineEntry(candidate, current, selected)
+                            if (block.isBreak) { pending = candidate; visible = false } else page = TimelinePickerPage.DETAILS
+                        }
+                    }
+                })
+        },
         contentTransitionKey = page,
         contentForState = { displayed ->
             val shown = displayed as TimelinePickerPage
@@ -975,21 +996,7 @@ private fun TimelineBlockPicker(
                         SettingsMinutePickerContent(selected, { selected = it }, minimum..maxOf(minimum, maximum))
                     }
                 }
-                PeriodPickerActions(backdrop, visualConfig, onCancel = {
-                        if (shown == TimelinePickerPage.DETAILS || block.isBreak) visible = false else page = TimelinePickerPage.DETAILS
-                    }, onConfirm = {
-                        when (shown) {
-                            TimelinePickerPage.DETAILS -> { pending = candidate; visible = false }
-                            TimelinePickerPage.START -> {
-                                candidate = shiftTimelineFirstLesson(candidate, block.part, selected)
-                                page = TimelinePickerPage.DETAILS
-                            }
-                            TimelinePickerPage.DURATION -> {
-                                candidate = resizeTimelineEntry(candidate, current, selected)
-                                if (block.isBreak) { pending = candidate; visible = false } else page = TimelinePickerPage.DETAILS
-                            }
-                        }
-                    })
+
             }
         }
     ) {}

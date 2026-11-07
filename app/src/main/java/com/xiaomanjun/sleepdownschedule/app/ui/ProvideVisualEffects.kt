@@ -40,7 +40,7 @@ internal fun ProvideVisualEffects(content: @Composable () -> Unit) {
             content = {
                 if (state.usesCouiControls) {
                     // 整窗源供独立 Dialog 使用；同窗口内的普通按钮只消费调用方自己的背景域。
-                    ProvideCouiMenuBackdrop(isolateContent = false) { source ->
+                    ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
                         Box(Modifier.fillMaxSize().then(source)) { content() }
                     }
                 } else content()

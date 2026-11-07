@@ -10,6 +10,7 @@ internal data class PickerDialogRequest(
     val actions: List<LiquidAlertAction>?,
     val bottomActions: (@Composable () -> Unit)?,
     val scrollable: Boolean,
+    val adjustForIme: Boolean = false,
     val content: @Composable () -> Unit
 )
 

@@ -512,6 +512,10 @@ fun LiquidAlertActions(
     modifier: Modifier = Modifier
 ) {
     require(actions.size in 1..3) { "LiquidAlertActions supports one to three actions" }
+    LocalNativeDialogActionBar.current?.let { render ->
+        render(actions, modifier)
+        return
+    }
     if (actions.size <= 2) {
         Row(
             modifier = modifier.fillMaxWidth(),

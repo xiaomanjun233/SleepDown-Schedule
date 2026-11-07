@@ -157,6 +157,7 @@ fun SleepDownPickerDialog(
     smoothContentResize: Boolean = false,
     bottomActions: (@Composable () -> Unit)? = null,
     actions: List<LiquidAlertAction>? = null,
+    adjustForIme: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val foreground = sleepDownPanelForegroundColor(config)
@@ -235,7 +236,7 @@ fun SleepDownPickerDialog(
     }
     if (LocalPickerDialogRenderer.current?.invoke(PickerDialogRequest(
             show, title, appUsesDarkTheme(config), onDismissRequest, onDismissFinished,
-            titleAction, actions, bottomActions, scrollableContent, { body(false) })) == true) return
+            titleAction, actions, bottomActions, scrollableContent, adjustForIme, { body(false) })) == true) return
     if (NativePickerDialog(show, config, onDismissRequest, onDismissFinished, { body(true) })) return
     val visuals = rememberCenteredDialogVisuals(
         backdrop = backdrop,
@@ -476,17 +477,27 @@ internal fun SleepDownFloatingSheet(
     contentModifier: Modifier = Modifier,
     surfaceModifier: Modifier = Modifier,
     surfaceContent: (@Composable (Modifier) -> Unit)? = null,
+    actions: List<LiquidAlertAction>? = null,
     startAction: @Composable () -> Unit,
     endAction: @Composable () -> Unit,
     content: @Composable () -> Unit
 ) {
+    if (actions != null && LocalPickerDialogRenderer.current?.invoke(PickerDialogRequest(
+            show, title, appUsesDarkTheme(config), { if (allowDismiss) onDismissRequest() }, onDismissFinished,
+            null, actions, null, false, false, { Column(Modifier.fillMaxWidth()) { content() } })) == true) return
     val body: @Composable () -> Unit = {
         val foreground = sleepDownPanelForegroundColor(config)
+        val couiChrome = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.material3.LocalContentColor provides foreground
         ) {
-            Column(contentModifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(contentModifier.fillMaxWidth().then(if (couiChrome) Modifier.padding(
+                top = com.itos.coui.dialog.CouiDialogDefaults.titleTop,
+                bottom = com.itos.coui.dialog.CouiDialogDefaults.buttonBottomPadding) else Modifier),
+                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth().then(if (couiChrome) Modifier.padding(
+                    horizontal = com.itos.coui.dialog.CouiDialogDefaults.buttonEdgePadding) else Modifier),
+                    verticalAlignment = Alignment.CenterVertically) {
                     startAction()
                     BoxWithConstraints(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                         val density = LocalDensity.current
