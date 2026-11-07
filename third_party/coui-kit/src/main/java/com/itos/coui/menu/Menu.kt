@@ -612,7 +612,7 @@ private fun CouiMenuPressedIndicator(
 }
 
 /** 展开时保留调用方的输入配置; 收起动画保留窗口, 但立即释放触摸和焦点。 */
-private fun PopupProperties.withMenuInput(expanded: Boolean): PopupProperties {
+internal fun PopupProperties.withMenuInput(expanded: Boolean): PopupProperties {
     var flags = WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH
     if (!expanded || !focusable) {
         flags = flags or WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE

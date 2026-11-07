@@ -41,6 +41,10 @@ internal interface HomeMaterialControls {
     @Composable
     fun ShortcutMenu(session: Any, bounds: Rect, dark: Boolean, actions: List<AddMenuAction>,
         closing: Boolean, onDismiss: () -> Unit, bindDismiss: (((() -> Unit) -> Unit)?) -> Unit): Boolean = false
+
+    @Composable
+    fun OverflowMenuButton(dark: Boolean, interactive: Boolean, actions: List<AddMenuAction>,
+        modifier: Modifier, content: @Composable (onClick: () -> Unit) -> Unit): Boolean = false
 }
 
 internal val LocalHomeMaterialControls = staticCompositionLocalOf<HomeMaterialControls> {

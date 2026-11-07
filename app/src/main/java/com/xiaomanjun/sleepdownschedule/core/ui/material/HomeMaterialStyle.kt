@@ -24,3 +24,6 @@ internal fun homeMaterialNeutralTint(dark: Boolean) =
 internal val LocalHomeDockAccent = compositionLocalOf<Int?> { null }
 internal val LocalHomeButtonAccent = compositionLocalOf<Int?> { null }
 internal val LocalHomeOverflowMenu = compositionLocalOf<State<List<AddMenuAction>>?> { null }
+
+/** 系统菜单报告真实窗口矩形，供既有目标表单/Activity保留返回锚点。 */
+internal val LocalHomeOverflowMenuBounds = compositionLocalOf<((androidx.compose.ui.geometry.Rect) -> Unit)?> { null }

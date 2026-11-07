@@ -40,6 +40,18 @@ internal fun ProvideColorOsMaterials(
     val baseHome = if (enabled) ColorOsHomeMaterialControls else ControlMaterialRenderers.LiquidGlass.home
     val homeControls = remember(baseHome, couiControlsEnabled, enabled) {
         if (!couiControlsEnabled) baseHome else object : HomeMaterialControls by baseHome {
+            @Composable override fun ShortcutMenu(session: Any, bounds: androidx.compose.ui.geometry.Rect,
+                dark: Boolean, actions: List<com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction>,
+                closing: Boolean, onDismiss: () -> Unit, bindDismiss: (((() -> Unit) -> Unit)?) -> Unit): Boolean {
+                GlowCourseShortcutMenu(session, bounds, dark, actions, closing, onDismiss, bindDismiss)
+                return true
+            }
+            @Composable override fun OverflowMenuButton(dark: Boolean, interactive: Boolean,
+                actions: List<com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction>,
+                modifier: androidx.compose.ui.Modifier, content: @Composable (onClick: () -> Unit) -> Unit): Boolean {
+                GlowOverflowMenuButton(dark, interactive, actions, modifier, content)
+                return true
+            }
             @Composable override fun NameDialog(title: String, initialName: String, dark: Boolean, maxLength: Int?,
                 onDismiss: () -> Unit, onConfirm: (String) -> Unit, onDraftChange: (String) -> Unit): Boolean =
                 CouiNameDialog(title, initialName, dark, maxLength, onDismiss, onConfirm, onDraftChange) ||

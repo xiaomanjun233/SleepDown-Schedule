@@ -781,6 +781,7 @@ fun CourseScheduleAppUi(
     // screens keep their existing dock layout, which is not a user-selectable mode.
     val parallelPhoneNavigation = !homeAdaptiveMetrics.isLargeScreen &&
         homeAdaptiveMetrics.screenHeight >= homeAdaptiveMetrics.screenWidth
+    val glowSystemMenus = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
     var tabletAboutGradientColors by remember { mutableStateOf<List<ComposeColor>?>(null) }
     val tabletAboutGradient = remember(tabletAboutGradientColors, windowContainerSize) {
         tabletAboutGradientColors?.let { colors ->
@@ -2139,7 +2140,11 @@ fun CourseScheduleAppUi(
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle provides
             homeChromeStyle.takeIf { screen is Screen.Home },
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenu provides
-            colorOsOverflowActions.takeIf { parallelPhoneNavigation },
+            colorOsOverflowActions.takeIf { parallelPhoneNavigation || glowSystemMenus },
+        com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenuBounds provides { windowBounds ->
+            homeMenuFromDock = false
+            homeAddMenuBoundsInRoot = windowBounds.translate(-homeRootPositionInWindow)
+        },
         LocalHomeReadability provides homeReadabilityContext,
         LocalCourseCardPalette provides homeCoursePalette,
         LocalCourseCardColorAssignments provides homeCourseColorAssignments,
@@ -3507,7 +3512,9 @@ fun CourseScheduleAppUi(
         listOf(AddMenuAction(R.drawable.ic_courses, "课程管理") { latestNativeCourseManagement.value() }) +
             homeAddActions.takeLast(3)
     }
-    androidx.compose.runtime.SideEffect { colorOsOverflowActions.value = nativeOverflowActions }
+    androidx.compose.runtime.SideEffect {
+        colorOsOverflowActions.value = if (glowSystemMenus && !parallelPhoneNavigation) homeAddActions else nativeOverflowActions
+    }
 
     fun runSidebarAction(action: () -> Unit) {
         if (pickerState.phase is CustomizeUiState.Picker) {
