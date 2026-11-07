@@ -1,15 +1,16 @@
 # 当前工作交接
 
-## 2026-11-07 续：首页顶栏 COUI 图标按钮与桌面交付
+## 2026-11-07 续：首页顶栏 COUI 图标按钮、系统菜单与桌面交付
 
-接续 `d80a210e`，仍在 `codex/couikit-dialog`。用户要求继续收首页/课表顶栏图标按钮；同时明确从本轮开始把签名 APK／精确 mapping 放桌面，并且只保留最新一套，打下一个包后删除上一个包（构建失败时保留旧包）。版本、minSdk、签名和授权边界不变；未安装、推送、PR 或发布。
+接续 `d80a210e`，仍在 `codex/couikit-dialog`。用户要求继续收首页/课表顶栏图标按钮，并明确从本轮开始只把签名 APK 放桌面、mapping 留仓库；桌面只保留最新一个包，打下一个包后删除上一个（构建失败时保留旧包）。随后要求检查顶栏按钮采样源，并按相册/天气右上角菜单修复两个弹出菜单。版本、minSdk、签名和授权边界不变；未安装、推送、PR 或发布。
 
 - `5a505ec8`：首页 `AppTopBar` 内独立图标按钮改走 `CouiHomeIconButton`，复用 `CouiCapsuleButton` 的 42dp 圆形表面、轮廓、按压、跟手光和禁用材质；浅色表面 `0x99F5F5F5`，深色 `0xCC262626`，选中态使用宿主主色图标。
 - `LocalCouiHomeTopBarActive` 只在 `AppTopBar` 外层提供，添加/个性化复合胶囊、页面源卡和其他图标按钮保持原路线；液态/旧系统仍回退原生或液态。
-- 没有引入 `TopAppBarButton` 的顶栏采样源：首页顶栏位于整页 Dock 源内部，直接加 backdrop 会自采样或需要拆页源；本轮用胶囊按钮自身表面完成统一，精确系统材质留作后续可选。
-- 验证：`GlowSystemMenusTest` 4 项通过（含新增顶栏按钮用例）；正式 `assembleGithubRelease` 通过（7m14s，R8、资源压缩、lintVital、V2 签名）。APK `E60F0BEE305765FF5A640B135EA13FCF549FBC568F0BD7D32391EF89838EECC6`，7,857,748 字节；mapping `6EFC0059BAF16EF1B9478620C8E8CDFADF81D136221039B24DC4AFB3F2600765`，162,209,088 字节；内嵌源码 `5a505ec8`。
-- 桌面包（当前唯一一套）：`D:\个人资料\桌面\SleepDown-1.2.8-beta2-couikut-home-topbar-20261107-e60f0bee.apk` 及同名 `-mapping.txt`。下一轮构建成功并校验后删除桌面上一套 `SleepDown*` 包；`tmp/review-apks` 历史保留。
-- 详细记录见[首页顶栏报告](reports/2026-11-07-coui-home-top-bar.md)与[适配进度盘点](reports/2026-11-07-coui-adaptation-audit.md)。
+- 顶栏采样源复核：`CouiCapsuleButton` 不接收 `CouiBackdrop`，只绘制自身 surface/contour/spotlight；顶栏按钮没有采样源，也不读取 Dock 整页源或形成自采样。顶栏背景仍由 `HomeTopGradientBlur` 消费 `chromeBackdrop`；未引入 `TopAppBarButton` 的额外整页源。
+- `e43ab2ee`：按 `OppoGallery2`／`OppoWeather2` 的 `COUIPopupListWindow` 复核两个菜单。面板圆角由 28dp 改为 12dp（API35 系统布局为 9dp 半径变体），条目遮罩 8dp，顶部屏障 12dp；菜单宽 196dp／最大 256dp、条目 40dp、上下 8dp、左右 20dp、图标 20dp+12dp、正文 16sp regular、0.5dp 分隔线保持。课程 shortcut 改为菜单实际退出后再执行动作；溢出菜单取消选中触觉。详细证据见[系统菜单报告](reports/2026-11-07-system-popup-menu.md)。
+- 验证：`GlowSystemMenusTest` 4 项通过（含顶栏按钮、shortcut 退出交接、overflow 退出提交）；正式 `assembleGithubRelease` 通过（8m31s，R8、资源压缩、lintVital、V2 签名）。APK `E5D9E435F2B2972298A150106679F173E4E6F95F814A47E511DE16542382C330`，7,841,364 字节；mapping `0134D29343C63AC6EEC0F238A707E747B24838B6BFAD556E7389C9BE6AB6CC8F`，162,254,434 字节；内嵌源码 `e43ab2ee`。
+- 桌面（只保留 APK）：`D:\个人资料\桌面\SleepDown-1.2.8-beta2-couikit-menu-topbar-20261107-e5d9e435.apk`。上一套 `e60f0bee` APK 已删除；桌面没有 mapping。mapping 仅保留在 `tmp/review-apks`。下一轮构建成功并校验后删除桌面上的上一个 `SleepDown*.apk`。
+- 详细记录见[首页顶栏报告](reports/2026-11-07-coui-home-top-bar.md)、[系统菜单报告](reports/2026-11-07-system-popup-menu.md)与[适配进度盘点](reports/2026-11-07-coui-adaptation-audit.md)。
 
 ## 2026-11-07 当前：凝光系统菜单、特殊选择器与详细设置布局
 

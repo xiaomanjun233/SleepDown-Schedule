@@ -23,7 +23,7 @@
 | 普通胶囊按钮 | 完成 | `CouiCapsuleButtonRenderer`；主色/中性、禁用材质、sheen 已映射 |
 | 首页/课表顶栏独立图标按钮 | 完成 | `CouiHomeIconButton` 复用 `CouiCapsuleButton`；42dp 圆形、COUI 表面/轮廓/按压/跟手光，仅限 `AppTopBar` |
 | Dock + FAB | 完成（COUI 路由） | `CouiDockBar`、`NativeHomeDockChrome`；旧系统/失败回退原生/液态 |
-| 课程长按 Shortcut、三点 Overflow 菜单 | 完成 | `GlowSystemMenus.kt`、`SystemPopupMenu`，系统 196dp 样式 |
+| 课程长按 Shortcut、三点 Overflow 菜单 | 完成（按 Gallery/Weather 复核） | `GlowSystemMenus.kt`、`SystemPopupMenu`；196dp、12dp 面板圆角、退出后提交 |
 | 首页菜单冻结、退出后交接、后台停止清理 | 完成 | `GlowSystemMenus.kt` |
 
 ## 部分完成 / 剩余
@@ -51,6 +51,7 @@
 ## 当前验证基线
 
 - `5d7f7235` 的 26 项定向回归、主编辑器/星期/调色板 3 项、最终菜单/编辑器 6 项均通过。
-- 首页顶栏按钮新增 `GlowSystemMenusTest` 用例；最终 `5a505ec8` 的该类 4 项通过，0 失败/错误/跳过。
-- 最终签名 Release 通过（7m14s，R8、资源压缩、lintVital、V2 签名）。APK `E60F0BEE…`，7,857,748 字节；mapping SHA-256 `6EFC0059…`；内嵌源码 `5a505ec8`。
+- 首页顶栏按钮及两个系统菜单新增/覆盖 `GlowSystemMenusTest` 用例；最终 `e43ab2ee` 的该类 4 项通过，0 失败/错误/跳过。
+- 最终签名 Release 通过（8m31s，R8、资源压缩、lintVital、V2 签名）。APK `E5D9E435…`，7,841,364 字节；mapping SHA-256 `0134D293…`；内嵌源码 `e43ab2ee`。
+- 桌面只保留 APK `SleepDown-1.2.8-beta2-couikit-menu-topbar-20261107-e5d9e435.apk`；mapping 只在 `tmp/review-apks`。
 - 未安装、未推送；真机 GPU、系统模糊、OEM 触觉和帧耗时仍未验收。

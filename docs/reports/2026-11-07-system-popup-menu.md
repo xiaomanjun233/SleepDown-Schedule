@@ -50,3 +50,17 @@
 | `SleepDown-1.2.8-beta2-glow-popup-pickers-20261107-031cf109-mapping.txt` | 162,147,478 | `0CA22E87BD10EDFA98624CF231615765025E4F8F451015D4752E2C286CB8C9BC` |
 
 `apksigner verify` 通过，V2证书SHA-256 `0f2b50dfb7e10c6f5981ab966f1f4ebd76af81a7ad9ba31663284eaa88c0181a`。Manifest为 `com.xiaomanjun.sleepdownschedule`、`1.2.8_beta2 / 36`、minSdk26／targetSdk36；内嵌源码提交 `5d7f7235d705f33877a3d1183230ddc9e773ecbc`。后续文档提交不改变此包源码归属。前轮 `dad316ce` 与 `2a481549` 包保留为历史产物，不能替代本轮包。未安装、推送或发布。
+
+## 2026-11-07 续：按 Gallery／Weather 复核
+
+用户要求两个弹出菜单按 ColorOS 原版行为修复，并指定从相册或天气右上角菜单取目标。实际只读检查了 `OppoGallery2.apk` 与 `OppoWeather2.apk` 内的 `com.coui.appcompat.poplist.COUIPopupListWindow`、`COUIPopupWindow`、`COUIPopupMenuRootView`、`PopupMenuLocateHelper`、`COUIActionMenuView` 及资源。
+
+- 目标窗口是 `COUIPopupListWindow`：全窗口 Popup、focusable、outsideTouchable、非 touchModal；菜单宽 196dp（带图标）、最小 168dp、最大 256dp；顶栏屏障 12dp、底部导航屏障 32dp、锚点垂直间距 8dp。
+- 目标面板圆角取 `couiRoundCornerM`／`coui_round_corner_m` 12dp（API 35 布局用 9dp 半径变体），不是此前 Compose 菜单的 28dp。条目本身仍是 40dp 最小高度、上下 8dp、左右 20dp、图标 20dp + 12dp 间距、正文 16sp regular；条目遮罩圆角改为 8dp。
+- 条目分隔线仍为 0.5dp，带图标起点 52dp、末端 20dp；本次没有把组间距 12dp 误加到普通条目。
+- 行为上，课程 shortcut 的动作改为和 `COUIPopupListWindow`／overflow 一样，在主菜单实际退出后执行，不再点击瞬间提交；溢出菜单取消选中触觉，保持系统菜单的视觉/触觉反馈。
+- 变更文件：`third_party/coui-kit/.../menu/SystemPopupMenu.kt`、`platform/coloros/GlowSystemMenus.kt`。提交 `e43ab2ee`。
+- `GlowSystemMenusTest` 4 项通过（含 shortcut 退出交接与 overflow 点击后退出提交），截图 `tmp/coui-visual-review-20261106/system-glow-overflow.png` 已查看：196dp 面板、12dp 圆角、条目分隔与锚点避让正常。
+- 正式 `assembleGithubRelease` 通过（8m31s）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikit-menu-topbar-20261107-e5d9e435.apk`，7,841,364 字节，SHA-256 `E5D9E435F2B2972298A150106679F173E4E6F95F814A47E511DE16542382C330`；mapping 同目录，162,254,434 字节，SHA-256 `0134D29343C63AC6EEC0F238A707E747B24838B6BFAD556E7389C9BE6AB6CC8F`；内嵌源码 `e43ab2ee`，V2 证书 `0f2b50df…`。
+- 桌面只保留 APK：`D:\个人资料\桌面\SleepDown-1.2.8-beta2-couikit-menu-topbar-20261107-e5d9e435.apk`；上一套 `e60f0bee` 已删除，mapping 不复制到桌面。
+- 仍未真机验证动态模糊、系统像素、OEM 触觉与帧耗时。
