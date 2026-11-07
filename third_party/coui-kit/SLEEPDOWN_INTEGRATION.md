@@ -12,7 +12,7 @@
 
 ## 2026-11-07 Dialog 与分段控件扩展
 
-- `ProvideCouiMenuBackdrop` 在同一个 Window 内复用完整窗口源；独立窗口建立带 parent 的新源。宿主整窗源显式 `recordWhenIdle=false`，空闲直接绘制、不录制整页，只在实际消费期间隔离与保留父链；局部控件源默认行为不变。
+- `ProvideCouiMenuBackdrop` 在同一个 Window 内复用完整窗口源；独立窗口建立带 parent 的新源。宿主整窗源显式 `recordWhenIdle=false`，空闲直接绘制、不录制整页；消费期间保留父链。`isolateContent=false` 在消费时也保留 Auto 指令源，采样材质隔离自己的区域，避免开窗再分配额外整屏纹理；默认隔离入口不变。
 - Dialog 背景使用上游 Kawase 等级（`200` 不是像素半径），沿用混色与轮廓。按用户后续要求恢复上游 DialogButton，不再录制额外纯表面源或为内部按钮追加采样；完整窗口源仅供下一层弹窗。
 - `couiControlMaterialEffect` 统一浮动表面的采样亮度、Gaussian 模糊和两层混色顺序；DialogButton 保持上游自己的尺寸、文本与反馈。`DialogHeading`／`DialogActionBar` 暴露原排版供特殊表单复用。
 - `CouiFabDefaults.translucentMaterial()` 为宿主强调按钮和 Dock 加号提供可选半透明染色与 25px 采样模糊；默认 FAB 和 Dialog 主操作仍沿用 Demo 材质。凝光设置页只录制 Scaffold 所需的 COUI 正文源，液态保留原 Kyant 正文源。
@@ -22,7 +22,7 @@
 
 ## 2026-11-07 系统菜单与特殊选择器续作
 
-- 课程shortcut与三点动作菜单直接使用Kit `Menu`，保留196dp宽度、原窗口与材质。移除曾自行装配的 `SystemPopupMenu` 及其旧定位测试；所有动作项 `dividerBefore=false`。Menu补充可选Painter、文字色、实际退场和定位回调，宿主保留原图标、危险语义与交接。原生共享遮罩使用显式 `pressMaskOnForeground` 样式，影响这两个入口，不更改其他Menu默认呈现。
+- 课程shortcut与三点动作菜单直接使用Kit `Menu`，保留196dp宽度、原窗口与材质。所有动作项 `dividerBefore=false`。样式显式选择原生白光轮廓与普通动作文字（目标相册APK的 `DefaultAdapter → couiTextBodyL` 为15sp regular，不能沿用旧报告的16sp猜值或Kit的14sp medium）。`CouiMenuPlacement.AnchorCenter` 用于工具栏，`AnchorStart` 用于课程；按可见窗口、IME和RTL定位，上翻保持8dp间隔，长菜单约束到可用高度。设置菜单默认定位及字体不变。原生共享遮罩使用显式 `pressMaskOnForeground`，动作在实际退场后交接。
 - 分段普通高度按系统regular40dp；显式传入尺寸的首页导航不改。指示器运动中的可见矩形也可起拖，跨标签缩放与已选无障碍点击按系统语义补齐。
 - 宿主自定义Picker使用独立的内容边距参数，不改Wheel/Calendar自身尺寸；月历不增加外层标题。具体业务布局仍留在宿主，不加入上游Demo或厂商二进制。
 
@@ -45,6 +45,8 @@
 菜单外壳和材质保持Kit标准实现，不再维护第二个系统菜单绘制后端。原生单行遮罩由 `COUITouchRecyclerView` 的最终分支确定：整行高度、水平8dp内缩、weight1胶囊，绘制在文字／图标之后；复用Kit进度、滑动弹簧与受控提交。不得只凭静态XML半径推断该遮罩，普通共享遮罩也不同于行自身的hover／clickable遮罩。
 
 Dialog继续使用固定上游的Kawase和窗口生命周期。宿主保留嵌套窗口源、安全区与退出完成回调；开合动画值在graphicsLayer／draw阶段读取，避免每帧重组窗口并重复写Window属性，材质RenderEffect的Compose包装随基础effect缓存。动画参数与采样逆变换保持同帧一致。
+
+采样源、浮动材质和Dialog采样锚点通过实际尺寸与屏幕仿射变换更新坐标状态，不能把位置未变的 `onGloballyPositioned` 回调当成材质重建信号。窗口属性按实际值比较后单次提交，背景Drawable仅随Window建立，避免IME动画重组反复分配和写入。
 
 保留上游 Compose BOM 2026.08.01 与 DynamicAnimation strictly 1.0.0 的约束，不使用 force、exclude 或 overrideLibrary。
 
