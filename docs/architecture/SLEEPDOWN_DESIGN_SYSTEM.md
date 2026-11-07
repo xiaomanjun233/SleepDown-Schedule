@@ -174,6 +174,8 @@ Dialog 路线由用户选择的视效模式决定，设置页的 COUI 排版作�
 
 凝光 Dialog 以 COUI Demo 的原尺寸、Kawase 200、混色及窗口运动为基准；表面采样下层完整窗口，内部标准操作沿用 Kit 填色和反馈，不叠加第二次采样。完整弹窗窗口源只供下一层嵌套窗口，整窗源无消费者时直接绘制；同窗口的 Scaffold 复用源。普通 Picker 直接使用上游 Dialog、WheelPicker／CalendarPicker；特殊内容的标题与固定操作区同样复用 Kit。正文不重复绘制标题或底部按钮。普通选择器不启用全屏 IME 策略，输入表单单独处理导航区与键盘交集。
 
+自定义Picker正文通过 `couiContentPadding` 显式使用 `CouiPickerFormPadding`（水平24dp、顶12dp、底16dp），不叠加旧2/4dp微边距；标准Wheel/Calendar由组件自身处理留白。凝光月历只保留自身年月导航，不加外层标题或重复日期标题。星期网格、课程调色板、作息表单等保留业务约束并共用上述内容节奏。课表设置顶部取消／完成保持原位置，详细设置固定在正文滚动区之外并按操作区内缩。
+
 | 任务 | 组件 | 特征 |
 | --- | --- | --- |
 | 不可逆确认、错误、权限解释 | `LiquidAlertDialog` | 短标题、短正文、1–3 个明确动作 |
@@ -208,6 +210,8 @@ Dialog 路线由用户选择的视效模式决定，设置页的 COUI 排版作�
 - 新 Picker 优先直接使用 `SleepDownPickerDialog`；确因标题色、根层挂载或内容测量需要直接使用 Miuix `OverlayDialog` 时，必须通过 `rememberCenteredDialogVisuals` 同时接入表面、背景模糊、动画进度与非预测性返回规则，不能只复制 `surfaceModifier`。
 
 ### Popup 菜单材质
+
+- 凝光 Android14+ 的课程 shortcut 与首页三点操作菜单使用独立系统装配 `SystemPopupMenu`：196dp有图标面板、28dp外框、16sp regular条目，按系统锚点规则避让并独立退场。只复用Kit基础材质与运动，不采用其Demo菜单行。液态继续下述原菜单与Morph；两种模式不能共用同一液滴行为。
 
 - 设置普通下拉保留 COUI Item 触发行，弹出面板使用原改版 Miuix。透明、零 Insets 的 Miuix Scaffold 只提供本地浮层宿主；COUI 继续负责页面顶栏、正文与安全区，完整页面 producer 不包含浮层。下拉挂在真实 trailing Row 内，按当前窗口定位和收回。
 - 普通下拉、列表和级联 Popup 由 `SleepDownLiquidDropdownPreference` / `SleepDownLiquidCascadingPopup` 统一调用。普通 Popup 为 25dp 外壳；条目按下述公共紧凑规格与胶囊高亮排布。普通下拉动效对照 NexioSchedule `2daf4c3` 及用户提供的 APK：尺寸进入弹簧 0.77/220、退出 0.85/650；锚点迁移进入 0.77/420，退出 340ms `(0,0,0,1)` 曲线。面板起点覆盖当前值与箭头，外加横向 14dp、纵向 10dp 留白；宽高独立插值并保留过冲，固定画布每边留 14dp 回弹空间和 24dp 阴影外距。当前值与箭头在弹层内按原尺寸移动、淡出，原位置暂时隐藏这两个元素，关闭后交还；设置行标题保持原位。菜单文字独立等比缩放、分段显隐和 0–6dp 瞬态模糊，静止后释放文字 RenderEffect；玻璃在固定画布内采样，轮廓单独变化，材质透明度不乘到文字上。展开后不增加整页遮罩；普通设置行保留按压灰色反馈，首页个性化弹窗通过 `showAnchorPressFeedback = false` 单独关闭。级联二级菜单继续使用其真实父子锚点 Morph。

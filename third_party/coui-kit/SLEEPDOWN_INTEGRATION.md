@@ -20,6 +20,12 @@
 - `segmentbutton/CouiSegmentedControl.kt` 为本地新增受控组件，依据本机 Settings 17 的 `COUISegmentButtonLayout` 行为实现。位置、宽度、高度、橡皮筋分别使用 Kit 弹簧；完整外壳／仅指示器、RTL、即时／抬手提交、系统 CANCEL、禁用与无障碍均由公开状态装配。只记录依据，不引入反编译源码或二进制；公开轻触反馈不能视为 OEM 302 波形复刻。
 - 上游同步采用固定 main 提交做三方差异核对，再重放上述宿主扩展；下文 2026-11-06 的哈希是历史接入证据。
 
+## 2026-11-07 系统菜单与特殊选择器续作
+
+- 本地新增 `menu/SystemPopupMenu.kt`，只复用材质、投影、触摸运动与开合弹簧；196dp有图标窗口、16sp regular行、分隔与定位依照Settings 17 poplist装配，不调用Kit的Demo菜单布局。普通工具栏按锚点居中避让，课程shortcut按逻辑边对齐；独立Popup只消费宿主完整窗口，真实退场后才交接业务。Kit原有 `Menu` 保持原默认样式和职责。
+- 分段普通高度按系统regular40dp；显式传入尺寸的首页导航不改。指示器运动中的可见矩形也可起拖，跨标签缩放与已选无障碍点击按系统语义补齐。
+- 宿主自定义Picker使用独立的内容边距参数，不改Wheel/Calendar自身尺寸；月历不增加外层标题。具体业务布局仍留在宿主，不加入上游Demo或厂商二进制。
+
 保留上游 Compose BOM 2026.08.01 与 DynamicAnimation strictly 1.0.0 的约束，不使用 force、exclude 或 overrideLibrary。
 
 用户截图核对后的设置装配：宿主独立使用 Settings 的卡片色 `#1AFFFFFF`（夜间叠黑），不将通用 Dark.container 的 `#333333` 当作设置底色。Group 增加可选 Shape 参数，默认形状不变；宿主普通设置卡片根据 Settings 17 cardlist 消费者选用 24dp/2.5，菜单、搜索等保留自身预设。页面用途决定目录/表单行高；没有替换或全局修改上游圆角算法。
