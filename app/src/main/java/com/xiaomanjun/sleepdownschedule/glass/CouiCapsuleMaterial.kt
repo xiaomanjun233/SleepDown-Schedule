@@ -8,9 +8,9 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import com.itos.coui.floatingactionbutton.CouiFabDefaults
 import com.itos.coui.topappbar.CouiTopAppBarButtonDefaults
+import com.itos.coui.segmentbutton.CouiSegmentedControlDefaults
 import com.itos.coui.effect.CouiFloatingMaterial
 import com.itos.coui.effect.couiControlMaterialEffect
-import android.graphics.BlendMode
 import com.itos.coui.shape.CouiCapsuleShape
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
@@ -27,11 +27,7 @@ internal fun couiCapsuleMaterial(backdrop: Backdrop?, shape: Shape, dark: Boolea
 
 @Composable
 internal fun couiSegmentMaterial(backdrop: Backdrop?, dark: Boolean): Modifier {
-    val material = remember(dark) { CouiFloatingMaterial(
-        firstColor = Color(if (dark) 0x7F7F7F7F else 0x7F333333),
-        firstBlendMode = if (dark) BlendMode.OVERLAY else BlendMode.COLOR_DODGE,
-        secondColor = Color(if (dark) 0x99262626 else 0x99EFEFEF), edgeAlpha = 0f, innerGlowAlpha = 0f,
-        blurRadius = 25f) }
+    val material = remember(dark) { CouiSegmentedControlDefaults.material(dark) }
     return couiControlMaterial(backdrop, CouiCapsuleShape, material)
 }
 

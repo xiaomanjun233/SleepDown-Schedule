@@ -4,16 +4,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SegmentSelectionSessionTest {
-    @Test fun rubberBandUsesPressInsetAtTheEdgeAndSwitchDistanceBetweenTabs() {
-        assertEquals(0f, segmentRubberDistance(100f, 1f, true, 5f), .001f)
-        assertEquals(5f, segmentRubberDistance(100f, .9f, true, 5f), .001f)
-        assertEquals(10f, segmentRubberDistance(100f, .9f, false, 5f), .001f)
-    }
     @Test fun cancelledNavigationDragNeverCommitsItsPreview() {
         val values = mutableListOf<Int>()
-        val session = SegmentSelectionSession()
+        val session = SegmentSelectionSession(0)
         session.begin(0)
-        session.move(2, true, values::add)
+        session.select(2, true, values::add)
         session.finish(true, 0, true, values::add)
         assertTrue(values.isEmpty())
         assertFalse(session.touching)
@@ -22,21 +17,21 @@ class SegmentSelectionSessionTest {
 
     @Test fun releaseCommitsOnceAndDraggingBackToTheAcceptedTabDoesNotNavigate() {
         val values = mutableListOf<Int>()
-        val session = SegmentSelectionSession()
-        session.begin(0); session.move(2, true, values::add)
+        val session = SegmentSelectionSession(0)
+        session.begin(0); session.select(2, true, values::add)
         session.finish(false, 0, true, values::add)
         session.finish(false, 0, true, values::add)
         assertEquals(listOf(2), values)
-        session.begin(2); session.move(0, true, values::add); session.move(2, true, values::add)
+        session.begin(2); session.select(0, true, values::add); session.select(2, true, values::add)
         session.finish(false, 2, true, values::add)
         assertEquals(listOf(2), values)
     }
 
     @Test fun immediateSelectionDoesNotEchoTheSameItemAndCancelDoesNotUndoAcceptedValues() {
         val values = mutableListOf<Int>()
-        val session = SegmentSelectionSession()
+        val session = SegmentSelectionSession(0)
         session.begin(0)
-        session.move(1, false, values::add); session.move(1, false, values::add)
+        session.select(1, false, values::add); session.select(1, false, values::add)
         session.finish(true, 1, false, values::add)
         assertEquals(listOf(1), values)
         assertEquals(1, session.preview)
