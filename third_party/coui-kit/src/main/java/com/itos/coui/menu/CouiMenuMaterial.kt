@@ -207,10 +207,7 @@ internal fun couiMenuMaterial(
             }
             drawContent()
         }
-        // 跟手光仍沿用 COUI 菜单的透明前景合成, 不进入通知轮廓的背景混色链。
-        .graphicsLayer {
-            compositingStrategy = CompositingStrategy.Offscreen
-        }
+        // 外层已隔离完整面板。跟手光在背景混色之后绘制，避免再建一张相同尺寸纹理。
         .drawWithContent {
             drawSpotlight?.invoke(this)
             drawContent()

@@ -24,6 +24,11 @@ data class CouiMenuColors(
     val outlineVariant: Color,
 )
 
+/** 普通设置菜单保留原定位；动作菜单按真实锚点及可见窗口避让。 */
+enum class CouiMenuPlacement { Default, AnchorCenter, AnchorStart }
+
+enum class CouiMenuContourStyle { BackgroundAware, White }
+
 object CouiMenuDefaults {
     const val spotlightDiffuse: Float = 0.5f
     val radius = 28.dp
@@ -65,6 +70,8 @@ data class CouiMenuStyle(
     val dark: Boolean? = null,
     /** 原生 TouchRecyclerView 在文字和图标之后绘制共享按压遮罩。 */
     val pressMaskOnForeground: Boolean = false,
+    val placement: CouiMenuPlacement = CouiMenuPlacement.Default,
+    val contourStyle: CouiMenuContourStyle = CouiMenuContourStyle.BackgroundAware,
 )
 
 internal val CouiMenuStyle.resolvedRadius: Dp

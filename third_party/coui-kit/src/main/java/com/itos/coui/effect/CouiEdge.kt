@@ -22,7 +22,9 @@ class CouiEdge(
     private val innerGlowAlpha: Float,
     contourGlowEnabled: Boolean = true,
     private val lineAlpha: Float = if (style == CouiEdgeStyle.Light) 0.55f else 0.5f,
+    private val whiteContour: Boolean = false,
 ) {
+    private val light = style == CouiEdgeStyle.Light
     private val shader = RuntimeShader(CouiEdgeShader)
     private var lastSize = Size.Zero
     private var lastDensity = 0f
@@ -35,7 +37,8 @@ class CouiEdge(
         require(lineAlpha.isFinite() && lineAlpha in 0f..1f) { "描边透明度必须为 0 到 1 的有限值" }
         shader.setFloatUniform("uMixColor", mix.red, mix.green, mix.blue, mix.alpha)
         shader.setFloatUniform("uBlendColor", blend.red, blend.green, blend.blue, blend.alpha)
-        shader.setFloatUniform("uUseLightEdgeColor", if (style == CouiEdgeStyle.Light) 1f else 0f)
+        shader.setFloatUniform("uUseLightEdgeColor", if (light && !whiteContour) 1f else 0f)
+        shader.setFloatUniform("uNativeWhiteEdge", if (whiteContour) 1f else 0f)
         shader.setFloatUniform("uContourGlowEnabled", if (contourGlowEnabled) 1f else 0f)
     }
 
@@ -44,6 +47,11 @@ class CouiEdge(
             if (size == lastSize && density == lastDensity) return effect
         }
         shader.setCouiContourUniforms(size, density, radiusPx, cornerWeight, innerGlowAlpha, lineAlpha)
+        if (whiteContour) {
+            // RoundFrameLayout EDGE_STYLE_2 的白光与线宽，不使用背景感知描边。
+            shader.setFloatUniform("u_edgeArray", shadowEdgeArray(size.width, size.height, density,
+                (if (light) 4f else 2f) * density, lineAlpha, control = false))
+        }
         // 与现有模糊层一致, uniform 更新后重建 effect, 不复用旧尺寸的 native 快照。
         val effect = RenderEffect.createRuntimeShaderEffect(shader, "content")
         cachedEffect = effect

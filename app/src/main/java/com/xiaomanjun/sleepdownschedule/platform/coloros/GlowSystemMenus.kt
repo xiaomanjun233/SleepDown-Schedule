@@ -11,12 +11,20 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.itos.coui.menu.Menu
 import com.itos.coui.menu.CouiMenuItem
 import com.itos.coui.menu.CouiMenuDefaults
+import com.itos.coui.menu.CouiMenuPlacement
+import com.itos.coui.menu.CouiMenuContourStyle
 import com.itos.coui.shape.CouiCapsuleShape
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeActionIconPainter
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
@@ -30,10 +38,17 @@ private fun List<AddMenuAction>.couiItems() = mapIndexed { index, action ->
 }
 
 @Composable
-private fun actionMenuStyle(dark: Boolean) = CouiMenuDefaults.style(dark).copy(
+private fun actionMenuStyle(dark: Boolean, placement: CouiMenuPlacement) = CouiMenuDefaults.style(dark).copy(
     // 动作菜单只显示当前按压的共享遮罩，不保留设置菜单的持久选中项。
     itemShape = CouiCapsuleShape,
     pressMaskOnForeground = true,
+    // DefaultAdapter 普通动作取 couiTextBodyL；不继承 Kit 设置项的 14sp medium。
+    itemTextStyle = TextStyle(fontFamily = FontFamily.SansSerif, fontSize = 15.sp,
+        fontWeight = FontWeight.Normal, letterSpacing = 0.sp,
+        platformStyle = PlatformTextStyle(includeFontPadding = true)),
+    themeTint = Color.Transparent,
+    contourStyle = CouiMenuContourStyle.White,
+    placement = placement,
 )
 
 /** 独立系统菜单先完成退场，再交给原业务入口；不把液滴 Morph 套在凝光菜单上。 */
@@ -57,7 +72,7 @@ internal fun GlowOverflowMenuButton(dark: Boolean, interactive: Boolean, actions
         }
         if (mounted) {
             Menu(modifier = Modifier.width(196.dp), expanded = expanded, items = items,
-                style = actionMenuStyle(dark), offset = DpOffset(0.dp, 8.dp),
+                style = actionMenuStyle(dark, CouiMenuPlacement.AnchorCenter), offset = DpOffset(0.dp, 8.dp),
                 onDismissRequest = { expanded = false },
                 onItemClick = { item ->
                     if (expanded && pending == null) {
@@ -99,7 +114,7 @@ internal fun GlowCourseShortcutMenu(session: Any, bounds: Rect, dark: Boolean,
     Box(Modifier.absoluteOffset { IntOffset(bounds.left.roundToInt(), bounds.top.roundToInt()) }
         .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() })) {
         Menu(modifier = Modifier.width(196.dp), expanded = expanded && !closing, items = items,
-            style = actionMenuStyle(dark), offset = DpOffset(0.dp, 8.dp),
+            style = actionMenuStyle(dark, CouiMenuPlacement.AnchorStart), offset = DpOffset(0.dp, 8.dp),
             onDismissRequest = onDismiss,
             onItemClick = { item ->
                 if (!closing && expanded && pendingAction == null) {

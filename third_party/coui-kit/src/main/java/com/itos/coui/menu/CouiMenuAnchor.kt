@@ -38,19 +38,7 @@ class CouiMenuAnchor internal constructor(private val view: View) {
         }
 
     internal val visibleWindowBounds: IntRect?
-        get() {
-            if (!view.isAttachedToWindow) return null
-            val frame = Rect()
-            view.getWindowVisibleDisplayFrame(frame)
-            if (frame.isEmpty) return null
-            val screenLocation = IntArray(2)
-            val windowLocation = IntArray(2)
-            view.getLocationOnScreen(screenLocation)
-            view.getLocationInWindow(windowLocation)
-            // 可见区域包含系统栏和 IME 避让, 必须与触点使用相同的窗口坐标。
-            frame.offset(windowLocation[0] - screenLocation[0], windowLocation[1] - screenLocation[1])
-            return IntRect(frame.left, frame.top, frame.right, frame.bottom)
-        }
+        get() = couiMenuVisibleWindowBounds(view)
 
     /** 从原有 onClick 调用; 键盘和无障碍点击没有触点, 使用菜单原有锚点。 */
     fun open(onOpen: () -> Unit) {
@@ -58,6 +46,20 @@ class CouiMenuAnchor internal constructor(private val view: View) {
         pendingTouchPosition = null
         onOpen()
     }
+}
+
+/** Popup 的定位参数使用宿主窗口坐标，不能直接把屏幕可见框作为窗口可见框。 */
+internal fun couiMenuVisibleWindowBounds(view: View): IntRect? {
+    if (!view.isAttachedToWindow) return null
+    val frame = Rect()
+    view.getWindowVisibleDisplayFrame(frame)
+    if (frame.isEmpty) return null
+    val screenLocation = IntArray(2)
+    val windowLocation = IntArray(2)
+    view.getLocationOnScreen(screenLocation)
+    view.getLocationInWindow(windowLocation)
+    frame.offset(windowLocation[0] - screenLocation[0], windowLocation[1] - screenLocation[1])
+    return IntRect(frame.left, frame.top, frame.right, frame.bottom)
 }
 
 @Composable

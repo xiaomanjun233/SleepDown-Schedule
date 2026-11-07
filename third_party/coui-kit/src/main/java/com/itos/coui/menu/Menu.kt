@@ -13,6 +13,7 @@ import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -499,7 +501,11 @@ internal fun CouiMenuPopup(
     val shadow = rememberCouiMenuShadow(shape, motion, touchMotion, transitionProgress)
 
     val density = LocalDensity.current
-    val materialPositionProvider = remember(offset, density) { CouiMenuPositionProvider(offset, density) }
+    val hostView = LocalView.current
+    val placement = LocalCouiMenuStyle.current.placement
+    val materialPositionProvider = remember(offset, density, placement, hostView) {
+        CouiMenuPositionProvider(offset, density, placement) { couiMenuVisibleWindowBounds(hostView) }
+    }
     val touchOffsetY = with(LocalDensity.current) { offset.y.roundToPx() }
     val positionProvider = remember(materialPositionProvider, motion, anchor, touchOffsetY) {
         CouiMenuMotionPositionProvider(
@@ -518,13 +524,12 @@ internal fun CouiMenuPopup(
             onMenuPositioned(Rect((popupOrigin + menuPosition).toOffset(), menuSize.toSize()))
         }
     }
-    val hostView = LocalView.current
     Popup(
         popupPositionProvider = positionProvider,
         onDismissRequest = onDismissRequest,
         properties = properties.withMenuInput(expanded),
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier.fillMaxSize().onGloballyPositioned { coordinates ->
                 val hostOnScreen = IntArray(2)
                 val hostInWindow = IntArray(2)
@@ -539,6 +544,11 @@ internal fun CouiMenuPopup(
             }.then(rootModifier),
             contentAlignment = AbsoluteAlignment.TopLeft,
         ) {
+            val menuHeightLimit = if (placement == CouiMenuPlacement.Default) Modifier else {
+                val visibleHeight = couiMenuVisibleWindowBounds(hostView)?.height
+                val available = minOf(maxHeight, visibleHeight?.let { with(density) { it.toDp() } } ?: maxHeight)
+                Modifier.heightIn(max = (available - 48.dp).coerceAtLeast(1.dp))
+            }
             // 背景是菜单的兄弟节点, 仅菜单外的按下命中它, 不截获菜单拖动。
             Spacer(
                 Modifier.matchParentSize().pointerInput(expanded, properties.dismissOnClickOutside) {
@@ -577,6 +587,7 @@ internal fun CouiMenuPopup(
                         .background(containerColor, shape)
                         .clip(shape)
                         .then(modifier)
+                        .then(menuHeightLimit)
                         .width(IntrinsicSize.Max)
                         .then(couiMenuScrollBar(scrollBar, expanded, scrollEnabled,
                             dark = LocalCouiMenuStyle.current.isDark,
