@@ -4,6 +4,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SegmentSelectionSessionTest {
+    @Test fun rubberBandUsesPressInsetAtTheEdgeAndSwitchDistanceBetweenTabs() {
+        assertEquals(0f, segmentRubberDistance(100f, 1f, true, 5f), .001f)
+        assertEquals(5f, segmentRubberDistance(100f, .9f, true, 5f), .001f)
+        assertEquals(10f, segmentRubberDistance(100f, .9f, false, 5f), .001f)
+    }
     @Test fun cancelledNavigationDragNeverCommitsItsPreview() {
         val values = mutableListOf<Int>()
         val session = SegmentSelectionSession()

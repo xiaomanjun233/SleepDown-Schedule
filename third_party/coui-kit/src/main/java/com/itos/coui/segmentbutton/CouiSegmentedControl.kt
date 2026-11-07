@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.drawscope.*
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.*
 import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -72,6 +73,9 @@ internal fun segmentDynamic(from: Float, to: Float, normal: Float, minimum: Floa
 internal fun segmentRubber(delta: Float, distance: Float): Float =
     if (distance == 0f) 0f else (1f - 1f / (abs(delta) * .12f / distance + 1f)) * distance * sign(delta)
 
+internal fun segmentRubberDistance(width: Float, scale: Float, edge: Boolean, switchDistance: Float): Float =
+    ((1f - scale) * width / 2f).coerceAtLeast(0f) + if (edge) 0f else switchDistance
+
 /** 原生选择的提交门；即时选择和抬手提交共用预览，但系统 CANCEL 不产生新提交。 */
 internal class SegmentSelectionSession {
     var touching = false; private set
@@ -118,6 +122,7 @@ fun CouiSegmentedControl(
     val touch = rememberCouiTouchMotion(enabled && containerSurfaceEnabled)
     val press = rememberCouiPressMotion()
     val indicatorPress = rememberCouiPressMotion()
+    val labelPresses = labels.mapIndexed { index, _ -> key(index) { rememberCouiPressMotion() } }
     val (lightInput, light) = rememberCouiSpotlight(interactive = enabled && containerSurfaceEnabled,
         dark = dark, preset = SpotlightPreset.OpaqueMedium2, cancelOnConsumedMove = true)
     val textStyle = rememberCouiTextStyle(CouiTextKind.Button)
@@ -175,12 +180,19 @@ fun CouiSegmentedControl(
             session.move(index, commitOnRelease) { submit.value(it) }
         }
         val first = center(0); val last = center(labels.lastIndex)
-        val indicatorWidth = width.value.coerceIn(0f, widthLimit)
-        val ih = indicatorHeight.value.coerceIn(targetHeight * .9f, targetHeight)
-        Box(Modifier.align(AbsoluteAlignment.TopLeft).absoluteOffset { IntOffset((position.value.coerceIn(min(first, last), max(first, last)) + rubber.value - indicatorWidth / 2).roundToInt(),
-            ((with(density) { height.toPx() } - ih) / 2).roundToInt()) }
-            .size(with(density) { indicatorWidth.toDp() }, with(density) { ih.toDp() })
-            .graphicsLayer { scaleX = indicatorPress.scale.value; scaleY = indicatorPress.scale.value }
+        // 原生仅 invalidate 指示器；弹簧每帧只触发布局/绘制，不重组标签和重新测字。
+        Box(Modifier.align(AbsoluteAlignment.TopLeft).layout { measurable, _ ->
+            val scale = indicatorPress.scale.value
+            val iw = width.value.coerceIn(0f, widthLimit) * scale
+            val ih = indicatorHeight.value.coerceAtLeast(targetHeight * .9f) * scale
+            val cx = position.value.coerceIn(min(first, last), max(first, last)) + rubber.value
+            val left = (cx - iw / 2f).coerceAtLeast(padding)
+            val right = (cx + iw / 2f).coerceAtMost(available + padding)
+            val child = measurable.measure(Constraints.fixed((right - left).roundToInt().coerceAtLeast(0), ih.roundToInt().coerceAtLeast(0)))
+            layout(child.width, child.height) {
+                child.place(left.roundToInt(), ((with(density) { height.toPx() } - ih) / 2).roundToInt())
+            }
+        }
             .segmentIndicator(dark))
         Row(Modifier.fillMaxSize().padding(horizontal = 4.dp)
             .pointerInput(labels, widths, enabled, commitOnRelease) {
@@ -189,7 +201,11 @@ fun CouiSegmentedControl(
                     val down = awaitFirstDown(requireUnconsumed = false)
                     session.begin(current.value)
                     var dragging = hit(down.position.x + padding) == current.value
-                    if (dragging) indicatorPress.press(IntSize(indicatorWidth.roundToInt(), ih.roundToInt()))
+                    if (dragging) indicatorPress.press(IntSize(width.value.roundToInt(), targetHeight.roundToInt()))
+                    var pressedLabel = hit(down.position.x + padding)
+                    pressedLabel?.let { labelPresses[it].press(IntSize(widths[it].roundToInt(), targetHeight.roundToInt())) }
+                    var rubberOrigin = down.position.x
+                    var resetRubberOnStable = false
                     var cancelled = false
                     var completed = false
                     try {
@@ -202,13 +218,24 @@ fun CouiSegmentedControl(
                                 cancelled = true; break
                             }
                             if (dragging && change.pressed) {
-                                hit(change.position.x + padding)?.let {
-                                    if (it != preview) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    select(it)
+                                val target = hit(change.position.x + padding)
+                                if (target != null && target != preview) {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    select(target)
+                                    resetRubberOnStable = true
+                                } else if (!position.isRunning && abs(position.value - center(preview)) < .5f) {
+                                    if (resetRubberOnStable) { rubberOrigin = change.position.x; resetRubberOnStable = false }
+                                    val distance = segmentRubberDistance(width.value, indicatorPress.scale.value,
+                                        preview == 0 || preview == labels.lastIndex, with(density) { 5.dp.toPx() })
+                                    rubber.animateTo(segmentRubber(change.position.x - rubberOrigin, distance), .6f)
                                 }
                                 if (abs(delta.x) > viewConfiguration.touchSlop) change.consume()
-                                if (!position.isRunning) rubber.animateTo(segmentRubber(delta.x,
-                                    with(density) { 4.dp.toPx() }), .6f)
+                            }
+                            val touchedLabel = hit(change.position.x + padding)
+                            if (touchedLabel != pressedLabel) {
+                                pressedLabel?.let { labelPresses[it].release() }
+                                touchedLabel?.let { labelPresses[it].press(IntSize(widths[it].roundToInt(), targetHeight.roundToInt())) }
+                                pressedLabel = touchedLabel
                             }
                             if (!change.pressed) {
                                 if (!change.previousPressed || (change.isConsumed &&
@@ -223,11 +250,13 @@ fun CouiSegmentedControl(
                         preview = if (cancelled || !completed) current.value else session.preview
                         rubber.animateTo(0f, .6f)
                         indicatorPress.release()
+                        pressedLabel?.let { labelPresses[it].release() }
                     }
                 }
             }) {
             labels.forEachIndexed { index, label ->
                 Box(Modifier.width(with(density) { widths[index].toDp() }).fillMaxHeight()
+                    .graphicsLayer { scaleX = labelPresses[index].scale.value; scaleY = labelPresses[index].scale.value }
                     .semantics { role = Role.Tab; selected = selectedIndex == index
                         if (!enabled) disabled()
                         onClick { if (enabled && index != current.value) submit.value(index); enabled }
