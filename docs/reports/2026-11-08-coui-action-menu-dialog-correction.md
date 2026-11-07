@@ -17,6 +17,17 @@
 - 19项功能回归通过：菜单5项、原迁移UI11项、课表保存／关闭生命周期3项（日志 `tmp/coui-menu-mask-dialog-verified-tests-20261108.log`）。该轮另外一项新增诊断把显示状态切换的窗口策略交接也误判为动画重复写入，因此单独校准其观察方式。
 - 最终动画诊断1项通过（1m40s，`tmp/coui-dialog-motion-check-20261108.log`）：已布局窗口关闭及反向重开各观察6个运动帧，允许owner与Dialog子组合一次策略交接，确认不逐帧执行Window配置。此前尝试捕获屏幕外动画节点及零交接断言均不作为产品失败；没有据此删除模糊或动画。
 - 已查看Kit动作菜单静止／按压图和课表设置图：无分割线、前景单行遮罩、紧凑顶栏、原详细设置按钮与正文均正常布局。Robolectric只确认这些布局／状态及CPU属性写入行为，不代替设备GPU、真实采样像素或帧耗时验收。
-- 独立完整签名Release构建待完成；未安装、推送或发布。
+- 独立完整签名 `assembleGithubRelease --console=plain --no-parallel --max-workers=1 --no-daemon` 通过（5m55s，195任务，36执行／159复用），保留R8、资源压缩、lintVital与V2签名。日志 `tmp/coui-menu-mask-dialog-release-20261108.log`；未安装、推送或发布。
 
-已核对并清理 `tmp/review-apks` 内10份旧mapping，释放1.47GiB；先保留当前已交付 `cb6af347` 对应的精确mapping（SHA-256 `143B931E…`），其他APK没有删除。新包成功校验后仅保留新包对应的mapping。
+先核对并清理 `tmp/review-apks` 内10份旧mapping，释放1.47GiB；新包成功签名及哈希校验后再删除上一份 `cb6af347` 的mapping，累计删除11份，约释放1.62GiB。归档目录现只留本次APK对应的精确mapping；其他APK和外部桌面没有删除。
+
+## 本次产物
+
+同次构建文件保存在 `tmp/review-apks`，副本与原输出哈希一致：
+
+| 文件 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| `SleepDown-1.2.8-beta2-coui-menu-mask-dialog-20261108-b0c89f55.apk` | 7,891,084 | `B0C89F55B79AAE499597C849F0D53603B35341146E0A926DBFB685FC0E32C9E1` |
+| `SleepDown-1.2.8-beta2-coui-menu-mask-dialog-20261108-b0c89f55-mapping.txt` | 163,130,863 | `0CAC40D82680D308D26DCF391529134E4489B43121DD992615DD98F1A73F69CA` |
+
+内嵌源码 `e5c969430a3300739f4da3481ec37c113df7398e`；V2证书SHA-256 `0f2b50dfb7e10c6f5981ab966f1f4ebd76af81a7ad9ba31663284eaa88c0181a`。版本 `1.2.8_beta2 / 36`、包名 `com.xiaomanjun.sleepdownschedule`、minSdk26／targetSdk36不变。

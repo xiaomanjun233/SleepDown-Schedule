@@ -7,8 +7,9 @@
 - 已删除自造 `SystemPopupMenu` 和旧定位测试，两个入口直接使用Kit `Menu`，保留196dp宽度和Kit外壳／材质。普通动作不设置divider或持久selected；沿用原图标和危险颜色，真实退场后再交接。
 - 原生共享遮罩不是前轮8dp圆角近似：TouchRecyclerView在子项之后绘制；普通单行项整行高、水平8dp内缩、weight1。使用Kit胶囊Shape与共享进度，增加显式前景遮罩样式，仅用于这两个入口；抬手重新核对命中，移出／CANCEL不提交。
 - 课表设置恢复84×38dp顶部按钮，凝光顶部留白12dp、标题18sp／下间距8dp；左取消／右完成及现有保存回调保持。Dialog动画值改为图层／绘制阶段读取，避免每帧重组窗口并写Window策略；模糊后端和时序不删减。
-- 回退提交：`46e999aa`菜单／遮罩，`404bb5c2`紧凑顶栏，`e9c6410b`Dialog动画；19项功能回归通过，新增窗口动画诊断单独1项通过（1m40s）。前次诊断时序断言已修正为区分一次策略交接与每帧写入。截图已查看无分割线／前景遮罩和紧凑顶栏；签名构建进行中，详见[本轮报告](reports/2026-11-08-coui-action-menu-dialog-correction.md)。设备GPU和帧耗时尚未验收。
-- 用户明确授权删除多余mapping：已删除 `tmp/review-apks` 内10份旧mapping，释放1.47GiB；目前只保留 `cb6af347` 对应一份精确mapping，待新包成功校验后再替换。旧APK保留，其他目录与桌面未清理。下方历史“mapping全部保留”记录已被该新指令取代。
+- 回退提交：`46e999aa`菜单／遮罩，`404bb5c2`紧凑顶栏，`e9c6410b`Dialog动画；19项功能回归通过，新增窗口动画诊断单独1项通过（1m40s）。前次诊断时序断言已修正为区分一次策略交接与每帧写入。截图已查看无分割线／前景遮罩和紧凑顶栏；完整签名Release通过（5m55s，R8／资源压缩／lintVital／V2签名），详见[本轮报告](reports/2026-11-08-coui-action-menu-dialog-correction.md)。设备GPU和帧耗时尚未验收。
+- 最新包 `tmp/review-apks/SleepDown-1.2.8-beta2-coui-menu-mask-dialog-20261108-b0c89f55.apk`，7,891,084字节、SHA-256 `B0C89F55B79AAE499597C849F0D53603B35341146E0A926DBFB685FC0E32C9E1`；同名 `-mapping.txt` 163,130,863字节、SHA-256 `0CAC40D82680D308D26DCF391529134E4489B43121DD992615DD98F1A73F69CA`。内嵌源码 `e5c96943`，副本与原输出一致，身份／签名不变，未安装或发布。
+- 用户明确授权删除多余mapping：先删除 `tmp/review-apks` 内10份旧mapping，新包成功校验后再删除上一份 `cb6af347` mapping，累计11份、约1.62GiB。归档目录仅保留本次新包对应一份精确mapping；旧APK保留，其他目录与桌面未清理。下方历史“mapping全部保留”记录已被该新指令取代。
 
 ## 2026-11-07 当前续修：顶栏材质、两个系统菜单与本地 Kit 分段
 
