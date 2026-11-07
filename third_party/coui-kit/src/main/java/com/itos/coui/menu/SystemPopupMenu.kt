@@ -49,12 +49,14 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.ui.window.PopupProperties
 import com.itos.coui.effect.CouiStateProgress
+import com.itos.coui.checkbox.CouiCheckboxDefaults
 import com.itos.coui.input.isCouiTouchCancelled
 import com.itos.coui.motion.couiTouchMotion
 import com.itos.coui.motion.rememberCouiTouchMotion
 import com.itos.coui.shape.CouiShape
 import com.itos.coui.theme.CouiIcon
 import com.itos.coui.theme.CouiText
+import com.itos.coui.theme.CouiTheme
 import kotlin.math.roundToInt
 
 /** SleepDown 系统菜单装配；尺寸、定位与列表取自 Settings 17 poplist，不使用 Menu 的 Demo 布局。 */
@@ -109,9 +111,17 @@ fun SystemPopupMenu(
     val shape = remember { CouiShape(28.dp, 3f) }
     val foreground = Color(if (dark) 0xE6FFFFFF else 0xE6000000)
     // 这里只借用材质/阴影协议，所有可见几何、字号和条目排版在本入口独立装配。
-    val foundation = CouiMenuDefaults.style(dark).copy(shape = shape, itemShape = shape,
-        themeTint = Color.Transparent, itemTextStyle = TextStyle(fontFamily = FontFamily.SansSerif,
-            fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Normal))
+    val colors = CouiTheme.colorSchemeFor(dark)
+    val foundation = CouiMenuStyle(
+        colors = CouiMenuColors(colors.menuSurface, colors.container, colors.accentOnSurface,
+            colors.onSurface, colors.onSurfaceVariant, colors.outlineVariant),
+        shape = shape, itemShape = shape,
+        checkboxShape = CouiCheckboxDefaults.shape, checkboxBorderShape = CouiCheckboxDefaults.borderShape,
+        checkboxColors = CouiCheckboxDefaults.colors(colors.menuCheckboxAccent, dark),
+        themeTint = Color.Transparent, dark = dark,
+        itemTextStyle = TextStyle(fontFamily = FontFamily.SansSerif,
+            fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Normal),
+        headerTextStyle = CouiTheme.typography.label)
     CompositionLocalProvider(LocalCouiMenuStyle provides foundation) {
         SystemPopupWindow(expanded, anchorBounds, items, dark, foreground, shape, motion,
             onDismissRequest, onItemClick, alignStart, selectionHaptics, onPositioned)
