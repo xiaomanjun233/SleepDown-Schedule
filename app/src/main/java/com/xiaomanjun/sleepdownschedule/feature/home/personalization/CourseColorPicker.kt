@@ -269,6 +269,9 @@ internal fun CourseColorEditorDialog(
         config = config,
         contentSpacing = 14.dp,
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+        couiContentPadding = if (stage == CourseColorDialogStage.Picker)
+            com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding
+            else PaddingValues(0.dp),
         blurRadius = 10.dp,
         actions = if (stage == CourseColorDialogStage.Picker) listOf(
             LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismiss),

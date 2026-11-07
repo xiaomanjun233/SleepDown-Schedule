@@ -158,6 +158,7 @@ fun SleepDownPickerDialog(
     bottomActions: (@Composable () -> Unit)? = null,
     actions: List<LiquidAlertAction>? = null,
     adjustForIme: Boolean = false,
+    couiContentPadding: PaddingValues = PaddingValues(0.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
     val foreground = sleepDownPanelForegroundColor(config)
@@ -175,7 +176,7 @@ fun SleepDownPickerDialog(
                     .padding(
                         top = SleepDownDesignTokens.QuickSheet.PickerVerticalInset -
                             SleepDownDesignTokens.CenteredDialog.AlertVerticalPadding
-                    ) else Modifier,
+                    ) else Modifier.padding(couiContentPadding),
                 verticalArrangement = Arrangement.spacedBy(contentSpacing)
             ) {
                 if (includeChrome) Row(

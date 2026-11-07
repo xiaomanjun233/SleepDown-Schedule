@@ -120,6 +120,8 @@ internal fun PeriodSchemeCreationWizard(
         onDismissFinished = { created?.let(onCreated) ?: onDismiss() },
         adjustForIme = page == CreationPickerPage.FORM,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
+        couiContentPadding = if (page in setOf(CreationPickerPage.DURATION, CreationPickerPage.BREAK))
+            PaddingValues(0.dp) else CouiPickerFormPadding,
         bottomActions = {
             val shownPage = page
             PeriodPickerActions(backdrop, visualConfig, onCancel = ::back,

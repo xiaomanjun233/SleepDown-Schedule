@@ -71,6 +71,7 @@ internal fun CourseColorPicker(
         renderInRootScaffold = renderInRootScaffold,
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
         contentSpacing = 14.dp,
+        couiContentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
         blurRadius = 10.dp,
         actions = listOf(
             LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismissRequest),
@@ -89,7 +90,8 @@ internal fun CourseColorPicker(
                     config = config,
                     primary = pendingColor == null,
                     modifier = Modifier.fillMaxWidth(),
-                    height = 42.dp,
+                    height = if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls)
+                        com.itos.coui.dialog.CouiDialogDefaults.buttonHeight else 42.dp,
                     onClick = {
                         pendingColor = null
                         paletteAnchorVersion += 1

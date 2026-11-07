@@ -198,6 +198,7 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
     SleepDownPickerDialog(
         show = showMemoryEditor,
         title = "助手记忆",
+        couiContentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
         onDismissRequest = { showMemoryEditor = false },
         backdrop = popupBackdrop,
         config = state.config,

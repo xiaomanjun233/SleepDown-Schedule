@@ -105,7 +105,7 @@ fun SettingsDatePickerRow(
     )
     SleepDownPickerDialog(
         show = showPicker,
-        title = "选择日期",
+        title = if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) "" else "选择日期",
         onDismissRequest = { showPicker = false },
         backdrop = popupBackdrop,
         config = config,

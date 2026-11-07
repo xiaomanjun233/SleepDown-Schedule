@@ -941,6 +941,7 @@ private fun TimelineBlockPicker(
         TimelinePickerPage.DURATION -> if (block.isBreak) "${block.title}时长" else "课时时长"
     }
     SleepDownPickerDialog(visible, title,
+        couiContentPadding = if (page == TimelinePickerPage.DETAILS) CouiPickerFormPadding else PaddingValues(0.dp),
         onDismissRequest = {
             if (page == TimelinePickerPage.DETAILS || block.isBreak) visible = false else page = TimelinePickerPage.DETAILS
         }, backdrop = backdrop, config = visualConfig,

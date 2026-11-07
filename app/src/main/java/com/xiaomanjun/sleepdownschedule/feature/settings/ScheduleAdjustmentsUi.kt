@@ -471,12 +471,15 @@ private fun AdjustmentEditorDialog(
     SleepDownPickerDialog(
         show = show,
         onDismissFinished = onDismissFinished,
-        title = title,
+        title = if (page != AdjustmentPickerPage.DETAILS &&
+            com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) "" else title,
         onDismissRequest = { if (page == AdjustmentPickerPage.DETAILS) onCancel() else backToDetails() },
         backdrop = backdrop,
         config = config,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
         contentTransitionKey = AdjustmentPickerContent(page, draft.rest, error),
+        couiContentPadding = if (page == AdjustmentPickerPage.DETAILS)
+            com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding else PaddingValues(0.dp),
         scrollableContent = true,
         smoothContentResize = true,
         bottomActions = {
@@ -559,6 +562,7 @@ private fun AdjustmentEditorDialog(
 @Composable
 private fun AdjustmentDatePickerPage(selected: LocalDate, onChange: (LocalDate) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (!com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls)
         Text("${shortDate(selected)}  ${weekdayText(selected)}",
             modifier = Modifier.align(Alignment.CenterHorizontally),
             style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)

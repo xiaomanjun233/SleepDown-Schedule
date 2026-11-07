@@ -431,6 +431,7 @@ internal fun CourseEditorPickerOverlay(
     // This picker owns its theme-tinted sheet, so its foreground follows that surface instead of
     // the wallpaper sampled by the page below it.
     val dark = appUsesDarkTheme(config)
+    val coui = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
     val pickerContentColor = if (dark) ComposeColor.White else ComposeColor(0xFF111111)
     val wheelRequest = request as? CourseEditorPickerRequest.Wheel
     val gridRequest = request as? CourseEditorPickerRequest.Grid
@@ -499,6 +500,8 @@ internal fun CourseEditorPickerOverlay(
         config = config,
         renderInRootScaffold = renderInRootScaffold,
         contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
+        couiContentPadding = if (request is CourseEditorPickerRequest.Wheel) PaddingValues(0.dp)
+            else com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
         blurRadius = 14.dp,
         actions = listOf(
             LiquidAlertAction("取消",
@@ -556,7 +559,7 @@ internal fun CourseEditorPickerOverlay(
     ) {
         CompositionLocalProvider(LocalContentColor provides pickerContentColor) {
         Column(
-            modifier = Modifier.wrapContentHeight().padding(horizontal = 2.dp, vertical = 2.dp),
+            modifier = Modifier.wrapContentHeight().then(if (coui) Modifier else Modifier.padding(2.dp)),
             verticalArrangement = Arrangement.spacedBy(
                 SleepDownDesignTokens.QuickSheet.PickerContentSpacing
             )
@@ -642,13 +645,13 @@ internal fun CourseEditorPickerOverlay(
                     } else if (displayedTimeMode == CourseEditorTimeMode.Range) {
                         if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
                             Column {
-                                Text("开始", Modifier.padding(horizontal = 24.dp), color = pickerContentColor)
+                                Text("开始", color = pickerContentColor)
                                 val minimum = periodRequest.minimumStartTime?.let { it.hour * 60 + it.minute } ?: 0
                                 com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTimePickerContent(
                                     startHour * 60 + startMinute, minimum..1439) {
                                     startHour = it / 60; startMinute = it % 60; timeError = null
                                 }
-                                Text("结束", Modifier.padding(horizontal = 24.dp), color = pickerContentColor)
+                                Text("结束", color = pickerContentColor)
                                 com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTimePickerContent(
                                     endHour * 60 + endMinute, 0..1439) {
                                     endHour = it / 60; endMinute = it % 60; timeError = null
@@ -758,10 +761,12 @@ private fun CourseEditorSelectionGrid(
     val latestSelection by rememberUpdatedState(selectedIndices)
     val latestOnSelectionChange by rememberUpdatedState(onSelectionChange)
     val density = LocalDensity.current
-    val gap = 8.dp
-    val cellHeight = 48.dp
+    val coui = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
+    val gap = if (coui && preferredColumns >= 7) 4.dp else 8.dp
+    val cellHeight = if (coui) com.itos.coui.dialog.CouiDialogDefaults.buttonHeight * density.fontScale.coerceAtLeast(1f) else 48.dp
     BoxWithConstraints(Modifier.fillMaxWidth().wrapContentHeight()) {
-        val minimumCellWidth = if (preferredColumns >= 7) 38.dp else 50.dp
+        val minimumCellWidth = if (preferredColumns >= 7)
+            (if (coui) 36.dp * density.fontScale.coerceAtLeast(1f) else 38.dp) else 50.dp
         val columns = minOf(
             preferredColumns.coerceAtLeast(1),
             maxOf(3, ((maxWidth + gap) / (minimumCellWidth + gap)).toInt())
