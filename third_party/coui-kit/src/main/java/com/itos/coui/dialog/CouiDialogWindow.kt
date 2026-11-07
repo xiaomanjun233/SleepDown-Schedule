@@ -174,10 +174,11 @@ internal fun CouiDialogWindow(
         }
     }
     if (visible != null && !visible && !retained) return
-    val frameScale = if (visible == null || placement == CouiDialogPlacement.Bottom) 1f else scale.value
-    val frameTranslation = if (visible == null || placement == CouiDialogPlacement.Center) 0f
-        else if (motionStarted) translation.value else null
-    val frameAlpha = if (visible == null || placement == CouiDialogPlacement.Bottom) 1f else opacity.value
+    // 动画只使图层和背景采样失效，不逐帧重组窗口、重写 Window 参数和业务正文。
+    val frameScale: () -> Float = { if (visible == null || placement == CouiDialogPlacement.Bottom) 1f else scale.value }
+    val frameTranslation: () -> Float? = { if (visible == null || placement == CouiDialogPlacement.Center) 0f
+        else if (motionStarted) translation.value else null }
+    val frameAlpha: () -> Float = { if (visible == null || placement == CouiDialogPlacement.Bottom) 1f else opacity.value }
     val windowBackdrop = backdrop ?: LocalCouiMenuBackdrop.current
     if (material != null) {
         check(Build.VERSION.SDK_INT >= 33) { "弹窗项目材质要求 Android 13 或更高版本" }
@@ -201,6 +202,7 @@ internal fun CouiDialogWindow(
     // 在组合阶段读取，首个 Dialog 子组合发布 Window 后会触发 owner 再次应用策略。
     val ownedWindow = windowReference.value
     fun configureWindow(window: Window) {
+        com.itos.coui.diagnostic.CouiRenderDiagnostics.event("dialog.window.configure")
         window.setGravity(if (placement == CouiDialogPlacement.Bottom) Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL else Gravity.CENTER)
         window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
         window.clearFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
@@ -305,7 +307,7 @@ internal fun CouiDialogWindow(
                     .padding(horizontal = CouiDialogDefaults.horizontalMargin).padding(bottom = padding)) {
                     DialogCard(modifier.fillMaxWidth().heightIn(max = minOf(maxCardHeight, availableHeight)),
                         material, windowBackdrop, colors, shape, edge, dark, radiusPx, edgeWeight,
-                        frameScale, frameTranslation?.minus(imeTranslation), frameAlpha,
+                        frameScale, { frameTranslation()?.minus(imeTranslation) }, frameAlpha,
                         with(density) { bottomPadding.toPx() }, { cardCoordinates = it }, content)
                 }
             }
@@ -327,9 +329,9 @@ private fun DialogCard(
     dark: Boolean,
     radiusPx: Float,
     edgeWeight: Float,
-    frameScale: Float,
-    frameTranslationY: Float?,
-    frameAlpha: Float,
+    frameScale: () -> Float,
+    frameTranslationY: () -> Float?,
+    frameAlpha: () -> Float,
     bottomPaddingPx: Float,
     onCardPositioned: (LayoutCoordinates) -> Unit,
     content: @Composable BoxScope.() -> Unit,
@@ -337,6 +339,7 @@ private fun DialogCard(
     val blur = if (material != null) rememberCouiKawaseBlur(checkNotNull(backdrop), colors.surface, material.blurRadius) else null
     val materialEffect = if (Build.VERSION.SDK_INT >= 33 && material != null)
         rememberCouiMaterialEffect(material.mix, material.blend, material.blendMode) else null
+    val composeMaterialEffect = remember(materialEffect) { materialEffect?.asComposeRenderEffect() }
     val layer = rememberGraphicsLayer()
     val recordingDensity = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
@@ -345,22 +348,24 @@ private fun DialogCard(
     // 外层只记录到位后的锚点；动画仅作用于内层，采样显式应用同一变换的逆矩阵。
     Box(modifier.onGloballyPositioned { coordinates = it }) {
     Box(Modifier.fillMaxWidth().graphicsLayer {
+        val scale = frameScale()
         transformOrigin = TransformOrigin(0f, 0f)
-        scaleX = frameScale
-        scaleY = frameScale
-        translationX = size.width * (1f - frameScale) / 2f
-        translationY = size.height * (1f - frameScale) / 2f + (frameTranslationY ?: (size.height + bottomPaddingPx))
-        alpha = frameAlpha
+        scaleX = scale
+        scaleY = scale
+        translationX = size.width * (1f - scale) / 2f
+        translationY = size.height * (1f - scale) / 2f + (frameTranslationY() ?: (size.height + bottomPaddingPx))
+        alpha = frameAlpha()
     }.onGloballyPositioned(onCardPositioned).clip(shape).drawBehind {
-        val sampleTranslation = Offset(size.width * (1f - frameScale) / 2f,
-            size.height * (1f - frameScale) / 2f + (frameTranslationY ?: (size.height + bottomPaddingPx)))
+        val scale = frameScale()
+        val sampleTranslation = Offset(size.width * (1f - scale) / 2f,
+            size.height * (1f - scale) / 2f + (frameTranslationY() ?: (size.height + bottomPaddingPx)))
         val target = coordinates
         if (Build.VERSION.SDK_INT >= 33 && blur != null && materialEffect != null &&
             target != null && target.isAttached && size.width > 0f && size.height > 0f) {
-            layer.renderEffect = materialEffect.asComposeRenderEffect()
+            layer.renderEffect = composeMaterialEffect
             layer.record(recordingDensity, layoutDirection,
                 IntSize(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))) {
-                blur.draw(this, target, frameScale, sampleTranslation)
+                blur.draw(this, target, scale, sampleTranslation)
             }
             drawLayer(layer)
         } else drawRect(colors.surface)

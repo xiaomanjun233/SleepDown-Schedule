@@ -156,6 +156,51 @@ class CouiMigrationUiTest {
         } finally { CouiRenderDiagnostics.disable() }
     }
 
+    @Test fun dialogMotionDoesNotRewriteWindowAttributesOnEveryAnimationFrame() {
+        var windowUpdates = 0
+        val show = mutableStateOf(true)
+        CouiRenderDiagnostics.enable { if (it.endsWith("dialog.window.configure")) windowUpdates++ }
+        try {
+            compose.setContent {
+                MaterialTheme {
+                    ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
+                        Box(Modifier.fillMaxSize().then(source)) {
+                            CouiPickerDialog(PickerDialogRequest(show.value, "选择", false,
+                                { show.value = false }, null, null, null, null, false) {
+                                androidx.compose.material3.Text("动画中的内容")
+                            })
+                        }
+                    }
+                }
+            }
+            compose.onNodeWithText("动画中的内容").assertExists()
+            compose.mainClock.autoAdvance = false
+            compose.runOnIdle { show.value = false }
+            // 先让可见性切换的 owner / Dialog 子组合提交一次窗口策略，再观察运动帧。
+            repeat(3) { compose.mainClock.advanceTimeByFrame() }
+            compose.waitForIdle()
+            compose.runOnIdle { assertTrue(windowUpdates > 0) }
+            fun windowUpdateFrames(): Int {
+                var frames = 0
+                repeat(6) {
+                    var before = 0
+                    compose.runOnIdle { before = windowUpdates }
+                    compose.mainClock.advanceTimeByFrame()
+                    compose.runOnIdle { if (windowUpdates != before) frames++ }
+                }
+                return frames
+            }
+            // owner与Dialog子组合可能再交接一次策略，不能随每个动画帧重复写窗口。
+            assertTrue("Closing must not update Window on every frame", windowUpdateFrames() <= 1)
+            compose.runOnIdle { show.value = true }
+            repeat(3) { compose.mainClock.advanceTimeByFrame() }
+            compose.waitForIdle()
+            assertTrue("Reopening must not update Window on every frame", windowUpdateFrames() <= 1)
+            compose.mainClock.autoAdvance = true
+            compose.waitForIdle()
+        } finally { CouiRenderDiagnostics.disable() }
+    }
+
     @Test fun standardTimeDialogUsesDemoColumnWidthsAndActionHeight() {
         var pixelsPerDp = 1f
         compose.setContent {
