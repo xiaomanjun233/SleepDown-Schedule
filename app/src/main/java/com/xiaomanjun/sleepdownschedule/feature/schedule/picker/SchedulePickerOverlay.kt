@@ -365,8 +365,7 @@ private fun QuickScheduleSettingsSheetSession(
                 enabled = !saving,
                 backdrop = backdrop,
                 config = config,
-                height = if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls)
-                    com.itos.coui.dialog.CouiDialogDefaults.buttonHeight else 38.dp,
+                height = 38.dp,
                 onClick = ::saveAndDismiss
             )
         },
@@ -377,8 +376,7 @@ private fun QuickScheduleSettingsSheetSession(
                 backdrop = backdrop,
                 config = config,
                 primary = true,
-                height = if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls)
-                    com.itos.coui.dialog.CouiDialogDefaults.buttonHeight else 38.dp,
+                height = 38.dp,
                 onClick = ::saveAndDismiss
             )
         },

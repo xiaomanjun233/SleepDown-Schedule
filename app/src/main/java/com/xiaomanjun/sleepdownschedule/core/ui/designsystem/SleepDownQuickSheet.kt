@@ -493,9 +493,9 @@ internal fun SleepDownFloatingSheet(
             androidx.compose.material3.LocalContentColor provides foreground
         ) {
             Column(contentModifier.fillMaxWidth().then(if (couiChrome) Modifier.padding(
-                top = com.itos.coui.dialog.CouiDialogDefaults.titleTop,
+                top = 12.dp,
                 bottom = com.itos.coui.dialog.CouiDialogDefaults.buttonBottomPadding) else Modifier),
-                verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                verticalArrangement = Arrangement.spacedBy(if (couiChrome) 8.dp else 12.dp)) {
                 Row(Modifier.fillMaxWidth().then(if (couiChrome) Modifier.padding(
                     horizontal = com.itos.coui.dialog.CouiDialogDefaults.buttonEdgePadding) else Modifier),
                     verticalAlignment = Alignment.CenterVertically) {
@@ -503,7 +503,9 @@ internal fun SleepDownFloatingSheet(
                     BoxWithConstraints(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                         val density = LocalDensity.current
                         val measurer = rememberTextMeasurer()
-                        val titleStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 24.sp)
+                        val titleSize = if (couiChrome) 18.sp else 20.sp
+                        val titleStyle = MaterialTheme.typography.titleLarge.copy(fontSize = titleSize,
+                            lineHeight = if (couiChrome) 22.sp else 24.sp)
                         val naturalWidth = remember(title, titleStyle, measurer) {
                             measurer.measure(title, style = titleStyle, softWrap = false, maxLines = 1).size.width
                         }
@@ -511,7 +513,7 @@ internal fun SleepDownFloatingSheet(
                         val fit = if (naturalWidth > 0) ((widthPx - 1f) / naturalWidth).coerceIn(0.01f, 1f) else 1f
                         Text(title, Modifier.fillMaxWidth(),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            style = titleStyle, fontSize = 20.sp * fit,
+                            style = titleStyle, fontSize = titleSize * fit,
                             maxLines = 1, softWrap = false, color = foreground)
                     }
                     endAction()
