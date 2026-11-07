@@ -31,4 +31,15 @@
 - Release Kotlin中间编译通过（3m19s）；分段组件首次编译发现尚需同步 `CouiSpring.setBounds`，补齐后通过。
 - 最终定向回归21项通过，0失败／错误／跳过（2m35s）：`GlowSystemMenusTest`4项、`CouiMigrationUiTest`11项、Kit提交门3项、菜单定位3项。日志 `tmp/coui-toolbar-segment-tests-20261107.log`。前一次诊断在触发绘制前读取 `recorded`，补充实际捕获，并补齐浮动材质消费者引用后通过。
 - 新生成的顶栏和菜单图已查看；Robolectric可确认菜单行和锚点布局，顶栏浮动GPU表面在该软件截图中未呈现，不能据此宣称系统材质通过视觉验收。采样诊断确认局部源已录制、被浮动按钮保留且发生实际采样调用；这也不等于设备GPU像素验收。
-- 正式签名构建与产物校验待完成；没有安装、推送或发布。真机GPU、触觉与帧耗时仍待设备场景验收。
+- 独立正式 `assembleGithubRelease --console=plain --no-parallel --max-workers=1 --no-daemon` 通过（6m56s，195任务，35执行／160复用），保留R8、资源压缩、lintVital与V2签名。日志 `tmp/coui-toolbar-segment-release-20261107.log`。没有安装、推送或发布；真机GPU、触觉与帧耗时仍待设备场景验收。
+
+## 本地交付
+
+同次签名构建的APK与精确mapping保存在 `tmp/review-apks`，副本SHA-256与原输出逐项一致；本轮未改动外部桌面旧文件。
+
+| 文件 | 字节数 | SHA-256 |
+| --- | ---: | --- |
+| `SleepDown-1.2.8-beta2-coui-toolbar-segment-20261107-cb6af347.apk` | 7,857,748 | `CB6AF34700A07364D9075730D442CBED28EBE49B66589AB6B17B5BCDFAB31F57` |
+| `SleepDown-1.2.8-beta2-coui-toolbar-segment-20261107-cb6af347-mapping.txt` | 162,570,398 | `143B931E7BCAAF67F6A13C84AC8CD147AA81551469D2F211386E98A9C7E323F0` |
+
+`apksigner verify`通过，V2证书SHA-256 `0f2b50dfb7e10c6f5981ab966f1f4ebd76af81a7ad9ba31663284eaa88c0181a`。包身份 `com.xiaomanjun.sleepdownschedule`、`1.2.8_beta2 / 36`、targetSdk36；APK内嵌源码 `888d5baf4ff3163b9290b44a123f8606a3f6a06a`，包含上述两个代码提交。后续仅交付文档提交不改变此包归属。
