@@ -80,6 +80,7 @@ internal fun GlowCourseShortcutMenu(session: Any, bounds: Rect, dark: Boolean,
     var expanded by remember(session) { mutableStateOf(true) }
     var finished by remember(session) { mutableStateOf(false) }
     var waiter by remember(session) { mutableStateOf<(() -> Unit)?>(null) }
+    var pendingAction by remember(session) { mutableStateOf<(() -> Unit)?>(null) }
     val latestBind by rememberUpdatedState(bindDismiss)
     val latestActions by rememberUpdatedState(actions)
     val items = remember(actions) { actions.systemItems() }
@@ -89,12 +90,21 @@ internal fun GlowCourseShortcutMenu(session: Any, bounds: Rect, dark: Boolean,
         .onGloballyPositioned { anchor = it.boundsInWindow() })
     anchor?.let {
         SystemPopupMenu(expanded && !closing, it, items, dark, onDismiss,
-            onItemClick = { index -> if (!closing && expanded) latestActions.getOrNull(index)?.onClick?.invoke() },
+            onItemClick = { index ->
+                if (!closing && expanded && pendingAction == null) {
+                    pendingAction = latestActions.getOrNull(index)?.onClick
+                    expanded = false
+                }
+            },
             onDismissFinished = {
                 finished = true
+                val action = pendingAction
+                pendingAction = null
                 val done = waiter
                 waiter = null
                 done?.invoke()
+                // COUIPopupListWindow 在菜单真正退出后才交接触发的动作。
+                action?.invoke()
             }, alignStart = true, selectionHaptics = false)
     }
     DisposableEffect(session) {
@@ -103,6 +113,7 @@ internal fun GlowCourseShortcutMenu(session: Any, bounds: Rect, dark: Boolean,
         }
         onDispose {
             latestBind(null)
+            pendingAction = null
             val done = waiter
             waiter = null
             done?.invoke()

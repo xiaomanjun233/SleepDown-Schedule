@@ -97,7 +97,7 @@ fun SystemPopupMenu(
     onItemClick: (Int) -> Unit,
     onDismissFinished: () -> Unit,
     alignStart: Boolean = false,
-    selectionHaptics: Boolean = true,
+    selectionHaptics: Boolean = false,
     onPositioned: (Rect) -> Unit = {},
 ) {
     val motion = rememberCouiMenuMotion(expanded)
@@ -108,14 +108,15 @@ fun SystemPopupMenu(
         else if (mounted && !motion.visible) { mounted = false; finished() }
     }
     if (!expanded && !motion.visible) return
-    val shape = remember { CouiShape(28.dp, 3f) }
+    val shape = remember { CouiShape(12.dp, 3f) }
+    val itemShape = remember { CouiShape(8.dp, 2f) }
     val foreground = Color(if (dark) 0xE6FFFFFF else 0xE6000000)
     // 这里只借用材质/阴影协议，所有可见几何、字号和条目排版在本入口独立装配。
     val colors = CouiTheme.colorSchemeFor(dark)
     val foundation = CouiMenuStyle(
         colors = CouiMenuColors(colors.menuSurface, colors.container, colors.accentOnSurface,
             colors.onSurface, colors.onSurfaceVariant, colors.outlineVariant),
-        shape = shape, itemShape = shape,
+        shape = shape, itemShape = itemShape,
         checkboxShape = CouiCheckboxDefaults.shape, checkboxBorderShape = CouiCheckboxDefaults.borderShape,
         checkboxColors = CouiCheckboxDefaults.colors(colors.menuCheckboxAccent, dark),
         themeTint = Color.Transparent, dark = dark,
@@ -123,14 +124,14 @@ fun SystemPopupMenu(
             fontSize = 16.sp, lineHeight = 24.sp, fontWeight = FontWeight.Normal),
         headerTextStyle = CouiTheme.typography.label)
     CompositionLocalProvider(LocalCouiMenuStyle provides foundation) {
-        SystemPopupWindow(expanded, anchorBounds, items, dark, foreground, shape, motion,
+        SystemPopupWindow(expanded, anchorBounds, items, dark, foreground, shape, itemShape, motion,
             onDismissRequest, onItemClick, alignStart, selectionHaptics, onPositioned)
     }
 }
 
 @Composable
 private fun SystemPopupWindow(expanded: Boolean, anchor: Rect, items: List<SystemPopupMenuItem>,
-    dark: Boolean, foreground: Color, shape: CouiShape, motion: CouiMenuMotion,
+    dark: Boolean, foreground: Color, shape: CouiShape, itemShape: CouiShape, motion: CouiMenuMotion,
     onDismiss: () -> Unit, onItemClick: (Int) -> Unit, alignStart: Boolean,
     selectionHaptics: Boolean, onPositioned: (Rect) -> Unit) {
     val density = LocalDensity.current
@@ -145,11 +146,12 @@ private fun SystemPopupWindow(expanded: Boolean, anchor: Rect, items: List<Syste
     val shadow = rememberCouiMenuShadow(shape, motion, touch)
     var viewport by remember { mutableStateOf(Rect.Zero) }
     var menuSize by remember { mutableStateOf(IntSize.Zero) }
-    val margin = with(density) { 16.dp.toPx() }
+    val horizontalMargin = with(density) { 16.dp.toPx() }
+    val topMargin = with(density) { 12.dp.toPx() }
     val bottomMargin = with(density) { 32.dp.toPx() }
-    val available = Rect(viewport.left + margin, viewport.top + margin,
-        (viewport.right - margin).coerceAtLeast(viewport.left + margin),
-        (viewport.bottom - bottomMargin).coerceAtLeast(viewport.top + margin))
+    val available = Rect(viewport.left + horizontalMargin, viewport.top + topMargin,
+        (viewport.right - horizontalMargin).coerceAtLeast(viewport.left + horizontalMargin),
+        (viewport.bottom - bottomMargin).coerceAtLeast(viewport.top + topMargin))
     val bounds = systemPopupMenuBounds(anchor, available, menuSize, with(density) { 8.dp.toPx() },
         alignStart, direction == LayoutDirection.Rtl)
     SideEffect {
@@ -213,7 +215,7 @@ private fun SystemPopupWindow(expanded: Boolean, anchor: Rect, items: List<Syste
                         val rect = indicator ?: return@drawBehind
                         val inset = 8.dp.toPx()
                         val path = androidx.compose.ui.graphics.Path().apply {
-                            addOutline(shape.createOutline(androidx.compose.ui.geometry.Size(
+                            addOutline(itemShape.createOutline(androidx.compose.ui.geometry.Size(
                                 (size.width - inset * 2).coerceAtLeast(0f), rect.height), layoutDirection, this@drawBehind))
                         }
                         withTransform({ translate(inset, indicatorTop - scroll.value) }) {
