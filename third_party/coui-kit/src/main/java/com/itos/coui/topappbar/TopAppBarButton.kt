@@ -47,6 +47,7 @@ import com.itos.coui.motion.couiPressMotion
 import com.itos.coui.motion.couiTouchMotion
 import com.itos.coui.motion.rememberCouiPressMotion
 import com.itos.coui.motion.rememberCouiTouchMotion
+import com.itos.coui.backdrop.CouiBackdrop
 
 @RequiresApi(34)
 @Composable
@@ -57,9 +58,11 @@ fun TopAppBarButton(
     text: Boolean = false,
     renderer: CouiFloatingRenderer = remember { CouiFloatingRenderer.standalone() },
     style: CouiToolbarStyle = CouiTopAppBarButtonDefaults.style(),
+    backdrop: CouiBackdrop = checkNotNull(LocalCouiToolbarBackdrop.current) {
+        "顶栏按钮需要显式 backdrop 或顶栏效果作用域"
+    },
     content: @Composable RowScope.() -> Unit,
 ) {
-    val backdrop = checkNotNull(LocalCouiToolbarBackdrop.current) { "顶栏按钮必须位于顶栏效果作用域内" }
     val dark = style.dark
     val contour = style.contourGlowEnabled
     var boundsSize by remember { mutableStateOf(IntSize.Zero) }

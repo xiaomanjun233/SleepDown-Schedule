@@ -17,6 +17,8 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import com.itos.coui.menu.ProvideCouiMenuBackdrop
+import com.itos.coui.diagnostic.CouiRenderDiagnostics
+import com.xiaomanjun.sleepdownschedule.glass.*
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
@@ -76,11 +78,20 @@ class GlowSystemMenusTest {
 
     @Test fun homeTopBarUsesCouiButtonInsideToolbarSurface() {
         var clicks = 0
+        CouiRenderDiagnostics.enable { }
+        try {
         compose.setContent {
             MaterialTheme {
                 ProvideColorOsMaterials(enabled = false, couiControlsEnabled = true) {
-                    Box(Modifier.fillMaxSize().background(Color(0xFF85B6D0))) {
-                        CompositionLocalProvider(LocalCouiHomeTopBarActive provides true) {
+                    val background = rememberGlassLayerBackdrop(GlassBackdropDomain.Background, "toolbar-test-background")
+                    val foreground = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "toolbar-test-content")
+                    val toolbar = rememberHomeToolbarBackdrop()
+                    Box(Modifier.fillMaxSize()) {
+                        Box(Modifier.matchParentSize().glassBackdropProducer(background).background(Color(0xFF85B6D0)))
+                        Box(Modifier.matchParentSize().glassBackdropProducer(foreground))
+                        HomeToolbarBackdrop(toolbar, background, foreground, Modifier.fillMaxWidth().height(120.dp)) { }
+                        CompositionLocalProvider(LocalCouiHomeTopBarActive provides true,
+                            LocalHomeToolbarBackdrop provides toolbar) {
                             assertTrue(LocalHomeMaterialControls.current.IconButton(
                                 iconRes = R.drawable.ic_more_horizontal,
                                 contentDescription = "更多",
@@ -101,10 +112,20 @@ class GlowSystemMenusTest {
         compose.runOnIdle { assertEquals(1, clicks) }
         compose.mainClock.advanceTimeBy(1_000)
         compose.waitForIdle()
+        val toolbarImage = compose.onRoot().captureToImage().asAndroidBitmap()
+        compose.runOnIdle {
+            val sources = CouiRenderDiagnostics.snapshot().getJSONArray("sources")
+            val toolbarSource = (0 until sources.length()).map { sources.getJSONObject(it) }
+                .single { it.optString("name") == "home-toolbar-background" }
+            assertTrue(toolbarSource.getBoolean("recorded"))
+            assertEquals(1, toolbarSource.getInt("activeConsumers"))
+            assertTrue(toolbarSource.getLong("sampleCount") > 0)
+        }
         com.xiaomanjun.sleepdownschedule.feature.settings.writeSettingsVisualArtifact(
             "coui-home-top-bar-button.png",
-            compose.onRoot().captureToImage().asAndroidBitmap(),
+            toolbarImage,
         )
+        } finally { CouiRenderDiagnostics.disable() }
     }
 
     @Test fun liquidModeKeepsItsExistingMenuHost() {

@@ -997,6 +997,7 @@ fun CourseScheduleAppUi(
         providerId = "home-centered-dialog-scene"
     )
     val chromeBackdrop = rememberGlassCombinedBackdrop(backgroundBackdrop, contentBackdrop)
+    val homeToolbarBackdrop = com.xiaomanjun.sleepdownschedule.glass.rememberHomeToolbarBackdrop()
     remember(glassSceneState) {
         glassSceneState.requireValidTopology(
             nodes = listOf(
@@ -2682,34 +2683,50 @@ fun CourseScheduleAppUi(
                     // The pane suppresses hidden drawing and input. Keep the chrome's text
                     // layouts and glass nodes alive, just like the retained course pages.
                     run {
-                        AnimatedVisibility(
-                            visible = homeContentUnderTopBar,
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .zIndex(10f),
-                            enter = fadeIn(animationSpec = spring(dampingRatio = 0.9f, stiffness = 520f)),
-                            exit = fadeOut(animationSpec = spring(dampingRatio = 0.95f, stiffness = 560f))
+                        val gradientHeight = if (
+                            homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS
                         ) {
-                            HomeTopGradientBlur(
-                                config = visualState.config,
-                                backdrop = chromeBackdrop,
-                                height = if (
-                                    homeMode == HomeMode.Week &&
-                                    weekViewStyle == WeekViewStyle.BOUNDLESS
-                                ) {
-                                    boundlessHomeTopGradientHeight(homeAdaptiveMetrics)
-                                } else if (homeMode == HomeMode.Week) {
-                                    // 普通周视图用独立的顶栏模糊：不包含无界模式表头那段高度
-                                    (homeAdaptiveMetrics.topOverlayHeight -
-                                        BoundlessWeekHeaderRowHeight).coerceAtLeast(110.dp)
-                                } else {
-                                    homeAdaptiveMetrics.topOverlayHeight
+                            boundlessHomeTopGradientHeight(homeAdaptiveMetrics)
+                        } else if (homeMode == HomeMode.Week) {
+                            (homeAdaptiveMetrics.topOverlayHeight - BoundlessWeekHeaderRowHeight)
+                                .coerceAtLeast(110.dp)
+                        } else homeAdaptiveMetrics.topOverlayHeight
+                        val gradientContent: @Composable () -> Unit = {
+                            AnimatedVisibility(
+                                visible = homeContentUnderTopBar,
+                                enter = fadeIn(animationSpec = spring(dampingRatio = 0.9f, stiffness = 520f)),
+                                exit = fadeOut(animationSpec = spring(dampingRatio = 0.95f, stiffness = 560f))
+                            ) {
+                                HomeTopGradientBlur(
+                                    config = visualState.config,
+                                    backdrop = chromeBackdrop,
+                                    height = gradientHeight,
+                                    fullBlurHeight = if (homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS) {
+                                        homeAdaptiveMetrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 4.dp
+                                    } else 0.dp,
+                                    modifier = Modifier
+                                )
+                            }
+                        }
+                        val backgroundModifier = Modifier.align(Alignment.TopCenter).zIndex(10f)
+                        if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
+                            com.xiaomanjun.sleepdownschedule.glass.HomeToolbarBackdrop(
+                                source = homeToolbarBackdrop,
+                                background = backgroundBackdrop,
+                                foreground = contentBackdrop,
+                                modifier = backgroundModifier.fillMaxWidth().height(gradientHeight),
+                                wallpaperOverlay = {
+                                    if (rootPageMotion.retains(false) && visualState.loaded &&
+                                        visualState.config.hasAnyWallpaper() && wallpaperImages.source != null) {
+                                        Box(Modifier.matchParentSize().homeSwitchLayer(rootPageMotion,
+                                            secondary = false, pageClip = HomeSwitchClip.Page)) {
+                                            WallpaperToneOverlay(visualState.config, personalizationPreviewState)
+                                        }
+                                    }
                                 },
-                                fullBlurHeight = if (homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS) {
-                                    homeAdaptiveMetrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 4.dp
-                                } else 0.dp,
-                                modifier = Modifier
-                            )
+                            ) { gradientContent() }
+                        } else {
+                            Box(backgroundModifier) { gradientContent() }
                         }
                     }
                     Box(
@@ -2753,7 +2770,8 @@ fun CourseScheduleAppUi(
                         }
                         if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
                             CompositionLocalProvider(
-                                com.xiaomanjun.sleepdownschedule.platform.coloros.LocalCouiHomeTopBarActive provides true
+                                com.xiaomanjun.sleepdownschedule.platform.coloros.LocalCouiHomeTopBarActive provides true,
+                                com.xiaomanjun.sleepdownschedule.glass.LocalHomeToolbarBackdrop provides homeToolbarBackdrop
                             ) { topBarContent() }
                         } else {
                             topBarContent()

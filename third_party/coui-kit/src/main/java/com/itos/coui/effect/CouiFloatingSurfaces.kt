@@ -188,6 +188,7 @@ private fun Modifier.floatingSurfaces(
     drawOrder: List<Int>? = null,
     surfaces: () -> List<CouiFloatingSurface>,
 ): Modifier {
+    backdrop.RetainWhileComposed()
     val recordingDensity = LocalDensity.current
     val density = recordingDensity.density
     val view = LocalView.current

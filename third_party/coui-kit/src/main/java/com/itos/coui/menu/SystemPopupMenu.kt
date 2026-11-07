@@ -108,7 +108,8 @@ fun SystemPopupMenu(
         else if (mounted && !motion.visible) { mounted = false; finished() }
     }
     if (!expanded && !motion.visible) return
-    val shape = remember { CouiShape(12.dp, 3f) }
+    // RoundFrameLayout 构造后覆盖 XML 的 12dp；ColorOS 17 使用运行时 28dp / 2.5。
+    val shape = remember { CouiShape(28.dp, 2.5f) }
     val itemShape = remember { CouiShape(8.dp, 2f) }
     val foreground = Color(if (dark) 0xE6FFFFFF else 0xE6000000)
     // 这里只借用材质/阴影协议，所有可见几何、字号和条目排版在本入口独立装配。
@@ -141,7 +142,8 @@ private fun SystemPopupWindow(expanded: Boolean, anchor: Rect, items: List<Syste
     val focus = LocalFocusManager.current
     val touch = rememberCouiTouchMotion(expanded)
     val backdrop = LocalCouiMenuBackdrop.current
-    val material = if (backdrop != null) couiMenuMaterial(backdrop, shape, expanded, motion, touch, false)
+    val material = if (backdrop != null) couiMenuMaterial(backdrop, shape, expanded, motion, touch, false,
+        systemStyle = true)
         else CouiMenuMaterial()
     val shadow = rememberCouiMenuShadow(shape, motion, touch)
     var viewport by remember { mutableStateOf(Rect.Zero) }
