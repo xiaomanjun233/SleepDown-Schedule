@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.platform.coloros
 
+import android.os.Build
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.Composable
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ControlMaterialRenderers
@@ -40,6 +41,17 @@ internal fun ProvideColorOsMaterials(
     val baseHome = if (enabled) ColorOsHomeMaterialControls else ControlMaterialRenderers.LiquidGlass.home
     val homeControls = remember(baseHome, couiControlsEnabled, enabled) {
         if (!couiControlsEnabled) baseHome else object : HomeMaterialControls by baseHome {
+            @Composable override fun IconButton(iconRes: Int, contentDescription: String, dark: Boolean,
+                interactive: Boolean, selected: Boolean, modifier: androidx.compose.ui.Modifier,
+                onClick: () -> Unit, toolbarNavigation: Boolean, enabled: Boolean): Boolean {
+                if (Build.VERSION.SDK_INT >= 34 && LocalCouiHomeTopBarActive.current) {
+                    CouiHomeIconButton(iconRes, contentDescription, dark, interactive, selected, modifier,
+                        onClick, enabled)
+                    return true
+                }
+                return baseHome.IconButton(iconRes, contentDescription, dark, interactive, selected, modifier,
+                    onClick, toolbarNavigation, enabled)
+            }
             @Composable override fun ShortcutMenu(session: Any, bounds: androidx.compose.ui.geometry.Rect,
                 dark: Boolean, actions: List<com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction>,
                 closing: Boolean, onDismiss: () -> Unit, bindDismiss: (((() -> Unit) -> Unit)?) -> Unit): Boolean {

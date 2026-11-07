@@ -74,6 +74,39 @@ class GlowSystemMenusTest {
         compose.onNodeWithText("课程管理").assertDoesNotExist()
     }
 
+    @Test fun homeTopBarUsesCouiButtonInsideToolbarSurface() {
+        var clicks = 0
+        compose.setContent {
+            MaterialTheme {
+                ProvideColorOsMaterials(enabled = false, couiControlsEnabled = true) {
+                    Box(Modifier.fillMaxSize().background(Color(0xFF85B6D0))) {
+                        CompositionLocalProvider(LocalCouiHomeTopBarActive provides true) {
+                            assertTrue(LocalHomeMaterialControls.current.IconButton(
+                                iconRes = R.drawable.ic_more_horizontal,
+                                contentDescription = "更多",
+                                dark = false,
+                                interactive = true,
+                                selected = false,
+                                modifier = Modifier.size(42.dp),
+                                onClick = { clicks++ },
+                                toolbarNavigation = false,
+                                enabled = true,
+                            ))
+                        }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithContentDescription("更多", useUnmergedTree = true).assertExists().performClick()
+        compose.runOnIdle { assertEquals(1, clicks) }
+        compose.mainClock.advanceTimeBy(1_000)
+        compose.waitForIdle()
+        com.xiaomanjun.sleepdownschedule.feature.settings.writeSettingsVisualArtifact(
+            "coui-home-top-bar-button.png",
+            compose.onRoot().captureToImage().asAndroidBitmap(),
+        )
+    }
+
     @Test fun liquidModeKeepsItsExistingMenuHost() {
         var handled = true
         var contentInvoked = false

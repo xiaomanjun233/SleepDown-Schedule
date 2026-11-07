@@ -2718,36 +2718,45 @@ fun CourseScheduleAppUi(
                             .zIndex(11f)
                             .homeCountdownShockwave(0.75f)
                     ) {
-                        CompositionLocalProvider(LocalToolbarBackdropBlurred provides homeContentUnderTopBar) {
-                        AppTopBar(
-                            screen = Screen.Home,
-                            state = visualState,
-                            settingsPage = SettingsPage.Root,
-                            backdrop = chromeBackdrop,
-                            homeMode = homeMode,
-                            onHomeModeChange = { homeMode = it },
-                            homeDisplayDate = homeDisplayDate,
-                            homeDisplayWeek = if (weekViewStyle == WeekViewStyle.BOUNDLESS) {
-                                homeWeekHeaderPreview.value ?: homeDisplayWeek
-                            } else homeDisplayWeek,
-                            beforeScheduleTerm = beforeScheduleTerm,
-                            afterScheduleTerm = afterScheduleTerm,
-                            homeShowingAnotherWeek = homeShowingAnotherWeek,
-                            onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
-                            activeHomeOverlay = activeHomeAnchoredOverlay,
-                            homeOverlayReturning = homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing,
-                            addButtonHidden = !homeMenuFromDock && addButtonHidden,
-                            onAddButtonPositioned = { addButtonBounds = it },
-                            addButtonReturnLayer = homeMoreButtonReturnLayer,
-                            onPersonalizeButtonPositioned = { personalizeButtonBounds = it },
-                            onToggleAddMenu = { sourceScale ->
-                                toggleHomeAnchoredOverlay(HomeAnchoredOverlayKind.Add, sourceScale)
-                            },
-                            onTogglePersonalize = { sourceScale ->
-                                toggleHomeAnchoredOverlay(HomeAnchoredOverlayKind.Personalize, sourceScale)
-                            },
-                            onBackHome = { screen = Screen.Home }
-                        )
+                        val topBarContent: @Composable () -> Unit = {
+                            CompositionLocalProvider(LocalToolbarBackdropBlurred provides homeContentUnderTopBar) {
+                            AppTopBar(
+                                screen = Screen.Home,
+                                state = visualState,
+                                settingsPage = SettingsPage.Root,
+                                backdrop = chromeBackdrop,
+                                homeMode = homeMode,
+                                onHomeModeChange = { homeMode = it },
+                                homeDisplayDate = homeDisplayDate,
+                                homeDisplayWeek = if (weekViewStyle == WeekViewStyle.BOUNDLESS) {
+                                    homeWeekHeaderPreview.value ?: homeDisplayWeek
+                                } else homeDisplayWeek,
+                                beforeScheduleTerm = beforeScheduleTerm,
+                                afterScheduleTerm = afterScheduleTerm,
+                                homeShowingAnotherWeek = homeShowingAnotherWeek,
+                                onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
+                                activeHomeOverlay = activeHomeAnchoredOverlay,
+                                homeOverlayReturning = homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing,
+                                addButtonHidden = !homeMenuFromDock && addButtonHidden,
+                                onAddButtonPositioned = { addButtonBounds = it },
+                                addButtonReturnLayer = homeMoreButtonReturnLayer,
+                                onPersonalizeButtonPositioned = { personalizeButtonBounds = it },
+                                onToggleAddMenu = { sourceScale ->
+                                    toggleHomeAnchoredOverlay(HomeAnchoredOverlayKind.Add, sourceScale)
+                                },
+                                onTogglePersonalize = { sourceScale ->
+                                    toggleHomeAnchoredOverlay(HomeAnchoredOverlayKind.Personalize, sourceScale)
+                                },
+                                onBackHome = { screen = Screen.Home }
+                            )
+                            }
+                        }
+                        if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
+                            CompositionLocalProvider(
+                                com.xiaomanjun.sleepdownschedule.platform.coloros.LocalCouiHomeTopBarActive provides true
+                            ) { topBarContent() }
+                        } else {
+                            topBarContent()
                         }
                     }
                     if (weekViewStyle == WeekViewStyle.BOUNDLESS) {
