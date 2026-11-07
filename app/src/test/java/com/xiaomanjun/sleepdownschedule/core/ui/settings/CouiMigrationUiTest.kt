@@ -146,6 +146,8 @@ class CouiMigrationUiTest {
                 val source = (0 until sources.length()).map { sources.getJSONObject(it) }.first { it.getString("id") == sourceId }
                 assertTrue(source.getInt("recordCallbackCount") > 0)
                 assertTrue(source.getInt("activeConsumers") > 0)
+                assertEquals(androidx.compose.ui.graphics.layer.CompositingStrategy.Auto.toString(),
+                    source.getString("compositingStrategy"))
             }
             compose.runOnIdle { show.value = false }
             compose.waitForIdle()

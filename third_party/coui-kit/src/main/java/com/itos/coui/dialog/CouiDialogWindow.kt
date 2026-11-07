@@ -49,7 +49,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -80,6 +79,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
 import com.itos.coui.R
 import com.itos.coui.backdrop.CouiBackdrop
+import com.itos.coui.backdrop.CouiSamplingCoordinates
 import com.itos.coui.effect.LocalCouiContourGlowEnabled
 import com.itos.coui.effect.rememberCouiMaterialEffect
 import com.itos.coui.menu.LocalCouiMenuBackdrop
@@ -202,24 +202,26 @@ internal fun CouiDialogWindow(
     // 在组合阶段读取，首个 Dialog 子组合发布 Window 后会触发 owner 再次应用策略。
     val ownedWindow = windowReference.value
     fun configureWindow(window: Window) {
-        com.itos.coui.diagnostic.CouiRenderDiagnostics.event("dialog.window.configure")
-        window.setGravity(if (placement == CouiDialogPlacement.Bottom) Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL else Gravity.CENTER)
-        window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
-        window.clearFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-        if (Build.VERSION.SDK_INT >= 31) window.setBackgroundBlurRadius(0)
-        window.setDimAmount(colors.dimAmount)
+        val attributes = window.attributes
+        val gravity = if (placement == CouiDialogPlacement.Bottom) Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL else Gravity.CENTER
+        val animations = if (visible != null) 0 else if (placement == CouiDialogPlacement.Bottom)
+            R.style.CouiDialogAnimation_Bottom else R.style.CouiDialogAnimation_Center
+        val softInput = softInputMode?.let { mode -> if (ownsImePosition)
+            (mode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            else mode } ?: attributes.softInputMode
+        var flags = attributes.flags and WindowManager.LayoutParams.FLAG_BLUR_BEHIND.inv()
         // 撤销压暗请求才会触发系统淡出；保留标记并把强度设为 0 会跳过动画。
-        if (visible == false) {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-        } else {
-            window.addFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-        }
-        window.setWindowAnimations(if (visible != null) 0 else if (placement == CouiDialogPlacement.Bottom)
-            R.style.CouiDialogAnimation_Bottom else R.style.CouiDialogAnimation_Center)
-        softInputMode?.let { mode ->
-            window.setSoftInputMode(if (ownsImePosition)
-                (mode and WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST.inv()) or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-            else mode)
+        flags = if (visible == false) flags and WindowManager.LayoutParams.FLAG_DIM_BEHIND.inv()
+            else flags or WindowManager.LayoutParams.FLAG_DIM_BEHIND
+        if (attributes.gravity != gravity || attributes.windowAnimations != animations ||
+            attributes.softInputMode != softInput || attributes.flags != flags || attributes.dimAmount != colors.dimAmount) {
+            attributes.gravity = gravity
+            attributes.windowAnimations = animations
+            attributes.softInputMode = softInput
+            attributes.flags = flags
+            attributes.dimAmount = colors.dimAmount
+            window.attributes = attributes
+            com.itos.coui.diagnostic.CouiRenderDiagnostics.event("dialog.window.configure")
         }
     }
     DisposableEffect(accessibility) {
@@ -241,6 +243,11 @@ internal fun CouiDialogWindow(
             onDispose { windowSize = IntSize.Zero }
         }
         val window = checkNotNull((LocalView.current.parent as? DialogWindowProvider)?.window) { "未找到对话框所属 Window" }
+        DisposableEffect(window) {
+            window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+            if (Build.VERSION.SDK_INT >= 31) window.setBackgroundBlurRadius(0)
+            onDispose { }
+        }
         SideEffect {
             windowReference.value = window
             configureWindow(window)
@@ -344,9 +351,9 @@ private fun DialogCard(
     val recordingDensity = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val edgePaint = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
-    var coordinates: LayoutCoordinates? by remember { mutableStateOf(null, neverEqualPolicy()) }
+    val samplingCoordinates = remember { CouiSamplingCoordinates() }
     // 外层只记录到位后的锚点；动画仅作用于内层，采样显式应用同一变换的逆矩阵。
-    Box(modifier.onGloballyPositioned { coordinates = it }) {
+    Box(modifier.onGloballyPositioned(samplingCoordinates::update)) {
     Box(Modifier.fillMaxWidth().graphicsLayer {
         val scale = frameScale()
         transformOrigin = TransformOrigin(0f, 0f)
@@ -359,7 +366,7 @@ private fun DialogCard(
         val scale = frameScale()
         val sampleTranslation = Offset(size.width * (1f - scale) / 2f,
             size.height * (1f - scale) / 2f + (frameTranslationY() ?: (size.height + bottomPaddingPx)))
-        val target = coordinates
+        val target = samplingCoordinates.coordinates
         if (Build.VERSION.SDK_INT >= 33 && blur != null && materialEffect != null &&
             target != null && target.isAttached && size.width > 0f && size.height > 0f) {
             layer.renderEffect = composeMaterialEffect

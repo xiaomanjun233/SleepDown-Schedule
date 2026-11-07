@@ -7,11 +7,7 @@ import android.graphics.Shader
 import android.util.DisplayMetrics
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -41,6 +37,8 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.itos.coui.backdrop.CouiBackdrop
+import com.itos.coui.backdrop.CouiSamplingCoordinates
+import com.itos.coui.diagnostic.CouiRenderDiagnostics
 import com.itos.coui.shape.CouiCapsuleShape
 import kotlin.math.ceil
 import kotlin.math.floor
@@ -200,9 +198,10 @@ private fun Modifier.floatingSurfaces(
         arrayOfNulls<Pair<Size, Outline>>(renderer.surfaceCount)
     }
     val materialInputs = remember(materials) { materials.map(::couiControlMaterialEffect) }
-    var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null, neverEqualPolicy()) }
-    return onGloballyPositioned { coordinates = it }.drawWithCache {
-        val target = coordinates
+    val samplingCoordinates = remember { CouiSamplingCoordinates() }
+    return onGloballyPositioned(samplingCoordinates::update).drawWithCache {
+        CouiRenderDiagnostics.event("floating.material.build")
+        val target = samplingCoordinates.coordinates
         val nodes = surfaces()
         require(nodes.size == renderer.surfaceCount)
         if (target?.isAttached == true && size.width > 0f && size.height > 0f &&

@@ -65,22 +65,25 @@ class CouiBackdrop internal constructor(
     private var recordCallbackCount = 0L
     private var sampleCount = 0L
     private var lastRecordMs = 0L
-    private var isolateWhenIdle = true
+    private var isolateContent = true
     private var activeConsumers by mutableIntStateOf(0)
     private var recordWhenIdle by mutableStateOf(true)
     private val redrawSignal = mutableStateOf(Unit, neverEqualPolicy())
     private val sourceToTarget = Matrix()
     // 首次采样可能先于源绘制, 就绪状态必须唤醒已等待的消费者。
     private var recorded by mutableStateOf(false)
-    internal var coordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
+    private val samplingCoordinates = CouiSamplingCoordinates()
+    internal var coordinates: LayoutCoordinates?
+        get() = samplingCoordinates.coordinates
+        set(value) { samplingCoordinates.update(value) }
 
     init {
         layer.compositingStrategy = CompositingStrategy.Offscreen
         layer.clip = true
     }
 
-    internal fun setIsolateWhenIdle(isolate: Boolean) {
-        isolateWhenIdle = isolate
+    internal fun setIsolateContent(isolate: Boolean) {
+        isolateContent = isolate
         updateCompositingStrategy()
     }
 
@@ -111,8 +114,9 @@ class CouiBackdrop internal constructor(
 
     private fun updateCompositingStrategy() {
         if (layer.isReleased) return
-        // 保留源的指令、坐标和裁剪; 有消费者时仍先按原分辨率栅格化一次。
-        layer.compositingStrategy = if (isolateWhenIdle || activeConsumers > 0) {
+        // 显式不隔离的完整窗口只持有指令。消费材质自己隔离采样区，
+        // 不能在打开弹窗时再强制分配一张包含 Dock/顶栏中间层的整屏纹理。
+        layer.compositingStrategy = if (isolateContent) {
             CompositingStrategy.Offscreen
         } else {
             CompositingStrategy.Auto
@@ -197,7 +201,7 @@ class CouiBackdrop internal constructor(
         .put("translationY", layer.translationY.toDouble())
         .put("blendMode", layer.blendMode.toString())
         .put("compositingStrategy", layer.compositingStrategy.toString())
-        .put("isolateWhenIdle", isolateWhenIdle)
+        .put("isolateContent", isolateContent)
         .put("activeConsumers", activeConsumers)
         .put("recordWhenIdle", recordWhenIdle)
         .put("drawPassCount", drawPassCount)

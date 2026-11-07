@@ -25,8 +25,8 @@ fun ProvideCouiMenuBackdrop(content: @Composable (Modifier) -> Unit) {
 }
 
 /**
- * isolateContent 为 false 时, 空闲窗口保留绘制指令而不强制整窗离屏。
- * 菜单及材质弹窗在实际消费期间恢复原分辨率离屏, 并保留所有父窗口源。
+ * isolateContent 为 false 时, 窗口保留绘制指令而不强制整窗离屏。
+ * 菜单及材质弹窗只在自己的采样区隔离绘制，并保留所有父窗口源。
  * 此模式要求内容中的 Clear、DstIn 等目标混合在其所属组件内隔离。
  * 优先用于已核对的不透明静态页面根; 透明内容、缩放或分数位移须独立验证栅格化结果。
  * 不确定内容的合成要求时, 使用保留隔离的单参数入口。
@@ -47,7 +47,7 @@ fun ProvideCouiMenuBackdrop(
     }
     val backdrop = rememberCouiBackdrop(parent = parent, diagnosticName = "menu-window")
     SideEffect {
-        backdrop.setIsolateWhenIdle(isolateContent)
+        backdrop.setIsolateContent(isolateContent)
         backdrop.setRecordWhenIdle(recordWhenIdle)
     }
     CompositionLocalProvider(LocalCouiMenuBackdrop provides backdrop, LocalCouiMenuWindow provides view) {
