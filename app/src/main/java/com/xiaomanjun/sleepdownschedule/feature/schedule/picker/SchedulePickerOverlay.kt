@@ -409,85 +409,89 @@ private fun QuickScheduleSettingsSheetSession(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .then(if (LocalNativeDialogSurface.current) Modifier.verticalScroll(rememberScrollState()) else Modifier.padding(bottom = 18.dp)),
+                    .then(if (LocalNativeDialogSurface.current) Modifier else Modifier.padding(bottom = 18.dp)),
                 verticalArrangement = Arrangement.spacedBy(if (LocalNativeDialogSurface.current) 10.dp else 14.dp)
             ) {
-                QuickScheduleSettingsGroup(backdrop, config) {
-                    SettingsTextFieldRow(
-                        title = "总周数",
-                        compact = true,
-                        value = totalWeeksText,
-                        onValueChange = { input ->
-                            totalWeeksText = input.filter(Char::isDigit).take(2)
-                            totalWeeksText.toIntOrNull()?.coerceIn(1, 60)?.let { total ->
-                                val latest = latestDraft() ?: return@let
-                                val nextWeek = resolveScheduleCurrentWeek(
-                                    config.copy(weekStartsOnSunday = latest.weekStartsOnSunday),
-                                    total,
-                                    latest.currentWeek.coerceAtMost(total),
-                                    latest.termStartDate,
-                                    latest.autoCurrentWeek
-                                )
-                                currentWeekText = nextWeek.toString()
-                                commitDraft(latest.copy(totalWeeks = total, currentWeek = nextWeek))
+                Column(Modifier.fillMaxWidth().then(if (LocalNativeDialogSurface.current)
+                    Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()) else Modifier)) {
+                    QuickScheduleSettingsGroup(backdrop, config) {
+                        SettingsTextFieldRow(
+                            title = "总周数",
+                            compact = true,
+                            value = totalWeeksText,
+                            onValueChange = { input ->
+                                totalWeeksText = input.filter(Char::isDigit).take(2)
+                                totalWeeksText.toIntOrNull()?.coerceIn(1, 60)?.let { total ->
+                                    val latest = latestDraft() ?: return@let
+                                    val nextWeek = resolveScheduleCurrentWeek(
+                                        config.copy(weekStartsOnSunday = latest.weekStartsOnSunday),
+                                        total,
+                                        latest.currentWeek.coerceAtMost(total),
+                                        latest.termStartDate,
+                                        latest.autoCurrentWeek
+                                    )
+                                    currentWeekText = nextWeek.toString()
+                                    commitDraft(latest.copy(totalWeeks = total, currentWeek = nextWeek))
+                                }
+                            },
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
+                        )
+                        SettingsValueRow(
+                            "当前周", scheduleTermStatusDescription(
+                                config.copy(
+                                    totalWeeks = value.totalWeeks,
+                                    currentWeek = value.currentWeek,
+                                    autoCurrentWeek = true,
+                                    weekStartsOnSunday = value.weekStartsOnSunday,
+                                    termStartDate = value.termStartDate.ifBlank { null }
+                                ), LocalDate.now()
+                            ), compact = true, valueOnRight = true
+                        )
+                        SettingsToggleRow(
+                            title = "周日作为周首日",
+                            subtitle = "",
+                            compact = true,
+                            checked = value.weekStartsOnSunday,
+                            backdrop = backdrop,
+                            onCheckedChange = { checked ->
+                                latestDraft()?.let { latest ->
+                                    commitDraft(latest.copy(weekStartsOnSunday = checked))
+                                }
                             }
-                        },
-                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Number
-                    )
-                    SettingsValueRow(
-                        "当前周", scheduleTermStatusDescription(
-                            config.copy(
-                                totalWeeks = value.totalWeeks,
-                                currentWeek = value.currentWeek,
-                                autoCurrentWeek = true,
-                                weekStartsOnSunday = value.weekStartsOnSunday,
-                                termStartDate = value.termStartDate.ifBlank { null }
-                            ), LocalDate.now()
-                        ), compact = true, valueOnRight = true
-                    )
-                    SettingsToggleRow(
-                        title = "周日作为周首日",
-                        subtitle = "",
-                        compact = true,
-                        checked = value.weekStartsOnSunday,
-                        backdrop = backdrop,
-                        onCheckedChange = { checked ->
-                            latestDraft()?.let { latest ->
-                                commitDraft(latest.copy(weekStartsOnSunday = checked))
+                        )
+                        SettingsToggleRow(
+                            title = "隐藏空周末",
+                            compact = true,
+                            subtitle = "",
+                            checked = value.hideEmptyWeekends,
+                            backdrop = backdrop,
+                            onCheckedChange = { checked ->
+                                latestDraft()?.let { latest ->
+                                    commitDraft(latest.copy(hideEmptyWeekends = checked))
+                                }
                             }
-                        }
-                    )
-                    SettingsToggleRow(
-                        title = "隐藏空周末",
-                        compact = true,
-                        subtitle = "",
-                        checked = value.hideEmptyWeekends,
-                        backdrop = backdrop,
-                        onCheckedChange = { checked ->
-                            latestDraft()?.let { latest ->
-                                commitDraft(latest.copy(hideEmptyWeekends = checked))
+                        )
+                        SettingsToggleRow(
+                            title = "显示非本周课程",
+                            compact = true,
+                            subtitle = "",
+                            checked = value.showNonCurrentWeekCourses,
+                            backdrop = backdrop,
+                            onCheckedChange = { checked ->
+                                latestDraft()?.let { commitDraft(it.copy(showNonCurrentWeekCourses = checked)) }
                             }
-                        }
-                    )
-                    SettingsToggleRow(
-                        title = "显示非本周课程",
-                        compact = true,
-                        subtitle = "",
-                        checked = value.showNonCurrentWeekCourses,
-                        backdrop = backdrop,
-                        onCheckedChange = { checked ->
-                            latestDraft()?.let { commitDraft(it.copy(showNonCurrentWeekCourses = checked)) }
-                        }
-                    )
-                    SettingsPickerValueRow(
-                        title = "学期开始日期",
-                        compact = true,
-                        valueBelowTitle = true,
-                        value = value.termStartDate,
-                        onClick = { beginDateSelection(value.termStartDate) }
-                    )
+                        )
+                        SettingsPickerValueRow(
+                            title = "学期开始日期",
+                            compact = true,
+                            valueBelowTitle = true,
+                            value = value.termStartDate,
+                            onClick = { beginDateSelection(value.termStartDate) }
+                        )
+                    }
                 }
-                if (!suppressDetailedButton) {
+                if (!suppressDetailedButton) Box(Modifier.fillMaxWidth().then(if (LocalNativeDialogSurface.current)
+                    Modifier.padding(horizontal = com.itos.coui.dialog.CouiDialogDefaults.buttonEdgePadding) else Modifier)) {
                     if (backdrop != null) LiquidButton(
                         onClick = {
                             val raw = latestDraft() ?: return@LiquidButton
@@ -570,7 +574,7 @@ private fun QuickScheduleSettingsSheetSession(
 
     SleepDownFloatingSheet(
         show = showDatePicker && draft != null,
-        title = "选择日期",
+        title = if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) "" else "选择日期",
         config = config,
         renderInPlace = true,
         cornerRadius = if (nativeSheet) panelRadius else top.yukonga.miuix.kmp.layout.BottomSheetDefaults.cornerRadius,
