@@ -172,7 +172,7 @@ Activity / Morph host
 
 Dialog 路线由用户选择的视效模式决定，设置页的 COUI 排版作用域不强制弹窗样式。凝光在 Android 14+ 使用 COUI 底部窗口、滚轮与月历；液态保留原居中材质、动效与选择器。旧系统沿已有能力回退，偏好不回写。退出交接由实际动画完成回调驱动，关闭反向时不执行被取消的交接。
 
-凝光 Dialog 表面采样下层完整窗口；当前窗口的按钮与分段控件只采样同级的纯表面源，文字与控件不进入该 producer。完整弹窗窗口源留给下一层嵌套窗口，同窗口的 Scaffold 复用源。标准 Picker 操作通过 `actions` 放入固定操作区，特殊操作使用 `bottomActions`；正文不重复绘制标题或底部按钮。
+凝光 Dialog 以 COUI Demo 的原尺寸、Kawase 200、混色及窗口运动为基准；表面采样下层完整窗口，内部标准操作沿用 Kit 填色和反馈，不叠加第二次采样。完整弹窗窗口源只供下一层嵌套窗口，整窗源无消费者时直接绘制；同窗口的 Scaffold 复用源。普通 Picker 直接使用上游 Dialog、WheelPicker／CalendarPicker；特殊内容的标题与固定操作区同样复用 Kit。正文不重复绘制标题或底部按钮。普通选择器不启用全屏 IME 策略，输入表单单独处理导航区与键盘交集。
 
 | 任务 | 组件 | 特征 |
 | --- | --- | --- |
@@ -192,15 +192,15 @@ Dialog 路线由用户选择的视效模式决定，设置页的 COUI 排版作�
 - 二操作通常横排；三个操作仅在标签能完整显示时横排，否则按组件既有纵向规则。
 - 破坏性操作使用红色语义，但不能用红色填满整个普通设置组。
 
-### 居中弹窗材质
+### 液态居中弹窗材质
 
-所有改造版 Miuix 居中弹窗属于同一表面家族，包括确认 Alert、日期/时间/数字选择器、多列节次选择器和短编辑器；内容布局可以不同，但外层不得各自复制材质。
+以下尺寸、材质和动画约定适用于液态模式及旧系统的 Miuix 回退；凝光 Kit 路线使用上节 Demo 基准。改造版 Miuix 居中弹窗属于同一表面家族，包括确认 Alert、日期/时间/数字选择器、多列节次选择器和短编辑器；内容布局可以不同，但外层不得各自复制材质。
 
 - 外轮廓统一使用 Kyant Shapes `RoundedRectangle(..., Continuous)`，即项目的 G2 连续曲率圆角；不得再在其后叠加 `RoundedCornerShape` 二次裁切。
 - 弹窗宽度上限为 300dp，外圆角为 34dp，正文内距沿用 SleepDown 二版；Alert 恢复按标题、正文和操作数量进行内容驱动测量，不再用 184dp/304dp 总高或 272×108dp 正文区强行撑满。标准动作胶囊高 48dp；双按钮横排、三按钮纵排，操作间距沿用二版的 10dp。
 - 居中大标题与首段正文/控件恢复 SleepDown 二版的内容节奏；正文只在确实过长时进入最大 240dp 的内部滚动，不用空白填充去凑固定高度。
 - 动作按钮恢复完整 `Capsule` 胶囊，标准高度 48dp。普通/危险次级操作默认使用轻微灰色中性表面且不画独立描边；危险操作只把文字变红。所有动作按钮关闭按压放大、发光、阴影与动态描边，只使用普通压暗反馈。
-- 液态模式的居中弹窗与外层 QuickSheet 共用 `morphDialogMaterial`：半分辨率纯高斯、原分辨率透明染色与高光描边，不运行外壳 lens、vibrancy 或 depth 提亮；背景全屏景深继续由宿主管理。课程编辑保留课程色与着色透明度，个性化、添加与口令表单保留原面板的薄染色。材质采样先绘制的完整 underlay，导出的外壳 producer 不包含表单内容，禁止采样自己。凝光口令表单沿用原有材质；内层小卡片及按钮保留各自材质，超高性能档不启动新增采样。
+- 液态模式的居中弹窗与外层 QuickSheet 共用 `morphDialogMaterial`：半分辨率纯高斯、原分辨率透明染色与高光描边，不运行外壳 lens、vibrancy 或 depth 提亮；背景全屏景深继续由宿主管理。课程编辑保留课程色与着色透明度，个性化、添加与口令表单保留原面板的薄染色。材质采样先绘制的完整 underlay，导出的外壳 producer 不包含表单内容，禁止采样自己；内层小卡片及按钮保留各自材质，超高性能档不启动新增采样。
 - 不再把 Apple 参考稿的整面渐变、强边沿、外投影和多层内阴影用于弹窗外壳；按钮保留自己的现版蓝色/中性玻璃材质。业务页面也不得叠加整面黑/白蒙版，否则会抵消底层染色。
 - 弹出与关闭使用 Miuix 原中心缩放/淡入动画。根场景只在中心弹窗存续期间录制完整下层画面：Miuix `Scaffold` 将页面、TopBar 和较低业务 Overlay 放进 `underlayModifier`，Popup/Dialog host 作为后绘制的兄弟节点，结构上不可能进入自己采样的 producer。首页与二级 Activity 都必须让弹窗在拥有完整业务 underlay 的当前 Scaffold host 中渲染；不得把二级页弹窗转交给一个只拥有部分背景的外层 host。首页不得额外手动挂一个可能落回 producer 祖先内的 `MiuixPopupHost`。禁止把 producer 挂到包含 host 的 Scaffold/祖先，也禁止退回“录制时临时隐藏弹窗”的 draw-mask；这种绘制排除无法消除 RenderNode 父子环。背景使用一条预构建的 10dp plain blur 链，显隐进度只改变合成 alpha，并同步加入轻量压暗；不按动画帧重建 RenderEffect，也不挂 lens、vibrancy、阴影或液态材质。退出节点必须保留到进度归零后再卸载。首次以 `show=true` 进入 Composition 的选择器必须先提交 0 进度帧，再启动弹簧，避免首帧直接接近终点而看似没有动画。
 - 中心弹窗不使用预测性返回的缩放/位移进度；返回手势只由顶层弹窗消费，完成后走同一关闭动画与背景模糊卸载链路，底层页面不得参与手势形变。
@@ -219,10 +219,10 @@ Dialog 路线由用户选择的视效模式决定，设置页的 COUI 排版作�
 - 助理附件菜单展开后的文字与图标使用面板主题前景色，收回的加号仍使用输入栏前景色；不要把壁纸输入栏的白色直接带进浅色菜单。
 - 二级菜单与父菜单同宽，父菜单缩至 95% 退后。二级实测布局就绪后从触发行的圆角轮廓展开，使用阻尼 0.82、响应 0.34s 的弹簧；标题起点与真实条目上下内距对齐。一级在二级展开、停留和收起期间冻结输入，直到二级卸载后恢复；跟手观察暂停，保留已有视觉平滑归位。露出的父层边缘不作为收起入口，收起使用二级标题或系统返回。
 - Popup host 与页面 producer 同样采用兄弟层拓扑；Popup 只消费该页面显式传入的采样域。找不到 Backdrop 时按相同几何回退稳定表面，不得跨根层寻找 producer。
-- 多课表快速设置不属于 Popup：必须保留 `QuickScheduleSettingsSheets` 在 1.2.0 中已验收的半屏 QuickSheet 高度、内容顺序、操作按钮和日期子 Sheet。可以通过公共 QuickSheet token 等价更新材质，不得被 Popup 视觉样式、级联布局或菜单选中态改造污染。
+- 多课表快速设置不属于 Popup：液态保留半屏 QuickSheet，凝光使用 Kit 窗口与胶囊行反馈。按用户最新要求，两种模式均保留顶部左“取消”／右“完成”、原内容顺序及保存交接；凝光正文独立滚动，日期子窗口使用标准 CalendarPicker 与底部操作区。
 - 快速设置的所有行使用同一紧凑水平边距；数字输入只预留短数值宽度，学期状态与日期值排在各自标题下方，避免固定 170dp 输入框或长日期挤压标题。当前周仍自动计算，沿用原保存与详细设置交接。
 - 原生快速设置顶栏标题按两侧操作按钮之间的实际宽度测量字号，单行居中，不因窗口或字体比例变化自行折行。
-- 选择器和 QuickSheet 顶栏保留 84×38dp 小胶囊操作，不套用系统对话框的最小按钮宽度。凝光标题可读取系统字号；底部完整确认按钮单独采用系统尺寸。个性化一级与二级标题按用户要求同为 titleMedium，以 SemiBold/Medium 区分字重；设置项和说明沿用各自排版，同级对齐并保持一致间距。
+- 液态选择器和 QuickSheet 顶栏保留 84×38dp 小胶囊操作；凝光普通选择器采用 Demo 底部操作区，课表设置例外保留顶部操作并采用 Kit 的 44dp 按钮高度。个性化一级与二级标题按用户要求同为 titleMedium，以 SemiBold/Medium 区分字重；设置项和说明沿用各自排版，同级对齐并保持一致间距。
 - 多课表快速设置的“详细设置”先保存当前 QuickSheet 草稿，再通过 `QuickSheetToSettingsDetail` 跨 Activity Morph 打开 `SettingsDetailActivity`。目标窗口在 `super.onCreate` 前切换为透明 Morph 窗口，直接使用实时按钮 bounds 展开；QuickSheet 留在原 Activity 下层，返回后原样恢复。不得再复制或裁切 Bitmap、挂局部 Overlay 或写第二套 Morph。
 
 ## 色彩与玻璃前景色
@@ -332,10 +332,15 @@ SleepDownPickerDialog(
     onDismissRequest = { showPicker = false },
     backdrop = popupBackdrop,
     config = state.config,
-    contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
+    actions = listOf(
+        LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showPicker = false },
+        LiquidAlertAction("确定", LiquidAlertActionStyle.Primary) {
+            saveSelection()
+            showPicker = false
+        }
+    )
 ) {
     TimePickerContent(/* ... */)
-    PickerActions(/* ... */)
 }
 ```
 
@@ -370,8 +375,8 @@ SleepDownPickerDialog(
 ## 当前迁移状态
 
 - 通用设置、AI 设置和今日助手设置已等价接入 `SleepDownSecondaryPageList(Settings)`；原 16dp 边距、14dp 分组间距和 Dock 底部空间不变。
-- 助手记忆、日期和时间选择器已接入 `SleepDownPickerDialog`；各自正文密度、控件和操作仍独立。
-- 现有确认 Alert、跳转周数、课程编辑选择器，以及详细设置内的节次/时段/时间/课间 Picker 已统一接入 `centeredDialogBackdropModifier`；窗口行为和正文结构不变。
-- 其余成熟 Picker 的窗口壳继续按“结构完全等价再迁移”的原则渐进收口，但所有居中表面已经共享同一材质入口。
-- `SettingsGroup`、`SettingsToggleRow` 等设置组件在迁移前仍需分离业务会话状态，不能把保存逻辑塞进设计系统。
+- 助手记忆、日期和时间选择器已接入 `SleepDownPickerDialog`；凝光使用 Kit 操作区、WheelPicker／CalendarPicker，特殊正文保留业务约束。
+- 现有确认 Alert、跳转周数、课程编辑选择器，以及详细设置内的节次/时段/时间/课间 Picker 按视效模式分发：凝光使用 Kit Dialog，液态继续 `centeredDialogBackdropModifier`。设置作用域不能强制改变用户选择。
+- 特殊表单复用 Kit 标题与操作区；课表快速设置按用户要求保留顶部取消／完成和既有保存交接。成熟 Morph 继续独立管理外壳、轨迹和返回锚点。
+- `SettingsGroup`、`SettingsToggleRow` 等设置组件只装配行与控件，业务会话和保存逻辑仍由调用方持有。
 - 课程编辑器、首页菜单、个性化面板和跨 Activity 转场外壳不因本规范存在而改写。

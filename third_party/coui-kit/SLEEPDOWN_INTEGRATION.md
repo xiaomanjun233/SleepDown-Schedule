@@ -12,9 +12,10 @@
 
 ## 2026-11-07 Dialog 与分段控件扩展
 
-- `ProvideCouiMenuBackdrop` 在同一个 Window 内复用完整窗口源；独立窗口建立带 parent 的新源。宿主根源空闲使用 Auto，只在实际消费期间隔离与保留父链。
-- Dialog 背景使用上游 Kawase 等级（`200` 不是像素半径），沿用混色与轮廓。背景单独录制为 `LocalCouiSurfaceBackdrop`，按钮和分段控件在其后的同级节点绘制；完整窗口源仅供下一层弹窗，避免前景自采样。
-- `couiControlMaterialEffect` 统一浮动表面及按钮的采样亮度、Gaussian 模糊和两层混色顺序。DialogButton 薄适配通用 CouiButton，不再独立维护运动与绘制实现。
+- `ProvideCouiMenuBackdrop` 在同一个 Window 内复用完整窗口源；独立窗口建立带 parent 的新源。宿主整窗源显式 `recordWhenIdle=false`，空闲直接绘制、不录制整页，只在实际消费期间隔离与保留父链；局部控件源默认行为不变。
+- Dialog 背景使用上游 Kawase 等级（`200` 不是像素半径），沿用混色与轮廓。按用户后续要求恢复上游 DialogButton，不再录制额外纯表面源或为内部按钮追加采样；完整窗口源仅供下一层弹窗。
+- `couiControlMaterialEffect` 统一浮动表面的采样亮度、Gaussian 模糊和两层混色顺序；DialogButton 保持上游自己的尺寸、文本与反馈。`DialogHeading`／`DialogActionBar` 暴露原排版供特殊表单复用。
+- `CouiFabDefaults.translucentMaterial()` 为宿主强调按钮和 Dock 加号提供可选半透明染色与 25px 采样模糊；默认 FAB 和 Dialog 主操作仍沿用 Demo 材质。凝光设置页只录制 Scaffold 所需的 COUI 正文源，液态保留原 Kyant 正文源。
 - Dialog／InputDialog／ContentDialog 公开实际 `onDismissFinished`，反向入场会取消未完成的退出；不使用固定延时猜测动画结束。输入窗口沿用 Kit IME 避让。
 - `segmentbutton/CouiSegmentedControl.kt` 为本地新增受控组件，依据本机 Settings 17 的 `COUISegmentButtonLayout` 行为实现。位置、宽度、高度、橡皮筋分别使用 Kit 弹簧；完整外壳／仅指示器、RTL、即时／抬手提交、系统 CANCEL、禁用与无障碍均由公开状态装配。只记录依据，不引入反编译源码或二进制；公开轻触反馈不能视为 OEM 302 波形复刻。
 - 上游同步采用固定 main 提交做三方差异核对，再重放上述宿主扩展；下文 2026-11-06 的哈希是历史接入证据。
