@@ -212,6 +212,7 @@ Dialog 路线由用户选择的视效模式决定，设置页的 COUI 排版作�
 ### Popup 菜单材质
 
 - 凝光 Android14+ 的课程 shortcut 与首页三点操作菜单使用独立系统装配 `SystemPopupMenu`：196dp有图标面板、28dp外框、16sp regular条目，按系统锚点规则避让并独立退场。只复用Kit基础材质与运动，不采用其Demo菜单行。液态继续下述原菜单与Morph；两种模式不能共用同一液滴行为。
+- 首页凝光顶栏图标按钮保留42dp尺寸与20dp图标，使用 Kit `TopAppBarButton` 的工具栏材质、轮廓和反馈。背景条是独立 producer，包含页面前缀与原渐进模糊；标题和按钮是后绘制同级节点，不得读取包含自身的 Dock 整页源。
 
 - 设置普通下拉保留 COUI Item 触发行，弹出面板使用原改版 Miuix。透明、零 Insets 的 Miuix Scaffold 只提供本地浮层宿主；COUI 继续负责页面顶栏、正文与安全区，完整页面 producer 不包含浮层。下拉挂在真实 trailing Row 内，按当前窗口定位和收回。
 - 普通下拉、列表和级联 Popup 由 `SleepDownLiquidDropdownPreference` / `SleepDownLiquidCascadingPopup` 统一调用。普通 Popup 为 25dp 外壳；条目按下述公共紧凑规格与胶囊高亮排布。普通下拉动效对照 NexioSchedule `2daf4c3` 及用户提供的 APK：尺寸进入弹簧 0.77/220、退出 0.85/650；锚点迁移进入 0.77/420，退出 340ms `(0,0,0,1)` 曲线。面板起点覆盖当前值与箭头，外加横向 14dp、纵向 10dp 留白；宽高独立插值并保留过冲，固定画布每边留 14dp 回弹空间和 24dp 阴影外距。当前值与箭头在弹层内按原尺寸移动、淡出，原位置暂时隐藏这两个元素，关闭后交还；设置行标题保持原位。菜单文字独立等比缩放、分段显隐和 0–6dp 瞬态模糊，静止后释放文字 RenderEffect；玻璃在固定画布内采样，轮廓单独变化，材质透明度不乘到文字上。展开后不增加整页遮罩；普通设置行保留按压灰色反馈，首页个性化弹窗通过 `showAnchorPressFeedback = false` 单独关闭。级联二级菜单继续使用其真实父子锚点 Morph。

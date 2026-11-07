@@ -17,7 +17,7 @@
 - `couiControlMaterialEffect` 统一浮动表面的采样亮度、Gaussian 模糊和两层混色顺序；DialogButton 保持上游自己的尺寸、文本与反馈。`DialogHeading`／`DialogActionBar` 暴露原排版供特殊表单复用。
 - `CouiFabDefaults.translucentMaterial()` 为宿主强调按钮和 Dock 加号提供可选半透明染色与 25px 采样模糊；默认 FAB 和 Dialog 主操作仍沿用 Demo 材质。凝光设置页只录制 Scaffold 所需的 COUI 正文源，液态保留原 Kyant 正文源。
 - Dialog／InputDialog／ContentDialog 公开实际 `onDismissFinished`，反向入场会取消未完成的退出；不使用固定延时猜测动画结束。输入窗口沿用 Kit IME 避让。
-- `segmentbutton/CouiSegmentedControl.kt` 为本地新增受控组件，依据本机 Settings 17 的 `COUISegmentButtonLayout` 行为实现。位置、宽度、高度、橡皮筋分别使用 Kit 弹簧；完整外壳／仅指示器、RTL、即时／抬手提交、系统 CANCEL、禁用与无障碍均由公开状态装配。只记录依据，不引入反编译源码或二进制；公开轻触反馈不能视为 OEM 302 波形复刻。
+- 受控分段选择器使用下述本地 Kit 新增的 `SegmentedControl`；`CouiSegmentedControl` 只保留宿主尺寸、所属表面和仅指示器装配门面。位置、宽度、高度、橡皮筋使用同一套 Kit 弹簧，不再维护第二套输入与运动。公开轻触反馈不能视为 OEM 302 波形复刻。
 - 上游同步采用固定 main 提交做三方差异核对，再重放上述宿主扩展；下文 2026-11-06 的哈希是历史接入证据。
 
 ## 2026-11-07 系统菜单与特殊选择器续作
@@ -25,6 +25,24 @@
 - 本地新增 `menu/SystemPopupMenu.kt`，只复用材质、投影、触摸运动与开合弹簧；196dp有图标窗口、16sp regular行、分隔与定位依照Settings 17 poplist装配，不调用Kit的Demo菜单布局。普通工具栏按锚点居中避让，课程shortcut按逻辑边对齐；独立Popup只消费宿主完整窗口，真实退场后才交接业务。Kit原有 `Menu` 保持原默认样式和职责。
 - 分段普通高度按系统regular40dp；显式传入尺寸的首页导航不改。指示器运动中的可见矩形也可起拖，跨标签缩放与已选无障碍点击按系统语义补齐。
 - 宿主自定义Picker使用独立的内容边距参数，不改Wheel/Calendar自身尺寸；月历不增加外层标题。具体业务布局仍留在宿主，不加入上游Demo或厂商二进制。
+
+## 本地新增分段组件与首页工具栏
+
+用户指定补入本机 Kit 新增的分段适配。来源工作区 HEAD 为 `f8423c351b9096c363001665741c897f6d1666e0`，分段文件当时尚未提交；这是固定 GitHub 基线之外的明确补充，不代表再次同步了远端 main。仅补入三个组件文件及其依赖的 `CouiSpring.setBounds`，未改动来源工作区：
+
+| 原文件 | 来源 SHA-256 |
+| --- | --- |
+| `SegmentedControl.kt` | `4277A52FA8A35E4D3CBD84425985BFDE7C560894DA205105DE607C27CF45DFA7` |
+| `CouiSegmentMotion.kt` | `21A1D34A9125A2E7FAD50E5CCEDD8D84805B3250A3CB0E5BFEA8C268B03B3B84` |
+| `CouiSegmentedControlDefaults.kt` | `8C333621C1E345329946FCC0B377508EA284961D8A3B1311826DD0B2B617E054` |
+
+宿主兼容增量：`SegmentedControl` 增加完整外壳／仅指示器与显式表面槽，兼容门面维持原宽高；完整表面需背景源或明确的表面材质。仅指示器不创建浮动 renderer；Dialog 不额外采样旧页面，首页复合导航仍由宿主壳承担材质。提交门在业务回调前结束会话，防止回写重入导致重复提交。
+
+`TopAppBarButton` 增加可选的显式 `backdrop`，默认仍用上游工具栏作用域。首页保留42dp尺寸／20dp图标，使用系统 TOP_BAR_BLUR（20px）及 CIRCLE_1、原工具栏反馈和完整投影；不再用普通填色 Button 替代。宿主 `glass/HomeToolbarBackdrop` 只录制局部背景条，按钮与标题在源外后绘制，不消费包含自身的 Dock 整页源。
+
+公共浮动材质在组合存续期间保留背景源，退出释放；因此使用按需录制的窗口源时也能正确唤醒采样，不依赖源一直录制。
+
+`SystemPopupMenu` 按相册和天气 `RoundFrameLayout` 的最终运行分支使用28dp／2.5轮廓。系统菜单的 EDGE_STYLE_2 白光、明暗线宽和透明度单独通过基础 effect 参数装配，不改 Kit Demo 菜单默认材质。
 
 保留上游 Compose BOM 2026.08.01 与 DynamicAnimation strictly 1.0.0 的约束，不使用 force、exclude 或 overrideLibrary。
 

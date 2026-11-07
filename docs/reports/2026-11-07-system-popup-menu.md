@@ -53,6 +53,8 @@
 
 ## 2026-11-07 续：按 Gallery／Weather 复核
 
+> 此节12dp结论已被后续有效分支调查纠正：`RoundFrameLayout`构造覆盖XML，凝光最终为28dp／2.5，见[修正报告](2026-11-07-coui-toolbar-popup-correction.md)。其余未变项目保留为历史依据。
+
 用户要求两个弹出菜单按 ColorOS 原版行为修复，并指定从相册或天气右上角菜单取目标。实际只读检查了 `OppoGallery2.apk` 与 `OppoWeather2.apk` 内的 `com.coui.appcompat.poplist.COUIPopupListWindow`、`COUIPopupWindow`、`COUIPopupMenuRootView`、`PopupMenuLocateHelper`、`COUIActionMenuView` 及资源。
 
 - 目标窗口是 `COUIPopupListWindow`：全窗口 Popup、focusable、outsideTouchable、非 touchModal；菜单宽 196dp（带图标）、最小 168dp、最大 256dp；顶栏屏障 12dp、底部导航屏障 32dp、锚点垂直间距 8dp。
