@@ -22,7 +22,7 @@
 
 ## 2026-11-07 系统菜单与特殊选择器续作
 
-- 本地新增 `menu/SystemPopupMenu.kt`，只复用材质、投影、触摸运动与开合弹簧；196dp有图标窗口、16sp regular行、分隔与定位依照Settings 17 poplist装配，不调用Kit的Demo菜单布局。普通工具栏按锚点居中避让，课程shortcut按逻辑边对齐；独立Popup只消费宿主完整窗口，真实退场后才交接业务。Kit原有 `Menu` 保持原默认样式和职责。
+- 课程shortcut与三点动作菜单直接使用Kit `Menu`，保留196dp宽度、原窗口与材质。移除曾自行装配的 `SystemPopupMenu` 及其旧定位测试；所有动作项 `dividerBefore=false`。Menu补充可选Painter、文字色、实际退场和定位回调，宿主保留原图标、危险语义与交接。原生共享遮罩使用显式 `pressMaskOnForeground` 样式，影响这两个入口，不更改其他Menu默认呈现。
 - 分段普通高度按系统regular40dp；显式传入尺寸的首页导航不改。指示器运动中的可见矩形也可起拖，跨标签缩放与已选无障碍点击按系统语义补齐。
 - 宿主自定义Picker使用独立的内容边距参数，不改Wheel/Calendar自身尺寸；月历不增加外层标题。具体业务布局仍留在宿主，不加入上游Demo或厂商二进制。
 
@@ -42,7 +42,9 @@
 
 公共浮动材质在组合存续期间保留背景源，退出释放；因此使用按需录制的窗口源时也能正确唤醒采样，不依赖源一直录制。
 
-`SystemPopupMenu` 按相册和天气 `RoundFrameLayout` 的最终运行分支使用28dp／2.5轮廓。系统菜单的 EDGE_STYLE_2 白光、明暗线宽和透明度单独通过基础 effect 参数装配，不改 Kit Demo 菜单默认材质。
+菜单外壳和材质保持Kit标准实现，不再维护第二个系统菜单绘制后端。原生单行遮罩由 `COUITouchRecyclerView` 的最终分支确定：整行高度、水平8dp内缩、weight1胶囊，绘制在文字／图标之后；复用Kit进度、滑动弹簧与受控提交。不得只凭静态XML半径推断该遮罩，普通共享遮罩也不同于行自身的hover／clickable遮罩。
+
+Dialog继续使用固定上游的Kawase和窗口生命周期。宿主保留嵌套窗口源、安全区与退出完成回调；开合动画值在graphicsLayer／draw阶段读取，避免每帧重组窗口并重复写Window属性，材质RenderEffect的Compose包装随基础effect缓存。动画参数与采样逆变换保持同帧一致。
 
 保留上游 Compose BOM 2026.08.01 与 DynamicAnimation strictly 1.0.0 的约束，不使用 force、exclude 或 overrideLibrary。
 

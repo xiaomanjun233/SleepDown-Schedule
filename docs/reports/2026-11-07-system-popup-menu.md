@@ -1,5 +1,7 @@
 # 凝光系统菜单与课表详细设置布局
 
+> 此页记录历史实现。当前课程shortcut与三点菜单已按用户纠正直接使用Kit Menu，不添加分割线，见[当前修正](2026-11-08-coui-action-menu-dialog-correction.md)；下面“独立SystemPopupMenu”不再适用，历史mapping也已按新指令清理。
+
 接续 `4e7a30c5`，仍在 `codex/couikit-dialog`。用户要求接入凝光模式的课程长按 shortcut 和右上角三点菜单，明确不用 COUIKit Demo 菜单样式，按系统原样式补齐；凝光与液态行为不同。另反馈课表设置的“详细设置”大按钮布局异常。继续本地实现、提交与签名 APK／精确 mapping 交付，不改版本，不自动安装、推送或发布。
 
 ## 系统依据

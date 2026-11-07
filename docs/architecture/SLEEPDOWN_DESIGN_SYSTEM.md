@@ -211,7 +211,7 @@ Dialog 路线由用户选择的视效模式决定，设置页的 COUI 排版作�
 
 ### Popup 菜单材质
 
-- 凝光 Android14+ 的课程 shortcut 与首页三点操作菜单使用独立系统装配 `SystemPopupMenu`：196dp有图标面板、28dp外框、16sp regular条目，按系统锚点规则避让并独立退场。只复用Kit基础材质与运动，不采用其Demo菜单行。液态继续下述原菜单与Morph；两种模式不能共用同一液滴行为。
+- 凝光 Android14+ 的课程 shortcut 与首页三点菜单直接使用 COUIKit `Menu`，保留196dp宽度和Kit排版／材质／窗口；动作列表不添加分割线，也不保留持久选中项。原生ColorOS共享按压遮罩在文字和图标之后绘制，单行项使用完整行高、横向内缩8dp及weight1胶囊；滑动只预选，抬手确认，移出／取消不提交，动作在真实退场后交接。液态继续原菜单与Morph。
 - 首页凝光顶栏图标按钮保留42dp尺寸与20dp图标，使用 Kit `TopAppBarButton` 的工具栏材质、轮廓和反馈。背景条是独立 producer，包含页面前缀与原渐进模糊；标题和按钮是后绘制同级节点，不得读取包含自身的 Dock 整页源。
 
 - 设置普通下拉保留 COUI Item 触发行，弹出面板使用原改版 Miuix。透明、零 Insets 的 Miuix Scaffold 只提供本地浮层宿主；COUI 继续负责页面顶栏、正文与安全区，完整页面 producer 不包含浮层。下拉挂在真实 trailing Row 内，按当前窗口定位和收回。
@@ -227,7 +227,7 @@ Dialog 路线由用户选择的视效模式决定，设置页的 COUI 排版作�
 - 多课表快速设置不属于 Popup：液态保留半屏 QuickSheet，凝光使用 Kit 窗口与胶囊行反馈。按用户最新要求，两种模式均保留顶部左“取消”／右“完成”、原内容顺序及保存交接；凝光正文独立滚动，日期子窗口使用标准 CalendarPicker 与底部操作区。
 - 快速设置的所有行使用同一紧凑水平边距；数字输入只预留短数值宽度，学期状态与日期值排在各自标题下方，避免固定 170dp 输入框或长日期挤压标题。当前周仍自动计算，沿用原保存与详细设置交接。
 - 原生快速设置顶栏标题按两侧操作按钮之间的实际宽度测量字号，单行居中，不因窗口或字体比例变化自行折行。
-- 液态选择器和 QuickSheet 顶栏保留 84×38dp 小胶囊操作；凝光普通选择器采用 Demo 底部操作区，课表设置例外保留顶部操作并采用 Kit 的 44dp 按钮高度。个性化一级与二级标题按用户要求同为 titleMedium，以 SemiBold/Medium 区分字重；设置项和说明沿用各自排版，同级对齐并保持一致间距。
+- 液态选择器和 QuickSheet 顶栏保留84×38dp小胶囊操作；凝光普通选择器采用Demo底部操作区，课表设置例外保留左取消／右完成的84×38dp顶部操作，使用紧凑标题与顶部留白，不套用44dp底部确认按钮高度。个性化一级与二级标题按用户要求同为titleMedium，以SemiBold/Medium区分字重；设置项和说明沿用各自排版，同级对齐并保持一致间距。
 - 多课表快速设置的“详细设置”先保存当前 QuickSheet 草稿，再通过 `QuickSheetToSettingsDetail` 跨 Activity Morph 打开 `SettingsDetailActivity`。目标窗口在 `super.onCreate` 前切换为透明 Morph 窗口，直接使用实时按钮 bounds 展开；QuickSheet 留在原 Activity 下层，返回后原样恢复。不得再复制或裁切 Bitmap、挂局部 Overlay 或写第二套 Morph。
 
 ## 色彩与玻璃前景色
