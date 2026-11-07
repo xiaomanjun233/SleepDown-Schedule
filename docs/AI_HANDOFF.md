@@ -1,5 +1,16 @@
 # 当前工作交接
 
+## 2026-11-07 续：首页顶栏 COUI 图标按钮与桌面交付
+
+接续 `d80a210e`，仍在 `codex/couikit-dialog`。用户要求继续收首页/课表顶栏图标按钮；同时明确从本轮开始把签名 APK／精确 mapping 放桌面，并且只保留最新一套，打下一个包后删除上一个包（构建失败时保留旧包）。版本、minSdk、签名和授权边界不变；未安装、推送、PR 或发布。
+
+- `5a505ec8`：首页 `AppTopBar` 内独立图标按钮改走 `CouiHomeIconButton`，复用 `CouiCapsuleButton` 的 42dp 圆形表面、轮廓、按压、跟手光和禁用材质；浅色表面 `0x99F5F5F5`，深色 `0xCC262626`，选中态使用宿主主色图标。
+- `LocalCouiHomeTopBarActive` 只在 `AppTopBar` 外层提供，添加/个性化复合胶囊、页面源卡和其他图标按钮保持原路线；液态/旧系统仍回退原生或液态。
+- 没有引入 `TopAppBarButton` 的顶栏采样源：首页顶栏位于整页 Dock 源内部，直接加 backdrop 会自采样或需要拆页源；本轮用胶囊按钮自身表面完成统一，精确系统材质留作后续可选。
+- 验证：`GlowSystemMenusTest` 4 项通过（含新增顶栏按钮用例）；正式 `assembleGithubRelease` 通过（7m14s，R8、资源压缩、lintVital、V2 签名）。APK `E60F0BEE305765FF5A640B135EA13FCF549FBC568F0BD7D32391EF89838EECC6`，7,857,748 字节；mapping `6EFC0059BAF16EF1B9478620C8E8CDFADF81D136221039B24DC4AFB3F2600765`，162,209,088 字节；内嵌源码 `5a505ec8`。
+- 桌面包（当前唯一一套）：`D:\个人资料\桌面\SleepDown-1.2.8-beta2-couikut-home-topbar-20261107-e60f0bee.apk` 及同名 `-mapping.txt`。下一轮构建成功并校验后删除桌面上一套 `SleepDown*` 包；`tmp/review-apks` 历史保留。
+- 详细记录见[首页顶栏报告](reports/2026-11-07-coui-home-top-bar.md)与[适配进度盘点](reports/2026-11-07-coui-adaptation-audit.md)。
+
 ## 2026-11-07 当前：凝光系统菜单、特殊选择器与详细设置布局
 
 接续 `4e7a30c5`，仍在 `codex/couikit-dialog`。用户要求课程长按shortcut和右上角三点菜单接凝光系统原样式，明确不采用COUIKit Demo菜单外观与液态行为；追加详细设置按钮错位、胶囊分段系统对齐、课程编辑器/星期/调色板间距修复，以及月历不要标题。保持 `1.2.8_beta2 / 36`、minSdk26；继续仅本地提交和签名APK／精确mapping交付，不自动安装、推送、PR或发布。保留原有 `output/`、其他工作树与stash。
