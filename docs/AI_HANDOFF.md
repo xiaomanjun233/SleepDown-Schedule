@@ -11,6 +11,7 @@
 - 已修复通知带徽标按钮异常撑高、按钮主色透明度及灰色主题角色、长按首页管理按钮漏采样。设置的透明 container 先合成到页面底色，再作为不透明 M3 卡片角色传出；导入历史去掉错误的二次透明度。课程管理与导入历史深色底色均走公共修复。
 - 上游同步及中间接入 Release Kotlin 编译通过；19 项定向回归通过，命名草稿补充后 7 项迁移 UI 回归通过。最终 `e240e16d` 的首次串行验证在应用测试前因 Gradle daemon JVM 内存抖动中止，不是代码失败；随后以 `--no-daemon --max-workers=1` 完成正式构建（5m52s）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-dialog-20261107-2a481549.apk`，7,808,596 字节，SHA-256 `2A48154923EDADA0E1BEE72BDE13AB577200D48875B397E96F601CB2ABD49C8D`，V2 证书 `0f2b50df…`；精确 mapping 同目录 `-mapping.txt`，160,979,778 字节，SHA-256 `1865F2C845510C1C83E07F34625BDD71800006356A32B4C62D67E3357C779302`。构建内嵌 revision `e240e16d`。最终 `CouiMigrationUiTest` 7 项通过（含纵向手势交接用例），0 失败／错误／跳过。细节与实际命令／日志见[本轮报告](reports/2026-11-07-couikit-dialog-migration.md)。
 - 尚需真机验收本轮 Dialog／Picker、嵌套采样、按钮模糊、深浅卡片、分段动态效果，以及大字体／横屏／IME。Robolectric 图已核对通知按钮位置和高度，不能代替 GPU 像素、OEM 振动或性能验收。未安装或连接设备验收。
+- 用户“继续”后已核对现有最终包，APK／精确 mapping 与 Release 原输出哈希一致，内嵌源码为 `e240e16d`，V2 签名及版本身份正确；完整定向集合 20 项再次通过（应用 17 + Kit 3，59s，`tmp/coui-dialog-final-tests-20261107.log`）。源码未变化，不重复构建。mapping 实际文件名为 `SleepDown-1.2.8-beta2-couikut-dialog-20261107-2a481549.apk-mapping.txt`。
 
 ## 2026-11-06 当前：COUI 组合底栏、Button 与深色跟手光
 

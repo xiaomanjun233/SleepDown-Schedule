@@ -44,6 +44,7 @@ Dialog 原先另有一份 Button 绘制／运动实现，现改为薄配色适�
 - 中间版本 `3013f7b1` 的完整签名 `assembleGithubRelease` 通过（6m49s，195 项中 37 执行、158 复用）。最终 `e240e16d` 的首次串行验证在应用测试前因 Gradle daemon JVM 内存抖动中止（`tmp/coui-dialog-final-validation-20261107.log`），不是代码编译失败。随后仅重新执行正式构建：`--no-daemon --max-workers=1`，5m52s 通过（195 项中 28 执行、167 复用）。
 - 最终 APK：`tmp/review-apks/SleepDown-1.2.8-beta2-couikut-dialog-20261107-2a481549.apk`，7,808,596 字节，SHA-256 `2A48154923EDADA0E1BEE72BDE13AB577200D48875B397E96F601CB2ABD49C8D`；V2 签名通过，证书 SHA-256 `0f2b50df…`。精确 mapping 同目录同名 `-mapping.txt`，160,979,778 字节，SHA-256 `1865F2C845510C1C83E07F34625BDD71800006356A32B4C62D67E3357C779302`。构建内嵌 revision 为 `e240e16d8f7a132ebaa0e9e9628eea459e94e560`。
 - 最终 `e240e16d` 的 `CouiMigrationUiTest` 7 项通过（含纵向手势交还父容器的新增用例），0 失败／错误／跳过；日志 `tmp/couikit-dialog-final-ui-test-20261107.log`（3m52s）。
+- 续作时对同一最终源码再次运行上述完整定向集合：应用 17 项、Kit 3 项，共 20 项全部通过，0 失败／错误／跳过，耗时 59s；日志 `tmp/coui-dialog-final-tests-20261107.log`。只读回验 APK 内嵌源码、版本、V2 签名及两份交付文件哈希，均与最终构建一致；mapping 与该次 Release 的原输出逐文件哈希匹配，无需重复打包。
 - 单元环境不代表实机 GPU 模糊、动态像素、OEM 振动或帧耗时已验收。此前 Dock/Button/Switch/Slider 视觉按用户已验收处理；本轮新视觉和修复仍需实际设备核对。
 - 不改版本、数据库或发布格式，不自动安装、推送、PR、标签或发布。APK、精确 mapping、临时图和日志仅本地保留。
 
