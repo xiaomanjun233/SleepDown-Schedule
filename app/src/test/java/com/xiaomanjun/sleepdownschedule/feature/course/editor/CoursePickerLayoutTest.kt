@@ -4,16 +4,19 @@ import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.itos.coui.menu.ProvideCouiMenuBackdrop
 import com.xiaomanjun.sleepdownschedule.defaultConfig
+import com.xiaomanjun.sleepdownschedule.defaultPeriods
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.material.VisualEffectsState
 import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
@@ -75,5 +78,30 @@ class CoursePickerLayoutTest {
         assertEquals(44 * pixelsPerDp, auto.height, 2f)
         com.xiaomanjun.sleepdownschedule.feature.settings.writeSettingsVisualArtifact(
             "coui-course-color-picker.png", compose.onNode(isDialog()).captureToImage().asAndroidBitmap())
+    }
+
+    @Test fun editorFormKeepsItsFixedHeaderAndOpensTheWeekdayPicker() {
+        val periodValues = (1..12).toList()
+        val draft = courseEditorDraft(emptyList(), periodValues, 20)
+        show {
+            var picker by remember { mutableStateOf<CourseEditorPickerRequest?>(null) }
+            Box(Modifier.size(328.dp, 600.dp).background(Color(0xFFF0F1F2))) {
+                CourseEditorFormPage(null, "添加课程", emptyList(), null, draft, {},
+                    periodValues, defaultPeriods(1), 20, defaultConfig(), null, null,
+                    onCancel = {}, onSave = {}, onDelete = null, onOpenPicker = { picker = it },
+                    onOpenColorPicker = {}, pageCount = 1)
+            }
+            picker?.let {
+                CourseEditorPickerOverlay(true, it, null, defaultConfig(), false, { picker = null }, {})
+            }
+        }
+        compose.onNodeWithText("添加课程").assertExists()
+        val fields = compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes()
+        assertTrue(fields.size >= 3)
+        assertTrue(fields.zipWithNext().all { (first, next) -> first.boundsInRoot.bottom <= next.boundsInRoot.top })
+        com.xiaomanjun.sleepdownschedule.feature.settings.writeSettingsVisualArtifact(
+            "coui-course-editor-form.png", compose.onRoot().captureToImage().asAndroidBitmap())
+        compose.onNodeWithText("星期").performClick()
+        compose.onNodeWithText("选择星期").assertExists()
     }
 }
