@@ -41,6 +41,7 @@ fun LiquidOptionTabs(
     if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeSegmentRenderer.current?.invoke(
             com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSegmentRequest(
                 labels, selectedIndex, onSelected, Modifier.width(width),
+                height = if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) 40.dp else 42.dp,
                 dark = if (followAppTheme) appUsesDarkTheme(config) else !glassUsesLightStyle(config),
                 backdrop = backdrop
             )) == true) return

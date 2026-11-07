@@ -187,6 +187,11 @@ class CouiMigrationUiTest {
     }
 
     @Test fun couiQuickSettingsUsesTheStandardWindowAndCanOpenANestedCalendar() {
+        val backdrop = object : Backdrop {
+            override val isCoordinatesDependent = false
+            override fun DrawScope.drawBackdrop(density: Density, coordinates: LayoutCoordinates?,
+                layerBlock: (GraphicsLayerScope.() -> Unit)?) { drawRect(Color(0xFF104050)) }
+        }
         val draft = mutableStateOf<com.xiaomanjun.sleepdownschedule.feature.schedule.picker.QuickScheduleDraft?>(
             com.xiaomanjun.sleepdownschedule.feature.schedule.picker.QuickScheduleDraft(1, 20, 1, true, false, "2026-09-01"))
         var saves = 0
@@ -198,8 +203,8 @@ class CouiMigrationUiTest {
                         ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
                             Box(Modifier.fillMaxSize().then(source)) {
                                 com.xiaomanjun.sleepdownschedule.feature.schedule.picker.QuickScheduleSettingsSheets(
-                                    draft.value, defaultConfig(), null, { draft.value = it }, { draft.value = null }, {},
-                                    { _, done -> saves++; done() }, suppressDetailedButton = true,
+                                    draft.value, defaultConfig(), backdrop, { draft.value = it }, { draft.value = null }, {},
+                                    { _, done -> saves++; done() }, suppressDetailedButton = false,
                                     onDetailedSettings = { _, _, _, _ -> })
                             }
                         }
@@ -208,10 +213,16 @@ class CouiMigrationUiTest {
             }
         }
         compose.onNodeWithText("课表设置").assertExists()
+        val detail = compose.onNode(hasText("详细设置") and hasClickAction()).fetchSemanticsNode().boundsInRoot
+        val cancel = compose.onNode(hasText("取消") and hasClickAction()).fetchSemanticsNode().boundsInRoot
+        val done = compose.onNode(hasText("完成") and hasClickAction()).fetchSemanticsNode().boundsInRoot
+        assertEquals(cancel.left, detail.left, 2f)
+        assertEquals(done.right, detail.right, 2f)
+        assertTrue(detail.top > done.bottom)
         com.xiaomanjun.sleepdownschedule.feature.settings.writeSettingsVisualArtifact(
             "coui-demo-quick-settings.png", compose.onNode(isDialog()).captureToImage().asAndroidBitmap())
         compose.onNodeWithText("学期开始日期").performClick()
-        compose.onNodeWithText("选择日期").assertExists()
+        compose.onNodeWithText("选择日期").assertDoesNotExist()
         compose.onAllNodes(isDialog()).assertCountEquals(2)
         compose.onAllNodesWithText("取消").onLast().performClick()
         compose.waitForIdle()
@@ -257,6 +268,30 @@ class CouiMigrationUiTest {
         compose.runOnIdle { assertTrue("Vertical handoff must not commit a later horizontal preview", commits.isEmpty()) }
         segment.performTouchInput { down(first); moveTo(second); up() }
         compose.runOnIdle { assertEquals(listOf(1), commits) }
+    }
+
+    @Test fun segmentDragCanStartFromTheMovingIndicatorBeforeItReachesTheSelectedTab() {
+        val selected = mutableIntStateOf(0)
+        compose.setContent {
+            MaterialTheme {
+                CouiSegmentedControl(Modifier.width(300.dp).testTag("moving-segment"),
+                    listOf("短", "中间", "较长标签"), selected.intValue, { selected.intValue = it },
+                    dark = false, containerSurfaceEnabled = false)
+            }
+        }
+        val segment = compose.onNodeWithTag("moving-segment")
+        val origin = segment.fetchSemanticsNode().boundsInRoot.topLeft
+        val first = compose.onNodeWithText("短").fetchSemanticsNode().boundsInRoot.center - origin
+        val middle = compose.onNodeWithText("中间").fetchSemanticsNode().boundsInRoot.center - origin
+        compose.mainClock.autoAdvance = false
+        compose.runOnIdle { selected.intValue = 2 }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        segment.performTouchInput { down(first); moveTo(middle) }
+        compose.runOnIdle { assertEquals("Moving indicator remains a valid drag origin", 1, selected.intValue) }
+        segment.performTouchInput { up() }
+        compose.mainClock.autoAdvance = true
+        compose.waitForIdle()
     }
 
     @Test fun dateCalendarClampsLeapDayAndBrowsingDoesNotCommitADate() {

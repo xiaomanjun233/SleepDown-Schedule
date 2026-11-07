@@ -103,7 +103,7 @@ fun CouiSegmentedControl(
     modifier: Modifier = Modifier,
     labels: List<String>, selectedIndex: Int, onSelected: (Int) -> Unit,
     dark: Boolean, enabled: Boolean = true,
-    height: Dp = 42.dp, containerSurfaceEnabled: Boolean = true,
+    height: Dp = 40.dp, containerSurfaceEnabled: Boolean = true,
     commitOnRelease: Boolean = false, surfaceModifier: Modifier = Modifier,
 ) {
     require(labels.isNotEmpty() && selectedIndex in labels.indices)
@@ -200,7 +200,11 @@ fun CouiSegmentedControl(
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
                     session.begin(current.value)
-                    var dragging = hit(down.position.x + padding) == current.value
+                    val downX = down.position.x + padding
+                    val indicatorHalfWidth = width.value * indicatorPress.scale.value / 2f
+                    val indicatorCenter = position.value + rubber.value
+                    val dragging = hit(downX) == current.value ||
+                        (downX >= indicatorCenter - indicatorHalfWidth && downX <= indicatorCenter + indicatorHalfWidth)
                     if (dragging) indicatorPress.press(IntSize(width.value.roundToInt(), targetHeight.roundToInt()))
                     var pressedLabel = hit(down.position.x + padding)
                     pressedLabel?.let { labelPresses[it].press(IntSize(widths[it].roundToInt(), targetHeight.roundToInt())) }
@@ -234,7 +238,9 @@ fun CouiSegmentedControl(
                             val touchedLabel = hit(change.position.x + padding)
                             if (touchedLabel != pressedLabel) {
                                 pressedLabel?.let { labelPresses[it].release() }
-                                touchedLabel?.let { labelPresses[it].press(IntSize(widths[it].roundToInt(), targetHeight.roundToInt())) }
+                                if (dragging) touchedLabel?.let {
+                                    labelPresses[it].press(IntSize(widths[it].roundToInt(), targetHeight.roundToInt()))
+                                }
                                 pressedLabel = touchedLabel
                             }
                             if (!change.pressed) {
@@ -259,7 +265,7 @@ fun CouiSegmentedControl(
                     .graphicsLayer { scaleX = labelPresses[index].scale.value; scaleY = labelPresses[index].scale.value }
                     .semantics { role = Role.Tab; selected = selectedIndex == index
                         if (!enabled) disabled()
-                        onClick { if (enabled && index != current.value) submit.value(index); enabled }
+                        if (index != selectedIndex) onClick { if (enabled) submit.value(index); enabled }
                     }.focusable(enabled).onKeyEvent { key ->
                         if (enabled && key.type == KeyEventType.KeyUp && key.key in listOf(Key.Enter, Key.Spacebar)) {
                             if (index != current.value) submit.value(index); true
