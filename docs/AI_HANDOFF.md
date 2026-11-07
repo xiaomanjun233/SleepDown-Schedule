@@ -6,7 +6,8 @@
 
 - `350f6715`：两个入口继续用Kit Menu，通过样式恢复原生白光轮廓；普通字体实际为 `DefaultAdapter → couiTextBodyL` 的15sp regular。旧报告16sp对应固定字体分支，不能继续当普通默认。工具栏居中避让、课程逻辑起始边、上下8dp间隔，结合可见窗口／RTL／IME及长菜单滚动。
 - `a8642f23`：完整窗口显式不隔离时，消费期间也使用Auto指令源，去除开窗额外整屏纹理；源／浮动材质／Dialog采样锚点只在实际几何改变时失效。Window属性实际变化才合并写入，背景Drawable随窗口建立；去除Menu重复离屏层。原模糊、混色、融球、阴影与运动算法不删改。
-- 最终定向29项通过（Kit12＋应用17，4m20s），日志 `tmp/coui-menu-geometry-final-tests-20261108.log`；首次仅新增诊断断言误用了Compose策略字符串，已更正后通过。完整签名Release待构建，完成后补包名／哈希并按授权删除上一归档mapping。
+- 最终定向29项通过（Kit12＋应用17，4m20s），日志 `tmp/coui-menu-geometry-final-tests-20261108.log`；首次仅新增诊断断言误用了Compose策略字符串，已更正后通过。完整签名Release通过（5m50s，R8／资源压缩／lintVital／V2签名），日志 `tmp/coui-menu-geometry-release-20261108.log`。
+- 最新本地包 `tmp/review-apks/SleepDown-1.2.8-beta2-coui-menu-geometry-20261108-d5cf727f.apk`，7,891,084字节、SHA-256 `D5CF727F636FF2212639B65BA190DB2765E70D7B922D5A7F53E59AE08345AC44`；同名 `-mapping.txt` 163,103,350字节、SHA-256 `65000215C70C719B46E51B820D4E3A7E538238F1F8909914DBCE810E873DAE87`。内嵌源码 `b9a34058`，原输出／副本哈希及签名核对一致。已按授权删除上一份 `b0c89f55` 归档mapping，当前归档仅保留本包的一份；旧APK保留。
 - 5037／5038均核对为SDK37.0.1服务，无USB设备、无线设备或mDNS端点；无法测量本轮真机帧耗时，未安装／启动／推送／发布。不得把测试或Robolectric排版图当流畅度、GPU模糊或1:1视觉验收。详见[续修报告](reports/2026-11-08-coui-menu-geometry-render-cost.md)。保留未跟踪 `output/`。
 
 ## 2026-11-08 当前：恢复Kit菜单、原生遮罩与弹窗进入开销

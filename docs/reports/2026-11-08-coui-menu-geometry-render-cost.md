@@ -23,6 +23,15 @@
 
 首次定向运行17项应用测试仅新增诊断断言失败：Compose的策略字符串是 `CompositingStrategy(value=0)`，不是 `Auto`；实际策略正确，断言已改为与公开Auto值比较。最终截图只用于布局／状态核对；不能以29项通过证明流畅度或GPU观感。
 
-完整签名Release与精确mapping待本轮构建完成后补充。
+完整签名 `assembleGithubRelease --console=plain --no-parallel --max-workers=1 --no-daemon` 通过（5m50s，195任务，31执行／164复用），保留R8、资源压缩、lintVital和V2签名。日志 `tmp/coui-menu-geometry-release-20261108.log`。
+
+| 归档文件 | 字节 | SHA-256 |
+| --- | ---: | --- |
+| `SleepDown-1.2.8-beta2-coui-menu-geometry-20261108-d5cf727f.apk` | 7,891,084 | `D5CF727F636FF2212639B65BA190DB2765E70D7B922D5A7F53E59AE08345AC44` |
+| 同名 `-mapping.txt` | 163,103,350 | `65000215C70C719B46E51B820D4E3A7E538238F1F8909914DBCE810E873DAE87` |
+
+文件位于 `tmp/review-apks`，副本与原构建输出哈希一致。APK内嵌源码 `b9a34058a798c393f80d817a36d856277b8fd609`；包名／版本 `com.xiaomanjun.sleepdownschedule / 1.2.8_beta2 / 36` 保持。V2证书SHA-256 `0f2b50dfb7e10c6f5981ab966f1f4ebd76af81a7ad9ba31663284eaa88c0181a`。交付元数据 `tmp/coui-menu-geometry-delivery-20261108.json`。
+
+新包校验后，按用户已有清理授权删除上一份 `b0c89f55` 归档mapping（163,130,863字节），归档目录仅保留本包一份精确mapping。旧APK及其他目录保留。
 
 设备调查：SDK37.0.1客户端；5038及5037均为同一SDK来源，USB设备列表和两通道mDNS均为空，没有其他可见ADB服务。因此未采集新设备帧耗时、GPU trace或原生对比截图，也未安装、启动或发布应用。Robolectric截图只用于排版／状态检查。
