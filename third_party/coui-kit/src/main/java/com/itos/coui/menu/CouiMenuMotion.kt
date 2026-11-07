@@ -12,6 +12,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalInspectionMode
@@ -47,6 +48,17 @@ internal fun rememberCouiMenuMotion(expanded: Boolean): CouiMenuMotion {
         }
     }
     return motion
+}
+
+/** 以实际菜单弹簧完成为交接点，快速重开会取消本次关闭回调。 */
+@Composable
+internal fun MenuDismissCompletion(expanded: Boolean, motion: CouiMenuMotion, onFinished: () -> Unit) {
+    var mounted by remember { mutableStateOf(expanded) }
+    val finished by rememberUpdatedState(onFinished)
+    LaunchedEffect(expanded, motion.visible) {
+        if (expanded) mounted = true
+        else if (mounted && !motion.visible) { mounted = false; finished() }
+    }
 }
 
 internal class CouiMenuMotion(private val inspecting: Boolean) {

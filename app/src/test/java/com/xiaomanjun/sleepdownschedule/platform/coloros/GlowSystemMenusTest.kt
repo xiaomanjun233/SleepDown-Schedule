@@ -39,7 +39,7 @@ import org.robolectric.annotation.GraphicsMode
 class GlowSystemMenusTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun overflowUsesSystemRowsAndCommitsOnlyAfterExit() {
+    @Test fun overflowUsesCouiRowsAndCommitsOnlyAfterExit() {
         var commits = 0
         var pixelsPerDp = 1f
         compose.setContent {
@@ -63,8 +63,8 @@ class GlowSystemMenusTest {
         }
         compose.onNodeWithContentDescription("打开").performClick()
         val row = compose.onNodeWithText("课程管理").fetchSemanticsNode().boundsInRoot
-        assertEquals(196 * pixelsPerDp, row.width, 2f)
-        assertTrue(row.height >= 40 * pixelsPerDp - 1f)
+        assertEquals(196 * pixelsPerDp, row.width + 16 * pixelsPerDp, 2f)
+        assertTrue(row.height >= 37 * pixelsPerDp - 1f)
         com.xiaomanjun.sleepdownschedule.feature.settings.writeSettingsVisualArtifact(
             "system-glow-overflow.png", compose.onNode(isPopup()).captureToImage().asAndroidBitmap())
         compose.mainClock.autoAdvance = false
@@ -74,6 +74,42 @@ class GlowSystemMenusTest {
         compose.waitForIdle()
         compose.runOnIdle { assertEquals(1, commits) }
         compose.onNodeWithText("课程管理").assertDoesNotExist()
+    }
+
+    @Test fun overflowDragSelectsTheReleaseItemAndMovingOutsideDoesNotSubmit() {
+        var commits = 0
+        compose.setContent {
+            MaterialTheme {
+                ProvideColorOsMaterials(enabled = false, couiControlsEnabled = true) {
+                    ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
+                        Box(Modifier.fillMaxSize().then(source).background(Color(0xFF85B6D0)),
+                            contentAlignment = Alignment.TopEnd) {
+                            val actions = listOf(AddMenuAction(R.drawable.ic_courses, "课程管理") { commits++ },
+                                AddMenuAction(R.drawable.ic_settings, "课表设置") { commits += 10 })
+                            CompositionLocalProvider(LocalHomeOverflowMenu provides rememberUpdatedState(actions)) {
+                                HomeIconButtonVisual(null, defaultConfig(), R.drawable.ic_more_horizontal,
+                                    "打开", Modifier.padding(16.dp).size(42.dp))
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        compose.onNodeWithContentDescription("打开").performClick()
+        val first = compose.onNodeWithText("课程管理")
+        val firstBounds = first.fetchSemanticsNode().boundsInRoot
+        val secondBounds = compose.onNodeWithText("课表设置").fetchSemanticsNode().boundsInRoot
+        val delta = secondBounds.center - firstBounds.center
+        first.performTouchInput { down(center); moveTo(center + delta); moveTo(androidx.compose.ui.geometry.Offset(-100f, center.y)); up() }
+        compose.runOnIdle { assertEquals(0, commits) }
+        first.performTouchInput { down(center); moveTo(center + delta) }
+        compose.mainClock.advanceTimeBy(300)
+        com.xiaomanjun.sleepdownschedule.feature.settings.writeSettingsVisualArtifact(
+            "coui-action-menu-native-mask.png", compose.onNode(isPopup()).captureToImage().asAndroidBitmap())
+        compose.runOnIdle { assertEquals(0, commits) }
+        first.performTouchInput { up() }
+        compose.waitForIdle()
+        compose.runOnIdle { assertEquals(10, commits) }
     }
 
     @Test fun homeTopBarUsesCouiButtonInsideToolbarSurface() {

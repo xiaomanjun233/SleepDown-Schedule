@@ -82,7 +82,6 @@ internal fun couiMenuMaterial(
     parentTouchMotion: CouiTouchMotion? = null,
     collapseBlend: (() -> Float)? = null,
     mergeSource: CouiMenuMaterialSource? = null,
-    systemStyle: Boolean = false,
 ): CouiMenuMaterial {
     // 材质组合覆盖进入、退出和反向动画, 不按 expanded 提前释放背景。
     backdrop.RetainWhileComposed()
@@ -114,7 +113,7 @@ internal fun couiMenuMaterial(
     val edgeRadiusPx = LocalCouiMenuStyle.current.resolvedRadius.value * density.density
     val edgeWeight = (LocalCouiMenuStyle.current.shape as? CouiShape)?.cornerWeight ?: CouiCornerWeight
     val edge = if (runtimeShaderSupported) {
-        rememberCouiMenuEdge(dark, edgeRadiusPx, edgeWeight, mix, blend, systemStyle)
+        rememberCouiMenuEdge(dark, edgeRadiusPx, edgeWeight, mix, blend)
     } else null
     if (!runtimeShaderSupported) {
         // shortcut: API 33 以下保留旧 Gaussian/Canvas 混合, 不视为厂商逐像素等价实现。

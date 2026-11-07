@@ -33,6 +33,7 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
@@ -161,6 +162,8 @@ internal fun <T> CouiMenuWithSubMenu(
     headerText: String?,
     headerTextAlign: TextAlign,
     themeTintEnabled: Boolean,
+    onDismissFinished: () -> Unit = {},
+    onMenuPositioned: (Rect) -> Unit = {},
 ) {
     val state = remember { SubMenuState<T>() }
     val mainScroll = rememberScrollState()
@@ -168,6 +171,7 @@ internal fun <T> CouiMenuWithSubMenu(
     val main = remember { CouiMenuPanel<T>(mainScroll) }
     val child = remember { CouiMenuPanel<T>(childScroll) }
     val motion = rememberCouiMenuMotion(expanded)
+    MenuDismissCompletion(expanded, motion, onDismissFinished)
     val mainTouch = rememberCouiTouchMotion(expanded)
     val childTouch = rememberCouiTouchMotion(expanded)
     val density = LocalDensity.current
@@ -599,6 +603,7 @@ internal fun <T> CouiMenuWithSubMenu(
         }.onGloballyPositioned { main.surfaceCoordinates = it },
         transitionProgress = { state.progress.value },
         onPositioned = { provider = it },
+        onMenuPositioned = onMenuPositioned,
         onOutsideRequest = { point ->
             val root = state.rootCoordinates?.takeIf { it.isAttached }
             // 提示、分隔和暂时禁用的主面板也属于菜单, 不能由背景节点关闭整个窗口。

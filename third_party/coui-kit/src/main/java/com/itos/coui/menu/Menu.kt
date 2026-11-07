@@ -44,18 +44,21 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.AbsoluteAlignment
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -77,6 +80,8 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.round
+import androidx.compose.ui.unit.toSize
+import androidx.compose.ui.unit.toOffset
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.SecureFlagPolicy
@@ -127,6 +132,8 @@ data class CouiMenuItem<T>(
     val dividerBefore: Boolean = false,
     val iconTint: Color? = null,
     val children: List<CouiMenuItem<T>> = emptyList(),
+    val iconPainter: Painter? = null,
+    val textColor: Color? = null,
 )
 
 /**
@@ -157,6 +164,8 @@ private fun <T> CouiMenuContent(
     headerText: String? = null,
     headerTextAlign: TextAlign = TextAlign.Center,
     themeTintEnabled: Boolean = true,
+    onDismissFinished: () -> Unit = {},
+    onMenuPositioned: (Rect) -> Unit = {},
 ) {
     require(items.all { item -> item.children.all { it.children.isEmpty() } }) {
         "Menu 只支持两级菜单"
@@ -165,11 +174,13 @@ private fun <T> CouiMenuContent(
         CouiMenuWithSubMenu(
             expanded, onDismissRequest, items, onItemClick, modifier, offset, properties,
             anchor, headerText, headerTextAlign, themeTintEnabled,
+            onDismissFinished, onMenuPositioned,
         )
         return
     }
     val selection = remember { CouiMenuSelection() }
     val motion = rememberCouiMenuMotion(expanded)
+    MenuDismissCompletion(expanded, motion, onDismissFinished)
     val touchMotion = rememberCouiTouchMotion(expanded)
     val menuShape = LocalCouiMenuStyle.current.shape
     val menuBackdrop = LocalCouiMenuBackdrop.current
@@ -197,6 +208,7 @@ private fun <T> CouiMenuContent(
         modifier = modifier.then(material.drawing).then(material.input)
             .widthIn(min = CouiMenuMinWidth, max = CouiMenuMaxWidth),
         properties = properties,
+        onMenuPositioned = onMenuPositioned,
     ) { scrollState ->
         CouiMenuList(items = items, expanded = expanded, onItemClick = onItemClick,
             selection = selection, scrollState = scrollState, headerText = headerText, headerTextAlign = headerTextAlign)
@@ -329,10 +341,11 @@ internal fun <T> CouiMenuList(
                                     break
                                 }
                                 val change = event.changes.firstOrNull { it.id == down.id }
-                                if (change == null || !change.pressed) {
-                                    if (change == null) pendingIndex = null
-                                    pointerPressed = false
-                                } else if (!canSlideSelect) {
+                                if (change == null) {
+                                    pendingIndex = null
+                                    break
+                                }
+                                if (!canSlideSelect) {
                                     // 厂商可滚动菜单超过 touch slop 后交给滚动, 不切换滑选项。
                                     if (scrollState.isScrollInProgress ||
                                         kotlin.math.abs(change.position.y - down.position.y) > viewConfiguration.touchSlop
@@ -360,6 +373,8 @@ internal fun <T> CouiMenuList(
                                     // 对应厂商 cancelLastItemSelect, 防止原项点击与滑选各提交一次。
                                     if (movedBetweenItems || pendingIndex == null) change.consume()
                                 }
+                                // UP 也核对最终命中，不能把最后一个 MOVE 的旧目标当作抬手位置。
+                                if (!change.pressed) pointerPressed = false
                             }
                             if (movedBetweenItems) {
                                 pendingIndex?.let { index -> currentOnItemClick(items[index]) }
@@ -388,6 +403,7 @@ internal fun <T> CouiMenuList(
             )
         }
         Box {
+            val indicator: @Composable () -> Unit = {
             key(pressedIndicatorSession) {
                 CouiMenuPressedIndicator(
                     itemTop = pressedIndicatorIndex?.let { index ->
@@ -401,6 +417,8 @@ internal fun <T> CouiMenuList(
                     }
                 )
             }
+            }
+            if (!LocalCouiMenuStyle.current.pressMaskOnForeground) indicator()
             Column {
                 items.forEachIndexed { index, item ->
                     if (item.dividerBefore) CouiMenuDivider()
@@ -418,6 +436,7 @@ internal fun <T> CouiMenuList(
                     )
                 }
             }
+            if (LocalCouiMenuStyle.current.pressMaskOnForeground) indicator()
         }
     }
 }
@@ -467,6 +486,7 @@ internal fun CouiMenuPopup(
     scrollState: ScrollState = rememberScrollState(),
     scrollBar: CouiMenuScrollBar = remember(scrollState) { CouiMenuScrollBar(scrollState) },
     scrollEnabled: Boolean = true,
+    onMenuPositioned: (Rect) -> Unit = {},
     content: @Composable ColumnScope.(ScrollState) -> Unit,
 ) {
     LaunchedEffect(expanded, scrollState) {
@@ -490,6 +510,14 @@ internal fun CouiMenuPopup(
         )
     }
     val currentOnOutsideRequest by rememberUpdatedState(onOutsideRequest)
+    val popupOrigin = positionProvider.popupOriginInHostWindow
+    val menuSize = positionProvider.menuSize
+    val menuPosition = positionProvider.menuPosition
+    SideEffect {
+        if (popupOrigin != null && menuSize != null) {
+            onMenuPositioned(Rect((popupOrigin + menuPosition).toOffset(), menuSize.toSize()))
+        }
+    }
     val hostView = LocalView.current
     Popup(
         popupPositionProvider = positionProvider,
@@ -650,7 +678,7 @@ private fun <T> CouiMenuRow(
 ) {
     val clickInteractionSource = remember { MutableInteractionSource() }
     val selectedColor = LocalCouiMenuStyle.current.colors.primary
-    val onSurfaceColor = LocalCouiMenuStyle.current.colors.onSurface
+    val onSurfaceColor = item.textColor ?: LocalCouiMenuStyle.current.colors.onSurface
     val textColor = when {
         !item.enabled -> onSurfaceColor.copy(alpha = 0.38f)
         item.selected -> selectedColor
@@ -711,7 +739,12 @@ private fun <T> CouiMenuRow(
             )
             Spacer(modifier = Modifier.width(CouiMenuItemIconSpacing))
         }
-        item.icon?.let { icon ->
+        if (item.iconPainter != null) {
+            Icon(painter = item.iconPainter, contentDescription = null,
+                modifier = Modifier.size(CouiMenuItemIconSize),
+                tint = if (item.enabled) item.iconTint ?: textColor else textColor)
+            Spacer(Modifier.width(CouiMenuItemIconSpacing))
+        } else item.icon?.let { icon ->
             Icon(
                 imageVector = icon,
                 contentDescription = null,
@@ -774,6 +807,8 @@ fun <T> Menu(
     headerText: String? = null,
     headerTextAlign: TextAlign = TextAlign.Center,
     onSpotlightDiagnostic: ((SpotlightDiagnostic) -> Unit)? = null,
+    onDismissFinished: () -> Unit = {},
+    onMenuPositioned: (Rect) -> Unit = {},
 ) {
     CompositionLocalProvider(
         LocalCouiMenuStyle provides style,
@@ -782,6 +817,7 @@ fun <T> Menu(
         CouiMenuContent(
             expanded, onDismissRequest, items, onItemClick, modifier,
             offset, properties, anchor, headerText, headerTextAlign, style.themeTint.alpha > 0f,
+            onDismissFinished, onMenuPositioned,
         )
     }
 }

@@ -63,6 +63,8 @@ data class CouiMenuStyle(
     val themeTint: Color = Color.Transparent,
     val spotlightDiffuse: Float? = null,
     val dark: Boolean? = null,
+    /** 原生 TouchRecyclerView 在文字和图标之后绘制共享按压遮罩。 */
+    val pressMaskOnForeground: Boolean = false,
 )
 
 internal val CouiMenuStyle.resolvedRadius: Dp
