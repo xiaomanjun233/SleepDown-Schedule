@@ -32,4 +32,13 @@ shortcut 和三点菜单都使用 Kit `Menu`。有效 backdrop 下，`couiMenuMa
 
 `compileGithubReleaseKotlin :app:testGithubDebugUnitTest --tests '*GlowSystemMenusTest'` 通过，5m33s；6项、0失败／错误／跳过。包括 Menu 两主题跟手光触摸／绘制请求及现有宿主菜单立即提交、取消和布局检查。日志 `tmp/coui-button-spotlight-tests-20261108.log`。最初误用了未启用的 Release 测试任务名，已改用现有 Debug 单元测试变体，未改变构建配置。
 
-签名打包结果待回填。用户暂时不能连接手机，本轮没有真机视觉或帧耗时验收。
+运行时提交 `1baf103f0e6d2d995a0b23e921a255f9aa51973e` 的完整签名 `assembleGithubRelease` 通过（3m15s，195任务，19执行／176复用），保留R8、资源压缩、lintVital和V2签名；日志 `tmp/coui-button-spotlight-release-20261108.log`。用户暂时不能连接手机，本轮没有真机视觉或帧耗时验收。
+
+归档位于 `tmp/review-apks`：
+
+| 文件 | 字节 | SHA-256 |
+| --- | ---: | --- |
+| `SleepDown-1.2.8-beta2-coui-button-material-20261108-96dd64b3.apk` | 7,891,084 | `96DD64B3E256D89D2AA6E852D63251903110E5C745D0D39AC45EC094B59DF98B` |
+| 同名 `-mapping.txt` | 163,127,483 | `B6326AA4790921CD054FFE739FDBA0712BAF5660A09A9D3E453C3ACF2888977B` |
+
+原输出／副本哈希一致。包身份 `com.xiaomanjun.sleepdownschedule / 1.2.8_beta2 / 36`、minSdk26／targetSdk36；V2证书SHA-256 `0f2b50dfb7e10c6f5981ab966f1f4ebd76af81a7ad9ba31663284eaa88c0181a`。元数据 `tmp/coui-button-material-delivery-20261108.json`。新包核对后按既有授权删除上一份 `e4428ad8` 归档mapping，只保留本包对应mapping；旧APK与 `output/` 保留。未安装／启动／推送／发布。

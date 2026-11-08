@@ -6,7 +6,8 @@
 
 - 普通主按钮恢复 Kit 默认填色；兼容请求显式 `translucentAccent` 才为有色浮动按钮采样，管理页分享／新建和 Dock 加号保留半透明模糊。管理页课表设置在 Kit 路线不再带旧纵向白色洗光／绕回旧原生按钮；黑底与投光纳入同一 underlay，预览和按钮留在源外。TextureView 投光是否进入真实硬件采样仍待设备确认。
 - shortcut／三点菜单已有 Kit `TranslucentLarge1` 跟手光，没有证据支持调大强度或另加弹出闪光。本轮使用 Menu 现有诊断验证两主题按下、绘制请求、滑移后 CANCEL 和 UP；Robolectric不能验证真实GPU亮度，也未证明长按原触点跨Popup交接。课程卡片及通用材质仍未整体迁移Kit，不能声称替换完成。
-- Release Kotlin 编译和 `GlowSystemMenusTest` 6项通过（5m33s，0失败／错误／跳过），日志 `tmp/coui-button-spotlight-tests-20261108.log`。签名包待本轮收尾记录；旧 `e4428ad8` 包不包含本轮修正。详见[本轮报告](reports/2026-11-08-coui-button-material-spotlight-audit.md)。未再次同步上游，固定基线仍为 `520478b9`。
+- `1baf103f`：Release Kotlin 编译和 `GlowSystemMenusTest` 6项通过（5m33s，0失败／错误／跳过），日志 `tmp/coui-button-spotlight-tests-20261108.log`。完整签名Release通过（3m15s，R8／资源压缩／lintVital／V2签名），日志 `tmp/coui-button-spotlight-release-20261108.log`。详见[本轮报告](reports/2026-11-08-coui-button-material-spotlight-audit.md)。未再次同步上游，固定基线仍为 `520478b9`。
+- 最新本地包 `tmp/review-apks/SleepDown-1.2.8-beta2-coui-button-material-20261108-96dd64b3.apk`，7,891,084字节、SHA-256 `96DD64B3E256D89D2AA6E852D63251903110E5C745D0D39AC45EC094B59DF98B`；同名mapping 163,127,483字节、SHA-256 `B6326AA4790921CD054FFE739FDBA0712BAF5660A09A9D3E453C3ACF2888977B`。原输出／副本一致，证书／版本／SDK已核对，源码 `1baf103f`。按授权删除上一份 `e4428ad8` 归档mapping，只保留本包对应mapping；旧APK及 `output/` 保留。未安装／启动／推送／发布。
 
 ## 2026-11-08 当前：右侧shortcut、菜单立即响应、共用卡顿调查
 
