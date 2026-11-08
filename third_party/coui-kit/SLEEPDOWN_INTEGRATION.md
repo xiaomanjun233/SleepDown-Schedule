@@ -22,7 +22,7 @@
 
 ## 2026-11-07 系统菜单与特殊选择器续作
 
-- 课程shortcut与三点动作菜单直接使用Kit `Menu`，保留196dp宽度、原窗口与材质。所有动作项 `dividerBefore=false`。样式显式选择原生白光轮廓与普通动作文字（目标相册APK的 `DefaultAdapter → couiTextBodyL` 为15sp regular，不能沿用旧报告的16sp猜值或Kit的14sp medium）。`CouiMenuPlacement.AnchorCenter` 用于工具栏，`AnchorStart` 用于课程；按可见窗口、IME和RTL定位，上翻保持8dp间隔，长菜单约束到可用高度。设置菜单默认定位及字体不变。原生共享遮罩使用显式 `pressMaskOnForeground`，动作在实际退场后交接。
+- 课程shortcut与三点动作菜单直接使用Kit `Menu`，保留196dp宽度、原窗口与材质。所有动作项 `dividerBefore=false`。样式显式选择原生白光轮廓与普通动作文字（目标相册APK的 `DefaultAdapter → couiTextBodyL` 为15sp regular，不能沿用旧报告的16sp猜值或Kit的14sp medium）。工具栏使用 `CouiMenuPlacement.AnchorCenter`；课程沿原有列锚点选择Start／Center／End，保留右列右对齐与RTL。按可见窗口、IME定位，上翻保持8dp间隔，长菜单约束到可用高度。设置菜单默认定位及字体不变。原生共享遮罩使用显式 `pressMaskOnForeground`。宿主动作在有效选择时立即提交一次，实际退场回调只负责清理窗口／资源。
 - 分段普通高度按系统regular40dp；显式传入尺寸的首页导航不改。指示器运动中的可见矩形也可起拖，跨标签缩放与已选无障碍点击按系统语义补齐。
 - 宿主自定义Picker使用独立的内容边距参数，不改Wheel/Calendar自身尺寸；月历不增加外层标题。具体业务布局仍留在宿主，不加入上游Demo或厂商二进制。
 

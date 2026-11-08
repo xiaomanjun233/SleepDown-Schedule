@@ -1,6 +1,6 @@
 # SleepDown ColorOS 组件框架
 
-本框架提供主应用的“凝光视效”可选材质，实现位于 `platform/coloros/`。`app/ui/ProvideVisualEffects` 读取偏好和运行时能力，通过 `ProvideColorOsMaterials` 接入公共控件。默认保留液态玻璃；GitHub 渠道、ColorOS 17 及以上且 COUI 能力探测成功时开放凝光选项。课程管理 Activity 的类名保留，避免改变 Manifest、Intent 和转场路由。
+本框架提供主应用的“凝光视效”材质分发，实现位于 `platform/coloros/`。`app/ui/ProvideVisualEffects` 读取偏好，通过 `ProvideColorOsMaterials` 接入公共控件。未保存偏好时默认凝光，已有选择保持。已迁移的COUIKit控件在Android14+跨品牌启用；尚未迁移的原生表面仍要求私有ColorOS能力，能力缺失时使用对应Compose后备实现。不能把“选择凝光”视为页面上所有表面均已迁入Kit。课程管理Activity的类名保留，避免改变Manifest、Intent和转场路由。
 
 模式选择位于“通用设置 → 外观”。凝光生效时隐藏液态玻璃调整入口，旧页面恢复时也不创建预览与滑条；切回液态玻璃后恢复入口和已保存的模糊参数。超级性能模式仍隐藏玻璃调整，但不阻止可用设备切换视效模式。
 
@@ -13,6 +13,8 @@
 - `SLEEPDOWN_EXPERIMENTAL_FEATURES` 仍是发行渠道开关；框架提取不意味着这些私有厂商接口在所有 Android 上可用。
 
 ## 胶囊按钮
+
+本节的COUIButton、系统APK及反射细节描述旧原生后端。已迁移普通按钮先由 `CouiCapsuleButtonRenderer` 处理；投光、自定义手势区域和复合输入壳仍有各自入口。当前材质入口与迁移边界见[专项盘点](../reports/2026-11-08-glow-material-entry-audit.md)，不能把本节原生能力等同于Kit已全部覆盖。
 
 多课表浮层的卡片投光通过公共 `NativeCardLightRequest` 交给凝光 renderer：运行时从系统壁纸 APK 加载 `WallpaperShadowView`、COE 与原始 `shadow_card.coz`，按卡片真实底边定位在整个浮层内。只有附加受光按钮请求原厂 30px MIRROR 背景采样；普通胶囊继续使用原有材质。系统实现缺失时省去附加光效；生命周期与显隐控制原生启停，退出后释放、不复用已销毁的引擎。接入与验收边界见[卡片光效报告](../reports/2026-11-04-schedule-manager-card-glow.md)。
 
