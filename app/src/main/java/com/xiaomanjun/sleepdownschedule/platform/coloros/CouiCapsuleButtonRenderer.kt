@@ -25,7 +25,8 @@ internal fun CouiCapsuleButtonRenderer(
     val primary = request.primaryColor.isSpecified
     val accent = if (primary) request.primaryColor.copy(alpha = 1f) else Color.Unspecified
     val shape = request.shape ?: CouiButtonDefaults.shape
-    val sampled = (request.backdrop != null && !LocalNativeDialogSurface.current) &&
+    val sampled = (!primary || request.translucentAccent) &&
+        (request.backdrop != null && !LocalNativeDialogSurface.current) &&
         !com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
     val colors = if (primary) CouiButtonDefaults.primaryColors(accent)
         else CouiButtonDefaults.secondaryColors(request.dark, material = true)

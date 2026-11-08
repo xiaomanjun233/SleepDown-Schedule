@@ -756,7 +756,8 @@ fun SchedulePickerOverlay(
     // Second half of the original button: ColorOS samples the colour band behind its capsule and
     // stacks `all_theme_button_shape_background` (#4DFFFFFF → #1AFFFFFF, 270°) on the material.
     // The wash remains when the card light fades, keeping the controls visible during paging.
-    val pickerButtonSheen: (() -> Brush?)? = if (cardGlowEnabled) remember {
+    val couiButtons = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
+    val pickerButtonSheen: (() -> Brush?)? = if (cardGlowEnabled && !couiButtons) remember {
         val wash = Brush.verticalGradient(listOf(Color(0x4DFFFFFF), Color(0x1AFFFFFF)))
         val sheen: () -> Brush? = { wash }
         sheen
@@ -867,8 +868,8 @@ fun SchedulePickerOverlay(
         Box(
             Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = backdropAlpha))
                 .glassBackdropProducer(managerBackdrop)
+                .background(Color.Black.copy(alpha = backdropAlpha))
                 .pointerInput(phaseInputEnabled, pickerState.deletingScheduleId) {
                     detectTapGestures(onTap = {
                         if (pickerState.phase is CustomizeUiState.Picker) {
@@ -876,25 +877,26 @@ fun SchedulePickerOverlay(
                         }
                     })
                 }
-        )
-
-        // Use the whole viewport so the native light can reach the controls below the pager.
-        if (cardGlowEnabled) {
-            val glowSnapshot = if (pickerState.currentSnapshotScheduleId == selectedId) {
-                pickerState.currentSnapshot
-            } else {
-                pickerState.snapshots[selectedId]
+        ) {
+            // 黑底和投光组成同一个下层源，按钮与卡片留在源外，避免空源及自采样。
+            // Use the whole viewport so the native light can reach the controls below the pager.
+            if (cardGlowEnabled) {
+                val glowSnapshot = if (pickerState.currentSnapshotScheduleId == selectedId) {
+                    pickerState.currentSnapshot
+                } else {
+                    pickerState.snapshots[selectedId]
+                }
+                ScheduleCardGlow(
+                    bitmap = glowSnapshot,
+                    cardBounds = {
+                        (targetCardBounds ?: Rect.Zero).translate(-pickerOrigin.x, -pickerOrigin.y)
+                    },
+                    strength = { glowAnimation.opacity.value * pickerState.chromeProgress.value },
+                    revealProgress = { glowAnimation.reveal.value },
+                    receiverBounds = { lightReceiverBounds.translate(-pickerOrigin.x, -pickerOrigin.y) },
+                    modifier = Modifier.matchParentSize()
+                )
             }
-            ScheduleCardGlow(
-                bitmap = glowSnapshot,
-                cardBounds = {
-                    (targetCardBounds ?: Rect.Zero).translate(-pickerOrigin.x, -pickerOrigin.y)
-                },
-                strength = { glowAnimation.opacity.value * pickerState.chromeProgress.value },
-                revealProgress = { glowAnimation.reveal.value },
-                receiverBounds = { lightReceiverBounds.translate(-pickerOrigin.x, -pickerOrigin.y) },
-                modifier = Modifier.matchParentSize()
-            )
         }
 
         Column(
@@ -1362,6 +1364,7 @@ private fun PickerIconLiquidButton(
             height = 52.dp,
             nativeDarkOverride = true,
             tint = tint,
+            nativeTranslucentAccent = true,
             surfaceColor = tint.copy(alpha = 0.22f),
             blurRadius = 10.dp,
             lensHeight = 30.dp,

@@ -33,7 +33,9 @@ internal data class NativeCapsuleButtonRequest(
     /** 调用方已排除按钮本身的背景源；不能改为采样包含按钮的窗口祖先。 */
     val backdrop: com.kyant.backdrop.Backdrop? = null,
     val shape: androidx.compose.ui.graphics.Shape? = null,
-    val customGestureRegion: Boolean = false
+    val customGestureRegion: Boolean = false,
+    /** 有色浮动操作显式启用半透明采样；普通主按钮保持 Kit 默认填色。 */
+    val translucentAccent: Boolean = false
 )
 
 internal val LocalNativeCapsuleButtonRenderer = compositionLocalOf<

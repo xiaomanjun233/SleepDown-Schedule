@@ -17,6 +17,10 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import com.itos.coui.menu.ProvideCouiMenuBackdrop
+import com.itos.coui.menu.Menu
+import com.itos.coui.menu.CouiMenuItem
+import com.itos.coui.menu.CouiMenuDefaults
+import com.itos.coui.effect.SpotlightDiagnostic
 import com.itos.coui.diagnostic.CouiRenderDiagnostics
 import com.xiaomanjun.sleepdownschedule.glass.*
 import com.xiaomanjun.sleepdownschedule.R
@@ -38,6 +42,52 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class GlowSystemMenusTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun kitMenuSpotlightReceivesPressAndReleasesOnCancelAndUpInBothThemes() {
+        val dark = mutableStateOf(false)
+        val events = mutableListOf<SpotlightDiagnostic>()
+        var commits = 0
+        compose.setContent {
+            MaterialTheme {
+                ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
+                    Box(Modifier.fillMaxSize().then(source).background(Color(0xFF85B6D0))) {
+                        Menu(expanded = true, onDismissRequest = {},
+                            modifier = Modifier.width(196.dp),
+                            style = CouiMenuDefaults.style(dark.value),
+                            items = listOf(CouiMenuItem(0, "第一项"), CouiMenuItem(1, "第二项")),
+                            onItemClick = { commits++ }, onSpotlightDiagnostic = events::add)
+                    }
+                }
+            }
+        }
+        for (theme in listOf(false, true)) {
+            compose.runOnIdle { dark.value = theme; events.clear() }
+            val first = compose.onNodeWithText("第一项")
+            val delta = compose.onNodeWithText("第二项").fetchSemanticsNode().boundsInRoot.center -
+                first.fetchSemanticsNode().boundsInRoot.center
+            first.performTouchInput { down(center); moveTo(center + delta) }
+            compose.mainClock.advanceTimeBy(300)
+            compose.onNode(isPopup()).captureToImage()
+            compose.runOnIdle {
+                assertEquals(1, events.count { it == SpotlightDiagnostic.Pressed })
+                assertTrue(events.any { it is SpotlightDiagnostic.FirstDraw && it.progress > 0f })
+                assertFalse(events.any { it is SpotlightDiagnostic.Released })
+            }
+            first.performTouchInput { cancel() }
+            compose.runOnIdle {
+                assertEquals(1, events.count { it is SpotlightDiagnostic.Released })
+                assertEquals(0, commits)
+                events.clear()
+            }
+            first.performTouchInput { click() }
+            compose.runOnIdle {
+                assertEquals(1, events.count { it == SpotlightDiagnostic.Pressed })
+                assertEquals(1, events.count { it is SpotlightDiagnostic.Released })
+                assertEquals(1, commits)
+                commits = 0
+            }
+        }
+    }
 
     @Test fun overflowUsesCouiRowsAndCommitsImmediatelyExactlyOnce() {
         var commits = 0

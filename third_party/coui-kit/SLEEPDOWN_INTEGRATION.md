@@ -15,7 +15,7 @@
 - `ProvideCouiMenuBackdrop` 在同一个 Window 内复用完整窗口源；独立窗口建立带 parent 的新源。宿主整窗源显式 `recordWhenIdle=false`，空闲直接绘制、不录制整页；消费期间保留父链。`isolateContent=false` 在消费时也保留 Auto 指令源，采样材质隔离自己的区域，避免开窗再分配额外整屏纹理；默认隔离入口不变。
 - Dialog 背景使用上游 Kawase 等级（`200` 不是像素半径），沿用混色与轮廓。按用户后续要求恢复上游 DialogButton，不再录制额外纯表面源或为内部按钮追加采样；完整窗口源仅供下一层弹窗。
 - `couiControlMaterialEffect` 统一浮动表面的采样亮度、Gaussian 模糊和两层混色顺序；DialogButton 保持上游自己的尺寸、文本与反馈。`DialogHeading`／`DialogActionBar` 暴露原排版供特殊表单复用。
-- `CouiFabDefaults.translucentMaterial()` 为宿主强调按钮和 Dock 加号提供可选半透明染色与 25px 采样模糊；默认 FAB 和 Dialog 主操作仍沿用 Demo 材质。凝光设置页只录制 Scaffold 所需的 COUI 正文源，液态保留原 Kyant 正文源。
+- `CouiFabDefaults.translucentMaterial()` 为宿主浮动操作和 Dock 加号提供可选半透明染色与 25px 采样模糊。普通主按钮使用 Kit 默认填色，兼容入口只有显式 `nativeTranslucentAccent=true` 才采样有色背景；不能仅因调用方提供了 Backdrop 就把确认按钮改成 FAB 材质。默认 FAB 和 Dialog 主操作仍沿用 Demo 材质。凝光设置页只录制 Scaffold 所需的 COUI 正文源，液态保留原 Kyant 正文源。
 - Dialog／InputDialog／ContentDialog 公开实际 `onDismissFinished`，反向入场会取消未完成的退出；不使用固定延时猜测动画结束。输入窗口沿用 Kit IME 避让。
 - 受控分段选择器使用下述本地 Kit 新增的 `SegmentedControl`；`CouiSegmentedControl` 只保留宿主尺寸、所属表面和仅指示器装配门面。位置、宽度、高度、橡皮筋使用同一套 Kit 弹簧，不再维护第二套输入与运动。公开轻触反馈不能视为 OEM 302 波形复刻。
 - 上游同步采用固定 main 提交做三方差异核对，再重放上述宿主扩展；下文 2026-11-06 的哈希是历史接入证据。

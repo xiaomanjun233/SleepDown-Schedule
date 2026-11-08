@@ -110,6 +110,7 @@ fun LiquidButton(
     surfaceSheen: (() -> Brush?)? = null,
     /** 显式按钮角色的主题色；Unspecified 表示中性，null 保留旧调用推断。 */
     nativePrimaryColor: Color? = null,
+    nativeTranslucentAccent: Boolean = false,
     content: @Composable RowScope.() -> Unit
 ) {
     // Compatibility entry for existing feature buttons. Surface-only hosts (menus, fields,
@@ -129,7 +130,8 @@ fun LiquidButton(
                 lightBackdrop = nativeLightBackdrop,
                 cardLightShadow = nativeLightShadow,
                 surfaceSheen = surfaceSheen, backdrop = backdrop, shape = shape,
-                customGestureRegion = interactionEnabledAt !== AcceptAllButtonGestures), content)) {
+                customGestureRegion = interactionEnabledAt !== AcceptAllButtonGestures,
+                translucentAccent = nativeTranslucentAccent), content)) {
             pressSnapshot?.progress = 0f
             return
         }
