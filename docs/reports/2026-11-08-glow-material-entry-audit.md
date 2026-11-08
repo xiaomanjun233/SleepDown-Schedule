@@ -51,7 +51,17 @@
 
 - 菜单修正提交 `0b5fffc4`，无界模糊范围提交 `f118f77a`，可分别回退。
 - 差异／引用检查通过。定向测试30项通过（4m25s）：Kit13项、应用17项，0失败／错误／跳过。包括右侧锚点从课程传递到材质协议、RTL／可见区定位、有效选择立即提交且只执行一次、取消／退场屏障及源卡材质恢复。日志 `tmp/coui-shortcut-immediate-tests-20261108.log`。
-- 完整签名Release待本轮构建完成后补充；上述状态测试不能代替本轮真机排版或帧耗时验收。
+- 完整签名 `assembleGithubRelease --console=plain --no-parallel --max-workers=1 --no-daemon` 通过（6m12s，195任务，31执行／164复用）。保留R8、资源压缩、lintVital和V2签名。日志 `tmp/coui-shortcut-immediate-release-20261108.log`；上述状态测试不能代替本轮真机排版或帧耗时验收。
 - 设备枚举的首次提权调用曾因自动审批额度用尽被拦截，提示05:11后再试。当时继续完成源码与文档，没有绕过审批换缓存或通道。08:31（上海时间）核对时间后重新审核成功，已启动本轮定向构建／测试。
 - 本轮重新枚举：5037／5038均为SDK37.0.1服务，没有USB设备或无线mDNS端点，也未发现其他ADB服务。用户明确回复“暂时无法连接，先交付修正和材质梳理”，本轮按此收尾，不追加设备连接／安装要求；整体掉帧根因和真机帧耗时继续保持未验证。
-- 当前归档APK仍为上一轮 `d5cf727f`，不是本轮修改的产物；其唯一精确mapping先保留，新包成功校验后再按授权清理。
+
+## 本地交付
+
+| 归档文件 | 字节 | SHA-256 |
+| --- | ---: | --- |
+| `SleepDown-1.2.8-beta2-coui-shortcut-audit-20261108-e4428ad8.apk` | 7,891,084 | `E4428AD8B0399874F3E67846225F3B002D964F1B452E92368DE9D73F4AF70879` |
+| 同名 `-mapping.txt` | 163,103,386 | `C3A29CC8D0C29CECC2A05FE40B099BD0A139B074DEF94D3F0F73D54231EFFC51` |
+
+归档位于 `tmp/review-apks`，APK／mapping副本与同次原构建输出哈希一致。APK内嵌源码 `a6163bc895fc6ad94e5f2d7ece2f53a877ded3cd`；包名／版本 `com.xiaomanjun.sleepdownschedule / 1.2.8_beta2 / 36`、minSdk26／targetSdk36不变。V2证书SHA-256 `0f2b50dfb7e10c6f5981ab966f1f4ebd76af81a7ad9ba31663284eaa88c0181a`。元数据 `tmp/coui-shortcut-audit-delivery-20261108.json`。
+
+新包成功核对后，按用户既有清理授权删除上一份 `d5cf727f` 归档mapping（163,103,350字节）；当前归档只保留本包的一份精确mapping。旧APK及 `output/` 保留。未安装、启动、推送或发布。
