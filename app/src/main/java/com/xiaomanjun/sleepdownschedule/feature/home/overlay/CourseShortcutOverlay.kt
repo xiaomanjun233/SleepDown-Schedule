@@ -89,7 +89,7 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
         }
     }
 
-    fun close(afterClose: (() -> Unit)? = null) {
+    fun close(dispatchImmediately: Boolean = false, afterClose: (() -> Unit)? = null) {
         if (request == null || closing) return
         closing = true
         motion?.cancel()
@@ -102,8 +102,9 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
             nativeExit.await()
             request = null
             closing = false
-            afterClose?.invoke()
+            if (!dispatchImmediately) afterClose?.invoke()
         }
+        if (dispatchImmediately) afterClose?.invoke()
     }
 
     // The source pointer owns the whole gesture. Retire the menu without waiting before
@@ -184,14 +185,16 @@ internal fun CourseShortcutOverlay(
         }
     }
     val request = controller.request
-    BackHandler(enabled = request != null) { controller.close() }
+    val immediateActions = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
+    val acceptsInput = request != null && !(immediateActions && controller.closing)
+    BackHandler(enabled = acceptsInput) { controller.close() }
     // Resolve the host before a long-press hides its source. Creating this host only after
     // open left one frame with neither the real card nor its lifted replacement drawn.
     var hostBounds by remember { mutableStateOf<Rect?>(null) }
     BoxWithConstraints(
         Modifier.fillMaxSize()
             .onGloballyPositioned { hostBounds = it.boundsInRoot() }
-            .then(if (request != null) Modifier.pointerInput(controller) {
+            .then(if (acceptsInput) Modifier.pointerInput(controller) {
                 detectTapGestures { controller.close() }
             } else Modifier)
     ) {
@@ -230,26 +233,26 @@ internal fun CourseShortcutOverlay(
                     shape = RoundedRectangle(with(density) { request.cornerPx.toDp() }), onClick = null
                 ) { WeekCourseOverlayCardContent(request.course, config) }
             }
-            val actions = remember(request, controller, onEdit, onRemove) {
+            val actions = remember(request, controller, onEdit, onRemove, immediateActions) {
                 listOf(
                     AddMenuAction(R.drawable.ic_edit, "快速编辑模式") {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        controller.close(request.enterEditMode)
+                        controller.close(immediateActions, request.enterEditMode)
                     },
                     AddMenuAction(R.drawable.ic_edit, "编辑单节课") {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        controller.close { onEdit(request) }
+                        controller.close(immediateActions) { onEdit(request) }
                     },
                     AddMenuAction(R.drawable.ic_copy, "复制课程") {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        controller.close { controller.copyRequest = request }
+                        controller.close(immediateActions) { controller.copyRequest = request }
                     },
                     AddMenuAction(
                         R.drawable.ic_trash, "移除课程",
                         iconTint = Color(0xFFFF453A), textTint = Color(0xFFFF453A)
                     ) {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        controller.close { onRemove(request.course, request.week) }
+                        controller.close(immediateActions) { onRemove(request.course, request.week) }
                     }
                 )
             }
@@ -257,7 +260,8 @@ internal fun CourseShortcutOverlay(
             val nativeMenu = LocalHomeMaterialControls.current.ShortcutMenu(
                 session = request, bounds = source, dark = appUsesDarkTheme(config), actions = actions,
                 closing = controller.closing,
-                onDismiss = { controller.close() }, bindDismiss = { controller.dismissNativeMenu = it })
+                onDismiss = { controller.close() }, bindDismiss = { controller.dismissNativeMenu = it },
+                anchorFraction = request.pivotX)
             if (!nativeMenu) HomeAddMenuMorphPanel(
                 backdrop = backdrop, config = config, actions = actions,
                 homeMode = HomeMode.Week, onHomeModeChange = {},

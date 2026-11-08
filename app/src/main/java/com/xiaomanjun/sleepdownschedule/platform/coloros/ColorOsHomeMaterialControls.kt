@@ -38,6 +38,7 @@ internal object ColorOsHomeMaterialControls : HomeMaterialControls {
 
     @Composable
     override fun ShortcutMenu(session: Any, bounds: Rect, dark: Boolean, actions: List<AddMenuAction>,
-        closing: Boolean, onDismiss: () -> Unit, bindDismiss: (((() -> Unit) -> Unit)?) -> Unit) =
+        closing: Boolean, onDismiss: () -> Unit, bindDismiss: (((() -> Unit) -> Unit)?) -> Unit,
+        anchorFraction: Float) =
         ColorOsCourseShortcutMenu(session, bounds, dark, actions, closing, onDismiss, bindDismiss)
 }

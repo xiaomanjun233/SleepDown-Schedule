@@ -40,7 +40,8 @@ internal interface HomeMaterialControls {
 
     @Composable
     fun ShortcutMenu(session: Any, bounds: Rect, dark: Boolean, actions: List<AddMenuAction>,
-        closing: Boolean, onDismiss: () -> Unit, bindDismiss: (((() -> Unit) -> Unit)?) -> Unit): Boolean = false
+        closing: Boolean, onDismiss: () -> Unit, bindDismiss: (((() -> Unit) -> Unit)?) -> Unit,
+        anchorFraction: Float = 0f): Boolean = false
 
     @Composable
     fun OverflowMenuButton(dark: Boolean, interactive: Boolean, actions: List<AddMenuAction>,

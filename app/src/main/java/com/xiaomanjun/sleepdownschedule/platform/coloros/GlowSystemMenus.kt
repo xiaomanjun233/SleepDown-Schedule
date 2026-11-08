@@ -8,6 +8,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
@@ -51,20 +53,20 @@ private fun actionMenuStyle(dark: Boolean, placement: CouiMenuPlacement) = CouiM
     placement = placement,
 )
 
-/** 独立系统菜单先完成退场，再交给原业务入口；不把液滴 Morph 套在凝光菜单上。 */
+/** 选定动作立即交给业务，窗口退场只清理资源；不把液滴 Morph 套在凝光菜单上。 */
 @Composable
 internal fun GlowOverflowMenuButton(dark: Boolean, interactive: Boolean, actions: List<AddMenuAction>,
     modifier: Modifier, content: @Composable (onClick: () -> Unit) -> Unit) {
     var mounted by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
-    var pending by remember { mutableStateOf<(() -> Unit)?>(null) }
+    var submitted by remember { mutableStateOf(false) }
     var shownActions by remember { mutableStateOf(emptyList<AddMenuAction>()) }
     val latestActions by rememberUpdatedState(actions)
     val items = shownActions.couiItems()
     val onBounds = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenuBounds.current
     Box(modifier) {
         content {
-            if (interactive && latestActions.isNotEmpty() && pending == null) {
+            if (interactive && latestActions.isNotEmpty() && !submitted) {
                 if (!mounted) shownActions = latestActions.toList()
                 mounted = true
                 expanded = true
@@ -75,38 +77,43 @@ internal fun GlowOverflowMenuButton(dark: Boolean, interactive: Boolean, actions
                 style = actionMenuStyle(dark, CouiMenuPlacement.AnchorCenter), offset = DpOffset(0.dp, 8.dp),
                 onDismissRequest = { expanded = false },
                 onItemClick = { item ->
-                    if (expanded && pending == null) {
-                        pending = shownActions.getOrNull(item.value)?.onClick
+                    if (expanded && !submitted) {
+                        submitted = true
                         expanded = false
+                        shownActions.getOrNull(item.value)?.onClick?.invoke()
                     }
                 },
                 onDismissFinished = {
-                    val action = pending
-                    pending = null
+                    submitted = false
                     mounted = false
-                    action?.invoke()
                 }, onMenuPositioned = { onBounds?.invoke(it) })
         }
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) { pending = null; expanded = false; mounted = false }
+            if (event == Lifecycle.Event.ON_STOP) { submitted = false; expanded = false; mounted = false }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); pending = null }
+        onDispose { lifecycle.removeObserver(observer) }
     }
 }
 
 @Composable
 internal fun GlowCourseShortcutMenu(session: Any, bounds: Rect, dark: Boolean,
     actions: List<AddMenuAction>, closing: Boolean, onDismiss: () -> Unit,
-    bindDismiss: (((() -> Unit) -> Unit)?) -> Unit) {
+    bindDismiss: (((() -> Unit) -> Unit)?) -> Unit, anchorFraction: Float) {
     val density = LocalDensity.current
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val placement = when {
+        anchorFraction == 0.5f -> CouiMenuPlacement.AnchorCenter
+        (anchorFraction > 0.5f) != rtl -> CouiMenuPlacement.AnchorEnd
+        else -> CouiMenuPlacement.AnchorStart
+    }
     var expanded by remember(session) { mutableStateOf(true) }
     var finished by remember(session) { mutableStateOf(false) }
     var waiter by remember(session) { mutableStateOf<(() -> Unit)?>(null) }
-    var pendingAction by remember(session) { mutableStateOf<(() -> Unit)?>(null) }
+    var submitted by remember(session) { mutableStateOf(false) }
     val latestBind by rememberUpdatedState(bindDismiss)
     val latestActions by rememberUpdatedState(actions)
     val items = actions.couiItems()
@@ -114,23 +121,20 @@ internal fun GlowCourseShortcutMenu(session: Any, bounds: Rect, dark: Boolean,
     Box(Modifier.absoluteOffset { IntOffset(bounds.left.roundToInt(), bounds.top.roundToInt()) }
         .size(with(density) { bounds.width.toDp() }, with(density) { bounds.height.toDp() })) {
         Menu(modifier = Modifier.width(196.dp), expanded = expanded && !closing, items = items,
-            style = actionMenuStyle(dark, CouiMenuPlacement.AnchorStart), offset = DpOffset(0.dp, 8.dp),
+            style = actionMenuStyle(dark, placement), offset = DpOffset(0.dp, 8.dp),
             onDismissRequest = onDismiss,
             onItemClick = { item ->
-                if (!closing && expanded && pendingAction == null) {
-                    pendingAction = latestActions.getOrNull(item.value)?.onClick
+                if (!closing && expanded && !submitted) {
+                    submitted = true
                     expanded = false
+                    latestActions.getOrNull(item.value)?.onClick?.invoke()
                 }
             },
             onDismissFinished = {
                 finished = true
-                val action = pendingAction
-                pendingAction = null
                 val done = waiter
                 waiter = null
                 done?.invoke()
-                // COUIPopupListWindow 在菜单真正退出后才交接触发的动作。
-                action?.invoke()
             })
     }
     DisposableEffect(session) {
@@ -139,7 +143,6 @@ internal fun GlowCourseShortcutMenu(session: Any, bounds: Rect, dark: Boolean,
         }
         onDispose {
             latestBind(null)
-            pendingAction = null
             val done = waiter
             waiter = null
             done?.invoke()

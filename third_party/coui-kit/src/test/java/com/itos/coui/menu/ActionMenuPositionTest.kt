@@ -38,6 +38,13 @@ class ActionMenuPositionTest {
             IntRect(179, 180, 221, 222), window, LayoutDirection.Ltr, menu).y)
     }
 
+    @Test fun endAnchoredCourseAlignsTheMenuWithTheCardInsteadOfTheScreenEdge() {
+        val provider = provider(CouiMenuPlacement.AnchorEnd)
+        val anchor = IntRect(255, 300, 340, 400)
+        assertEquals(IntOffset(144, 408), provider.calculatePosition(anchor, window, LayoutDirection.Ltr, menu))
+        assertEquals(IntOffset(188, 408), provider.calculatePosition(anchor, window, LayoutDirection.Rtl, menu))
+    }
+
     private fun provider(placement: CouiMenuPlacement, bounds: IntRect = visible) =
         CouiMenuPositionProvider(DpOffset(0.dp, 8.dp), Density(1f), placement) { bounds }
 }

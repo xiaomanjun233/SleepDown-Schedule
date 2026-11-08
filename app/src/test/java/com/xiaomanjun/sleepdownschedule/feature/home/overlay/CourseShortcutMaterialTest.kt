@@ -50,7 +50,10 @@ class CourseShortcutMaterialTest {
         val controls = object : HomeMaterialControls {
             @Composable override fun ShortcutMenu(session: Any, bounds: Rect, dark: Boolean,
                 actions: List<AddMenuAction>, closing: Boolean, onDismiss: () -> Unit,
-                bindDismiss: (((() -> Unit) -> Unit)?) -> Unit) = true
+                bindDismiss: (((() -> Unit) -> Unit)?) -> Unit, anchorFraction: Float): Boolean {
+                assertEquals(1f, anchorFraction, 0f)
+                return true
+            }
         }
         val renderer: @Composable (NativeCourseCardRequest, @Composable () -> Unit) -> Boolean = { request, content ->
             val owner = LocalShortcutFixtureOwner.current
@@ -74,7 +77,7 @@ class CourseShortcutMaterialTest {
                         Box(Modifier.offset(40.dp, 160.dp).size(90.dp, 120.dp)) {
                             WeekCourseBlock(course, listOf(PeriodEntity(1, "08:00", "08:45")),
                                 height = 120.dp, cardColor = Color.Blue, backdrop = null,
-                                config = config, shortcutPivotX = 0f, gridColumnWidth = 90.dp,
+                                config = config, shortcutPivotX = 1f, gridColumnWidth = 90.dp,
                                 onCourseClick = { _, _ -> })
                         }
                         CompositionLocalProvider(LocalShortcutFixtureOwner provides "lifted") {

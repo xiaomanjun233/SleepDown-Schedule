@@ -38,6 +38,7 @@ internal class CouiMenuPositionProvider(
             val rtl = layoutDirection == LayoutDirection.Rtl
             val x = when (placement) {
                 CouiMenuPlacement.AnchorStart -> if (rtl) anchorBounds.right - width else anchorBounds.left
+                CouiMenuPlacement.AnchorEnd -> if (rtl) anchorBounds.left else anchorBounds.right - width
                 else -> anchorBounds.center.x - width / 2
             } + if (rtl) -offsetX else offsetX
             val below = maxOf(anchorBounds.bottom + offsetY, top)

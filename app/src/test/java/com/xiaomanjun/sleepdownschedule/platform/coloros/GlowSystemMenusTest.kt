@@ -39,7 +39,7 @@ import org.robolectric.annotation.GraphicsMode
 class GlowSystemMenusTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun overflowUsesCouiRowsAndCommitsOnlyAfterExit() {
+    @Test fun overflowUsesCouiRowsAndCommitsImmediatelyExactlyOnce() {
         var commits = 0
         var pixelsPerDp = 1f
         compose.setContent {
@@ -69,7 +69,7 @@ class GlowSystemMenusTest {
             "system-glow-overflow.png", compose.onNode(isPopup()).captureToImage().asAndroidBitmap())
         compose.mainClock.autoAdvance = false
         compose.onNodeWithText("课程管理").performTouchInput { click() }
-        compose.runOnIdle { assertEquals(0, commits) }
+        compose.runOnIdle { assertEquals(1, commits) }
         compose.mainClock.autoAdvance = true
         compose.waitForIdle()
         compose.runOnIdle { assertEquals(1, commits) }

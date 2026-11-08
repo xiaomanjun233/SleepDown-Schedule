@@ -25,7 +25,7 @@ data class CouiMenuColors(
 )
 
 /** 普通设置菜单保留原定位；动作菜单按真实锚点及可见窗口避让。 */
-enum class CouiMenuPlacement { Default, AnchorCenter, AnchorStart }
+enum class CouiMenuPlacement { Default, AnchorCenter, AnchorStart, AnchorEnd }
 
 enum class CouiMenuContourStyle { BackgroundAware, White }
 

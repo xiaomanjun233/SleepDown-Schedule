@@ -54,8 +54,9 @@ internal fun ProvideColorOsMaterials(
             }
             @Composable override fun ShortcutMenu(session: Any, bounds: androidx.compose.ui.geometry.Rect,
                 dark: Boolean, actions: List<com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction>,
-                closing: Boolean, onDismiss: () -> Unit, bindDismiss: (((() -> Unit) -> Unit)?) -> Unit): Boolean {
-                GlowCourseShortcutMenu(session, bounds, dark, actions, closing, onDismiss, bindDismiss)
+                closing: Boolean, onDismiss: () -> Unit, bindDismiss: (((() -> Unit) -> Unit)?) -> Unit,
+                anchorFraction: Float): Boolean {
+                GlowCourseShortcutMenu(session, bounds, dark, actions, closing, onDismiss, bindDismiss, anchorFraction)
                 return true
             }
             @Composable override fun OverflowMenuButton(dark: Boolean, interactive: Boolean,
