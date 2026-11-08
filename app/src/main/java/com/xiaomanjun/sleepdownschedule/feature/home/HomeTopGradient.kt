@@ -26,10 +26,9 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBlurDirection
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
 import kotlinx.coroutines.flow.first
 
-// Size the tail from the actual header, rather than keeping the old 230dp minimum that
-// spreads full-strength header blur too far into the first courses on compact windows.
+// Follow the actual header bottom with only a short fade into the course viewport.
 internal fun boundlessHomeTopGradientHeight(metrics: HomeAdaptiveMetrics): Dp =
-    metrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 36.dp
+    metrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 12.dp
 
 @Composable
 fun HomeTopGradientBlur(

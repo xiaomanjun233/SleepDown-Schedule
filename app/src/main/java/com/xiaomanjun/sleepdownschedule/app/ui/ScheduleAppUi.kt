@@ -2702,7 +2702,7 @@ fun CourseScheduleAppUi(
                                     backdrop = chromeBackdrop,
                                     height = gradientHeight,
                                     fullBlurHeight = if (homeMode == HomeMode.Week && weekViewStyle == WeekViewStyle.BOUNDLESS) {
-                                        homeAdaptiveMetrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight + 4.dp
+                                        homeAdaptiveMetrics.safeTop + 66.dp + BoundlessWeekHeaderRowHeight - 8.dp
                                     } else 0.dp,
                                     modifier = Modifier
                                 )
