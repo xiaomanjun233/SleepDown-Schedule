@@ -33,7 +33,7 @@ import com.itos.coui.theme.ProvideCouiContent
 import com.itos.coui.theme.LocalCouiDarkTheme
 import kotlin.math.roundToInt
 
-/** 完整紧凑顶栏；内部处理安全区和槽位布局，点击行为由宿主提供。 */
+/** 紧凑顶栏。contentModifier 在系统边距之后调整槽位，背景仍从顶栏顶部绘制。 */
 @Composable
 fun TopAppBar(
     modifier: Modifier = Modifier,
@@ -46,12 +46,14 @@ fun TopAppBar(
     backdrop: CouiBackdrop = checkNotNull(LocalCouiBackdrop.current) {
         "顶栏需要显式 backdrop 或 ProvideCouiBackdrop 作用域"
     },
+    contentModifier: Modifier = Modifier,
 ) {
     TopAppBarSurface(modifier.fillMaxWidth(), backdrop,
         gradientColor = colors.backgroundColor, dark = dark) {
         CompositionLocalProvider(LocalCouiDarkTheme provides dark) {
             AppBarLayout(title, navigationIcon, actions, colors, windowInsets,
-                CouiTopAppBarDefaults.height, CouiTopAppBarDefaults.height, null)
+                CouiTopAppBarDefaults.height, CouiTopAppBarDefaults.height, null,
+                modifier = contentModifier)
         }
     }
 }
@@ -128,6 +130,7 @@ private fun AppBarLayout(
     state: CouiCollapsingAppBarState?,
     expandedTitleSize: TextUnit = TextUnit.Unspecified,
     collapsedTitleSize: TextUnit = TextUnit.Unspecified,
+    modifier: Modifier = Modifier,
 ) {
     val large = expandedHeight > collapsedHeight
     val density = LocalDensity.current
@@ -151,7 +154,7 @@ private fun AppBarLayout(
         }
         1f + (collapsedScale - 1f) * progress
     } else 1f
-    Layout(modifier = Modifier.windowInsetsPadding(windowInsets), content = {
+    Layout(modifier = Modifier.windowInsetsPadding(windowInsets).then(modifier), content = {
         Box {
             CompositionLocalProvider(LocalCouiToolbarContentColor provides colors.navigationIconColor) {
                 ProvideCouiContent(color = colors.navigationIconColor, content = navigationIcon)

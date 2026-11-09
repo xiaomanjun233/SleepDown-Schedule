@@ -55,6 +55,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogSceneBackdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.centeredDialogSceneProducer
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.rememberCenteredDialogSceneBackdrop
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.avoidFloatingChrome
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -98,7 +99,7 @@ internal fun CouiSettingsTabletDetailPaneScaffold(
     content: @Composable (Backdrop?) -> Unit,
 ) {
     CouiSettingsPageScaffold(title, config, modifier, showBack = showBackButton, onBack = onBack,
-        topBarVisible = topBarVisible, topBarActions = topBarActions) { _, source ->
+        topBarVisible = topBarVisible, avoidHomeTabBar = true, topBarActions = topBarActions) { _, source ->
         content(source.takeIf { Build.VERSION.SDK_INT >= 31 })
     }
 }
@@ -116,6 +117,7 @@ internal fun CouiSettingsPageScaffold(
     showTopGradientBlur: Boolean = true,
     isolateContentFromBackdrop: Boolean = false,
     preserveStatusBarSpace: Boolean = false,
+    avoidHomeTabBar: Boolean = false,
     topBarBackdropOverride: Backdrop? = null,
     topBarBackgroundColor: androidx.compose.runtime.State<Color?>? = null,
     topBarActions: @Composable (Backdrop?) -> Unit = {},
@@ -164,6 +166,7 @@ internal fun CouiSettingsPageScaffold(
                     topBar = {
                         if (topBarVisible) {
                             val toolbar: @Composable () -> Unit = {
+                                val toolbarContent = if (avoidHomeTabBar) Modifier.avoidFloatingChrome() else Modifier
                                 val chrome = Modifier.layout { measurable, constraints ->
                                     val node = measurable.measure(constraints)
                                     layout(node.width, node.height) {
@@ -223,7 +226,7 @@ internal fun CouiSettingsPageScaffold(
                                     else TopAppBar(modifier = chrome, title = label,
                                         navigationIcon = navigation,
                                         actions = { topBarActions(topBarBackdropOverride ?: source) }, windowInsets = insets,
-                                        colors = barColors)
+                                        colors = barColors, contentModifier = toolbarContent)
                                 }
                             }
                             if (LocalCouiLiquidMaterial.current && sampling && showTopGradientBlur)

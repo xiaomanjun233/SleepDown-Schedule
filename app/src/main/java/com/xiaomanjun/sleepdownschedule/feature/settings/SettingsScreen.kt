@@ -2,7 +2,6 @@ package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -210,12 +209,6 @@ fun SettingsScreen(
                         onPageChange = ::requestTabletRootPage
                     )
                 }
-                Box(
-                    Modifier
-                        .width(1.dp)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.46f))
-                )
                 Box(
                     Modifier
                         .weight(1f)
