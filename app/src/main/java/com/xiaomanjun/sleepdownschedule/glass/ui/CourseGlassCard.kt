@@ -234,8 +234,17 @@ fun CourseGlassCard(
     val nativeMode = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode.current
     if (nativeMode?.enabled == true) {
         val strength = nativeMode.tintStrength
-        val alpha = if (lightCardBacking != null) courseTintAlpha(strength) else strength * (0x66 / 255f)
-        val topTintFloor = if (lightCardBacking != null) 0.72f else 0.55f
+        val wallpaperCardGradient = hasWallpaper && course != null && nativeEdgeEffects
+        val alpha = when {
+            wallpaperCardGradient -> strength
+            lightCardBacking != null -> courseTintAlpha(strength)
+            else -> strength * (0x66 / 255f)
+        }
+        val topTintFloor = when {
+            wallpaperCardGradient -> 0.20f
+            lightCardBacking != null -> 0.72f
+            else -> 0.55f
+        }
         val tintDraw: DrawScope.() -> Unit = remember(baseColor, alpha, topTintFloor, expandedOutlineLight, lightCardBacking) {
             val brush = bottomLitGlassTintBrush(baseColor.copy(alpha = alpha), Float.POSITIVE_INFINITY,
                 topTintFloor = topTintFloor, expanded = expandedOutlineLight, colorTransform = ::tintOnBacking)
@@ -249,8 +258,8 @@ fun CourseGlassCard(
                 Rect(origin.x, origin.y, origin.x + position.size.width, origin.y + position.size.height)
             }
         } }
-        val background = rememberCourseTextBackground(baseColor, alpha * topTintFloor,
-            lightCardBacking == null, nativeMode.blurRadiusPx, false, false,
+        val background = rememberCourseTextBackground(baseColor, if (wallpaperCardGradient) alpha else alpha * topTintFloor,
+            lightCardBacking == null, nativeMode.blurRadiusPx, outline = wallpaperCardGradient, expanded = expandedOutlineLight,
             flatBackground = pageBackground.takeUnless { hasWallpaper },
             ready = true, cardBounds = cardBounds,
             flatAccentTintAlpha = alpha.takeIf { readableFlatInk })
