@@ -26,8 +26,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -61,6 +65,7 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassMaterialRevealProgress
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
 import com.xiaomanjun.sleepdownschedule.glass.decorationOnly
+import com.xiaomanjun.sleepdownschedule.glass.flatControlBorder
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.materialEffectsOnly
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
@@ -169,18 +174,24 @@ fun CourseGlassCard(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    // A tint alone leaves glass highlights and the content bright. Dim the complete rendered
-    // card, including native material, without an extra offscreen layer or changing its opacity.
-    val statusModifier = modifier.then(if (muted) Modifier.drawWithCache {
+    val flatLightGlow = LocalVisualEffects.current.glowEnabled &&
+        !appUsesDarkTheme(config) && !config.hasAnyWallpaper()
+    val showFlatGlowOutline = flatLightGlow && renderSurface && nativeEdgeEffects
+    val statusModifier = modifier.then(if (muted || showFlatGlowOutline) Modifier.drawWithCache {
         val outline = shape.createOutline(size, layoutDirection, this)
+        val rim = if (showFlatGlowOutline) Path().apply { addOutline(outline) } else null
+        val rimColor = flatControlBorder(dark = false)
+        val rimStroke = Stroke(0.8.dp.toPx() * 2f)
         onDrawWithContent {
             drawContent()
-            drawOutline(outline, Color.Black.copy(alpha = 0.26f))
+            // The inner half of the stroke traces the same curve as the rendered card.
+            if (rim != null) clipPath(rim) { drawPath(rim, rimColor, style = rimStroke) }
+            // Dim the whole card so the material highlights and text recede together.
+            if (muted) drawOutline(outline, Color.Black.copy(alpha = 0.26f))
         }
     } else Modifier)
     val materialPolicy = com.xiaomanjun.sleepdownschedule.core.performance.effectiveAppMaterialPolicy()
-    val readableFlatGlowInk = !muted && config.courseCardColoredTextEnabled &&
-        LocalVisualEffects.current.glowEnabled && !appUsesDarkTheme(config) && !config.hasAnyWallpaper()
+    val readableFlatGlowInk = flatLightGlow && !muted && config.courseCardColoredTextEnabled
     if (!materialPolicy.denseMaterials) {
         val preview = LocalPersonalizationPreview.current
         val base = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
