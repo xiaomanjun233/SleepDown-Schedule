@@ -52,7 +52,8 @@ internal const val CouiCourseBlurRadiusPx = 25f
 @Composable
 internal fun CouiCourseCard(request: NativeMaterialSurfaceRequest, content: @Composable () -> Unit): Boolean {
     val mode = LocalNativeCourseCardMode.current ?: return false
-    return CouiMaterialSurface(request.copy(blurRadiusScale = if (request.blurRadius == null) mode.blurRadiusScale else 1f),
+    val configuredBlurScale = if (request.blurRadius == null) mode.blurRadiusScale else 1f
+    return CouiMaterialSurface(request.copy(blurRadiusScale = configuredBlurScale * request.blurRadiusScale),
         course = true, content = content)
 }
 

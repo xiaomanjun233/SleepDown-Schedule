@@ -128,7 +128,8 @@ internal fun rememberCourseCardMaterialPreferences(blurRadius: Float): NativeCou
 internal fun ColorOsCourseCard(request: NativeCourseCardRequest, content: @Composable () -> Unit): Boolean {
     val mode = LocalNativeCourseCardMode.current ?: return false
     if (!mode.enabled) return false
-    return ColorOsMaterialSurface(request.copy(blurRadiusScale = mode.blurRadiusScale), ColorOsSurfaceStyle.CourseCard, null, content = content)
+    return ColorOsMaterialSurface(request.copy(blurRadiusScale = mode.blurRadiusScale * request.blurRadiusScale),
+        ColorOsSurfaceStyle.CourseCard, null, content = content)
 }
 
 /** Shared native backdrop for cards, table headers and assistant shells, with no input interception. */

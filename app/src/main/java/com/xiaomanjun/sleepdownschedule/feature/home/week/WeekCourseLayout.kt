@@ -62,7 +62,6 @@ import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.domain.course.WeekConflictGroup
@@ -109,7 +108,7 @@ internal data class WeekRenderedSegment(
 )
 
 internal const val WeekCustomTimeLabelGap = 1f
-private val LightGlowTimeSlotShadow = Shadow(
+private val LightTimeSlotShadow = Shadow(
     radius = 8.dp,
     color = ComposeColor.Black.copy(alpha = 0.16f),
     offset = DpOffset(0.dp, 2.dp)
@@ -653,8 +652,7 @@ fun WeekCourseColumnsLayer(
         // A band uses at most one material per contiguous run, rather than one per weekday.
         // Continuing courses retain their full height and own their pixels above the band.
         val timeSlotBandTokens = remember { GlassTokens.pill(intensity = 0.9f).copy(blur = 10.dp, useVibrancy = false) }
-        val showBandShadow = LocalVisualEffects.current.glowEnabled &&
-            !appUsesDarkTheme(config) && !config.hasAnyWallpaper()
+        val showBandShadow = !appUsesDarkTheme(config) && !config.hasAnyWallpaper()
         bandRuns.forEach { (band, runs) ->
             runs.forEach { run ->
                 val physical = if (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl) weekdays.size - run.last - 1 else run.first
@@ -665,7 +663,7 @@ fun WeekCourseColumnsLayer(
                         .padding(horizontal = 2.dp, vertical = 3.dp)
                         .weekPageTail(weekTimeSlotTailKey(band.slot.id), tailCardOrder[weekTimeSlotTailKey(band.slot.id)], 0.5f)
                         .homeSwitchGroup(tailCardOrder[weekTimeSlotTailKey(band.slot.id)])
-                        .then(if (showBandShadow) Modifier.dropShadow(bandShape, LightGlowTimeSlotShadow) else Modifier),
+                        .then(if (showBandShadow) Modifier.dropShadow(bandShape, LightTimeSlotShadow) else Modifier),
                     shape = bandShape, tokens = timeSlotBandTokens,
                     domain = GlassBackdropDomain.Content, debugLabel = "WeekTimeSlotBand", onClick = null,
                     nativeMaterial = nativeBands, nativeBlurRadiusScale = 1.4f) {

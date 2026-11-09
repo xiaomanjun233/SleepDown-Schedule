@@ -11,6 +11,7 @@ import com.xiaomanjun.sleepdownschedule.model.MulticolorCourseCardArgb
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import com.xiaomanjun.sleepdownschedule.CourseCardColorMode
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
@@ -336,6 +337,13 @@ internal fun courseCardColorOverrideForMode(
     course: CourseEntity?
 ): Long? = course?.customColorArgb?.takeIf {
     courseCardAllowsCustomOverrides(config)
+}
+
+internal fun lightCourseCardTint(seed: Color): Color {
+    val original = courseCardHsv(seed.toArgb().toLong())
+    if (original.saturation < 0.025f) return Color(0xFFABABAB)
+    val saturation = (0.26f + 1.18f * original.saturation).coerceIn(0.48f, 0.84f)
+    return Color.hsv(original.hue, saturation, 0.96f)
 }
 
 fun courseCardTonalPreview(seed: Long): List<Long> {
