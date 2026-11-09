@@ -47,6 +47,7 @@ import com.xiaomanjun.sleepdownschedule.core.performance.LocalGlassQuality
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextBackground
 import com.xiaomanjun.sleepdownschedule.courseCardBlurMaximum
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalPersonalizationPreview
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.homeFlatBackgroundColor
 import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
@@ -178,13 +179,16 @@ fun CourseGlassCard(
         }
     } else Modifier)
     val materialPolicy = com.xiaomanjun.sleepdownschedule.core.performance.effectiveAppMaterialPolicy()
+    val readableFlatGlowInk = !muted && config.courseCardColoredTextEnabled &&
+        LocalVisualEffects.current.glowEnabled && !appUsesDarkTheme(config) && !config.hasAnyWallpaper()
     if (!materialPolicy.denseMaterials) {
         val preview = LocalPersonalizationPreview.current
         val base = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
         val opacity = flatOpacityOverride?.coerceIn(0f, 1f) ?: materialPolicy.opacity(blurOverride ?: preview?.cardBlur ?: config.courseCardBlur,
             com.xiaomanjun.sleepdownschedule.model.courseCardBlurMaximum(config.courseCardGlassEnabled))
         val background = rememberCourseTextBackground(base, opacity, false, 0f, false, false,
-            flatBackground = homeFlatBackgroundColor(appUsesDarkTheme(config)), ready = true, cardBounds = { null })
+            flatBackground = homeFlatBackgroundColor(appUsesDarkTheme(config)), ready = true, cardBounds = { null },
+            flatAccentTintAlpha = opacity.takeIf { readableFlatGlowInk })
         Box(statusModifier.clip(shape).then(if (renderSurface) Modifier.background(base.copy(alpha = opacity)) else Modifier)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
             CompositionLocalProvider(LocalCourseTextBackground provides background) { content() }
@@ -224,7 +228,8 @@ fun CourseGlassCard(
         } }
         val background = rememberCourseTextBackground(base, alpha * topTintFloor, true, nativeMode.blurRadiusPx, false, false,
             flatBackground = homeFlatBackgroundColor(appUsesDarkTheme(config)).takeUnless { config.hasAnyWallpaper() },
-            ready = true, cardBounds = cardBounds)
+            ready = true, cardBounds = cardBounds,
+            flatAccentTintAlpha = alpha.takeIf { readableFlatGlowInk })
         val renderer = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardRenderer.current
         if (renderer?.invoke(com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCourseCardRequest(
                 statusModifier.onGloballyPositioned { coordinates[0] = it }, shape, appUsesDarkTheme(config),
@@ -244,7 +249,8 @@ fun CourseGlassCard(
         val base = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
         val opacity = nativeMode?.tintStrength ?: 0.5f
         val background = rememberCourseTextBackground(base, opacity, false, 0f, false, false,
-            flatBackground = homeFlatBackgroundColor(appUsesDarkTheme(config)), ready = true, cardBounds = { null })
+            flatBackground = homeFlatBackgroundColor(appUsesDarkTheme(config)), ready = true, cardBounds = { null },
+            flatAccentTintAlpha = opacity.takeIf { readableFlatGlowInk })
         Box(statusModifier.clip(shape).then(if (renderSurface) Modifier.background(base.copy(alpha = opacity)) else Modifier)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
             CompositionLocalProvider(LocalCourseTextBackground provides background) { content() }
@@ -324,7 +330,8 @@ fun CourseGlassCard(
         outline = useGlass && outlineLightEnabled, expanded = expandedOutlineLight,
         flatBackground = if (!hasWallpaper) homeFlatBackgroundColor(appUsesDarkTheme(config)) else null,
         ready = textCardReady, cardBounds = textCardBounds,
-        surfaceDimAlpha = if (useGlass) LiquidCourseCardSurfaceDimAlpha else 0f
+        surfaceDimAlpha = if (useGlass) LiquidCourseCardSurfaceDimAlpha else 0f,
+        flatAccentTintAlpha = textSurfaceAlpha.takeIf { readableFlatGlowInk }
     )
     val simpleMaterial = GlassMaterialSpec.simpleBlur(simpleBlurValue.dp)
     val simpleDescriptor = rememberGlassSurfaceDescriptor(

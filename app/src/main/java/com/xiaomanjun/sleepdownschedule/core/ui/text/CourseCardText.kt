@@ -54,8 +54,9 @@ internal fun CourseCardText(
 ) {
     // The parent resolves the course hue once. Metadata uses the same opaque ink as the
     // title, so background differences cannot turn individual labels into opposing colors.
-    val displayedColor = if (coloredText) color.copy(alpha = 1f) else color
-    val background = if (adaptiveContrast) LocalCourseTextBackground.current else null
+    val cardBackground = LocalCourseTextBackground.current
+    val displayedColor = if (coloredText) cardBackground?.flatAccentInk ?: color.copy(alpha = 1f) else color
+    val background = cardBackground.takeIf { adaptiveContrast }
     val flatShadowStrength = background?.flatLuminance?.let {
         softTextShadowStrength(floatArrayOf(it), displayedColor.luminance(), displayedColor.alpha)
     }

@@ -10,6 +10,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseTextBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
+import com.xiaomanjun.sleepdownschedule.core.ui.text.readableAccentColor
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.LocalHomeReadability
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.sampleVisibleWallpaperColors
 
@@ -25,7 +26,8 @@ internal fun rememberCourseTextBackground(
     flatBackground: Color? = null,
     ready: Boolean,
     cardBounds: () -> Rect?,
-    surfaceDimAlpha: Float = 0f
+    surfaceDimAlpha: Float = 0f,
+    flatAccentTintAlpha: Float? = null
 ): CourseTextBackground {
     val wallpaper = LocalHomeReadability.current
     val backgroundFrozen = LocalHomeBackgroundFrozen.current
@@ -35,13 +37,25 @@ internal fun rememberCourseTextBackground(
     // background identity and label caches across freeze/resume instead of recomposing
     // all course text twice per switch and resampling unchanged resting bounds.
     return remember(wallpaper, base, tintAlpha, blurred, blurPx, outline, expanded, ready,
-        flatBackground, surfaceDimAlpha, backgroundFrozen, cardMotionFrozen, textContrastFrozen) {
+        flatBackground, surfaceDimAlpha, flatAccentTintAlpha, backgroundFrozen, cardMotionFrozen, textContrastFrozen) {
         val surfaceDim = LiquidCourseCardSurfaceTone.copy(alpha = surfaceDimAlpha.coerceIn(0f, 1f))
         fun surfaceLuminance(color: Color) = surfaceDim.compositeOver(color).luminance()
-        val flatLuminance = flatBackground?.let {
-            surfaceLuminance(base.copy(alpha = tintAlpha.coerceIn(0f, 1f)).compositeOver(it))
-        }
-        CourseTextBackground({ backgroundFrozen.value || cardMotionFrozen.value || textContrastFrozen.value }, flatLuminance) { windowBounds ->
+        fun flatSurfaceAt(background: Color, alpha: Float) =
+            surfaceDim.compositeOver(base.copy(alpha = alpha.coerceIn(0f, 1f)).compositeOver(background))
+
+        val flatSurface = flatBackground?.let { flatSurfaceAt(it, tintAlpha) }
+        val flatLuminance = flatSurface?.luminance()
+        val flatAccentInk = if (flatSurface != null && flatAccentTintAlpha != null) {
+            val strongestTint = flatSurfaceAt(flatBackground, flatAccentTintAlpha)
+            // Resolve once against the darker end of the light card's tint gradient.
+            val contrastSurface = if (strongestTint.luminance() < flatSurface.luminance()) strongestTint else flatSurface
+            readableAccentColor(base, contrastSurface)
+        } else null
+        CourseTextBackground(
+            { backgroundFrozen.value || cardMotionFrozen.value || textContrastFrozen.value },
+            flatLuminance,
+            flatAccentInk
+        ) { windowBounds ->
             // Flat cards have an exact composite; no wallpaper/position read is needed, even
             // when transparency is low or the card has not received its first layout callback.
             if (flatLuminance != null) return@CourseTextBackground floatArrayOf(flatLuminance)

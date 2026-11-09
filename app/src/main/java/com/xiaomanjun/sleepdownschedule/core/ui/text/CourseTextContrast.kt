@@ -35,6 +35,7 @@ internal val LocalHomeTextContrastFrozen = compositionLocalOf<State<Boolean>> { 
 internal class CourseTextBackground(
     private val isFrozen: () -> Boolean,
     val flatLuminance: Float? = null,
+    val flatAccentInk: Color? = null,
     val sample: (Rect) -> FloatArray?
 ) {
     val frozen: Boolean get() = isFrozen()
