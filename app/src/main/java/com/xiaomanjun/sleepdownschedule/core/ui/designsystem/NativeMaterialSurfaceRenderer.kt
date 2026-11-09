@@ -35,6 +35,8 @@ internal data class NativeMaterialSurfaceRequest(
     val sampleBrightness: Float = 1f,
     /** 与表面同坐标域的下层完整源；不包含此表面或其清晰前景。 */
     val backdrop: com.kyant.backdrop.Backdrop? = null,
+    val preparedBackdrop: com.kyant.backdrop.Backdrop? = null,
+    val flatBackdropColor: androidx.compose.ui.graphics.Color? = null,
     /** 输入框可排除文字选择区域，背景只观察获准的触点。 */
     val acceptsGesture: (androidx.compose.ui.geometry.Size, androidx.compose.ui.geometry.Offset) -> Boolean = { _, _ -> true }
 )

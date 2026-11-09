@@ -11,6 +11,7 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.RenderEffect
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.layer.GraphicsLayer
@@ -39,7 +40,12 @@ import com.kyant.backdrop.internal.BackdropRecordingCache
  * when that surface is dirty; there is no CPU readback or per-card fullscreen blur request.
  */
 @Stable
-class SharedBlurBackdrop(val source: LayerBackdrop, radiusPx: Float, vibrant: Boolean) : Backdrop {
+class SharedBlurBackdrop(
+    val source: LayerBackdrop,
+    radiusPx: Float,
+    vibrant: Boolean,
+    internal val filter: ((Float) -> RenderEffect)? = null,
+) : Backdrop {
     var radiusPx: Float by mutableFloatStateOf(radiusPx)
     var vibrant: Boolean by mutableStateOf(vibrant)
     internal var layer: GraphicsLayer? by mutableStateOf(null)
@@ -100,11 +106,13 @@ private class RecorderNode(var backdrop: SharedBlurBackdrop, var sourceKey: () -
         val geometryDirty = effects.update(this)
         val effectDirty = geometryDirty || lastRadius != backdrop.radiusPx || lastVibrant != backdrop.vibrant
         if (effectDirty) {
-            effects.apply {
-                if (backdrop.vibrant) vibrancy()
-                blur(backdrop.radiusPx)
+            filtered.renderEffect = backdrop.filter?.invoke(backdrop.radiusPx) ?: run {
+                effects.apply {
+                    if (backdrop.vibrant) vibrancy()
+                    blur(backdrop.radiusPx)
+                }
+                effects.renderEffect
             }
-            filtered.renderEffect = effects.renderEffect
             lastRadius = backdrop.radiusPx
             lastVibrant = backdrop.vibrant
         }

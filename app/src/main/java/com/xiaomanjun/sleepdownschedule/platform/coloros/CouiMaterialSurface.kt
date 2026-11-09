@@ -40,6 +40,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCa
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
+import com.xiaomanjun.sleepdownschedule.glass.drawPreparedCourseBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.dp
@@ -47,6 +48,19 @@ import androidx.compose.ui.unit.dp
 // COUIMaterialBlurEffect.Companion resolves the transparent-button preset to 25px
 // with the same two color layers in both themes (Wallpapers 17.04.0034, classes2.dex).
 internal const val CouiCourseBlurRadiusPx = 25f
+
+private fun couiCourseMaterial(dark: Boolean) =
+    CouiTopAppBarButtonDefaults.systemMaterial(dark, capsule = false).copy(
+        blurRadius = CouiCourseBlurRadiusPx,
+        firstColor = Color(0x3F333333),
+        firstBlendMode = BlendMode.OVERLAY,
+        secondColor = Color(0x3FFFFFFF),
+        secondBlendMode = BlendMode.LUMINOSITY,
+    )
+
+@RequiresApi(31)
+internal fun couiCourseBackdropEffect(dark: Boolean, radiusPx: Float) =
+    couiControlMaterialEffect(couiCourseMaterial(dark).copy(blurRadius = radiusPx)).asComposeRenderEffect()
 
 @RequiresApi(34)
 @Composable
@@ -76,8 +90,10 @@ internal fun CouiMaterialSurface(
     val dark = if (dock) home?.dark ?: request.dark else request.dark
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
-    val baseMaterial = remember(dark, dock, indicator, menu, dialog, home?.weatherMaterial, density) {
-        if (dock && home?.weatherMaterial != true) {
+    val baseMaterial = remember(dark, course, dock, indicator, menu, dialog, home?.weatherMaterial, density) {
+        if (course) {
+            couiCourseMaterial(dark)
+        } else if (dock && home?.weatherMaterial != true) {
             CouiDockStyle.reference(dark, Color.Unspecified, Color.Unspecified, density.density).material
         } else {
             CouiTopAppBarButtonDefaults.systemMaterial(dark, capsule = false).copy(
@@ -141,6 +157,8 @@ internal fun CouiMaterialSurface(
         rememberCouiGlassBackdrop(source)
     } else null
     val causticTint = request.causticTint
+    val flatBacking = request.flatBackdropColor
+    val preparedBackdrop = request.preparedBackdrop
     val editorEffects = if (course && request.blurRadius != null) remember {
         linkedMapOf<com.itos.coui.effect.CouiFloatingMaterial, androidx.compose.ui.graphics.RenderEffect>()
     } else null
@@ -151,12 +169,17 @@ internal fun CouiMaterialSurface(
             val bottom = with(density) { 7.5.dp.toPx() }
             fabShadow.copy(layout = Rect(-side, fabShadow.layout.top, side, bottom))
         }
-        Modifier.drawCouiCaustic(backdrop,
-            cornerRadius = { size -> colorOsMaterialCorners(shape(), size, density, direction)?.radius },
-            shadow = projection,
-        )
+        val cornerRadius: (Size) -> Float? = { size -> colorOsMaterialCorners(shape(), size, density, direction)?.radius }
+        if (flatBacking != null) {
+            Modifier.drawCouiCaustic(flatBacking, cornerRadius, projection)
+        } else {
+            Modifier.drawCouiCaustic(backdrop, cornerRadius, projection,
+                sampleScale = if (preparedBackdrop != null) 0.5f else 1f)
+        }
     } else Modifier
-    val background = if (backdrop != null && request.blurRadiusScale > 0f) {
+    val background = if (preparedBackdrop != null && request.renderSurface && request.materialVisible) {
+        Modifier.drawPreparedCourseBackdrop(preparedBackdrop)
+    } else if (backdrop != null && request.blurRadiusScale > 0f) {
         val tintScale = if (request.role == NativeMaterialSurfaceRole.Form) 0f else request.tintAlphaScale
         val sampleScale = request.backdropSampleScale
         val material = baseMaterial.copy(

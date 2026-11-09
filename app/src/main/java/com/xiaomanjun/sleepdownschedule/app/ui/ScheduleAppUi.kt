@@ -124,6 +124,7 @@ import androidx.core.net.toUri
 import androidx.core.os.trace
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.kyant.backdrop.backdrops.SharedBlurBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.BuildConfig
@@ -167,6 +168,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidDialogSize
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogSceneBackdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSurface
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalToolbarBackdropBlurred
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.MaterialFormDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.centeredDialogSceneProducer
@@ -363,12 +365,15 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassSamplingLink
 import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNode
 import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNodeRole
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.LocalSharedCouiCourseBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.dockPageSource
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberDockPageBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSceneState
+import com.xiaomanjun.sleepdownschedule.glass.retainGlassSources
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalCourseCardColorAssignments
@@ -377,6 +382,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.buildCourseCardColorAssignments
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardColorKey
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardGlassEffectFrame
+import com.xiaomanjun.sleepdownschedule.platform.coloros.couiCourseBackdropEffect
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberFallbackAdaptiveGlassState
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberScreenScaledBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.resolvedCourseCardPalette
@@ -1974,16 +1980,30 @@ fun CourseScheduleAppUi(
         visualState.config.hasAnyWallpaper())
     val kitCourseMaterials = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls &&
         AppMaterialPreferences.policy.denseMaterials
-    val sharedCourseBackdrop = if (!kitCourseMaterials && courseMaterialsEnabled && visualState.config.courseCardGlassEnabled)
-        remember(courseWallpaperBackdrop) {
-        com.kyant.backdrop.backdrops.SharedBlurBackdrop(courseWallpaperBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
-    }.apply {
-        radiusPx = sharedCourseRadiusPx
-        vibrant = sharedCourseFrame.useVibrancy
-    } else null
+    val couiCourseMode = LocalNativeCourseCardMode.current
+    val sharedCourseBackdrop = when {
+        kitCourseMaterials && Build.VERSION.SDK_INT >= 34 && visualState.config.hasAnyWallpaper() &&
+            couiCourseMode?.enabled == true -> {
+            val radius = couiCourseMode.blurRadiusPx
+            val dark = appUsesDarkTheme(visualState.config)
+            remember(courseWallpaperBackdrop, dark) {
+                SharedBlurBackdrop(courseWallpaperBackdrop, radius, vibrant = false,
+                    filter = { couiCourseBackdropEffect(dark, it) })
+            }.apply { radiusPx = radius }
+        }
+        !kitCourseMaterials && courseMaterialsEnabled && visualState.config.courseCardGlassEnabled -> {
+            remember(courseWallpaperBackdrop) {
+                SharedBlurBackdrop(courseWallpaperBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
+            }.apply {
+                radiusPx = sharedCourseRadiusPx
+                vibrant = sharedCourseFrame.useVibrancy
+            }
+        }
+        else -> null
+    }
     // Retained timetable cards must retain their material source as well. Removing this on
     // Settings used to replace every card's sampler and allocate it again on the return frame.
-    val sharedCourseBackdropExpected = sharedCourseBackdrop != null && visualState.config.courseCardGlassEnabled && visualState.config.hasAnyWallpaper() &&
+    val sharedCourseBackdropExpected = sharedCourseBackdrop != null && visualState.config.hasAnyWallpaper() &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val useSharedCourseBackdrop = sharedCourseBackdropExpected && wallpaperImages.source != null
     lateinit var handleHomeAgentAction: AgentActionHandler
@@ -2128,8 +2148,8 @@ fun CourseScheduleAppUi(
         LocalCourseShortcuts provides courseShortcuts,
         LocalCourseCopy provides courseCopy,
         LocalCourseRemoval provides courseRemoval,
-        com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop provides
-            sharedCourseBackdrop.takeIf { sharedCourseBackdropExpected },
+        LocalSharedCourseBackdrop provides sharedCourseBackdrop.takeIf { sharedCourseBackdropExpected && !kitCourseMaterials },
+        LocalSharedCouiCourseBackdrop provides sharedCourseBackdrop.takeIf { sharedCourseBackdropExpected && kitCourseMaterials },
         com.xiaomanjun.sleepdownschedule.glass.LocalCourseBackdropViewport provides courseBackdropViewport,
         LocalSharedTransitionScope provides activeSharedTransitionScope,
         LocalEditingCourseId provides editingCourseId,
@@ -2890,6 +2910,7 @@ fun CourseScheduleAppUi(
                     }
                 }
                 if (useSharedCourseBackdrop) {
+                    if (kitCourseMaterials) retainGlassSources(courseWallpaperBackdrop)
                     Box(Modifier.fillMaxSize()
                         .drawWithContent { if (rootPageMotion.retains(false)) drawContent() }
                         .then(requireNotNull(sharedCourseBackdrop).preRenderModifier {

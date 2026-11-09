@@ -64,6 +64,7 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassMaterialRevealProgress
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
+import com.xiaomanjun.sleepdownschedule.glass.LocalSharedCouiCourseBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.decorationOnly
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.materialEffectsOnly
@@ -263,6 +264,10 @@ fun CourseGlassCard(
             flatBackground = pageBackground.takeUnless { hasWallpaper },
             ready = true, cardBounds = cardBounds,
             flatAccentTintAlpha = alpha.takeIf { readableFlatInk })
+        val preparedBackdrop = LocalSharedCouiCourseBackdrop.current?.takeIf {
+            wallpaperCardGradient && nativeBlurRadius == null && morphAllocation == null &&
+                surfaceBackdrop == null && it.source === backdrop && it.radiusPx == nativeMode.blurRadiusPx && it.ready
+        }
         val renderer = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardRenderer.current
         if (renderer?.invoke(com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCourseCardRequest(
                 statusModifier.onGloballyPositioned { coordinates[0] = it }, shape, dark,
@@ -270,10 +275,11 @@ fun CourseGlassCard(
                 followTouch = followTouch,
                 externalTouch = externalTouch,
                 edgeEffects = nativeEdgeEffects,
-                // The opaque backing covers the material sample. Keep the source for caustics.
+                // The opaque backing covers the body sample and feeds the caustic directly.
                 blurRadiusScale = if (lightCardBacking != null) 0f else 1f,
                 followLightRadius = followLightRadius, backdrop = backdrop, blurRadius = nativeBlurRadius,
-                backdropSampleScale = editorSampleScale, causticTint = courseColor
+                backdropSampleScale = editorSampleScale, causticTint = courseColor,
+                preparedBackdrop = preparedBackdrop, flatBackdropColor = lightCardBacking
             )) {
                 CompositionLocalProvider(LocalCourseTextBackground provides background) { content() }
             } == true) return
