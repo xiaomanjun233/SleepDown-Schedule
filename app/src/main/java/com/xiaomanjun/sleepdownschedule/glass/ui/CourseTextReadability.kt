@@ -49,7 +49,7 @@ internal fun rememberCourseTextBackground(
             val strongestTint = flatSurfaceAt(flatBackground, flatAccentTintAlpha)
             // Resolve once against the darker end of the light card's tint gradient.
             val contrastSurface = if (strongestTint.luminance() < flatSurface.luminance()) strongestTint else flatSurface
-            readableAccentColor(base, contrastSurface)
+            readableAccentColor(base, contrastSurface, minimumContrast = 7f)
         } else null
         CourseTextBackground(
             { backgroundFrozen.value || cardMotionFrozen.value || textContrastFrozen.value },
