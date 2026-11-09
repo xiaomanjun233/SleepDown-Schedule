@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.BasicTextField
@@ -122,6 +123,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceCategory
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroupPosition
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
 import com.xiaomanjun.sleepdownschedule.feature.home.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.*
@@ -313,6 +315,14 @@ private data class EduSchoolAdapterGroup(
     val adapters: List<EduAdapter>
 )
 
+private data class EduSchoolSection(
+    val key: String,
+    val title: String,
+    val schools: List<EduSchoolAdapterGroup>,
+    val letter: String? = null,
+    val local: Boolean = false
+)
+
 @Composable
 fun EduSchoolIndexedSelectScreen(
     state: AppState,
@@ -378,14 +388,20 @@ fun EduSchoolIndexedSelectScreen(
             .toSortedMap()
     }
     val letters = remember(grouped) { grouped.keys.toList() }
-    val sectionPositions = remember(grouped, aiEduSchools, pinnedSchools, localSchools) {
-        val aiSectionSize = if (aiEduSchools.isEmpty()) 0 else 2
-        val pinnedSectionSize = if (pinnedSchools.isEmpty()) 0 else 2
-        var index = aiSectionSize + pinnedSectionSize + if (localSchools.isEmpty()) 0 else 2
+    val sections = remember(grouped, aiEduSchools, pinnedSchools, localSchools) {
+        buildList {
+            if (aiEduSchools.isNotEmpty()) add(EduSchoolSection("ai-edu", "AI教务导入", aiEduSchools))
+            if (pinnedSchools.isNotEmpty()) add(EduSchoolSection("general-edu", "导入工具", pinnedSchools))
+            if (localSchools.isNotEmpty()) add(EduSchoolSection("local-edu", "我的适配 · 本地", localSchools, local = true))
+            grouped.forEach { (letter, schools) -> add(EduSchoolSection(letter, letter, schools, letter)) }
+        }
+    }
+    val sectionPositions = remember(sections) {
         buildMap {
-            grouped.forEach { (letter, _) ->
-                put(letter, index)
-                index += 2
+            var index = 0
+            sections.forEach { section ->
+                section.letter?.let { put(it, index) }
+                index += 1 + section.schools.size
             }
         }
     }
@@ -528,53 +544,35 @@ fun EduSchoolIndexedSelectScreen(
                     end = 16.dp,
                     top = topPadding + 12.dp,
                     bottom = 12.dp
-                ),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                )
             ) {
                 if (adapters.isEmpty()) {
                     item { Text("没有找到学校适配资源", color = MaterialTheme.colorScheme.error) }
                 } else {
-                    if (aiEduSchools.isNotEmpty()) {
-                        item(key = "ai-edu-title") { GlassPreferenceCategory("AI教务导入") }
-                        item(key = "ai-edu-card") {
-                            EduSchoolGroupCard(
-                                schools = aiEduSchools,
-                                state = state,
-                                backdrop = backdrop,
-                                adapterBadge = adapterBadge,
-                                onSelect = onSelect
+                    sections.forEachIndexed { sectionIndex, section ->
+                        item(key = "school-heading-${section.key}") {
+                            GlassPreferenceCategory(
+                                section.title,
+                                Modifier.padding(top = if (sectionIndex == 0) 0.dp else 14.dp, bottom = 14.dp)
                             )
                         }
-                    }
-                    if (pinnedSchools.isNotEmpty()) {
-                        item(key = "general-edu-title") { GlassPreferenceCategory("导入工具") }
-                        item(key = "general-edu-card") {
-                            EduSchoolGroupCard(
-                                schools = pinnedSchools,
-                                state = state,
-                                backdrop = backdrop,
-                                adapterBadge = adapterBadge,
-                                onSelect = onSelect
-                            )
-                        }
-                    }
-                    if (localSchools.isNotEmpty()) {
-                        item(key = "local-edu-title") { GlassPreferenceCategory("我的适配 · 本地") }
-                        item(key = "local-edu-card") {
-                            EduSchoolGroupCard(schools = localSchools, state = state, backdrop = backdrop,
-                                adapterBadge = { "本地" }, onSelect = onSelect)
-                        }
-                    }
-                    grouped.forEach { (letter, list) ->
-                        item(key = "section-$letter") { GlassPreferenceCategory(letter) }
-                        item(key = "section-card-$letter") {
-                            EduSchoolGroupCard(
-                                schools = list,
-                                state = state,
-                                backdrop = backdrop,
-                                adapterBadge = adapterBadge,
-                                onSelect = onSelect
-                            )
+                        // Each row has its own bounded hit target even in a tall letter section.
+                        itemsIndexed(section.schools, key = { _, group -> "school-${section.key}-${group.school.id}" }) { index, group ->
+                            val position = when {
+                                section.schools.size == 1 -> SettingsGroupPosition.Whole
+                                index == 0 -> SettingsGroupPosition.First
+                                index == section.schools.lastIndex -> SettingsGroupPosition.Last
+                                else -> SettingsGroupPosition.Middle
+                            }
+                            val topSpacing = 0.dp.takeIf { index > 0 }
+                            SettingsGroup(backdrop, state.config, topSpacing = topSpacing, position = position) {
+                                SettingsNavigationRow(
+                                    title = group.school.name,
+                                    subtitle = group.adapters.joinToString(" / ") { it.adapterName },
+                                    badgeText = if (section.local) "本地" else group.adapters.firstNotNullOfOrNull(adapterBadge),
+                                    onClick = { onSelect(group.school) }
+                                )
+                            }
                         }
                     }
                 }
@@ -849,30 +847,6 @@ private fun EduAlphabetRailDock(
                     }
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun EduSchoolGroupCard(
-    schools: List<EduSchoolAdapterGroup>,
-    adapterBadge: (EduAdapter) -> String?,
-    state: AppState,
-    backdrop: Backdrop?,
-    onSelect: (EduSchool) -> Unit
-) {
-    SettingsGroup(
-        backdrop = backdrop,
-        config = state.config,
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        schools.forEach { group ->
-            SettingsNavigationRow(
-                title = group.school.name,
-                subtitle = group.adapters.joinToString(" / ") { it.adapterName },
-                badgeText = group.adapters.firstNotNullOfOrNull(adapterBadge),
-                onClick = { onSelect(group.school) }
-            )
         }
     }
 }

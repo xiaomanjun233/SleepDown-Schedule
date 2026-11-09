@@ -20,7 +20,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
@@ -29,14 +40,17 @@ import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import top.yukonga.miuix.kmp.basic.SmallTitle as MiuixSmallTitle
 
+internal enum class SettingsGroupPosition { Whole, First, Middle, Last }
+
 @Composable
-fun SettingsGroup(
+internal fun SettingsGroup(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     surfaceModifier: Modifier = Modifier,
     surfaceColorOverride: ComposeColor? = null,
     topSpacing: androidx.compose.ui.unit.Dp? = null,
+    position: SettingsGroupPosition = SettingsGroupPosition.Whole,
     content: @Composable ColumnScope.() -> Unit
 ) {
     if (LocalCouiSettingsEnabled.current) {
@@ -47,13 +61,13 @@ fun SettingsGroup(
             // Settings 17 的普通卡片消费者使用 24dp / 2.5；Demo 目录的权重 3 不套到表单。
             com.itos.coui.layout.Group(modifier = modifier.then(surfaceModifier),
                 colors = com.itos.coui.layout.CouiPageDefaults.themeColors().copy(card = surfaceColorOverride ?: colors.container),
-                shape = com.itos.coui.shape.CouiShape(24.dp, 2.5f),
+                shape = com.itos.coui.shape.CouiShape(24.dp, 2.5f).forGroupPosition(position),
                 horizontalMargin = 0.dp, topSpacing = resolvedTopSpacing, content = content)
         }
         return
     }
     val miuixLayout = LocalGlassMiuixEnabled.current
-    val shape = RoundedRectangle(if (miuixLayout) 24.dp else 30.dp)
+    val shape = RoundedRectangle(if (miuixLayout) 24.dp else 30.dp).forGroupPosition(position)
     val darkTheme = appUsesDarkTheme(config)
     val contentColor = if (darkTheme) ComposeColor.White else ComposeColor(0xFF111111)
     if (miuixLayout) {
@@ -71,6 +85,10 @@ fun SettingsGroup(
         }
         return
     }
+    val edgePadding = Modifier.padding(
+        top = if (position == SettingsGroupPosition.Whole || position == SettingsGroupPosition.First) 4.dp else 0.dp,
+        bottom = if (position == SettingsGroupPosition.Whole || position == SettingsGroupPosition.Last) 4.dp else 0.dp
+    )
     if (backdrop != null) {
         LiquidPanel(
             backdrop = backdrop,
@@ -79,7 +97,7 @@ fun SettingsGroup(
             surfaceColor = if (darkTheme) ComposeColor(0xFF1C1C1E).copy(alpha = 0.78f) else ComposeColor.White.copy(alpha = 0.94f)
         ) {
             CompositionLocalProvider(LocalContentColor provides contentColor) {
-                Column(Modifier.padding(vertical = if (miuixLayout) 0.dp else 4.dp), content = content)
+                Column(edgePadding, content = content)
             }
         }
     } else {
@@ -88,10 +106,30 @@ fun SettingsGroup(
                 modifier = modifier
                     .clip(shape)
                     .background(if (darkTheme) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
-                    .padding(vertical = if (miuixLayout) 0.dp else 4.dp),
+                    .then(edgePadding),
                 content = content
             )
         }
+    }
+}
+
+private fun Shape.forGroupPosition(position: SettingsGroupPosition): Shape = when (position) {
+    SettingsGroupPosition.Whole -> this
+    SettingsGroupPosition.Middle -> RectangleShape
+    SettingsGroupPosition.First, SettingsGroupPosition.Last ->
+        SettingsGroupEdgeShape(this, position == SettingsGroupPosition.First)
+}
+
+private data class SettingsGroupEdgeShape(val fullShape: Shape, val first: Boolean) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        // Slice the existing card outline so independently composed rows form the same card.
+        val outline = fullShape.createOutline(Size(size.width, size.height * 2f), layoutDirection, density)
+        val card = Path().apply {
+            addOutline(outline)
+            if (!first) translate(Offset(0f, -size.height))
+        }
+        val row = Path().apply { addRect(Rect(Offset.Zero, size)) }
+        return Outline.Generic(Path.combine(PathOperation.Intersect, card, row))
     }
 }
 
