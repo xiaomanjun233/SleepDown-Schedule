@@ -434,6 +434,7 @@ fun ScheduleManagerScreen(
         ) {
             SleepDownPageIndicator(
                 pageCount = profiles.size,
+                backdrop = chromeBackdrop,
                 position = {
                     val info = listState.layoutInfo
                     val center = (info.viewportStartOffset + info.viewportEndOffset) / 2f
@@ -563,10 +564,12 @@ fun ScheduleManagerScreen(
         backdrop = sceneBackdrop,
         config = shareConfig,
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+        couiContentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
+        scrollableContent = true,
         contentSpacing = 12.dp,
         blurRadius = 10.dp
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             QuickSheetLiquidAction(
                 label = "分享短口令",
                 enabled = true,

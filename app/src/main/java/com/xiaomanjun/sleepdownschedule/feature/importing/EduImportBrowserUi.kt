@@ -30,9 +30,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -76,7 +76,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -140,6 +139,7 @@ internal fun EduImportActivityScreen(
     adapter: EduAdapter,
     backdrop: Backdrop?,
     webContentBackdrop: LayerBackdrop,
+    webToolbarColor: androidx.compose.runtime.MutableState<ComposeColor?>? = null,
     useDetailTopPadding: Boolean = true,
     primaryAction: EduBrowserPrimaryAction? = null,
     prepareWebView: suspend (WebView) -> Unit = {},
@@ -180,6 +180,7 @@ internal fun EduImportActivityScreen(
         state = state,
         adapter = adapter,
         webContentBackdrop = webContentBackdrop,
+        webToolbarColor = webToolbarColor,
         message = message,
         webView = webView,
         onWebView = { webView = it },
@@ -462,6 +463,11 @@ private fun EduImportGuideMorphOverlay(
         ),
         label = "edu-import-guide-visible"
     )
+    val islandPress = remember { MutableInteractionSource() }
+    val islandPressed by islandPress.collectIsPressedAsState()
+    val pressProgress = animateFloatAsState(if (islandPressed) 1f else 0f,
+        animationSpec = tween(if (islandPressed) 85 else 145), label = "edu-guide-press")
+    val collapse by rememberUpdatedState(onCollapse)
     LaunchedEffect(visible, expanded) {
         islandMotion.animateTo(if (visible && expanded) 1f else 0f)
     }
@@ -587,15 +593,32 @@ private fun EduImportGuideMorphOverlay(
         Box(
             modifier = Modifier.align(Alignment.TopStart)
                 .offset(x = cardLeft, y = cardTop).width(cardWidth).height(cardHeight)
-                .graphicsLayer { alpha = visibleAlpha; clip = false }
+                .graphicsLayer {
+                    alpha = visibleAlpha
+                    scaleX = 1f - pressProgress.value * 0.045f
+                    scaleY = 1f - pressProgress.value * 0.045f
+                    clip = false
+                }
                 .clickable(
-                    interactionSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() },
+                    interactionSource = islandPress,
                     indication = null, enabled = visible && !expanded, onClick = onExpand
                 )
+                .pointerInput(visible, expanded, handleCollapseThreshold) {
+                    if (visible && expanded) detectVerticalDragGestures(
+                        onDragStart = { handleDragY = 0f },
+                        onDragCancel = { handleDragY = 0f },
+                        onDragEnd = {
+                            if (handleDragY <= -handleCollapseThreshold) collapse()
+                            handleDragY = 0f
+                        },
+                    ) { _, dragAmount -> handleDragY += dragAmount }
+                }
         ) {
             TopAssistantSurface(backdrop, config, cardShape, solidShade = geometryProgress < 0.04f, modifier = Modifier.fillMaxSize(),
                 glow = expanded && geometryProgress >= 0.04f, nativeMaterial = true) {
-            Box(Modifier.fillMaxSize().clip(cardShape)) {
+            Box(Modifier.fillMaxSize().clip(cardShape).drawBehind {
+                if (pressProgress.value > 0f) drawRect(ComposeColor.White.copy(alpha = 0.16f * pressProgress.value))
+            }) {
                 Row(
                     modifier = Modifier
                         .align(Alignment.TopStart)
@@ -714,20 +737,7 @@ private fun EduImportGuideMorphOverlay(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(22.dp)
-                            .pointerInput(expanded, onCollapse, handleCollapseThreshold) {
-                                detectDragGestures(
-                                    onDragStart = { handleDragY = 0f },
-                                    onDragCancel = { handleDragY = 0f },
-                                    onDragEnd = {
-                                        if (handleDragY <= -handleCollapseThreshold) onCollapse()
-                                        handleDragY = 0f
-                                    }
-                                ) { change, dragAmount ->
-                                    change.consume()
-                                    handleDragY += dragAmount.y
-                                }
-                            },
+                            .height(22.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Box(
@@ -754,6 +764,7 @@ private fun EduImportBrowserScreen(
     state: AppState,
     adapter: EduAdapter,
     webContentBackdrop: LayerBackdrop,
+    webToolbarColor: androidx.compose.runtime.MutableState<ComposeColor?>?,
     message: String?,
     webView: WebView?,
     onWebView: (WebView?) -> Unit,
@@ -795,7 +806,6 @@ private fun EduImportBrowserScreen(
     )
     var importGuideVisible by remember(adapter) { mutableStateOf(false) }
     var importGuideExpanded by remember(adapter) { mutableStateOf(false) }
-    var webGestureActive by remember(adapter) { mutableStateOf(false) }
     var loginHistory by remember(adapter) { mutableStateOf(EduLoginHistoryStore.load(context)) }
     val unifiedDockHistoryEnabled = adapter.isGeneralEduTool() || adapter.isAiEduImportTool()
     var dockHistoryExpanded by remember(adapter) { mutableStateOf(unifiedDockHistoryEnabled) }
@@ -813,6 +823,8 @@ private fun EduImportBrowserScreen(
             webTopEdgeColor = ComposeColor(it)
         }
     }
+    val toolbarColor = webTopThemeColor.value
+    androidx.compose.runtime.SideEffect { webToolbarColor?.value = toolbarColor }
     DisposableEffect(topEdgeSampler) {
         onDispose { topEdgeSampler.dispose() }
     }
@@ -1022,22 +1034,31 @@ private fun EduImportBrowserScreen(
             // Keep Nexio's normal window renderer. The Compose sampling boundary below isolates
             // Chromium from repeated backdrop replay without forcing a second WebView layer.
             setLayerType(android.view.View.LAYER_TYPE_NONE, null)
+            val touchSlop = android.view.ViewConfiguration.get(context).scaledTouchSlop
+            var downX = 0f
+            var downY = 0f
+            var watchSwipe = false
             setOnTouchListener { _, event ->
-                if (event.actionMasked == MotionEvent.ACTION_DOWN) webCompatDelegates[this]?.onUserInteraction()
-                webGestureActive = when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> true
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> false
-                    else -> webGestureActive
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> {
+                        webCompatDelegates[this]?.onUserInteraction()
+                        downX = event.x
+                        downY = event.y
+                        watchSwipe = true
+                    }
+                    MotionEvent.ACTION_MOVE -> if (watchSwipe) {
+                        val dy = kotlin.math.abs(event.y - downY)
+                        if (dy > touchSlop && dy > kotlin.math.abs(event.x - downX)) {
+                            importGuideExpanded = false
+                            dockHistoryExpanded = false
+                            watchSwipe = false
+                        }
+                    }
+                    MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> watchSwipe = false
                 }
                 false
             }
-            setOnScrollChangeListener { _, _, scrollY, _, oldScrollY ->
-                scheduleWebTopEdgeSample()
-                if (webGestureActive && kotlin.math.abs(scrollY - oldScrollY) > 1) {
-                    importGuideExpanded = false
-                    dockHistoryExpanded = false
-                }
-            }
+            setOnScrollChangeListener { _, _, _, _, _ -> scheduleWebTopEdgeSample() }
             addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
                 if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
                     scheduleWebTopEdgeSample()
@@ -1355,18 +1376,6 @@ private fun EduImportBrowserScreen(
                 .fillMaxSize()
                 .glassBackdropProducer(webContentBackdrop)
                 .background(MaterialTheme.colorScheme.background)
-                .pointerInput(importGuideExpanded) {
-                    if (importGuideExpanded) {
-                        awaitEachGesture {
-                            awaitFirstDown(
-                                requireUnconsumed = false,
-                                pass = PointerEventPass.Initial
-                            )
-                            // Observe without consuming: the same gesture still reaches WebView.
-                            importGuideExpanded = false
-                        }
-                    }
-                }
         ) {
             Box(
                 Modifier.fillMaxWidth().height(topPadding).drawBehind {

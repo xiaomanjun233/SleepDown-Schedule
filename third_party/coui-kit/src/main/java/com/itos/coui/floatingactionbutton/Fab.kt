@@ -20,6 +20,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
@@ -58,12 +59,13 @@ fun Fab(
         "FAB 需要显式 backdrop 或 COUI Scaffold 的独立栏位"
     },
     renderer: CouiFloatingRenderer,
-    onClick: (() -> Unit)? = null,
+    onClick: () -> Unit,
     dark: Boolean = CouiTheme.isDark,
     shape: Shape = CouiFabDefaults.circleShape,
     material: CouiFloatingMaterial? = null,
     shadow: CouiFloatingShadow? = null,
     foregroundComposition: Boolean = false,
+    contentColor: Color = CouiFabDefaults.contentColor,
     content: @Composable () -> Unit,
 ) {
     val contour = LocalCouiContourGlowEnabled.current
@@ -106,13 +108,12 @@ fun Fab(
                 .drawWithContent { contentLayer.record { this@drawWithContent.drawContent() } }
                 .clip(shape).drawBehind { drawLight?.invoke(this) }
                 .couiFabFeedback(dark, interactionSource)
-                .then(if (onClick != null) Modifier.clickable(
+                .clickable(
                     interactionSource = interactionSource, indication = null, role = Role.Button, onClick = onClick,
-                ) else Modifier),
+                ),
             contentAlignment = Alignment.Center,
         ) {
-            ProvideCouiContent(color = if (material == null) colors.onAccent else androidx.compose.ui.graphics.Color.Unspecified,
-                content = content)
+            ProvideCouiContent(color = contentColor, content = content)
         }
     }
 }

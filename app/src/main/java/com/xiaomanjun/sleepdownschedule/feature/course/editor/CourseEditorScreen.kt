@@ -266,7 +266,8 @@ fun NormalizedCourseEditorScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .zIndex(20f)
-                    .padding(bottom = 10.dp)
+                    .padding(bottom = 10.dp),
+                backdrop = backdrop
             )
         }
         pickerRequest?.let { request ->

@@ -4,10 +4,17 @@ import android.graphics.BlendMode
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.graphics.Shader
+import android.os.Trace
+import android.provider.Settings
 import android.util.DisplayMetrics
+import android.view.View
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -21,6 +28,7 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.CompositingStrategy
@@ -36,10 +44,15 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
+import androidx.core.os.trace
 import com.itos.coui.backdrop.CouiBackdrop
 import com.itos.coui.backdrop.CouiSamplingCoordinates
 import com.itos.coui.diagnostic.CouiRenderDiagnostics
 import com.itos.coui.shape.CouiCapsuleShape
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import java.util.WeakHashMap
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.min
@@ -85,8 +98,15 @@ class CouiFloatingRenderer private constructor(internal val surfaceCount: Int) {
     constructor() : this(3)
 
     internal val standalone = surfaceCount == 1
-    internal val shaders = if (standalone) listOf(RuntimeShader(couiFloatingStandaloneShader()))
-        else listOf(RuntimeShader(couiFloatingShader(1)), RuntimeShader(couiFloatingShader(2)))
+    internal val hasThirdBall = surfaceCount == 3
+    internal val shaders = if (standalone) {
+        listOf(RuntimeShader(couiFloatingStandaloneShader()))
+    } else {
+        val source = couiFloatingShader(hasThirdBall)
+        List(2) { slot ->
+            RuntimeShader(source).apply { setIntUniform("MATERIAL_INDEX", slot + 1) }
+        }
+    }
     internal val causticShaders = List(surfaceCount) { RuntimeShader(CouiCausticShader) }
     internal val shadowRenderer = CouiShadowRenderer.createOrNull(surfaceCount)
     internal val destinationEffect = RenderEffect.createRuntimeShaderEffect(
@@ -98,6 +118,93 @@ class CouiFloatingRenderer private constructor(internal val surfaceCount: Int) {
         /** 搜索框与取消按钮的真实双主体链；不创建第三个布局或内容节点。 */
         fun pair(): CouiFloatingRenderer = CouiFloatingRenderer(2)
     }
+}
+
+@RequiresApi(34)
+private fun floatingMaterialEffect(
+    renderer: CouiFloatingRenderer,
+    material: CouiFloatingMaterial,
+    inputEffect: RenderEffect,
+    index: Int,
+    slots: List<Int>,
+    nodes: List<CouiFloatingSurface>,
+    bounds: Rect,
+    density: Float,
+    contourGlowEnabled: Boolean,
+    foregroundComposition: Boolean,
+): RenderEffect {
+    val node = nodes[index]
+    val height = bounds.height
+    val origin = bounds.topLeft
+    val ball = node.ball(height, origin)
+    val shader = renderer.shaders[if (renderer.standalone) 0 else material.index - 1]
+    shader.setFloatUniform("u_size", bounds.width, height)
+    shader.setFloatUniform("u_alpha", node.alpha)
+    shader.setFloatUniform("u_commonArray", floatArrayOf(bounds.width * .5f, height * .5f,
+        ball[0], ball[1], ball[2], ball[3], ball[4], ball[5], ball[6], ball[7], height, 0f))
+    if (renderer.standalone) {
+        shader.setFloatUniform("u_baseShapeCtxArray", floatingShapeContext(ball[2], ball[3], ball[5], ball[4]))
+    } else {
+        val balls = List(renderer.surfaceCount) { slot ->
+            val linked = slots.getOrNull(slot)?.let(nodes::get)
+            if (linked?.visible == true) linked.ball(height, origin) else FloatArray(8)
+        }
+        balls.forEachIndexed { slot, linked ->
+            shader.setFloatUniform("u_ball${slot + 1}Array", linked)
+            shader.setFloatUniform("u_ball${slot + 1}ShapeCtxArray",
+                floatingShapeContext(linked[2], linked[3], linked[5], linked[4]))
+        }
+        shader.setFloatUniform("u_preCmpArray12", floatingPair(balls[0], balls[1], 4f * density))
+        if (renderer.hasThirdBall) {
+            shader.setFloatUniform("u_preCmpArray13", floatingPair(balls[0], balls[2], 4f * density))
+            shader.setFloatUniform("u_preCmpArray23", floatingPair(balls[1], balls[2], 4f * density))
+        }
+    }
+    val edge = floatingEdge(ball, material.edgeWidthDp * density,
+        if (contourGlowEnabled) material.edgeAlpha else 0f, material.strokeType)
+    val glow = floatingInnerGlow(ball, if (contourGlowEnabled) material.innerGlowAlpha else 0f,
+        material.strokeType, material.innerGlowScale)
+    for (parameters in listOf(edge, glow)) {
+        parameters[0] = material.lightColor.red
+        parameters[1] = material.lightColor.green
+        parameters[2] = material.lightColor.blue
+    }
+    shader.setFloatUniform("u_edgeArray", edge)
+    shader.setFloatUniform("u_shadowArray", glow)
+    shader.setFloatUniform("u_shadowShapeCtxArray", floatingShadowShapeContext(ball, glow))
+    shader.setColorUniform("u_color", Color.Transparent.toArgb())
+    shader.setColorUniform("u_themeTint", material.themeTint.toArgb())
+    val effect = RenderEffect.createChainEffect(
+        RenderEffect.createRuntimeShaderEffect(shader, "u_originShader"), inputEffect)
+    return if (foregroundComposition) effect else
+        RenderEffect.createBlendModeEffect(renderer.destinationEffect, effect, BlendMode.SRC_OVER)
+}
+
+private fun CouiFloatingSurface.causticBounds(shadow: CouiFloatingShadow): Rect = mapRect(
+    Rect(shadow.layout.left, shadow.layout.top, bounds.width + shadow.layout.right,
+        bounds.height + shadow.layout.bottom),
+)
+
+@RequiresApi(34)
+private fun floatingCausticEffect(
+    shader: RuntimeShader,
+    node: CouiFloatingSurface,
+    shadow: CouiFloatingShadow,
+    bounds: Rect,
+    foregroundComposition: Boolean,
+    shadowOpacity: Float,
+): RenderEffect {
+    shader.setIntUniform("u_foregroundComposition", if (foregroundComposition) 1 else 0)
+    shader.setFloatUniform("u_offset", bounds.left - node.bounds.left, bounds.top - node.bounds.top)
+    shader.setFloatUniform("u_invScale", 1f / node.scaleX, 1f / node.scaleY)
+    shader.setFloatUniform("u_commonArray", floatArrayOf(0f, 0f, 0f, 0f, node.bounds.width,
+        node.bounds.height, node.resolvedCornerRadius, 0f, 0f, 0f, 0f, 0f))
+    val color = shadow.causticColor
+    shader.setFloatUniform("u_pyrolysisArray", floatArrayOf(color.red, color.green, color.blue,
+        color.alpha * node.alpha * shadowOpacity, shadow.layout.left, shadow.layout.top,
+        shadow.layout.right, shadow.layout.bottom, shadow.sdf, shadow.power, shadow.powerMix,
+        shadow.speed, 0.45f, 0.6f))
+    return RenderEffect.createRuntimeShaderEffect(shader, "u_originShader")
 }
 
 /**
@@ -160,6 +267,8 @@ fun Modifier.couiFloatingPair(
     beforeContent: (DrawScope.(Int, Path) -> Unit)? = null,
     drawOrder: List<Int> = listOf(0, 1),
     foregroundComposition: Boolean = false,
+    warmupWhen: (() -> Boolean)? = null,
+    shadowAlpha: (() -> Float)? = null,
     surfaces: () -> List<CouiFloatingSurface>,
 ): Modifier {
     require(renderer.surfaceCount == 2)
@@ -168,7 +277,8 @@ fun Modifier.couiFloatingPair(
     require(drawOrder.sorted() == listOf(0, 1))
     return floatingSurfaces(backdrop, renderer, materials, shadows, shapes, contentLayers, contourGlowEnabled,
         foregroundComposition = foregroundComposition,
-        beforeContent = beforeContent, drawOrder = drawOrder, surfaces = surfaces)
+        beforeContent = beforeContent, drawOrder = drawOrder, warmupWhen = warmupWhen,
+        shadowAlpha = shadowAlpha, surfaces = surfaces)
 }
 
 @RequiresApi(34)
@@ -184,12 +294,24 @@ private fun Modifier.floatingSurfaces(
     foregroundComposition: Boolean = false,
     beforeContent: (DrawScope.(Int, Path) -> Unit)? = null,
     drawOrder: List<Int>? = null,
+    warmupWhen: (() -> Boolean)? = null,
+    shadowAlpha: (() -> Float)? = null,
     surfaces: () -> List<CouiFloatingSurface>,
 ): Modifier {
     backdrop.RetainWhileComposed()
     val recordingDensity = LocalDensity.current
     val density = recordingDensity.density
     val view = LocalView.current
+    val display = view.display
+    val defaultLightZ = remember(display, density) {
+        val metrics = DisplayMetrics()
+        @Suppress("DEPRECATION")
+        display?.getRealMetrics(metrics)
+        // The light is calibrated to the short display edge, not to the animated bounds.
+        val shortEdgeDp = if (metrics.widthPixels > 0 && metrics.heightPixels > 0 && metrics.density > 0f)
+            min(metrics.widthPixels, metrics.heightPixels) / metrics.density else 450f
+        500f * density * (2f + shortEdgeDp / 450f) / 3f
+    }
     val shadowLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
     val causticLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
     val materialLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
@@ -197,12 +319,124 @@ private fun Modifier.floatingSurfaces(
     val capsuleOutlines = remember(renderer) {
         arrayOfNulls<Pair<Size, Outline>>(renderer.surfaceCount)
     }
-    val materialInputs = remember(materials) { materials.map(::couiControlMaterialEffect) }
+    val materialInputs = remember(materials) {
+        val recipes = mutableMapOf<CouiFloatingMaterial, RenderEffect>()
+        materials.map { material ->
+            // The slot index affects the mask. Identical Search materials share the input graph.
+            recipes.getOrPut(material.copy(index = 1)) { couiControlMaterialEffect(material) }
+        }
+    }
+    val materialSlots = remember(renderer, materials) {
+        val indices = materials.map { it.index }
+        indices.indices.map { if (renderer.standalone) emptyList() else floatingBallSlots(it, indices) }
+    }
+    val drawGroups = remember(shadows, drawOrder) {
+        floatingDrawGroups(shadows.map { it.elevation }).map { group ->
+            if (drawOrder == null) group else group.sortedBy(drawOrder::indexOf)
+        }
+    }
     val samplingCoordinates = remember { CouiSamplingCoordinates() }
+    if (warmupWhen != null) {
+        val warmupLayer = rememberGraphicsLayer()
+        val readbackLayer = rememberGraphicsLayer()
+        val warmupDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
+        val canWarm = rememberUpdatedState(warmupWhen)
+        val currentSurfaces = rememberUpdatedState(surfaces)
+        val currentShadows = rememberUpdatedState(shadows)
+        val warmupKey = FloatingWarmupKey(materials, contourGlowEnabled, foregroundComposition)
+        LaunchedEffect(view, renderer, warmupKey) {
+            // Consult the shell A/B setting only during active tracing.
+            if (Trace.isEnabled() &&
+                Settings.Global.getString(view.context.contentResolver, "sleepdown_coui_skip_warmup") == "1"
+            ) {
+                Trace.beginSection("COUI floating warmup disabled")
+                Trace.endSection()
+                return@LaunchedEffect
+            }
+            withFrameNanos { }
+            delay(220)
+            if (!view.isAttachedToWindow || !view.isHardwareAccelerated) return@LaunchedEffect
+            val warmed = warmedFloatingMaterials.getOrPut(view.rootView) { linkedSetOf() }
+            if (warmupKey in warmed) return@LaunchedEffect
+            val target = withTimeoutOrNull(1200) {
+                snapshotFlow { samplingCoordinates.coordinates?.takeIf { it.isAttached && canWarm.value.invoke() } }
+                    .first { it != null }
+            } ?: return@LaunchedEffect
+            if (warmupKey in warmed) return@LaunchedEffect
+            val nodes = currentSurfaces.value.invoke().map { it.copy(visible = true, alpha = .8f) }
+            val viewport = target.localBoundingBoxOf(target.findRootCoordinates(), false)
+            val shadowsToWarm = currentShadows.value
+            warmupLayer.clip = true
+            warmupLayer.blendMode = if (foregroundComposition) ComposeBlendMode.SrcOver else ComposeBlendMode.Src
+            readbackLayer.clip = true
+            suspend fun render(crop: Rect, effect: (Rect) -> RenderEffect): Boolean {
+                val clipped = crop.intersect(viewport)
+                if (clipped.width <= 0f || clipped.height <= 0f) return false
+                val bounds = Rect(floor(clipped.left), floor(clipped.top), ceil(clipped.right), ceil(clipped.bottom))
+                val patchSize = IntSize(bounds.width.toInt(), bounds.height.toInt())
+                val readbackSize = IntSize(min(96, patchSize.width), min(48, patchSize.height))
+                warmupLayer.renderEffect = effect(bounds).asComposeRenderEffect()
+                warmupLayer.record(recordingDensity, warmupDirection, patchSize) {
+                    translate(-bounds.left, -bounds.top) { backdrop.draw(this, target) }
+                }
+                readbackLayer.record(recordingDensity, warmupDirection, readbackSize) {
+                    translate((readbackSize.width - patchSize.width) * .5f,
+                        (readbackSize.height - patchSize.height) * .5f) { drawLayer(warmupLayer) }
+                }
+                // Keep the real patch dimensions and sample the actual underlay. Only the
+                // readback target is small, so the blur and blend graph matches a live layer.
+                val cookie = System.identityHashCode(readbackLayer)
+                Trace.beginAsyncSection("COUI floating readback", cookie)
+                try {
+                    readbackLayer.toImageBitmap().asAndroidBitmap().recycle()
+                } finally {
+                    Trace.endAsyncSection("COUI floating readback", cookie)
+                }
+                withFrameNanos { }
+                return true
+            }
+            val traceId = System.identityHashCode(warmupLayer)
+            Trace.beginAsyncSection("COUI floating shader warmup", traceId)
+            try {
+                for (index in materials.indices) {
+                    if (!target.isAttached || !canWarm.value.invoke()) return@LaunchedEffect
+                    val material = materials[index]
+                    val prepared = render(nodes[index].materialRect(material.extension)) { bounds ->
+                        floatingMaterialEffect(renderer, material, materialInputs[index], index, materialSlots[index],
+                            nodes, bounds, density, contourGlowEnabled, foregroundComposition)
+                    }
+                    if (!prepared) return@LaunchedEffect
+                }
+                if (contourGlowEnabled) {
+                    if (!target.isAttached || !canWarm.value.invoke()) return@LaunchedEffect
+                    val node = nodes.first()
+                    val shadow = shadowsToWarm.first()
+                    val prepared = render(node.causticBounds(shadow)) { bounds ->
+                        floatingCausticEffect(renderer.causticShaders.first(), node, shadow, bounds,
+                            foregroundComposition, shadowOpacity = 1f)
+                    }
+                    if (!prepared) return@LaunchedEffect
+                }
+                if (warmed.add(warmupKey) && warmed.size > 6) warmed.remove(warmed.first())
+            } catch (failure: RuntimeException) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                android.util.Log.d("CouiFloating", "Warmup target was unavailable", failure)
+            } finally {
+                // Release the recorded page and patch references while the control remains mounted.
+                if (!readbackLayer.isReleased) readbackLayer.record(recordingDensity, warmupDirection, IntSize(1, 1)) { }
+                if (!warmupLayer.isReleased) {
+                    warmupLayer.renderEffect = null
+                    warmupLayer.record(recordingDensity, warmupDirection, IntSize(1, 1)) { }
+                }
+                Trace.endAsyncSection("COUI floating shader warmup", traceId)
+            }
+        }
+    }
     return onGloballyPositioned(samplingCoordinates::update).drawWithCache {
         CouiRenderDiagnostics.event("floating.material.build")
         val target = samplingCoordinates.coordinates
         val nodes = surfaces()
+        val shadowOpacity = shadowAlpha?.invoke()?.coerceIn(0f, 1f) ?: 1f
         require(nodes.size == renderer.surfaceCount)
         if (target?.isAttached == true && size.width > 0f && size.height > 0f &&
             nodes.all { it.bounds.width > 0f && it.bounds.height > 0f }
@@ -244,12 +478,6 @@ private fun Modifier.floatingSurfaces(
             val beforeClips = if (beforeContent != null) outlines.map { outline ->
                 if (outline is Outline.Generic) outline.path else Path().apply { addOutline(outline) }
             } else emptyList()
-            val metrics = DisplayMetrics()
-            @Suppress("DEPRECATION")
-            checkNotNull(view.display).getRealMetrics(metrics)
-            // PJZ110 renderer 的默认资源与显示尺寸校准; 不继承其他 OEM 的不同光照主题。
-            val defaultLightZ = 500f * density * (2f + min(metrics.widthPixels, metrics.heightPixels) /
-                (450f * metrics.density)) / 3f
             val windowOrigin = target.localToWindow(Offset.Zero)
             nodes.forEachIndexed { index, node ->
                 if (!node.visible) return@forEachIndexed
@@ -273,33 +501,56 @@ private fun Modifier.floatingSurfaces(
                 contentLayers[index].setOutline(outlines[index])
                 contentLayers[index].clip = true
             }
-            floatingDrawGroups(shadows.map { it.elevation }).forEach { indices ->
-                val visible = indices.filter { nodes[it].visible }
-                val group = if (drawOrder == null) visible else visible.sortedBy { drawOrder.indexOf(it) }
+            val shadowRenderer = renderer.shadowRenderer
+            if (shadowRenderer != null && shadowOpacity > 0f) {
+                shadowLayers.forEachIndexed { index, layer ->
+                    val node = nodes[index]
+                    if (!node.visible) return@forEachIndexed
+                    val bounds = node.bounds
+                    val shadow = shadows[index]
+                    val shadowColor = if (shadowOpacity == 1f) shadow.color else
+                        shadow.color.copy(alpha = shadow.color.alpha * shadowOpacity)
+                    val recordSize = IntSize(ceil(bounds.width * node.scaleX).toInt().coerceAtLeast(1),
+                        ceil(bounds.height * node.scaleY).toInt().coerceAtLeast(1))
+                    val windowX = windowOrigin.x + layer.translationX
+                    val windowY = windowOrigin.y + layer.translationY
+                    // The shadow depends on the caster and its position. Backdrop-only redraws
+                    // can replay these commands while refreshing the sampled patches below.
+                    trace("COUI floating.recordShadow") {
+                        layer.record(density = recordingDensity, layoutDirection = layoutDirection, size = recordSize) {
+                            drawIntoCanvas { canvas ->
+                                val roundedRect = node.cornerRadius != null &&
+                                    node.resolvedCornerRadius < min(bounds.width, bounds.height) * 0.5f
+                                shadowRenderer.draw(canvas.nativeCanvas, index, bounds.width, bounds.height,
+                                    node.scaleX, node.scaleY, windowX, windowY, node.alpha,
+                                    shadowColor.toArgb(), shadow.elevation, shadow.lightY,
+                                    if (shadow.lightZ > 0f) shadow.lightZ else defaultLightZ,
+                                    shadow.lightRadius,
+                                    if (roundedRect) CouiShadowOutline.RoundRect
+                                    else if (shadow.smoothCorner) CouiShadowOutline.SmoothCapsule else CouiShadowOutline.Oval,
+                                    radius = node.resolvedCornerRadius, clipping = !roundedRect)
+                            }
+                        }
+                    }
+                }
+            }
+            drawGroups.forEach { indices ->
+                val group = indices.filter { nodes[it].visible }
                 group.forEach { index ->
-                    commands.add(shadowLayers[index])
+                    if (shadowRenderer != null && shadowOpacity > 0f) commands.add(shadowLayers[index])
                     // 前景模式下, 原 Shader 在此阈值内严格输出透明, 无需录制背景或创建光晕图层。
                     // 完整 destination 模式仍需回填, 不能套用这一短路。
                     if (contourGlowEnabled && (!foregroundComposition ||
-                            shadows[index].causticColor.alpha * nodes[index].alpha > 0.001f)) {
+                            shadows[index].causticColor.alpha * nodes[index].alpha * shadowOpacity > 0.001f)) {
                         val node = nodes[index]
                         val shadow = shadows[index]
-                        val optical = Rect(shadow.layout.left, shadow.layout.top,
-                            node.bounds.width + shadow.layout.right, node.bounds.height + shadow.layout.bottom)
                         // 顶栏不回填背景; 默认路径仍保留完整 destination, 不改成 PLUS 光贡献。
-                        appendPatch(causticLayers[index], node.mapRect(optical),
+                        appendPatch(causticLayers[index], node.causticBounds(shadow),
                             blendMode = if (foregroundComposition) ComposeBlendMode.SrcOver else ComposeBlendMode.Src) { bounds ->
-                            renderer.causticShaders[index].apply {
-                                setIntUniform("u_foregroundComposition", if (foregroundComposition) 1 else 0)
-                                setFloatUniform("u_offset", bounds.left - node.bounds.left, bounds.top - node.bounds.top)
-                                setFloatUniform("u_invScale", 1f / node.scaleX, 1f / node.scaleY)
-                                setFloatUniform("u_commonArray", floatArrayOf(0f, 0f, 0f, 0f, node.bounds.width,
-                                    node.bounds.height, node.resolvedCornerRadius, 0f, 0f, 0f, 0f, 0f))
-                                setFloatUniform("u_pyrolysisArray", floatArrayOf(shadow.causticColor.red, shadow.causticColor.green,
-                                    shadow.causticColor.blue, shadow.causticColor.alpha * node.alpha, shadow.layout.left, shadow.layout.top,
-                                    shadow.layout.right, shadow.layout.bottom, shadow.sdf, shadow.power, shadow.powerMix,
-                                    shadow.speed, 0.45f, 0.6f))
-                            }.let { RenderEffect.createRuntimeShaderEffect(it, "u_originShader") }
+                            trace("COUI floating.causticEffect") {
+                                floatingCausticEffect(renderer.causticShaders[index], node, shadow, bounds,
+                                    foregroundComposition, shadowOpacity)
+                            }
                         }
                     }
                 }
@@ -309,53 +560,10 @@ private fun Modifier.floatingSurfaces(
                     appendPatch(materialLayers[index], node.materialRect(material.extension),
                         blendMode = if (foregroundComposition) ComposeBlendMode.SrcOver else ComposeBlendMode.Src,
                         includePrefix = !foregroundComposition) { bounds ->
-                        val height = bounds.height
-                        val origin = bounds.topLeft
-                        val ball = node.ball(height, origin)
-                        val shader = renderer.shaders[if (renderer.standalone) 0 else material.index - 1]
-                        val common = floatArrayOf(bounds.width * 0.5f, height * 0.5f, ball[0], ball[1], ball[2],
-                            ball[3], ball[4], ball[5], ball[6], ball[7], height, 0f)
-                        shader.setFloatUniform("u_size", bounds.width, height)
-                        // 只淡出材质前景; 最后合成的 destination 必须保持原 alpha。
-                        shader.setFloatUniform("u_alpha", node.alpha)
-                        shader.setFloatUniform("u_commonArray", common)
-                        if (renderer.standalone) {
-                            shader.setFloatUniform("u_baseShapeCtxArray", floatingShapeContext(ball[2], ball[3], ball[5], ball[4]))
-                        } else {
-                            val activeBalls = floatingBallSlots(index, materials.map { it.index }).map { slot ->
-                                if (nodes[slot].visible) nodes[slot].ball(height, origin) else FloatArray(8)
-                            }
-                            // Native Shader 的 influence 容量为 3；未注册槽位保持零，不产生绘制/内容节点。
-                            val balls = List(3) { slot -> activeBalls.getOrNull(slot) ?: FloatArray(8) }
-                            balls.forEachIndexed { i, linked ->
-                                shader.setFloatUniform("u_ball${i + 1}Array", linked)
-                                shader.setFloatUniform("u_ball${i + 1}ShapeCtxArray", floatingShapeContext(linked[2], linked[3], linked[5], linked[4]))
-                            }
-                            shader.setFloatUniform("u_preCmpArray12", floatingPair(balls[0], balls[1], 4f * density))
-                            shader.setFloatUniform("u_preCmpArray13", floatingPair(balls[0], balls[2], 4f * density))
-                            shader.setFloatUniform("u_preCmpArray23", floatingPair(balls[1], balls[2], 4f * density))
+                        trace("COUI floating.materialEffect") {
+                            floatingMaterialEffect(renderer, material, materialInputs[index], index, materialSlots[index],
+                                nodes, bounds, density, contourGlowEnabled, foregroundComposition)
                         }
-                        val edge = floatingEdge(ball, material.edgeWidthDp * density,
-                            if (contourGlowEnabled) material.edgeAlpha else 0f, material.strokeType)
-                        val glow = floatingInnerGlow(ball, if (contourGlowEnabled) material.innerGlowAlpha else 0f,
-                            material.strokeType, material.innerGlowScale)
-                        for (parameters in listOf(edge, glow)) {
-                            parameters[0] = material.lightColor.red
-                            parameters[1] = material.lightColor.green
-                            parameters[2] = material.lightColor.blue
-                        }
-                        shader.setFloatUniform("u_edgeArray", edge)
-                        shader.setFloatUniform("u_shadowArray", glow)
-                        shader.setFloatUniform("u_shadowShapeCtxArray", floatingShadowShapeContext(ball, glow))
-                        shader.setColorUniform("u_color", Color.Transparent.toArgb())
-                        shader.setColorUniform("u_themeTint", material.themeTint.toArgb())
-                        val effect = RenderEffect.createChainEffect(
-                            RenderEffect.createRuntimeShaderEffect(shader, "u_originShader"), materialInputs[index],
-                        )
-                        // 分开材质前景与完整背景, 不让材质 patch 外沿覆盖实际 destination。
-                        // shortcut: 采样源不含兄弟前景; 需严格对齐重叠光效时应补全 destination 绘制顺序。
-                        if (foregroundComposition) effect else
-                            RenderEffect.createBlendModeEffect(renderer.destinationEffect, effect, BlendMode.SRC_OVER)
                     }
                     commands.add(contentLayers[index])
                 }
@@ -364,34 +572,13 @@ private fun Modifier.floatingSurfaces(
             onDrawWithContent {
                 // 子项只录制透明前景; 真实输出遵守 shadow/caustic -> material/content 的 Z 分组顺序。
                 drawContent()
-                shadowLayers.forEachIndexed { index, layer ->
-                    if (!nodes[index].visible) return@forEachIndexed
-                    val bounds = nodes[index].bounds
-                    val node = nodes[index]
-                    val recordSize = IntSize(ceil(bounds.width * node.scaleX).toInt().coerceAtLeast(1),
-                        ceil(bounds.height * node.scaleY).toInt().coerceAtLeast(1))
-                    // 纯投影不录制 drawContent; 显式 Density 避免重定向外层作用域后形成循环引用。
-                    layer.record(density = recordingDensity, layoutDirection = layoutDirection, size = recordSize) {
-                        drawIntoCanvas { canvas ->
-                            val roundedRect = node.cornerRadius != null &&
-                                node.resolvedCornerRadius < min(bounds.width, bounds.height) * 0.5f
-                            renderer.shadowRenderer?.draw(canvas.nativeCanvas, index, bounds.width, bounds.height,
-                                node.scaleX, node.scaleY, windowOrigin.x + layer.translationX,
-                                windowOrigin.y + layer.translationY, node.alpha, shadows[index].color.toArgb(),
-                                shadows[index].elevation, shadows[index].lightY,
-                                if (shadows[index].lightZ > 0f) shadows[index].lightZ else defaultLightZ,
-                                shadows[index].lightRadius,
-                                if (roundedRect) CouiShadowOutline.RoundRect
-                                else if (shadows[index].smoothCorner) CouiShadowOutline.SmoothCapsule else CouiShadowOutline.Oval,
-                                radius = node.resolvedCornerRadius, clipping = !roundedRect)
-                        }
-                    }
-                }
-                patches.forEach { patch ->
-                    patch.layer.record(size = IntSize(patch.bounds.width.toInt(), patch.bounds.height.toInt())) {
-                        translate(-patch.bounds.left, -patch.bounds.top) {
-                            backdrop.draw(this, target)
-                            patch.prefix.forEach { drawLayer(it) }
+                trace("COUI floating.recordSamples") {
+                    patches.forEach { patch ->
+                        patch.layer.record(size = IntSize(patch.bounds.width.toInt(), patch.bounds.height.toInt())) {
+                            translate(-patch.bounds.left, -patch.bounds.top) {
+                                backdrop.draw(this, target)
+                                patch.prefix.forEach { drawLayer(it) }
+                            }
                         }
                     }
                 }
@@ -408,6 +595,15 @@ private fun Modifier.floatingSurfaces(
         }
     }
 }
+
+private data class FloatingWarmupKey(
+    val materials: List<CouiFloatingMaterial>,
+    val contour: Boolean,
+    val foreground: Boolean,
+)
+
+// Accessed on the composition's UI thread. A remounted dock shares the same window's GPU cache.
+private val warmedFloatingMaterials = WeakHashMap<View, MutableSet<FloatingWarmupKey>>()
 
 private data class FloatingPatch(val layer: GraphicsLayer, val bounds: Rect, val prefix: List<GraphicsLayer>)
 

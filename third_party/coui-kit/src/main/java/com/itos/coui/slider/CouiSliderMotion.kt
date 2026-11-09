@@ -46,9 +46,9 @@ internal class CouiSliderMotion(
     private var dragging = false
 
     val height: CouiSpring = CouiSpring(0f) {
-        if (pendingRelease && heightFraction >= 0.5f) {
-            pendingRelease = false
-            height.animateTo(0f, 0.5f)
+        // 关闭系统动画时首个积分帧可直接到达终点；该帧交给结束监听退场，运行中重定向会丢失待定目标。
+        if (pendingRelease && heightFraction >= 0.5f && height.value < 100f) {
+            consumePendingRelease()
         }
     }
     val thumbRadius = CouiSpring(6f)
@@ -92,7 +92,7 @@ internal class CouiSliderMotion(
         pendingRelease = false
         bumpingEnd = false
         downX = fingerX
-        height.animateTo(100f, 0.5f)
+        height.animateTo(100f, 0.5f, onEnd = ::consumePendingRelease)
         thumbRadius.animateTo(8f, 0.5f, 0.3f, minimumChange = 1f / density)
         texture.animateTo(100f, 0.3f)
         thumbCover.snapTo(100f)
@@ -171,16 +171,27 @@ internal class CouiSliderMotion(
 
     fun dispose() {
         pressed = false
+        pendingRelease = false
         stopPositionAnimations()
         listOf(height, thumbRadius, texture, thumbCover, position, glitter).forEach { it.cancel() }
     }
 
     private fun releaseAppearance() {
-        if (height.isRunning && heightFraction < 0.5f) pendingRelease = true
-        else height.animateTo(0f, 0.5f)
+        if (height.isRunning && heightFraction < 0.5f) {
+            pendingRelease = true
+        } else {
+            pendingRelease = false
+            height.animateTo(0f, 0.5f)
+        }
         thumbRadius.animateTo(6f, 0.5f, minimumChange = 1f / density)
         texture.animateTo(0f, 0.3f)
         thumbCover.animateTo(100f, 0.3f)
+    }
+
+    private fun consumePendingRelease() {
+        if (!pendingRelease) return
+        pendingRelease = false
+        height.animateTo(0f, 0.5f)
     }
 
     private fun dragSection(x: Float) {

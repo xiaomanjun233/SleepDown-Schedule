@@ -110,7 +110,9 @@ internal fun CourseEditorFixedHeader(
 internal fun ProjectPagerIndicator(
     pagerState: PagerState,
     pageCount: Int,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    backdrop: Backdrop? = null,
 ) {
-    com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPagerIndicator(pagerState, pageCount, modifier)
+    com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPagerIndicator(
+        pagerState, pageCount, modifier, backdrop = backdrop)
 }

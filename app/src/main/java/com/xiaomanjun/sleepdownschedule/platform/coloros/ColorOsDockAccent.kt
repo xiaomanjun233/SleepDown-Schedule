@@ -66,7 +66,7 @@ internal fun rememberColorOsHomeAccents(
     wallpaperDark: Boolean,
     dockDark: Boolean
 ): ColorOsHomeAccents? {
-    if (rememberColorOsSource() == null) return null
+    if (!com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) return null
     val wallpaperAccent = rememberColorOsThemeAccent(config, wallpaperDark)
     return remember(wallpaperAccent, dockDark) {
         colorOsHomeAccents(wallpaperAccent, dockDark)

@@ -178,11 +178,11 @@ private fun CourseScheduleThemeContent(
                 if (darkTheme) 0 else android.view.View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR
         }
     }
-    val native = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesNativeControls
-    val blue = if (native) Color(com.xiaomanjun.sleepdownschedule.platform.coloros.rememberColorOsThemeAccent(config, darkTheme))
+    val glow = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
+    val blue = if (glow) Color(com.xiaomanjun.sleepdownschedule.platform.coloros.rememberColorOsThemeAccent(config, darkTheme))
         else Color(0xFF007AFF)
-    val blueContainer = if (native) androidx.compose.ui.graphics.lerp(blue, Color.White, 0.84f) else Color(0xFFD6E9FF)
-    val darkBlueContainer = if (native) androidx.compose.ui.graphics.lerp(blue, Color.Black, 0.55f) else Color(0xFF003A66)
+    val blueContainer = if (glow) androidx.compose.ui.graphics.lerp(blue, Color.White, 0.84f) else Color(0xFFD6E9FF)
+    val darkBlueContainer = if (glow) androidx.compose.ui.graphics.lerp(blue, Color.Black, 0.55f) else Color(0xFF003A66)
     MaterialTheme(
         shapes = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownContinuousShapes,
         colorScheme = if (darkTheme) {

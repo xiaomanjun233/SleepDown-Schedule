@@ -76,12 +76,6 @@ internal fun rememberColorOsCourseCardMode(): NativeCourseCardMode? {
         } == true
     }
     if (!available) return null
-    val preferences = remember(host) { host.getSharedPreferences(CourseMaterialPreference, Context.MODE_PRIVATE) }
-    // The global visual mode owns all course cards. The historical per-card opt-in is retained
-    // on disk for older builds, but cannot mix liquid cards into the native edition.
-    val enabled = remember { mutableStateOf(true) }
-    val tint = remember(preferences) { mutableFloatStateOf(preferences.getFloat(CourseTintStrength, 0.5f).coerceIn(0f, 1f)) }
-    val blurScale = remember(preferences) { mutableFloatStateOf(preferences.getFloat(CourseBlurScale, 1f).coerceIn(0f, 2f)) }
     val blurRadius = remember(source) {
         val context = source.themedContext(host, false)
         val type = source.load(BlurType)
@@ -90,6 +84,17 @@ internal fun rememberColorOsCourseCardMode(): NativeCourseCardMode? {
         source.load("com.coui.appcompat.COUIMaterialBlurEffect\$BaseBlurEffectParams")
             .getMethod("getBlurRadius", Context::class.java).invoke(params, context) as Float
     }
+    return rememberCourseCardMaterialPreferences(blurRadius)
+}
+
+@Composable
+internal fun rememberCourseCardMaterialPreferences(blurRadius: Float): NativeCourseCardMode {
+    val host = LocalContext.current.applicationContext
+    val preferences = remember(host) { host.getSharedPreferences(CourseMaterialPreference, Context.MODE_PRIVATE) }
+    // Keep the persisted tint and blur scale shared with the old renderer.
+    val enabled = remember { mutableStateOf(true) }
+    val tint = remember(preferences) { mutableFloatStateOf(preferences.getFloat(CourseTintStrength, 0.5f).coerceIn(0f, 1f)) }
+    val blurScale = remember(preferences) { mutableFloatStateOf(preferences.getFloat(CourseBlurScale, 1f).coerceIn(0f, 2f)) }
     DisposableEffect(preferences) {
         val listener = SharedPreferences.OnSharedPreferenceChangeListener { prefs, key ->
             if (key == CourseTintStrength) tint.floatValue = prefs.getFloat(key, 0.5f).coerceIn(0f, 1f)

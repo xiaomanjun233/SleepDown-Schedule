@@ -37,20 +37,23 @@ fun ProvideCouiMenuBackdrop(content: @Composable (Modifier) -> Unit) {
 fun ProvideCouiMenuBackdrop(
     isolateContent: Boolean,
     recordWhenIdle: Boolean = true,
+    enabled: Boolean = true,
     content: @Composable (Modifier) -> Unit,
 ) {
     val parent = LocalCouiMenuBackdrop.current
+    val parentWindow = LocalCouiMenuWindow.current
     val view = LocalView.current
-    if (parent != null && LocalCouiMenuWindow.current?.rootView === view.rootView) {
-        content(Modifier)
-        return
-    }
-    val backdrop = rememberCouiBackdrop(parent = parent, diagnosticName = "menu-window")
-    SideEffect {
-        backdrop.setIsolateContent(isolateContent)
-        backdrop.setRecordWhenIdle(recordWhenIdle)
-    }
-    CompositionLocalProvider(LocalCouiMenuBackdrop provides backdrop, LocalCouiMenuWindow provides view) {
-        content(Modifier.couiBackdrop(backdrop))
+    val reuse = parent != null && parentWindow?.rootView === view.rootView
+    val backdrop = if (enabled && !reuse) {
+        rememberCouiBackdrop(parent = parent, diagnosticName = "menu-window").also { source ->
+            SideEffect {
+                source.setIsolateContent(isolateContent)
+                source.setRecordWhenIdle(recordWhenIdle)
+            }
+        }
+    } else null
+    CompositionLocalProvider(LocalCouiMenuBackdrop provides (backdrop ?: parent),
+        LocalCouiMenuWindow provides (if (backdrop == null) parentWindow else view)) {
+        content(if (backdrop == null) Modifier else Modifier.couiBackdrop(backdrop))
     }
 }

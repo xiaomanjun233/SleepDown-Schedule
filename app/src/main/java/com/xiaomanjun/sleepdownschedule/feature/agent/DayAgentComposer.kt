@@ -312,7 +312,8 @@ internal fun AgentInputLiquidCapsule(
     val nativeSurface = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer.current
     if (nativeSurface?.invoke(com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest(
         modifier = modifier.then(heightModifier), shape = shape, dark = foreground.luminance() > 0.5f,
-        surfaceAlpha = surfaceVisibility, elasticTouchFeedback = true
+        surfaceAlpha = surfaceVisibility, elasticTouchFeedback = true,
+        backdrop = backdrop, acceptsGesture = interactionEnabledAt
     )) { Box(if (wrapContentHeight) Modifier.fillMaxWidth() else Modifier.fillMaxSize()) { content() } } == true) return
 
     val interactionScope = rememberCoroutineScope()

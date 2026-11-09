@@ -110,8 +110,8 @@ class HomeMotionPerformancePolicyTest {
     }
 
     @Test
-    fun frozenWeekBlurUsesQuarterAreaSurfaceAndBoundedLiveEffects() {
-        assertEquals(0.25f, HomeFrozenBlurSampleScale * HomeFrozenBlurSampleScale, 0.0001f)
+    fun frozenWeekBlurUsesOneNinthAreaSurfaceAndBoundedLiveEffects() {
+        assertEquals(1f / 9f, HomeFrozenBlurSampleScale * HomeFrozenBlurSampleScale, 0.0001f)
         assertEquals(32, HomeLiveBlurStepCount)
         assertEquals(12, HomeNonClosingBlurStepCount)
         assertEquals(12, HomeProgressiveBackdropBlurStepCount)

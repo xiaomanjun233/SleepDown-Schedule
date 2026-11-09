@@ -15,7 +15,9 @@ import com.itos.coui.backdrop.rememberCouiBackdrop
  */
 @Composable
 internal fun rememberDockPageBackdrop(): CouiBackdrop =
-    rememberCouiBackdrop(diagnosticName = "home-dock-page")
+    // The dock isolates its own patches. Page transitions and the frozen Home host already
+    // own their separate layers, so this sampling source can replay the same draw commands.
+    rememberCouiBackdrop(diagnosticName = "home-dock-page", isolateContent = false)
 
 internal fun Modifier.dockPageSource(backdrop: CouiBackdrop): Modifier =
     couiBackdrop(backdrop)

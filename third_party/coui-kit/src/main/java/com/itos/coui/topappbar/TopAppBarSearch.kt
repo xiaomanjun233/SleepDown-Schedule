@@ -78,8 +78,8 @@ import com.itos.coui.effect.SpotlightPreset
 import com.itos.coui.effect.couiFloatingSurface
 import com.itos.coui.effect.rememberCouiSpotlight
 import com.itos.coui.input.CouiSearchRelocationBoundary
-import com.itos.coui.icons.CouiIcons
 import com.itos.coui.search.CouiSearchBarDefaults
+import com.itos.coui.search.CouiSearchIcon
 import com.itos.coui.motion.couiPressMotion
 import com.itos.coui.motion.couiTouchMotion
 import com.itos.coui.motion.rememberCouiPressMotion
@@ -251,7 +251,7 @@ fun TopAppBarSearchButton(
                         capsule = false, enabled = enabled, interactive = enabled, deform = enabled,
                         onClick = { center -> state.sourceCenter = center; open() },
                     ) {
-                        Icon(modifier = Modifier.size(CouiSearchBarDefaults.iconSize), imageVector = CouiIcons.SearchField, contentDescription = contentDescription)
+                        Icon(modifier = Modifier.size(CouiSearchBarDefaults.iconSize), imageVector = CouiSearchIcon.imageVector, contentDescription = contentDescription)
                     }
                 }
 
@@ -352,7 +352,7 @@ private fun SearchInput(
             decorationBox = { input ->
                 Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
                     Box(Modifier.padding(start = 2.dp).size(36.dp), contentAlignment = Alignment.Center) {
-                        Icon(modifier = Modifier.size(CouiSearchBarDefaults.iconSize), imageVector = CouiIcons.SearchField, contentDescription = null)
+                        Icon(modifier = Modifier.size(CouiSearchBarDefaults.iconSize), imageVector = CouiSearchIcon.imageVector, contentDescription = null)
                     }
                     Box(Modifier.weight(1f).graphicsLayer { alpha = progress.coerceIn(0f, 1f) },
                         contentAlignment = Alignment.CenterStart) {

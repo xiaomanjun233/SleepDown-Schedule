@@ -162,6 +162,7 @@ fun CouiCapsuleButton(
     surfaceSheen: (() -> Brush?)? = null,
     backgroundModifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource? = null,
+    underlayModifier: Modifier = Modifier,
     content: @Composable RowScope.() -> Unit,
 ) {
     val source = interactionSource ?: remember { MutableInteractionSource() }
@@ -182,7 +183,7 @@ fun CouiCapsuleButton(
             translationY = motion.translationY.value
         }.couiTouchMotion(motion, enabled, cancelOnConsumedMove = true)
             .couiPressMotion(press, enabled, cancelOnConsumedMove = true).then(lightInput)
-            .clip(shape).then(backgroundModifier).drawWithContent {
+            .then(underlayModifier).clip(shape).then(backgroundModifier).drawWithContent {
                 drawContent()
                 drawLight?.invoke(this)
             }.couiButtonSurface(

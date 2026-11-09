@@ -24,7 +24,7 @@ class CouiValueControlsRouteTest {
         var slider = false
         var switch = false
         compose.setContent {
-            ProvideColorOsMaterials(enabled = false, couiControlsEnabled = true) {
+            ProvideCouiMaterials(couiControlsEnabled = true) {
                 val buttonRenderer = LocalNativeCapsuleButtonRenderer.current
                 val sliderRenderer = LocalNativeSliderRenderer.current
                 val switchRenderer = LocalNativeSwitchRenderer.current

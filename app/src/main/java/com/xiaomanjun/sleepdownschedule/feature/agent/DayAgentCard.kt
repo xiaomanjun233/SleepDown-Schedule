@@ -306,7 +306,7 @@ fun TodayAgentCard(
             modifier = Modifier.fillMaxWidth(),
             shape = cardShape,
             tokens = cardTokens,
-            nativeBlurRadiusScale = 0.7f
+            nativeBlurRadius = DayAgentCompactNativeBlurRadius
         ) {
         Box(
             modifier = Modifier.graphicsLayer {
@@ -399,6 +399,9 @@ fun TodayAgentCard(
         )
     }
 }
+
+private val DayAgentCompactNativeBlurRadius = 14.dp
+internal val DayAgentNativeBlurRadius = 18.dp
 
 internal fun weatherEmoji(summary: String): String {
     // The suffix may contain precipitation advice/probability even when the current condition is
@@ -688,7 +691,6 @@ private fun DayAgentCardVisualCore(
                     progress = visual.countdownProgress,
                     accent = activityAccent,
                     foreground = foreground,
-                    dark = visual.cardIsDark,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(

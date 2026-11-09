@@ -57,9 +57,10 @@ fun Scaffold(
     containerColor: Color = CouiTheme.colorScheme.background,
     windowInsets: WindowInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout),
     floatingActionButton: (@Composable BoxScope.() -> Unit)? = null,
+    isolateBodyBackdrop: Boolean = true,
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    val backdrop = rememberCouiBackdrop()
+    val backdrop = rememberCouiBackdrop(isolateContent = isolateBodyBackdrop)
     val materialEnabled = LocalCouiMaterialEnabled.current
     val remainingInsets = remember(windowInsets) { MutableWindowInsets(windowInsets) }
     val contentPadding = remember { ScaffoldPadding() }

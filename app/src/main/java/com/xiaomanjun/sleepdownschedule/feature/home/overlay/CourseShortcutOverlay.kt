@@ -212,11 +212,14 @@ internal fun CourseShortcutOverlay(
                 )
             }
             val source = request.bounds.translate(-host.topLeft)
+            val anchorFraction = if (request.pivotX == 0.5f) {
+                if (source.center.x <= available.center.x) 0f else 1f
+            } else request.pivotX
             val rowHeight = 40.dp * density.fontScale.coerceAtLeast(1f)
             val placement = with(density) {
                 val readableWidth = (120.dp + 64.dp * density.fontScale.coerceAtLeast(1f)).toPx()
                 courseShortcutPlacement(source, available, maxOf(source.width + 40.dp.toPx(), readableWidth),
-                    (rowHeight * 4f + CourseShortcutContentPaddingDp.dp * 2f).toPx(), 10.dp.toPx(), request.pivotX)
+                    (rowHeight * 4f + CourseShortcutContentPaddingDp.dp * 2f).toPx(), 10.dp.toPx(), anchorFraction)
             }
             Box(
                 Modifier.offset { IntOffset(source.left.roundToInt(), source.top.roundToInt()) }
@@ -261,7 +264,7 @@ internal fun CourseShortcutOverlay(
                 session = request, bounds = source, dark = appUsesDarkTheme(config), actions = actions,
                 closing = controller.closing,
                 onDismiss = { controller.close() }, bindDismiss = { controller.dismissNativeMenu = it },
-                anchorFraction = request.pivotX)
+                anchorFraction = anchorFraction)
             if (!nativeMenu) HomeAddMenuMorphPanel(
                 backdrop = backdrop, config = config, actions = actions,
                 homeMode = HomeMode.Week, onHomeModeChange = {},

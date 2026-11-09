@@ -14,36 +14,33 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.material.VisualEffectsState
 import com.xiaomanjun.sleepdownschedule.data.preferences.VisualEffectsPreferences
-import com.xiaomanjun.sleepdownschedule.platform.coloros.ColorOsNativeUi
-import com.xiaomanjun.sleepdownschedule.platform.coloros.ProvideColorOsMaterials
+import com.xiaomanjun.sleepdownschedule.platform.coloros.ProvideCouiMaterials
+import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
 
 @Composable
 internal fun ProvideVisualEffects(content: @Composable () -> Unit) {
     val context = LocalContext.current.applicationContext
     val preferences = remember(context) { VisualEffectsPreferences.get(context) }
     val selected by preferences.mode.collectAsStateWithLifecycle()
-    // Private ColorOS controls retain their own capability check; the selectable mode does not.
-    val nativeAvailable = remember(context) { ColorOsNativeUi.source(context) != null }
     val couiKitAvailable = Build.VERSION.SDK_INT >= 34
-    val state = remember(selected, nativeAvailable, couiKitAvailable, preferences) {
+    // Old systems render the Compose edition without changing the saved selection.
+    val effective = if (couiKitAvailable) selected else VisualEffectMode.LiquidGlass
+    val state = remember(selected, effective, couiKitAvailable, preferences) {
         VisualEffectsState(
             selectedMode = selected,
-            effectiveMode = selected,
-            colorOsAvailable = nativeAvailable,
+            effectiveMode = effective,
             couiKitAvailable = couiKitAvailable,
         ) { mode -> preferences.select(mode) }
     }
     CompositionLocalProvider(LocalVisualEffects provides state) {
-        ProvideColorOsMaterials(
-            enabled = state.usesNativeControls,
+        ProvideCouiMaterials(
             couiControlsEnabled = state.usesCouiControls,
             content = {
-                if (state.usesCouiControls) {
-                    // 整窗源供独立 Dialog 使用；同窗口内的普通按钮只消费调用方自己的背景域。
-                    ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
-                        Box(Modifier.fillMaxSize().then(source)) { content() }
-                    }
-                } else content()
+                // Keep screen state mounted when switching the window source on or off.
+                ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false,
+                    enabled = state.usesCouiControls) { source ->
+                    Box(Modifier.fillMaxSize().then(source)) { content() }
+                }
             },
         )
     }

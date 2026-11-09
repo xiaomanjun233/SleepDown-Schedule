@@ -61,11 +61,9 @@ private class AgentConicLightPainterApi33 : AgentConicLightPainter {
         // ConicLightEffectRenderer modulates the cone below 20% progress with a
         // cubic-bezier whose control points collapse to a linear ramp.
         val modulated = if (safeProgress > 0.2f) 1f else (safeProgress / 0.21f).coerceIn(0f, 1f)
-        val targetHeight = 0.6f * modulated
-        val targetFalloff = 0.6f * modulated
-        // The shape spring starts from the OFF values (height 0.1, no falloff, no cone).
-        val height = 0.1f + (targetHeight - 0.1f) * reveal
-        val heightFalloff = targetFalloff * reveal
+        // The native renderer interpolates OFF -> PLAYING before applying the progress ramp.
+        val height = (0.1f + 0.5f * reveal) * modulated
+        val heightFalloff = 0.6f * reveal * modulated
         val coneK = 0.2f * reveal
         val w0 = 0.008f * reveal
         val lightWidth = trackWidth + 2f * ConicLightHorizontalPadding
@@ -210,7 +208,7 @@ private const val ConicLightShader = """
              blend_color.rgb = blendPlusLighter(base.rgb, blend.rgb);
              blend_color.a = base.a * (1.0 - blend.a) + blend.a;
 
-             float percent = abs(blend.a - base.a) / blend_color.a;
+             float percent = abs(blend.a - base.a) / max(blend_color.a, 0.000001);
              float mix_bg = step(blend.a, base.a) * percent;
              float mix_fg = step(base.a, blend.a) * percent;
              blend_color.rgb = mix(blend_color.rgb, base.rgb, mix_bg);

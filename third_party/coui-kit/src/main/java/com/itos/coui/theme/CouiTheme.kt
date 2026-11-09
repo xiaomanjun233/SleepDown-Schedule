@@ -35,9 +35,9 @@ data class CouiColorScheme(
 
 /** Theme.COUI 的蓝色强调色与中性表面；不读取壁纸动态色。 */
 object CouiPresets {
-    val Light = CouiColorScheme(Color(0xFF0080FF), Color.White, Color.White, Color.White,
+    val Light = CouiColorScheme(CouiColor.Day.BLUE, Color.White, Color.White, Color.White,
         Color(0xE6000000), Color(0x8A000000), Color(0x1F000000), background = Color(0xFFF0F1F2))
-    val Dark = CouiColorScheme(Color(0xFF1A8CFF), Color.White, Color(0xFF1E1E1E), Color(0xFF333333),
+    val Dark = CouiColorScheme(CouiColor.Night.BLUE, Color.White, Color(0xFF1E1E1E), Color(0xFF333333),
         Color(0xE6FFFFFF), Color(0x8AFFFFFF), Color(0x33FFFFFF), Color(0xFF5C9DFF),
         background = Color.Black, card = Color(0x1AFFFFFF))
 }

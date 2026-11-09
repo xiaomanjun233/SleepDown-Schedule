@@ -121,6 +121,7 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
+import androidx.core.os.trace
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.effects.blur
@@ -496,7 +497,7 @@ fun CourseScheduleAppUi(
     val recordedScheduleId = remember { AtomicInteger(-1) }
     val recordedHomeGeneration = remember { AtomicLong(0L) }
     val lastRecordedHomeFrameKey = remember { AtomicReference<String?>(null) }
-    val weekHomeSurfaceUsesOffscreenCache = remember { AtomicBoolean(false) }
+    val homeSceneReplaying = remember { AtomicBoolean(false) }
     var captureRenderToken by remember { mutableIntStateOf(0) }
     var snapshotGeneration by remember { mutableIntStateOf(0) }
     var snapshotJob by remember { mutableStateOf<Job?>(null) }
@@ -545,7 +546,6 @@ fun CourseScheduleAppUi(
     val activeCourseEditorSession = courseEditorSessionRegistry.active
     var courseEditorRequest by activeCourseEditorSession::request
     var homeRootPositionInWindow by remember { mutableStateOf(Offset.Zero) }
-    val courseEditorUsesNativeMaterial = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()
     var pendingCourseGroupEdit by remember { mutableStateOf<PendingCourseGroupEdit?>(null) }
     var pendingCourseGroupDelete by remember { mutableStateOf<List<CourseEntity>>(emptyList()) }
     var homeCourseDismissHandler by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -580,7 +580,7 @@ fun CourseScheduleAppUi(
         )
         session.retainedRequest = nextRequest
         // Real-time material and content own the flight; no asynchronous PixelCopy placeholder.
-        session.request = nextRequest
+        trace("SleepDown Editor.open") { session.request = nextRequest }
     }
     fun openAdjustedCourseEditor(courseId: Long, date: LocalDate, sourceBounds: Rect?) {
         val original = state.courses.firstOrNull { it.id == courseId } ?: return
@@ -1079,7 +1079,7 @@ fun CourseScheduleAppUi(
         )
     }
     val appDarkTheme = appUsesDarkTheme(visualState.config)
-    val nativeVisuals = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesNativeControls
+    val glowVisuals = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
     val adaptiveGlassState = rememberFallbackAdaptiveGlassState(visualState.config)
     val homeChromeHasWallpaper = visualState.config.hasAnyWallpaper()
     val homeChromeForeground = adaptiveGlassState.contentColor.toArgb().takeIf { homeChromeHasWallpaper }
@@ -1091,8 +1091,8 @@ fun CourseScheduleAppUi(
             com.xiaomanjun.sleepdownschedule.platform.coloros.colorOsContrastingAccent(
                 it, MaterialTheme.colorScheme.background.toArgb())
         }
-    val homeChromeStyle = remember(nativeVisuals, homeChromeDark, homeChromeHasWallpaper, homeChromeForeground) {
-        if (!nativeVisuals) null else com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialStyle(
+    val homeChromeStyle = remember(glowVisuals, homeChromeDark, homeChromeHasWallpaper, homeChromeForeground) {
+        if (!glowVisuals) null else com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialStyle(
             homeChromeDark, weatherMaterial = false, foreground = homeChromeForeground,
             sampleBrightness = if (homeChromeHasWallpaper && !homeChromeDark) 0.94f else 1f)
     }
@@ -1556,7 +1556,7 @@ fun CourseScheduleAppUi(
         // The existing preparation phase supplies the clean source-hidden frame. Keep every
         // course node mounted; there is no flat-material capture or post-close rebuild.
         repeat(3) {
-            if (useCachedHomeSurface() && weekHomeSurfaceUsesOffscreenCache.get()) return
+            if (useCachedHomeSurface() && homeSceneReplaying.get()) return
             withFrameNanos { }
         }
     }
@@ -1972,7 +1972,9 @@ fun CourseScheduleAppUi(
     val courseMaterialsEnabled = AppMaterialPreferences.policy.courseSamples(
         visualState.config.courseCardGlassEnabled, visualState.config.courseCardGaussianBlurEnabled,
         visualState.config.hasAnyWallpaper())
-    val sharedCourseBackdrop = if (courseMaterialsEnabled && visualState.config.courseCardGlassEnabled)
+    val kitCourseMaterials = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls &&
+        AppMaterialPreferences.policy.denseMaterials
+    val sharedCourseBackdrop = if (!kitCourseMaterials && courseMaterialsEnabled && visualState.config.courseCardGlassEnabled)
         remember(courseWallpaperBackdrop) {
         com.kyant.backdrop.backdrops.SharedBlurBackdrop(courseWallpaperBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
     }.apply {
@@ -2608,44 +2610,36 @@ fun CourseScheduleAppUi(
             blurProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.progress.value) },
             useFrozenHomeScene = useFrozenHomeMorphBlur,
             closing = { homeBackgroundBlurClosing || courseShortcuts.closing },
-            sceneKey = homeCaptureFrameKey,
+            retainedScene = screenGraphicsLayer,
+            prepareScene = prepareScene@ { freeze ->
+                val frameSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
+                val validSize = frameSize.width > 0 && frameSize.height > 0
+                val ready = validSize && screenGraphicsLayer.size == frameSize &&
+                    lastRecordedHomeFrameKey.get() == homeCaptureFrameKey
+                // A moving pair of pages is not a stable overlay source.
+                val needsCapture = validSize && !ready &&
+                    !rootPageMotion.moving && !homeModeMotion.moving && !homeSidebarState.moving
+                screenGraphicsLayer.alpha = 1f
+                if (needsCapture) {
+                    trace("SleepDown Home.recordScene") {
+                        screenGraphicsLayer.record { this@prepareScene.drawContent() }
+                    }
+                    recordedScheduleId.set(visualState.config.id)
+                    recordedHomeGeneration.incrementAndGet()
+                    lastRecordedHomeFrameKey.set(homeCaptureFrameKey)
+                }
+                val replayFrozen = freeze && (ready || needsCapture)
+                // The Kit editor samples the same neutral display list into its local texture.
+                val flatten = replayFrozen && (!glowVisuals || courseEditorSessions.none { it.visible })
+                screenGraphicsLayer.compositingStrategy = if (flatten)
+                    androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
+                else androidx.compose.ui.graphics.layer.CompositingStrategy.Auto
+                homeSceneReplaying.set(replayFrozen)
+                needsCapture || replayFrozen
+            },
             modifier = Modifier.fillMaxSize()
         ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .drawWithContent {
-                    val freeze = useFrozenHomeMorphBlur()
-                    // A moving pair of pages is not a stable overlay source. Recording it on
-                    // the switch's first frame adds a full tree traversal to page construction.
-                    val needsCapture = !rootPageMotion.moving && !homeModeMotion.moving && !homeSidebarState.moving &&
-                        lastRecordedHomeFrameKey.get() != homeCaptureFrameKey
-                    screenGraphicsLayer.alpha = 1f
-                    if (needsCapture) {
-                        screenGraphicsLayer.record { this@drawWithContent.drawContent() }
-                        recordedScheduleId.set(visualState.config.id)
-                        recordedHomeGeneration.incrementAndGet()
-                        lastRecordedHomeFrameKey.set(homeCaptureFrameKey)
-                    }
-                    if (freeze) {
-                        if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(false, true)) {
-                            screenGraphicsLayer.compositingStrategy =
-                                androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
-                        }
-                        // Replay the neutral scene. Zoom and blur belong to the two outer
-                        // layers; the retained course tree is neither drawn nor re-recorded.
-                        drawLayer(screenGraphicsLayer)
-                    } else {
-                        if (weekHomeSurfaceUsesOffscreenCache.compareAndSet(true, false)) {
-                            screenGraphicsLayer.compositingStrategy =
-                                androidx.compose.ui.graphics.layer.CompositingStrategy.Auto
-                        }
-                        // A changed model/window has already been drawn by record above. Replay
-                        // that frame once instead of traversing the home tree twice on resume.
-                        if (needsCapture) drawLayer(screenGraphicsLayer) else drawContent()
-                    }
-                }
-        ) {
+        Box(Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier.fillMaxSize().then(
                 if (couiDockEnabled) Modifier.dockPageSource(dockPageBackdrop) else Modifier
@@ -2840,7 +2834,7 @@ fun CourseScheduleAppUi(
                         Box(Modifier.fillMaxSize()
                             .drawWithContent { if (rootPageMotion.retains(false)) drawContent() }
                             .homeSwitchLayer(rootPageMotion, secondary = false, pageClip = HomeSwitchClip.Page)
-                            .glassBackdropProducer(courseWallpaperBackdrop, enabled = courseMaterialsEnabled, recordKey = {
+                            .glassBackdropProducer(courseWallpaperBackdrop, enabled = courseMaterialsEnabled || kitCourseMaterials, recordKey = {
                                 homeWallpaperRecordKey.value?.let { imageKey ->
                                     imageKey to (personalizationPreviewState.wallpaperBrightness
                                         ?: visualState.config.wallpaperBrightness)
@@ -3938,16 +3932,8 @@ fun CourseScheduleAppUi(
         // order still places picker dialogs above the editor shell.
         courseEditorSessions.toList().forEach { editorSession ->
         key(editorSession) {
-        com.xiaomanjun.sleepdownschedule.core.ui.interaction.RetainedMorphLayer(
-            returning = editorSession.request == null && editorSession.visible,
-            zIndex = if (editorSession === courseEditorSessionRegistry.active) 100f else 99f,
-            directVisual = !courseEditorUsesNativeMaterial,
-            moving = editorSession.motion.phase != CourseEditorOverlayPhase.Open,
-            returnAnchor = editorSession.retainedRequest?.sourceBoundsInRoot,
-            onReturnAnchorTap = {
-                if (courseEditorFlightRegistry.tapGate.allowed) courseEditorSessionRegistry.reopen(editorSession)
-            }
-        ) { flightModifier ->
+        // The Kit shell draws in Compose, so it can use the same live layer and movement hit
+        // routing as the liquid shell. Re-recording the whole editor delayed each reversal.
         CourseEditorContainerOverlayHost(
             request = editorSession.request,
             state = state,
@@ -3955,7 +3941,7 @@ fun CourseScheduleAppUi(
             sourceCardBackdrop = courseEditorSourceBackdrop,
             config = state.config,
             adaptiveMetrics = homeAdaptiveMetrics,
-            modifier = flightModifier,
+            modifier = Modifier.zIndex(if (editorSession === courseEditorSessionRegistry.active) 100f else 99f),
             landscapeContentInsets = PaddingValues(start = homeSidebarState.targetContentInset,
                 top = homeSidebarState.targetContentTopInset, end = homeSidebarState.endInset),
             awaitOpeningGate = { awaitHomeBackgroundFrame(routeEligible = true) },
@@ -4033,7 +4019,6 @@ fun CourseScheduleAppUi(
                 }
             }
         )
-        }
         }
         }
 

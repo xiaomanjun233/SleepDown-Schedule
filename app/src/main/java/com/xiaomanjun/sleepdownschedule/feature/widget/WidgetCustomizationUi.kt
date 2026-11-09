@@ -389,7 +389,8 @@ fun WidgetCustomizationScreen(
                     }
                     ProjectPagerIndicator(
                         pagerState = pagerState,
-                        pageCount = widgetTypes.size
+                        pageCount = widgetTypes.size,
+                        backdrop = backdrop
                     )
                     Row(
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)

@@ -1,5 +1,53 @@
 # 当前工作交接
 
+## 2026-11-09 当前：凝光首开与融球拆解
+
+在 `codex/couikit-dialog` 接续现有未提交迁移。按用户要求直接核查 E 盘 PMX110 完整包。设置与 Launcher 组件、Framework 和 `libhwui.so` 的反编译表明融球经 RenderNode 写入主体关系和材质，参数变化后再更新，原生材质滤镜按节点复用。应用内 Kit 分开记录融球材质、焦散、投影和采样，复用静态材质配置与 Mesh 规格。Dock 跳过隐藏附件预绘，保留可见主体预绘。首页背景共用一份场景记录，弹窗复用相同 Kawase 配方，窗口语义保持独立。
+
+签名候选 `tmp/review-apks/SleepDown-1.2.8-beta2-COUIKit-cold-20261109-e1a9b810.apk`。完整 GitHub Release、V2 签名、Kit 13 项和应用 37 项回归均通过。Android 16 的 Pixel 10 Pro AVD 在 SDK ADB `5037 / emulator-5556` 上复测。Dock 同包连续点击 P95 从首开 258.6 ms 降到后五次 31.6–65.6 ms，后 3 次无驱动链接。搜索保留缓存重启 65.6 ms，清应用 shader 缓存后重启 121.6 ms。同机换包样本中搜索与 Dock 首开改善，Dock 复开和编辑器首开仍有慢帧。ColorOS 真机的 50 ms 指标待验收。见[报告](reports/2026-11-09-couikit-cold-animation.md)。
+
+## 2026-11-09 当前：同步 Kit 上游并补齐编辑器页点和课程染色
+
+用户反馈上一包卡顿仍未缓解，追加编辑器切页圆点、凝光课程卡渐变和助理收起态降低模糊，并要求先同步上游。GitHub 插件核对 `ItosEO/COUI-Kit` 的 `main` 到 `261658dc200c143c5ea883591662479344d25ba1`，较旧基线 22 个提交。临时克隆位于 `tmp/coui-upstream-261658dc`，核心 Kotlin 三方合并保留现有宿主差异。已接入 DynamicAnimation 1.1.0、滑条松手恢复、搜索主题染色和独立图标、色板及大标题／FAB／底栏 API。宿主仍使用旧图标兼容入口，可选图标模块及上游网站／Demo 未引入。详见[接入说明](../third_party/coui-kit/SLEEPDOWN_INTEGRATION.md)。
+
+编辑器直绘和独立入口为公共页点传入表单下层 Backdrop。凝光课程卡复用现有底部染色渐变，课程色与峰值透明度仍受原滑杆控制。日视图助理收起态凝光 18→14 dp，展开为 18 dp。凝光编辑器的首页冻结层试验以指令回放代替整屏 Offscreen，设置搜索将 IME 避让限制在结果视口。同步后 Release Kotlin 已通过，正在执行签名包与同机对照。保留旧私有源码、用户改动及 `output/`。
+
+## 2026-11-09 当前：融球整窗绘制、编辑器背景和 ART 冷路径
+
+继续优化设置搜索、Dock 首次融球和首页打开／打断动效。内置 Kit 允许不透明根正文和 Dock 的完整背景重放录制指令，移除这两条路线的整窗离屏绘制。首页冻结清晰与模糊背景共用一次录制，模糊每轴三分之一采样且保留 22 dp 半径。融球预绘按窗口和材质配方复用。周数弹窗同窗试验中，窗口缓冲分配消失，但中位帧耗时上升，已撤回该试验。保留旧私有源码供比对、原工作树和 `output/`。
+
+硬件加速 Pixel 10 Pro AVD 追踪确认搜索和 Dock 首次整窗离屏绘制 42／57 次降至 0。搜索捕获一次 195.1 ms 的 Kit `SearchBar` 即时编译，Kit 加入三条针对已测方法的基线规则。最终包强制处理包内配置前后，搜索首开 P95 94.7→54.8 ms，复开仍有慢帧。Dock 首开／复开 P95 43.8／20.6 ms，编辑器打断后重开最长 RenderThread 同步等待 19.3 ms。编辑器与周数弹窗首开 P95 仍为 132.6／129.7 ms，真机性能和观感待验收。
+
+Kit 13 项、应用 32 项定向测试、商店 Release Kotlin 和 GitHub 完整签名 Release 均通过。APK `tmp/review-apks/SleepDown-1.2.8-beta2-COUIKit-perfprofile-20261109-45d09ec3.apk` 的 SHA-256 为 `45D09EC35D4A0F373ACD549D520986AE5F55AC3A5167F6B206573F313A54E280`，7,820,604 字节，V2 证书与上一包一致。R8 保留三条热路径规则，ProfileInstaller 和系统 `speed-profile` 对照通过。已上传 APK 并回读名称、MIME 与大小。[签名 APK](https://drive.google.com/file/d/1G5WvI1eH-B9lr5YeAB-_hqbY8Ti0fVus/view?usp=drivesdk) · [追踪记录](reports/2026-11-08-coui-glow-visual-followup.md)
+
+## 2026-11-09 当前：凝光直绘、实景预绘和助理样式
+
+用户指出凝光打断慢于液态、融球仍卡，追加日视图助理展开材质、锥光进度条还原和课程卡泛光横宽纵窄。编辑器在两种模式共用直接绘制和点击路由，个性化与编辑器共用原液态的内容交接比例。内置 Kit 精简双球 shader，并在空闲期用实际采样尺寸、下层场景和焦散预绘。助理展开使用收起态的 18 dp，锥光补齐原厂三条弹簧和低进度调制，课程卡泛光两侧各外扩 2 dp、底部外延收至 7.5 dp。
+
+最新签名包 `tmp/review-apks/SleepDown-1.2.8-beta2-COUIKit-livewarm-20261109-f0cde239.apk`，SHA-256 `F0CDE239FA84AF9A611570E0645ABB06FB73986B2D09ADCD66EBB760D21A8547`，7,820,604 字节。GitHub Release、商店 Release Kotlin、Kit 13 项测试、V2 签名与 DEX 标记核对通过。已上传 Drive 并回读，仅上传 APK。硬件加速 AVD 上，两种模式均可打断重开，凝光编辑器最长等待 108.1→27.0 ms，搜索／Dock 首次 P95 为 95.9／67.7 ms。日视图已点验课时进度条和助理展开，返回先收键盘再回到卡片。搜索仍有个别慢帧，ColorOS 真机性能与视觉待复核。[签名 APK](https://drive.google.com/file/d/1hVHmQ9R7BicoxojkrDzLaD92N9EBKT3q/view?usp=drivesdk) · [追踪记录](reports/2026-11-08-coui-glow-visual-followup.md)
+
+## 2026-11-09 当前：教务底部触摸与首页弹窗动效
+
+用户澄清首页掉帧指打开弹窗和打断动画，融球入口为搜索与 Dock。列表视口退出浮动搜索框的触摸区域，模拟器点验最后一行打开教务浏览器及双适配入口。融球空闲期分两帧预绘真实材质，Dock 的动画值在布局与绘制时读取；Kit Dialog 反向从当前帧继续，编辑器用四档过渡模糊。Android 16 硬件加速 AVD 验证打开和打断重开，搜索与 Dock 首次 P95 从 456.2／395.5 ms 降至 122.4／58.5 ms，编辑器打断重开最长 RenderThread 等待从 90.5 ms 降至 41.9 ms。节次弹窗首次仍受缓冲分配和全屏图层提交影响。真机的 GPU 效果和性能待验收。详见[续修与追踪](reports/2026-11-08-coui-glow-visual-followup.md)。
+
+签名候选 `tmp/review-apks/SleepDown-1.2.8-beta2-COUIKit-motion-20261109-c5d3312b.apk`，SHA-256 `C5D3312B51D98DBD8FB293B0A740305240553ED12187980971DEBAC0A4E1219B`，7,820,604 字节。GitHub Release V2 签名、APK 版本和私有材质标记扫描通过。融球、Dock 和共用窗口改动在项目内置 Kit，E 盘参考工作区仅核对。保留原私有实现供核对及未提交工作树，按用户要求仅上传 APK。[签名 APK](https://drive.google.com/file/d/1RzPzMi0MLLqpk-DUDj8SO0Qn0yiEew-q/view?usp=drivesdk)
+
+## 2026-11-09 当前：文件夹材质、三处取色和融球冷路径
+
+用户要求课程卡的模糊与描边参照桌面文件夹、底部泛光参照 Dock 加号，同时复查课程与个性化的两个调色盘及「从壁纸取色」，并追搜索框和 Dock 首次融球。源码已接入 Launcher 小文件夹混色和描边、加号泛光、共用色板与固定的壁纸取色动作区。Kit 双材料槽共用 shader 源码。硬件加速 AVD 的旧包搜索追踪记录到 RenderThread 的驱动链接尖峰，Dock 切页追踪主要是图层提交及部分即时编译。详见[续修与追踪](reports/2026-11-08-coui-glow-visual-followup.md)。
+
+本轮 Kotlin、GitHub 签名 Release、商店 Kotlin 与 56 项定向测试通过。材质候选 `238dfae1` 已上传 Google Drive 并回读核对 7,820,604 字节，仅上传 APK。硬件加速 AVD 上，搜索和 Dock 首次驱动链接分别约 322 与 289 ms，再次约 20 与 6 ms。共享 shader 后冷路径仍可复现。个性化彩色调色盘及真实壁纸取色已覆盖点验。
+
+## 2026-11-08 当前：凝光实装细节复查
+
+用户追查描边与底部泛光、三处模糊、公共与菜单跟手光、编辑器／内层弹窗／首次融球掉帧、色板与分享排版、教务 WebView 顶栏与灵动岛，追加小组件设置页的分页点。保持 `codex/couikit-dialog` 原未提交改动与 `output/`。核对 E 盘系统描边类型和参数，修复透明轮廓输出、焦散合成、场景模糊和手势接线。课程编辑器恢复降采样，Dialog 保持开场采样网格；融合材质把屏幕光照计算移出绘制缓存回调。详见[视觉和交互复查](reports/2026-11-08-coui-glow-visual-followup.md)。
+
+## 2026-11-08 当前：凝光运行路线迁移与审查
+
+接续 `e2f1fe57` 与原有未提交适配。用户要求全版本退出凝光私有系统调用，并明确允许保留旧实现源码供核对。Android 14+ 改由 Kit 和公开 API 装配，API 26–33 用已有 Compose 路线，原偏好保留。E 盘已恢复并用于核对完整系统包与本地 Kit。用户授权将校验通过的本轮签名 APK 上传 Google Drive，本机只保留同次构建的 mapping 一份。详见[凝光迁移审查](reports/2026-11-08-coui-glow-migration-review.md)。
+
+- 定向回归 Kit 13 项、应用 37 项均通过。GitHub 完整签名 Release 和商店 Kotlin 编译均通过。交付 `tmp/review-apks/SleepDown-1.2.8-beta2-COUIKit-20261108-54f6fbac.apk`，已从 Drive 回读核对文件名和 7820604 字节。构建日志为 `tmp/coui-migration-final-verification.log`。ADB 两服务无设备，实机光效和帧耗时仍待验收。
+
 ## 2026-11-08 当前：按钮渐变与菜单跟手光核查
 
 接续 `95ab3c00`。用户提供多课表管理截图，追问按钮深色渐变及课程卡片迁移状态，追加菜单应有跟手光。保留 `output/`、版本与本地交付边界，不安装／推送／发布，不使用协作Agent。

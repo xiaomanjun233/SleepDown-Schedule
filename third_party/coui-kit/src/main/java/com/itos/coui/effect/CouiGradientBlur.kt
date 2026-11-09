@@ -29,6 +29,11 @@ import kotlin.math.ceil
 private const val BlurOffsetPx = 2f
 private const val SigmaScale = 0.57735f
 
+enum class CouiGradientDirection(val vertical: Boolean, val reverse: Boolean) {
+    TopToBottom(true, false), BottomToTop(true, true),
+    LeftToRight(false, false), RightToLeft(false, true),
+}
+
 /** 仅模糊背景；长度为 px，各节点独立持有横纵图层，Shader 在首次绘制创建。 */
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
 @Composable
@@ -37,13 +42,18 @@ fun Modifier.drawCouiGradientBackdrop(
     fadeHeightPx: Float,
     referenceBlurRadiusPx: Float,
     gradientSpeed: Float? = null,
+    direction: CouiGradientDirection = CouiGradientDirection.TopToBottom,
+    fullBlurFraction: Float = 0f,
+    effects: CouiBackdropEffectScope.() -> Unit = {},
 ): Modifier {
     require(gradientSpeed == null || gradientSpeed.isFinite() && gradientSpeed > 0f)
+    backdrop.RetainWhileComposed()
     return graphicsLayer {
         shape = RectangleShape
         clip = true
         compositingStrategy = ComposeCompositingStrategy.Offscreen
-    }.then(GradientBackdropElement(backdrop, fadeHeightPx, referenceBlurRadiusPx, gradientSpeed))
+    }.then(GradientBackdropElement(backdrop, fadeHeightPx, referenceBlurRadiusPx, gradientSpeed,
+        direction, fullBlurFraction, effects))
 }
 
 @RequiresApi(33)
@@ -52,22 +62,22 @@ private data class GradientBackdropElement(
     val fadeHeightPx: Float,
     val referenceBlurRadiusPx: Float,
     val gradientSpeed: Float?,
+    val direction: CouiGradientDirection,
+    val fullBlurFraction: Float,
+    val effects: CouiBackdropEffectScope.() -> Unit,
 ) : ModifierNodeElement<GradientBackdropNode>() {
-    override fun create() = GradientBackdropNode(backdrop, fadeHeightPx, referenceBlurRadiusPx, gradientSpeed)
+    override fun create() = GradientBackdropNode(this)
     override fun update(node: GradientBackdropNode) {
         node.backdrop = backdrop
-        node.update(fadeHeightPx, referenceBlurRadiusPx, gradientSpeed)
+        node.update(this)
     }
     override fun InspectorInfo.inspectableProperties() { name = "drawCouiGradientBackdrop" }
 }
 
 @RequiresApi(33)
 private class GradientBackdropNode(
-    backdrop: CouiBackdrop,
-    private var fadeHeightPx: Float,
-    private var referenceBlurRadiusPx: Float,
-    private var gradientSpeed: Float?,
-) : DrawCouiBackdropNode(backdrop) {
+    private var parameters: GradientBackdropElement,
+) : DrawCouiBackdropNode(parameters.backdrop) {
     private var passes = emptyList<GraphicsLayer>()
     private var renderer: CouiGradientRenderer? = null
     private var rendererDensity: Density? = null
@@ -85,25 +95,27 @@ private class GradientBackdropNode(
         super.onDetach()
     }
 
-    fun update(fadeHeightPx: Float, referenceBlurRadiusPx: Float, gradientSpeed: Float?) {
-        if (this.fadeHeightPx != fadeHeightPx || this.referenceBlurRadiusPx != referenceBlurRadiusPx ||
-            this.gradientSpeed != gradientSpeed) {
-            this.fadeHeightPx = fadeHeightPx
-            this.referenceBlurRadiusPx = referenceBlurRadiusPx
-            this.gradientSpeed = gradientSpeed
+    fun update(value: GradientBackdropElement) {
+        if (parameters.fadeHeightPx != value.fadeHeightPx ||
+            parameters.referenceBlurRadiusPx != value.referenceBlurRadiusPx ||
+            parameters.gradientSpeed != value.gradientSpeed || parameters.direction != value.direction ||
+            parameters.fullBlurFraction != value.fullBlurFraction) {
             renderer = null
         }
+        parameters = value
     }
 
     override fun configureEffects(scope: CouiBackdropEffectScope) {
         val density = scope.recordingDensity
         val current = renderer?.takeIf { rendererDensity == density }
-            ?: CouiGradientRenderer(fadeHeightPx, referenceBlurRadiusPx, gradientSpeed, density, passes).also {
+            ?: CouiGradientRenderer(parameters.fadeHeightPx, parameters.referenceBlurRadiusPx,
+                parameters.gradientSpeed, parameters.direction, parameters.fullBlurFraction, density, passes).also {
                 renderer = it
                 rendererDensity = density
             }
         scope.padding = current.padding
-        current.height = scope.size.height
+        current.extent = if (parameters.direction.vertical) scope.size.height else scope.size.width
+        parameters.effects(scope)
     }
 
     override fun drawSource(scope: DrawScope, source: DrawScope.() -> Unit) {
@@ -117,6 +129,8 @@ private class CouiGradientRenderer(
     private val fadeHeightPx: Float,
     referenceBlurRadiusPx: Float,
     private val gradientSpeed: Float?,
+    private val direction: CouiGradientDirection,
+    private val fullBlurFraction: Float,
     private val density: Density,
     private val passes: List<GraphicsLayer>,
 ) {
@@ -134,11 +148,11 @@ private class CouiGradientRenderer(
         }
     }
     private var lastSize = IntSize.Zero
-    private var lastHeight = Float.NaN
+    private var lastExtent = Float.NaN
     private var recordedSize = IntSize.Zero
     private var recordedLayoutDirection: LayoutDirection? = null
 
-    var height: Float = 0f
+    var extent: Float = 0f
 
     // 覆盖最大采样偏移和线性插值的外沿, 不让边界 Clamp 进入可见区域。
     val padding: Float = kernelRadius * BlurOffsetPx + 1f
@@ -170,18 +184,23 @@ private class CouiGradientRenderer(
     }
 
     private fun updateEffects(size: IntSize) {
-        if (lastSize == size && lastHeight == height) return
+        if (lastSize == size && lastExtent == extent) return
         shaders.forEachIndexed { index, shader ->
             shader.setFloatUniform("inputSize", size.width.toFloat(), size.height.toFloat())
-            val gradientHeight = if (gradientSpeed == null) fadeHeightPx else height
-            shader.setFloatUniform("gradientTop", padding + height - gradientHeight)
+            val gradientHeight = if (gradientSpeed == null) fadeHeightPx
+                else (extent * (1f - fullBlurFraction.coerceIn(0f, .95f))).coerceAtLeast(1f)
+            val sign = if (direction.reverse) -1f else 1f
+            shader.setFloatUniform("gradientAxis", if (direction.vertical) 0f else sign,
+                if (direction.vertical) sign else 0f)
+            val origin = if (direction.reverse) -padding - extent else padding
+            shader.setFloatUniform("gradientTop", origin + extent - gradientHeight)
             shader.setFloatUniform("gradientHeight", gradientHeight)
             // RenderEffect 保存 uniform 快照; 仅几何改变时更新, 普通滚动复用。
             passes[index].renderEffect = RenderEffect.createRuntimeShaderEffect(shader, "child")
                 .asComposeRenderEffect()
         }
         lastSize = size
-        lastHeight = height
+        lastExtent = extent
     }
 }
 
@@ -194,17 +213,11 @@ private fun gradientGaussianShader(kernelRadius: Int, gradientSpeed: Float?): St
     uniform float2 inputSize;
     uniform float gradientTop;
     uniform float gradientHeight;
+    uniform float2 gradientAxis;
     uniform half2 in_blurOffset;
 
     float4 sampleChild(float2 coord) {
         return child.eval(clamp(coord, float2(0.5), inputSize - 0.5));
-    }
-
-    float getWeight(int i, int radius) {
-        float sigma = float(radius) / 3.0;
-        float value = (1.0 / sqrt(2.0 * PI * sigma * sigma))
-            * exp(float(-i * i) / (2.0 * sigma * sigma + 0.00000001));
-        return clamp(value, 0.0, 1.0);
     }
 
     float interleavedGradientNoise(float2 coord) {
@@ -214,7 +227,7 @@ private fun gradientGaussianShader(kernelRadius: Int, gradientSpeed: Float?): St
 
     half4 main(float2 coord) {
         float4 c = sampleChild(coord);
-        float position = clamp((coord.y - gradientTop) / gradientHeight, 0.0, 1.0);
+        float position = clamp((dot(coord, gradientAxis) - gradientTop) / gradientHeight, 0.0, 1.0);
         // 通用入口保留 smoothstep；显式原厂分支使用 1-pow(1-ratio,speed)。
         float ratio = ${if (gradientSpeed == null) "smoothstep(0.0, 1.0, 1.0 - position)" else "1.0 - pow(position, ${gradientSpeed})"};
         int radius = int(float(in_blurRadius) * ratio);
@@ -225,14 +238,22 @@ private fun gradientGaussianShader(kernelRadius: Int, gradientSpeed: Float?): St
         float sumWeight = 0.0;
         // 颜色累加与覆盖率归一保持 float，避免 half 舍入随整数半径形成横向色带。
         float4 finalColor = float4(0.0);
+        // w(i+1) / w(i) = exp(-(2i+1)/(2σ²)). Advance that ratio with one
+        // constant multiplier instead of evaluating exp for every sampled pixel.
+        float sigma = float(radius) / 3.0;
+        float decay = exp(-0.5 / (sigma * sigma));
+        float ratioStep = decay * decay;
+        float nextWeightRatio = decay * ratioStep;
+        float weight = decay / sqrt(2.0 * PI * sigma * sigma);
         for (int i = 1; i <= in_blurRadius; i++) {
             if (i > radius) break;
-            float weight = getWeight(i, radius);
             offset.x = min(in_blurOffset.x, float(radius)) * float(i);
             offset.y = min(in_blurOffset.y, float(radius)) * float(i);
             finalColor += sampleChild(coord - offset) * weight;
             finalColor += sampleChild(coord + offset) * weight;
             sumWeight += 2.0 * weight;
+            weight *= nextWeightRatio;
+            nextWeightRatio *= ratioStep;
         }
         finalColor += c * (1.0 - sumWeight);
         // 屏幕外没有页面采样; 恢复有效颜色但不扩张中心覆盖度, 避免顶边变暗或补成不透明。

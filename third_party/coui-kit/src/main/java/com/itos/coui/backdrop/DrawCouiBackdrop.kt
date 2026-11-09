@@ -3,6 +3,7 @@ package com.itos.coui.backdrop
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.RenderEffect
@@ -11,6 +12,7 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.layer.GraphicsLayer
@@ -32,6 +34,8 @@ class CouiBackdropEffectScope internal constructor(internal val recordingDensity
         internal set
     var padding: Float = 0f
     var renderEffect: RenderEffect? = null
+    /** Resolution of the sampled texture; effect radii use the same texture's pixels. */
+    var sampleScale: Float = 1f
 
     fun blur(radius: Float, edgeTreatment: TileMode = TileMode.Clamp) {
         if (radius <= 0f) return
@@ -44,18 +48,18 @@ class CouiBackdropEffectScope internal constructor(internal val recordingDensity
 @Composable
 fun Modifier.drawCouiBackdrop(
     backdrop: CouiBackdrop,
-    shape: () -> Shape,
+    shape: (() -> Shape)?,
     effects: CouiBackdropEffectScope.() -> Unit,
     onDrawSurface: DrawScope.() -> Unit = {},
     onDrawBackdrop: (DrawScope.(DrawScope.() -> Unit) -> Unit)? = null,
 ): Modifier {
-    return this
-        .graphicsLayer {
-            this.shape = shape()
-            clip = true
-            compositingStrategy = CompositingStrategy.Offscreen
-        }
-        .then(DrawBackdropElement(backdrop, effects, onDrawSurface, onDrawBackdrop))
+    backdrop.RetainWhileComposed()
+    val clipping = if (shape == null) Modifier else Modifier.graphicsLayer {
+        this.shape = shape()
+        clip = true
+        compositingStrategy = CompositingStrategy.Offscreen
+    }
+    return then(clipping).then(DrawBackdropElement(backdrop, effects, onDrawSurface, onDrawBackdrop))
 }
 
 private data class DrawBackdropElement(
@@ -114,18 +118,26 @@ internal open class DrawCouiBackdropNode(
             scope.size = size
             scope.padding = 0f
             scope.renderEffect = null
+            scope.sampleScale = 1f
             configureEffects(scope)
             val padding = ceil(scope.padding).toInt()
+            val scale = scope.sampleScale.coerceIn(0.125f, 1f)
             val targetLayer = checkNotNull(layer)
             targetLayer.renderEffect = scope.renderEffect
-            targetLayer.topLeft = IntOffset(-padding, -padding)
+            targetLayer.topLeft = if (scale == 1f) IntOffset(-padding, -padding) else IntOffset.Zero
             targetLayer.record(scope.recordingDensity, layoutDirection,
-                IntSize(size.width.toInt() + 2 * padding, size.height.toInt() + 2 * padding)) {
+                IntSize(ceil(size.width * scale).toInt() + 2 * padding,
+                    ceil(size.height * scale).toInt() + 2 * padding)) {
                 translate(padding.toFloat(), padding.toFloat()) {
-                    drawSource(this) { backdrop.draw(this, target) }
+                    scale(scale, scale, pivot = Offset.Zero) {
+                        drawSource(this) { backdrop.draw(this, target) }
+                    }
                 }
             }
-            drawLayer(targetLayer)
+            if (scale == 1f) drawLayer(targetLayer)
+            else scale(1f / scale, 1f / scale, pivot = Offset.Zero) {
+                translate(-padding.toFloat(), -padding.toFloat()) { drawLayer(targetLayer) }
+            }
         }
         surface(this)
         drawContent()

@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
+import android.graphics.BlendMode
 import com.itos.coui.floatingactionbutton.CouiFabDefaults
 import com.itos.coui.topappbar.CouiTopAppBarButtonDefaults
 import com.itos.coui.segmentbutton.CouiSegmentedControlDefaults
@@ -29,6 +30,19 @@ internal fun couiCapsuleMaterial(backdrop: Backdrop?, shape: Shape, dark: Boolea
 internal fun couiSegmentMaterial(backdrop: Backdrop?, dark: Boolean): Modifier {
     val material = remember(dark) { CouiSegmentedControlDefaults.material(dark) }
     return couiControlMaterial(backdrop, CouiCapsuleShape, material)
+}
+
+/** AllThemeButton samples behind the shell with a 30px mirror blur and no color filters. */
+@Composable
+internal fun couiIlluminatedCapsuleMaterial(backdrop: Backdrop, shape: Shape): Modifier {
+    val material = remember {
+        CouiFloatingMaterial(
+            firstColor = Color.Transparent, firstBlendMode = BlendMode.SRC_OVER,
+            secondColor = Color.Transparent, secondBlendMode = BlendMode.SRC_OVER,
+            edgeAlpha = 0f, innerGlowAlpha = 0f, blurRadius = 30f,
+        )
+    }
+    return couiControlMaterial(backdrop, shape, material)
 }
 
 @Composable

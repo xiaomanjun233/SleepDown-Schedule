@@ -149,6 +149,7 @@ fun CourseGlassCard(
     course: CourseEntity? = null,
     shape: Shape = RoundedRectangle(12.dp),
     blurOverride: Float? = null,
+    nativeBlurRadius: androidx.compose.ui.unit.Dp? = null,
     renderSurface: Boolean = true,
     mountMaterial: Boolean = true,
     viewportMaterialVisible: Boolean = true,
@@ -204,20 +205,14 @@ fun CourseGlassCard(
     val nativeMode = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode.current
     if (nativeMode?.enabled == true) {
         val base = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
-        val alpha = nativeMode.tintStrength
+        // The course tint sits over the folder material. The slider controls its strongest
+        // point, so the bottom keeps its course color without masking the sampled blur.
+        val alpha = nativeMode.tintStrength * (0x66 / 255f)
+        val topTintFloor = 0.55f
         val tintDraw: DrawScope.() -> Unit = remember(base, alpha, expandedOutlineLight) {
-            var height = Float.NaN
-            var brush: Brush? = null
-            val draw: DrawScope.() -> Unit = {
-                if (size.height != height) {
-                    height = size.height
-                    brush = bottomLitGlassTintBrush(base.copy(alpha = alpha), height,
-                        expanded = expandedOutlineLight)
-                }
-                // Transfer course tint only. Native stroke and foreground light own the
-                // material highlights; legacy shading would paint over and duplicate them.
-                drawRect(requireNotNull(brush))
-            }
+            val brush = bottomLitGlassTintBrush(base.copy(alpha = alpha), Float.POSITIVE_INFINITY,
+                topTintFloor = topTintFloor, expanded = expandedOutlineLight)
+            val draw: DrawScope.() -> Unit = { drawRect(brush) }
             draw
         }
         val coordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
@@ -227,7 +222,7 @@ fun CourseGlassCard(
                 Rect(origin.x, origin.y, origin.x + position.size.width, origin.y + position.size.height)
             }
         } }
-        val background = rememberCourseTextBackground(base, alpha, true, nativeMode.blurRadiusPx, true, expandedOutlineLight,
+        val background = rememberCourseTextBackground(base, alpha * topTintFloor, true, nativeMode.blurRadiusPx, false, false,
             flatBackground = homeFlatBackgroundColor(appUsesDarkTheme(config)).takeUnless { config.hasAnyWallpaper() },
             ready = true, cardBounds = cardBounds)
         val renderer = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardRenderer.current
@@ -237,7 +232,8 @@ fun CourseGlassCard(
                 followTouch = followTouch,
                 externalTouch = externalTouch,
                 edgeEffects = nativeEdgeEffects,
-                followLightRadius = followLightRadius
+                followLightRadius = followLightRadius, backdrop = backdrop, blurRadius = nativeBlurRadius,
+                backdropSampleScale = editorSampleScale, causticTint = base
             )) {
                 CompositionLocalProvider(LocalCourseTextBackground provides background) { content() }
             } == true) return

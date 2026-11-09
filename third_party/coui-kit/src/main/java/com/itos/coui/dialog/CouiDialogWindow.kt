@@ -77,6 +77,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog as ComposeDialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.DialogWindowProvider
+import androidx.core.os.trace
 import com.itos.coui.R
 import com.itos.coui.backdrop.CouiBackdrop
 import com.itos.coui.backdrop.CouiSamplingCoordinates
@@ -129,15 +130,16 @@ internal fun CouiDialogWindow(
             entranceRequested = true
             val fresh = !retained
             retained = true
-            // 窗口完成测量并提交初始画面后才计时，避免创建窗口消耗入场的前半段。
-            snapshotFlow { windowSize }.first { it.height > 0 }
-            if (fresh) {
+            if (fresh || !motionStarted) {
+                // Only a fresh window needs the initial layout. Reversals keep their current
+                // translation, scale and opacity and can start in the next animation frame.
+                snapshotFlow { windowSize }.first { it.height > 0 }
                 scale.snapTo(.8f)
                 opacity.snapTo(0f)
                 translation.snapTo(windowSize.height.toFloat())
+                withFrameNanos { }
+                motionStarted = true
             }
-            withFrameNanos { }
-            motionStarted = true
         } else if (!motionStarted) {
             val wasRetained = retained || entranceRequested
             retained = false
@@ -220,7 +222,7 @@ internal fun CouiDialogWindow(
             attributes.softInputMode = softInput
             attributes.flags = flags
             attributes.dimAmount = colors.dimAmount
-            window.attributes = attributes
+            trace("COUI Dialog.configureWindow") { window.attributes = attributes }
             com.itos.coui.diagnostic.CouiRenderDiagnostics.event("dialog.window.configure")
         }
     }
@@ -244,8 +246,10 @@ internal fun CouiDialogWindow(
         }
         val window = checkNotNull((LocalView.current.parent as? DialogWindowProvider)?.window) { "未找到对话框所属 Window" }
         DisposableEffect(window) {
-            window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
-            if (Build.VERSION.SDK_INT >= 31) window.setBackgroundBlurRadius(0)
+            trace<Unit>("COUI Dialog.initWindow") {
+                window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
+                if (Build.VERSION.SDK_INT >= 31) window.setBackgroundBlurRadius(0)
+            }
             onDispose { }
         }
         SideEffect {
@@ -310,7 +314,10 @@ internal fun CouiDialogWindow(
                 val imeTranslation = if (placement == CouiDialogPlacement.Bottom) imeOffset else imeOffset / 2f
                 // maxWidth 包含左右留白；入场距离只取卡片外框高度，不取全屏窗口高度。
                 Box(Modifier.widthIn(max = CouiDialogDefaults.maxWidth).fillMaxWidth()
-                    .onGloballyPositioned { windowSize = it.size }
+                    .onGloballyPositioned {
+                        if (windowSize == IntSize.Zero) trace("COUI Dialog.firstLayout") { windowSize = it.size }
+                        else windowSize = it.size
+                    }
                     .padding(horizontal = CouiDialogDefaults.horizontalMargin).padding(bottom = padding)) {
                     DialogCard(modifier.fillMaxWidth().heightIn(max = minOf(maxCardHeight, availableHeight)),
                         material, windowBackdrop, colors, shape, edge, dark, radiusPx, edgeWeight,
@@ -372,7 +379,11 @@ private fun DialogCard(
             layer.renderEffect = composeMaterialEffect
             layer.record(recordingDensity, layoutDirection,
                 IntSize(size.width.toInt().coerceAtLeast(1), size.height.toInt().coerceAtLeast(1))) {
-                blur.draw(this, target, scale, sampleTranslation)
+                // Sample the moving window with its inverse transform, but keep the Kawase
+                // passes on one grid instead of rebuilding all nine as the window grows.
+                trace("COUI Dialog.recordKawase") {
+                    blur.draw(this, target, scale, sampleTranslation, stableSampleGrid = true)
+                }
             }
             drawLayer(layer)
         } else drawRect(colors.surface)

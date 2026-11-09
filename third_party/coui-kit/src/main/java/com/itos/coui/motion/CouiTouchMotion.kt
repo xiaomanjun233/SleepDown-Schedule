@@ -132,7 +132,7 @@ class CouiTouchMotion(
         releaseAxis(scaleYSpring, 1f, velocity.y, response)
     }
 
-    /** 停在当前位置；保留底层速度与 pending 目标，不等于恢复未变形状态。 */
+    /** 停在当前位置，保留速度并清除尚未处理的目标。立即恢复未变形状态时使用 [reset]。 */
     fun cancel() {
         scaleXSpring.cancel()
         scaleYSpring.cancel()

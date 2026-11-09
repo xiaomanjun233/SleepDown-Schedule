@@ -22,6 +22,8 @@ internal data class VisualEffectsState(
     /** 跨品牌 COUI 控件（Dock、FAB、按钮等）共用 Android 14+ 能力门控。 */
     val usesCouiControls: Boolean get() = glowEnabled && couiKitAvailable
 
+    val usesGlowMaterials: Boolean get() = usesCouiControls || usesNativeControls
+
     val usesCouiDock: Boolean get() = usesCouiControls
 }
 

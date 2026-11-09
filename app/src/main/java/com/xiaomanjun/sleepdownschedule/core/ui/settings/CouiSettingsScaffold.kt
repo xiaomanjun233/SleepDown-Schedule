@@ -15,6 +15,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -116,6 +117,7 @@ internal fun CouiSettingsPageScaffold(
     isolateContentFromBackdrop: Boolean = false,
     preserveStatusBarSpace: Boolean = false,
     topBarBackdropOverride: Backdrop? = null,
+    topBarBackgroundColor: androidx.compose.runtime.State<Color?>? = null,
     topBarActions: @Composable (Backdrop?) -> Unit = {},
     content: @Composable (PaddingValues, Backdrop) -> Unit,
 ) {
@@ -132,6 +134,7 @@ internal fun CouiSettingsPageScaffold(
         val sampling = Build.VERSION.SDK_INT >= 31 && !isolateContentFromBackdrop
         val paneBackground = rememberSettingsPaneBackground(colors.background)
         val material = LocalCouiMaterialEnabled.current && showTopGradientBlur && !isolateContentFromBackdrop
+        val webToolbarMaterial = LocalCouiMaterialEnabled.current && topBarBackdropOverride != null
         CompositionLocalProvider(
             LocalCenteredDialogSceneBackdrop provides scene,
             LocalCenteredDialogRenderInRootScaffold provides false,
@@ -141,17 +144,23 @@ internal fun CouiSettingsPageScaffold(
             LocalCouiMaterialEnabled provides material,
         ) {
             SettingsMiuixPopupHost {
-            ProvideCouiMenuBackdrop { windowSource ->
+            ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { windowSource ->
             Box(modifier.fillMaxSize()) {
                 Box(Modifier.fillMaxSize()
                     .then(if (sampling) Modifier.glassBackdropProducer(backgroundSource) else Modifier)
                     .then(paneBackground.modifier))
                 // 与 DemoApp 一致：弹窗持有输入时，下层页面不跟随键盘重新布局。
                 val imeAvoidance = if (LocalWindowInfo.current.isWindowFocused) Modifier.imePadding() else Modifier
-                Scaffold(modifier = Modifier.fillMaxSize().then(imeAvoidance)
+                // Keep the searching toolbar's viewport and backdrop source at their window size.
+                // Only the results viewport needs to follow the IME while the capsules separate.
+                Scaffold(modifier = Modifier.fillMaxSize()
+                    .then(if (rootSearch == null) imeAvoidance else Modifier)
                     .then(windowSource)
                     .then(if (sampling) Modifier.centeredDialogSceneProducer(scene) else Modifier),
                     containerColor = colors.background,
+                    // The opaque settings list already owns component-local blend modes.
+                    // During IME resize, keep its display list without a second viewport texture.
+                    isolateBodyBackdrop = rootSearch == null || colors.background.alpha < 1f,
                     topBar = {
                         if (topBarVisible) {
                             val toolbar: @Composable () -> Unit = {
@@ -164,15 +173,21 @@ internal fun CouiSettingsPageScaffold(
                                     alpha = 1f - editor.floatValue
                                     translationY = 28.dp.toPx() * editor.floatValue
                                 }
-                                CompositionLocalProvider(LocalCouiSettingsToolbar provides true) {
+                                val sampledDark = topBarBackgroundColor?.value?.let { it.luminance() < 0.179f }
+                                val toolbarForeground = sampledDark?.let { if (it) Color.White else Color.Black }
+                                    ?: colors.onSurface
+                                CompositionLocalProvider(LocalCouiSettingsToolbar provides true,
+                                    LocalCouiMaterialEnabled provides (material || webToolbarMaterial)) {
                                     val label: @Composable () -> Unit = {
                                         Text(text = title, kind = if (largeHeader != null) CouiTextKind.HomeTitle else CouiTextKind.Toolbar,
-                                            textAlign = TextAlign.Start, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            color = toolbarForeground, textAlign = TextAlign.Start, maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis)
                                     }
                                     val navigation: @Composable () -> Unit = {
                                         if (showBack) {
-                                            CouiSettingsToolbarButton(topBarBackdropOverride ?: source, onBack) {
-                                                Icon(CouiIcons.Back, "返回", Modifier.size(24.dp), tint = colors.onSurface)
+                                            CouiSettingsToolbarButton(topBarBackdropOverride ?: source, onBack,
+                                                darkOverride = sampledDark, sampleExplicitBackdrop = webToolbarMaterial) {
+                                                Icon(CouiIcons.Back, "返回", Modifier.size(24.dp), tint = toolbarForeground)
                                             }
                                         }
                                     }
@@ -223,7 +238,8 @@ internal fun CouiSettingsPageScaffold(
                         Box(Modifier.fillMaxSize()
                             // COUI 顶栏已从 Scaffold 的正文源采样；液态才需要第二份 Kyant 正文源。
                             .then(if (sampling && LocalCouiLiquidMaterial.current) Modifier.glassBackdropProducer(source) else Modifier)
-                            .then(paneBackground.modifier)) { content(padding, backgroundSource) }
+                            .then(paneBackground.modifier)
+                            .then(if (rootSearch != null) imeAvoidance else Modifier)) { content(padding, backgroundSource) }
                     }
                 }
                 if (inheritedOverlay == null) overlays.content?.invoke()
@@ -317,19 +333,24 @@ private fun CouiCompatibleSettingsSearch(search: CouiSettingsSearch, backdrop: B
 /** 与上游 Demo 相同的 48dp 命中区、40dp 表面和系统材质；液态模式保留原材质。 */
 @Composable
 internal fun CouiSettingsToolbarButton(backdrop: Backdrop?, onClick: () -> Unit,
-    modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val dark = CouiTheme.isDark
+    modifier: Modifier = Modifier, darkOverride: Boolean? = null, sampleExplicitBackdrop: Boolean = false,
+    content: @Composable () -> Unit) {
+    val dark = darkOverride ?: CouiTheme.isDark
     if (Build.VERSION.SDK_INT >= 34 && LocalCouiMaterialEnabled.current && LocalCouiSettingsToolbar.current) {
         val density = LocalDensity.current.density
         val contour = LocalCouiContourGlowEnabled.current
-        TopAppBarButton(modifier = modifier, onClick = onClick,
-            style = CouiTopAppBarButtonDefaults.style(dark).copy(
-                contentColor = CouiTheme.colorScheme.onSurface,
+        val scheme = CouiTheme.colorSchemeFor(dark)
+        val style = CouiTopAppBarButtonDefaults.style(dark).copy(
+                contentColor = scheme.onSurface,
                 textStyle = rememberCouiTextStyle(CouiTextKind.Toolbar),
-                cursorColor = CouiTheme.colorScheme.accent,
+                cursorColor = scheme.accent,
                 material = { CouiTopAppBarButtonDefaults.systemMaterial(dark, it) },
                 shadow = { CouiTopAppBarButtonDefaults.shadow(dark, it, density, contour, alphaScale = 1f) },
-            ), content = { content() })
+            )
+        if (sampleExplicitBackdrop && backdrop != null) {
+            TopAppBarButton(modifier = modifier, onClick = onClick, style = style,
+                backdrop = com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop(backdrop)) { content() }
+        } else TopAppBarButton(modifier = modifier, onClick = onClick, style = style) { content() }
         return
     }
     val interaction = remember { MutableInteractionSource() }

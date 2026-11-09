@@ -1114,7 +1114,8 @@ fun SchedulePickerOverlay(
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 Box(Modifier.height(38.dp).offset(y = 7.dp), contentAlignment = Alignment.Center) {
-                    SleepDownPagerIndicator(pagerState, orderedProfiles.size, enabled = pagerInputEnabled)
+                    SleepDownPagerIndicator(pagerState, orderedProfiles.size, enabled = pagerInputEnabled,
+                        backdrop = managerBackdrop)
                 }
                 BoxWithConstraints(Modifier.fillMaxSize().padding(horizontal = 24.dp)
                     .onGloballyPositioned { lightReceiverBounds = it.boundsInRoot() }, contentAlignment = Alignment.Center) {
@@ -1254,10 +1255,12 @@ fun SchedulePickerOverlay(
         backdrop = dialogBackdrop,
         config = shareConfig,
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
+        couiContentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
+        scrollableContent = true,
         contentSpacing = 12.dp,
         blurRadius = 10.dp
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             QuickSheetLiquidAction(
                 label = "分享短口令",
                 enabled = true,

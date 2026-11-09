@@ -35,7 +35,6 @@ import com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdater
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
 import com.xiaomanjun.sleepdownschedule.withGeneralSettingsFrom
-import com.xiaomanjun.sleepdownschedule.switchCourseCardGlassMode
 
 @Composable
 fun GeneralSettingsScreen(
@@ -126,20 +125,17 @@ fun GeneralSettingsScreen(
                     SettingsDivider()
                     SleepDownLiquidDropdownPreference(
                         title = "视效模式",
-                        summary = if (effects.glowEnabled) "凝光材质与触摸反馈" else "使用液态玻璃材质",
+                        summary = if (effects.usesGlowMaterials) "凝光材质与触摸反馈" else "使用液态玻璃材质",
                         items = listOf(VisualEffectMode.LiquidGlass.label, VisualEffectMode.ColorOsGlow.label),
-                        selectedIndex = if (effects.glowEnabled) 1 else 0,
+                        selectedIndex = if (effects.selectedMode == VisualEffectMode.ColorOsGlow) 1 else 0,
                         backdrop = backdrop,
                         config = visualConfig,
                         onSelectedIndexChange = { index ->
                             val mode = if (index == 1) VisualEffectMode.ColorOsGlow else VisualEffectMode.LiquidGlass
-                            if (mode == VisualEffectMode.ColorOsGlow && effects.selectedMode != mode) {
-                                onUpdateConfig(state.config.withGeneralSettingsFrom(draft).switchCourseCardGlassMode(true))
-                            }
                             effects.selectMode(mode)
                         }
                     )
-                    if (!effects.usesNativeControls) {
+                    if (!effects.usesGlowMaterials) {
                     SettingsDivider()
                     SleepDownLiquidDropdownPreference(
                         title = "材质分级",
@@ -158,7 +154,7 @@ fun GeneralSettingsScreen(
                         }
                     )
                     }
-                    if (!effects.usesNativeControls &&
+                    if (!effects.usesGlowMaterials &&
                         !com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance) {
                         SettingsDivider()
                         SettingsNavigationRow(

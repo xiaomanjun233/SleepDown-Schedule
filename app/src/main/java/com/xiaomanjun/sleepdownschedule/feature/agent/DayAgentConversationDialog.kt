@@ -842,6 +842,7 @@ internal fun DayAgentConversationDialog(
                 GlassSurface(
                     nativeMaterial = true,
                     nativeDockMaterial = true,
+                    nativeBlurRadius = DayAgentNativeBlurRadius,
                     nativeFollowLightIntensityScale = 0.45f,
                     backdrop = backdrop,
                     config = state.config,
@@ -852,9 +853,8 @@ internal fun DayAgentConversationDialog(
                         val corner = agentSmoothStep(0.04f, 0.90f, agentMorphSizeProgress(raw, closing))
                         RoundedRectangle(with(density) { (sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * corner).toDp() })
                     },
-                    // Keep the expanded conversation shell visually identical to the compact
-                    // home card. Passing the resolved tokens also preserves the card's light/dark
-                    // wallpaper treatment instead of maintaining a second drifting parameter set.
+                    // Reuse the source card's light/dark tint. The expanded shell uses its
+                    // own blur radius to give the conversation more separation.
                     tokens = sourceGlassTokens
                 ) {}
                 }

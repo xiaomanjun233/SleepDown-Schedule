@@ -78,6 +78,7 @@ fun DetailActivityScaffold(
     topBarVisible: Boolean = true,
     preserveStatusBarSpace: Boolean = false,
     topBarBackdropOverride: Backdrop? = null,
+    topBarBackgroundColor: androidx.compose.runtime.State<ComposeColor?>? = null,
     topBarActions: @Composable (Backdrop?) -> Unit = {},
     content: @Composable (Backdrop?) -> Unit
 ) {
@@ -85,7 +86,7 @@ fun DetailActivityScaffold(
         topBarVisible = topBarVisible, showTopGradientBlur = showTopGradientBlur,
         isolateContentFromBackdrop = isolateContentFromBackdrop,
         preserveStatusBarSpace = preserveStatusBarSpace, topBarBackdropOverride = topBarBackdropOverride,
-        topBarActions = topBarActions) { _, source ->
+        topBarBackgroundColor = topBarBackgroundColor, topBarActions = topBarActions) { _, source ->
         content(source.takeUnless { isolateContentFromBackdrop || android.os.Build.VERSION.SDK_INT < 31 })
     }
 }

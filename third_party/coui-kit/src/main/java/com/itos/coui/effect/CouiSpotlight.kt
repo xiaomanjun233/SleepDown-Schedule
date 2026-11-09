@@ -7,6 +7,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -15,6 +16,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.structuralEqualityPolicy
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -32,7 +34,12 @@ import androidx.dynamicanimation.animation.SpringAnimation
 import androidx.dynamicanimation.animation.SpringForce
 import com.itos.coui.input.isCouiTouchCancelled
 import kotlin.math.PI
+import kotlin.math.hypot
 import kotlin.math.pow
+import kotlinx.coroutines.flow.collect
+
+/** 已提升表面的本地触点，由稳定的手势 owner 提供；pressed=false 同时覆盖取消。 */
+data class CouiSpotlightTouch(val position: Offset, val pressed: Boolean)
 
 /** 原厂跟手光预设; 半径及光源高度使用设备像素, 不随 density 换算。 */
 enum class SpotlightPreset(
@@ -45,6 +52,7 @@ enum class SpotlightPreset(
     internal val diffuse: Float = 0.4f,
     internal val noise: Float = 0.08f,
 ) {
+    TransparentSmall1(1f, 1f, 400f),
     TranslucentLarge1(0.6f, 0.1f, 800f),
     OpaqueSmall1(0.6f, 0.5f, 500f),
     OpaqueMedium1(0.6f, 0.8f, 500f),
@@ -96,6 +104,9 @@ fun rememberCouiSpotlight(
     inputTarget: ((Offset, Boolean) -> LayoutCoordinates?)? = null,
     cancelOnConsumedMove: Boolean = false,
     onDiagnostic: (SpotlightDiagnostic) -> Unit = {},
+    externalTouch: (() -> CouiSpotlightTouch)? = null,
+    acceptsGesture: ((IntSize, Offset) -> Boolean)? = null,
+    scaleRadiusToBounds: Boolean = false,
 ): Pair<Modifier, (DrawScope.() -> Unit)?> =
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         val style = SpotlightStyle(
@@ -110,7 +121,8 @@ fun rememberCouiSpotlight(
             endRadius = endRadius ?: preset.endRadius,
             color = color ?: Color.White,
         )
-        runtimeSpotlight(interactive, style, inputTarget, cancelOnConsumedMove, onDiagnostic)
+        runtimeSpotlight(interactive, style, inputTarget, cancelOnConsumedMove, onDiagnostic,
+            externalTouch, acceptsGesture, scaleRadiusToBounds)
     } else {
         Modifier to null
     }
@@ -123,11 +135,16 @@ private fun runtimeSpotlight(
     inputTarget: ((Offset, Boolean) -> LayoutCoordinates?)?,
     cancelOnConsumedMove: Boolean,
     onDiagnostic: (SpotlightDiagnostic) -> Unit,
+    externalTouch: (() -> CouiSpotlightTouch)?,
+    acceptsGesture: ((IntSize, Offset) -> Boolean)?,
+    scaleRadiusToBounds: Boolean,
 ): Pair<Modifier, (DrawScope.() -> Unit)?> {
     val diagnostic = rememberUpdatedState(onDiagnostic)
     val currentInputTarget by rememberUpdatedState(inputTarget)
-    val light = remember(style.startRadius, style.endRadius) {
-        SpotlightState(style.startRadius, style.endRadius) { diagnostic.value(it) }
+    val currentExternalTouch by rememberUpdatedState(externalTouch)
+    val currentAcceptsGesture by rememberUpdatedState(acceptsGesture)
+    val light = remember(style.startRadius, style.endRadius, scaleRadiusToBounds) {
+        SpotlightState(style.startRadius, style.endRadius, scaleRadiusToBounds) { diagnostic.value(it) }
     }
     DisposableEffect(light) {
         onDispose { light.dispose() }
@@ -138,11 +155,28 @@ private fun runtimeSpotlight(
     val shader = remember { RuntimeShader(SpotlightShader) }
     val paint = remember(style.blendMode) { Paint().apply { blendMode = style.blendMode } }
     var inputCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var inputSize by remember { mutableStateOf(IntSize.Zero) }
+    LaunchedEffect(light, interactive, externalTouch != null) {
+        if (!interactive || externalTouch == null) return@LaunchedEffect
+        var pressed = false
+        try {
+            snapshotFlow { currentExternalTouch?.invoke() to inputSize }.collect { (touch, bounds) ->
+                val active = touch?.pressed == true && bounds.width > 0 && bounds.height > 0 &&
+                    touch.position.x.isFinite() && touch.position.y.isFinite()
+                if (active) {
+                    light.setSize(bounds)
+                    light.move(Offset(touch.position.x / bounds.width, touch.position.y / bounds.height))
+                    if (!pressed) light.press()
+                } else if (pressed) light.release()
+                pressed = active
+            }
+        } finally { if (pressed) light.release() }
+    }
     val touchModifier = Modifier
         .onGloballyPositioned { inputCoordinates = it }
-        .onSizeChanged { if (inputTarget == null) light.setSize(it) }
-        .pointerInput(light, interactive, inputTarget == null, cancelOnConsumedMove) {
-            if (!interactive) return@pointerInput
+        .onSizeChanged { inputSize = it; if (inputTarget == null) light.setSize(it) }
+        .pointerInput(light, interactive, inputTarget == null, cancelOnConsumedMove, externalTouch != null) {
+            if (!interactive || externalTouch != null) return@pointerInput
             try {
                 awaitPointerEventScope {
                     var activePointer: PointerId? = null
@@ -170,6 +204,7 @@ private fun runtimeSpotlight(
                         } else {
                             tracked ?: if (currentInputTarget != null) event.changes.firstOrNull { it.pressed } else null
                         } ?: continue
+                        if (wasIdle && currentAcceptsGesture?.invoke(size, change.position) == false) continue
                         val target = currentInputTarget?.invoke(change.position, !wasIdle)
                         if (currentInputTarget != null && target?.isAttached != true) {
                             light.release()
@@ -236,6 +271,7 @@ private fun runtimeSpotlight(
 private class SpotlightState(
     private val startRadius: Float,
     private val endRadius: Float,
+    private val scaleRadiusToBounds: Boolean,
     private val onDiagnostic: (SpotlightDiagnostic) -> Unit,
 ) {
     private var reportNextDraw = false
@@ -273,7 +309,9 @@ private class SpotlightState(
         private set
 
     fun setSize(size: IntSize) {
+        if (bounds == size) return
         bounds = size
+        if (scaleRadiusToBounds && progress > 0f) updateRadius()
     }
 
     fun move(target: Offset) {
@@ -327,10 +365,16 @@ private class SpotlightState(
             positionXAnimation.skipToEnd()
             positionYAnimation.skipToEnd()
         } else {
-            radius = startRadius + (endRadius - startRadius) * progress +
-                if (extinguishing && value > 0f) 2f * endRadius * (1f - progress) else 0f
+            updateRadius()
             if (spotLightOutOfBounds()) progressAnimation.skipToEnd()
         }
+    }
+
+    private fun updateRadius() {
+        val end = if (scaleRadiusToBounds) hypot(bounds.width.toFloat(), bounds.height.toFloat()) else endRadius
+        val start = if (scaleRadiusToBounds) end * (startRadius / endRadius) else startRadius
+        radius = start + (end - start) * progress +
+            if (extinguishing) 2f * end * (1f - progress) else 0f
     }
 
     private fun spotLightOutOfBounds(): Boolean {

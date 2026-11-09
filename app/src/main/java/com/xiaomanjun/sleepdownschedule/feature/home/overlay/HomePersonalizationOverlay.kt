@@ -171,15 +171,13 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
 ) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val latestPreviewProgress = rememberUpdatedState(previewProgress)
-    val earlyContentHandoff = !com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()
     val morphSpec = remember(
         sourceBounds,
         sourcePressedScale,
         targetRect,
         adaptiveMetrics,
         density.density,
-        contentDuringMotion,
-        earlyContentHandoff
+        contentDuringMotion
     ) {
         legacyPersonalizationMorphSpec(
             source = sourceBounds,
@@ -200,8 +198,7 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
                 ThreeDotMenuMotion.CloseControlDropDp.dp.toPx()
             },
             preloadedContent = contentDuringMotion,
-            earlyContentHandoff = earlyContentHandoff,
-            earlyOpeningContentHandoff = true
+            earlyContentHandoff = true
         )
     }
     DisposableEffect(morphSpec, motionState) {
@@ -225,8 +222,7 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
                 verticalReboundAmplitudePx = with(density) { ThreeDotMenuMotion.OpenReboundAmplitudeDp.dp.toPx() },
                 closingSinkOffsetPx = with(density) { ThreeDotMenuMotion.CloseSinkOffsetDp.dp.toPx() },
                 closingControlDropPx = with(density) { ThreeDotMenuMotion.CloseControlDropDp.dp.toPx() },
-                preloadedContent = contentDuringMotion, earlyContentHandoff = earlyContentHandoff,
-                earlyOpeningContentHandoff = true)
+                preloadedContent = contentDuringMotion, earlyContentHandoff = true)
             val frames: (Float) -> FloatArray = { p ->
                 rebased.frame(LiquidMorphInput(from, to, p,
                     if (closing) LiquidMorphDirection.Closing else LiquidMorphDirection.Opening))
@@ -718,8 +714,9 @@ private fun DeferredHomePersonalizeMorphPanel(
                     shape = androidx.compose.ui.graphics.RectangleShape, dark = !lightGlass,
                     surfaceAlpha = surfaceAlphaProvider,
                     role = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Form,
+                    blurRadius = 22.dp,
                     onDrawTint = { drawRect(surfaceColor) },
-                    edgeEffects = false, followTouch = false
+                    edgeEffects = false, followTouch = false, backdrop = backdrop
                 )
             ) {} == true) {
                 // The active native renderer owns this surface, just like the other native forms.

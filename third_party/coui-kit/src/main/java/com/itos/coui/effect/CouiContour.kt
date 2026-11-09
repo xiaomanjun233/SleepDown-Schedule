@@ -6,7 +6,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 
 /** 独立轮廓预设；Menu 保留既有菜单分布，Dialog/Button 对应原厂 ShadowEdge Drawable。 */
-enum class CouiContourStyle { Menu, Dialog, Button }
+enum class CouiContourStyle { Menu, Dialog, Button, MaterialCapsule, MaterialCircle, LauncherFolder }
 
 /**
  * 在实际半透明表面上绘制轮廓与内晕, 不采样系统 Window 背景。
@@ -16,7 +16,12 @@ enum class CouiContourStyle { Menu, Dialog, Button }
 @RequiresApi(33)
 class CouiContour(private val floating: Boolean = false, private val style: CouiContourStyle = CouiContourStyle.Menu) {
     init { require(!floating || style == CouiContourStyle.Menu) { "浮动轮廓不可同时使用 Drawable 预设" } }
-    private val shader = RuntimeShader(if (floating) couiFloatingContourShader() else CouiContourShader)
+    private val materialStrokeType = when (style) {
+        CouiContourStyle.MaterialCapsule -> 1
+        CouiContourStyle.MaterialCircle -> 2
+        else -> if (floating) 2 else 0
+    }
+    private val shader = RuntimeShader(if (materialStrokeType != 0) couiFloatingContourShader() else CouiContourShader)
 
     private var nativeParameters: NativeParameters? = null
     private var lastSurface = Color.Unspecified
@@ -34,7 +39,7 @@ class CouiContour(private val floating: Boolean = false, private val style: Coui
         lineWidthPx: Float = 2.5f * density,
     ): RuntimeShader {
         require(radiusPx.isFinite() && radiusPx >= 0f) { "圆角半径必须为有限非负值" }
-        require(cornerWeight.isFinite() && cornerWeight >= if (style == CouiContourStyle.Menu) 2f else 1f) { "圆角权重不符合所选轮廓预设" }
+        require(cornerWeight.isFinite() && cornerWeight >= if (style == CouiContourStyle.Menu && !floating) 2f else 1f) { "圆角权重不符合所选轮廓预设" }
         require(innerGlowAlpha.isFinite() && innerGlowAlpha in 0f..1f) { "内晕透明度必须为 0 到 1 的有限值" }
         require(lineAlpha.isFinite() && lineAlpha in 0f..1f) { "描边透明度必须为 0 到 1 的有限值" }
         require(effectAlpha.isFinite() && effectAlpha in 0f..1f) { "光效透明度必须为 0 到 1 的有限值" }
@@ -46,12 +51,12 @@ class CouiContour(private val floating: Boolean = false, private val style: Coui
             shader.setFloatUniform("uEffectAlpha", effectAlpha)
             lastEffectAlpha = effectAlpha
         }
-        if (floating) {
+        if (materialStrokeType != 0) {
             val halfWidth = size.width.coerceAtLeast(1f) * 0.5f
             val halfHeight = size.height.coerceAtLeast(1f) * 0.5f
             val radius = radiusPx.coerceAtMost(size.minDimension.coerceAtLeast(0f) * 0.5f)
             val ball = floatArrayOf(0f, 0f, halfWidth, halfHeight, radius, cornerWeight, 1f, 1f)
-            val glow = floatingInnerGlow(ball, innerGlowAlpha, 2)
+            val glow = floatingInnerGlow(ball, innerGlowAlpha, materialStrokeType)
             shader.setFloatUniform(
                 "u_commonArray",
                 floatArrayOf(halfWidth, halfHeight, 0f, 0f, halfWidth, halfHeight, radius, cornerWeight),
@@ -60,7 +65,7 @@ class CouiContour(private val floating: Boolean = false, private val style: Coui
                 "u_baseShapeCtxArray",
                 floatingShapeContext(halfWidth, halfHeight, cornerWeight, radius),
             )
-            shader.setFloatUniform("u_edgeArray", floatingEdge(ball, 2.5f * density, lineAlpha, 2))
+            shader.setFloatUniform("u_edgeArray", floatingEdge(ball, lineWidthPx, lineAlpha, materialStrokeType))
             shader.setFloatUniform("u_shadowArray", glow)
             shader.setFloatUniform("u_shadowShapeCtxArray", floatingShadowShapeContext(ball, glow))
         } else {
@@ -80,8 +85,9 @@ class CouiContour(private val floating: Boolean = false, private val style: Coui
                     nativeParameters = NativeParameters(size, density, radiusPx, cornerWeight, innerGlowAlpha, lineAlpha, lineWidthPx)
                     shader.setFloatUniform("u_commonArray", floatArrayOf(width / 2f, height / 2f, 0f, 0f,
                         width / 2f, height / 2f, radiusPx.coerceAtMost(size.minDimension / 2f), cornerWeight))
-                    shader.setFloatUniform("u_edgeArray", shadowEdgeArray(width, height, density, lineWidthPx,
-                        lineAlpha, style == CouiContourStyle.Button))
+                    val edge = if (style == CouiContourStyle.LauncherFolder) launcherFolderEdgeArray(density, lineAlpha)
+                        else shadowEdgeArray(width, height, density, lineWidthPx, lineAlpha, style == CouiContourStyle.Button)
+                    shader.setFloatUniform("u_edgeArray", edge)
                     shader.setFloatUniform("u_shadowArray", shadowGlowArray(width, height, density, innerGlowAlpha))
                 }
             }

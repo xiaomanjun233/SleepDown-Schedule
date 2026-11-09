@@ -1,8 +1,10 @@
 # SleepDown ColorOS 组件框架
 
-本框架提供主应用的“凝光视效”材质分发，实现位于 `platform/coloros/`。`app/ui/ProvideVisualEffects` 读取偏好，通过 `ProvideColorOsMaterials` 接入公共控件。未保存偏好时默认凝光，已有选择保持。已迁移的COUIKit控件在Android14+跨品牌启用；尚未迁移的原生表面仍要求私有ColorOS能力，能力缺失时使用对应Compose后备实现。不能把“选择凝光”视为页面上所有表面均已迁入Kit。课程管理Activity的类名保留，避免改变Manifest、Intent和转场路由。
+主应用由 `app/ui/ProvideVisualEffects` 读取视效偏好，经 `ProvideCouiMaterials` 装配凝光材质。Android 14 及以上走 COUI Kit 和公开 Android／Compose 补充实现，API 26–33 使用既有 Compose 路线并保留偏好。已有的私有 ColorOS 实现留在 `platform/coloros/` 供对照。课程管理 Activity 的类名继续作为 Manifest、Intent 和转场路由的兼容入口。
 
-模式选择位于“通用设置 → 外观”。凝光生效时隐藏液态玻璃调整入口，旧页面恢复时也不创建预览与滑条；切回液态玻璃后恢复入口和已保存的模糊参数。超级性能模式仍隐藏玻璃调整，但不阻止可用设备切换视效模式。
+旧系统类和 OEM 预设的下文记录用于查原厂调用点。当前装配、复刻差异与验收状态见[凝光迁移审查](../reports/2026-11-08-coui-glow-migration-review.md)。
+
+模式选择位于“通用设置 → 外观”。按实际渲染模式决定是否提供液态调整。切换只保存视效模式，课程卡片的液态预设与凝光着色、模糊参数独立保存。超级性能模式继续抑制密集材质与玻璃调整。
 
 ## 装配和边界
 
@@ -20,7 +22,7 @@
 
 组件预览复用同一投光能力，上传实际软件 ARGB_8888 画面并等待 Surface 首帧；卡片圆角与按钮的实际受光位置由请求传入。原生 `uProcess` 的 650ms 椭圆展开与 1000ms 透明度独立驱动，稳定后停止提交。按钮另加载 Wallpapers 的 `all_theme_button_bottom_shadow`，随按钮原生按压运动；组件光区按实际宽度及有限深度适配。
 
-有限页面的翻页进度统一使用 `SleepDownPagerIndicator` / `SleepDownPageIndicator`。ColorOS 上采用桌面 `OplusPageIndicator` 的绘制规格、COUI 模糊/描边/跟手光，以及 Launcher 的原生 `TouchAnimatorHelper`；支持点击、连续拖动选页、取消恢复和 RTL，两种材质模式均可使用。整类 `OplusPageIndicator` 依赖 Launcher ActivityContext 和业务状态，未直接实例化。非 ColorOS 保留可点击 Compose 实现。详见[原生页点与照亮进度](../reports/2026-11-05-native-page-indicators-and-card-light.md)。
+有限页面的翻页进度统一使用 `SleepDownPagerIndicator` / `SleepDownPageIndicator`。Android 14+ 凝光由 Kit 绘制背景模糊、轮廓和跟手光，公开 View 按桌面 `OplusPageIndicator` 的规格绘制圆点，并负责点击、连续拖动、取消恢复与 RTL。课程编辑器使用指示器下方的表单外壳作为采样源。液态、旧系统及缺少材质源时使用带选页语义的 Compose 页点。原厂参数见[原生页点与照亮进度](../reports/2026-11-05-native-page-indicators-and-card-light.md)。
 
 既有 `LiquidButton` 是兼容入口：可点击按钮优先交给 `ColorOsCapsuleButton`，成功后直接返回，之前的 Kyant 按压、拖拽形变与高光状态不会创建。`DialogLiquidButton` 和 Alert 操作按钮直接使用同一个渲染接口，包括没有 Backdrop 的场景。
 

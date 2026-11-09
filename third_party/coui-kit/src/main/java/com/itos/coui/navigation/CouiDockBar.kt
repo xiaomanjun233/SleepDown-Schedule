@@ -32,12 +32,14 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.constrainWidth
 import com.itos.coui.backdrop.CouiBackdrop
 import com.itos.coui.effect.CouiFloatingMaterial
 import com.itos.coui.effect.CouiFloatingRenderer
@@ -158,22 +160,23 @@ fun CouiDockBar(
         dampingRatio = CouiDockFabExpansionDamping,
         stiffness = CouiDockFabExpansionStiffness,
     )
-    val rawPlusSlot by animateDpAsState(
-        targetValue = if (plusVisible) CouiDockDefaults.plusSlot else 0.dp,
+    val targetPlusSlot = if (plusVisible) CouiDockDefaults.plusSlot else 0.dp
+    val rawPlusSlot = animateDpAsState(
+        targetValue = targetPlusSlot,
         animationSpec = expansionSpec,
         label = "CouiDockPlusSlot",
     )
     // The COUI expansion spring overshoots; the dock width must not cross the menu width.
-    val plusSlot = rawPlusSlot.coerceAtLeast(0.dp)
-    val plusAlpha by animateFloatAsState(
-        targetValue = if (plusEnabled) 1f else 0f,
+    val targetPlusAlpha = if (plusEnabled) 1f else 0f
+    val plusAlpha = animateFloatAsState(
+        targetValue = targetPlusAlpha,
         animationSpec = spring(
             dampingRatio = CouiDockFabExpansionDamping,
             stiffness = CouiDockFabExpansionStiffness,
         ),
         label = "CouiDockPlusAlpha",
     )
-    val plusScale by animateFloatAsState(
+    val plusScale = animateFloatAsState(
         targetValue = if (plusVisible) 1f else 0.5f,
         animationSpec = spring(
             dampingRatio = CouiDockFabExpansionDamping,
@@ -182,11 +185,11 @@ fun CouiDockBar(
         label = "CouiDockPlusScale",
     )
     val menuWidthPx = with(density) { menuWidth.toPx() }
-    val plusSlotPx = with(density) { plusSlot.toPx() }
     val plusSizePx = with(density) { CouiDockDefaults.plusSize.toPx() }
     val heightPx = with(density) { CouiDockDefaults.barHeight.toPx() }
-    val plusX = menuWidthPx + plusSlotPx - plusSizePx
-    val alpha = plusAlpha.coerceIn(0f, 1f)
+    fun plusSlot() = rawPlusSlot.value.coerceAtLeast(0.dp)
+    fun plusX() = menuWidthPx + with(density) { plusSlot().toPx() } - plusSizePx
+    fun alpha() = plusAlpha.value.coerceIn(0f, 1f)
     val extension = with(density) { 4.dp.roundToPx() }
     val materials = remember(style.material, plusStyle.material, extension) {
         listOf(
@@ -201,6 +204,10 @@ fun CouiDockBar(
     }
     val shadows = remember(style.shadow, plusStyle.shadow) { listOf(style.shadow, plusStyle.shadow) }
     val shapes = remember(style.shape, plusStyle.shape) { listOf(style.shape, plusStyle.shape) }
+    // Warm the pair once the attachment is visible at its final bounds.
+    val warmupWhen: (() -> Boolean)? = if (plusEnabled && plusVisible) {
+        { rawPlusSlot.value == targetPlusSlot && plusAlpha.value == targetPlusAlpha }
+    } else null
 
     fun menuSurface() = CouiFloatingSurface(
         bounds = Rect(
@@ -213,18 +220,22 @@ fun CouiDockBar(
 
     fun plusSurface() = CouiFloatingSurface(
         bounds = Rect(
-            Offset(plusX + plusMotion.translationX.value, plusMotion.translationY.value),
+            Offset(plusX() + plusMotion.translationX.value, plusMotion.translationY.value),
             Size(plusSizePx, heightPx),
         ),
-        scaleX = (plusMotion.scaleX.value + plusPress.scale.value - 1f) * plusScale.coerceAtLeast(0f),
-        scaleY = (plusMotion.scaleY.value + plusPress.scale.value - 1f) * plusScale.coerceAtLeast(0f),
+        scaleX = (plusMotion.scaleX.value + plusPress.scale.value - 1f) * plusScale.value.coerceAtLeast(0f),
+        scaleY = (plusMotion.scaleY.value + plusPress.scale.value - 1f) * plusScale.value.coerceAtLeast(0f),
         cornerWeight = 2f,
-        alpha = alpha,
-        visible = alpha > 0.001f,
+        alpha = alpha(),
+        visible = alpha() > 0.001f,
     )
 
     Box(
-        modifier = modifier.width(menuWidth + plusSlot).height(CouiDockDefaults.barHeight)
+        modifier = modifier.layout { measurable, constraints ->
+            val width = constraints.constrainWidth((menuWidth + plusSlot()).roundToPx())
+            val child = measurable.measure(constraints.copy(minWidth = width, maxWidth = width))
+            layout(child.width, child.height) { child.place(0, 0) }
+        }.height(CouiDockDefaults.barHeight)
             .couiFloatingPair(
                 backdrop = backdrop,
                 renderer = renderer,
@@ -233,6 +244,7 @@ fun CouiDockBar(
                 shapes = shapes,
                 contentLayers = contentLayers,
                 contourGlowEnabled = contour,
+                warmupWhen = warmupWhen,
             ) { listOf(menuSurface(), plusSurface()) },
     ) {
         Box(Modifier.size(menuWidth, CouiDockDefaults.barHeight)) {
@@ -248,8 +260,8 @@ fun CouiDockBar(
             )
         }
         Box(
-            Modifier.offset { IntOffset(plusX.roundToInt(), 0) }.size(CouiDockDefaults.plusSize)
-                .graphicsLayer { this.alpha = alpha }
+            Modifier.offset { IntOffset(plusX().roundToInt(), 0) }.size(CouiDockDefaults.plusSize)
+                .graphicsLayer { this.alpha = alpha() }
                 .onGloballyPositioned { plusBounds = it.boundsInRoot() },
         ) {
             CouiDockPlusContent(
@@ -257,7 +269,7 @@ fun CouiDockBar(
                 contentLayer = plusContentLayer,
                 style = plusStyle,
                 enabled = plusEnabled && plusVisible,
-                scale = plusScale,
+                scale = { plusScale.value },
                 motion = plusMotion,
                 press = plusPress,
                 onOpenMenu = { onPlusClick(plusBounds) },
@@ -273,7 +285,7 @@ internal fun CouiDockPlusContent(
     contentLayer: GraphicsLayer,
     style: CouiDockPlusStyle,
     enabled: Boolean,
-    scale: Float,
+    scale: () -> Float,
     motion: CouiTouchMotion,
     press: CouiPressMotion,
     onOpenMenu: () -> Unit,
@@ -290,8 +302,9 @@ internal fun CouiDockPlusContent(
         modifier.graphicsLayer {
             translationX = motion.translationX.value
             translationY = motion.translationY.value
-            scaleX = (motion.scaleX.value + press.scale.value - 1f) * scale.coerceAtLeast(0f)
-            scaleY = (motion.scaleY.value + press.scale.value - 1f) * scale.coerceAtLeast(0f)
+            val revealScale = scale().coerceAtLeast(0f)
+            scaleX = (motion.scaleX.value + press.scale.value - 1f) * revealScale
+            scaleY = (motion.scaleY.value + press.scale.value - 1f) * revealScale
         }.couiTouchMotion(motion, enabled, cancelOnConsumedMove = false, consumeDrag = true)
             .couiPressMotion(press, enabled).then(lightInput)
             .drawWithContent { contentLayer.record { this@drawWithContent.drawContent() } }

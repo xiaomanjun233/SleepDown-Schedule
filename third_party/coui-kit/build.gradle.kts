@@ -26,9 +26,7 @@ dependencies {
     api("androidx.compose.animation:animation")
     api("androidx.compose.foundation:foundation:1.12.0")
     implementation("androidx.compose.runtime:runtime:1.12.0")
-    implementation("androidx.dynamicanimation:dynamicanimation") {
-        version { strictly("1.0.0") }
-    }
+    implementation("androidx.dynamicanimation:dynamicanimation:1.1.0")
     implementation("androidx.core:core-ktx:1.19.1")
     testImplementation("junit:junit:4.13.2")
 }

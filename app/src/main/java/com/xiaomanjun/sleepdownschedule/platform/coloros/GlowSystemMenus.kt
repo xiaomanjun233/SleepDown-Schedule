@@ -50,6 +50,9 @@ private fun actionMenuStyle(dark: Boolean, placement: CouiMenuPlacement) = CouiM
         platformStyle = PlatformTextStyle(includeFontPadding = true)),
     themeTint = Color.Transparent,
     contourStyle = CouiMenuContourStyle.White,
+    // OVERLAY on a dark material has almost no headroom at the stock .1 setting.
+    spotlightIntensity = if (dark) 0.45f else 0.85f,
+    spotlightBlendMode = if (dark) android.graphics.BlendMode.PLUS else android.graphics.BlendMode.OVERLAY,
     placement = placement,
 )
 
@@ -106,7 +109,6 @@ internal fun GlowCourseShortcutMenu(session: Any, bounds: Rect, dark: Boolean,
     val density = LocalDensity.current
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val placement = when {
-        anchorFraction == 0.5f -> CouiMenuPlacement.AnchorCenter
         (anchorFraction > 0.5f) != rtl -> CouiMenuPlacement.AnchorEnd
         else -> CouiMenuPlacement.AnchorStart
     }

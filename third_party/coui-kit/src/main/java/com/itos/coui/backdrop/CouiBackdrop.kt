@@ -41,25 +41,46 @@ import org.json.JSONObject
 fun rememberCouiBackdrop(
     parent: CouiBackdrop? = null,
     diagnosticName: String? = null,
+    isolateContent: Boolean = true,
     drawSource: ContentDrawScope.() -> Unit = { drawContent() },
 ): CouiBackdrop {
     var diagnosticGeneration by remember { mutableIntStateOf(0) }
-    val layer = key(diagnosticGeneration) { rememberGraphicsLayer() }
+    val layer = key(diagnosticGeneration, isolateContent) { rememberGraphicsLayer() }
     val source = rememberUpdatedState(drawSource)
-    return remember(layer, parent, diagnosticName) {
-        CouiBackdrop(layer, parent, diagnosticName, { diagnosticGeneration++ }) { source.value(this) }
+    return remember(layer, parent, diagnosticName, isolateContent) {
+        CouiBackdrop(layer, parent, diagnosticName, { diagnosticGeneration++ },
+            drawSource = { source.value(this) }).also { it.setIsolateContent(isolateContent) }
     }
 }
 
 fun Modifier.couiBackdrop(backdrop: CouiBackdrop): Modifier = then(BackdropElement(backdrop))
 
+/**
+ * 适配宿主已持有的背景源，不建立第二个 producer 或整页快照。
+ * draw 的坐标与普通 CouiBackdrop 一致；retain/release 必须成对管理原源的需求。
+ */
+@Composable
+fun rememberCouiBackdropAdapter(
+    source: Any,
+    retain: () -> Unit,
+    release: () -> Unit,
+    draw: (DrawScope, LayoutCoordinates) -> Unit,
+): CouiBackdrop {
+    return remember(source) {
+        CouiBackdrop(null, null, "host-backdrop", {}, {}, draw, retain, release)
+    }
+}
+
 /** 只持有源图层和坐标, 不持有效果、组件动画或输入状态。 */
 class CouiBackdrop internal constructor(
-    private val layer: GraphicsLayer,
+    private val layer: GraphicsLayer?,
     private val parent: CouiBackdrop?,
     internal val diagnosticName: String?,
     private val recreateForDiagnostics: () -> Unit,
     private val drawSource: ContentDrawScope.() -> Unit,
+    private val externalDraw: ((DrawScope, LayoutCoordinates) -> Unit)? = null,
+    private val retainExternal: () -> Unit = {},
+    private val releaseExternal: () -> Unit = {},
 ) {
     private var drawPassCount = 0L
     private var recordCallbackCount = 0L
@@ -78,8 +99,8 @@ class CouiBackdrop internal constructor(
         set(value) { samplingCoordinates.update(value) }
 
     init {
-        layer.compositingStrategy = CompositingStrategy.Offscreen
-        layer.clip = true
+        layer?.compositingStrategy = CompositingStrategy.Offscreen
+        layer?.clip = true
     }
 
     internal fun setIsolateContent(isolate: Boolean) {
@@ -100,6 +121,7 @@ class CouiBackdrop internal constructor(
 
     private fun retain() {
         activeConsumers++
+        retainExternal()
         parent?.retain()
         updateCompositingStrategy()
     }
@@ -107,12 +129,14 @@ class CouiBackdrop internal constructor(
     private fun release() {
         check(activeConsumers > 0) { "背景源消费者必须成对释放" }
         activeConsumers--
+        releaseExternal()
         if (activeConsumers == 0 && !recordWhenIdle) recorded = false
         parent?.release()
         updateCompositingStrategy()
     }
 
     private fun updateCompositingStrategy() {
+        val layer = layer ?: return
         if (layer.isReleased) return
         // 显式不隔离的完整窗口只持有指令。消费材质自己隔离采样区，
         // 不能在打开弹窗时再强制分配一张包含 Dock/顶栏中间层的整屏纹理。
@@ -126,9 +150,16 @@ class CouiBackdrop internal constructor(
     /** 目标 DrawScope 原点须对应 target; 扩展采样区由调用方平移。 */
     fun draw(scope: DrawScope, target: LayoutCoordinates) {
         if (CouiRenderDiagnostics.enabled) sampleCount++
+        if (!target.isAttached) return
+        val adapter = externalDraw
+        if (adapter != null) {
+            adapter(scope, target)
+            return
+        }
+        val layer = checkNotNull(layer)
         parent?.draw(scope, target)
         val source = coordinates ?: return
-        if (!recorded || !source.isAttached || !target.isAttached) return
+        if (!recorded || !source.isAttached) return
         // 同窗口沿用 RenderNode 依赖更新; 仅跨窗口订阅 PreDraw, 避免持续驱动页面重绘。
         if (source.findRootCoordinates() !== target.findRootCoordinates()) redrawSignal.value
         val width = source.size.width.toFloat()
@@ -151,6 +182,7 @@ class CouiBackdrop internal constructor(
     }
 
     internal fun recordAndDraw(scope: ContentDrawScope) {
+        val layer = checkNotNull(layer) { "适配背景源只能用于采样" }
         if (CouiRenderDiagnostics.enabled) drawPassCount++
         // 整窗源仅供独立弹窗消费；空闲时直接走原内容，避免每次局部形变重录整页。
         if (!recordWhenIdle && activeConsumers == 0) {
@@ -183,7 +215,9 @@ class CouiBackdrop internal constructor(
         invalidate()
     }
 
-    internal fun diagnosticState(): JSONObject = JSONObject()
+    internal fun diagnosticState(): JSONObject {
+        val layer = checkNotNull(layer)
+        return JSONObject()
         .put("name", diagnosticName ?: "unnamed")
         .put("layerId", layer.layerId)
         .put("ownerViewId", layer.ownerViewId)
@@ -209,8 +243,10 @@ class CouiBackdrop internal constructor(
         .put("sampleCount", sampleCount)
         .put("lastRecordMs", lastRecordMs)
         .put("coordinates", diagnosticCoordinates(coordinates))
+    }
 
     internal suspend fun diagnosticCapture(): ImageBitmap {
+        val layer = checkNotNull(layer)
         check(recorded && !layer.isReleased) { "采样层尚未就绪或已释放: $diagnosticName" }
         return layer.toImageBitmap().also {
             check(recorded && !layer.isReleased) { "采样层在导出期间失效: $diagnosticName" }

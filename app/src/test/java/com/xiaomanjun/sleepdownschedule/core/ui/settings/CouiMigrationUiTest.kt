@@ -22,15 +22,20 @@ import com.itos.coui.menu.rememberCouiWindowBackdrop
 import com.itos.coui.segmentbutton.CouiSegmentedControl
 import com.itos.coui.diagnostic.CouiRenderDiagnostics
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.platform.coloros.CouiCapsuleButtonRenderer
 import com.xiaomanjun.sleepdownschedule.platform.coloros.CouiPickerDialog
-import com.xiaomanjun.sleepdownschedule.platform.coloros.ProvideColorOsMaterials
+import com.xiaomanjun.sleepdownschedule.platform.coloros.ProvideCouiMaterials
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.ScheduleNameDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.material.VisualEffectsState
 import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassSourceDemand
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -44,6 +49,51 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class CouiMigrationUiTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun glowSurfaceUsesTheSuppliedUnderlayAndReleasesItWhenRemoved() {
+        var visible by mutableStateOf(true)
+        lateinit var source: LayerBackdrop
+        compose.setContent {
+            source = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "glow-test")
+            Box(Modifier.size(140.dp)) {
+                Box(Modifier.matchParentSize().glassBackdropProducer(source).background(Color.Blue))
+                ProvideCouiMaterials(couiControlsEnabled = true) {
+                    if (visible) {
+                        val renderer = checkNotNull(LocalNativeMaterialSurfaceRenderer.current)
+                        check(renderer(NativeMaterialSurfaceRequest(
+                            modifier = Modifier.size(64.dp),
+                            shape = androidx.compose.foundation.shape.CircleShape,
+                            dark = false,
+                            followTouch = false,
+                            backdrop = source,
+                        )) { Box(Modifier.testTag("glow-surface-content")) })
+                    }
+                }
+            }
+        }
+        compose.onNodeWithTag("glow-surface-content").assertExists()
+        compose.runOnIdle {
+            assertTrue(GlassSourceDemand.required(source))
+            visible = false
+        }
+        compose.runOnIdle { assertFalse(GlassSourceDemand.required(source)) }
+    }
+
+    @Test fun cardProjectionConstructsItsPublicShadersWithACardSnapshot() {
+        val bitmap = android.graphics.Bitmap.createBitmap(32, 32, android.graphics.Bitmap.Config.ARGB_8888)
+        compose.setContent {
+            ProvideCouiMaterials(couiControlsEnabled = true) {
+                val renderer = checkNotNull(LocalNativeCardLightRenderer.current)
+                check(renderer(NativeCardLightRequest(
+                    bitmap = bitmap,
+                    cardBounds = { androidx.compose.ui.geometry.Rect(0f, 0f, 48f, 64f) },
+                    strength = { 1f },
+                    modifier = Modifier.size(160.dp).testTag("card-projection"),
+                )))
+            }
+        }
+        compose.onNodeWithTag("card-projection").assertExists()
+    }
 
     @Test fun badgeActionWrapsContentStaysAtTheBottomAndConsumesItsSuppliedBackdrop() {
         var samples = 0
@@ -65,7 +115,7 @@ class CouiMigrationUiTest {
                 })) {
                     CompositionLocalProvider(LocalNativeDialogSurface provides dialogSurface.value) {
                     Box(Modifier.fillMaxSize().testTag("page")) {
-                        SettingsActionButton("测试实时活动", backdrop, {}, badgeText = "实验功能",
+                        SettingsActionButton("测试实时活动", backdrop, {}, glowing = true, badgeText = "实验功能",
                             modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp, vertical = 18.dp).fillMaxWidth())
                     }
                     }
@@ -246,7 +296,7 @@ class CouiMigrationUiTest {
             MaterialTheme {
                 CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
                     effectiveMode = VisualEffectMode.ColorOsGlow, couiKitAvailable = true)) {
-                    ProvideColorOsMaterials(enabled = false, couiControlsEnabled = true) {
+                    ProvideCouiMaterials(couiControlsEnabled = true) {
                         ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
                             Box(Modifier.fillMaxSize().then(source)) {
                                 com.xiaomanjun.sleepdownschedule.feature.schedule.picker.QuickScheduleSettingsSheets(
@@ -370,7 +420,7 @@ class CouiMigrationUiTest {
                 CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
                     effectiveMode = if (glow.value) VisualEffectMode.ColorOsGlow else VisualEffectMode.LiquidGlass,
                     couiKitAvailable = true)) {
-                    ProvideColorOsMaterials(enabled = false, couiControlsEnabled = glow.value) {
+                    ProvideCouiMaterials(couiControlsEnabled = glow.value) {
                         ProvideCouiMenuBackdrop { source ->
                             Box(Modifier.fillMaxSize().then(source)) {
                                 ScheduleNameDialog("命名", "原名", null, defaultConfig(), submissions::add, {})

@@ -524,7 +524,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                     shape = settledSurfaceShape,
                     shapeProvider = { RoundedRectangle(with(density) { geometry.value.cornerRadiusPx.toDp() }) },
                     dark = LocalHomeMaterialStyle.current?.dark ?: !glassUsesLightStyle(config),
-                    followTouch = true
+                    followTouch = true, backdrop = backdrop
                 ), neutral = LocalHomeMaterialStyle.current?.weatherMaterial == true,
                     touchSource = nativeMenuTouch, motion = nativeMenuMotion)
             ) {} == true

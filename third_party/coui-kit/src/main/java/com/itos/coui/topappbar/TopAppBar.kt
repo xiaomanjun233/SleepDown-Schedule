@@ -21,6 +21,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
 import com.itos.coui.backdrop.CouiBackdrop
@@ -59,6 +60,8 @@ fun TopAppBar(
  * 大标题缩为固定小标题；省略 scrollBehavior 时保持展开。
  * 连接挂到正文祖先，正文通过 scrollBehavior.state.contentPadding 补偿逻辑滚动与可见弹簧的差值。
  * 高度不含 windowInsets；expandedHeight 必须大于正数 collapsedHeight。
+ * 字号为 Unspecified 时沿用预设：展开跟随 HomeTitle，收起使用固定 dp。
+ * 显式字号必须是有限正数 sp；title 槽位须继承组件提供的字号。
  */
 @Composable
 fun LargeTopAppBar(
@@ -75,10 +78,20 @@ fun LargeTopAppBar(
     backdrop: CouiBackdrop = checkNotNull(LocalCouiBackdrop.current) {
         "顶栏需要显式 backdrop 或 ProvideCouiBackdrop 作用域"
     },
+    expandedTitleSize: TextUnit = TextUnit.Unspecified,
+    collapsedTitleSize: TextUnit = TextUnit.Unspecified,
 ) {
     require(expandedHeight.value.isFinite() && collapsedHeight.value.isFinite() &&
         collapsedHeight > 0.dp && expandedHeight > collapsedHeight) {
         "展开高度必须大于收起高度，且高度必须是有限正数"
+    }
+    require(expandedTitleSize == TextUnit.Unspecified ||
+        expandedTitleSize.isSp && expandedTitleSize.value.isFinite() && expandedTitleSize.value > 0f) {
+        "展开字号必须为 Unspecified 或有限正数 sp"
+    }
+    require(collapsedTitleSize == TextUnit.Unspecified ||
+        collapsedTitleSize.isSp && collapsedTitleSize.value.isFinite() && collapsedTitleSize.value > 0f) {
+        "收起字号必须为 Unspecified 或有限正数 sp"
     }
     val density = LocalDensity.current
     val state = scrollBehavior?.state
@@ -97,7 +110,8 @@ fun LargeTopAppBar(
             }
         }) {
         CompositionLocalProvider(LocalCouiDarkTheme provides dark) {
-            AppBarLayout(title, navigationIcon, actions, colors, windowInsets, expandedHeight, collapsedHeight, state)
+            AppBarLayout(title, navigationIcon, actions, colors, windowInsets, expandedHeight, collapsedHeight, state,
+                expandedTitleSize, collapsedTitleSize)
         }
     }
 }
@@ -112,17 +126,28 @@ private fun AppBarLayout(
     expandedHeight: Dp,
     collapsedHeight: Dp,
     state: CouiCollapsingAppBarState?,
+    expandedTitleSize: TextUnit = TextUnit.Unspecified,
+    collapsedTitleSize: TextUnit = TextUnit.Unspecified,
 ) {
     val large = expandedHeight > collapsedHeight
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
-    val titleStyle = rememberCouiTextStyle(if (large) CouiTextKind.HomeTitle else CouiTextKind.Toolbar)
+    val defaultTitleStyle = rememberCouiTextStyle(if (large) CouiTextKind.HomeTitle else CouiTextKind.Toolbar)
+    val titleStyle = if (large && expandedTitleSize != TextUnit.Unspecified) {
+        // 同步行高与字号的像素比例，保留原字体度量及系统非线性字体缩放。
+        val lineHeight = with(density) {
+            (defaultTitleStyle.lineHeight.toPx() * expandedTitleSize.toPx() /
+                defaultTitleStyle.fontSize.toPx()).toSp()
+        }
+        defaultTitleStyle.copy(fontSize = expandedTitleSize, lineHeight = lineHeight)
+    } else defaultTitleStyle
     val fraction = state?.collapsedFraction ?: 0f
     val progress = if (large) CouiCollapsingAppBarDefaults.titleEasing.transform(fraction) else 0f
     val scale = if (large) {
-        // 项目定制：展开沿用首页排版，收起字号仍保持固定 dp。
         val collapsedScale = with(density) {
-            CouiCollapsingAppBarDefaults.collapsedTitleSize.toPx() / titleStyle.fontSize.toPx()
+            val collapsedPixels = if (collapsedTitleSize == TextUnit.Unspecified)
+                CouiCollapsingAppBarDefaults.collapsedTitleSize.toPx() else collapsedTitleSize.toPx()
+            collapsedPixels / titleStyle.fontSize.toPx()
         }
         1f + (collapsedScale - 1f) * progress
     } else 1f

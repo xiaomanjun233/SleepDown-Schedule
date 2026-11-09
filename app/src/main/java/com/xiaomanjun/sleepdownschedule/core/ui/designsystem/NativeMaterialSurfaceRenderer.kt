@@ -6,7 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawscope.DrawScope
 
-internal enum class NativeMaterialSurfaceRole { Content, Dialog, Form, HomeDock, HomeNavigation }
+internal enum class NativeMaterialSurfaceRole { Content, Dialog, Form, HomeDock, HomeNavigation, PageIndicator, Menu }
 
 data class NativeSurfaceTouch(val position: androidx.compose.ui.geometry.Offset, val pressed: Boolean)
 
@@ -20,6 +20,10 @@ internal data class NativeMaterialSurfaceRequest(
     val surfaceAlpha: () -> Float = { 1f },
     val edgeEffects: Boolean = true,
     val blurRadiusScale: Float = 1f,
+    /** Scene-specific blur. Ordinary controls and course cards use their own material preset. */
+    val blurRadius: androidx.compose.ui.unit.Dp? = null,
+    val backdropSampleScale: Float = 1f,
+    val causticTint: androidx.compose.ui.graphics.Color? = null,
     val tintAlphaScale: Float = 1f,
     val role: NativeMaterialSurfaceRole = NativeMaterialSurfaceRole.Content,
     val followTouch: Boolean = true,
@@ -28,7 +32,11 @@ internal data class NativeMaterialSurfaceRequest(
     val followLightIntensityScale: Float = 1f,
     /** A lifted surface receives the gesture from its stable owner, outside its hit path. */
     val externalTouch: (() -> NativeSurfaceTouch)? = null,
-    val sampleBrightness: Float = 1f
+    val sampleBrightness: Float = 1f,
+    /** 与表面同坐标域的下层完整源；不包含此表面或其清晰前景。 */
+    val backdrop: com.kyant.backdrop.Backdrop? = null,
+    /** 输入框可排除文字选择区域，背景只观察获准的触点。 */
+    val acceptsGesture: (androidx.compose.ui.geometry.Size, androidx.compose.ui.geometry.Offset) -> Boolean = { _, _ -> true }
 )
 
 /** Stroke-only overlay used when the liquid card should match the native card outline. */

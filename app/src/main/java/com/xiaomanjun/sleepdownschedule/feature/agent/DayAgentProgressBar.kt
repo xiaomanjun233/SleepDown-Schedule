@@ -2,18 +2,19 @@ package com.xiaomanjun.sleepdownschedule.feature.agent
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.requiredHeight
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.CornerRadius
@@ -23,68 +24,51 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
-import com.xiaomanjun.sleepdownschedule.platform.coloros.rememberColorOsIntentSeekBar
+import kotlin.math.PI
 
 /**
- * The divider doubles as the countdown read bar. During class and break it expands into the
- * ColorOS playback seek bar; the native conic-light view is used in 凝光 mode, while liquid
- * glass draws the same bar and conical light in Compose. Leaving the phase collapses it back
- * into the divider.
+ * The divider expands into a passive playback bar with the COUI conic light in either mode.
  */
 @Composable
 internal fun DayAgentProgressRow(
     progress: Float?,
     accent: Color,
     foreground: Color,
-    dark: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val nativeMode = LocalVisualEffects.current.usesNativeControls
     val active = progress != null
-    val nativeSeekBar = if (nativeMode) rememberColorOsIntentSeekBar(dark) else null
-    val useNative = nativeMode && nativeSeekBar != null
-    val lightPainter = if (useNative) null else rememberAgentConicLightPainter()
+    val lightPainter = rememberAgentConicLightPainter()
     val layoutDirection = LocalLayoutDirection.current
-    val reveal by animateFloatAsState(
-        targetValue = if (active) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (active) 340 else 240,
-            easing = FastOutSlowInEasing
-        ),
+    val visibility = remember { MutableTransitionState(false) }.apply { targetState = active }
+    val transition = rememberTransition(visibility, label = "agent-read-bar")
+    val reveal by transition.animateFloat(
+        transitionSpec = { tween(if (targetState) 340 else 240, easing = FastOutSlowInEasing) },
         label = "agent-read-bar-reveal"
-    )
-    val alphaReveal by animateFloatAsState(
-        targetValue = if (active) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (active) 300 else 200,
-            easing = LinearOutSlowInEasing
-        ),
+    ) { if (it) 1f else 0f }
+    val alphaReveal by transition.animateFloat(
+        transitionSpec = { conicLightSpring(if (targetState) .3f else .4f) },
         label = "agent-read-bar-light-alpha"
-    )
-    val shapeReveal by animateFloatAsState(
-        targetValue = if (active) 1f else 0f,
-        animationSpec = tween(
-            durationMillis = if (active) 900 else 400,
-            easing = FastOutSlowInEasing
-        ),
+    ) { if (it) 1f else 0f }
+    val shapeReveal by transition.animateFloat(
+        transitionSpec = { conicLightSpring(if (targetState) .9f else .4f) },
         label = "agent-read-bar-light-shape"
-    )
-    val value by animateFloatAsState(
+    ) { if (it) 1f else 0f }
+    val animatedValue = animateFloatAsState(
         targetValue = progress ?: 0f,
         animationSpec = tween(
             durationMillis = if (active) 1_000 else 220,
             easing = if (active) LinearEasing else FastOutSlowInEasing
         ),
         label = "agent-read-bar-value"
+    )
+    val highlightVisible by remember(active, animatedValue) {
+        derivedStateOf { active && animatedValue.value > .2f }
+    }
+    val highlightAlpha by animateFloatAsState(
+        if (highlightVisible) 1f else 0f, conicLightSpring(.5f), label = "agent-read-bar-leading-edge"
     )
     Box(
         modifier.fillMaxWidth().height(4.dp).drawBehind {
@@ -97,54 +81,29 @@ internal fun DayAgentProgressRow(
                     size = Size(size.width, hairline)
                 )
             }
-            if (!useNative && reveal > 0.01f) {
+            if (reveal > 0.01f) {
                 drawConicReadBar(
-                    progress = value,
+                    progress = animatedValue.value,
                     accent = accent,
                     foreground = foreground,
                     reveal = reveal,
                     alphaReveal = alphaReveal,
                     shapeReveal = shapeReveal,
+                    highlightAlpha = highlightAlpha,
                     painter = lightPainter,
                     rtl = layoutDirection == LayoutDirection.Rtl
                 )
             }
-        },
-        contentAlignment = Alignment.Center
-    ) {
-        if (useNative) {
-            key(nativeSeekBar.view) {
-                AndroidView(
-                    factory = { nativeSeekBar.view },
-                    modifier = Modifier.fillMaxWidth().requiredHeight(24.dp)
-                        .nativeSeekBarExtend()
-                        .graphicsLayer { alpha = reveal },
-                    update = {
-                        nativeSeekBar.sync(
-                            progress = if (active) value else null,
-                            accent = accent.toArgb(),
-                            trackColor = foreground.copy(alpha = 0.15f).toArgb()
-                        )
-                    }
-                )
-            }
-            DisposableEffect(nativeSeekBar) { onDispose { nativeSeekBar.dispose() } }
         }
-    }
+    )
 }
 
-private fun Modifier.nativeSeekBarExtend(horizontal: Dp = 12.dp): Modifier = layout { measurable, constraints ->
-    // COUISeekBar reserves the thumb radius at both ends even when the thumb is hidden.
-    // Measure the native view wider and place it centered so the track reaches the card edges.
-    val extra = horizontal.roundToPx()
-    val width = constraints.maxWidth + extra * 2
-    val placeable = measurable.measure(
-        androidx.compose.ui.unit.Constraints.fixed(width, constraints.maxHeight)
-    )
-    layout(constraints.maxWidth, placeable.height) {
-        placeable.place(-extra, 0)
-    }
-}
+// COUISpringForce uses a critical spring when bounce is zero and ω = 2π / response.
+private fun conicLightSpring(response: Float) = spring<Float>(
+    dampingRatio = 1f,
+    stiffness = (2f * PI.toFloat() / response).let { it * it },
+    visibilityThreshold = .001f,
+)
 
 private fun DrawScope.drawConicReadBar(
     progress: Float,
@@ -153,6 +112,7 @@ private fun DrawScope.drawConicReadBar(
     reveal: Float,
     alphaReveal: Float,
     shapeReveal: Float,
+    highlightAlpha: Float,
     painter: AgentConicLightPainter?,
     rtl: Boolean
 ) {
@@ -180,15 +140,15 @@ private fun DrawScope.drawConicReadBar(
             )
             // IntentConicProgressRenderer overlays a transparent -> white gradient while
             // playing; it is the bright leading edge of the bar.
-            if (safeProgress > 0.2f && alphaReveal > 0f) {
+            if (highlightAlpha > 0f) {
                 // The native renderer makes the gradient one fifth of the whole track, not of
                 // the filled portion, so the bright edge keeps a constant physical length.
-                val capWidth = size.width * 0.2f
+                val capWidth = (size.width * 0.2f).coerceAtMost(fillWidth)
                 val capLeft = fillWidth - capWidth
                 drawRoundRect(
                     brush = Brush.horizontalGradient(
                         0f to Color.White.copy(alpha = 0f),
-                        1f to Color.White.copy(alpha = alphaReveal),
+                        1f to Color.White.copy(alpha = highlightAlpha),
                         startX = capLeft,
                         endX = fillWidth
                     ),

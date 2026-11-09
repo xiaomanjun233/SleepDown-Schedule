@@ -35,7 +35,8 @@ internal data class NativePagerIndicatorRequest(
     val onSelect: (Int) -> Unit,
     val enabled: Boolean,
     val modifier: Modifier,
-    val onScrub: ((Float, Boolean, Boolean) -> Unit)? = null
+    val onScrub: ((Float, Boolean, Boolean) -> Unit)? = null,
+    val backdrop: com.kyant.backdrop.Backdrop? = null
 )
 
 internal val LocalNativePagerIndicatorRenderer = compositionLocalOf<
@@ -47,7 +48,8 @@ internal fun SleepDownPagerIndicator(
     pagerState: PagerState,
     pageCount: Int,
     modifier: Modifier = Modifier,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    backdrop: com.kyant.backdrop.Backdrop? = null
 ) {
     val scope = rememberCoroutineScope()
     val scrubEvents = remember(pagerState) { Channel<IndicatorScrub>(Channel.CONFLATED) }
@@ -76,7 +78,7 @@ internal fun SleepDownPagerIndicator(
         position = { pagerState.currentPage + pagerState.currentPageOffsetFraction },
         selectedPage = { pagerState.settledPage },
         onSelect = { if (enabled) scope.launch { pagerState.animateScrollToPage(it) } },
-        modifier = modifier, enabled = enabled,
+        modifier = modifier, enabled = enabled, backdrop = backdrop,
         onScrub = { position, active, cancelled -> scrubEvents.trySend(IndicatorScrub(position, active, cancelled)) })
 }
 
@@ -91,6 +93,7 @@ internal fun SleepDownPageIndicator(
     onSelect: (Int) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    backdrop: com.kyant.backdrop.Backdrop? = null,
     onScrub: ((Float, Boolean, Boolean) -> Unit)? = null
 ) {
     if (pageCount <= 1) return
@@ -103,7 +106,8 @@ internal fun SleepDownPageIndicator(
         }
     }
     val renderer = LocalNativePagerIndicatorRenderer.current
-    if (renderer?.invoke(NativePagerIndicatorRequest(pageCount, position, selectedPage, onSelect, enabled, accessible, onScrub)) == true) return
+    if (renderer?.invoke(NativePagerIndicatorRequest(pageCount, position, selectedPage, onSelect, enabled,
+            accessible, onScrub, backdrop)) == true) return
     Canvas(accessible.width((24 + (pageCount - 1) * 15).dp).height(32.dp)
         .background(Color.Black.copy(alpha = 0.22f), Capsule())
         .pointerInput(pageCount, enabled) {

@@ -1,6 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.glass.ui
 
 import android.os.Build
+import android.graphics.RenderEffect
+import android.graphics.RuntimeShader
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -11,10 +13,14 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
@@ -27,6 +33,10 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownPlainGlassSurface
+import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
+import com.itos.coui.effect.CouiGradientDirection
+import com.itos.coui.effect.drawCouiGradientBackdrop
 
 // On devices without the native operator, Chromium retains blur + alpha-mask composition.
 internal val LocalLegacyProgressiveBlur = staticCompositionLocalOf { false }
@@ -97,6 +107,49 @@ fun Modifier.progressiveBackdropBlur(
     val useLegacyBlur = LocalLegacyProgressiveBlur.current ||
         com.xiaomanjun.sleepdownschedule.core.performance.effectiveAppMaterialPolicy().simplifiedProgressiveBlur
     val nativeBlur = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeProgressiveBlur.current
+    if (Build.VERSION.SDK_INT >= 34 && backdrop != null && LocalVisualEffects.current.usesCouiControls) {
+        val source = rememberCouiGlassBackdrop(backdrop)
+        val radiusPx = with(LocalDensity.current) { blurRadius.toPx() }
+        val axis = when (direction) {
+            ProgressiveBlurDirection.TopToBottom -> CouiGradientDirection.TopToBottom
+            ProgressiveBlurDirection.BottomToTop -> CouiGradientDirection.BottomToTop
+            ProgressiveBlurDirection.LeftToRight, ProgressiveBlurDirection.RailThreeWay -> CouiGradientDirection.RightToLeft
+            ProgressiveBlurDirection.RightToLeft -> CouiGradientDirection.LeftToRight
+        }
+        val mask = remember(direction, tintColor, tintIntensity, topMaskFadeStart, topMaskFadeEnd,
+            topTintFadeStart, topTintFadeEnd) {
+            RuntimeShader(progressiveBlurShaderSource(direction)).apply {
+                setColorUniform("tint", tintColor.toArgb())
+                setFloatUniform("tintIntensity", tintIntensity.coerceIn(0f, 1f))
+                if (direction != ProgressiveBlurDirection.BottomToTop) {
+                    setFloatUniform("maskFadeStart", topMaskFadeStart.coerceIn(0f, 1f))
+                    setFloatUniform("maskFadeEnd", topMaskFadeEnd.coerceAtLeast(topMaskFadeStart + .01f))
+                    setFloatUniform("tintFadeStart", topTintFadeStart.coerceIn(0f, 1f))
+                    setFloatUniform("tintFadeEnd", topTintFadeEnd.coerceAtLeast(topTintFadeStart + .01f))
+                }
+            }
+        }
+        val effects: com.itos.coui.backdrop.CouiBackdropEffectScope.() -> Unit = remember(mask) {
+            var previousSize = Size.Unspecified
+            var previousPadding = Float.NaN
+            var effect: androidx.compose.ui.graphics.RenderEffect? = null
+            val applyMask: com.itos.coui.backdrop.CouiBackdropEffectScope.() -> Unit = {
+                if (size != previousSize || padding != previousPadding) {
+                    previousSize = size
+                    previousPadding = padding
+                    mask.setFloatUniform("size", size.width, size.height)
+                    mask.setFloatUniform("contentOrigin", padding, padding)
+                    effect = RenderEffect.createRuntimeShaderEffect(mask, "content").asComposeRenderEffect()
+                }
+                renderEffect = effect
+            }
+            applyMask
+        }
+        // AppBarBlurHelper and the Kit toolbar use the stock speed of 3. Keep the host mask
+        // and its explicit full-blur region below the weekday header.
+        return drawCouiGradientBackdrop(source, fadeHeightPx = 0f, referenceBlurRadiusPx = radiusPx,
+            gradientSpeed = 3f, direction = axis, fullBlurFraction = radiusFadeStart, effects = effects)
+    }
     return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && backdrop != null) {
         val material = remember(blurRadius, tintIntensity) {
             // Pure progressive blur: strip the default highlight/shadow/inner-shadow decorations

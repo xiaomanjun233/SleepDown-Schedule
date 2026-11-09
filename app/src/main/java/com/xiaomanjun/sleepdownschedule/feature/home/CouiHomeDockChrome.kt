@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
 import android.os.Build
+import android.os.Trace
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
@@ -31,6 +32,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.core.os.trace
 import com.itos.coui.backdrop.CouiBackdrop
 import com.itos.coui.effect.CouiFloatingRenderer
 import com.itos.coui.effect.LocalCouiContourGlowEnabled
@@ -46,7 +48,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.interaction.dockImeCompensationP
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
-import com.xiaomanjun.sleepdownschedule.platform.coloros.ColorOsNativeUi
 import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
 import com.xiaomanjun.sleepdownschedule.platform.coloros.rememberCouiDockAccent
 import java.util.concurrent.atomic.AtomicBoolean
@@ -77,7 +78,12 @@ internal fun CouiHomeDock(
         return false
     }
     val renderer = remember {
-        ColorOsNativeUi.prepare("create the COUI dock renderer") { CouiFloatingRenderer.pair() }
+        try {
+            trace("SleepDown Dock.createRenderer") { CouiFloatingRenderer.pair() }
+        } catch (failure: IllegalArgumentException) {
+            android.util.Log.w("SleepDownCOUI", "Cannot compile the COUI Dock shader", failure)
+            null
+        }
     } ?: run {
         android.util.Log.w("SleepDownCOUI",
             "COUI dock skipped: renderer creation failed; keeping the existing dock")
@@ -153,15 +159,13 @@ internal fun CouiHomeDock(
             try {
                 val activity = hostContext.findActivityOrNull() ?: return@launch
                 val rootLocation = IntArray(2).also(composeRoot::getLocationInWindow)
-                val bitmap = captureGlassWindowRegion(
-                    activity.window,
-                    Rect(
-                        bounds.left + rootLocation[0],
-                        bounds.top + rootLocation[1],
-                        bounds.right + rootLocation[0],
-                        bounds.bottom + rootLocation[1],
-                    ),
-                ) ?: return@launch
+                val cookie = System.identityHashCode(returnLayer)
+                Trace.beginAsyncSection("SleepDown Dock.capturePlus", cookie)
+                val bitmap = try {
+                    captureGlassWindowRegion(activity.window, bounds.translate(rootLocation[0].toFloat(), rootLocation[1].toFloat()))
+                } finally {
+                    Trace.endAsyncSection("SleepDown Dock.capturePlus", cookie)
+                } ?: return@launch
                 returnLayer.record(density, layoutDirection, IntSize(bitmap.width, bitmap.height)) {
                     val outline = Path().apply { addOval(Rect(0f, 0f, size.width, size.height)) }
                     clipPath(outline) { drawImage(bitmap.asImageBitmap()) }
@@ -193,7 +197,7 @@ internal fun CouiHomeDock(
             plusVisible = plusVisible,
             plusEnabled = plusEnabled,
             menuWidth = dockWidth,
-            onSelection = onSelect,
+            onSelection = { trace("SleepDown Dock.select") { onSelect(it) } },
             onPlusClick = ::openPlusMenu,
         )
     }

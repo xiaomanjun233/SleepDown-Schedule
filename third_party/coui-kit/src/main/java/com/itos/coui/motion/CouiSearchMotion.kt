@@ -68,7 +68,7 @@ internal class CouiSearchMotion(
     fun finishCollapse() {
         if (expanded) return
         dispose()
-        // cancel 不清除 AndroidX 的 pending 目标, 尾段重入要换新实例。
+        // 完成收起时重建弹簧，下一次展开从静止开始。
         searchAnimation = newAnimation(toolbar = false)
         toolbarAnimation = newAnimation(toolbar = true)
         progress = 0f

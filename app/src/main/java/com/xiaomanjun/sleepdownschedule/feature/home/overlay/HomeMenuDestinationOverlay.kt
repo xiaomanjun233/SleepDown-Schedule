@@ -391,7 +391,7 @@ internal fun HomeMenuDestinationOverlayHost(
                         role = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Form,
                         onDrawTint = { drawRect(if (lightGlass) Color.White.copy(alpha = 0.18f)
                             else Color(0xFF121212).copy(alpha = 0.30f)) },
-                        edgeEffects = true, followTouch = true
+                        edgeEffects = true, followTouch = true, backdrop = dialogBackdrop
                     )
                 ) {} == true
             if (nativeSurface) {
@@ -874,7 +874,7 @@ internal fun HomeMenuDestinationOverlayHost(
                         role = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Form,
                         onDrawTint = { drawRect(if (lightGlass) Color.White.copy(alpha = 0.18f)
                             else Color(0xFF121212).copy(alpha = 0.30f)) },
-                        edgeEffects = true, followTouch = true
+                        edgeEffects = true, followTouch = true, backdrop = backdrop
                     )
                 ) {} == true
             if (nativeSurface) {

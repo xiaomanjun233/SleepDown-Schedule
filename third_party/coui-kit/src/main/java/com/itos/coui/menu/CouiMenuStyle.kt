@@ -72,6 +72,8 @@ data class CouiMenuStyle(
     val pressMaskOnForeground: Boolean = false,
     val placement: CouiMenuPlacement = CouiMenuPlacement.Default,
     val contourStyle: CouiMenuContourStyle = CouiMenuContourStyle.BackgroundAware,
+    val spotlightIntensity: Float? = null,
+    val spotlightBlendMode: android.graphics.BlendMode? = null,
 )
 
 internal val CouiMenuStyle.resolvedRadius: Dp

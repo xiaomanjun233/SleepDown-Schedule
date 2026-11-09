@@ -38,7 +38,7 @@ internal class CouiFabExpansion(initialVisible: Boolean) {
             layout = nextLayout
             active = visible
             dispose()
-            // AndroidX cancel 不清空 pending 目标; 配置变化不能复用旧动画状态。
+            // 配置变化时重建弹簧，清除旧尺寸对应的速度和动画状态。
             translationAnimation = newTranslationAnimation()
             scaleAnimation = newScaleAnimation()
             translationX = if (visible) 0f else hiddenTranslation

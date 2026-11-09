@@ -3,11 +3,13 @@ package com.itos.coui.menu
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.os.Build
+import android.util.LruCache
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RenderEffect as ComposeRenderEffect
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
@@ -19,6 +21,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.core.os.trace
 import com.itos.coui.backdrop.CouiBackdrop
 import kotlin.math.ceil
 
@@ -47,8 +50,6 @@ class CouiMenuBlur internal constructor(
     private val radius: Int,
     private val layers: List<GraphicsLayer>,
 ) {
-    private val downsampleShader = RuntimeShader(MenuDownsampleShader)
-    private val blurShaders = List(9) { RuntimeShader(MenuKawaseShader) }
     private var firstSize = IntSize.Zero
     private var recordedBlurSize = IntSize.Zero
     private var recordedDensity: Density? = null
@@ -64,7 +65,8 @@ class CouiMenuBlur internal constructor(
     fun draw(scope: DrawScope, coordinates: LayoutCoordinates) = draw(scope, coordinates, 1f, Offset.Zero)
 
     /** coordinates 为未动画的锚点；变换与消费者的实际绘制使用同一帧数据。 */
-    internal fun draw(scope: DrawScope, coordinates: LayoutCoordinates, sampleScale: Float, translation: Offset) {
+    internal fun draw(scope: DrawScope, coordinates: LayoutCoordinates, sampleScale: Float, translation: Offset,
+        stableSampleGrid: Boolean = false) {
         fun drawSource(target: DrawScope) {
             target.withTransform({
                 scale(1f / sampleScale, 1f / sampleScale, Offset.Zero)
@@ -81,8 +83,9 @@ class CouiMenuBlur internal constructor(
         val origin = coordinates.localToScreen(Offset.Zero)
         val right = coordinates.localToScreen(Offset(menuSize.width, 0f))
         val bottom = coordinates.localToScreen(Offset(0f, menuSize.height))
-        val deviceWidth = (right - origin).getDistance() * sampleScale
-        val deviceHeight = (bottom - origin).getDistance() * sampleScale
+        val gridScale = if (stableSampleGrid) 1f else sampleScale
+        val deviceWidth = (right - origin).getDistance() * gridScale
+        val deviceHeight = (bottom - origin).getDistance() * gridScale
         if (!deviceWidth.isFinite() || !deviceHeight.isFinite() || deviceWidth <= 0f || deviceHeight <= 0f) {
             scope.drawRect(background)
             return
@@ -93,7 +96,7 @@ class CouiMenuBlur internal constructor(
         val blocksY = ceil(deviceHeight / 16f).toInt().coerceAtLeast(1)
         val captureSize = IntSize(blocksX * 8, blocksY * 8)
         val blurSize = IntSize(blocksX * 2, blocksY * 2)
-        updateEffects(captureSize, blurSize)
+        updateEffects(captureSize)
 
         layers[0].record(scope, scope.layoutDirection, captureSize) {
             // 补底也进入采样链, 不能在材质混色之后再补不透明背景。
@@ -132,18 +135,32 @@ class CouiMenuBlur internal constructor(
         recordedLayoutDirection = scope.layoutDirection
     }
 
-    private fun updateEffects(captureSize: IntSize, blurSize: IntSize) {
+    private fun updateEffects(captureSize: IntSize) {
         if (firstSize == captureSize) return
+        val effects = checkNotNull(KawaseEffects.get(KawaseRecipe(radius, captureSize)))
+        layers.forEachIndexed { index, layer -> layer.renderEffect = effects[index] }
         firstSize = captureSize
-        downsampleShader.setFloatUniform("inputSize", captureSize.width.toFloat(), captureSize.height.toFloat())
-        layers[0].renderEffect = RenderEffect.createRuntimeShaderEffect(downsampleShader, "child")
-            .asComposeRenderEffect()
-        blurShaders.forEachIndexed { index, shader ->
-            shader.setFloatUniform("inputSize", blurSize.width.toFloat(), blurSize.height.toFloat())
-            // fastKawase 的 radius 分支先减十, p=10, 再执行 i=1..9; 160 对应原菜单取样。
-            shader.setFloatUniform("in_blurOffset", (index + 1) * ((radius - 10f) / (9f * 10f)) / 8f)
-            layers[index + 1].renderEffect = RenderEffect.createRuntimeShaderEffect(shader, "child")
-                .asComposeRenderEffect()
+    }
+}
+
+private data class KawaseRecipe(val radius: Int, val captureSize: IntSize)
+
+/** Effects capture uniform values. The cache holds no window, sampled pixels or GraphicsLayer. */
+@RequiresApi(33)
+private object KawaseEffects : LruCache<KawaseRecipe, List<ComposeRenderEffect>>(8) {
+    override fun create(key: KawaseRecipe): List<ComposeRenderEffect> = trace("COUI Kawase.buildRecipe") {
+        val downsample = RuntimeShader(MenuDownsampleShader)
+        val blur = RuntimeShader(MenuKawaseShader)
+        val capture = key.captureSize
+        downsample.setFloatUniform("inputSize", capture.width.toFloat(), capture.height.toFloat())
+        blur.setFloatUniform("inputSize", capture.width / 4f, capture.height / 4f)
+        buildList {
+            add(RenderEffect.createRuntimeShaderEffect(downsample, "child").asComposeRenderEffect())
+            val step = (key.radius - 10f) / (9f * 10f)
+            for (pass in 1..9) {
+                blur.setFloatUniform("in_blurOffset", pass * step / 8f)
+                add(RenderEffect.createRuntimeShaderEffect(blur, "child").asComposeRenderEffect())
+            }
         }
     }
 }

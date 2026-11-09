@@ -70,6 +70,9 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                 domain = GlassBackdropDomain.Content,
                 providerId = "auto-refresh-login-web"
             )
+            val webToolbarColor = remember(adapter) {
+                androidx.compose.runtime.mutableStateOf<androidx.compose.ui.graphics.Color?>(null)
+            }
             CourseScheduleTheme(config = state.config) {
                 CompositionLocalProvider(LocalLegacyProgressiveBlur provides true) {
                     DetailActivityScaffold(
@@ -81,7 +84,8 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                         centerCompactTitle = true,
                         compactTitleMatchesSettings = true,
                         preserveStatusBarSpace = true,
-                        topBarBackdropOverride = webBackdrop
+                        topBarBackdropOverride = webBackdrop,
+                        topBarBackgroundColor = webToolbarColor
                     ) { backdrop ->
                         interaction?.let { pending ->
                             EduBridgeInteractionDialog(
@@ -104,6 +108,7 @@ class SwuUnifiedAuthActivity : ComponentActivity() {
                                 adapter = selected.copy(importUrl = AutoRefreshLoginRoutes.entryUrl(selected)),
                                 backdrop = backdrop,
                                 webContentBackdrop = webBackdrop,
+                                webToolbarColor = webToolbarColor,
                                 primaryAction = EduBrowserPrimaryAction(
                                     label = if (sessionOnly) "保留登录态" else "读取登录态",
                                     progressMessage = if (sessionOnly) "正在保留当前教务登录态…" else "正在读取登录态并验证凭证…",

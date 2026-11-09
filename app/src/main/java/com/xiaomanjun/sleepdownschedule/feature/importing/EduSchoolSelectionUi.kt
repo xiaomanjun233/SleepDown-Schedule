@@ -116,7 +116,6 @@ import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
@@ -403,6 +402,8 @@ fun EduSchoolIndexedSelectScreen(
         listBackdrop
     }
     val density = LocalDensity.current
+    val navigationBottom = with(density) { WindowInsets.navigationBars.getBottom(this).toDp() }
+    val listDockClearance = navigationBottom + EduSearchDockBottomPadding + EduSearchDockHeight + 4.dp
     val imeLift = with(density) {
         (WindowInsets.ime.getBottom(density) - WindowInsets.navigationBars.getBottom(density))
             .coerceAtLeast(0)
@@ -520,12 +521,13 @@ fun EduSchoolIndexedSelectScreen(
         ) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.nestedScroll(keyboardDismissScrollConnection),
+                modifier = Modifier.fillMaxSize().padding(bottom = listDockClearance)
+                    .clipToBounds().nestedScroll(keyboardDismissScrollConnection),
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
                     top = topPadding + 12.dp,
-                    bottom = DockScrollPadding
+                    bottom = 12.dp
                 ),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
@@ -631,7 +633,7 @@ private fun EduAlphabetRailDock(
     val density = LocalDensity.current
     // Center the rail only in the usable list window: the measured top bar and the entire search
     // dock (including its safe-area/IME lift) are excluded from the centering bounds.
-    val alphabetRailBottomExclusion = 44.dp + 18.dp + bottomInset
+    val alphabetRailBottomExclusion = EduSearchDockHeight + EduSearchDockBottomPadding + bottomInset
     var railDragging by remember { mutableStateOf(false) }
     var railPointerIndex by remember { mutableIntStateOf(-1) }
     val railScrolling by remember {
@@ -884,6 +886,8 @@ private fun eduAdapterCategoryLabel(category: String): String = when (category.u
 
 private val EduSearchVerticalOverscan = 18.dp
 private val EduSearchHorizontalOverscan = 16.dp
+private val EduSearchDockBottomPadding = 18.dp
+private val EduSearchDockHeight = com.itos.coui.search.CouiSearchBarDefaults.height
 private val LightEduSearchDockShadow = com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidSearchStyle.shadow
 
 @Composable
@@ -897,7 +901,6 @@ private fun EduSchoolSearchDock(
     controlsModifier: Modifier = Modifier
 ) {
     val entranceProgress = remember { Animatable(0f) }
-    val searchDockBottomPadding = 18.dp
     val searchDockTint = if (appUsesDarkTheme(config)) {
         ComposeColor(0xFF1A1A1D)
     } else {
@@ -949,7 +952,7 @@ private fun EduSchoolSearchDock(
             backdrop = backdrop,
             config = config,
             keyboardLift = imeLift,
-            bottomOffset = searchDockBottomPadding + bottomInset,
+            bottomOffset = EduSearchDockBottomPadding + bottomInset,
             entranceProgress = entranceProgress.value,
             modifier = Modifier
                 // Give the control the whole window as its layout envelope. Only its two visible
@@ -977,7 +980,7 @@ fun SchoolSearchField(
     val isLargeScreen = rememberHomeAdaptiveMetrics().isLargeScreen
     if (LocalHomeMaterialControls.current.SearchField(
             value, onValueChange, appUsesDarkTheme(config), bottomOffset,
-            entranceProgress, isLargeScreen, modifier
+            entranceProgress, isLargeScreen, modifier, backdrop
         )) return
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current

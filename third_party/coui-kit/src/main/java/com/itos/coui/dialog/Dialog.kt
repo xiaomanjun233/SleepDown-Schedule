@@ -11,6 +11,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -97,13 +99,25 @@ fun Dialog(
 @Composable
 fun DialogHeading(title: String, colors: CouiDialogColors = CouiDialogDefaults.themeColors(),
     trailing: (@Composable () -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth().padding(start = CouiDialogDefaults.contentPadding,
+    val titleHeight = CouiDialogDefaults.titleMaxHeight(LocalConfiguration.current.screenHeightDp)
+    Layout(modifier = Modifier.fillMaxWidth().padding(start = CouiDialogDefaults.contentPadding,
         end = CouiDialogDefaults.contentPadding, top = CouiDialogDefaults.titleTop,
-        bottom = CouiDialogDefaults.titleBottom), verticalAlignment = Alignment.CenterVertically) {
+        bottom = CouiDialogDefaults.titleBottom), content = {
         DialogText(text = title, kind = DialogTextKind.Title, color = colors.title,
-            modifier = Modifier.weight(1f).heightIn(max = CouiDialogDefaults.titleMaxHeight(
-                LocalConfiguration.current.screenHeightDp)).verticalScroll(rememberScrollState()))
-        trailing?.invoke()
+            modifier = Modifier.heightIn(max = titleHeight).verticalScroll(rememberScrollState()))
+        if (trailing != null) Box { trailing() }
+    }) { measurables, constraints ->
+        val width = constraints.maxWidth
+        val action = measurables.getOrNull(1)?.measure(constraints.copy(minWidth = 0,
+            maxWidth = width / 2, minHeight = 0))
+        val inset = action?.width ?: 0
+        val titleWidth = width - 2 * inset
+        val heading = measurables[0].measure(constraints.copy(minWidth = titleWidth, maxWidth = titleWidth, minHeight = 0))
+        val height = constraints.constrainHeight(maxOf(heading.height, action?.height ?: 0))
+        layout(width, height) {
+            heading.placeRelative(inset, (height - heading.height) / 2)
+            action?.placeRelative(width - inset, (height - action.height) / 2)
+        }
     }
 }
 

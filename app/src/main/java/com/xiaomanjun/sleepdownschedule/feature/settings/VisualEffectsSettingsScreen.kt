@@ -121,10 +121,10 @@ fun VisualEffectsSettingsScreen(
 ) {
     val superPerformance = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
     val effects = LocalVisualEffects.current
-    if (effects.usesNativeControls || superPerformance) {
+    if (effects.usesGlowMaterials || superPerformance) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
-                text = if (effects.usesNativeControls) "凝光视效下无需调整液态玻璃" else "超级性能模式下不可用",
+                text = if (effects.usesGlowMaterials) "凝光视效下无需调整液态玻璃" else "超级性能模式下不可用",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }

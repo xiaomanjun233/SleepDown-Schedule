@@ -20,6 +20,8 @@ internal fun couiMenuSpotlight(
         inputTarget = inputTarget,
         preset = SpotlightPreset.TranslucentLarge1,
         dark = dark,
+        intensity = LocalCouiMenuStyle.current.spotlightIntensity,
+        blendMode = LocalCouiMenuStyle.current.spotlightBlendMode,
         diffuse = LocalCouiMenuStyle.current.spotlightDiffuse,
         onDiagnostic = LocalCouiMenuDiagnostic.current ?: {},
     )

@@ -11,10 +11,10 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 
 /**
- * Keep one half-resolution blur surface throughout the frozen transition. Its area is one
- * quarter of the source; the clear endpoint is drawn from the original full-resolution scene.
+ * Keep one one-third-resolution blur surface throughout the frozen transition. The clear
+ * endpoint is drawn from the original full-resolution scene.
  */
-internal const val HomeFrozenBlurSampleScale = 0.5f
+internal const val HomeFrozenBlurSampleScale = 1f / 3f
 
 /**
  * Prebuilt background effects. 32 levels bound radius changes to about 0.7dp at the 22dp maximum

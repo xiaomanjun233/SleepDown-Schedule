@@ -161,8 +161,9 @@ fun SleepDownPickerDialog(
     couiContentPadding: PaddingValues = PaddingValues(0.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val foreground = sleepDownPanelForegroundColor(config)
     val body: @Composable (Boolean) -> Unit = { includeChrome ->
+        val foreground = if (includeChrome) sleepDownPanelForegroundColor(config)
+            else androidx.compose.material3.LocalContentColor.current
         val nativeStyle = LocalNativePickerStyle.current.takeIf { LocalNativeDialogSurface.current }
         val titleStyle = nativeStyle?.let { MaterialTheme.typography.titleLarge.copy(
             fontSize = it.titleSize, lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified,
@@ -457,7 +458,7 @@ internal fun QuickSheetDialogMaterial(
 ) {
     if (LocalNativeMaterialSurfaceRenderer.current?.invoke(NativeMaterialSurfaceRequest(
         modifier = modifier, shape = shape, dark = appUsesDarkTheme(config),
-        role = NativeMaterialSurfaceRole.Dialog, edgeEffects = false
+        role = NativeMaterialSurfaceRole.Dialog, edgeEffects = false, backdrop = backdrop
     )) {} == true) return
     Box(modifier.clip(shape).quickSheetBackdropModifier(backdrop, config, 28.dp, shapeOverride = shape))
 }

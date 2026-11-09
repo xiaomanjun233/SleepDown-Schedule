@@ -28,7 +28,8 @@ internal object ColorOsHomeMaterialControls : HomeMaterialControls {
 
     @Composable
     override fun SearchField(value: String, onValueChange: (String) -> Unit, dark: Boolean,
-        bottomOffset: Dp, entranceProgress: Float, largeScreen: Boolean, modifier: Modifier) =
+        bottomOffset: Dp, entranceProgress: Float, largeScreen: Boolean, modifier: Modifier,
+        backdrop: com.kyant.backdrop.Backdrop?) =
         ColorOsSchoolSearchField(value, onValueChange, dark, bottomOffset, entranceProgress, largeScreen, modifier)
 
     @Composable

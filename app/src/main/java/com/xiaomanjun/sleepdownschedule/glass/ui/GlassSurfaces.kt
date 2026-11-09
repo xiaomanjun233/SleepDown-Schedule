@@ -79,6 +79,7 @@ fun GlassSurface(
     nativeMaterial: Boolean = false,
     nativeDark: Boolean? = null,
     nativeBlurRadiusScale: Float = 1f,
+    nativeBlurRadius: androidx.compose.ui.unit.Dp? = null,
     nativeTintAlphaScale: Float = 1f,
     nativeDockMaterial: Boolean = false,
     nativeFollowLightIntensityScale: Float = 1f,
@@ -96,11 +97,13 @@ fun GlassSurface(
             shape = shape, dark = nativeDark ?: !glassUsesLightStyle(config),
             materialVisible = nativeMaterialVisible,
             blurRadiusScale = nativeBlurRadiusScale,
+            blurRadius = nativeBlurRadius,
             tintAlphaScale = nativeTintAlphaScale,
             followLightIntensityScale = nativeFollowLightIntensityScale,
             role = if (nativeDockMaterial) com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.HomeDock
                 else com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Content,
             onClick = onClick,
+            backdrop = backdrop,
             elasticTouchFeedback = nativeElasticTouchFeedback,
             shapeProvider = if (morphAllocation != null) {
                 { RoundedRectangle(with(nativeDensity) { morphAllocation.geometry().cornerRadiusPx.toDp() }) }
@@ -368,7 +371,7 @@ fun BlueStatusGlassPill(
     val nativeSurface = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer.current
     if (nativeSurface?.invoke(com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest(
         modifier = modifier, shape = shape, dark = !glassUsesLightStyle(config),
-        onDrawTint = nativeTint, blurRadiusScale = 0.6f
+        onDrawTint = nativeTint, blurRadiusScale = 0.6f, backdrop = backdrop
     ), content) == true) return
     Box(modifier = modifier) {
         GlassSurface(

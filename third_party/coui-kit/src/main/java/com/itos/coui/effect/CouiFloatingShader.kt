@@ -1,20 +1,20 @@
 package com.itos.coui.effect
 
 // PJZ110 libhwui OplusMaterialEffectMetaBallShader: setCornerParams 对应 cornerType=4。
-internal fun couiFloatingShader(index: Int): String {
-    require(index in 1..3)
-    // 原片段使用 fwidth; 保留导数抗锯齿, 不改成固定像素宽度。
-    return "#version 300\nconst int MATERIAL_INDEX = $index;\n" + CouiMaterialShaderFunctions +
-        FloatingBaseUniforms + FloatingBallUniforms + FloatingLightingUniforms + FloatingShapeFunctions +
-        FloatingPairFunctions + FloatingLightingFunctions + FloatingSdf + when (index) {
-        1 -> FloatingIndex1
-        2 -> FloatingIndex2
-        else -> FloatingIndex3
-    } + "return sr;}" + FloatingRect + when (index) {
-        1 -> FloatingRect1
-        2 -> FloatingRect2
-        else -> FloatingRect3
-    } + "return rectData;}" + FloatingMain
+internal fun couiFloatingShader(hasThirdBall: Boolean): String = buildString {
+    // Both siblings submit the same program. A uniform selects the material slot without
+    // forcing HWUI to link a separate fragment program when the second capsule first appears.
+    append("#version 300\nuniform int MATERIAL_INDEX;\n", CouiMaterialShaderFunctions, FloatingBaseUniforms,
+        FloatingBallUniforms)
+    if (hasThirdBall) append(FloatingThirdBallUniforms)
+    append(FloatingLightingUniforms, FloatingShapeFunctions, FloatingPairFunctions,
+        FloatingLightingFunctions, FloatingSdf)
+    if (hasThirdBall) append(FloatingThirdBallSdf)
+    append(FloatingPairSdf)
+    if (hasThirdBall) append(FloatingThirdBallPairs)
+    append(FloatingSdfResult, "if (MATERIAL_INDEX == 1) {", FloatingIndex1,
+        "} else if (MATERIAL_INDEX == 2) {", FloatingIndex2, "} else {", FloatingIndex3,
+        "} return sr;}", FloatingRect, FloatingStandaloneRect, "return rectData;}", FloatingMain)
 }
 
 // BaseShader 的非融球 cornerType=4 分支, 不声明关联主体或计算 pair。
@@ -39,11 +39,14 @@ layout(color) uniform half4 u_themeTint;
 private const val FloatingBallUniforms = """
 uniform float u_ball1Array[8];
 uniform float u_ball2Array[8];
-uniform float u_ball3Array[8];
 uniform float u_ball1ShapeCtxArray[12];
 uniform float u_ball2ShapeCtxArray[12];
-uniform float u_ball3ShapeCtxArray[12];
 uniform float u_preCmpArray12[24];
+"""
+
+private const val FloatingThirdBallUniforms = """
+uniform float u_ball3Array[8];
+uniform float u_ball3ShapeCtxArray[12];
 uniform float u_preCmpArray13[24];
 uniform float u_preCmpArray23[24];
 """
@@ -426,6 +429,11 @@ half4 main(float2 fragCoord) {
         color = blendEdge(rectData, color, surface, d);
     }
     color.rgb = mix(surface.rgb, clamp(color.rgb, 0.0, 1.0), uEffectAlpha);
+    // The material-only pass has no fill. Retain the premultiplied light as an overlay;
+    // multiplying it by the transparent fill previously discarded every stroke pixel.
+    if (uSurfaceColor.a == 0.0) {
+        return half4(color.rgb, max(color.r, max(color.g, color.b)));
+    }
     return half4(color.rgb * uSurfaceColor.a, uSurfaceColor.a);
 }
 """
@@ -434,16 +442,13 @@ private const val FloatingSdf = """
 ShapeResult getRoundedMetaballSDF(float2 p, CommonDataRect rectData, inout float aaFactor) {
 RectCorner rc1 = RectCorner(float2(u_ball1Array[0], u_ball1Array[1]), float2(u_ball1Array[2], u_ball1Array[3]), u_ball1Array[4], u_ball1Array[5]);
 RectCorner rc2 = RectCorner(float2(u_ball2Array[0], u_ball2Array[1]), float2(u_ball2Array[2], u_ball2Array[3]), u_ball2Array[4], u_ball2Array[5]);
-RectCorner rc3 = RectCorner(float2(u_ball3Array[0], u_ball3Array[1]), float2(u_ball3Array[2], u_ball3Array[3]), u_ball3Array[4], u_ball3Array[5]);
 float2 ball1InvScale = float2(u_ball1Array[6], u_ball1Array[7]);
 float2 ball2InvScale = float2(u_ball2Array[6], u_ball2Array[7]);
-float2 ball3InvScale = float2(u_ball3Array[6], u_ball3Array[7]);
-float2 rp1 = (p - rc1.center) * ball1InvScale, rp2 = (p - rc2.center) * ball2InvScale, rp3 = (p - rc3.center) * ball3InvScale;
+float2 rp1 = (p - rc1.center) * ball1InvScale, rp2 = (p - rc2.center) * ball2InvScale;
 ShapeCtx shapeCtx1 = shapeCtxFromArray(u_ball1ShapeCtxArray);
 ShapeCtx shapeCtx2 = shapeCtxFromArray(u_ball2ShapeCtxArray);
-ShapeCtx shapeCtx3 = shapeCtxFromArray(u_ball3ShapeCtxArray);
 float sdfIndex1 = 100.0, sdfIndex2 = 100.0, sdfIndex3 = 100.0;
-float rawSdf1 = 100.0, rawSdf2 = 100.0, rawSdf3 = 100.0;
+float rawSdf1 = 100.0, rawSdf2 = 100.0;
 float minDistance = 100.0;
 float range12 = 0.0, range13 = 0.0, range23 = 0.0;
 const float2 eps2 = float2(EPS);
@@ -461,6 +466,15 @@ if(MATERIAL_INDEX == 2) aaFactor = aaFactor2;
 rawSdf2 = sdfIndex2;
 minDistance = min(sdfIndex2, minDistance);
 }
+"""
+
+// Search and Dock cannot have a third capsule. Omit both additional blendPair expansions.
+private const val FloatingThirdBallSdf = """
+RectCorner rc3 = RectCorner(float2(u_ball3Array[0], u_ball3Array[1]), float2(u_ball3Array[2], u_ball3Array[3]), u_ball3Array[4], u_ball3Array[5]);
+float2 ball3InvScale = float2(u_ball3Array[6], u_ball3Array[7]);
+float2 rp3 = (p - rc3.center) * ball3InvScale;
+ShapeCtx shapeCtx3 = shapeCtxFromArray(u_ball3ShapeCtxArray);
+float rawSdf3 = 100.0;
 if(all(greaterThanEqual(rc3.halfSize, eps2))){
 float aaFactor3 = 0.0;
 sdfIndex3 = smoothSdfD(rp3, shapeCtx3, aaFactor3);
@@ -468,9 +482,18 @@ if(MATERIAL_INDEX == 3) aaFactor = aaFactor3;
 rawSdf3 = sdfIndex3;
 minDistance = min(sdfIndex3, minDistance);
 }
+"""
+
+private const val FloatingPairSdf = """
 blendPair(p, rp1, rp2, rc1, rc2, shapeCtx1, shapeCtx2, rawSdf1, rawSdf2, sdfIndex1, sdfIndex2, ball1InvScale, ball2InvScale, minDistance, u_preCmpArray12, range12, aaFactor);
+"""
+
+private const val FloatingThirdBallPairs = """
 blendPair(p, rp1, rp3, rc1, rc3, shapeCtx1, shapeCtx3, rawSdf1, rawSdf3, sdfIndex1, sdfIndex3, ball1InvScale, ball3InvScale, minDistance, u_preCmpArray13, range13, aaFactor);
 blendPair(p, rp2, rp3, rc2, rc3, shapeCtx2, shapeCtx3, rawSdf2, rawSdf3, sdfIndex2, sdfIndex3, ball2InvScale, ball3InvScale, minDistance, u_preCmpArray23, range23, aaFactor);
+"""
+
+private const val FloatingSdfResult = """
 float mixC;
 ShapeResult sr;
 float aa = max(EPS, mix(EPS, fwidth(minDistance), aaFactor));
@@ -563,31 +586,4 @@ rectData.pos = (coords.xy - vec2(u_commonArray[2], u_commonArray[3])) * rectData
 rectData.halfSize = vec2(u_commonArray[4], u_commonArray[5]);
 rectData.coner = u_commonArray[6];
 rectData.weight = u_commonArray[7];
-"""
-
-private const val FloatingRect1 = """
-rectData.invScale = vec2(u_ball1Array[6], u_ball1Array[7]);
-rectData.pos = (coords.xy - vec2(u_ball1Array[0], u_ball1Array[1])) * rectData.invScale;
-rectData.halfSize =  vec2(u_ball1Array[2], u_ball1Array[3]);
-rectData.coner =  u_ball1Array[4];
-rectData.weight = u_ball1Array[5];
-
-"""
-
-private const val FloatingRect2 = """
-rectData.invScale = vec2(u_ball2Array[6], u_ball2Array[7]);
-rectData.pos = (coords.xy - vec2(u_ball2Array[0], u_ball2Array[1])) * rectData.invScale;
-rectData.halfSize =  vec2(u_ball2Array[2], u_ball2Array[3]);
-rectData.coner =  u_ball2Array[4];
-rectData.weight = u_ball2Array[5];
-
-"""
-
-private const val FloatingRect3 = """
-rectData.invScale = vec2(u_ball3Array[6], u_ball3Array[7]);
-rectData.pos = (coords.xy - vec2(u_ball3Array[0], u_ball3Array[1])) * rectData.invScale;
-rectData.halfSize =  vec2(u_ball3Array[2], u_ball3Array[3]);
-rectData.coner =  u_ball3Array[4];
-rectData.weight = u_ball3Array[5];
-
 """

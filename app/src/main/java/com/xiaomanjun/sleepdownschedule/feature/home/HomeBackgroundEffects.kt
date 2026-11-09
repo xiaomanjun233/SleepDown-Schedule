@@ -20,8 +20,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -65,7 +67,8 @@ internal fun HomeBackgroundBlurLayer(
     blurProgress: () -> Float,
     useFrozenHomeScene: () -> Boolean,
     closing: () -> Boolean,
-    sceneKey: Any,
+    retainedScene: GraphicsLayer,
+    prepareScene: ContentDrawScope.(frozen: Boolean) -> Boolean,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -80,8 +83,7 @@ internal fun HomeBackgroundBlurLayer(
     val recordLiveScene by remember {
         derivedStateOf { !latestUseFrozenScene.value() && latestBlurProgress.value() > 0f }
     }
-    val frozenRecordKey = remember { AtomicReference<Any?>(null) }
-    val frozenRecordSize = remember { AtomicReference(IntSize.Zero) }
+    val frozenRecordSize = remember(retainedScene) { AtomicReference(IntSize.Zero) }
     val sampleScale = HomeFrozenBlurSampleScale
     val maximumBlurPx = with(density) { 22.dp.toPx() }
     val frozenBlurEffects = remember(maximumBlurPx, sampleScale) {
@@ -133,36 +135,32 @@ internal fun HomeBackgroundBlurLayer(
                 // Animation state is read only by graphicsLayer above. A zoom/blur/alpha tick
                 // changes RenderNode properties without invalidating this display list.
                 val frozenHomeScene = useFrozenHomeScene()
-                if (!frozenHomeScene) {
-                    frozenRecordKey.set(null)
+                val replayScene = prepareScene(frozenHomeScene)
+                if (!frozenHomeScene || !replayScene) {
                     if (recordLiveScene) {
-                        liveSceneLayer.record { this@drawWithContent.drawContent() }
+                        liveSceneLayer.record {
+                            if (replayScene) drawLayer(retainedScene) else this@drawWithContent.drawContent()
+                        }
                         drawLayer(liveSceneLayer)
+                    } else if (replayScene) {
+                        drawLayer(retainedScene)
                     } else {
                         drawContent()
                     }
                     return@drawWithContent
                 }
 
-                val fullSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
-                val reducedSize = IntSize(
-                    width = (size.width * sampleScale).roundToInt().coerceAtLeast(1),
-                    height = (size.height * sampleScale).roundToInt().coerceAtLeast(1)
-                )
-                // Both wrappers refer to the same retained scene. Record in Preparing, including
-                // at zero blur, rather than doing this work on the first moving frame. The blur
-                // has one fixed allocation from Opening through Closing; no bitmap readback or
-                // blur pyramid is created. Rounded sample dimensions map back to exact source
-                // dimensions so the sharp/blurred layers stay aligned on odd-sized windows.
-                if (
-                    frozenRecordKey.get() != sceneKey ||
-                    frozenRecordSize.get() != fullSize
-                ) {
-                    val scaleX = reducedSize.width / size.width
-                    val scaleY = reducedSize.height / size.height
-                    clearSceneLayer.record(size = fullSize) {
-                        this@drawWithContent.drawContent()
-                    }
+                val fullSize = retainedScene.size
+                // The wrappers reference the existing scene layer. Its next display list is
+                // visible through the same reference, so only a size change needs new wrappers.
+                if (frozenRecordSize.get() != fullSize) {
+                    val reducedSize = IntSize(
+                        width = (fullSize.width * sampleScale).roundToInt().coerceAtLeast(1),
+                        height = (fullSize.height * sampleScale).roundToInt().coerceAtLeast(1)
+                    )
+                    val scaleX = reducedSize.width.toFloat() / fullSize.width
+                    val scaleY = reducedSize.height.toFloat() / fullSize.height
+                    clearSceneLayer.record(size = fullSize) { drawLayer(retainedScene) }
                     frozenBlurLayer.record(size = reducedSize) {
                         withTransform({
                             scale(
@@ -171,13 +169,12 @@ internal fun HomeBackgroundBlurLayer(
                                 pivot = Offset.Zero
                             )
                         }) {
-                            this@drawWithContent.drawContent()
+                            drawLayer(retainedScene)
                         }
                     }
                     frozenBlurLayer.pivotOffset = Offset.Zero
                     frozenBlurLayer.scaleX = 1f / scaleX
                     frozenBlurLayer.scaleY = 1f / scaleY
-                    frozenRecordKey.set(sceneKey)
                     frozenRecordSize.set(fullSize)
                 }
 

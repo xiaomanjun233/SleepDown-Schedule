@@ -112,6 +112,7 @@ private val LightBrowserDockShadow = Shadow(
 @Composable
 private fun EduBrowserDockSurface(
     config: ScheduleConfigEntity,
+    backdrop: Backdrop,
     shape: androidx.compose.ui.graphics.Shape,
     modifier: Modifier,
     content: @Composable androidx.compose.foundation.layout.BoxScope.() -> Unit
@@ -122,7 +123,8 @@ private fun EduBrowserDockSurface(
             shape = shape,
             dark = appUsesDarkTheme(config),
             role = NativeMaterialSurfaceRole.HomeDock,
-            elasticTouchFeedback = true
+            elasticTouchFeedback = true,
+            backdrop = backdrop
         )) { Box(Modifier.fillMaxSize(), content = content) } == true) return
     Box(modifier, content = content)
 }
@@ -296,6 +298,7 @@ internal fun EduBrowserDock(
         ) {
             EduBrowserDockSurface(
                 config = config,
+                backdrop = backdrop,
                 shape = RoundedRectangle(dockCorner),
                 modifier = Modifier
                     .width(dockWidth)

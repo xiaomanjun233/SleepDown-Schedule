@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import com.kyant.shapes.Capsule
@@ -25,8 +26,6 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,11 +38,10 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.model.DefaultCourseCardPalette
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalCourseCardPalette
-import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.glass.ui.CoursePaletteGrid
 
 @Composable
 internal fun CourseColorPicker(
@@ -59,8 +57,6 @@ internal fun CourseColorPicker(
 ) {
     val palette = LocalCourseCardPalette.current.ifEmpty { DefaultCourseCardPalette }
     var pendingColor by remember(show, selectedColorArgb) { mutableStateOf(selectedColorArgb) }
-    var paletteAnchorVersion by remember(show, selectedColorArgb, automaticColorArgb) { mutableIntStateOf(0) }
-    val foreground = if (appUsesDarkTheme(config)) Color.White else Color(0xFF111111)
     SleepDownPickerDialog(
         show = show,
         title = "课程颜色",
@@ -71,6 +67,7 @@ internal fun CourseColorPicker(
         renderInRootScaffold = renderInRootScaffold,
         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
         contentSpacing = 14.dp,
+        scrollableContent = true,
         couiContentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
         blurRadius = 10.dp,
         actions = listOf(
@@ -81,27 +78,20 @@ internal fun CourseColorPicker(
             }
         )
     ) {
+        val foreground = LocalContentColor.current
         CompositionLocalProvider(LocalContentColor provides foreground) {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                QuickSheetLiquidAction(
-                    label = "自动",
-                    enabled = true,
-                    backdrop = backdrop,
-                    config = config,
-                    primary = pendingColor == null,
-                    modifier = Modifier.fillMaxWidth(),
-                    height = if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls)
-                        com.itos.coui.dialog.CouiDialogDefaults.buttonHeight else 42.dp,
-                    onClick = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("当前课程色板", color = foreground.copy(alpha = 0.68f),
+                        style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
+                    QuickSheetLiquidAction(label = "自动", enabled = true, backdrop = backdrop,
+                        config = config, primary = pendingColor == null,
+                        modifier = Modifier.width(68.dp), height = 36.dp) {
                         pendingColor = null
-                        paletteAnchorVersion += 1
                     }
-                )
-                Text(
-                    text = "当前课程色板",
-                    color = foreground.copy(alpha = 0.68f),
-                    style = MaterialTheme.typography.labelMedium
-                )
+                }
                 LazyRow(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -119,25 +109,12 @@ internal fun CourseColorPicker(
                             ),
                             onClick = {
                                 pendingColor = colorArgb
-                                paletteAnchorVersion += 1
                             }
                         ) {}
                     }
                 }
-                key(paletteAnchorVersion) {
-                    top.yukonga.miuix.kmp.basic.ColorPalette(
-                        color = Color((pendingColor ?: automaticColorArgb).toInt()),
-                        onColorChanged = { color ->
-                            pendingColor = color.copy(alpha = 1f).toArgb().toLong() and 0xFFFFFFFFL
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        rows = 7,
-                        hueColumns = 12,
-                        includeGrayColumn = true,
-                        showPreview = true,
-                        cornerRadius = 16.dp,
-                        indicatorRadius = 10.dp
-                    )
+                CoursePaletteGrid(Color((pendingColor ?: automaticColorArgb).toInt())) { color ->
+                    pendingColor = color.toArgb().toLong() and 0xFFFFFFFFL
                 }
 
             }

@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.editor
 import android.graphics.Matrix
+import android.os.Build
+import android.os.Trace
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
@@ -67,6 +69,7 @@ import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import androidx.core.os.trace
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.kyant.backdrop.backdrops.LayerBackdrop
@@ -285,7 +288,6 @@ internal fun CourseEditorContainerOverlayHost(
     onPhaseChange: (CourseEditorOverlayPhase) -> Unit = {}
 ) {
     val preloadContent = true
-    val earlyContentHandoff = !com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()) {
@@ -389,20 +391,26 @@ internal fun CourseEditorContainerOverlayHost(
                 editorContentMounted = preloadContent
                 editorContentLaidOut = false
                 motionState.retractTo(null)
-                updatePhase(CourseEditorOverlayPhase.Preparing)
-                renderedRequest = request
-                latestOnRenderedCourseIdChange(request.course.id)
-                progress.snapTo(0f)
-                motionState.backgroundZoom.snapTo(1f)
-                var waitedFrames = 0
-                while (waitedFrames < 12 && (rootSize.width <= 0 || rootSize.height <= 0)) {
-                    withFrameNanos { }
-                    waitedFrames++
-                }
-                latestAwaitOpeningGate()
-                if (preloadContent) {
-                    snapshotFlow { editorContentLaidOut }.first { it }
-                    // The first layout is sufficient; the same form stays mounted through motion.
+                val cookie = System.identityHashCode(request)
+                if (Build.VERSION.SDK_INT >= 29) Trace.beginAsyncSection("SleepDown Editor.prepare", cookie)
+                try {
+                    updatePhase(CourseEditorOverlayPhase.Preparing)
+                    renderedRequest = request
+                    latestOnRenderedCourseIdChange(request.course.id)
+                    progress.snapTo(0f)
+                    motionState.backgroundZoom.snapTo(1f)
+                    var waitedFrames = 0
+                    while (waitedFrames < 12 && (rootSize.width <= 0 || rootSize.height <= 0)) {
+                        withFrameNanos { }
+                        waitedFrames++
+                    }
+                    latestAwaitOpeningGate()
+                    if (preloadContent) {
+                        snapshotFlow { editorContentLaidOut }.first { it }
+                        // The first layout is sufficient; the same form stays mounted through motion.
+                    }
+                } finally {
+                    if (Build.VERSION.SDK_INT >= 29) Trace.endAsyncSection("SleepDown Editor.prepare", cookie)
                 }
             }
             updatePhase(CourseEditorOverlayPhase.Opening)
@@ -585,8 +593,7 @@ internal fun CourseEditorContainerOverlayHost(
         adaptiveMetrics,
         density.density,
         hasSourceTransform,
-        preloadContent,
-        earlyContentHandoff
+        preloadContent
     ) {
         legacyCourseEditorMorphSpec(
             source = sourceRect,
@@ -598,8 +605,7 @@ internal fun CourseEditorContainerOverlayHost(
             destinationBlurMaxPx = with(density) { 5.dp.toPx() },
             hasSourceTransform = hasSourceTransform,
             preloadedContent = preloadContent,
-            earlyContentHandoff = earlyContentHandoff,
-            earlyOpeningContentHandoff = true
+            earlyContentHandoff = true
         )
     }
     DisposableEffect(morphSpec, openingSource, targetRect) {
@@ -620,7 +626,7 @@ internal fun CourseEditorContainerOverlayHost(
                 if (closing) current[4] else with(density) { 32.dp.toPx() },
                 with(density) { adaptiveMetrics.animationArc.toPx() },
                 with(density) { 6.dp.toPx() }, with(density) { 5.dp.toPx() },
-                hasSourceTransform, preloadContent, earlyContentHandoff, earlyOpeningContentHandoff = true)
+                hasSourceTransform, preloadContent, earlyContentHandoff = true)
             val frames: (Float) -> FloatArray = { p ->
                 rebased.frame(LiquidMorphInput(from, to, p,
                     if (closing) LiquidMorphDirection.Closing else LiquidMorphDirection.Opening))
@@ -768,6 +774,10 @@ internal fun CourseEditorContainerOverlayHost(
     val showSourceCover by remember(sourceCoverAlpha) {
         derivedStateOf { sourceCoverAlpha.value > 0.001f }
     }
+    val sourceBlurEffects = remember(density) {
+        List(5) { step -> platformBlurRenderEffect(with(density) { (6.dp * (step / 4f)).toPx() }) }
+    }
+    val sourceBlurMaxPx = with(density) { 6.dp.toPx() }
     val editorFormBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.Content,
         providerId = "course-editor-shell"
@@ -883,9 +893,11 @@ internal fun CourseEditorContainerOverlayHost(
                                 scaleY = if (sourceIsWeekCard) morphFrame.rect.height / sourceRect.height
                                     else courseEditorDaySourceScale(sourceRect, morphFrame.rect)
                                 alpha = sourceCoverAlpha.value
-                                val blurPx = morphFrame.content.sourceBlurPx
-                                compositingStrategy = CompositingStrategy.Offscreen
-                                renderEffect = platformBlurRenderEffect(blurPx)
+                                val step = (morphFrame.content.sourceBlurPx / sourceBlurMaxPx * 4f)
+                                    .roundToInt().coerceIn(0, 4)
+                                renderEffect = sourceBlurEffects[step]
+                                compositingStrategy = if (renderEffect == null) CompositingStrategy.ModulateAlpha
+                                    else CompositingStrategy.Offscreen
                             }
                     )
                 }
@@ -989,7 +1001,7 @@ private fun CourseEditorFormLayer(
                 )
                 .onSizeChanged {
                     if (it.width > 0 && it.height > 0) {
-                        contentLaidOut = true
+                        if (!contentLaidOut) trace("SleepDown Editor.formFirstLayout") { contentLaidOut = true }
                         onContentLaidOut()
                     }
                 }
@@ -1049,7 +1061,8 @@ private fun CourseEditorFormLayer(
                         .align(Alignment.BottomCenter)
                         .zIndex(20f)
                         .graphicsLayer { alpha = formStagger.value }
-                        .padding(bottom = 10.dp)
+                        .padding(bottom = 10.dp),
+                    backdrop = backdrop
                 )
             }
         }
@@ -1091,6 +1104,25 @@ private fun CourseEditorAnimatedContainer(
     }
     val finalDialogBlur = 22f
     val currentProgress = rememberUpdatedState(progressProvider)
+    val density = LocalDensity.current
+    val nativeCardMaterial = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardRenderer.current != null &&
+        com.xiaomanjun.sleepdownschedule.core.performance.effectiveAppMaterialPolicy().denseMaterials
+    val courseBlurPx = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode.current?.blurRadiusPx
+    val nativeEditorBlur by remember(courseBlurPx, density) {
+        derivedStateOf {
+            with(density) {
+                // Match the lifted card through the handoff, then hold the expanded form at 22 dp.
+                // Four blur values bound the number of GPU kernels needed on a cold opening.
+                val blend = (courseEditorSmoothStep(0.62f, 1f, currentProgress.value.invoke()) * 3f)
+                    .roundToInt() / 3f
+                courseEditorInterpolate(courseBlurPx?.toDp()?.value ?: finalDialogBlur, finalDialogBlur,
+                    blend).dp
+            }
+        }
+    }
+    val editorSampleScale by remember(expandedOutlineLight) {
+        derivedStateOf { if (expandedOutlineLight && currentProgress.value.invoke() <= 0.12f) 1f else 0.5f }
+    }
     val editorBlur by remember(config.courseCardBlur) {
         derivedStateOf {
             courseEditorInterpolate(config.courseCardBlur, finalDialogBlur,
@@ -1109,27 +1141,34 @@ private fun CourseEditorAnimatedContainer(
             )
         }
     }
-    Box(modifier = modifier.graphicsLayer { this.alpha = alpha }.drawWithCache {
-        val bounds = morphAllocation?.localBounds() ?: Rect(0f, 0f, size.width, size.height)
+    val envelopeClip = if (morphAllocation == null) Modifier else Modifier.drawWithCache {
+        val bounds = morphAllocation.localBounds()
         val outline = Path().apply {
             addOutline(shape.createOutline(bounds.size, layoutDirection, this@drawWithCache))
             translate(bounds.topLeft)
         }
         onDrawWithContent { clipPath(outline) { this@onDrawWithContent.drawContent() } }
-    }) {
+    }
+    // The backdrop and form already clip to the live shell. Only the fixed envelope needs a
+    // parent-space clip because it may be larger than either child's visible bounds.
+    Box(modifier = modifier.then(if (alpha == 1f) Modifier else Modifier.graphicsLayer { this.alpha = alpha })
+        .then(envelopeClip)) {
     CourseGlassCard(
         backdrop = backdrop,
         config = config,
         course = course,
         muted = muted,
-        flatOpacityOverride = flatEditorOpacity,
+        flatOpacityOverride = if (nativeCardMaterial) null else flatEditorOpacity,
         expandedOutlineLight = expandedOutlineLight,
         followTouch = false,
         nativeEdgeEffects = false,
-        modifier = Modifier.fillMaxSize().glassBackdropProducer(surfaceBackdrop),
+        modifier = Modifier.fillMaxSize().drawWithContent {
+            trace("SleepDown Editor.drawMaterial") { drawContent() }
+        }.glassBackdropProducer(surfaceBackdrop),
         shape = shape,
-        blurOverride = editorBlur,
-        editorSampleScale = if (expandedOutlineLight && currentProgress.value.invoke() <= 0.12f) 1f else 0.5f,
+        blurOverride = if (nativeCardMaterial) null else editorBlur,
+        nativeBlurRadius = if (nativeCardMaterial) nativeEditorBlur else null,
+        editorSampleScale = editorSampleScale,
         morphAllocation = morphAllocation
     ) { }
     // Export only the native shell. The scrolling body is combined later, without recording

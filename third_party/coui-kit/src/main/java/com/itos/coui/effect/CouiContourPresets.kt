@@ -2,6 +2,15 @@ package com.itos.coui.effect
 
 import kotlin.math.max
 
+/** LauncherMaterialEffectUtils SMALL_FOLDER texture stroke, mapped to the Kit edge uniforms. */
+internal fun launcherFolderEdgeArray(density: Float, lineAlpha: Float): FloatArray {
+    val scale = max(1f, density) * 0.34f
+    return floatArrayOf(
+        1f, 1f, 1f, 2.5f * scale, 7f * scale, 2f * scale, 4f * scale,
+        0.3f * lineAlpha, 0.4f * lineAlpha, 0.05f, 0.35f, 0.05f, 0.35f, 0f, 0.8f, 0.5f,
+    )
+}
+
 /** 原厂 Drawable 的 EDGE_STYLE_0/2 与 SHADOW_STYLE_0 映射，尺寸为完整像素。 */
 internal fun shadowEdgeArray(width: Float, height: Float, density: Float, lineWidthPx: Float, lineAlpha: Float,
     control: Boolean): FloatArray {

@@ -591,6 +591,7 @@ fun SettingsActionButton(
             height = if (badgeText == null) 42.dp else Dp.Unspecified,
             tint = tint,
             nativePrimaryColor = if (monochrome) ComposeColor.Unspecified else tint,
+            nativeTranslucentAccent = glowing && !destructive,
             surfaceColor = tint.copy(
                 alpha = when {
                     destructive -> 0.86f

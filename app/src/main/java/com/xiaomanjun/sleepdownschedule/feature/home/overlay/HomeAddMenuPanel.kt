@@ -366,7 +366,7 @@ internal fun HomeAddMenuMorphPanel(
                 NativeMenuSurfaceRequest(
                 com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest(
                     modifier = surfaceModifier, shape = shape,
-                    dark = homeStyle?.dark ?: !lightGlass, renderSurface = !externalSurface
+                    dark = homeStyle?.dark ?: !lightGlass, renderSurface = !externalSurface, backdrop = backdrop
                 ), neutral = homeStyle?.weatherMaterial == true)
             ) { MenuContent() } == true
             if (nativeRendered) {

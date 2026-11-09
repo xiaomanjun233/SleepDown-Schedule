@@ -140,7 +140,7 @@ internal fun HomeSidebarTabBar(
         NativeMaterialSurfaceRequest(
             modifier = modifier.height(48.dp), shape = RoundedRectangle(24.dp),
             dark = !lightGlass, role = NativeMaterialSurfaceRole.HomeNavigation,
-            renderSurface = !moving, elasticTouchFeedback = true
+            renderSurface = !moving, elasticTouchFeedback = true, backdrop = backdrop
         ), tabContent
     ) == true else false
     if (!nativeSurface) Box(modifier.height(48.dp)) { tabContent() }

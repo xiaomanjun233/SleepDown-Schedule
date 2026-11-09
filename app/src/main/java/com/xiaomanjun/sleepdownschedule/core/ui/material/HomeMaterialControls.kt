@@ -31,7 +31,8 @@ internal interface HomeMaterialControls {
 
     @Composable
     fun SearchField(value: String, onValueChange: (String) -> Unit, dark: Boolean,
-        bottomOffset: Dp, entranceProgress: Float, largeScreen: Boolean, modifier: Modifier): Boolean = false
+        bottomOffset: Dp, entranceProgress: Float, largeScreen: Boolean, modifier: Modifier,
+        backdrop: com.kyant.backdrop.Backdrop? = null): Boolean = false
 
     @Composable
     fun NameDialog(title: String, initialName: String, dark: Boolean, maxLength: Int?,

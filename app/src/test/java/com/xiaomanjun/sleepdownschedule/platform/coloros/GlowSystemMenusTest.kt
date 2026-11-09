@@ -95,7 +95,7 @@ class GlowSystemMenusTest {
         compose.setContent {
             pixelsPerDp = LocalDensity.current.density
             MaterialTheme {
-                ProvideColorOsMaterials(enabled = false, couiControlsEnabled = true) {
+                ProvideCouiMaterials(couiControlsEnabled = true) {
                     ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
                         Box(Modifier.fillMaxSize().then(source).background(Color(0xFF85B6D0)), contentAlignment = Alignment.TopEnd) {
                             val actions = remember {
@@ -130,7 +130,7 @@ class GlowSystemMenusTest {
         var commits = 0
         compose.setContent {
             MaterialTheme {
-                ProvideColorOsMaterials(enabled = false, couiControlsEnabled = true) {
+                ProvideCouiMaterials(couiControlsEnabled = true) {
                     ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
                         Box(Modifier.fillMaxSize().then(source).background(Color(0xFF85B6D0)),
                             contentAlignment = Alignment.TopEnd) {
@@ -168,7 +168,7 @@ class GlowSystemMenusTest {
         try {
         compose.setContent {
             MaterialTheme {
-                ProvideColorOsMaterials(enabled = false, couiControlsEnabled = true) {
+                ProvideCouiMaterials(couiControlsEnabled = true) {
                     val background = rememberGlassLayerBackdrop(GlassBackdropDomain.Background, "toolbar-test-background")
                     val foreground = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "toolbar-test-content")
                     val toolbar = rememberHomeToolbarBackdrop()
@@ -218,7 +218,7 @@ class GlowSystemMenusTest {
         var handled = true
         var contentInvoked = false
         compose.setContent {
-            ProvideColorOsMaterials(enabled = false, couiControlsEnabled = false) {
+            ProvideCouiMaterials(couiControlsEnabled = false) {
                 handled = LocalHomeMaterialControls.current.OverflowMenuButton(false, true,
                     listOf(AddMenuAction(R.drawable.ic_courses, "课程管理") {}), Modifier) { contentInvoked = true }
             }
@@ -232,7 +232,7 @@ class GlowSystemMenusTest {
         var dismiss: (((() -> Unit) -> Unit))? = null
         compose.setContent {
             MaterialTheme {
-                ProvideColorOsMaterials(enabled = false, couiControlsEnabled = true) {
+                ProvideCouiMaterials(couiControlsEnabled = true) {
                     ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
                         Box(Modifier.fillMaxSize().then(source).background(Color(0xFF85B6D0))) {
                             LocalHomeMaterialControls.current.ShortcutMenu("course", Rect(50f, 200f, 150f, 350f), false,
