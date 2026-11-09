@@ -35,10 +35,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -49,6 +51,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -59,6 +62,9 @@ import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.domain.course.WeekConflictGroup
 import com.xiaomanjun.sleepdownschedule.domain.course.WeekCourseSegment
 import com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups
@@ -103,6 +109,11 @@ internal data class WeekRenderedSegment(
 )
 
 internal const val WeekCustomTimeLabelGap = 1f
+private val LightGlowTimeSlotShadow = Shadow(
+    radius = 8.dp,
+    color = ComposeColor.Black.copy(alpha = 0.16f),
+    offset = DpOffset(0.dp, 2.dp)
+)
 
 internal fun weekCardVerticalBounds(
     segment: WeekCourseSegment,
@@ -642,16 +653,20 @@ fun WeekCourseColumnsLayer(
         // A band uses at most one material per contiguous run, rather than one per weekday.
         // Continuing courses retain their full height and own their pixels above the band.
         val timeSlotBandTokens = remember { GlassTokens.pill(intensity = 0.9f).copy(blur = 10.dp, useVibrancy = false) }
+        val showBandShadow = LocalVisualEffects.current.glowEnabled &&
+            !appUsesDarkTheme(config) && !config.hasAnyWallpaper()
         bandRuns.forEach { (band, runs) ->
             runs.forEach { run ->
                 val physical = if (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl) weekdays.size - run.last - 1 else run.first
+                val bandShape = if (band.inGrid && !band.collapsed) RoundedRectangle(18.dp) else Capsule()
                 GlassSurface(backdrop = backdrop, config = config,
                     modifier = Modifier.offset(x = dayColumnWidth * physical, y = band.top.dp)
                         .width(dayColumnWidth * run.count()).height(band.height.dp)
                         .padding(horizontal = 2.dp, vertical = 3.dp)
                         .weekPageTail(weekTimeSlotTailKey(band.slot.id), tailCardOrder[weekTimeSlotTailKey(band.slot.id)], 0.5f)
-                        .homeSwitchGroup(tailCardOrder[weekTimeSlotTailKey(band.slot.id)]),
-                    shape = if (band.inGrid && !band.collapsed) RoundedRectangle(18.dp) else Capsule(), tokens = timeSlotBandTokens,
+                        .homeSwitchGroup(tailCardOrder[weekTimeSlotTailKey(band.slot.id)])
+                        .then(if (showBandShadow) Modifier.dropShadow(bandShape, LightGlowTimeSlotShadow) else Modifier),
+                    shape = bandShape, tokens = timeSlotBandTokens,
                     domain = GlassBackdropDomain.Content, debugLabel = "WeekTimeSlotBand", onClick = null,
                     nativeMaterial = nativeBands, nativeBlurRadiusScale = 1.4f) {
                     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 2.dp),

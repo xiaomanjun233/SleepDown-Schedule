@@ -67,7 +67,6 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassMaterialRevealProgress
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
 import com.xiaomanjun.sleepdownschedule.glass.decorationOnly
-import com.xiaomanjun.sleepdownschedule.glass.flatControlBorder
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.materialEffectsOnly
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
@@ -189,16 +188,16 @@ fun CourseGlassCard(
         readableAccentColor(courseColor, flatGlowBacking)
     } else courseColor
     fun courseTintAlpha(strength: Float): Float =
-        if (flatGlowBacking != null) 0.24f + 0.12f * strength else strength
+        if (flatGlowBacking != null) 0.27f + 0.09f * strength else strength
     fun tintOnBacking(tint: Color): Color =
         if (flatGlowBacking != null) tint.compositeOver(flatGlowBacking) else tint
 
-    val showFlatGlowOutline = flatLightGlow && renderSurface && nativeEdgeEffects
+    val showFlatGlowOutline = flatGlowBacking != null && renderSurface
     val statusModifier = modifier.then(if (muted || showFlatGlowOutline) Modifier.drawWithCache {
         val outline = shape.createOutline(size, layoutDirection, this)
         val rim = if (showFlatGlowOutline) Path().apply { addOutline(outline) } else null
-        val rimColor = if (flatGlowBacking != null) baseColor.copy(alpha = 0.22f) else flatControlBorder(dark = false)
-        val rimStroke = Stroke(0.8.dp.toPx() * 2f)
+        val rimColor = baseColor.copy(alpha = 0.10f)
+        val rimStroke = Stroke(0.6.dp.toPx() * 2f)
         onDrawWithContent {
             drawContent()
             // The inner half of the stroke traces the same curve as the rendered card.
