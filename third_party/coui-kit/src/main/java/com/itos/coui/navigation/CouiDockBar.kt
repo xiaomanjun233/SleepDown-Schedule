@@ -204,10 +204,6 @@ fun CouiDockBar(
     }
     val shadows = remember(style.shadow, plusStyle.shadow) { listOf(style.shadow, plusStyle.shadow) }
     val shapes = remember(style.shape, plusStyle.shape) { listOf(style.shape, plusStyle.shape) }
-    // Warm the pair once the attachment is visible at its final bounds.
-    val warmupWhen: (() -> Boolean)? = if (plusEnabled && plusVisible) {
-        { rawPlusSlot.value == targetPlusSlot && plusAlpha.value == targetPlusAlpha }
-    } else null
 
     fun menuSurface() = CouiFloatingSurface(
         bounds = Rect(
@@ -244,7 +240,6 @@ fun CouiDockBar(
                 shapes = shapes,
                 contentLayers = contentLayers,
                 contourGlowEnabled = contour,
-                warmupWhen = warmupWhen,
             ) { listOf(menuSurface(), plusSurface()) },
     ) {
         Box(Modifier.size(menuWidth, CouiDockDefaults.barHeight)) {

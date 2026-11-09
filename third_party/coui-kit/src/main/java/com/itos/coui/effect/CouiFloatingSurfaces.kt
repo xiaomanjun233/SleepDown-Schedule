@@ -3,18 +3,10 @@ package com.itos.coui.effect
 import android.graphics.BlendMode
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
-import android.graphics.Shader
-import android.os.Trace
-import android.provider.Settings
 import android.util.DisplayMetrics
-import android.view.View
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.Offset
@@ -28,7 +20,6 @@ import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.CompositingStrategy
@@ -37,7 +28,6 @@ import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.findRootCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -49,10 +39,6 @@ import com.itos.coui.backdrop.CouiBackdrop
 import com.itos.coui.backdrop.CouiSamplingCoordinates
 import com.itos.coui.diagnostic.CouiRenderDiagnostics
 import com.itos.coui.shape.CouiCapsuleShape
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.withTimeoutOrNull
-import java.util.WeakHashMap
 import kotlin.math.ceil
 import kotlin.math.floor
 import kotlin.math.min
@@ -267,7 +253,6 @@ fun Modifier.couiFloatingPair(
     beforeContent: (DrawScope.(Int, Path) -> Unit)? = null,
     drawOrder: List<Int> = listOf(0, 1),
     foregroundComposition: Boolean = false,
-    warmupWhen: (() -> Boolean)? = null,
     shadowAlpha: (() -> Float)? = null,
     surfaces: () -> List<CouiFloatingSurface>,
 ): Modifier {
@@ -277,7 +262,7 @@ fun Modifier.couiFloatingPair(
     require(drawOrder.sorted() == listOf(0, 1))
     return floatingSurfaces(backdrop, renderer, materials, shadows, shapes, contentLayers, contourGlowEnabled,
         foregroundComposition = foregroundComposition,
-        beforeContent = beforeContent, drawOrder = drawOrder, warmupWhen = warmupWhen,
+        beforeContent = beforeContent, drawOrder = drawOrder,
         shadowAlpha = shadowAlpha, surfaces = surfaces)
 }
 
@@ -294,7 +279,6 @@ private fun Modifier.floatingSurfaces(
     foregroundComposition: Boolean = false,
     beforeContent: (DrawScope.(Int, Path) -> Unit)? = null,
     drawOrder: List<Int>? = null,
-    warmupWhen: (() -> Boolean)? = null,
     shadowAlpha: (() -> Float)? = null,
     surfaces: () -> List<CouiFloatingSurface>,
 ): Modifier {
@@ -315,6 +299,10 @@ private fun Modifier.floatingSurfaces(
     val shadowLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
     val causticLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
     val materialLayers = List(renderer.surfaceCount) { rememberGraphicsLayer() }
+    val underlayLayer = if (renderer.surfaceCount == 2) rememberGraphicsLayer().apply {
+        compositingStrategy = CompositingStrategy.Offscreen
+        clip = true
+    } else null
     // Capsule 轮廓只依赖像素尺寸; 每个槽位仅保留当前轮廓, 不积累动画历史。
     val capsuleOutlines = remember(renderer) {
         arrayOfNulls<Pair<Size, Outline>>(renderer.surfaceCount)
@@ -336,102 +324,6 @@ private fun Modifier.floatingSurfaces(
         }
     }
     val samplingCoordinates = remember { CouiSamplingCoordinates() }
-    if (warmupWhen != null) {
-        val warmupLayer = rememberGraphicsLayer()
-        val readbackLayer = rememberGraphicsLayer()
-        val warmupDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
-        val canWarm = rememberUpdatedState(warmupWhen)
-        val currentSurfaces = rememberUpdatedState(surfaces)
-        val currentShadows = rememberUpdatedState(shadows)
-        val warmupKey = FloatingWarmupKey(materials, contourGlowEnabled, foregroundComposition)
-        LaunchedEffect(view, renderer, warmupKey) {
-            // Consult the shell A/B setting only during active tracing.
-            if (Trace.isEnabled() &&
-                Settings.Global.getString(view.context.contentResolver, "sleepdown_coui_skip_warmup") == "1"
-            ) {
-                Trace.beginSection("COUI floating warmup disabled")
-                Trace.endSection()
-                return@LaunchedEffect
-            }
-            withFrameNanos { }
-            delay(220)
-            if (!view.isAttachedToWindow || !view.isHardwareAccelerated) return@LaunchedEffect
-            val warmed = warmedFloatingMaterials.getOrPut(view.rootView) { linkedSetOf() }
-            if (warmupKey in warmed) return@LaunchedEffect
-            val target = withTimeoutOrNull(1200) {
-                snapshotFlow { samplingCoordinates.coordinates?.takeIf { it.isAttached && canWarm.value.invoke() } }
-                    .first { it != null }
-            } ?: return@LaunchedEffect
-            if (warmupKey in warmed) return@LaunchedEffect
-            val nodes = currentSurfaces.value.invoke().map { it.copy(visible = true, alpha = .8f) }
-            val viewport = target.localBoundingBoxOf(target.findRootCoordinates(), false)
-            val shadowsToWarm = currentShadows.value
-            warmupLayer.clip = true
-            warmupLayer.blendMode = if (foregroundComposition) ComposeBlendMode.SrcOver else ComposeBlendMode.Src
-            readbackLayer.clip = true
-            suspend fun render(crop: Rect, effect: (Rect) -> RenderEffect): Boolean {
-                val clipped = crop.intersect(viewport)
-                if (clipped.width <= 0f || clipped.height <= 0f) return false
-                val bounds = Rect(floor(clipped.left), floor(clipped.top), ceil(clipped.right), ceil(clipped.bottom))
-                val patchSize = IntSize(bounds.width.toInt(), bounds.height.toInt())
-                val readbackSize = IntSize(min(96, patchSize.width), min(48, patchSize.height))
-                warmupLayer.renderEffect = effect(bounds).asComposeRenderEffect()
-                warmupLayer.record(recordingDensity, warmupDirection, patchSize) {
-                    translate(-bounds.left, -bounds.top) { backdrop.draw(this, target) }
-                }
-                readbackLayer.record(recordingDensity, warmupDirection, readbackSize) {
-                    translate((readbackSize.width - patchSize.width) * .5f,
-                        (readbackSize.height - patchSize.height) * .5f) { drawLayer(warmupLayer) }
-                }
-                // Keep the real patch dimensions and sample the actual underlay. Only the
-                // readback target is small, so the blur and blend graph matches a live layer.
-                val cookie = System.identityHashCode(readbackLayer)
-                Trace.beginAsyncSection("COUI floating readback", cookie)
-                try {
-                    readbackLayer.toImageBitmap().asAndroidBitmap().recycle()
-                } finally {
-                    Trace.endAsyncSection("COUI floating readback", cookie)
-                }
-                withFrameNanos { }
-                return true
-            }
-            val traceId = System.identityHashCode(warmupLayer)
-            Trace.beginAsyncSection("COUI floating shader warmup", traceId)
-            try {
-                for (index in materials.indices) {
-                    if (!target.isAttached || !canWarm.value.invoke()) return@LaunchedEffect
-                    val material = materials[index]
-                    val prepared = render(nodes[index].materialRect(material.extension)) { bounds ->
-                        floatingMaterialEffect(renderer, material, materialInputs[index], index, materialSlots[index],
-                            nodes, bounds, density, contourGlowEnabled, foregroundComposition)
-                    }
-                    if (!prepared) return@LaunchedEffect
-                }
-                if (contourGlowEnabled) {
-                    if (!target.isAttached || !canWarm.value.invoke()) return@LaunchedEffect
-                    val node = nodes.first()
-                    val shadow = shadowsToWarm.first()
-                    val prepared = render(node.causticBounds(shadow)) { bounds ->
-                        floatingCausticEffect(renderer.causticShaders.first(), node, shadow, bounds,
-                            foregroundComposition, shadowOpacity = 1f)
-                    }
-                    if (!prepared) return@LaunchedEffect
-                }
-                if (warmed.add(warmupKey) && warmed.size > 6) warmed.remove(warmed.first())
-            } catch (failure: RuntimeException) {
-                if (failure is kotlinx.coroutines.CancellationException) throw failure
-                android.util.Log.d("CouiFloating", "Warmup target was unavailable", failure)
-            } finally {
-                // Release the recorded page and patch references while the control remains mounted.
-                if (!readbackLayer.isReleased) readbackLayer.record(recordingDensity, warmupDirection, IntSize(1, 1)) { }
-                if (!warmupLayer.isReleased) {
-                    warmupLayer.renderEffect = null
-                    warmupLayer.record(recordingDensity, warmupDirection, IntSize(1, 1)) { }
-                }
-                Trace.endAsyncSection("COUI floating shader warmup", traceId)
-            }
-        }
-    }
     return onGloballyPositioned(samplingCoordinates::update).drawWithCache {
         CouiRenderDiagnostics.event("floating.material.build")
         val target = samplingCoordinates.coordinates
@@ -569,14 +461,27 @@ private fun Modifier.floatingSurfaces(
                 }
             }
             val drawCommands = commands.toList()
+            // Both bodies and their caustics read the same scene. Rasterize their union once
+            // instead of replaying the timetable or top-bar blur for every material patch.
+            val sharedUnderlay = underlayLayer?.takeIf { patches.size > 1 }
+            val sampleBounds = sharedUnderlay?.let {
+                Rect(patches.minOf { it.bounds.left }, patches.minOf { it.bounds.top },
+                    patches.maxOf { it.bounds.right }, patches.maxOf { it.bounds.bottom })
+            }
             onDrawWithContent {
                 // 子项只录制透明前景; 真实输出遵守 shadow/caustic -> material/content 的 Z 分组顺序。
                 drawContent()
                 trace("COUI floating.recordSamples") {
+                    if (sharedUnderlay != null && sampleBounds != null) {
+                        sharedUnderlay.topLeft = IntOffset(sampleBounds.left.toInt(), sampleBounds.top.toInt())
+                        sharedUnderlay.record(size = IntSize(sampleBounds.width.toInt(), sampleBounds.height.toInt())) {
+                            translate(-sampleBounds.left, -sampleBounds.top) { backdrop.draw(this, target) }
+                        }
+                    }
                     patches.forEach { patch ->
                         patch.layer.record(size = IntSize(patch.bounds.width.toInt(), patch.bounds.height.toInt())) {
                             translate(-patch.bounds.left, -patch.bounds.top) {
-                                backdrop.draw(this, target)
+                                if (sharedUnderlay != null) drawLayer(sharedUnderlay) else backdrop.draw(this, target)
                                 patch.prefix.forEach { drawLayer(it) }
                             }
                         }
@@ -595,15 +500,6 @@ private fun Modifier.floatingSurfaces(
         }
     }
 }
-
-private data class FloatingWarmupKey(
-    val materials: List<CouiFloatingMaterial>,
-    val contour: Boolean,
-    val foreground: Boolean,
-)
-
-// Accessed on the composition's UI thread. A remounted dock shares the same window's GPU cache.
-private val warmedFloatingMaterials = WeakHashMap<View, MutableSet<FloatingWarmupKey>>()
 
 private data class FloatingPatch(val layer: GraphicsLayer, val bounds: Rect, val prefix: List<GraphicsLayer>)
 

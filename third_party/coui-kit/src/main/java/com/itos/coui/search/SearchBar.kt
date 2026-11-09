@@ -210,7 +210,6 @@ fun SearchBar(
         drawOrder = listOf(1, 0),
         // 双胶囊只叠前景，不以整块 Src 回填擦掉下方渐进背景或兄弟投影。
         foregroundComposition = true,
-        warmupWhen = { enabled && !state.active },
         shadowAlpha = {
             val retainedShadow = if (state.active) normalShadow else shadowProgress
             val keepScrollShadow = if (state.active) retainedShadow >= 1f || (state.expanded && retainedShadow > .5f)
