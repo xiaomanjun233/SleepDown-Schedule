@@ -243,9 +243,12 @@ fun SegmentedControl(
                             session.begin(current.value)
                             val downPosition = down.position + Offset(padding, 0f)
                             val indicator = motion.rect(geometry, indicatorPress.scale.value).inflate(10f)
-                            val dragging = geometry.hit(downPosition.x) == current.value || indicator.contains(downPosition)
-                            if (dragging) indicatorPress.press(IntSize(motion.indicatorWidth.roundToInt(), geometry.indicatorHeight.roundToInt()))
-                            var pressedLabel = geometry.hit(downPosition.x)
+                            val startTab = geometry.hit(downPosition.x)
+                            var dragging = startTab == current.value || indicator.contains(downPosition)
+                            var horizontalDrag = false
+                            val indicatorSize = IntSize(motion.indicatorWidth.roundToInt(), geometry.indicatorHeight.roundToInt())
+                            if (dragging) indicatorPress.press(indicatorSize)
+                            var pressedLabel = startTab
                             pressedLabel?.let { labelPresses[it].press(IntSize(geometry.widths[it].roundToInt(), geometry.indicatorHeight.roundToInt())) }
                             var rubberOrigin = down.position.x
                             motion.resetRubberOrigin = false
@@ -257,12 +260,27 @@ fun SegmentedControl(
                                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                     if (!coordinates.isAttached) break
                                     val delta = change.position - down.position
-                                    if (change.isConsumed || (abs(delta.y) > viewConfiguration.touchSlop && abs(delta.y) > abs(delta.x))) break
+                                    val slop = viewConfiguration.touchSlop
+                                    if (change.isConsumed ||
+                                        (!horizontalDrag && abs(delta.y) > slop && abs(delta.y) > abs(delta.x))
+                                    ) break
+                                    if (commitOnRelease && !horizontalDrag && startTab != null && abs(delta.x) > slop) {
+                                        // Navigation previews a drag from any tab before committing on UP.
+                                        horizontalDrag = true
+                                        if (!dragging) indicatorPress.press(indicatorSize)
+                                        dragging = true
+                                    }
                                     val windowPosition = coordinates.localToWindow(change.position)
                                     change.historical.forEach { tracker.addPosition(it.uptimeMillis, coordinates.localToWindow(it.position)) }
                                     tracker.addPosition(change.uptimeMillis, windowPosition)
                                     if (change.pressed && containerSurfaceEnabled) touch.move(windowPosition)
-                                    val target = geometry.hit(change.position.x + padding)
+                                    val x = change.position.x + padding
+                                    val nearRail = change.position.y in -slop..(size.height + slop)
+                                    val target = if (horizontalDrag && !nearRail) null else {
+                                        geometry.hit(x) ?: if (horizontalDrag) {
+                                            if ((x < geometry.width / 2f) != rtl) 0 else labels.lastIndex
+                                        } else null
+                                    }
                                     if (dragging && change.pressed) {
                                         if (target != null && target != session.preview) {
                                             session.select(target, commitOnRelease) { submit.value(it) }
@@ -273,7 +291,7 @@ fun SegmentedControl(
                                                 session.preview == 0 || session.preview == labels.lastIndex,
                                                 CouiSegmentedControlDefaults.switchDistance.toPx())
                                         }
-                                        if (abs(delta.x) > viewConfiguration.touchSlop) change.consume()
+                                        if (abs(delta.x) > slop) change.consume()
                                     }
                                     if (target != pressedLabel) {
                                         pressedLabel?.let { labelPresses[it].release() }

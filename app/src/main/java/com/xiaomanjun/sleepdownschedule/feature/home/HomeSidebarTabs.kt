@@ -24,8 +24,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -33,6 +40,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -55,6 +63,9 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfa
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSegmentRequest
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Sidebar
+
+private val HomeSidebarTabShape = RoundedRectangle(24.dp)
+private val HomeSidebarTabShadow = Shadow(radius = 9.dp, color = Color(0x33000000), offset = DpOffset(0.dp, 3.dp))
 
 /** Compact HD navigation shares the sidebar's destinations and keeps its 48 dp frame. */
 @Composable
@@ -108,6 +119,9 @@ internal fun HomeSidebarTabBar(
                         lightAccentColor = HomeLightGlassSelectedAccentColor,
                         useOfficialGlassParameters = true,
                         containerSurfaceEnabled = !moving && !LocalNativeMaterialSurfaceActive.current,
+                        containerShadowEnabled = false,
+                        swipeFromAnyTab = true,
+                        tabInteractionEnabled = enabled,
                         leadingWidth = 52.dp,
                         leadingContent = {
                             // Reserve space only. The toggle owns a later, independent input layer.
@@ -136,14 +150,30 @@ internal fun HomeSidebarTabBar(
     }
     // One full capsule owns the light and touch transform, including the leading button.
     // The inset native rail retains its selection springs without drawing a second shell.
-    val nativeSurface = if (segmentRenderer != null) LocalNativeMaterialSurfaceRenderer.current?.invoke(
-        NativeMaterialSurfaceRequest(
-            modifier = modifier.height(48.dp), shape = RoundedRectangle(24.dp),
-            dark = !lightGlass, role = NativeMaterialSurfaceRole.HomeNavigation,
-            renderSurface = !moving, elasticTouchFeedback = true, backdrop = backdrop
-        ), tabContent
-    ) == true else false
-    if (!nativeSurface) Box(modifier.height(48.dp)) { tabContent() }
+    Box(modifier.height(48.dp)) {
+        if (lightGlass && !moving) {
+            Spacer(
+                Modifier.matchParentSize()
+                    .drawWithCache {
+                        val outline = HomeSidebarTabShape.createOutline(size, layoutDirection, this)
+                        val capsule = Path().apply { addOutline(outline) }
+                        // A translucent capsule should keep its original fill inside the outline.
+                        onDrawWithContent {
+                            clipPath(capsule, ClipOp.Difference) { this@onDrawWithContent.drawContent() }
+                        }
+                    }
+                    .dropShadow(HomeSidebarTabShape, HomeSidebarTabShadow)
+            )
+        }
+        val nativeSurface = segmentRenderer != null && LocalNativeMaterialSurfaceRenderer.current?.invoke(
+            NativeMaterialSurfaceRequest(
+                modifier = Modifier.fillMaxWidth().height(48.dp), shape = HomeSidebarTabShape,
+                dark = !lightGlass, role = NativeMaterialSurfaceRole.HomeNavigation,
+                renderSurface = !moving, elasticTouchFeedback = true, backdrop = backdrop
+            ), tabContent
+        ) == true
+        if (!nativeSurface) tabContent()
+    }
 }
 
 @Composable
