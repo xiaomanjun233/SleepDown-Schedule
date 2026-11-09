@@ -44,10 +44,10 @@ class SharedBlurBackdrop(
     val source: LayerBackdrop,
     radiusPx: Float,
     vibrant: Boolean,
-    internal val filter: ((Float) -> RenderEffect)? = null,
 ) : Backdrop {
     var radiusPx: Float by mutableFloatStateOf(radiusPx)
     var vibrant: Boolean by mutableStateOf(vibrant)
+    var filter: RenderEffect? by mutableStateOf(null)
     internal var layer: GraphicsLayer? by mutableStateOf(null)
     internal var contentRevision: Int by mutableIntStateOf(0)
     val ready: Boolean get() = layer != null && source.layerCoordinates?.isAttached == true
@@ -87,10 +87,12 @@ private class RecorderNode(var backdrop: SharedBlurBackdrop, var sourceKey: () -
     private val effects = object : BackdropEffectScopeImpl() { override val shape = RectangleShape }
     private var lastRadius = Float.NaN
     private var lastVibrant: Boolean? = null
+    private var lastFilter: RenderEffect? = null
 
     fun resetEffectTracking() {
         lastRadius = Float.NaN
         lastVibrant = null
+        lastFilter = null
         effects.reset()
     }
 
@@ -104,9 +106,11 @@ private class RecorderNode(var backdrop: SharedBlurBackdrop, var sourceKey: () -
         val key = sourceKey()?.let { it to backdrop.source.contentVersion }
         val sourceDirty = cache.needsRecord(key, dimensions, density, fontScale, layoutDirection)
         val geometryDirty = effects.update(this)
-        val effectDirty = geometryDirty || lastRadius != backdrop.radiusPx || lastVibrant != backdrop.vibrant
+        val filter = backdrop.filter
+        val effectDirty = geometryDirty || lastRadius != backdrop.radiusPx ||
+            lastVibrant != backdrop.vibrant || lastFilter !== filter
         if (effectDirty) {
-            filtered.renderEffect = backdrop.filter?.invoke(backdrop.radiusPx) ?: run {
+            filtered.renderEffect = filter ?: run {
                 effects.apply {
                     if (backdrop.vibrant) vibrancy()
                     blur(backdrop.radiusPx)
@@ -115,6 +119,7 @@ private class RecorderNode(var backdrop: SharedBlurBackdrop, var sourceKey: () -
             }
             lastRadius = backdrop.radiusPx
             lastVibrant = backdrop.vibrant
+            lastFilter = filter
         }
         if (sourceDirty) {
             filtered.record(dimensions) { drawLayer(backdrop.source.graphicsLayer) }

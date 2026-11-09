@@ -64,7 +64,7 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassMaterialRevealProgress
 import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
-import com.xiaomanjun.sleepdownschedule.glass.LocalSharedCouiCourseBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.decorationOnly
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.materialEffectsOnly
@@ -264,9 +264,12 @@ fun CourseGlassCard(
             flatBackground = pageBackground.takeUnless { hasWallpaper },
             ready = true, cardBounds = cardBounds,
             flatAccentTintAlpha = alpha.takeIf { readableFlatInk })
-        val preparedBackdrop = LocalSharedCouiCourseBackdrop.current?.takeIf {
+        val preparedBackdrop = LocalSharedCourseBackdrop.current?.takeIf {
+            val filtered = it.filtered
+            filtered.filter != null &&
             wallpaperCardGradient && nativeBlurRadius == null && morphAllocation == null &&
-                surfaceBackdrop == null && it.source === backdrop && it.radiusPx == nativeMode.blurRadiusPx && it.ready
+                surfaceBackdrop == null && filtered.source === backdrop &&
+                filtered.radiusPx == nativeMode.blurRadiusPx && filtered.ready
         }
         val renderer = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardRenderer.current
         if (renderer?.invoke(com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCourseCardRequest(
@@ -380,9 +383,9 @@ fun CourseGlassCard(
         sceneKey = "course-card-simple-blur"
     )
     val backdropViewport = com.xiaomanjun.sleepdownschedule.glass.LocalCourseBackdropViewport.current
-    val sharedWallpaper = com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop.current
+    val sharedWallpaper = LocalSharedCourseBackdrop.current?.filtered
     val requiredBlurPx = with(androidx.compose.ui.platform.LocalDensity.current) { (liquidEffectFrame.blur ?: 0.dp).toPx() }
-    val sharedWallpaperCompatible = sharedWallpaper != null &&
+    val sharedWallpaperCompatible = sharedWallpaper != null && sharedWallpaper.filter == null &&
         sharedWallpaper.source === glassBackdrop && sharedWallpaper.radiusPx == requiredBlurPx &&
         sharedWallpaper.vibrant == liquidEffectFrame.useVibrancy && morphAllocation == null
     val useSharedWallpaper = sharedWallpaperCompatible && sharedWallpaper.ready

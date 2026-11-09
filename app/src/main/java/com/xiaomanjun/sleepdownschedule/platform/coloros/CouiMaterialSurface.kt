@@ -40,6 +40,8 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCa
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
+import com.xiaomanjun.sleepdownschedule.glass.CourseWallpaperSampling
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey
 import com.xiaomanjun.sleepdownschedule.glass.drawPreparedCourseBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -159,6 +161,8 @@ internal fun CouiMaterialSurface(
     val causticTint = request.causticTint
     val flatBacking = request.flatBackdropColor
     val preparedBackdrop = request.preparedBackdrop
+    val wallpaperSampling = preparedBackdrop as? CourseWallpaperSampling
+    val samplingKey = LocalGlassSampleRecordKey.current
     val editorEffects = if (course && request.blurRadius != null) remember {
         linkedMapOf<com.itos.coui.effect.CouiFloatingMaterial, androidx.compose.ui.graphics.RenderEffect>()
     } else null
@@ -172,13 +176,15 @@ internal fun CouiMaterialSurface(
         val cornerRadius: (Size) -> Float? = { size -> colorOsMaterialCorners(shape(), size, density, direction)?.radius }
         if (flatBacking != null) {
             Modifier.drawCouiCaustic(flatBacking, cornerRadius, projection)
+        } else if (wallpaperSampling?.hasStaticBitmap == true) {
+            Modifier.drawCouiCaustic(wallpaperSampling::bitmapSource, samplingKey, cornerRadius, projection)
         } else {
             Modifier.drawCouiCaustic(backdrop, cornerRadius, projection,
                 sampleScale = if (preparedBackdrop != null) 0.5f else 1f)
         }
     } else Modifier
     val background = if (preparedBackdrop != null && request.renderSurface && request.materialVisible) {
-        Modifier.drawPreparedCourseBackdrop(preparedBackdrop)
+        Modifier.drawPreparedCourseBackdrop(preparedBackdrop, samplingKey)
     } else if (backdrop != null && request.blurRadiusScale > 0f) {
         val tintScale = if (request.role == NativeMaterialSurfaceRole.Form) 0f else request.tintAlphaScale
         val sampleScale = request.backdropSampleScale

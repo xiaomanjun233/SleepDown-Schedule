@@ -44,6 +44,9 @@ class LayerBackdrop internal constructor(
 
     internal var contentVersion: Int by mutableIntStateOf(0)
 
+    /** The coordinates of the recorded pixels, before the consumer's local transform. */
+    val sourceCoordinates: LayoutCoordinates? get() = layerCoordinates?.takeIf { it.isAttached }
+
     private var inverseLayerScope: InverseLayerScope? = null
 
     override fun DrawScope.drawBackdrop(

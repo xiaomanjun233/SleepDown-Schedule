@@ -33,13 +33,18 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.get
 import com.xiaomanjun.sleepdownschedule.DefaultWallpaperStyle
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.performance.HomeWallpaperImages
 import com.xiaomanjun.sleepdownschedule.core.performance.StartupPhase
-import com.xiaomanjun.sleepdownschedule.core.wallpaper.FocusCroppedWallpaper
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.FocusCroppedBitmap
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperCropState
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPixels
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.wallpaperCropState
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.wallpaperOrientation
 import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizationPreviewState
 import kotlinx.coroutines.delay
 
@@ -50,7 +55,7 @@ internal fun HomeWallpaper(
     phase: StartupPhase,
     reduceQuality: Boolean = false,
     previewState: PersonalizationPreviewState? = null,
-    onRecordKeyChanged: ((Any?) -> Unit)? = null
+    onRecordKeyChanged: ((WallpaperPixels?) -> Unit)? = null
 ) {
     val targetBitmap = images.source
     val targetBlurredBitmap = images.blurredSource
@@ -70,11 +75,18 @@ internal fun HomeWallpaper(
     // The producer may reuse only a settled image. In particular, a target image's identity
     // alone is insufficient during the 140 ms crossfade or before LaunchedEffect hands it off.
     val previewBlur = previewState?.wallpaperBlur
+    val useSavedCrop = !config.wallpaperUri.isNullOrBlank()
+    val window = LocalWindowInfo.current.containerSize
+    val crop = if (useSavedCrop) config.wallpaperCropState(wallpaperOrientation(window.width, window.height))
+        else WallpaperCropState()
+    val bitmap = visibleBitmap?.let {
+        wallpaperBitmapForRender(it, visibleReducedBitmap, visibleBlurredBitmap, reduceQuality, previewBlur != null)
+    }
     val recordKey = if (
         previousBitmap == null && crossfadeAlpha == 1f &&
-        visibleBitmap != null && visibleBitmap == targetBitmap &&
+        bitmap != null && visibleBitmap == targetBitmap &&
         visibleBlurredBitmap == targetBlurredBitmap && visibleReducedBitmap == targetReducedBitmap
-    ) listOf(visibleBitmap, visibleBlurredBitmap, visibleReducedBitmap, config, reduceQuality, previewBlur)
+    ) WallpaperPixels(bitmap, crop, previewBlur)
     else null
     SideEffect { onRecordKeyChanged?.invoke(recordKey) }
     DisposableEffect(onRecordKeyChanged) {
@@ -109,77 +121,14 @@ internal fun HomeWallpaper(
             previousReducedBitmap = null
         }
     }
-    val uri = config.wallpaperUri
-    if (!uri.isNullOrBlank()) {
-        val bitmap = visibleBitmap ?: return
-        bitmap.let {
-            Box(modifier = Modifier.fillMaxSize()) {
-                previousBitmap?.let { old ->
-                    HomeWallpaperLayer(
-                        bitmap = wallpaperBitmapForRender(
-                            source = old,
-                            reduced = previousReducedBitmap,
-                            blurred = previousBlurredBitmap,
-                            reduceQuality = reduceQuality,
-                            transientBlurActive = previewState?.wallpaperBlur != null
-                        ),
-                        config = config,
-                        alpha = 1f - crossfadeAlpha,
-                        useSavedCrop = true,
-                        previewBlurDp = previewState?.wallpaperBlur
-                    )
-                }
-                HomeWallpaperLayer(
-                    bitmap = wallpaperBitmapForRender(
-                        source = it,
-                        reduced = visibleReducedBitmap,
-                        blurred = visibleBlurredBitmap,
-                        reduceQuality = reduceQuality,
-                        transientBlurActive = previewState?.wallpaperBlur != null
-                    ),
-                    config = config,
-                    alpha = crossfadeAlpha,
-                    useSavedCrop = true,
-                    previewBlurDp = previewState?.wallpaperBlur
-                )
-            }
+    if (bitmap == null || (!useSavedCrop && config.defaultWallpaperStyle != DefaultWallpaperStyle.KANBAN)) return
+    Box(Modifier.fillMaxSize()) {
+        previousBitmap?.let { old ->
+            val previous = wallpaperBitmapForRender(old, previousReducedBitmap, previousBlurredBitmap,
+                reduceQuality, previewBlur != null)
+            HomeWallpaperLayer(previous, crop, 1f - crossfadeAlpha, previewBlur)
         }
-        return
-    }
-    if (config.defaultWallpaperStyle == DefaultWallpaperStyle.KANBAN) {
-        visibleBitmap?.let {
-            Box(modifier = Modifier.fillMaxSize()) {
-                previousBitmap?.let { old ->
-                    HomeWallpaperLayer(
-                        bitmap = wallpaperBitmapForRender(
-                            source = old,
-                            reduced = previousReducedBitmap,
-                            blurred = previousBlurredBitmap,
-                            reduceQuality = reduceQuality,
-                            transientBlurActive = previewState?.wallpaperBlur != null
-                        ),
-                        config = config,
-                        alpha = 1f - crossfadeAlpha,
-                        useSavedCrop = false,
-                        previewBlurDp = previewState?.wallpaperBlur
-                    )
-                }
-                HomeWallpaperLayer(
-                    bitmap = wallpaperBitmapForRender(
-                        source = it,
-                        reduced = visibleReducedBitmap,
-                        blurred = visibleBlurredBitmap,
-                        reduceQuality = reduceQuality,
-                        transientBlurActive = previewState?.wallpaperBlur != null
-                    ),
-                    config = config,
-                    alpha = crossfadeAlpha,
-                    useSavedCrop = false,
-                    previewBlurDp = previewState?.wallpaperBlur
-                )
-            }
-        }
-        return
+        HomeWallpaperLayer(bitmap, crop, crossfadeAlpha, previewBlur)
     }
 }
 
@@ -201,9 +150,8 @@ private fun wallpaperBitmapForRender(
 @Composable
 private fun HomeWallpaperLayer(
     bitmap: Bitmap,
-    config: ScheduleConfigEntity,
+    crop: WallpaperCropState,
     alpha: Float,
-    useSavedCrop: Boolean,
     previewBlurDp: Float?
 ) {
     val density = LocalDensity.current
@@ -211,16 +159,14 @@ private fun HomeWallpaperLayer(
     val previewBlurEffect = remember(previewBlurPx) {
         if (previewBlurPx > 0.1f) BlurEffect(previewBlurPx, previewBlurPx, TileMode.Decal) else null
     }
-    FocusCroppedWallpaper(
+    val modifier = Modifier.fillMaxSize()
+    FocusCroppedBitmap(
         bitmap = bitmap,
-        config = config,
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer {
-                this.alpha = alpha
-                renderEffect = previewBlurEffect
-            },
-        useSavedCrop = useSavedCrop
+        cropState = crop,
+        modifier = if (alpha == 1f && previewBlurEffect == null) modifier else modifier.graphicsLayer {
+            this.alpha = alpha
+            renderEffect = previewBlurEffect
+        }
     )
 }
 

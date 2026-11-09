@@ -266,6 +266,8 @@ import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeWallpaper
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.LocalHomeReadability
 import com.xiaomanjun.sleepdownschedule.feature.home.day.WallpaperGlassSamplingToneOverlay
 import com.xiaomanjun.sleepdownschedule.feature.home.day.WallpaperToneOverlay
+import com.xiaomanjun.sleepdownschedule.feature.home.day.wallpaperGlassSamplingDim
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPixels
 import com.xiaomanjun.sleepdownschedule.feature.home.day.courseWeeksChanged
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
@@ -359,13 +361,13 @@ import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateDialogHost
 import com.xiaomanjun.sleepdownschedule.feature.update.AutomaticAppUpdateCheck
 import com.xiaomanjun.sleepdownschedule.feature.update.rememberAppUpdateSession
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.CourseWallpaperSampling
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackendPolicy
 import com.xiaomanjun.sleepdownschedule.glass.GlassRenderPhase
 import com.xiaomanjun.sleepdownschedule.glass.GlassSamplingLink
 import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNode
 import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNodeRole
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
-import com.xiaomanjun.sleepdownschedule.glass.LocalSharedCouiCourseBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.dockPageSource
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -373,7 +375,6 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberDockPageBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSceneState
-import com.xiaomanjun.sleepdownschedule.glass.retainGlassSources
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalCourseCardColorAssignments
@@ -1067,8 +1068,8 @@ fun CourseScheduleAppUi(
     AutomaticAppUpdateCheck(automaticUpdates, state.loaded, state.config.autoCheckUpdates)
     val wallpaperImages by rememberHomeWallpaperImages(visualState.config)
     val colorOsOverflowActions = remember { mutableStateOf<List<AddMenuAction>>(emptyList()) }
-    val homeWallpaperRecordKey = remember { mutableStateOf<Any?>(null) }
-    val updateHomeWallpaperRecordKey: (Any?) -> Unit = remember {
+    val homeWallpaperRecordKey = remember { mutableStateOf<WallpaperPixels?>(null) }
+    val updateHomeWallpaperRecordKey: (WallpaperPixels?) -> Unit = remember {
         { homeWallpaperRecordKey.value = it }
     }
     val homeReadabilityContext = remember(
@@ -1981,31 +1982,41 @@ fun CourseScheduleAppUi(
     val kitCourseMaterials = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls &&
         AppMaterialPreferences.policy.denseMaterials
     val couiCourseMode = LocalNativeCourseCardMode.current
-    val sharedCourseBackdrop = when {
-        kitCourseMaterials && Build.VERSION.SDK_INT >= 34 && visualState.config.hasAnyWallpaper() &&
-            couiCourseMode?.enabled == true -> {
-            val radius = couiCourseMode.blurRadiusPx
-            val dark = appUsesDarkTheme(visualState.config)
-            remember(courseWallpaperBackdrop, dark) {
-                SharedBlurBackdrop(courseWallpaperBackdrop, radius, vibrant = false,
-                    filter = { couiCourseBackdropEffect(dark, it) })
-            }.apply { radiusPx = radius }
-        }
-        !kitCourseMaterials && courseMaterialsEnabled && visualState.config.courseCardGlassEnabled -> {
-            remember(courseWallpaperBackdrop) {
-                SharedBlurBackdrop(courseWallpaperBackdrop, sharedCourseRadiusPx, sharedCourseFrame.useVibrancy)
-            }.apply {
-                radiusPx = sharedCourseRadiusPx
-                vibrant = sharedCourseFrame.useVibrancy
-            }
-        }
-        else -> null
-    }
+    val glowCourseRadius = couiCourseMode?.takeIf { kitCourseMaterials && it.enabled }?.blurRadiusPx
+    val wallpaperReady = visualState.config.hasAnyWallpaper() && wallpaperImages.source != null
+    val glowCourseFilter = if (Build.VERSION.SDK_INT >= 34 && wallpaperReady && glowCourseRadius != null) {
+        remember(glowCourseRadius, appDarkTheme) { couiCourseBackdropEffect(appDarkTheme, glowCourseRadius) }
+    } else null
+    val liquidCourseFilter = !kitCourseMaterials && courseMaterialsEnabled && visualState.config.courseCardGlassEnabled
     // Retained timetable cards must retain their material source as well. Removing this on
     // Settings used to replace every card's sampler and allocate it again on the return frame.
-    val sharedCourseBackdropExpected = sharedCourseBackdrop != null && visualState.config.hasAnyWallpaper() &&
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    val useSharedCourseBackdrop = sharedCourseBackdropExpected && wallpaperImages.source != null
+    val sharedCourseBackdrop = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        wallpaperReady &&
+        (glowCourseFilter != null || liquidCourseFilter)
+    ) {
+        val radius = glowCourseRadius ?: sharedCourseRadiusPx
+        val vibrant = liquidCourseFilter && sharedCourseFrame.useVibrancy
+        remember(courseWallpaperBackdrop) { SharedBlurBackdrop(courseWallpaperBackdrop, radius, vibrant) }.apply {
+            radiusPx = radius
+            this.vibrant = vibrant
+            filter = glowCourseFilter
+        }
+    } else null
+    val wallpaperBrightness = rememberUpdatedState(visualState.config.wallpaperBrightness)
+    val courseWallpaperSampling = remember(sharedCourseBackdrop, personalizationPreviewState) {
+        sharedCourseBackdrop?.let { filtered ->
+            CourseWallpaperSampling(filtered, homeWallpaperRecordKey) {
+                wallpaperGlassSamplingDim(personalizationPreviewState.wallpaperBrightness ?: wallpaperBrightness.value)
+            }
+        }
+    }
+    val courseWallpaperRecordKey = remember(personalizationPreviewState) {
+        {
+            homeWallpaperRecordKey.value?.let { pixels ->
+                pixels to (personalizationPreviewState.wallpaperBrightness ?: wallpaperBrightness.value)
+            }
+        }
+    }
     lateinit var handleHomeAgentAction: AgentActionHandler
     handleHomeAgentAction = {
         plan: AgentPlan,
@@ -2148,8 +2159,7 @@ fun CourseScheduleAppUi(
         LocalCourseShortcuts provides courseShortcuts,
         LocalCourseCopy provides courseCopy,
         LocalCourseRemoval provides courseRemoval,
-        LocalSharedCourseBackdrop provides sharedCourseBackdrop.takeIf { sharedCourseBackdropExpected && !kitCourseMaterials },
-        LocalSharedCouiCourseBackdrop provides sharedCourseBackdrop.takeIf { sharedCourseBackdropExpected && kitCourseMaterials },
+        LocalSharedCourseBackdrop provides courseWallpaperSampling,
         com.xiaomanjun.sleepdownschedule.glass.LocalCourseBackdropViewport provides courseBackdropViewport,
         LocalSharedTransitionScope provides activeSharedTransitionScope,
         LocalEditingCourseId provides editingCourseId,
@@ -2854,12 +2864,8 @@ fun CourseScheduleAppUi(
                         Box(Modifier.fillMaxSize()
                             .drawWithContent { if (rootPageMotion.retains(false)) drawContent() }
                             .homeSwitchLayer(rootPageMotion, secondary = false, pageClip = HomeSwitchClip.Page)
-                            .glassBackdropProducer(courseWallpaperBackdrop, enabled = courseMaterialsEnabled || kitCourseMaterials, recordKey = {
-                                homeWallpaperRecordKey.value?.let { imageKey ->
-                                    imageKey to (personalizationPreviewState.wallpaperBrightness
-                                        ?: visualState.config.wallpaperBrightness)
-                                }
-                            })) {
+                            .glassBackdropProducer(courseWallpaperBackdrop, recordKey = courseWallpaperRecordKey,
+                                enabled = courseMaterialsEnabled || kitCourseMaterials)) {
                         if (!visualState.loaded) {
                             HomeBackdropFallback(
                                 noWallpaper = !visualState.config.hasAnyWallpaper()
@@ -2909,18 +2915,11 @@ fun CourseScheduleAppUi(
                         WallpaperToneOverlay(visualState.config, personalizationPreviewState)
                     }
                 }
-                if (useSharedCourseBackdrop) {
-                    if (kitCourseMaterials) retainGlassSources(courseWallpaperBackdrop)
+                if (sharedCourseBackdrop != null) {
                     Box(Modifier.fillMaxSize()
                         .drawWithContent { if (rootPageMotion.retains(false)) drawContent() }
-                        .then(requireNotNull(sharedCourseBackdrop).preRenderModifier {
-                        // This source is inside the page transform: neither translation nor
-                        // page corners change its pixels. Each card still samples its live offset.
-                        homeWallpaperRecordKey.value?.let { imageKey ->
-                            imageKey to (personalizationPreviewState.wallpaperBrightness
-                                ?: visualState.config.wallpaperBrightness)
-                        }
-                    }))
+                        // Pixel content is independent of the page transform. Cards read their live offset.
+                        .then(sharedCourseBackdrop.preRenderModifier(courseWallpaperRecordKey)))
                 }
                 Box(Modifier.fillMaxSize()
                     .onGloballyPositioned { courseBackdropViewport.update(it.boundsInWindow()) }

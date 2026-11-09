@@ -1,7 +1,7 @@
 package com.itos.coui.effect
 
 // OplusCausticShadowEffectImpl::emitCode 的 SDR 分支; 输入是该次投影前的 destination。
-internal const val CouiCausticShader = """#version 300
+private const val CouiCausticGeometry = """#version 300
 uniform shader u_originShader;
 uniform float u_commonArray[12];
 uniform float u_pyrolysisArray[14];
@@ -65,8 +65,9 @@ float channelCoverage(float base, float result) {
     if (result < base) return (base - result) / base;
     return 0.0;
 }
-half4 main(float2 position) {
-    half4 destination = u_originShader.eval(position);
+"""
+
+private const val CouiCausticComposite = """
     half4 result = caustic(position, destination);
     if (u_foregroundComposition == 0) return result;
     // 在不透明 SDR 背景上重建原结果, 无光处输出透明, 避免矩形回填擦掉兄弟投影。
@@ -79,3 +80,12 @@ half4 main(float2 position) {
     return half4(clamp(color - base * (1.0 - alpha), 0.0, alpha), alpha);
 }
 """
+
+internal const val CouiCausticShader = CouiCausticGeometry + """half4 main(float2 position) {
+    half4 destination = u_originShader.eval(position);""" + CouiCausticComposite
+
+internal const val CouiBitmapCausticShader = CouiCausticGeometry + """uniform float u_originDim;
+half4 main(float2 position) {
+    half4 destination = u_originShader.eval(position);
+    destination.rgb *= 1.0 - u_originDim;
+    destination.a = mix(destination.a, 1.0, u_originDim);""" + CouiCausticComposite

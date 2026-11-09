@@ -1,22 +1,31 @@
 package com.itos.coui.effect
 
+import android.graphics.Bitmap
+import android.graphics.BitmapShader
 import android.graphics.LinearGradient
+import android.graphics.Matrix as AndroidMatrix
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.RenderEffect as ComposeRenderEffect
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import com.itos.coui.backdrop.CouiBackdrop
+import com.itos.coui.backdrop.CouiSamplingCoordinates
 import com.itos.coui.backdrop.drawCouiBackdrop
 import kotlin.math.ceil
 
@@ -64,8 +73,75 @@ fun Modifier.drawCouiCaustic(
     }
 }
 
+/** A bitmap already used by the page, with its measured crop in producer coordinates. */
+data class CouiCausticBitmapSource(
+    val bitmap: Bitmap,
+    val coordinates: LayoutCoordinates,
+    val crop: Rect,
+    val dim: Float,
+)
+
 @RequiresApi(34)
-private class CouiCausticEffect(shadow: CouiFloatingShadow, private val scale: Float) {
+@Composable
+fun Modifier.drawCouiCaustic(
+    sample: () -> CouiCausticBitmapSource?,
+    redraw: () -> Any?,
+    cornerRadius: (Size) -> Float?,
+    shadow: CouiFloatingShadow,
+): Modifier {
+    val coordinates = remember { CouiSamplingCoordinates() }
+    val latestSample = rememberUpdatedState(sample)
+    val latestRedraw = rememberUpdatedState(redraw)
+    val effect = remember(shadow) { CouiCausticEffect(shadow, 1f, CouiBitmapCausticShader) }
+    return onGloballyPositioned(coordinates::update).drawWithCache {
+        val radius = cornerRadius(size) ?: return@drawWithCache onDrawBehind {}
+        val shader = effect.shaderForBounds(size, radius)
+        val brush = ShaderBrush(shader)
+        val padding = effect.padding
+        val bounds = Size(size.width + 2 * padding, size.height + 2 * padding)
+        val sourceToCard = Matrix()
+        val textureToDraw = AndroidMatrix()
+        val values = FloatArray(9)
+        var bitmap: Bitmap? = null
+        var input: BitmapShader? = null
+        onDrawBehind {
+            latestRedraw.value()
+            val target = coordinates.coordinates?.takeIf { it.isAttached } ?: return@onDrawBehind
+            val source = latestSample.value() ?: return@onDrawBehind
+            if (bitmap !== source.bitmap) {
+                bitmap = source.bitmap
+                input = BitmapShader(source.bitmap, Shader.TileMode.DECAL, Shader.TileMode.DECAL).apply {
+                    setFilterMode(BitmapShader.FILTER_MODE_LINEAR)
+                }
+            }
+            val wallpaper = checkNotNull(input)
+            sourceToCard.reset()
+            target.transformFrom(source.coordinates, sourceToCard)
+            val origin = sourceToCard.map(source.crop.topLeft)
+            val scaleX = source.crop.width / source.bitmap.width
+            val scaleY = source.crop.height / source.bitmap.height
+            values[0] = sourceToCard[0, 0] * scaleX
+            values[1] = sourceToCard[1, 0] * scaleY
+            values[2] = origin.x + padding
+            values[3] = sourceToCard[0, 1] * scaleX
+            values[4] = sourceToCard[1, 1] * scaleY
+            values[5] = origin.y + padding
+            values[8] = 1f
+            textureToDraw.setValues(values)
+            wallpaper.setLocalMatrix(textureToDraw)
+            shader.setInputShader("u_originShader", wallpaper)
+            shader.setFloatUniform("u_originDim", source.dim)
+            translate(-padding, -padding) { drawRect(brush, size = bounds) }
+        }
+    }
+}
+
+@RequiresApi(34)
+private class CouiCausticEffect(
+    shadow: CouiFloatingShadow,
+    private val scale: Float,
+    private val program: String = CouiCausticShader,
+) {
     private val color = shadow.causticColor
     private val layout = shadow.layout
     val padding = ceil(maxOf(0f, -layout.left, -layout.top, layout.right, layout.bottom) * scale)
@@ -73,7 +149,7 @@ private class CouiCausticEffect(shadow: CouiFloatingShadow, private val scale: F
         layout.left * scale, layout.top * scale, layout.right * scale, layout.bottom * scale, shadow.sdf * scale,
         shadow.power, shadow.powerMix, shadow.speed, 0.45f, 0.6f)
     private val shader by lazy {
-        RuntimeShader(CouiCausticShader).apply {
+        RuntimeShader(program).apply {
             setIntUniform("u_foregroundComposition", 1)
             setFloatUniform("u_offset", -padding, -padding)
             setFloatUniform("u_invScale", 1f, 1f)
