@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -140,6 +141,7 @@ fun SegmentedControl(
     val renderer = if (floatingMaterial) remember { CouiFloatingRenderer.standalone() } else null
     val contentLayer = rememberGraphicsLayer()
     val material = remember(dark) { CouiSegmentedControlDefaults.material(dark) }
+    val labelColor = textStyle.color.takeOrElse { CouiTheme.colorSchemeFor(dark).onSurface }
     val shadow = remember { CouiFloatingShadow(0f, Color.Transparent, 0f, 0f, 0f, Color.Transparent, Rect.Zero, 0f) }
     val (lightInput, light) = rememberCouiSpotlight(enabled && containerSurfaceEnabled, SpotlightPreset.OpaqueMedium2, dark,
         inputTarget = { _, _ -> if (session.allowLight) rootCoordinates else null })
@@ -163,13 +165,16 @@ fun SegmentedControl(
     DisposableEffect(motion) { onDispose { motion.dispose() } }
 
     BoxWithConstraints(modifier.height(if (small) CouiSegmentedControlDefaults.smallHeight else CouiSegmentedControlDefaults.height)) {
-        val padding = with(density) { (if (small) CouiSegmentedControlDefaults.smallPadding else CouiSegmentedControlDefaults.padding).toPx() }
-        val desired = (naturalWidths.sum() + padding * 2f).roundToInt()
+        val defaultPadding = with(density) {
+            (if (small) CouiSegmentedControlDefaults.smallPadding else CouiSegmentedControlDefaults.padding).roundToPx()
+        }
+        val desired = (naturalWidths.sum() + defaultPadding * 2f).roundToInt()
         val actualWidth = constraints.constrainWidth(desired)
         val actualHeight = constraints.maxHeight
+        val padding = defaultPadding.coerceAtMost(actualWidth / 2)
         val geometry = remember(actualWidth, actualHeight, padding, naturalWidths, rtl, small) {
-            SegmentGeometry(actualWidth.toFloat(), actualHeight.toFloat(), padding,
-                segmentWidths(naturalWidths, (actualWidth - padding * 2f).coerceAtLeast(0f)), rtl, small)
+            SegmentGeometry(actualWidth.toFloat(), actualHeight.toFloat(), padding.toFloat(),
+                segmentWidths(naturalWidths, actualWidth - padding * 2), rtl, small)
         }
         LaunchedEffect(session.preview, geometry) { motion.select(session.preview, geometry, density.density) }
         var bounds by remember { mutableStateOf(IntSize.Zero) }
@@ -230,7 +235,7 @@ fun SegmentedControl(
                     .pointerInput(geometry, labels, enabled, commitOnRelease, containerSurfaceEnabled) {
                         if (!enabled) return@pointerInput
                         awaitEachGesture {
-                            val down = awaitFirstDown(requireUnconsumed = false)
+                            val down = awaitFirstDown()
                             val coordinates = inputCoordinates?.takeIf { it.isAttached } ?: return@awaitEachGesture
                             val tracker = VelocityTracker()
                             val start = coordinates.localToWindow(down.position)
@@ -241,7 +246,7 @@ fun SegmentedControl(
                                 press.press(bounds)
                             }
                             session.begin(current.value)
-                            val downPosition = down.position + Offset(padding, 0f)
+                            val downPosition = down.position + Offset(padding.toFloat(), 0f)
                             val indicator = motion.rect(geometry, indicatorPress.scale.value).inflate(10f)
                             val startTab = geometry.hit(downPosition.x)
                             var dragging = startTab == current.value || indicator.contains(downPosition)
@@ -249,7 +254,8 @@ fun SegmentedControl(
                             val indicatorSize = IntSize(motion.indicatorWidth.roundToInt(), geometry.indicatorHeight.roundToInt())
                             if (dragging) indicatorPress.press(indicatorSize)
                             var pressedLabel = startTab
-                            pressedLabel?.let { labelPresses[it].press(IntSize(geometry.widths[it].roundToInt(), geometry.indicatorHeight.roundToInt())) }
+                            pressedLabel?.let { labelPresses[it].press(IntSize(geometry.widths[it], geometry.indicatorHeight.roundToInt())) }
+                            val switchDistance = CouiSegmentedControlDefaults.switchDistance.toPx()
                             var rubberOrigin = down.position.x
                             motion.resetRubberOrigin = false
                             var completed = false
@@ -259,7 +265,8 @@ fun SegmentedControl(
                                     if (event.isCouiTouchCancelled() || event.changes.size != 1) break
                                     val change = event.changes.firstOrNull { it.id == down.id } ?: break
                                     if (!coordinates.isAttached) break
-                                    val delta = change.position - down.position
+                                    val windowPosition = coordinates.localToWindow(change.position)
+                                    val delta = windowPosition - start
                                     val slop = viewConfiguration.touchSlop
                                     if (change.isConsumed ||
                                         (!horizontalDrag && abs(delta.y) > slop && abs(delta.y) > abs(delta.x))
@@ -270,14 +277,25 @@ fun SegmentedControl(
                                         if (!dragging) indicatorPress.press(indicatorSize)
                                         dragging = true
                                     }
-                                    val windowPosition = coordinates.localToWindow(change.position)
+                                    if (change.pressed) {
+                                        if (dragging && abs(delta.x) > slop) {
+                                            change.consume()
+                                        } else if (awaitPointerEvent(PointerEventPass.Final).changes.any {
+                                                it.id == down.id && it.isConsumed
+                                            }) {
+                                            break
+                                        }
+                                    }
                                     change.historical.forEach { tracker.addPosition(it.uptimeMillis, coordinates.localToWindow(it.position)) }
                                     tracker.addPosition(change.uptimeMillis, windowPosition)
                                     if (change.pressed && containerSurfaceEnabled) touch.move(windowPosition)
                                     val x = change.position.x + padding
                                     val nearRail = change.position.y in -slop..(size.height + slop)
+                                    // Dragging waits until the pointer is inside the next segment.
+                                    val hitInset = if (dragging && (!commitOnRelease || horizontalDrag)) switchDistance else 0f
                                     val target = if (horizontalDrag && !nearRail) null else {
-                                        geometry.hit(x) ?: if (horizontalDrag) {
+                                        geometry.hit(x, hitInset) ?: if (horizontalDrag &&
+                                            (x < geometry.padding || x >= geometry.width - geometry.padding)) {
                                             if ((x < geometry.width / 2f) != rtl) 0 else labels.lastIndex
                                         } else null
                                     }
@@ -289,13 +307,12 @@ fun SegmentedControl(
                                             if (motion.resetRubberOrigin) { rubberOrigin = change.position.x; motion.resetRubberOrigin = false }
                                             motion.dragRubber(change.position.x - rubberOrigin, indicatorPress.scale.value,
                                                 session.preview == 0 || session.preview == labels.lastIndex,
-                                                CouiSegmentedControlDefaults.switchDistance.toPx())
+                                                switchDistance)
                                         }
-                                        if (abs(delta.x) > slop) change.consume()
                                     }
-                                    if (target != pressedLabel) {
+                                    if (target != pressedLabel && (!dragging || target != null)) {
                                         pressedLabel?.let { labelPresses[it].release() }
-                                        if (dragging) target?.let { labelPresses[it].press(IntSize(geometry.widths[it].roundToInt(), geometry.indicatorHeight.roundToInt())) }
+                                        if (dragging) target?.let { labelPresses[it].press(IntSize(geometry.widths[it], geometry.indicatorHeight.roundToInt())) }
                                         pressedLabel = target
                                     }
                                     if (!change.pressed) {
@@ -324,18 +341,18 @@ fun SegmentedControl(
                     labels.forEachIndexed { index, label ->
                         Box(Modifier.width(with(density) { geometry.widths[index].toDp() }).fillMaxHeight()
                             .graphicsLayer { scaleX = labelPresses[index].scale.value; scaleY = labelPresses[index].scale.value }
-                            .semantics {
+                            .semantics(mergeDescendants = true) {
                                 role = Role.Tab; selected = selectedIndex == index
                                 if (!enabled) disabled()
-                                if (index != selectedIndex) onClick { if (enabled && index != current.value) submit.value(index); enabled }
-                            }.focusable(enabled).onKeyEvent {
+                                else onClick { if (index != current.value) submit.value(index); true }
+                            }.onKeyEvent {
                                 if (enabled && it.type == KeyEventType.KeyUp && (it.key == Key.Enter || it.key == Key.Spacebar || it.key == Key.DirectionCenter)) {
                                     if (index != current.value) submit.value(index)
                                     true
                                 } else false
-                            }.padding(horizontal = CouiSegmentedControlDefaults.labelPadding), contentAlignment = Alignment.Center) {
+                            }.focusable(enabled).padding(horizontal = CouiSegmentedControlDefaults.labelPadding), contentAlignment = Alignment.Center) {
                             BasicText(label, style = textStyle.copy(textAlign = TextAlign.Center,
-                                color = Color(if (dark) 0xE6FFFFFF else 0xE6000000).let { it.copy(alpha = it.alpha * if (enabled) 1f else .38f) }),
+                                color = if (enabled) labelColor else labelColor.copy(alpha = labelColor.alpha * .38f)),
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                     }
@@ -346,6 +363,7 @@ fun SegmentedControl(
 }
 
 /** 原厂指示器的专属径向投影；轮廓仍复用公共 Drawable 后端。 */
+@RequiresApi(33)
 private fun DrawScope.drawSegmentIndicator(rect: Rect, containerHeight: Float, shape: CouiShape,
     contour: CouiContour?, paint: Paint, dark: Boolean) {
     if (rect.width <= 0f || rect.height <= 0f) return

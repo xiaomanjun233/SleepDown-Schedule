@@ -4,6 +4,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SegmentSelectionSessionTest {
+    @Test fun roundedSegmentsFillTheRailAndShareTheirHitBoundariesInRtl() {
+        val widths = segmentWidths(listOf(90f, 90f, 90f), 221)
+        assertEquals(221, widths.sum())
+        val geometry = SegmentGeometry(229f, 40f, 4f, widths, rtl = true, small = false)
+        widths.indices.forEach { assertEquals(it, geometry.hit(geometry.center(it))) }
+        val firstBoundary = geometry.width - geometry.padding - widths.first()
+        assertEquals(1, geometry.hit(firstBoundary))
+        assertNull(geometry.hit(firstBoundary, inset = 5f))
+        assertEquals(2, geometry.hit(4.5f))
+    }
+
     @Test fun cancelledNavigationDragNeverCommitsItsPreview() {
         val values = mutableListOf<Int>()
         val session = SegmentSelectionSession(0)

@@ -14,11 +14,11 @@ import kotlin.math.roundToInt
 import kotlin.math.sign
 
 /** 原厂先分配自然宽度，再对超出均值的项目做水位分配；宽度不足时保留短标签。 */
-internal fun segmentWidths(natural: List<Float>, available: Float): List<Float> {
+internal fun segmentWidths(natural: List<Float>, available: Int): List<Int> {
     val order = natural.indices.sortedBy { natural[it] }
     val result = MutableList(natural.size) { 0f }
-    val mean = available / natural.size
-    var remaining = available
+    val mean = available.toFloat() / natural.size
+    var remaining = available.toFloat()
     var limit = mean
     var index = 0
     var last = -1
@@ -37,26 +37,34 @@ internal fun segmentWidths(natural: List<Float>, available: Float): List<Float> 
             last = index
         }
     }
-    if (last == -1) return natural.map { mean.roundToInt().toFloat() }
-    if (remaining > 0f && order.size > 1) {
+    if (last != -1 && remaining > 0f && order.size > 1) {
         order.dropLast(1).forEach { result[it] += remaining / (order.size - 1) }
     }
-    return result.map { it.roundToInt().toFloat().coerceAtLeast(0f) }
+    // Compose 子项按整数像素测量，累计边界取整让末项恰好结束于内容区边缘。
+    var position = 0.0
+    var start = 0
+    return result.mapIndexed { index, width ->
+        position += if (last == -1) mean else width
+        val end = if (index == result.lastIndex) available else position.roundToInt().coerceIn(start, available)
+        val measuredWidth = end - start
+        start = end
+        measuredWidth
+    }
 }
 
 internal data class SegmentGeometry(
     val width: Float, val height: Float, val padding: Float,
-    val widths: List<Float>, val rtl: Boolean, val small: Boolean,
+    val widths: List<Int>, val rtl: Boolean, val small: Boolean,
 ) {
-    val starts = widths.indices.map { padding + widths.take(it).sum() }
+    private val starts = widths.runningFold(padding) { start, width -> start + width }
     val indicatorHeight get() = (height - padding * 2f).coerceAtLeast(0f)
     fun center(index: Int): Float {
         val logical = starts[index] + widths[index] / 2f
         return if (rtl) width - logical else logical
     }
-    fun hit(x: Float): Int? {
+    fun hit(x: Float, inset: Float = 0f): Int? {
         val logical = if (rtl) width - x else x
-        return widths.indices.firstOrNull { logical >= starts[it] && logical < starts[it] + widths[it] }
+        return widths.indices.firstOrNull { logical >= starts[it] + inset && logical < starts[it + 1] - inset }
     }
 }
 
@@ -103,21 +111,30 @@ internal class CouiSegmentMotion {
             width.setBounds(-Float.MAX_VALUE, Float.MAX_VALUE)
             height.setBounds(-Float.MAX_VALUE, Float.MAX_VALUE)
             position.snapTo(next.center(index))
-            width.snapTo(next.widths[index])
+            width.snapTo(next.widths[index].toFloat())
             height.snapTo(next.indicatorHeight)
             rubber.snapTo(0f)
             return
         }
-        val targetWidth = next.widths[index]
+        val targetWidth = next.widths[index].toFloat()
         val growing = targetWidth > width.value
         widthLimit = if (growing) targetWidth + (if (next.small) 5f else 7f) * density else Float.MAX_VALUE
+        val minimumCenter = min(next.center(0), next.center(next.widths.lastIndex))
+        val maximumCenter = max(next.center(0), next.center(next.widths.lastIndex))
+        val transferRubber = rubber.value != 0f
+        val positionVelocity = position.velocity
+        if (transferRubber) {
+            // 原厂两路动画共用 mIndicatorCenterX；切项从当前可见中心接续。
+            position.snapTo((position.value.coerceIn(minimumCenter, maximumCenter) + rubber.value)
+                .coerceIn(minimumCenter, maximumCenter))
+        }
         rubber.snapTo(0f)
-        position.setBounds(min(next.center(0), next.center(next.widths.lastIndex)),
-            max(next.center(0), next.center(next.widths.lastIndex)))
+        position.setBounds(minimumCenter, maximumCenter)
         width.setBounds(0f, widthLimit)
         height.setBounds(next.indicatorHeight * .9f, Float.MAX_VALUE)
         position.animateTo(next.center(index), .4f,
             if (growing && next.small) dynamic(width.value, targetWidth, .1f, .03f, 1f) else .1f,
+            velocity = if (transferRubber) positionVelocity else null,
             onEnd = { resetRubberOrigin = true })
         width.animateTo(targetWidth, dynamic(width.value, targetWidth, .6f, .4f, 2f),
             if (growing) .5f else dynamic(width.value, targetWidth, .5f, .1f, 2f), velocity = 1000f)
