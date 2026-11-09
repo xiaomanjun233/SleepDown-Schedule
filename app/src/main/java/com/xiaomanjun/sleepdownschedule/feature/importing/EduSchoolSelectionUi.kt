@@ -73,7 +73,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
@@ -107,7 +106,6 @@ import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.zIndex
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
@@ -120,6 +118,7 @@ import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceCategory
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
@@ -537,13 +536,13 @@ fun EduSchoolIndexedSelectScreen(
         ) {
             LazyColumn(
                 state = listState,
-                modifier = Modifier.fillMaxSize().padding(bottom = listDockClearance)
-                    .clipToBounds().nestedScroll(keyboardDismissScrollConnection),
+                modifier = Modifier.fillMaxSize().clipToBounds().nestedScroll(keyboardDismissScrollConnection),
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
                     top = topPadding + 12.dp,
-                    bottom = 12.dp
+                    // Keep rows visible behind the floating glass and let the last one scroll clear.
+                    bottom = listDockClearance + 12.dp
                 )
             ) {
                 if (adapters.isEmpty()) {
@@ -875,12 +874,10 @@ private fun EduSchoolSearchDock(
     controlsModifier: Modifier = Modifier
 ) {
     val entranceProgress = remember { Animatable(0f) }
-    val searchDockTint = if (appUsesDarkTheme(config)) {
-        ComposeColor(0xFF1A1A1D)
-    } else {
-        ComposeColor.White
+    val navigationInset = with(LocalDensity.current) {
+        WindowInsets.navigationBars.getBottom(this).toDp().coerceAtMost(bottomInset)
     }
-    val searchDockGradientHeight = 168.dp + bottomInset
+    val dockTint = settingsPageBackground(config)
 
     LaunchedEffect(Unit) {
         entranceProgress.animateTo(
@@ -893,30 +890,29 @@ private fun EduSchoolSearchDock(
         )
     }
 
-    // This is a root-level floating dock. The scrim is a separate sibling underneath the glass
-    // controls, so it stays present when the field splits into the action capsule.
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer { clip = false }
-    ) {
+    Box(Modifier.fillMaxSize().then(controlsModifier)) {
+        // Blur the rows beneath the floating field, as the ColorOS notification shade does.
         Box(
-            modifier = Modifier
+            Modifier
                 .align(Alignment.BottomCenter)
+                .offset(y = navigationInset - bottomInset)
                 .fillMaxWidth()
-                .height(searchDockGradientHeight)
+                .height(104.dp + navigationInset)
                 .graphicsLayer {
                     compositingStrategy = CompositingStrategy.ModulateAlpha
                     alpha = entranceProgress.value.coerceIn(0f, 1f)
                 }
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            searchDockTint.copy(alpha = 0f),
-                            searchDockTint.copy(alpha = if (appUsesDarkTheme(config)) 0.42f else 0.36f),
-                            searchDockTint.copy(alpha = if (appUsesDarkTheme(config)) 0.76f else 0.70f),
-                            searchDockTint.copy(alpha = if (appUsesDarkTheme(config)) 0.94f else 0.92f)
-                        )
+                .progressiveBackdropBlur(
+                    backdrop = backdrop,
+                    tintColor = dockTint,
+                    blurRadius = 12.dp,
+                    tintIntensity = 0.12f,
+                    domain = GlassBackdropDomain.ChromeCombined,
+                    direction = ProgressiveBlurDirection.BottomToTop,
+                    fallbackTintStops = listOf(
+                        0f to dockTint.copy(alpha = 0.18f),
+                        0.45f to dockTint.copy(alpha = 0.07f),
+                        1f to ComposeColor.Transparent
                     )
                 )
         )
@@ -928,14 +924,7 @@ private fun EduSchoolSearchDock(
             keyboardLift = imeLift,
             bottomOffset = EduSearchDockBottomPadding + bottomInset,
             entranceProgress = entranceProgress.value,
-            modifier = Modifier
-                // Give the control the whole window as its layout envelope. Only its two visible
-                // capsules are positioned near the bottom; no 44/60dp parent can crop the Kyant
-                // shadow, refraction or press expansion anymore.
-                .fillMaxSize()
-                .then(controlsModifier)
-                .graphicsLayer { clip = false }
-                .zIndex(1f)
+            modifier = Modifier.fillMaxSize()
         )
     }
 }
