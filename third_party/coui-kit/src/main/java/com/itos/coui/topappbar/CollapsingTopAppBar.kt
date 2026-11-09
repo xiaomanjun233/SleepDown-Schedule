@@ -54,6 +54,7 @@ fun CollapsingTopAppBar(
     val layoutDirection = LocalLayoutDirection.current
     val hasSearchBar = searchBar != null
     val searchActive = hasSearchBar && searchState.active
+    val searchExpanded = hasSearchBar && searchState.expanded
     val titleColor = if (color == Color.Unspecified) CouiTheme.colorSchemeFor(dark).onSurface else color
     val titleStyle = if (hasSearchBar) rememberCouiTextStyle(CouiTextKind.HomeTitle) else remember(density) {
         val typeface = Typeface.create(Typeface.create("sans-serif-semibold", Typeface.NORMAL), 700, false)
@@ -74,16 +75,17 @@ fun CollapsingTopAppBar(
         (if (hasSearchBar) CouiCollapsingAppBarDefaults.titleStart else CouiCollapsingAppBarDefaults.titleOnlyStart)
             .toPx().toInt().toFloat()
     }
-    val offset = state.offsetPx.coerceIn(0f, if (hasSearchBar) titleHeight else titleHeight - collapsedHeight)
-    val f = (offset / (titleHeight - collapsedHeight)).coerceIn(0f, 1f)
-    val titleFraction = if (hasSearchBar) f else CouiCollapsingAppBarDefaults.titleEasing.transform(f)
+    val collapseDistance = titleHeight - collapsedHeight
+    fun titleOffset() = state.offsetPx.coerceIn(0f, if (hasSearchBar) titleHeight else collapseDistance)
+    fun collapseFraction(offset: Float) = (offset / collapseDistance).coerceIn(0f, 1f)
+    fun titleFraction(fraction: Float) =
+        if (hasSearchBar) fraction else CouiCollapsingAppBarDefaults.titleEasing.transform(fraction)
     val collapsedScale = if (hasSearchBar) .7f else
         CouiCollapsingAppBarDefaults.collapsedTitleSize / CouiCollapsingAppBarDefaults.expandedTitleSize
-    val p = if (hasSearchBar) searchState.pageProgress.coerceIn(0f, 1f) else 0f
     SideEffect {
         state.updateRange(density, hasSearchBar, CouiCollapsingAppBarDefaults.titleOnlyHeight,
             CouiCollapsingAppBarDefaults.collapsedTitleHeight)
-        state.updateSearch(hasSearchBar && searchState.expanded, searchActive)
+        state.updateSearch(searchExpanded, searchActive)
     }
     TopAppBarSurface(modifier.fillMaxWidth(), backdrop,
         referenceBlurRadius = with(density) { CouiCollapsingAppBarDefaults.referenceBlurRadiusPx.toDp() },
@@ -91,33 +93,38 @@ fun CollapsingTopAppBar(
             else CouiCollapsingAppBarDefaults.titleOnlyBlurExtension,
         gradientSpeed = 3f, gradientColor = backgroundColor, dark = dark,
         // 正文直接跟随已接受的滚动，标题保留弹簧跟随；模糊不能等标题追上后才补亮。
-        backgroundAlpha = if (!hasSearchBar || searchActive) 1f else
-            (state.contentOffsetPx / (30 * density.density)).coerceIn(0f, 1f),
-        topExtension = { with(density) { offset.toDp() } }) {
+        backgroundAlpha = {
+            if (!hasSearchBar || searchActive) 1f else state.contentOffsetPx / (30 * density.density)
+        },
+        topExtension = { with(density) { titleOffset().toDp() } }) {
         Layout(modifier = Modifier.statusBarsPadding(), content = {
             BasicText(title, Modifier.semantics { heading() }.graphicsLayer {
-                alpha = if (hasSearchBar) (1f - f) * searchState.contentAlpha else 1f
-                scaleX = (1f - (1f - collapsedScale) * titleFraction) *
-                    (if (hasSearchBar) .8f + .2f * searchState.contentAlpha else 1f)
+                val fraction = collapseFraction(titleOffset())
+                val contentAlpha = if (hasSearchBar) searchState.contentAlpha else 1f
+                val progress = if (hasSearchBar) searchState.pageProgress.coerceIn(0f, 1f) else 0f
+                alpha = if (hasSearchBar) (1f - fraction) * contentAlpha else 1f
+                scaleX = (1f - (1f - collapsedScale) * titleFraction(fraction)) * (.8f + .2f * contentAlpha)
                 scaleY = scaleX
-                translationY = -200f * p
+                translationY = -200f * progress
                 transformOrigin = TransformOrigin(if (layoutDirection == LayoutDirection.Rtl) 1f else 0f, 0f)
             }, style = titleStyle.copy(color = titleColor),
                 maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (searchBar != null) Box(propagateMinConstraints = true) { searchBar() }
         }) { children, constraints ->
+            val offset = titleOffset()
             val titleNode = children[0].measure(constraints.copy(minWidth = 0, minHeight = 0,
                 maxWidth = (constraints.maxWidth - 2 * start.roundToInt()).coerceAtLeast(0)))
             val search = children.getOrNull(1)?.measure(constraints.copy(minWidth = constraints.maxWidth, minHeight = 0))
             val remainingTitle = (titleHeight - offset).coerceAtLeast(if (hasSearchBar) 0f else collapsedHeight)
             val searchY = remainingTitle
             layout(constraints.maxWidth, (searchY + (search?.height ?: 0)).roundToInt()) {
+                val fraction = collapseFraction(offset)
                 val expandedY = if (hasSearchBar) titleHeight - titleBottom - titleNode.height + descent
                     else with(density) { CouiCollapsingAppBarDefaults.titleOnlyTop.toPx() }
                 val collapsedY = titleHeight - collapsedHeight +
                     (collapsedHeight - titleNode.height * (if (hasSearchBar) 1f else collapsedScale)) / 2
-                val titleY = expandedY + (collapsedY - expandedY) * titleFraction - offset
-                titleNode.placeRelative((start - if (hasSearchBar) (8 * density.density) * f else 0f).roundToInt(),
+                val titleY = expandedY + (collapsedY - expandedY) * titleFraction(fraction) - offset
+                titleNode.placeRelative((start - if (hasSearchBar) (8 * density.density) * fraction else 0f).roundToInt(),
                     titleY.roundToInt())
                 search?.placeRelative(0, searchY.roundToInt())
             }

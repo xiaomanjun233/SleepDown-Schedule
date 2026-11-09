@@ -12,9 +12,12 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.background
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.isSpecified
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Brush
@@ -76,7 +79,7 @@ fun TopAppBarSurface(
     fadeHeight: androidx.compose.ui.unit.Dp = CouiTopAppBarDefaults.fadeHeight,
     referenceBlurRadius: androidx.compose.ui.unit.Dp = CouiTopAppBarDefaults.referenceBlurRadius,
     bottomExtension: androidx.compose.ui.unit.Dp = CouiTopAppBarDefaults.bottomExtension,
-    backgroundAlpha: Float = 1f,
+    backgroundAlpha: () -> Float = { 1f },
     gradientSpeed: Float? = null,
     gradientColor: Color = Color.Unspecified,
     dark: Boolean = CouiTheme.isDark,
@@ -89,12 +92,16 @@ fun TopAppBarSurface(
     }
     val density = LocalDensity.current.density
     val destination = rememberCouiBackdrop(parent = backdrop)
+    val currentBackgroundAlpha = rememberUpdatedState(backgroundAlpha)
+    val drawBackground = remember { derivedStateOf { currentBackgroundAlpha.value() > 0f } }
     val backgroundModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         Modifier.drawCouiGradientBackdrop(
             backdrop = backdrop,
             fadeHeightPx = fadeHeight.value * density,
             referenceBlurRadiusPx = referenceBlurRadius.value * density,
             gradientSpeed = gradientSpeed,
+            // This spacer already sits inside the toolbar's alpha group.
+            isolateOutput = false,
         )
     } else {
         val blurEffects = remember(density) {
@@ -119,7 +126,11 @@ fun TopAppBarSurface(
             modifier = modifier.then(overlayModifier),
             content = {
                 Box(Modifier.couiBackdrop(destination)) {
-                    Box(Modifier.matchParentSize().graphicsLayer { alpha = backgroundAlpha.coerceIn(0f, 1f) }) {
+                    Box(Modifier.matchParentSize()
+                        // Leave an empty recording for the toolbar sampler while its parent
+                        // source continues to feed the search capsule and buttons.
+                        .drawWithContent { if (drawBackground.value) drawContent() }
+                        .graphicsLayer { alpha = currentBackgroundAlpha.value().coerceIn(0f, 1f) }) {
                         Spacer(Modifier.matchParentSize().then(backgroundModifier))
                         if (resolvedGradientColor.alpha > 0f) Spacer(Modifier.matchParentSize().background(gradient))
                     }

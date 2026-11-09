@@ -44,6 +44,7 @@ fun Modifier.drawCouiGradientBackdrop(
     gradientSpeed: Float? = null,
     direction: CouiGradientDirection = CouiGradientDirection.TopToBottom,
     fullBlurFraction: Float = 0f,
+    isolateOutput: Boolean = true,
     effects: CouiBackdropEffectScope.() -> Unit = {},
 ): Modifier {
     require(gradientSpeed == null || gradientSpeed.isFinite() && gradientSpeed > 0f)
@@ -51,7 +52,7 @@ fun Modifier.drawCouiGradientBackdrop(
     return graphicsLayer {
         shape = RectangleShape
         clip = true
-        compositingStrategy = ComposeCompositingStrategy.Offscreen
+        compositingStrategy = if (isolateOutput) ComposeCompositingStrategy.Offscreen else ComposeCompositingStrategy.Auto
     }.then(GradientBackdropElement(backdrop, fadeHeightPx, referenceBlurRadiusPx, gradientSpeed,
         direction, fullBlurFraction, effects))
 }
