@@ -7,6 +7,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +39,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.dropShadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.shadow.Shadow
@@ -62,6 +64,7 @@ import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.domain.course.WeekConflictGroup
@@ -112,6 +115,17 @@ private val LightTimeSlotShadow = Shadow(
     radius = 8.dp,
     color = ComposeColor.Black.copy(alpha = 0.16f),
     offset = DpOffset(0.dp, 2.dp)
+)
+private val LightLiquidTimeSlotShadow = Shadow(
+    radius = 8.dp,
+    color = ComposeColor.Black.copy(alpha = 0.12f),
+    offset = DpOffset(0.dp, 2.dp)
+)
+private val LightLiquidTimeSlotFill = Brush.verticalGradient(
+    listOf(ComposeColor(0xFFFEFEFF), ComposeColor(0xFFF8F8FA))
+)
+private val LightLiquidTimeSlotRim = Brush.verticalGradient(
+    listOf(ComposeColor.White, ComposeColor.White.copy(alpha = 0.20f))
 )
 
 internal fun weekCardVerticalBounds(
@@ -653,20 +667,19 @@ fun WeekCourseColumnsLayer(
         // Continuing courses retain their full height and own their pixels above the band.
         val timeSlotBandTokens = remember { GlassTokens.pill(intensity = 0.9f).copy(blur = 10.dp, useVibrancy = false) }
         val showBandShadow = !appUsesDarkTheme(config) && !config.hasAnyWallpaper()
+        val lightLiquidBand = showBandShadow && !LocalVisualEffects.current.glowEnabled
         bandRuns.forEach { (band, runs) ->
             runs.forEach { run ->
                 val physical = if (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl) weekdays.size - run.last - 1 else run.first
                 val bandShape = if (band.inGrid && !band.collapsed) RoundedRectangle(18.dp) else Capsule()
-                GlassSurface(backdrop = backdrop, config = config,
-                    modifier = Modifier.offset(x = dayColumnWidth * physical, y = band.top.dp)
-                        .width(dayColumnWidth * run.count()).height(band.height.dp)
-                        .padding(horizontal = 2.dp, vertical = 3.dp)
-                        .weekPageTail(weekTimeSlotTailKey(band.slot.id), tailCardOrder[weekTimeSlotTailKey(band.slot.id)], 0.5f)
-                        .homeSwitchGroup(tailCardOrder[weekTimeSlotTailKey(band.slot.id)])
-                        .then(if (showBandShadow) Modifier.dropShadow(bandShape, LightTimeSlotShadow) else Modifier),
-                    shape = bandShape, tokens = timeSlotBandTokens,
-                    domain = GlassBackdropDomain.Content, debugLabel = "WeekTimeSlotBand", onClick = null,
-                    nativeMaterial = nativeBands, nativeBlurRadiusScale = 1.4f) {
+                val bandModifier = Modifier.offset(x = dayColumnWidth * physical, y = band.top.dp)
+                    .width(dayColumnWidth * run.count()).height(band.height.dp)
+                    .padding(horizontal = 2.dp, vertical = 3.dp)
+                    .weekPageTail(weekTimeSlotTailKey(band.slot.id), tailCardOrder[weekTimeSlotTailKey(band.slot.id)], 0.5f)
+                    .homeSwitchGroup(tailCardOrder[weekTimeSlotTailKey(band.slot.id)])
+                    .then(if (showBandShadow) Modifier.dropShadow(bandShape,
+                        if (lightLiquidBand) LightLiquidTimeSlotShadow else LightTimeSlotShadow) else Modifier)
+                val bandContent: @Composable () -> Unit = {
                     Column(Modifier.fillMaxSize().padding(horizontal = 8.dp, vertical = 2.dp),
                         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                         val heading = listOf(band.slot.name, band.slot.location).filter(String::isNotBlank).joinToString(" · ")
@@ -686,7 +699,8 @@ fun WeekCourseColumnsLayer(
                                 modifier = Modifier.fillMaxWidth().unclippedMarquee(centered = true, enabled = !outgoing),
                                 textAlign = TextAlign.Center,
                                 maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
-                            Text(time, color = foreground, style = MaterialTheme.typography.labelSmall,
+                            Text(time, color = if (lightLiquidBand) foreground.copy(alpha = 0.76f) else foreground,
+                                style = MaterialTheme.typography.labelSmall,
                                 modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center,
                                 maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                             if (band.slot.note.isNotBlank()) Text(band.slot.note,
@@ -695,6 +709,16 @@ fun WeekCourseColumnsLayer(
                                 maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis)
                         }
                     }
+                }
+                if (lightLiquidBand) {
+                    // A uniform page has no detail to refract under the wide special-course band.
+                    Box(bandModifier.clip(bandShape).background(LightLiquidTimeSlotFill)
+                        .border(0.7.dp, LightLiquidTimeSlotRim, bandShape)) { bandContent() }
+                } else {
+                    GlassSurface(backdrop = backdrop, config = config, modifier = bandModifier,
+                        shape = bandShape, tokens = timeSlotBandTokens,
+                        domain = GlassBackdropDomain.Content, debugLabel = "WeekTimeSlotBand",
+                        nativeMaterial = nativeBands, nativeBlurRadiusScale = 1.4f, content = bandContent)
                 }
             }
         }
