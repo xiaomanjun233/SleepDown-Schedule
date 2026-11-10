@@ -27,7 +27,9 @@ Dock 首开的 FrameTimeline 帧耗时 P95 为 115.2 → 56.5 ms，同轮触摸�
 
 `53bb2c6d` 的 `assembleGithubRelease`、R8、资源压缩、lintVital 和 V2 签名通过。签名包 `tmp/review-apks/SleepDown-1.2.8-beta2-GlowToolbar-53bb2c6d.apk`，SHA-256 `1A77577667D9BBA40426FC95F7D2D4421D8590D36D4AA62E9B3B2C41E47BC999`，构建日志 `tmp/glow-next-53bb2c6d-build.log`。
 
-后台模拟器覆盖安装后回读相同 SHA，液态玻璃的设置搜索、输入、结果和返回也已点验，完成后恢复凝光与完整课表。PLJ110 的 USB、现有 SDK ADB 5038／5037 和配对无线 mDNS 复核均未发现设备，本轮暂无 ColorOS 实机数据和安装结果。
+后台模拟器覆盖安装后回读相同 SHA，液态玻璃的设置搜索、输入、结果和返回也已点验，完成后恢复凝光与完整课表。
+
+2026-11-10 10:56 按用户要求，通过 Android SDK ADB 37.0.1 的 5038 USB 通道将 `53bb2c6d` 覆盖安装到 PLJ110（Android 17、API 37、ColorOS V17.0.0、用户 0）。安装返回成功，实机回读 APK 的 SHA-256 与签名候选一致。实机体验由用户试用。
 
 ## 2026-11-10 恢复 Activity 导航与凝光性能
 
