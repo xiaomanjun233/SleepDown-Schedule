@@ -1,7 +1,5 @@
 package com.itos.coui.motion
 
-import android.view.MotionEvent
-import android.view.VelocityTracker
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -96,7 +94,7 @@ internal fun Modifier.couiTouchMotion(
     onGloballyPositioned { motion.coordinates = it }
         .pointerInput(motion, expanded, cancelOnConsumedMove, consumeDrag) {
             if (!expanded) return@pointerInput
-            val trackers = mutableMapOf<PointerId, VelocityTracker>()
+            val trackers = mutableMapOf<PointerId, CouiVelocityTracker>()
             var downTime = 0L
             try {
                 awaitPointerEventScope {
@@ -144,29 +142,10 @@ internal fun Modifier.couiTouchMotion(
                             downTime = pointer.uptimeMillis
                             velocityPointer = pointer.id
                         }
-                        // 使用平台 VelocityTracker, 保留历史样本与厂商的毫秒速度单位。
                         for (change in event.changes) {
-                            val tracker = trackers.getOrPut(change.id) { VelocityTracker.obtain() }
-                            for (sample in change.historical) {
-                                val position = coordinates.localToWindow(sample.position)
-                                val sampleEvent = MotionEvent.obtain(
-                                    downTime, sample.uptimeMillis, MotionEvent.ACTION_MOVE,
-                                    position.x, position.y, 0,
-                                )
-                                tracker.addMovement(sampleEvent)
-                                sampleEvent.recycle()
-                            }
-                            val position = coordinates.localToWindow(change.position)
-                            val action = when {
-                                !change.previousPressed || (active == null && change.id == pointer.id) -> MotionEvent.ACTION_DOWN
-                                !change.pressed -> MotionEvent.ACTION_UP
-                                else -> MotionEvent.ACTION_MOVE
-                            }
-                            val sampleEvent = MotionEvent.obtain(
-                                downTime, change.uptimeMillis, action, position.x, position.y, 0,
+                            trackers.getOrPut(change.id) { CouiVelocityTracker(downTime) }.add(
+                                change, coordinates, start = active == null && change.id == pointer.id,
                             )
-                            tracker.addMovement(sampleEvent)
-                            sampleEvent.recycle()
                         }
                         val position = coordinates.localToWindow(pointer.position)
                         if (active == null) {
@@ -198,11 +177,7 @@ internal fun Modifier.couiTouchMotion(
                         if (pointer.pressed) {
                             if (newPointer == null && oldPointer?.pressed == true) motion.move(position)
                         } else {
-                            val tracker = trackers[velocityPointer]
-                            tracker?.computeCurrentVelocity(1, Float.MAX_VALUE)
-                            motion.release(
-                                Offset((tracker?.xVelocity ?: 0f) * 0.3f, (tracker?.yVelocity ?: 0f) * 0.3f)
-                            )
+                            motion.release(trackers[velocityPointer]?.releaseVelocity() ?: Offset.Zero)
                             trackers.values.forEach { it.recycle() }
                             trackers.clear()
                             active = null

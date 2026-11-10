@@ -105,6 +105,7 @@ data class CouiNavigationItem(val title: String, val icon: ImageVector, val sele
 /**
  * 只负责底栏装配，页面状态和导航提交仍由宿主持有。
  * 附件点击回调为空时只显示图标并保留拖拽，不创建点击或 Button 语义。
+ * 省略 [renderer] 时创建独立的三主体绘制器。宿主可先创建绘制器并处理失败，再显式传入。
  */
 @RequiresApi(34)
 @Composable
@@ -113,7 +114,7 @@ fun NavigationBar(
     backdrop: CouiBackdrop = checkNotNull(LocalCouiBackdrop.current) {
         "底栏需要显式 backdrop 或 COUI Scaffold 的独立栏位"
     },
-    renderer: CouiFloatingRenderer,
+    renderer: CouiFloatingRenderer = remember { CouiFloatingRenderer() },
     items: List<CouiNavigationItem>,
     selectedIndex: Int,
     leftIcon: ImageVector? = null,

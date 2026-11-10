@@ -118,6 +118,7 @@ private fun floatingMaterialEffect(
     density: Float,
     contourGlowEnabled: Boolean,
     foregroundComposition: Boolean,
+    useMenuLightEdge: Boolean,
 ): RenderEffect {
     val node = nodes[index]
     val height = bounds.height
@@ -126,6 +127,7 @@ private fun floatingMaterialEffect(
     val shader = renderer.shaders[if (renderer.standalone) 0 else material.index - 1]
     shader.setFloatUniform("u_size", bounds.width, height)
     shader.setFloatUniform("u_alpha", node.alpha)
+    shader.setFloatUniform("uUseMenuLightEdge", if (useMenuLightEdge) 1f else 0f)
     shader.setFloatUniform("u_commonArray", floatArrayOf(bounds.width * .5f, height * .5f,
         ball[0], ball[1], ball[2], ball[3], ball[4], ball[5], ball[6], ball[7], height, 0f))
     if (renderer.standalone) {
@@ -213,10 +215,28 @@ fun Modifier.couiFloatingSurface(
     foregroundComposition: Boolean = false,
     beforeContent: (DrawScope.(Path) -> Unit)? = null,
     surface: () -> CouiFloatingSurface,
+): Modifier = couiFloatingSurface(backdrop, renderer, material, shadow, shape, contentLayer,
+    contourGlowEnabled, foregroundComposition, beforeContent, useMenuLightEdge = false, surface = surface)
+
+@RequiresApi(34)
+@Composable
+internal fun Modifier.couiFloatingSurface(
+    backdrop: CouiBackdrop,
+    renderer: CouiFloatingRenderer,
+    material: CouiFloatingMaterial,
+    shadow: CouiFloatingShadow,
+    shape: Shape,
+    contentLayer: GraphicsLayer,
+    contourGlowEnabled: Boolean,
+    foregroundComposition: Boolean,
+    beforeContent: (DrawScope.(Path) -> Unit)?,
+    useMenuLightEdge: Boolean,
+    surface: () -> CouiFloatingSurface,
 ): Modifier {
     require(renderer.standalone)
     return floatingSurfaces(backdrop, renderer, listOf(material), listOf(shadow), listOf(shape),
         listOf(contentLayer), contourGlowEnabled, foregroundComposition,
+        useMenuLightEdge = useMenuLightEdge,
         beforeContent = beforeContent?.let { draw -> { _, path -> draw(path) } }) { listOf(surface()) }
 }
 
@@ -277,6 +297,7 @@ private fun Modifier.floatingSurfaces(
     contentLayers: List<GraphicsLayer>,
     contourGlowEnabled: Boolean,
     foregroundComposition: Boolean = false,
+    useMenuLightEdge: Boolean = false,
     beforeContent: (DrawScope.(Int, Path) -> Unit)? = null,
     drawOrder: List<Int>? = null,
     shadowAlpha: (() -> Float)? = null,
@@ -454,7 +475,7 @@ private fun Modifier.floatingSurfaces(
                         includePrefix = !foregroundComposition) { bounds ->
                         trace("COUI floating.materialEffect") {
                             floatingMaterialEffect(renderer, material, materialInputs[index], index, materialSlots[index],
-                                nodes, bounds, density, contourGlowEnabled, foregroundComposition)
+                                nodes, bounds, density, contourGlowEnabled, foregroundComposition, useMenuLightEdge)
                         }
                     }
                     commands.add(contentLayers[index])

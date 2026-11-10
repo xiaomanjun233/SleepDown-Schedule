@@ -50,6 +50,7 @@ import com.itos.coui.shape.CouiShape
 /**
  * 使用 CouiShape 时, 裁剪与材质共用半径和权重, 普通投影使用相同半径的 caster。
  * 相邻 FAB 可启用 foregroundComposition, 在不透明 SDR 背景上只叠加自身前景, 避免背景回填擦除兄弟节点。
+ * 省略 [renderer] 时创建独立的单主体绘制器。宿主可先创建绘制器并处理失败，再显式传入。
  */
 @RequiresApi(34)
 @Composable
@@ -58,7 +59,7 @@ fun Fab(
     backdrop: CouiBackdrop = checkNotNull(LocalCouiBackdrop.current) {
         "FAB 需要显式 backdrop 或 COUI Scaffold 的独立栏位"
     },
-    renderer: CouiFloatingRenderer,
+    renderer: CouiFloatingRenderer = remember { CouiFloatingRenderer.standalone() },
     onClick: () -> Unit,
     dark: Boolean = CouiTheme.isDark,
     shape: Shape = CouiFabDefaults.circleShape,

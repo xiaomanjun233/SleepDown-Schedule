@@ -92,18 +92,20 @@ internal class SegmentSelectionSession(selected: Int) {
 
 internal class CouiSegmentMotion {
     private var disposed = false
-    private val position = CouiSpring(0f, .5f)
-    private val width = CouiSpring(0f, .5f)
-    private val height = CouiSpring(0f, .5f)
-    private val rubber = CouiSpring(0f, .5f)
+    private val position = CouiSpring(0f)
+    private val width = CouiSpring(0f)
+    private val height = CouiSpring(0f)
+    private val rubber = CouiSpring(0f)
     private var geometry: SegmentGeometry? = null
     private var widthLimit = Float.MAX_VALUE
+    private var rubberAnchor = 0f
     var resetRubberOrigin = true
     val moving get() = position.isRunning
     val indicatorWidth get() = width.value.coerceIn(0f, widthLimit)
 
     fun select(index: Int, next: SegmentGeometry, density: Float) {
         if (disposed) return
+        rubberAnchor = next.center(index)
         if (geometry != next) {
             geometry = next
             widthLimit = Float.MAX_VALUE
@@ -151,12 +153,20 @@ internal class CouiSegmentMotion {
             (center + halfWidth).coerceAtMost(geometry.width - geometry.padding), geometry.height / 2f + halfHeight)
     }
 
-    fun dragRubber(delta: Float, scale: Float, edge: Boolean, switchDistance: Float) {
+    /** 原厂在 DOWN 捕获可见中心，再次按住回弹中的指示器时保留这次拖动的起点。 */
+    fun beginDrag() {
         if (disposed) return
-        val distance = ((1f - scale) * indicatorWidth / 2f).coerceAtLeast(0f) + if (edge) 0f else switchDistance
+        rubberAnchor = position.value + rubber.value
+        resetRubberOrigin = false
+    }
+
+    fun dragRubber(delta: Float, scale: Float, edge: Boolean, switchDistance: Float) {
+        if (disposed || delta == 0f) return
+        val distance = (((1f - scale) * indicatorWidth / 2f).toInt().coerceAtLeast(0) +
+            if (edge) 0 else switchDistance.toInt()).toFloat()
         val offset = if (distance == 0f) 0f else
             (1f - 1f / (abs(delta) * .12f / distance + 1f)) * distance * sign(delta)
-        rubber.animateTo(offset, .6f)
+        rubber.animateTo(rubberAnchor - position.value + offset, .6f)
     }
 
     fun release() { if (!disposed) rubber.animateTo(0f, .6f) }

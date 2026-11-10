@@ -25,6 +25,15 @@ object CouiSegmentedControlDefaults {
     internal val labelPadding = 12.dp
     internal val switchDistance = 5.dp
 
+    /** 无背景采样时的普通填色；保留原厂颜色的 alpha。 */
+    fun containerColor(dark: Boolean): Color = Color(if (dark) 0x1FFFFFFF else 0x0F000000)
+
+    /** 普通填色与透明材质使用相同的选中指示器颜色。 */
+    fun indicatorColor(dark: Boolean): Color = Color(if (dark) 0x33FFFFFF else 0xB2FFFFFF)
+
+    internal fun spotlightNoise(dark: Boolean): Float = if (dark) .1f else .3f
+    internal fun spotlightDither(dark: Boolean): Float = if (dark) 0f else 1f
+
     /** TYPE_CONTENT_SEGMENT_BUTTON 与 CAPSULE_6；不包含选中指示器。 */
     fun material(dark: Boolean) = CouiFloatingMaterial(
         firstColor = Color(if (dark) 0x7F7F7F7F else 0x7F333333),

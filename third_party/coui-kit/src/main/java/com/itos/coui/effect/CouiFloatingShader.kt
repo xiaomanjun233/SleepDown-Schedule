@@ -24,13 +24,14 @@ internal fun couiFloatingStandaloneShader(): String = "#version 300\n" + CouiMat
     "return rectData;}" + FloatingStandaloneMain
 
 // 只复用浮动组件的表面光效, 不接入采样、融球、投影或导数抗锯齿。
-internal fun couiFloatingContourShader(): String = FloatingLightingUniforms + FloatingShapeFunctions +
+internal fun couiFloatingContourShader(): String = CouiMaterialShaderFunctions + FloatingLightingUniforms + FloatingShapeFunctions +
     FloatingLightingFunctions + FloatingContourMain
 
 private const val FloatingBaseUniforms = """
 uniform shader u_originShader;
 uniform float2 u_size;
 uniform float u_alpha;
+uniform float uUseMenuLightEdge;
 uniform float u_commonArray[12];
 layout(color) uniform half4 u_color;
 layout(color) uniform half4 u_themeTint;
@@ -281,7 +282,7 @@ minDist = min(minDist, blendedDistance);
 }
 """
 
-private const val FloatingLightingFunctions = """
+private const val FloatingLightingFunctions = CouiEdgeColorFunctions + """
 float random(float2 st){
 return fract(sin(dot(st.yx,float2(79.1214,78.233)))*43760.5453);
 }
@@ -297,7 +298,7 @@ alpha = pow(alpha, para1)*para2+(1.0-para2)*alpha;
 }
 return alpha;
 }
-half4 blendShadowColor(float2 coords, CommonDataRect rectData, half4 color, float d){
+half4 blendShadowColor(float2 coords, CommonDataRect rectData, half4 color, float d, bool useMenuLightEdge){
 float3 uFadeAlpha = float3(u_shadowArray[3], u_shadowArray[4], u_shadowArray[5]);
 float fadeAlpha = 0.0;
 vec3 fadeAlphaVec3 = uFadeAlpha;
@@ -354,14 +355,15 @@ fadeAlpha=clamp(softLight(n,fadeAlpha),0.0,1.0);
 }
 float3 uFadeColor = float3(u_shadowArray[0], u_shadowArray[1], u_shadowArray[2]);
 half4 fadeColor = half4(uFadeColor, fadeAlpha);
-fadeColor.rgb = color.rgb+fadeColor.rgb;
+// 菜单式内晕按覆盖率混色，避免直接叠亮后截断高光。
+if (!useMenuLightEdge) fadeColor.rgb += color.rgb;
 return half4(clamp(mix(color.rgb, fadeColor.rgb, fadeColor.a), 0.0,1.0),1.0);
 }
 float getDis(float2 pos,float2 halfsize){
 float2 rect=abs(pos-halfsize);
 return rect.x+rect.y;
 }
-half4 blendEdge(CommonDataRect rectData, half4 color, half4 rawColor, float d){
+half4 blendEdge(CommonDataRect rectData, half4 color, half4 rawColor, float d, bool useMenuLightEdge){
 float2 uRectLineAlpha = float2(u_edgeArray[7], u_edgeArray[8]);
 if(all(lessThanEqual(uRectLineAlpha, float2(EPS)))){
 return color;
@@ -396,13 +398,8 @@ lineFarSdf = pow(lineFarSdf, uRectLinePara1)*uRectLinePara2+(1.0-uRectLinePara2)
 lineNearAlpha*=lineNearSdf;
 lineFarAlpha*=lineFarSdf;
 float lineAlpha = clamp(lineNearAlpha+lineFarAlpha,0.,1.);
-float gray = clamp(dot(float3(0.2126, 0.7152, 0.0722), rawColor.rgb)*1.2,0.0,1.0);
-float edgeImprove = (1.0 - gray)*(1.0 - gray);
-edgeImprove *= edgeImprove;
-edgeImprove *= 0.1;
-half4 colorRGBA = clamp(rawColor+half4(float3(edgeImprove),0.0),0.0,1.0);
-colorRGBA.rgb = mix(2.0 * colorRGBA.rgb * uRectLineColor.rgb, 1.0 - 2.0 * (1.0 - colorRGBA.rgb) * (1.0 - uRectLineColor.rgb), step(uRectLineColor.rgb, vec3(0.5)));
-return mix(color, colorRGBA, lineAlpha);
+if (useMenuLightEdge) rawColor = lightEdgeReferenceColor(rawColor);
+return mix(color, couiEdgeColor(rawColor, uRectLineColor, useMenuLightEdge), lineAlpha);
 }
 
 """
@@ -424,9 +421,9 @@ half4 main(float2 fragCoord) {
     float aaFactor = 0.0;
     float d = smoothSdfD(rectData.pos, shapeCtxFromArray(u_baseShapeCtxArray), aaFactor);
     half4 surface = half4(uSurfaceColor.rgb, 1.0);
-    half4 color = blendShadowColor(coords, rectData, surface, d);
+    half4 color = blendShadowColor(coords, rectData, surface, d, false);
     if (dot(rectData.pos, rectData.pos) >= EPS) {
-        color = blendEdge(rectData, color, surface, d);
+        color = blendEdge(rectData, color, surface, d, false);
     }
     color.rgb = mix(surface.rgb, clamp(color.rgb, 0.0, 1.0), uEffectAlpha);
     // The material-only pass has no fill. Retain the premultiplied light as an overlay;
@@ -512,8 +509,9 @@ half4 originCol = u_originShader.eval(min(max(position, float2(2.0)), u_size));
 half4 outputCol = clamp(vec4(originCol.rgb/max(originCol.a, EPS), 1.0), 0.0, 1.0);
 half4 rawCol = outputCol;
 outputCol = mix(outputCol, half4(u_color.rgb, 1.0), u_color.a);
-outputCol = blendShadowColor(coords, rectData, outputCol, sdf);
-outputCol = blendEdge(rectData, outputCol, rawCol, sdf);
+bool useMenuLightEdge = uUseMenuLightEdge > 0.5;
+outputCol = blendShadowColor(coords, rectData, outputCol, sdf, useMenuLightEdge);
+outputCol = blendEdge(rectData, outputCol, rawCol, sdf, useMenuLightEdge);
 outputCol = clamp(outputCol, 0.0, 1.0);
 // 只染材质与背景光效, 在覆盖率之前处理, 不填充透明区域或影响前景。
 if(u_themeTint.a > 0.0){

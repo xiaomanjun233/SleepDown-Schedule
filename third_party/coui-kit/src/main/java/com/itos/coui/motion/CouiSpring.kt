@@ -28,7 +28,7 @@ internal class CouiSpring(
     var velocity: Float = 0f
         private set
 
-    /** 可选边界交给 AndroidX 积分器，避免仅裁剪绘制导致越界速度和回弹时机不同。 */
+    /** 可选边界交给 AndroidX 积分器；仅裁剪绘制结果会改变越界期间的速度和回弹时机。 */
     fun setBounds(minimum: Float, maximum: Float) {
         require(minimum.isFinite() && maximum.isFinite() && minimum <= maximum)
         minValue = minimum
