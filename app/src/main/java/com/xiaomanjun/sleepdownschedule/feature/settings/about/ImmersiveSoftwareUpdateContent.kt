@@ -1,5 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings.about
 
+import android.graphics.BlendMode
+import android.graphics.LinearGradient
+import android.graphics.RenderEffect
+import android.graphics.Shader
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -25,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -33,7 +38,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -77,8 +85,17 @@ internal fun ImmersiveSoftwareUpdateContent(
         val viewport = maxHeight
         val titleArea = (viewport * .52f - top).coerceAtLeast(120.dp)
         val producer = if (wallpaper != null) Modifier.glassBackdropProducer(wallpaper) else Modifier
+        val density = LocalDensity.current
+        val wallpaperEffect = if (Build.VERSION.SDK_INT >= 31 && wallpaper != null && viewport > 0.dp) {
+            remember(viewport, density) {
+                with(density) { softwareUpdateWallpaperBlur(viewport.toPx(), 26.dp.toPx()) }
+            }
+        } else null
         Box(Modifier.matchParentSize().then(producer).background(SoftwareUpdateBackground)) {
-            Image(painterResource(R.drawable.software_update_wallpaper), null, Modifier.matchParentSize(),
+            val wallpaperModifier = if (wallpaperEffect == null) Modifier
+                else Modifier.graphicsLayer { renderEffect = wallpaperEffect }
+            Image(painterResource(R.drawable.software_update_wallpaper), null,
+                Modifier.matchParentSize().then(wallpaperModifier),
                 contentScale = ContentScale.Crop)
             Box(Modifier.matchParentSize().background(Brush.verticalGradient(
                 0f to Color(0x2612152D),
@@ -127,6 +144,18 @@ internal fun ImmersiveSoftwareUpdateContent(
             }
         }
     }
+}
+
+@androidx.annotation.RequiresApi(31)
+private fun softwareUpdateWallpaperBlur(height: Float, radius: Float): androidx.compose.ui.graphics.RenderEffect {
+    val mask = LinearGradient(0f, height * .52f, 0f, height,
+        intArrayOf(0x00FFFFFF, 0x38FFFFFF, 0x9AFFFFFF.toInt(), -1),
+        floatArrayOf(0f, .28f, .68f, 1f), Shader.TileMode.CLAMP)
+    val blurred = RenderEffect.createBlurEffect(radius, radius, Shader.TileMode.CLAMP)
+    val fadedBlur = RenderEffect.createBlendModeEffect(blurred,
+        RenderEffect.createShaderEffect(mask), BlendMode.DST_IN)
+    return RenderEffect.createBlendModeEffect(RenderEffect.createOffsetEffect(0f, 0f),
+        fadedBlur, BlendMode.SRC_OVER).asComposeRenderEffect()
 }
 
 @Composable
@@ -187,7 +216,7 @@ internal fun SoftwareUpdateVersionNotes(version: String, wallpaper: Backdrop?, m
     val arrowRotation by animateFloatAsState(if (expanded) 180f else 0f, tween(240), label = "update-notes-arrow")
     val headingStyle = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = 19.sp, lineHeight = 26.sp)
     val bodyStyle = rememberCouiTextStyle(CouiTextKind.PreferenceValue).copy(fontSize = 15.sp, lineHeight = 23.sp)
-    SoftwareUpdateCard(wallpaper, modifier) {
+    SoftwareUpdateCard(wallpaper, modifier, outline = false) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(18.dp)) {
             Text("软件版本", color = Color.White, style = headingStyle)
             Text(version, Modifier.padding(top = 5.dp), color = Color.White.copy(alpha = .9f), style = bodyStyle)
@@ -232,14 +261,20 @@ internal fun SoftwareUpdateVersionNotes(version: String, wallpaper: Backdrop?, m
 }
 
 @Composable
-private fun SoftwareUpdateCard(wallpaper: Backdrop?, modifier: Modifier, content: @Composable BoxScope.() -> Unit) {
+private fun SoftwareUpdateCard(
+    wallpaper: Backdrop?,
+    modifier: Modifier,
+    outline: Boolean = true,
+    content: @Composable BoxScope.() -> Unit,
+) {
     val shape = CouiShape(24.dp)
     val material = if (Build.VERSION.SDK_INT >= 31 && wallpaper != null) couiUpdateCardMaterial(wallpaper, shape)
         else Modifier
     val panelTint = if (wallpaper != null) Color(0x97151627) else Color(0xF0222337)
     Box(modifier.fillMaxWidth().clip(shape)) {
         if (wallpaper != null) Box(Modifier.matchParentSize().then(material))
-        Box(Modifier.matchParentSize().background(panelTint).then(couiUpdateCardOutline(shape)))
+        val outlineModifier = if (outline) couiUpdateCardOutline(shape) else Modifier
+        Box(Modifier.matchParentSize().background(panelTint).then(outlineModifier))
         content()
     }
 }
