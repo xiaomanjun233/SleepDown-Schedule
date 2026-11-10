@@ -7,8 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,10 +16,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -56,14 +58,12 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
-import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.feature.course.management.HomeMenuActivitySourceFallback
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchoolPickerScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportHistoryBackgroundCapture
 import com.xiaomanjun.sleepdownschedule.feature.importing.ConfirmScheduleScreen
-import com.xiaomanjun.sleepdownschedule.feature.importing.ImportTabsHeight
 import com.xiaomanjun.sleepdownschedule.feature.importing.NormalizedAiManualImportScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.PendingImportSetupStore
 import com.xiaomanjun.sleepdownschedule.feature.importing.UnifiedImportTabs
@@ -110,6 +110,25 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
             val retainedTabs = rememberSaveableStateHolder()
             val focus = LocalFocusManager.current
             val keyboard = LocalSoftwareKeyboardController.current
+            val selectTab by rememberUpdatedState<(Int) -> Unit> { index ->
+                if (index != selectedTab) {
+                    focus.clearFocus(force = true)
+                    keyboard?.hide()
+                    selectedTab = index
+                }
+            }
+            val importTabs = remember {
+                movableContentOf {
+                    Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                        UnifiedImportTabs(
+                            selectedIndex = selectedTab,
+                            onSelected = selectTab,
+                            dark = appUsesDarkTheme(state.config),
+                            enabled = !form.submitting,
+                        )
+                    }
+                }
+            }
             val recordingDensity = LocalDensity.current
             val refreshScope = rememberCoroutineScope()
             var historyBounds by remember { mutableStateOf(Rect.Zero) }
@@ -265,14 +284,13 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                         }
                     ) { backdrop ->
                         val topPadding = detailContentTopPadding()
-                        val tabArea = ImportTabsHeight + 16.dp
                         Box(Modifier.fillMaxSize()) {
                             if (schoolSelected) retainedTabs.SaveableStateProvider("school-import") {
                                 EduSchoolPickerScreen(
                                     state = state,
                                     backdrop = backdrop,
                                     warehouseGeneration = warehouseGeneration,
-                                    additionalTopPadding = if (unifiedImport) tabArea else 0.dp,
+                                    listHeader = importTabs.takeIf { unifiedImport },
                                     onSelect = { adapter ->
                                         ActivityTransitionCoordinator.openImmediate(
                                             this@EduSchoolSelectActivityHost,
@@ -282,7 +300,8 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                         )
                                     }
                                 )
-                            } else Box(Modifier.fillMaxSize().padding(top = topPadding + tabArea)) {
+                            } else Column(Modifier.fillMaxSize().padding(top = topPadding)) {
+                                importTabs()
                                 NormalizedAiManualImportScreen(
                                     state = state, backdrop = backdrop, onCancel = requestClose,
                                     initialText = form.input,
@@ -313,22 +332,6 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                             )
                                         }
                                     }
-                                )
-                            }
-                            if (unifiedImport) Box(
-                                Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = topPadding)
-                                    .background(settingsPageBackground(settingsVisualConfig(state.config)))
-                                    .padding(horizontal = 16.dp, vertical = 8.dp)
-                            ) {
-                                UnifiedImportTabs(
-                                    selectedIndex = selectedTab,
-                                    onSelected = {
-                                        focus.clearFocus(force = true)
-                                        keyboard?.hide()
-                                        selectedTab = it
-                                    },
-                                    dark = appUsesDarkTheme(state.config),
-                                    enabled = !form.submitting
                                 )
                             }
                         }

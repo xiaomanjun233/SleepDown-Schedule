@@ -148,7 +148,7 @@ fun EduSchoolPickerScreen(
     warehouseGeneration: Int = 0,
     availableAdapters: List<EduAdapter>? = null,
     adapterBadge: (EduAdapter) -> String? = { null },
-    additionalTopPadding: Dp = 0.dp,
+    listHeader: (@Composable () -> Unit)? = null,
     onSelect: (EduAdapter) -> Unit
 ) {
     val context = LocalContext.current
@@ -190,7 +190,7 @@ fun EduSchoolPickerScreen(
         backdrop = backdrop,
         adapters = filtered,
         adapterBadge = adapterBadge,
-        additionalTopPadding = additionalTopPadding,
+        listHeader = listHeader,
         query = query,
         onQueryChange = { query = it },
         onSelect = { school ->
@@ -332,7 +332,7 @@ fun EduSchoolIndexedSelectScreen(
     query: String,
     onQueryChange: (String) -> Unit,
     adapterBadge: (EduAdapter) -> String? = { null },
-    additionalTopPadding: Dp = 0.dp,
+    listHeader: (@Composable () -> Unit)? = null,
     onSelect: (EduSchool) -> Unit
 ) {
     val window = LocalActivity.current?.window
@@ -355,7 +355,7 @@ fun EduSchoolIndexedSelectScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
-    val topPadding = detailContentTopPadding() + additionalTopPadding
+    val topPadding = detailContentTopPadding()
     val schoolGroups = remember(adapters) {
         adapters
             .groupBy { it.school.id }
@@ -398,9 +398,10 @@ fun EduSchoolIndexedSelectScreen(
             grouped.forEach { (letter, schools) -> add(EduSchoolSection(letter, letter, schools, letter)) }
         }
     }
-    val sectionPositions = remember(sections) {
+    val hasListHeader = listHeader != null
+    val sectionPositions = remember(sections, hasListHeader) {
         buildMap {
-            var index = 0
+            var index = if (hasListHeader) 1 else 0
             sections.forEach { section ->
                 section.letter?.let { put(it, index) }
                 index += 1 + section.schools.size
@@ -548,6 +549,9 @@ fun EduSchoolIndexedSelectScreen(
                     bottom = listDockClearance + 12.dp
                 )
             ) {
+                if (listHeader != null) {
+                    item(key = "edu-school-header") { listHeader() }
+                }
                 if (adapters.isEmpty()) {
                     item { Text("没有找到学校适配资源", color = MaterialTheme.colorScheme.error) }
                 } else {

@@ -46,13 +46,13 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
-import com.itos.coui.segmentbutton.CouiSegmentedControl
+import com.itos.coui.segmentbutton.CouiSegmentedControlDefaults
+import com.itos.coui.segmentbutton.SegmentedControl
 import com.itos.coui.shape.CouiCapsuleShape
 import com.itos.coui.shape.CouiShape
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
-internal val ImportTabsHeight = 48.dp
 private val ImportTabLabels = listOf("常规导入", "教务系统导入")
 
 @Composable
@@ -63,12 +63,10 @@ internal fun UnifiedImportTabs(
     enabled: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val track = if (dark) Color(0xFF202020) else Color(0xFFE6E7E9)
     if (Build.VERSION.SDK_INT >= 34) {
-        CouiSegmentedControl(
+        SegmentedControl(
             modifier = modifier, labels = ImportTabLabels, selectedIndex = selectedIndex,
-            onSelected = onSelected, dark = dark, enabled = enabled, height = ImportTabsHeight,
-            commitOnRelease = true, surfaceModifier = Modifier.background(track, CouiCapsuleShape)
+            onSelected = onSelected, dark = dark, enabled = enabled, small = true,
         )
         return
     }
@@ -76,25 +74,22 @@ internal fun UnifiedImportTabs(
     val select by rememberUpdatedState(onSelected)
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     BoxWithConstraints(
-        modifier.fillMaxWidth().height(ImportTabsHeight).clip(CouiCapsuleShape).background(track)
+        modifier.width(192.dp).height(CouiSegmentedControlDefaults.smallHeight)
+            .clip(CouiCapsuleShape).background(CouiSegmentedControlDefaults.containerColor(dark))
             .selectableGroup()
             .pointerInput(enabled, rtl) {
                 if (!enabled) return@pointerInput
-                var target: Int? = null
-                detectHorizontalDragGestures(
-                    onDragStart = { target = null },
-                    onDragEnd = { target?.let(select) }
-                ) { change, _ ->
+                detectHorizontalDragGestures { change, _ ->
                     change.consume()
-                    target = if ((change.position.x < size.width / 2f) != rtl) 0 else 1
+                    select(if ((change.position.x < size.width / 2f) != rtl) 0 else 1)
                 }
             }
-            .padding(4.dp)
+            .padding(2.dp)
     ) {
         val halfWidth = maxWidth / 2
         Box(
             Modifier.offset(x = halfWidth * indicator).width(halfWidth).fillMaxHeight()
-                .background(if (dark) Color(0xFF484848) else Color.White, CouiCapsuleShape)
+                .background(CouiSegmentedControlDefaults.indicatorColor(dark), CouiCapsuleShape)
         )
         Row(Modifier.fillMaxSize()) {
             ImportTabLabels.forEachIndexed { index, label ->
