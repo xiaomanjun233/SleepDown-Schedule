@@ -116,6 +116,9 @@ import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.animateScrollToTop
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
 import com.xiaomanjun.sleepdownschedule.domain.course.*
@@ -127,6 +130,9 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.previewCourseEdits
 import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.legacy.*
@@ -141,7 +147,7 @@ import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 
-private val CourseManagementCardShape = RoundedRectangle(20.dp)
+internal val CourseManagementCardShape = RoundedRectangle(20.dp)
 
 @Composable
 internal fun CourseManagementColorProvider(
@@ -225,8 +231,8 @@ internal fun managedCourseGroupForCourseId(
 @Composable
 internal fun CourseManagementScreen(
     state: AppState,
-    backdrop: Backdrop?,
     onBack: () -> Unit,
+    onDelete: suspend (List<CourseEntity>) -> Unit,
     transitionActivity: ComponentActivity? = null,
     captureTransitionFrame: suspend () -> Bitmap? = { null },
     transitionRootPosition: Offset = Offset.Zero,
@@ -244,6 +250,13 @@ internal fun CourseManagementScreen(
     val foreground = appPanelForegroundColor(state.config)
     val scope = rememberCoroutineScope()
     val activity = transitionActivity
+    val selection = remember(state.config.id) { CourseCardSelection() }
+    val pageConfig = settingsVisualConfig(state.config)
+    val pageColor = settingsPageBackground(pageConfig)
+    val listBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "course-management-list") {
+        drawRect(pageColor)
+        drawContent()
+    }
     var hiddenGroupKey by remember { mutableStateOf<String?>(null) }
 
     BackHandler(onBack = onBack)
@@ -259,14 +272,14 @@ internal fun CourseManagementScreen(
             LazyVerticalStaggeredGrid(
                 columns = StaggeredGridCells.Fixed(2),
                 state = listState,
-                modifier = Modifier.fillMaxSize().animateScrollToTop {
+                modifier = Modifier.fillMaxSize().glassBackdropProducer(listBackdrop).animateScrollToTop {
                     if (listState.canScrollBackward) listState.animateScrollToItem(0)
                 },
                 contentPadding = PaddingValues(
                     start = 12.dp,
                     top = detailContentTopPadding() + 8.dp,
                     end = 12.dp,
-                    bottom = 16.dp
+                    bottom = if (selection.active) detailContentBottomPadding() + CourseCardDeleteBottomSpace else 16.dp
                 ),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalItemSpacing = 8.dp
@@ -276,11 +289,14 @@ internal fun CourseManagementScreen(
                         group = group,
                         config = state.config,
                         periods = state.periods,
+                        selection = selection,
+                        enabled = hiddenGroupKey == null,
                         sourceHidden = hiddenGroupKey == group.key,
                         onClick = { sourceBounds, currentBounds ->
-                            if (hiddenGroupKey != null) return@ManagedCourseListCard
+                            if (hiddenGroupKey != null || selection.active) return@ManagedCourseListCard
                             scope.launch {
                                 val fullFrame = captureTransitionFrame()
+                                if (selection.active || hiddenGroupKey != null) return@launch
                                 val sourceSnapshot = fullFrame?.cropToCourseManagementBounds(
                                     sourceBounds,
                                     transitionRootPosition
@@ -345,6 +361,15 @@ internal fun CourseManagementScreen(
                 }
             }
         }
+        CourseCardSelectionChrome(
+            selection = selection,
+            cards = remember(groups) { groups.associateBy(ManagedCourseGroup::key) },
+            config = pageConfig,
+            backdrop = listBackdrop,
+            confirmationTitle = "删除课程？",
+            confirmationMessage = { count -> "将删除 ${count} 门课程及其全部安排。" },
+            onDelete = { selected -> onDelete(selected.flatMap(ManagedCourseGroup::courses)) }
+        )
     }
 
 }
@@ -354,6 +379,8 @@ private fun ManagedCourseListCard(
     group: ManagedCourseGroup,
     config: ScheduleConfigEntity,
     periods: List<PeriodEntity>,
+    selection: CourseCardSelection,
+    enabled: Boolean,
     sourceHidden: Boolean,
     onClick: (Rect, () -> Rect?) -> Unit
 ) {
@@ -364,10 +391,8 @@ private fun ManagedCourseListCard(
         modifier = Modifier
             .fillMaxWidth()
             .onGloballyPositioned { coordinates = it; sourceBounds = it.boundsInWindow() }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
+            .clip(CourseManagementCardShape)
+            .courseCardInteraction(selection, group.key, enabled, appUsesDarkTheme(config)) {
                 sourceBounds?.let { bounds ->
                     onClick(bounds) {
                         coordinates?.takeIf { it.isAttached }?.let { current ->
@@ -384,6 +409,8 @@ private fun ManagedCourseListCard(
             group = group,
             config = config,
             periods = periods,
+            checkedForDeletion = if (selection.active) group.key in selection.selectedKeys else null,
+            selectionEnabled = enabled && !selection.deleting,
             modifier = Modifier
                 .fillMaxWidth()
                 .graphicsLayer { alpha = if (sourceHidden) 0f else 1f }
@@ -427,7 +454,9 @@ internal fun ManagedCourseListCardContent(
     config: ScheduleConfigEntity,
     periods: List<PeriodEntity>,
     modifier: Modifier,
-    selected: Boolean = false
+    selected: Boolean = false,
+    checkedForDeletion: Boolean? = null,
+    selectionEnabled: Boolean = true,
 ) {
     val representative = group.representative
     val cardColor = courseCardBaseColor(config, representative)
@@ -471,14 +500,16 @@ internal fun ManagedCourseListCardContent(
                     .weight(1f)
                     .padding(start = 8.dp)
             )
-            Icon(
-                painter = painterResource(R.drawable.ic_arrow_back),
-                contentDescription = null,
-                tint = textColor.copy(alpha = 0.70f),
-                modifier = Modifier
-                    .size(16.dp)
-                    .graphicsLayer { rotationZ = 180f }
-            )
+            if (checkedForDeletion != null) {
+                CourseCardSelectionCheck(checkedForDeletion, selectionEnabled, appUsesDarkTheme(config))
+            } else {
+                Icon(
+                    painter = painterResource(R.drawable.ic_arrow_back),
+                    contentDescription = null,
+                    tint = textColor.copy(alpha = 0.70f),
+                    modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = 180f }
+                )
+            }
         }
         if (locations.isNotEmpty()) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {

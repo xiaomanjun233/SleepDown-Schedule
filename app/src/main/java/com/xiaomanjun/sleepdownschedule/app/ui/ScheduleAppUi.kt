@@ -3088,6 +3088,7 @@ fun CourseScheduleAppUi(
                             when (destination) {
                                 HomeSidebarDestination.Courses -> LandscapeCourseManagementPane(
                                     state = state, onSave = viewModel::saveManagedCourseGroup,
+                                    onDelete = { viewModel.deleteManagedCourses(state.config.id, it) },
                                     onExitHandlerChange = { coursePaneExitHandler = it }
                                 )
                                 HomeSidebarDestination.EduImport -> CompositionLocalProvider(

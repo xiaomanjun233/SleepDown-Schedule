@@ -46,7 +46,7 @@ fun resolvedCourseCardPalette(
 }
 
 fun courseCardColorKey(course: CourseEntity): String =
-    course.name.trim().lowercase().ifBlank { "course:${course.id}" }
+    com.xiaomanjun.sleepdownschedule.model.courseNameGroupKey(course)
 
 
 private fun courseCardHueDistance(first: Float, second: Float): Float {

@@ -108,12 +108,12 @@ open class CourseManagementActivity : ComponentActivity() {
                                         title = "课程管理",
                                         config = state.config,
                                         onBack = requestClose
-                                    ) { backdrop ->
+                                    ) {
                                         val transitionDensity = LocalDensity.current
                                         CourseManagementScreen(
                                              state = state,
-                                             backdrop = backdrop,
                                              onBack = requestClose,
+                                            onDelete = { viewModel.deleteManagedCourses(state.config.id, it) },
                                             transitionActivity = this@CourseManagementActivity,
                                             captureTransitionFrame = {
                                                 pageSnapshotRequested.set(true)

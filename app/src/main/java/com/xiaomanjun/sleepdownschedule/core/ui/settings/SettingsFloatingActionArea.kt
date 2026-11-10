@@ -24,13 +24,14 @@ import androidx.compose.ui.unit.dp
 internal fun BoxScope.SettingsFloatingActionArea(
     pageColor: Color,
     dark: Boolean,
+    followIme: Boolean = true,
     action: @Composable (Modifier) -> Unit,
 ) {
     val density = LocalDensity.current
-    val imeLift = with(density) {
+    val imeLift = if (followIme) with(density) {
         (WindowInsets.ime.getBottom(this) - WindowInsets.navigationBars.getBottom(this))
             .coerceAtLeast(0).toDp()
-    }
+    } else 0.dp
     Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(168.dp + imeLift)
         .background(Brush.verticalGradient(listOf(
             pageColor.copy(alpha = 0f),
@@ -38,6 +39,7 @@ internal fun BoxScope.SettingsFloatingActionArea(
             pageColor.copy(alpha = if (dark) 0.76f else 0.70f),
             pageColor.copy(alpha = if (dark) 0.94f else 0.92f)
         ))))
-    action(Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding()
+    val imeAvoidance = if (followIme) Modifier.imePadding() else Modifier
+    action(Modifier.align(Alignment.BottomCenter).then(imeAvoidance).navigationBarsPadding()
         .padding(start = 16.dp, end = 16.dp, bottom = 18.dp).fillMaxWidth())
 }

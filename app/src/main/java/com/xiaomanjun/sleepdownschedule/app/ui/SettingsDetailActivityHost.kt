@@ -253,6 +253,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                     centerCompactTitle = section.usesPersistentCenteredSettingsTitle(),
                     compactTitleMatchesSettings = section.usesPersistentCenteredSettingsTitle(),
                     topBarVisible = !widgetEditorVisible,
+                    avoidIme = !isTimeSlotEditor,
                     onBack = requestExit,
                     topBarNavigation = if (immersiveUpdate) {
                         { SoftwareUpdateToolbarButton(CouiIcons.Back, "返回", requestExit) }
@@ -339,7 +340,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 onExitInterceptionChange = { interceptSystemBack = it }
                             ) else
                             TimeSlotCourseManagementScreen(
-                                state = scheduleEditState, backdrop = backdrop, exitCommitRequest = scheduleExitRequest,
+                                state = scheduleEditState, exitCommitRequest = scheduleExitRequest,
                                 onExitCommitFinished = { saved -> if (saved) closeSettings() },
                                 onExitInterceptionChange = { interceptSystemBack = it }
                             )

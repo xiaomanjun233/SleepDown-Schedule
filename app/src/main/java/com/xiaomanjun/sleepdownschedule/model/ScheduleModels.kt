@@ -77,6 +77,9 @@ data class CourseEntity @Ignore constructor(
         scheduleId, customPeriodTimes, originalPeriodTimes, null)
 }
 
+internal fun courseNameGroupKey(course: CourseEntity): String =
+    course.name.trim().lowercase().ifBlank { "course:${course.id}" }
+
 @Entity(tableName = "schedule_profiles")
 @Immutable
 data class ScheduleProfileEntity(

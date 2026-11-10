@@ -24,10 +24,15 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
 import com.xiaomanjun.sleepdownschedule.domain.schedule.schemeConfig
 import com.xiaomanjun.sleepdownschedule.domain.schedule.withEffectiveCourseArrangements
 import com.xiaomanjun.sleepdownschedule.domain.schedule.timingPreviewState
+import com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotCourse
+import com.xiaomanjun.sleepdownschedule.domain.schedule.decodeTimeSlotCourses
+import com.xiaomanjun.sleepdownschedule.domain.schedule.editTimeSlotCourse
+import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeTimeSlotCourses
 import com.xiaomanjun.sleepdownschedule.domain.schedule.resolveCourseOccurrence
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments
 import com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset
 import com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode
+import com.xiaomanjun.sleepdownschedule.model.courseNameGroupKey
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentActionScope
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedAction
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedActionType
@@ -571,6 +576,18 @@ class ScheduleRepository(private val database: AppDatabase) {
         }
     }
 
+    suspend fun deleteManagedCourses(scheduleId: Int, courses: List<CourseEntity>) {
+        if (courses.isEmpty()) return
+        database.withTransaction {
+            require(activeScheduleId() == scheduleId) { "当前课表已变化，请重新选择课程" }
+            val expected = courses.map { it.originalArrangement() }.toSet()
+            val keys = expected.map(::courseNameGroupKey).toSet()
+            val current = courseDao.getCourses(scheduleId).filter { courseNameGroupKey(it) in keys }
+            require(current.toSet() == expected) { "所选课程的安排已变化，请重新确认" }
+            current.forEach { courseDao.deleteCourse(it.id) }
+        }
+    }
+
     suspend fun deleteCoursesSingleWeek(courses: List<CourseEntity>, targetWeek: Int) {
         if (courses.isEmpty()) return
         database.withTransaction {
@@ -892,6 +909,17 @@ class ScheduleRepository(private val database: AppDatabase) {
         configDao.upsertConfig(current.copy(
             timeSlotCoursesJson = com.xiaomanjun.sleepdownschedule.domain.schedule.encodeTimeSlotCourses(courses)
         ))
+    }
+
+    suspend fun deleteTimeSlotCourses(scheduleId: Int, originals: List<TimeSlotCourse>) {
+        if (originals.isEmpty()) return
+        database.withTransaction {
+            val current = requireNotNull(configDao.getConfig(scheduleId)) { "课表已不存在，请重新打开" }
+            val remaining = originals.fold(decodeTimeSlotCourses(current.timeSlotCoursesJson)) { courses, original ->
+                editTimeSlotCourse(courses, original, updated = null)
+            }
+            configDao.upsertConfig(current.copy(timeSlotCoursesJson = encodeTimeSlotCourses(remaining)))
+        }
     }
 
     suspend fun saveConfigChanges(original: ScheduleConfigEntity, updated: ScheduleConfigEntity) {

@@ -2,17 +2,28 @@ package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import android.os.Build
 import android.view.View
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
+import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CalendarToday
+import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -21,21 +32,28 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.itos.coui.floatingactionbutton.CouiFabDefaults
 import com.itos.coui.floatingactionbutton.Fab
-import com.itos.coui.layout.CouiPageDefaults
+import com.itos.coui.scroll.rememberCouiOverscrollEffect
+import com.itos.coui.shape.CouiShape
 import com.kyant.backdrop.Backdrop
+import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.animateScrollToTop
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.shortListPull
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
@@ -77,12 +95,12 @@ fun TimeSlotCoursesSettings(config: ScheduleConfigEntity, backdrop: Backdrop?, o
 @Composable
 fun TimeSlotCourseManagementScreen(
     state: AppState,
-    backdrop: Backdrop?,
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
     onExitInterceptionChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
+    val repository = remember(context) { (context.applicationContext as CourseScheduleApp).repository }
     val scope = rememberCoroutineScope()
     val config = settingsVisualConfig(state.config)
     val activity = context.timeSlotTransitionActivity()
@@ -97,12 +115,21 @@ fun TimeSlotCourseManagementScreen(
     val decoded = remember(state.config.timeSlotCoursesJson) {
         runCatching { decodeTimeSlotCourses(state.config.timeSlotCoursesJson) }
     }
-    val currentCourses by rememberUpdatedState(decoded.getOrDefault(emptyList()))
+    val courses = decoded.getOrDefault(emptyList())
+    val currentCourses by rememberUpdatedState(courses)
     val currentState by rememberUpdatedState(state)
-    SideEffect { onExitInterceptionChange(launching != null) }
+    val selection = remember(state.config.id) { CourseCardSelection() }
+    SideEffect { onExitInterceptionChange(launching != null || selection.active) }
     DisposableEffect(Unit) { onDispose { onExitInterceptionChange(false) } }
     LaunchedEffect(exitCommitRequest) {
-        if (exitCommitRequest > 0 && launching == null) onExitCommitFinished(true)
+        if (exitCommitRequest > 0 && launching == null) {
+            if (selection.active) {
+                selection.cancel()
+                onExitCommitFinished(false)
+            } else {
+                onExitCommitFinished(true)
+            }
+        }
     }
     fun open(original: TimeSlotCourse?, sourceView: View?) {
         val owner = activity ?: return
@@ -125,40 +152,46 @@ fun TimeSlotCourseManagementScreen(
             }
         }
     }
-    val courses = decoded.getOrDefault(emptyList())
     val canAdd = decoded.isSuccess && courses.size < MaxTimeSlotCourses
+    val grid = rememberLazyStaggeredGridState()
+    val edge = if (!grid.canScrollForward && !grid.canScrollBackward) rememberCouiOverscrollEffect() else null
+    val shortPagePull = if (edge != null) Modifier.shortListPull(grid, edge) else Modifier
     Box(Modifier.fillMaxSize()) {
-        SleepDownSecondaryPageList(
-            modifier = Modifier.fillMaxSize().glassBackdropProducer(bodyBackdrop),
-            contentTopPadding = detailContentTopPadding(),
-            contentBottomPadding = detailContentBottomPadding() + 74.dp,
-            sectionSpacing = CouiPageDefaults.groupSpacing,
+        LazyVerticalStaggeredGrid(
+            columns = StaggeredGridCells.Fixed(2),
+            state = grid,
+            modifier = Modifier.fillMaxSize().glassBackdropProducer(bodyBackdrop)
+                .animateScrollToTop { if (grid.canScrollBackward) grid.animateScrollToItem(0) }
+                .then(shortPagePull),
+            contentPadding = PaddingValues(
+                start = 16.dp, end = 16.dp,
+                top = detailContentTopPadding() + 12.dp,
+                bottom = detailContentBottomPadding() + CourseCardDeleteBottomSpace,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalItemSpacing = 8.dp,
+            userScrollEnabled = edge == null,
         ) {
-            item(key = "description") {
+            item(key = "description", span = StaggeredGridItemSpan.FullLine) {
                 Text("可安排早读、午休和晚自修等固定时间，不参与课程提醒。",
-                    modifier = Modifier.padding(horizontal = 8.dp),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(courses, key = { "slot:${it.id}" }) { slot ->
-                val resolved = resolvedTimeSlotCourse(slot, state.periods)
-                val summary = "${resolved.startTime}–${resolved.endTime} · ${timeSlotWeekdaySummary(slot.weekdays)}"
-                val placement = if (slot.displayMode == TimeSlotDisplayMode.INDEPENDENT)
-                    timeSlotAnchorLabel(slot.afterPeriod) else "智能显示"
-                LiveTransitionButton(Modifier.fillMaxWidth(), cornerRadius = 24.dp) { sourceView ->
-                    SettingsGroup(backdrop, config, Modifier.fillMaxWidth(), topSpacing = 0.dp) {
-                        SettingsNavigationRow(slot.name, "$summary\n$placement",
-                            leadingIcon = Icons.Outlined.Schedule, onClick = { open(slot, sourceView) })
-                    }
+                val resolved = remember(slot, state.periods) { resolvedTimeSlotCourse(slot, state.periods) }
+                LiveTransitionButton(Modifier.fillMaxWidth(), cornerRadius = 12.dp) { sourceView ->
+                    TimeSlotCourseCard(resolved, selection, launching == null, dark) { open(slot, sourceView) }
                 }
             }
             val problem = decoded.exceptionOrNull()?.let { "特殊课程数据无法读取，原数据已保留：${it.message}" } ?: error
-            if (problem != null) item(key = "error") { Text(problem, color = MaterialTheme.colorScheme.error) }
-            if (courses.size >= MaxTimeSlotCourses) item(key = "limit") {
+            if (problem != null) item(key = "error", span = StaggeredGridItemSpan.FullLine) {
+                Text(problem, color = MaterialTheme.colorScheme.error)
+            }
+            if (courses.size >= MaxTimeSlotCourses) item(key = "limit", span = StaggeredGridItemSpan.FullLine) {
                 Text("最多添加 $MaxTimeSlotCourses 个时间段", color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodySmall)
             }
         }
-        Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = 18.dp)) {
+        if (!selection.active) Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = 16.dp)) {
             LiveTransitionButton { sourceView ->
                 val onAdd = { open(null, sourceView) }
                 val primary = MaterialTheme.colorScheme.primary
@@ -169,10 +202,66 @@ fun TimeSlotCourseManagementScreen(
                     }
                 } else {
                     SleepDownFloatingAddButton(bodyBackdrop, "添加特殊课程", onAdd,
-                        primary.copy(alpha = .76f), blurRadius = 8.dp, enabled = canAdd)
+                        primary.copy(alpha = .76f), blurRadius = 8.dp, enabled = canAdd, buttonSize = 56.dp)
                 }
             }
         }
+        CourseCardSelectionChrome(
+            selection = selection,
+            cards = remember(courses) { courses.associateBy(TimeSlotCourse::id) },
+            config = config,
+            backdrop = bodyBackdrop,
+            confirmationTitle = "删除特殊课程？",
+            confirmationMessage = { count -> "将从此课表删除 ${count} 个特殊课程。" },
+            onDelete = { repository.deleteTimeSlotCourses(state.config.id, it) }
+        )
+    }
+}
+
+@Composable
+private fun TimeSlotCourseCard(
+    slot: TimeSlotCourse,
+    selection: CourseCardSelection,
+    enabled: Boolean,
+    dark: Boolean,
+    onOpen: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    val foreground = colors.onSurface
+    Column(
+        Modifier.fillMaxWidth().clip(CouiShape(12.dp, 2.5f))
+            .background(colors.surfaceContainerHigh)
+            .courseCardInteraction(selection, slot.id, enabled, dark, onClick = onOpen)
+            .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Row(verticalAlignment = Alignment.Top) {
+            Text(slot.name, Modifier.weight(1f), color = foreground,
+                style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (selection.active) CourseCardSelectionCheck(
+                checked = slot.id in selection.selectedKeys, enabled = enabled && !selection.deleting, dark = dark
+            )
+        }
+        TimeSlotCourseCardInfo(Icons.Outlined.Schedule, "${slot.startTime}–${slot.endTime}", foreground)
+        TimeSlotCourseCardInfo(Icons.Outlined.CalendarToday, timeSlotWeekdaySummary(slot.weekdays), foreground)
+        val placement = if (slot.displayMode == TimeSlotDisplayMode.INDEPENDENT)
+            timeSlotAnchorLabel(slot.afterPeriod) else "智能显示"
+        TimeSlotCourseCardInfo(Icons.Outlined.ViewAgenda, placement, foreground)
+        if (slot.location.isNotBlank()) TimeSlotCourseCardInfo(Icons.Outlined.LocationOn, slot.location, foreground)
+    }
+}
+
+@Composable
+private fun TimeSlotCourseCardInfo(icon: ImageVector, label: String, foreground: Color) {
+    Row(
+        Modifier.fillMaxWidth().clip(Capsule()).background(foreground.copy(alpha = 0.06f))
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(icon, null, Modifier.size(14.dp), tint = foreground.copy(alpha = 0.66f))
+        Text(label, Modifier.weight(1f), color = foreground.copy(alpha = 0.82f),
+            style = MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -299,7 +388,7 @@ private fun TimeSlotCourseEditor(
     val actionClearance = with(LocalDensity.current) { actionHeight.toDp().coerceAtLeast(42.dp) } + 18.dp
     Box(Modifier.fillMaxSize()) {
         SleepDownSecondaryPageList(
-            modifier = Modifier.fillMaxSize().glassBackdropProducer(bodyBackdrop),
+            modifier = Modifier.fillMaxSize().glassBackdropProducer(bodyBackdrop).imePadding(),
             contentTopPadding = detailContentTopPadding(),
             contentBottomPadding = detailContentBottomPadding() + actionClearance
         ) {
@@ -403,7 +492,7 @@ private fun TimeSlotCourseEditor(
                     modifier = Modifier.fillMaxWidth(), destructive = true, glowing = true, enabled = !saving)
             }
         }
-        SettingsFloatingActionArea(pageColor, appUsesDarkTheme(config)) { modifier ->
+        SettingsFloatingActionArea(pageColor, appUsesDarkTheme(config), followIme = false) { modifier ->
             Column(modifier.onSizeChanged { actionHeight = it.height },
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 (error ?: saveError ?: positionError)?.let { message ->

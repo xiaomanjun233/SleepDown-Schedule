@@ -175,6 +175,11 @@ class ScheduleViewModel(
             repository.deleteCourses(courses)
         }
 
+    suspend fun deleteManagedCourses(scheduleId: Int, courses: List<CourseEntity>) {
+        repository.deleteManagedCourses(scheduleId, courses)
+        refreshCoordinator.request()
+    }
+
     fun deleteCoursesSingleWeek(courses: List<CourseEntity>, targetWeek: Int, onFailure: (() -> Unit)? = null) =
         launchCourseMutation("课程已删除", onFailure = onFailure) {
             repository.deleteCoursesSingleWeek(courses, targetWeek)
