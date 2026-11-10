@@ -139,7 +139,7 @@ fun TimeSlotCourseManagementScreen(
                     modifier = Modifier.padding(horizontal = 8.dp),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            items(courses, key = { it.id }) { slot ->
+            items(courses, key = { "slot:${it.id}" }) { slot ->
                 val resolved = resolvedTimeSlotCourse(slot, state.periods)
                 val summary = "${resolved.startTime}–${resolved.endTime} · ${timeSlotWeekdaySummary(slot.weekdays)}"
                 val placement = if (slot.displayMode == TimeSlotDisplayMode.INDEPENDENT)
