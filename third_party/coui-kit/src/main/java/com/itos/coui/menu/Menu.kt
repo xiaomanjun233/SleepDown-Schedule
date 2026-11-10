@@ -503,16 +503,18 @@ internal fun CouiMenuPopup(
     val density = LocalDensity.current
     val hostView = LocalView.current
     val placement = LocalCouiMenuStyle.current.placement
+    val contentBounds = LocalCouiMenuVisibleBounds.current
     val materialPositionProvider = remember(offset, density, placement, hostView) {
         CouiMenuPositionProvider(offset, density, placement) { couiMenuVisibleWindowBounds(hostView) }
     }
     val touchOffsetY = with(LocalDensity.current) { offset.y.roundToPx() }
-    val positionProvider = remember(materialPositionProvider, motion, anchor, touchOffsetY) {
+    val positionProvider = remember(materialPositionProvider, motion, anchor, touchOffsetY, contentBounds) {
         CouiMenuMotionPositionProvider(
             materialPositionProvider, motion,
             anchorPosition = { anchor?.positionInWindow },
-            visibleWindowBounds = { anchor?.visibleWindowBounds },
+            visibleWindowBounds = { contentBounds?.invoke() ?: anchor?.visibleWindowBounds },
             touchOffsetY = touchOffsetY,
+            contentBounds = contentBounds,
         )
     }
     val currentOnOutsideRequest by rememberUpdatedState(onOutsideRequest)
@@ -544,8 +546,8 @@ internal fun CouiMenuPopup(
             }.then(rootModifier),
             contentAlignment = AbsoluteAlignment.TopLeft,
         ) {
-            val menuHeightLimit = if (placement == CouiMenuPlacement.Default) Modifier else {
-                val visibleHeight = couiMenuVisibleWindowBounds(hostView)?.height
+            val menuHeightLimit = if (placement == CouiMenuPlacement.Default && contentBounds == null) Modifier else {
+                val visibleHeight = (contentBounds?.invoke() ?: couiMenuVisibleWindowBounds(hostView))?.height
                 val available = minOf(maxHeight, visibleHeight?.let { with(density) { it.toDp() } } ?: maxHeight)
                 Modifier.heightIn(max = (available - 48.dp).coerceAtLeast(1.dp))
             }

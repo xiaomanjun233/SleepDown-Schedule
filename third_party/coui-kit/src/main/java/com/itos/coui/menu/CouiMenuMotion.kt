@@ -124,6 +124,7 @@ internal class CouiMenuMotionPositionProvider(
     private val anchorPosition: () -> Offset?,
     private val visibleWindowBounds: () -> IntRect?,
     private val touchOffsetY: Int,
+    private val contentBounds: (() -> IntRect?)? = null,
 ) : PopupPositionProvider {
     var menuSize by mutableStateOf<IntSize?>(null)
     var popupOriginInHostWindow by mutableStateOf<IntOffset?>(null)
@@ -145,7 +146,7 @@ internal class CouiMenuMotionPositionProvider(
         val defaultPosition = delegate.calculatePosition(
             positioningAnchor, windowSize, layoutDirection, contentSize,
         )
-        val position = if (touchPosition != null) {
+        val candidate = if (touchPosition != null) {
             val visibleBounds = visibleWindowBounds() ?: IntRect(IntOffset.Zero, windowSize)
             val below = positioningAnchor.top + touchOffsetY
             val above = below - contentSize.height
@@ -160,6 +161,10 @@ internal class CouiMenuMotionPositionProvider(
         } else {
             defaultPosition
         }
+        val position = contentBounds?.invoke()?.let { frame ->
+            IntOffset(candidate.x.coerceIn(frame.left, (frame.right - contentSize.width).coerceAtLeast(frame.left)),
+                candidate.y.coerceIn(frame.top, (frame.bottom - contentSize.height).coerceAtLeast(frame.top)))
+        } ?: candidate
         val menuCenter = Offset(
             position.x + contentSize.width / 2f,
             position.y + contentSize.height / 2f,

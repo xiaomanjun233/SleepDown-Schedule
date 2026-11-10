@@ -6,6 +6,8 @@
 
 宿主保留 minSdk 26。只在本应用已接入的设置路径支持旧系统：Android 12 以下不录制或采样材质背景，顶栏、分组和控件保留 COUI 几何及排版；需要更高系统的浮动按钮由宿主按版本提供同尺寸普通表面。未接入组件仍遵循源码的 RequiresApi，不得因为模块 minSdk 降低而无条件调用。
 
+作息编辑使用本地 COUI-Kit `codex/modal-bottom-sheet` 的 `8e64196c`。只接入 Sheet、面板轮廓及面板内菜单边界。SleepDown 扩展入场和退场完成回调，草稿交接随实际退场完成；本页通过组件的 `draggable=false` 禁用下滑关闭。系统栏与材质按宿主 minSdk 门控。
+
 液态玻璃模式使用同一设置排版，背景材质由原有 glass 入口提供，关闭 COUI 材质采样。设置页直接使用 COUI Scaffold 与 Item；Dialog 和选择器按用户选择的视效分发，不能以设置作用域或私有 ColorOS 能力替代模式选择。Miuix 仍供液态弹窗及既有业务使用；构建开关不再切回旧设置页面。业务功能图标继续使用原 Rounded 图标。控件强调色来自宿主应用主题，中性页面及卡片角色保留 COUI 色板。
 
 本地改动：宿主构建插件/依赖声明；`LocalCouiMaterialEnabled`；Scaffold 在关闭材质时不录制正文；TopAppBarSurface 在关闭材质时只布局内容；Android 8 使用平台已有的 Typeface 样式接口，Android 9 起保留上游精确字重接口；Group 支持由已有宿主承担外边距和组间距，默认用法不变。公开 `ContentDialog` 门面委托上游 `CouiDialogWindow`，支持标题、固定 footer／操作区及实际退场完成回调；窗口清除模糊使用 API 31 门控，兼容宿主 minSdk 26。凝光选择器使用 WheelPicker／CalendarPicker；液态保留原选择器、开关和滑条材质。
