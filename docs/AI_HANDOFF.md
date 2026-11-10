@@ -1,5 +1,19 @@
 # 当前工作交接
 
+## 2026-11-10 2.0 版本候选与界面细节
+
+在 `codex/restore-activity-navigation` 的 `584b284e` 上续作，源码候选为 `3dccfe22`。GitHub 渠道应用版本名改为 2.0，版本代码为 36。有效的 1.2.8 Beta 内容和后续改动归并到 [2.0 更新日志](../release-notes/v2.0.md)，与包内资源逐字节一致。仓库中的旧 Beta 说明保留。
+
+关于首卡复用软件更新的蓝紫壁纸，按 ColorOS 17 Settings 的 `RoundRectDrawable` 使用 34dp 平滑圆角。开发者和仓库改为列表，GitHub 图标跟随副标题。致谢采用设置首页的前置图标列表。软件更新在同一壁纸上衔接状态卡和当前版说明卡，说明卡内可展开与折叠。两种卡共用 Kit 默认高光描边，操作按钮使用 Kit 触摸反馈。右上角菜单以原 196dp 扣去前置 20dp 图标和 12dp 间距，保留尾部留白及位置，点选即切页。
+
+导入滑块按 ColorOS 17「隐私与安全」核查。Settings 入口通过 `oplus.intent.action.permission.PRIVACY_SETTINGS` 到 SecurityPermission 的 `PrivacySecuritySettingsDashboardActivity`。对应布局使用铺满宽度的 `COUISegmentButtonLayout`，`SegmentButton` 样式是 40dp 高、4dp 内边距，布局上下各留 6dp。导入页采用同一尺寸的材质分段条，两边与输入区和教务列表对齐。教务分段条随列表滚动，搜索维持悬浮。
+
+导入历史滑删沿用 Kit Demo 的融合渲染与跟手位移。对照本地 ColorOS 17 SystemUI 17.99.02 的 `NotificationMenuRowItemViewParam`，删除操作按标准通知按钮的 60 × 68dp 和 24dp 静态图标实现。短滑露出，反向滑动收回，长滑在松手时提交，取消手势恢复原位。
+
+17 项定向测试通过。签名构建在客户端断开后复用已完成的 Kotlin 产物，完整完成 GitHub Release、R8、资源压缩与 lintVital。V2 签名证书与上一版一致。归档包 `tmp/review-apks/SleepDown-2.0-GitHub-3dccfe22.apk` 为 7,921,518 字节，SHA-256 为 `D468AF606225B506FFD726386681DDDB83F492FAE3E47DCB2B77D26DF8EF4702`。构建日志为主工作区的 `tmp/sleepdown-2.0-privacy-swipe-resumed-build.log`。
+
+后台 Pixel 10 Pro AVD 使用 Android 16、SDK ADB 37.0.1 的 5038 通道及隔离用户 10。通过本机 AVD 端点 `127.0.0.1:5557` 覆盖安装并回读相同 SHA，随后用 `emulator-5556` 点验。首次启动出现一次 MainActivity 焦点事件超时，重启应用后通过导入滑选、教务竖滚、历史短滑露出及收回、关于与致谢、当前说明展开与收起、菜单进入历史日志。864 × 1856、密度 320 的截图确认菜单从 x=440–832 收到 x=504–832，右缘一致。最终截图和实测日志位于主工作区 `tmp/nav3-qa/sleepdown-20-3dccfe22-*`。ColorOS 真机材质和系统动画待验收。
+
 ## 2026-11-10 COUI-Kit、统一导入与软件更新
 
 在 `codex/restore-activity-navigation` 的 `0387d8f9` 上续作，候选源码为 `584b284e`。用 GitHub 插件核对 ItosEO/COUI-Kit 的 `main`，同步到 [`3463800`](https://github.com/ItosEO/COUI-Kit/commit/3463800923d62f5b8c3156f0ad96265a24170aa1)，包含分段控件 PR #21。合并实际 Kit 模块差异，保留宿主的融合采样优化、HD 指示器模式、整排起滑与松手提交。提交 `058f4f02`。
