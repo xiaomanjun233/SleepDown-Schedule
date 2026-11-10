@@ -101,7 +101,9 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
 import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -170,6 +172,10 @@ fun NormalizedAiManualImportScreen(
     initialText: String? = null,
     onInitialTextConsumed: () -> Unit = {},
     transitionActive: Boolean = false,
+    inlinePreview: (@Composable () -> Unit)? = null,
+    inlineHasPreview: Boolean = false,
+    inlineSubmitting: Boolean = false,
+    onInlineTextChange: (String) -> Unit = {},
     onParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
@@ -233,8 +239,8 @@ fun NormalizedAiManualImportScreen(
         drawContent()
     }
     var historyEntries by remember { mutableStateOf(emptyList<AiImportHistoryEntry>()) }
-    LaunchedEffect(context) {
-        historyEntries = withContext(Dispatchers.IO) { AiImportHistoryStore.load(context) }
+    LaunchedEffect(context, inlinePreview != null) {
+        if (inlinePreview == null) historyEntries = withContext(Dispatchers.IO) { AiImportHistoryStore.load(context) }
     }
     val taskProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     LaunchedEffect(taskProgress?.taskId, taskProgress?.finished) {
@@ -246,7 +252,7 @@ fun NormalizedAiManualImportScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
+            if (event == Lifecycle.Event.ON_RESUME && inlinePreview == null) {
                 scope.launch {
                     historyEntries = withContext(Dispatchers.IO) { AiImportHistoryStore.load(context) }
                 }
@@ -353,6 +359,49 @@ fun NormalizedAiManualImportScreen(
         routeMessage = "正在使用拾光 ${request.label} 官方适配器读取口令…"
         target.loadUrl(adapter.importUrl.ifBlank { "about:blank" })
     }
+    suspend fun showLocallyParsedFile(draft: ImportDraft, fileName: String) {
+        if (inlinePreview == null) {
+            aiParsing = false
+            onParsed(draft)
+            return
+        }
+        val progress = ensureImportCheckpoint(
+            AiEduImportProgress(
+                routeLabel = "文件导入",
+                steps = listOf("已在本机读取并校验课表"),
+                attachmentTitle = fileName,
+                userPrompt = "导入这份课表",
+                liveSummary = "已读取 ${draft.courses.size} 门课程，可先核对或让 AI 修改。",
+                requestSent = true,
+                finished = true
+            ),
+            draft
+        )
+        if (progress.checkpoints.isEmpty()) {
+            aiParsing = false
+            onParsed(draft)
+            return
+        }
+        val historySaved = withContext(Dispatchers.IO) {
+            try {
+                AiImportHistoryStore.record(context, draft, progress)
+                true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
+            }
+        }
+        aiParsing = false
+        AiEduImportProgressSession.clearActions()
+        AiEduImportProgressSession.update(if (historySaved) progress
+            else progress.copy(checkpointNotice = "课表已读取，历史记录保存失败"))
+        context.openRegisteredActivity(
+            TransitionRouteId.ImportToAiProgress,
+            Intent(context, AiEduImportProgressActivity::class.java)
+                .putExtra(AiImportTaskManager.EXTRA_TASK_ID, progress.taskId)
+        )
+    }
     fun prepareImportFile(uri: Uri) {
         val settings = AiImportSettingsStore.load(context)
         aiSettings = settings
@@ -367,8 +416,7 @@ fun NormalizedAiManualImportScreen(
                     if (file.isIcs) {
                         val parsed = IcsScheduleCodec.parse(file.bytes, state.config)
                         if (parsed.isSuccess) {
-                            aiParsing = false
-                            onParsed(parsed.getOrThrow())
+                            showLocallyParsedFile(parsed.getOrThrow(), file.displayName)
                             return@fileLoaded
                         }
                         if (IcsScheduleCodec.isSleepDown(file.bytes)) {
@@ -389,8 +437,7 @@ fun NormalizedAiManualImportScreen(
                         }
                         val localDraft = localJson.getOrNull()
                         if (localDraft != null) {
-                            aiParsing = false
-                            onParsed(localDraft)
+                            showLocallyParsedFile(localDraft, file.displayName)
                             return@fileLoaded
                         }
                         if (localJson.isFailure) {
@@ -666,7 +713,48 @@ fun NormalizedAiManualImportScreen(
             Intent(context, AiEduImportProgressActivity::class.java)
         )
     }
-    AiManualImportDialogContent(
+    LaunchedEffect(inlinePreview != null, jsonText, state.loaded) {
+        if (inlinePreview == null || inlineHasPreview || !state.loaded || jsonText.isBlank() || aiParsing) {
+            return@LaunchedEffect
+        }
+        delay(300)
+        val text = jsonText
+        val local = withContext(Dispatchers.Default) { ScheduleImportParser.parse(text, state.config, state.periods) }
+        if (aiParsing || jsonText != text) return@LaunchedEffect
+        local.onSuccess {
+            error = null
+            onParsed(it)
+        }.onFailure {
+            // Plain bare codes can still be incomplete while typing. Only automatically
+            // resolve an unambiguously tagged cloud or sharing code.
+            if (CloudShortCode.extractCode(text) != null ||
+                WakeUpLabelledKey.containsMatchIn(text) || StarLinkStructuredCode.containsMatchIn(text)) {
+                parseDraft()
+            }
+        }
+    }
+    if (inlinePreview != null) {
+        InlineRegularImportForm(
+            config = state.config,
+            text = jsonText,
+            onTextChange = {
+                jsonText = it
+                error = null
+                routeMessage = null
+                onInlineTextChange(it)
+            },
+            enabled = state.loaded && !aiParsing && !inlineSubmitting,
+            resolving = aiParsing,
+            hasPreview = inlineHasPreview,
+            message = error ?: routeMessage,
+            hasError = error != null,
+            onParse = ::parseDraft,
+            onUpload = {
+                backgroundPermissionGate.continueWithPermissionTip { fileLauncher.launch(arrayOf("*/*")) }
+            },
+            preview = inlinePreview
+        )
+    } else AiManualImportDialogContent(
         state = state,
         backdrop = backdrop,
         onCancel = onCancel,

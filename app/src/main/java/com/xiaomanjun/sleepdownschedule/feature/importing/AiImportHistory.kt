@@ -28,6 +28,7 @@ object AiImportHistoryStore {
     private const val KeyEntries = "entries"
     private const val KeyRetentionDays = "retention_days"
     private const val ContextDirectory = "ai_import_history"
+    private const val StandardHistorySource = "sleepDownStandardImport"
     const val DefaultRetentionDays = DefaultAiImportHistoryRetentionDays
     val retentionOptions = AiImportHistoryRetentionOptions
 
@@ -41,7 +42,12 @@ object AiImportHistoryStore {
         load(context)
     }
 
-    @Synchronized fun record(context: Context, draft: ImportDraft, progress: AiEduImportProgress?) {
+    @Synchronized fun record(
+        context: Context,
+        draft: ImportDraft,
+        progress: AiEduImportProgress?,
+        sourceSummary: String? = null
+    ) {
         val existing = load(context)
         val sameTask = progress?.taskId?.takeIf { it.isNotBlank() }?.let { taskId ->
             existing.firstOrNull { it.context?.taskId == taskId }
@@ -52,9 +58,15 @@ object AiImportHistoryStore {
             return
         }
         val selected = selectedHistoryDraft(draft, progress)
-        val payload = validatedHistoryPayload(selected)
+        val standardImport = progress == null && draft.source == ImportDraftSource.STANDARD
+        val payload = validatedHistoryPayload(selected).let {
+            // The backup already transports this document verbatim. Older readers ignore the
+            // marker and can still read the same validated course and timetable fields.
+            if (standardImport) JSONObject(it).put(StandardHistorySource, true).toString() else it
+        }
         val newest = existing.firstOrNull()
-        if (newest != null && newest.payload == payload && System.currentTimeMillis() - newest.createdAt < 10_000L) {
+        if (!standardImport && newest != null && newest.payload == payload &&
+            System.currentTimeMillis() - newest.createdAt < 10_000L) {
             progress?.let { writeContext(context, newest.id, it) }
             return
         }
@@ -62,9 +74,10 @@ object AiImportHistoryStore {
             id = UUID.randomUUID().toString(),
             createdAt = System.currentTimeMillis(),
             title = selected.courses.firstOrNull()?.name?.let { "$it 等 ${selected.courses.size} 门课" }
-                ?: "AI 课表导入",
+                ?: if (standardImport) "课表导入" else "AI 课表导入",
             prompt = progress?.userPrompt.orEmpty().take(500),
-            sourceSummary = progress?.attachmentTitle.orEmpty().ifBlank { progress?.routeLabel.orEmpty() }.take(300),
+            sourceSummary = (sourceSummary ?: progress?.attachmentTitle.orEmpty()
+                .ifBlank { progress?.routeLabel.orEmpty() }).take(300),
             payload = payload,
             context = progress
         )
@@ -224,7 +237,10 @@ object AiImportHistoryStore {
     fun restore(entry: AiImportHistoryEntry, baseConfig: ScheduleConfigEntity): Result<ImportDraft> =
         entry.context?.let { progress -> progress.checkpoints.firstOrNull { it.id == progress.selectedCheckpointId }
             ?.restore(baseConfig) } ?: ScheduleImportParser.parseStoredDraft(entry.payload, baseConfig)
-            .map { it.copy(source = ImportDraftSource.AI_EDU) }
+            .mapCatching { draft ->
+                val standardImport = JSONObject(entry.payload).optBoolean(StandardHistorySource)
+                draft.copy(source = if (standardImport) ImportDraftSource.STANDARD else ImportDraftSource.AI_EDU)
+            }
 
     private fun save(context: Context, entries: List<AiImportHistoryEntry>) {
         val array = JSONArray().apply {

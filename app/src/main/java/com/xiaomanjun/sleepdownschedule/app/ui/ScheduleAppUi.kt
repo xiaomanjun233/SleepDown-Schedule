@@ -91,7 +91,6 @@ import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -181,6 +180,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.interaction.setStatusBarDarkIcon
 import com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
+import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenu
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
@@ -235,7 +235,6 @@ import com.xiaomanjun.sleepdownschedule.feature.home.HomeBackgroundBlurLayer
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeBackgroundZoomLayer
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeDialog
 import com.xiaomanjun.sleepdownschedule.feature.home.ParallelHomeDock
-import com.xiaomanjun.sleepdownschedule.feature.home.HomeImportButtonReturnVisual
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeJumpWeekDialog
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeSidebar
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeSidebarDestination
@@ -399,9 +398,11 @@ import com.xiaomanjun.sleepdownschedule.scheduleDayNavigationRange
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
 import com.xiaomanjun.sleepdownschedule.transition.legacy.DetailMorphRequest
 import com.xiaomanjun.sleepdownschedule.transition.legacy.DetailMorphState
 import com.xiaomanjun.sleepdownschedule.transition.legacy.DetailScheduleMorphOverlay
@@ -657,9 +658,8 @@ fun CourseScheduleAppUi(
     var homeMenuSourceHidden by remember { mutableStateOf(false) }
     var homeAddMenuBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
     var homeAnchoredOverlayRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
-    var homeMenuFromDock by remember { mutableStateOf(false) }
-    var dockImportButtonBounds by remember { mutableStateOf<Rect?>(null) }
-    var dockImportReturnLayer by remember { mutableStateOf<androidx.compose.ui.graphics.layer.GraphicsLayer?>(null) }
+    var dockImportOpening by remember { mutableStateOf(false) }
+    var dockImportSourceHidden by remember { mutableStateOf(false) }
     var jumpWeekDialogMounted by remember { mutableStateOf(false) }
     var jumpWeekDialogVisible by remember { mutableStateOf(false) }
     var pendingJumpWeekDialog by remember { mutableStateOf(false) }
@@ -761,9 +761,7 @@ fun CourseScheduleAppUi(
         }
         pendingHomeAnchoredOverlay = null
         if (kind == HomeAnchoredOverlayKind.Add) {
-            homeMenuFromDock = false
             homeAddMenuBoundsInRoot = null
-            dockImportReturnLayer = null
         }
         homeAnchoredOverlayRequest = HomeAnchoredOverlayRequest(kind, bounds, sourcePressedScale)
     }
@@ -1038,23 +1036,20 @@ fun CourseScheduleAppUi(
             // Landscape destinations have no source button; their host uses the centered flight.
             return HomeMenuDestinationRequest(kind, Rect.Zero, Rect.Zero)
         }
-        val sourceButton = (if (homeMenuFromDock) dockImportButtonBounds else addButtonBounds) ?: return null
+        val sourceButton = addButtonBounds ?: return null
         if (homeReadabilityRootSize.width <= 0 || homeReadabilityRootSize.height <= 0) return null
         val menuBounds = homeAddMenuBoundsInRoot ?: homeAddMenuTargetRect(
             source = sourceButton,
             rootSize = homeReadabilityRootSize,
             density = density.density,
-            actionCount = if (parallelPhoneNavigation) 3 else 6,
+            actionCount = if (parallelPhoneNavigation) 5 else 7,
             adaptiveMetrics = homeAdaptiveMetrics,
-            showModeSwitch = !parallelPhoneNavigation,
-            aboveSource = homeMenuFromDock,
-            actionItemHeightDp = if (homeMenuFromDock) 40f * density.fontScale.coerceAtLeast(1f) else 40f
+            showModeSwitch = !parallelPhoneNavigation
         )
         return HomeMenuDestinationRequest(
             kind = kind,
             sourceBoundsInRoot = menuBounds,
             collapseBoundsInRoot = sourceButton,
-            fromDock = homeMenuFromDock,
             showModeSwitch = !parallelPhoneNavigation
         )
     }
@@ -1428,7 +1423,6 @@ fun CourseScheduleAppUi(
         editingCourseIds,
         activeHomeAnchoredOverlay,
         addButtonHidden,
-        homeMenuFromDock,
         rootPageMotion.moving,
         homeModeMotion.moving,
         sidebarContentMetrics.contentWidth,
@@ -1457,7 +1451,6 @@ fun CourseScheduleAppUi(
                 .append('|').append(editingCourseIds.sorted())
                 .append('|').append(activeHomeAnchoredOverlay)
                 .append('|').append(addButtonHidden)
-                .append('|').append(homeMenuFromDock)
                 .append('|').append(rootPageMotion.moving).append('|').append(homeModeMotion.moving)
             // Menus are sibling consumers outside this recorder. Hiding the source menu during
             // handoff changes no Home pixels and must not recapture the scene during Opening.
@@ -2137,19 +2130,83 @@ fun CourseScheduleAppUi(
         }
     }
     val dockSelect = remember { { index: Int -> currentDockSelect.value(index) } }
-    val currentDockOpenMenu = rememberUpdatedState<(Rect, GraphicsLayer) -> Unit> { bounds, returnButtonLayer ->
-        if (!homeBackgroundOverlayActive && !homeDialogVisible) {
-            dockImportReturnLayer = returnButtonLayer
-            dockImportButtonBounds = bounds
-            homeMenuFromDock = true
-            homeAddMenuBoundsInRoot = null
-            homeAnchoredOverlayRequest = HomeAnchoredOverlayRequest(
-                HomeAnchoredOverlayKind.Add, bounds, fromDock = true
-            )
+    val currentDockOpenImport = rememberUpdatedState<(DockImportSource) -> Unit> openImport@{ source ->
+        val activity = context.findActivity()
+        if (activity == null || activity.isFinishing || dockImportOpening || homeBackgroundOverlayActive ||
+            homeDialogVisible || screen !is Screen.Home || rootPageMotion.moving || homeModeMotion.moving) {
+            source.release()
+            return@openImport
+        }
+        dockImportOpening = true
+        appScope.launch {
+            var removeCover: (() -> Unit)? = null
+            var sessionOwnsSource = false
+            var nativeStarted = false
+            var released = false
+            fun releaseSource() {
+                if (released) return
+                released = true
+                removeCover?.invoke()
+                dockImportSourceHidden = false
+                if (nativeStarted && source.ownsView) {
+                    // Leave the system's returned View on screen until Compose can draw the FAB again.
+                    appScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                        try {
+                            withFrameNanos { }
+                            withFrameNanos { }
+                        } finally {
+                            source.release()
+                            dockImportOpening = false
+                        }
+                    }
+                } else {
+                    source.release()
+                    dockImportOpening = false
+                }
+            }
+            try {
+                val bounds = source.boundsInRoot.translate(homeRootPositionInWindow)
+                val bitmap = runCatching { source.fallbackLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                val anchor = TransitionAnchorFrame(bounds, minOf(bounds.width, bounds.height) / 2f, bitmap)
+                val liveView = source.view?.takeIf { it.isAttachedToWindow }
+                if (liveView == null) removeCover = activity.attachOpeningSourceSnapshotHandoff(anchor)
+                dockImportSourceHidden = source.ownsView || removeCover != null
+                if (dockImportSourceHidden) {
+                    withFrameNanos { }
+                    withFrameNanos { }
+                }
+                val background = runCatching { detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                val result = ActivityTransitionCoordinator.open(
+                    activity, TransitionRouteId.HomeDockToImport,
+                    Intent(context, EduSchoolSelectActivity::class.java)
+                        .putExtra(EduSchoolSelectActivityHost.UnifiedImportExtra, true),
+                    TransitionPayload(
+                        openingAnchor = anchor,
+                        returnAnchorProvider = TransitionAnchorProvider {
+                            if (liveView == null) anchor else liveView.takeIf { it.isAttachedToWindow }?.let { view ->
+                                val location = IntArray(2).also(view::getLocationInWindow)
+                                anchor.copy(boundsInWindow = Rect(location[0].toFloat(), location[1].toFloat(),
+                                    (location[0] + view.width).toFloat(), (location[1] + view.height).toFloat()))
+                            }
+                        },
+                        backgroundBitmap = background,
+                        onOpeningSourceHandoff = {
+                            removeCover?.invoke()
+                            if (!nativeStarted && source.ownsView) liveView?.visibility = android.view.View.INVISIBLE
+                        },
+                        onSourceReleased = ::releaseSource,
+                        openingSourceView = liveView
+                    )
+                )
+                nativeStarted = result is TransitionLaunchResult.NativeRegistered
+                sessionOwnsSource = result !is TransitionLaunchResult.Failed
+            } finally {
+                if (!sessionOwnsSource) releaseSource()
+            }
         }
     }
-    val dockOpenMenu = remember {
-        { bounds: Rect, layer: GraphicsLayer -> currentDockOpenMenu.value(bounds, layer) }
+    val dockOpenImport = remember {
+        { source: DockImportSource -> currentDockOpenImport.value(source) }
     }
     CompositionLocalProvider(
         LocalHomeAssistant provides homeAssistant,
@@ -2175,7 +2232,6 @@ fun CourseScheduleAppUi(
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenu provides
             colorOsOverflowActions.takeIf { parallelPhoneNavigation || glowSystemMenus },
         com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenuBounds provides { windowBounds ->
-            homeMenuFromDock = false
             homeAddMenuBoundsInRoot = windowBounds.translate(-homeRootPositionInWindow)
         },
         LocalHomeReadability provides homeReadabilityContext,
@@ -2606,7 +2662,7 @@ fun CourseScheduleAppUi(
         val dockForeground = if (screen is Screen.Home) homeChromeForeground else null
         val dockSampleBrightness =
             if (screen is Screen.Home && homeChromeHasWallpaper && !homeChromeDark) 0.94f else 1f
-        val dockButtonHidden = homeMenuFromDock && addButtonHidden
+        val dockButtonHidden = dockImportSourceHidden
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -2778,7 +2834,7 @@ fun CourseScheduleAppUi(
                                 onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
                                 activeHomeOverlay = activeHomeAnchoredOverlay,
                                 homeOverlayReturning = homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing,
-                                addButtonHidden = !homeMenuFromDock && addButtonHidden,
+                                addButtonHidden = addButtonHidden,
                                 onAddButtonPositioned = { addButtonBounds = it },
                                 addButtonReturnLayer = homeMoreButtonReturnLayer,
                                 onPersonalizeButtonPositioned = { personalizeButtonBounds = it },
@@ -3122,7 +3178,7 @@ fun CourseScheduleAppUi(
     // Keep that changing closure behind State, so it cannot invalidate the native host.
     val nativeDockFallback = rememberUpdatedState<@Composable () -> Unit> {
         // The route host already applies DockEntranceContainer; keep only the shared liquid dock.
-        ParallelHomeDock(dockSelectedIndex, dockConfig, chromeBackdrop, dockSelect, dockOpenMenu,
+        ParallelHomeDock(dockSelectedIndex, dockConfig, chromeBackdrop, dockSelect, dockOpenImport,
             buttonHidden = dockButtonHidden)
     }
     com.xiaomanjun.sleepdownschedule.feature.home.NativeHomeDockChrome(
@@ -3136,7 +3192,7 @@ fun CourseScheduleAppUi(
         config = dockConfig,
         couiBackdrop = dockPageBackdrop.takeIf { couiDockEnabled },
         onSelect = dockSelect,
-        onOpenMenu = dockOpenMenu,
+        onOpenMenu = dockOpenImport,
         phase = startupPhase,
         fallback = nativeDockFallback,
         modifier = Modifier.align(Alignment.BottomStart).zIndex(100f)
@@ -3368,11 +3424,7 @@ fun CourseScheduleAppUi(
                     detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
                 }.getOrNull()
                 val sourceSnapshot = fullFrame?.cropToAnchoredBounds(sourceBoundsInRoot)
-                // Only crossing an Activity boundary needs a bitmap. By now the hidden dock
-                // has recorded the normal, non-interactive button during the preparing frame.
-                val collapseSnapshot = if (homeMenuFromDock) runCatching {
-                    dockImportReturnLayer?.toImageBitmap()?.asAndroidBitmap()
-                }.getOrNull() else runCatching {
+                val collapseSnapshot = runCatching {
                     homeMoreButtonReturnLayer.takeIf { it.size.width > 0 && it.size.height > 0 }
                         ?.toImageBitmap()?.asAndroidBitmap()
                 }.getOrNull() ?: fullFrame?.cropToAnchoredBounds(collapseBoundsInRoot)
@@ -3550,8 +3602,11 @@ fun CourseScheduleAppUi(
         }
     }
     val nativeOverflowActions = remember(homeAddActions) {
-        listOf(AddMenuAction(R.drawable.ic_courses, "课程管理") { latestNativeCourseManagement.value() }) +
+        listOf(homeAddActions.first(), AddMenuAction(R.drawable.ic_courses, "课程管理") { latestNativeCourseManagement.value() }) +
             homeAddActions.takeLast(3)
+    }
+    val legacyOverflowActions = remember(homeAddActions, parallelPhoneNavigation) {
+        if (parallelPhoneNavigation) listOf(homeAddActions.first()) + homeAddActions.drop(3) else homeAddActions
     }
     androidx.compose.runtime.SideEffect {
         colorOsOverflowActions.value = if (glowSystemMenus && !parallelPhoneNavigation) homeAddActions else nativeOverflowActions
@@ -3690,8 +3745,7 @@ fun CourseScheduleAppUi(
         motionState = homeAnchoredMorphState,
         backdrop = homeAnchoredOverlayBackdrop,
         config = state.config,
-        addActions = if (homeMenuFromDock) homeAddActions.take(3)
-            else if (parallelPhoneNavigation) homeAddActions.drop(3) else homeAddActions,
+        addActions = legacyOverflowActions,
         showModeSwitch = !parallelPhoneNavigation,
         homeMode = homeMode,
         onHomeModeChange = { homeMode = it },
@@ -3705,23 +3759,16 @@ fun CourseScheduleAppUi(
             homeAnchoredOverlayRequest = null
         },
         onAddMenuBoundsChanged = { homeAddMenuBoundsInRoot = it },
-        onSourceFollowThrough = { rect -> if (!homeMenuFromDock) latestSourceFollowThrough.value(rect) },
+        onSourceFollowThrough = { rect -> latestSourceFollowThrough.value(rect) },
         suppressClose = destinationOwnsButtonReturn,
         personalizePreviewProgress = personalizationPreviewProgress,
         sourceContent = { kind, sourceModifier ->
             if (kind == HomeAnchoredOverlayKind.Add) {
-                // The shell fades out as this complete button fades in. An icon-only clone left
-                // the blue button surface missing until the real Dock returned on the last frame.
-                if (homeMenuFromDock) {
-                    HomeImportButtonReturnVisual(homeAnchoredOverlayBackdrop, state.config, sourceModifier,
-                        sourceLayer = dockImportReturnLayer)
-                } else {
-                    HomeIconButtonVisual(
-                        backdrop = homeAnchoredOverlayBackdrop, config = state.config,
-                        iconRes = R.drawable.ic_more_horizontal, contentDescription = "添加菜单",
-                        modifier = sourceModifier, isInteractive = false
-                    )
-                }
+                HomeIconButtonVisual(
+                    backdrop = homeAnchoredOverlayBackdrop, config = state.config,
+                    iconRes = R.drawable.ic_more_horizontal, contentDescription = "添加菜单",
+                    modifier = sourceModifier, isInteractive = false
+                )
             } else {
             HomeIconButtonVisual(
                 backdrop = homeAnchoredOverlayBackdrop,
@@ -3875,20 +3922,14 @@ fun CourseScheduleAppUi(
             top = homeSidebarState.targetContentTopInset, end = homeSidebarState.endInset),
         awaitOpeningGate = { awaitHomeBackgroundFrame(routeEligible = true) },
         onDismissRequest = ::closeHomeMenuDestination,
-        sourceActions = if (homeMenuFromDock) homeAddActions.take(3)
-            else if (parallelPhoneNavigation) homeAddActions.drop(3) else homeAddActions,
+        sourceActions = legacyOverflowActions,
         onSourceHandoff = { homeMenuSourceHidden = true },
         collapseContent = { returnModifier ->
-            if (homeMenuFromDock) {
-                HomeImportButtonReturnVisual(homeMenuDestinationBackdrop, state.config, returnModifier,
-                    sourceLayer = dockImportReturnLayer)
-            } else {
-                HomeIconButtonVisual(
-                    backdrop = homeMenuDestinationBackdrop, config = state.config,
-                    iconRes = R.drawable.ic_more_horizontal, contentDescription = "添加菜单",
-                    modifier = returnModifier, isInteractive = false
-                )
-            }
+            HomeIconButtonVisual(
+                backdrop = homeMenuDestinationBackdrop, config = state.config,
+                iconRes = R.drawable.ic_more_horizontal, contentDescription = "添加菜单",
+                modifier = returnModifier, isInteractive = false
+            )
         },
         onCollapseHandoff = {
             destinationCollapseHandedOff = true

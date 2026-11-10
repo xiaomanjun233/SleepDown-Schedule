@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.material
 
+import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -9,6 +10,14 @@ import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
+
+internal data class DockImportSource(
+    val boundsInRoot: Rect,
+    val fallbackLayer: GraphicsLayer,
+    val view: View? = null,
+    val ownsView: Boolean = false,
+    val release: () -> Unit = {}
+)
 
 /** A false result leaves layout and input with the calling Compose control. */
 @Stable
@@ -24,7 +33,7 @@ internal interface HomeMaterialControls {
 
     @Composable
     fun ParallelDock(selectedIndex: Int, dark: Boolean, buttonHidden: Boolean, modifier: Modifier,
-        onSelect: (Int) -> Unit, onOpenMenu: (Rect, GraphicsLayer) -> Unit): Boolean = false
+        onSelect: (Int) -> Unit, onOpenMenu: (DockImportSource) -> Unit): Boolean = false
 
     @Composable
     fun FloatingButtonVisual(dark: Boolean, modifier: Modifier): Boolean = false

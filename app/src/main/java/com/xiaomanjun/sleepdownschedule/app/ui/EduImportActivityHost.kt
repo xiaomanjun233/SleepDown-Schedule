@@ -169,7 +169,8 @@ open class EduImportActivityHost : ComponentActivity() {
                                         }
                                         return@ConfirmScheduleScreen
                                     }
-                                    viewModel.importDraft(previewDraft, createNewSchedule, onFailure = {
+                                    viewModel.importDraft(previewDraft, createNewSchedule,
+                                        historySource = adapter.school.name, onFailure = {
                                         submitting = false
                                         saveError = it.message ?: "保存失败，请重试"
                                     }) { scheduleId ->

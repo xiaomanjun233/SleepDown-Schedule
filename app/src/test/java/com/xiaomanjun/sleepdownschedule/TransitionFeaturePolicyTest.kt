@@ -17,6 +17,7 @@ class TransitionFeaturePolicyTest {
             TransitionRouteId.ManualImportToHistory,
             TransitionRouteId.AiProgressToHistory,
             TransitionRouteId.HomeToEduImport,
+            TransitionRouteId.HomeDockToImport,
             TransitionRouteId.HomeToCourseManagement,
             TransitionRouteId.QuickSheetToSettingsDetail,
             TransitionRouteId.SpecialCourseToEditor

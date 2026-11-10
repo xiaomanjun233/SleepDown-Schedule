@@ -10,6 +10,7 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlan
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlanExecutionResult
 import com.xiaomanjun.sleepdownschedule.feature.agent.AgentSettingPlanExecutor
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportHistoryStore
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedAction
@@ -222,13 +223,25 @@ class ScheduleViewModel(
     fun importDraft(
         draft: ImportDraft,
         createNewSchedule: Boolean = false,
+        historySource: String = "常规导入",
         onFailure: ((Throwable) -> Unit)? = null,
         onDone: (Int) -> Unit
     ) = viewModelScope.launch {
         try {
             val scheduleId = repository.importDraft(draft, createNewSchedule)
+            val historySaved = draft.source != ImportDraftSource.STANDARD || withContext(Dispatchers.IO) {
+                runCatching {
+                    AiImportHistoryStore.record(app, draft, progress = null, sourceSummary = historySource)
+                }.onFailure { error ->
+                    Log.w("ScheduleViewModel", "Import history save failed: ${error.javaClass.simpleName}")
+                }.isSuccess
+            }
             refreshCoordinator.request()
-            mutableSnackbar.value = if (createNewSchedule) "已导入到新课表" else "课程表已导入"
+            mutableSnackbar.value = when {
+                !historySaved -> "课表已导入，历史记录保存失败"
+                createNewSchedule -> "已导入到新课表"
+                else -> "课程表已导入"
+            }
             onDone(scheduleId)
         } catch (cancelled: CancellationException) {
             throw cancelled

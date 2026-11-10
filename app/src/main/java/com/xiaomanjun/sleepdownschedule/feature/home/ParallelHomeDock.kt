@@ -17,10 +17,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -30,6 +27,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
+import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
@@ -39,9 +38,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlp
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownFloatingAddButton
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.dockImeCompensationPx
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.excludeParentPullGesture
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
@@ -64,40 +61,12 @@ internal fun homeDockImportButtonGlassColor(light: Boolean): Color {
         1f else homeChromeGlassSurfaceAlpha(light))
 }
 
-/** The return endpoint is the resting button, without the captured press deformation. */
-@Composable
-internal fun HomeImportButtonReturnVisual(
-    backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier,
-    sourceLayer: GraphicsLayer? = null
-) {
-    if (sourceLayer != null && LocalHomeMaterialStyle.current != null) {
-        Box(modifier.drawWithContent {
-            if (sourceLayer.size.width > 0 && sourceLayer.size.height > 0) {
-                scale(size.width / sourceLayer.size.width, size.height / sourceLayer.size.height, pivot = Offset.Zero) {
-                    drawLayer(sourceLayer)
-                }
-            }
-        })
-        return
-    }
-    if (LocalHomeMaterialControls.current.FloatingButtonVisual(dark = !LocalAdaptiveGlass.current.lightGlass, modifier = modifier)) return
-    SleepDownFloatingAddButton(
-        backdrop = backdrop,
-        contentDescription = "添加与导入",
-        onClick = {},
-        surfaceColor = homeDockImportButtonGlassColor(LocalAdaptiveGlass.current.lightGlass),
-        blurRadius = homeChromeBlur(1.3.dp, config),
-        enabled = false,
-        modifier = modifier
-    )
-}
-
-/** Owns only the Dock split. Menus and their destinations use the shared anchored overlay host. */
+/** Owns the Dock split and supplies the live plus source to the page transition. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ParallelHomeDock(
     selectedIndex: Int, config: ScheduleConfigEntity, backdrop: Backdrop,
-    onSelect: (Int) -> Unit, onOpenMenu: (Rect, GraphicsLayer) -> Unit,
+    onSelect: (Int) -> Unit, onOpenMenu: (DockImportSource) -> Unit,
     buttonHidden: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -126,6 +95,9 @@ internal fun ParallelHomeDock(
     val plusInteraction = remember(interactionScope) { InteractiveHighlight(interactionScope) }
     val density = LocalDensity.current
     val recordingDensity = density
+    val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
+    val root = androidx.compose.ui.platform.LocalView.current
+    val activity = androidx.compose.ui.platform.LocalContext.current.findActivityOrNull()
     val systemBottom = WindowInsets.navigationBarsIgnoringVisibility.getBottom(density)
     val bottomInset = with(density) { systemBottom.toDp() }
     val imeCompensation = dockImeCompensationPx(WindowInsets.ime.getBottom(density), systemBottom)
@@ -155,9 +127,18 @@ internal fun ParallelHomeDock(
             }) {
                 SleepDownFloatingAddButton(onClick = {
                     if (buttonBounds.width > 1f && buttonBounds.height > 1f) {
-                        onOpenMenu(buttonBounds, returnButtonLayer)
+                        val source = activity?.let {
+                            LiveDockImportSourceView.attach(
+                                it, root, buttonBounds, returnButtonLayer,
+                                Rect(0f, 0f, buttonBounds.width, buttonBounds.height), density, direction
+                            )
+                        }
+                        onOpenMenu(DockImportSource(
+                            buttonBounds, returnButtonLayer, source, ownsView = source != null,
+                            release = { source?.release() }
+                        ))
                     }
-                }, backdrop = backdrop, contentDescription = "添加与导入", enabled = buttonInteractive,
+                }, backdrop = backdrop, contentDescription = "导入课表", enabled = buttonInteractive,
                     modifier = Modifier.offset {
                         val s = split.value.coerceIn(0f, 1f)
                         val body = dockBounds.value

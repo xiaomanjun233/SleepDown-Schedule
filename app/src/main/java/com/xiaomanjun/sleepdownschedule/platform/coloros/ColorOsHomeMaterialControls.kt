@@ -3,10 +3,10 @@ package com.xiaomanjun.sleepdownschedule.platform.coloros
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.unit.Dp
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
 import com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialControls
+import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
 
 internal object ColorOsHomeMaterialControls : HomeMaterialControls {
     @Composable
@@ -20,7 +20,7 @@ internal object ColorOsHomeMaterialControls : HomeMaterialControls {
 
     @Composable
     override fun ParallelDock(selectedIndex: Int, dark: Boolean, buttonHidden: Boolean, modifier: Modifier,
-        onSelect: (Int) -> Unit, onOpenMenu: (Rect, GraphicsLayer) -> Unit) =
+        onSelect: (Int) -> Unit, onOpenMenu: (DockImportSource) -> Unit) =
         ColorOsParallelHomeDock(selectedIndex, dark, buttonHidden, modifier, onSelect, onOpenMenu)
 
     @Composable

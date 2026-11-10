@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import android.app.Application
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.feature.importing.history.historyConversationProgress
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -47,6 +48,29 @@ class AiImportCheckpointHistoryTest {
         assertEquals(first.id, restored.context!!.selectedCheckpointId)
         assertEquals("第一阶段", AiImportHistoryStore.restore(restored, defaultConfig()).getOrThrow().courses.single().name)
         assertFalse(restored.context!!.finished)
+    }
+
+    @Test fun confirmedRegularImportsShareHistoryAndCanSeedTheSameRevisionWorkspace() {
+        val aiDraft = draft("AI 导入课程")
+        session.publishCheckpoint("persisted-task", aiDraft).getOrThrow()
+        AiImportHistoryStore.record(context, aiDraft, session.progress.value)
+        val regular = draft("普通口令课程").copy(source = ImportDraftSource.STANDARD)
+        AiImportHistoryStore.record(context, regular, progress = null, sourceSummary = "常规导入")
+        AiImportHistoryStore.record(context, regular, progress = null, sourceSummary = "常规导入")
+
+        val history = AiImportHistoryStore.load(context)
+        assertEquals(3, history.size)
+        assertNotEquals(history[0].id, history[1].id)
+        assertEquals("常规导入", history.first().sourceSummary)
+        val restored = AiImportHistoryStore.restore(history.first(), defaultConfig()).getOrThrow()
+        assertEquals(ImportDraftSource.STANDARD, restored.source)
+        val progress = historyConversationProgress(history.first(), restored)
+        assertTrue(progress.userPrompt.isBlank())
+        assertTrue(progress.attachmentTitle.isBlank())
+        val workspace = ensureImportCheckpoint(progress, restored)
+        assertEquals("普通口令课程", workspace.checkpoints.single().restore().getOrThrow().courses.single().name)
+        assertEquals(ImportDraftSource.AI_EDU,
+            AiImportHistoryStore.restore(history.last(), defaultConfig()).getOrThrow().source)
     }
 
     @Test fun staleBackgroundWriteCannotUndoPersistedManualEditOrCreateAnotherRow() {

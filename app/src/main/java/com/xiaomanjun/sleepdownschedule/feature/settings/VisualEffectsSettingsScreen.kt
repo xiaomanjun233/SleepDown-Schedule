@@ -300,7 +300,7 @@ private fun LiquidGlassDockPreview(
                     config = config,
                     backdrop = previewBackdrop,
                     onSelect = {},
-                    onOpenMenu = { _, _ -> },
+                    onOpenMenu = { it.release() },
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
             }

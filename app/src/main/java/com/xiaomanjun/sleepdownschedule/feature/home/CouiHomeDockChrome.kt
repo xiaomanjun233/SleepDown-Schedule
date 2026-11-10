@@ -10,21 +10,31 @@ import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.layer.GraphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
@@ -46,8 +56,10 @@ import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeActionIcon
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.dockImeCompensationPx
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
+import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
+import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
 import com.xiaomanjun.sleepdownschedule.platform.coloros.rememberCouiDockAccent
 import java.util.concurrent.atomic.AtomicBoolean
@@ -70,7 +82,7 @@ internal fun CouiHomeDock(
     config: ScheduleConfigEntity,
     backdrop: CouiBackdrop,
     onSelect: (Int) -> Unit,
-    onOpenMenu: (Rect, GraphicsLayer) -> Unit,
+    onOpenMenu: (DockImportSource) -> Unit,
 ): Boolean {
     if (Build.VERSION.SDK_INT < 34) {
         android.util.Log.i("SleepDownCOUI",
@@ -122,7 +134,7 @@ internal fun CouiHomeDock(
             density = density.density,
             contourGlowEnabled = contour,
             icon = requireNotNull(homeActionIcon(R.drawable.ic_add_course)),
-            iconDescription = "添加与导入",
+            iconDescription = "导入课表",
             // OpaqueSmall1 preset light end is 0.6; native 2× is 1.2.
             lightFollowLightIntensity = 1.2f,
             // Colored FAB keeps its own dark preset (0.5); don't force the 2× dark range.
@@ -150,14 +162,28 @@ internal fun CouiHomeDock(
     val scope = rememberCoroutineScope()
     val opening = remember { AtomicBoolean(false) }
     val returnLayer = rememberGraphicsLayer()
+    val liveLayer = rememberGraphicsLayer()
+    var dockOrigin by remember { mutableStateOf(Offset.Zero) }
+    var sourceBounds by remember { mutableStateOf<Rect?>(null) }
+    var liveView by remember { mutableStateOf<LiveDockImportSourceView?>(null) }
+    fun releaseSource() {
+        liveView?.release()
+        liveView = null
+        sourceBounds = null
+    }
+    DisposableEffect(Unit) { onDispose { releaseSource() } }
     val latestEnabled by rememberUpdatedState(plusEnabled)
     val latestOpen by rememberUpdatedState(onOpenMenu)
     fun openPlusMenu(bounds: Rect) {
-        if (!latestEnabled || !opening.compareAndSet(false, true)) return
+        if (!latestEnabled || sourceBounds != null || !opening.compareAndSet(false, true)) return
         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         scope.launch {
+            var handedOff = false
             try {
                 val activity = hostContext.findActivityOrNull() ?: return@launch
+                sourceBounds = bounds
+                withFrameNanos { }
+                withFrameNanos { }
                 val rootLocation = IntArray(2).also(composeRoot::getLocationInWindow)
                 val cookie = System.identityHashCode(returnLayer)
                 Trace.beginAsyncSection("SleepDown Dock.capturePlus", cookie)
@@ -165,14 +191,21 @@ internal fun CouiHomeDock(
                     captureGlassWindowRegion(activity.window, bounds.translate(rootLocation[0].toFloat(), rootLocation[1].toFloat()))
                 } finally {
                     Trace.endAsyncSection("SleepDown Dock.capturePlus", cookie)
-                } ?: return@launch
-                returnLayer.record(density, layoutDirection, IntSize(bitmap.width, bitmap.height)) {
+                }
+                if (bitmap != null) returnLayer.record(density, layoutDirection, IntSize(bitmap.width, bitmap.height)) {
                     val outline = Path().apply { addOval(Rect(0f, 0f, size.width, size.height)) }
                     clipPath(outline) { drawImage(bitmap.asImageBitmap()) }
                 }
                 if (!latestEnabled) return@launch
-                latestOpen(bounds, returnLayer)
+                liveView = LiveDockImportSourceView.attach(
+                    activity, composeRoot, bounds, liveLayer, bounds.translate(-dockOrigin), density, layoutDirection
+                )
+                handedOff = true
+                latestOpen(DockImportSource(
+                    bounds, returnLayer, liveView, ownsView = liveView != null, release = ::releaseSource
+                ))
             } finally {
+                if (!handedOff) releaseSource()
                 opening.set(false)
             }
         }
@@ -187,7 +220,21 @@ internal fun CouiHomeDock(
         CouiDockBar(
             modifier = Modifier.align(Alignment.BottomCenter)
                 .padding(bottom = bottomInset + 8.dp)
-                .graphicsLayer { translationY = imeCompensation.toFloat() },
+                .graphicsLayer { translationY = imeCompensation.toFloat() }
+                .onGloballyPositioned { dockOrigin = it.positionInRoot() }
+                .drawWithContent {
+                    val source = sourceBounds?.translate(-dockOrigin)
+                    if (source == null) drawContent() else {
+                        liveLayer.record {
+                            withRecordingDensity(density) { this@drawWithContent.drawContent() }
+                        }
+                        if (buttonHidden) {
+                            clipRect(source.left, source.top, source.right, source.bottom, ClipOp.Difference) {
+                                drawLayer(liveLayer)
+                            }
+                        } else drawLayer(liveLayer)
+                    }
+                },
             backdrop = backdrop,
             renderer = renderer,
             items = items,
@@ -195,7 +242,8 @@ internal fun CouiHomeDock(
             style = dockStyle,
             plusStyle = plusStyle,
             plusVisible = plusVisible,
-            plusEnabled = plusEnabled,
+            // During the handoff the same commands still feed the attached Android View.
+            plusEnabled = plusEnabled || (plusVisible && sourceBounds != null),
             menuWidth = dockWidth,
             onSelection = { trace("SleepDown Dock.select") { onSelect(it) } },
             onPlusClick = ::openPlusMenu,

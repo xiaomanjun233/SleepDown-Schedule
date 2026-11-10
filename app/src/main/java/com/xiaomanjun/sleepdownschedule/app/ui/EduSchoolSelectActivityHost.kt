@@ -4,8 +4,15 @@ import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -14,14 +21,31 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.drawLayer
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xiaomanjun.sleepdownschedule.AiImportHistoryActivity
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.CourseScheduleTheme
 import com.xiaomanjun.sleepdownschedule.EduImportActivity
+import com.xiaomanjun.sleepdownschedule.ImportDraft
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.app.state.ScheduleViewModel
 import com.xiaomanjun.sleepdownschedule.app.state.ScheduleViewModelFactory
@@ -31,20 +55,40 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionSt
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.feature.course.management.HomeMenuActivitySourceFallback
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchoolPickerScreen
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportHistoryBackgroundCapture
+import com.xiaomanjun.sleepdownschedule.feature.importing.ConfirmScheduleScreen
+import com.xiaomanjun.sleepdownschedule.feature.importing.ImportTabsHeight
+import com.xiaomanjun.sleepdownschedule.feature.importing.NormalizedAiManualImportScreen
+import com.xiaomanjun.sleepdownschedule.feature.importing.PendingImportSetupStore
+import com.xiaomanjun.sleepdownschedule.feature.importing.UnifiedImportTabs
+import com.xiaomanjun.sleepdownschedule.feature.importing.cropToAiHistorySource
 import com.xiaomanjun.sleepdownschedule.feature.importing.ShiguangWarehouse
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.describeAdapterRefresh
 import com.xiaomanjun.sleepdownschedule.feature.importing.toIntentKey
-import com.xiaomanjun.sleepdownschedule.feature.settings.title
+import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
+import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
+import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
+import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
 import kotlinx.coroutines.launch
 
 open class EduSchoolSelectActivityHost : ComponentActivity() {
+    companion object {
+        const val UnifiedImportExtra = "unified_schedule_import"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         ActivityTransitionCoordinator.prepareDestinationBeforeOnCreate(this)
         super.onCreate(savedInstanceState)
@@ -53,13 +97,81 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
         WindowCompat.setDecorFitsSystemWindows(window, false)
         @Suppress("DEPRECATION")
         window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        val unifiedImport = intent.getBooleanExtra(UnifiedImportExtra, false)
         setContent {
             val app = application as CourseScheduleApp
             val viewModel: ScheduleViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
                 factory = ScheduleViewModelFactory(app, app.repository)
             )
             val state by viewModel.state.collectAsStateWithLifecycle()
+            val form: UnifiedImportFormState = androidx.lifecycle.viewmodel.compose.viewModel()
+            var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+            val schoolSelected = !unifiedImport || selectedTab == 1
+            val retainedTabs = rememberSaveableStateHolder()
+            val focus = LocalFocusManager.current
+            val keyboard = LocalSoftwareKeyboardController.current
+            val recordingDensity = LocalDensity.current
             val refreshScope = rememberCoroutineScope()
+            var historyBounds by remember { mutableStateOf(Rect.Zero) }
+            var historyOpening by remember { mutableStateOf(false) }
+            var historyHidden by remember { mutableStateOf(false) }
+            val historyScene = rememberGraphicsLayer()
+            fun openHistory() {
+                if (historyOpening || form.submitting) return
+                historyOpening = true
+                refreshScope.launch {
+                    var removeCover: (() -> Unit)? = null
+                    var sessionOwnsSource = false
+                    try {
+                        focus.clearFocus(force = true)
+                        keyboard?.hide()
+                        withFrameNanos { }
+                        val decor = window.decorView
+                        val windowBounds = Rect(0f, 0f, decor.width.toFloat(), decor.height.toFloat())
+                        val bounds = historyBounds
+                        val fullFrame = captureGlassWindowRegion(window, windowBounds)
+                        val snapshot = fullFrame?.let {
+                            AiImportHistoryBackgroundCapture(it, 0f, 0f).cropToAiHistorySource(bounds)
+                        }
+                        val anchor = snapshot?.let {
+                            TransitionAnchorFrame(bounds, minOf(bounds.width, bounds.height) / 2f, it)
+                        }
+                        removeCover = anchor?.let { attachOpeningSourceSnapshotHandoff(it) }
+                        if (removeCover != null) {
+                            historyHidden = true
+                            withFrameNanos { }
+                            withFrameNanos { }
+                        }
+                        val payload = anchor?.let {
+                            TransitionPayload(
+                                openingAnchor = it,
+                                returnAnchorProvider = TransitionAnchorProvider {
+                                    historyBounds.takeIf { bounds -> bounds.width > 1f && bounds.height > 1f }
+                                        ?.let { bounds -> it.copy(boundsInWindow = bounds) }
+                                },
+                                backgroundBitmap = if (historyHidden) runCatching {
+                                    historyScene.toImageBitmap().asAndroidBitmap()
+                                }.getOrNull() else fullFrame,
+                                onOpeningSourceHandoff = removeCover,
+                                onSourceReleased = { historyHidden = false; historyOpening = false }
+                            )
+                        }
+                        val result = ActivityTransitionCoordinator.open(
+                            this@EduSchoolSelectActivityHost,
+                            TransitionRouteId.ManualImportToHistory,
+                            Intent(this@EduSchoolSelectActivityHost, AiImportHistoryActivity::class.java),
+                            payload
+                        )
+                        sessionOwnsSource = payload != null && result !is TransitionLaunchResult.Failed
+                    } finally {
+                        if (!sessionOwnsSource) {
+                            removeCover?.invoke()
+                            historyHidden = false
+                            historyOpening = false
+                        }
+                    }
+                }
+            }
             var warehouseGeneration by remember { mutableIntStateOf(0) }
             var warehouseRefreshing by remember { mutableStateOf(false) }
             var warehouseManualRefreshing by remember { mutableStateOf(false) }
@@ -96,50 +208,130 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                     warehouseManualRefreshing = false
                 }
             }
-            LaunchedEffect(Unit) {
-                if (ShiguangWarehouseUpdater.isRefreshStale(this@EduSchoolSelectActivityHost)) {
+            LaunchedEffect(schoolSelected) {
+                if (schoolSelected && ShiguangWarehouseUpdater.isRefreshStale(this@EduSchoolSelectActivityHost)) {
                     refreshWarehouse(manual = false)
                 }
             }
             CourseScheduleTheme(config = state.config) {
                 CrossActivityTransitionHost(
                     activity = this@EduSchoolSelectActivityHost,
+                    handleSystemBack = !form.submitting,
                     sourceContent = {
-                        HomeMenuActivitySourceFallback(
+                        if (!unifiedImport) HomeMenuActivitySourceFallback(
                             config = state.config,
                             highlightedRowIndex = 4
                         )
                     }
                 ) { requestClose ->
+                    BackHandler(enabled = form.submitting) { }
+                    Box(Modifier.fillMaxSize().drawWithContent {
+                        if (historyHidden) {
+                            historyScene.record {
+                                withRecordingDensity(recordingDensity) { this@drawWithContent.drawContent() }
+                            }
+                            drawLayer(historyScene)
+                        } else drawContent()
+                    }) {
                     DetailActivityScaffold(
-                        title = "选择学校",
+                        title = if (unifiedImport) "导入课表" else "选择学校",
                         config = state.config,
-                        onBack = requestClose,
+                        onBack = { if (!form.submitting) requestClose() },
                         topBarActions = { topBackdrop ->
-                            TopGlassIconButton(
-                                backdrop = topBackdrop,
-                                config = settingsVisualConfig(state.config),
-                                iconRes = R.drawable.ic_refresh,
-                                contentDescription = if (warehouseRefreshing) "正在更新适配器" else "更新适配器",
-                                onClick = { refreshWarehouse(manual = true) },
-                                modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
-                                buttonHeight = 42.dp
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (schoolSelected) TopGlassIconButton(
+                                    backdrop = topBackdrop,
+                                    config = settingsVisualConfig(state.config),
+                                    iconRes = R.drawable.ic_refresh,
+                                    contentDescription = if (warehouseRefreshing) "正在更新适配器" else "更新适配器",
+                                    onClick = { refreshWarehouse(manual = true) },
+                                    modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
+                                    buttonHeight = 42.dp
+                                )
+                                if (unifiedImport) Box(
+                                    Modifier.onGloballyPositioned { historyBounds = it.boundsInWindow() }
+                                        .graphicsLayer { alpha = if (historyHidden) 0f else 1f }
+                                ) {
+                                    TopGlassIconButton(
+                                        backdrop = topBackdrop,
+                                        config = settingsVisualConfig(state.config),
+                                        iconRes = R.drawable.ic_history,
+                                        contentDescription = "导入历史",
+                                        onClick = ::openHistory,
+                                        modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize)
+                                    )
+                                }
+                            }
                         }
                     ) { backdrop ->
-                        EduSchoolPickerScreen(
-                            state = state,
-                            backdrop = backdrop,
-                            warehouseGeneration = warehouseGeneration,
-                            onSelect = { adapter ->
-                                ActivityTransitionCoordinator.openImmediate(
-                                    this@EduSchoolSelectActivityHost,
-                                    TransitionRouteId.SchoolSelectToEduImport,
-                                    Intent(this, EduImportActivity::class.java)
-                                        .putExtra(EduAdapterExtra, adapter.toIntentKey())
+                        val topPadding = detailContentTopPadding()
+                        val tabArea = ImportTabsHeight + 16.dp
+                        Box(Modifier.fillMaxSize()) {
+                            if (schoolSelected) retainedTabs.SaveableStateProvider("school-import") {
+                                EduSchoolPickerScreen(
+                                    state = state,
+                                    backdrop = backdrop,
+                                    warehouseGeneration = warehouseGeneration,
+                                    additionalTopPadding = if (unifiedImport) tabArea else 0.dp,
+                                    onSelect = { adapter ->
+                                        ActivityTransitionCoordinator.openImmediate(
+                                            this@EduSchoolSelectActivityHost,
+                                            TransitionRouteId.SchoolSelectToEduImport,
+                                            Intent(this@EduSchoolSelectActivityHost, EduImportActivity::class.java)
+                                                .putExtra(EduAdapterExtra, adapter.toIntentKey())
+                                        )
+                                    }
+                                )
+                            } else Box(Modifier.fillMaxSize().padding(top = topPadding + tabArea)) {
+                                NormalizedAiManualImportScreen(
+                                    state = state, backdrop = backdrop, onCancel = requestClose,
+                                    initialText = form.input,
+                                    inlineHasPreview = form.draft != null,
+                                    inlineSubmitting = form.submitting,
+                                    onInlineTextChange = { form.input = it; form.draft = null; form.saveError = null },
+                                    onParsed = { form.draft = it; form.saveError = null },
+                                    inlinePreview = {
+                                        form.draft?.let { draft ->
+                                            ConfirmScheduleScreen(
+                                                draft = draft, backdrop = backdrop, submitting = form.submitting,
+                                                errorMessage = form.saveError,
+                                                onCancel = { if (!form.submitting) form.draft = null },
+                                                onDraftChanged = { form.draft = it },
+                                                onConfirm = confirm@{ createNew ->
+                                                    if (form.submitting) return@confirm
+                                                    form.submitting = true
+                                                    form.saveError = null
+                                                    viewModel.importDraft(draft, createNew, onFailure = {
+                                                        form.submitting = false
+                                                        form.saveError = it.message ?: "保存失败，请重试"
+                                                    }) { scheduleId ->
+                                                        form.submitting = false
+                                                        PendingImportSetupStore.put(this@EduSchoolSelectActivityHost, scheduleId)
+                                                        requestClose()
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
                                 )
                             }
-                        )
+                            if (unifiedImport) Box(
+                                Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(top = topPadding)
+                                    .background(settingsPageBackground(settingsVisualConfig(state.config)))
+                                    .padding(horizontal = 16.dp, vertical = 8.dp)
+                            ) {
+                                UnifiedImportTabs(
+                                    selectedIndex = selectedTab,
+                                    onSelected = {
+                                        focus.clearFocus(force = true)
+                                        keyboard?.hide()
+                                        selectedTab = it
+                                    },
+                                    dark = appUsesDarkTheme(state.config),
+                                    enabled = !form.submitting
+                                )
+                            }
+                        }
                         if (warehouseManualRefreshing) {
                             LiquidAlertDialog(
                                 title = "正在更新适配器",
@@ -169,8 +361,16 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                             )
                         }
                     }
+                    }
                 }
             }
         }
     }
+}
+
+internal class UnifiedImportFormState : ViewModel() {
+    var input by mutableStateOf("")
+    var draft by mutableStateOf<ImportDraft?>(null)
+    var submitting by mutableStateOf(false)
+    var saveError by mutableStateOf<String?>(null)
 }

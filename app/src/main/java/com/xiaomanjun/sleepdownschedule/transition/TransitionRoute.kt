@@ -19,6 +19,7 @@ enum class TransitionRouteId(val wireName: String) {
     SettingsToScheduleAdjustments("settings_to_schedule_adjustments"),
     ScheduleManagerToSettingsDetail("schedule_manager_to_settings_detail"),
     HomeToEduImport("home_to_edu_import"),
+    HomeDockToImport("home_dock_to_import"),
     SchoolSelectToEduImport("school_select_to_edu_import"),
     ImportToAiProgress("import_to_ai_progress"),
     ReturnToHome("return_to_home");
@@ -219,6 +220,18 @@ object TransitionRouteCatalog {
                 profileId = AnchoredLegacyProfileId.HomeMenuDestination,
                 sourceCornerRadiusDp = 30f,
                 returnCornerRadiusDp = 21f
+            ),
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
+            nativeDestinationClassName = "$PackageName.NativeEduSchoolSelectActivity",
+            requiresOpeningAnchor = true,
+            requiresReturnAnchor = true
+        ),
+        TransitionRouteSpec(
+            id = TransitionRouteId.HomeDockToImport,
+            destinationClassName = "$PackageName.EduSchoolSelectActivity",
+            legacyProfile = LegacyTransitionProfile.Anchored(
+                profileId = AnchoredLegacyProfileId.HomeMenuDestination,
+                sourceCornerRadiusDp = 27f
             ),
             nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
             nativeDestinationClassName = "$PackageName.NativeEduSchoolSelectActivity",

@@ -1,6 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing.history
 
-import android.content.Intent
 import android.os.Bundle
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
@@ -32,7 +31,7 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.progress.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
-import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.legacy.returnToScheduleHome
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.Dispatchers
@@ -63,20 +62,8 @@ open class AiImportHistoryDetailActivityHost : ComponentActivity() {
                 val draft = remember(entry, state.config.id) {
                     entry?.let { AiImportHistoryStore.restore(it, state.config).getOrNull() }
                 }
-                var returnToMain by remember { mutableStateOf(false) }
                 CrossActivityTransitionHost(
                     activity = this@AiImportHistoryDetailActivityHost,
-                    onFinished = {
-                        if (returnToMain) {
-                            ActivityTransitionCoordinator.openImmediate(
-                                this@AiImportHistoryDetailActivityHost,
-                                TransitionRouteId.ReturnToHome,
-                                Intent(this@AiImportHistoryDetailActivityHost, MainActivity::class.java).addFlags(
-                                    Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
-                                )
-                            )
-                        }
-                    },
                     sourceContent = {
                         Box(Modifier.fillMaxSize().background(Color.Transparent)) {
                             entry?.let {
@@ -112,9 +99,9 @@ open class AiImportHistoryDetailActivityHost : ComponentActivity() {
                             historicalDraft = draft,
                             historicalEntryId = checkNotNull(entry).id,
                             showHistoryAction = false,
+                            onImportSubmitted = { returnToScheduleHome() },
                             onImportRequested = { restored, createNewSchedule ->
                                 AiEduImportProgressSession.requestFinalImport(restored, createNewSchedule)
-                                returnToMain = true
                             }
                         )
                     }
@@ -150,24 +137,30 @@ internal fun AiImportHistoryRowContent(
 internal fun historyConversationProgress(
     entry: AiImportHistoryEntry,
     draft: ImportDraft
-): AiEduImportProgress = entry.context?.copy(
-    awaitingConfirmation = false,
-    confirmActionLabel = "",
-    secondaryConfirmActionLabel = "",
-    screenModeActionLabel = "",
-    cancelActionLabel = "",
-    finished = true,
-    error = null
-) ?: AiEduImportProgress(
-    routeLabel = "AI 教务导入",
-    steps = listOf("已读取历史会话", "已恢复导入结果", "本地校验通过，可继续修改"),
-    requestPreview = "记录时间：${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(entry.createdAt))}",
-    pageText = buildString {
-        if (entry.sourceSummary.isNotBlank()) appendLine(entry.sourceSummary)
-        append("已恢复 ${draft.courses.size} 门课程、${draft.periods.size} 个节次、${draft.config.totalWeeks} 周配置。")
-    },
-    userPrompt = entry.prompt.ifBlank { "帮我按规则导入这份课表" },
-    attachmentTitle = entry.sourceSummary.ifBlank { "历史导入上下文" },
-    requestSent = true,
-    finished = true
-)
+): AiEduImportProgress {
+    entry.context?.let { progress ->
+        return progress.copy(
+            awaitingConfirmation = false,
+            confirmActionLabel = "",
+            secondaryConfirmActionLabel = "",
+            screenModeActionLabel = "",
+            cancelActionLabel = "",
+            finished = true,
+            error = null
+        )
+    }
+    val regularImport = draft.source == ImportDraftSource.STANDARD
+    return AiEduImportProgress(
+        routeLabel = entry.sourceSummary.ifBlank { "课表导入" },
+        steps = listOf("已读取导入记录", "已恢复导入结果", "本地校验通过，可继续修改"),
+        requestPreview = "记录时间：${DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date(entry.createdAt))}",
+        pageText = if (regularImport) "" else buildString {
+            if (entry.sourceSummary.isNotBlank()) appendLine(entry.sourceSummary)
+            append("已恢复 ${draft.courses.size} 门课程、${draft.periods.size} 个节次、${draft.config.totalWeeks} 周配置。")
+        },
+        userPrompt = if (regularImport) "" else entry.prompt.ifBlank { "帮我按规则导入这份课表" },
+        attachmentTitle = if (regularImport) "" else entry.sourceSummary.ifBlank { "历史导入上下文" },
+        requestSent = true,
+        finished = true
+    )
+}

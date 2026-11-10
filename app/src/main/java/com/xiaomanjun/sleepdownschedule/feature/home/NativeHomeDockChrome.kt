@@ -5,13 +5,12 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.layer.GraphicsLayer
 import com.itos.coui.backdrop.CouiBackdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.performance.DockEntranceContainer
 import com.xiaomanjun.sleepdownschedule.core.performance.StartupPhase
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
+import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
 
@@ -26,7 +25,7 @@ internal fun NativeHomeDockChrome(
     buttonHidden: Boolean,
     config: ScheduleConfigEntity,
     couiBackdrop: CouiBackdrop?,
-    onSelect: (Int) -> Unit, onOpenMenu: (Rect, GraphicsLayer) -> Unit,
+    onSelect: (Int) -> Unit, onOpenMenu: (DockImportSource) -> Unit,
     fallback: State<@Composable () -> Unit>,
     phase: StartupPhase,
     modifier: Modifier = Modifier

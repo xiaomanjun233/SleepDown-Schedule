@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.platform.coloros
 
+import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
+
 import android.content.Context
 import android.content.res.ColorStateList
 import android.view.Gravity
@@ -34,7 +36,6 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -123,7 +124,7 @@ internal fun createNativeFab(
         null
     }
     setClick.invoke(root, listener)
-    icon.contentDescription = "添加与导入"
+    icon.contentDescription = "导入课表"
     icon.isClickable = onClick != null
     icon.isFocusable = onClick != null
     root.clipChildren = false
@@ -178,7 +179,7 @@ private class NativeParallelDock(
 @Composable
 internal fun ColorOsParallelHomeDock(
     selectedIndex: Int, dark: Boolean, buttonHidden: Boolean, modifier: Modifier,
-    onSelect: (Int) -> Unit, onOpenMenu: (Rect, GraphicsLayer) -> Unit
+    onSelect: (Int) -> Unit, onOpenMenu: (DockImportSource) -> Unit
 ): Boolean {
     val style = LocalHomeMaterialStyle.current
     val effectiveDark = style?.dark ?: dark
@@ -234,7 +235,7 @@ internal fun ColorOsParallelHomeDock(
                         try {
                             // Retry a missed initial copy on demand, so a not-yet-attached View
                             // cannot leave the FAB permanently disabled.
-                            if (!readyReturnSnapshot.value.get() && !captureReturn.value(fab)) return@launch
+                            if (!readyReturnSnapshot.value.get()) captureReturn.value(fab)
                             if (!canOpen.value) return@launch
                             val location = IntArray(2)
                             val rootLocation = IntArray(2)
@@ -242,7 +243,9 @@ internal fun ColorOsParallelHomeDock(
                             composeRoot.getLocationOnScreen(rootLocation)
                             val left = (location[0] - rootLocation[0]).toFloat()
                             val top = (location[1] - rootLocation[1]).toFloat()
-                            open.value(Rect(left, top, left + fab.main.width, top + fab.main.height), returnLayer)
+                            open.value(DockImportSource(
+                                Rect(left, top, left + fab.main.width, top + fab.main.height), returnLayer, fab.main
+                            ))
                         } finally {
                             opening.set(false)
                         }

@@ -72,6 +72,34 @@ class SharedViewKitBackendTest {
         pixels.recycle()
     }
 
+    @Test fun dockPassesItsAttachedViewAndReturnsToItWithoutABitmapProjection() = runBlocking {
+        val button = View(source)
+        source.setContentView(button)
+        button.layout(10, 20, 64, 74)
+        val request = request(routeId = TransitionRouteId.HomeDockToImport)
+        returning = TransitionAnchorFrame(ComposeRect(10f, 20f, 64f, 74f), 27f, null)
+        assertEquals(TransitionBackendOpenResult.Started, backend.open(request.copy(
+            payload = request.payload!!.copy(openingAnchor = returning, openingSourceView = button)
+        )))
+        assertSame(button, api.inputView)
+        assertNull(api.inputBitmap)
+        api.callbacks!!.onEnd(SharedViewKitContract.Open)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(View.VISIBLE, button.visibility)
+        assertTrue(backend.requestClose(source, request.session))
+        assertTrue(api.returnBundle!!.containsKey(SharedViewKitContract.Bounds))
+        api.callbacks!!.onEnd(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(button.isAttachedToWindow)
+        assertEquals(1, releases.get())
+    }
+
+    @Test fun dockDoesNotUseTheBitmapProjectionWhenItsViewIsMissing() = runBlocking {
+        val result = backend.open(request(routeId = TransitionRouteId.HomeDockToImport))
+        assertTrue(result is TransitionBackendOpenResult.Rejected)
+        assertEquals(0, api.optionsCalls)
+    }
+
     @Test fun explicitCardFillWinsOverColoredCapsulePixelsOnOpenAndReturn() = runBlocking {
         anchor.bitmap!!.eraseColor(android.graphics.Color.GREEN)
         val cardFill = android.graphics.Color.rgb(43, 44, 46)
@@ -225,7 +253,7 @@ class SharedViewKitBackendTest {
         assertTrue(backend.requestClose(Robolectric.buildActivity(Activity::class.java).setup().get(), request.session))
         backend.onActivityDestroyed(source)
         shadowOf(Looper.getMainLooper()).idle()
-        assertNull(api.inputView!!.onNativeSourceRestored)
+        assertNull((api.inputView as SharedViewKitSourceView).onNativeSourceRestored)
         assertNull(TransitionPayloadStore.session(request.session.id))
         assertEquals(1, releases.get())
     }
@@ -390,7 +418,7 @@ class SharedViewKitBackendTest {
         var returnBundle: Bundle? = null
         var returnActivity: Activity? = null
         var inputBitmap: Bitmap? = null
-        var inputView: SharedViewKitSourceView? = null
+        var inputView: View? = null
         var openBundle: Bundle? = null
         var recycleRejectedInput = false
         override fun supportedProtocol() = protocol
@@ -399,17 +427,19 @@ class SharedViewKitBackendTest {
             if (supportsReturnBitmap) mapOf(SharedViewKitContract.Bitmap to "Bitmap||return pixels") else emptyMap()
         override fun options(source: View, extras: Bundle,
             callbacks: SharedViewKitCallbacks): ActivityOptions? {
-            val view = source as SharedViewKitSourceView
-            inputView = view
-            val bitmap = view.bitmap
-            assertTrue(view.isAttachedToWindow)
-            assertTrue(view.clipToOutline)
-            val outline = android.graphics.Outline().also { view.outlineProvider.getOutline(view, it) }
-            assertEquals(view.radiusPx, outline.radius, 0f)
+            inputView = source
+            assertTrue(source.isAttachedToWindow)
+            val projection = source as? SharedViewKitSourceView
+            projection?.let {
+                assertTrue(it.clipToOutline)
+                val outline = android.graphics.Outline().also { outline -> it.outlineProvider.getOutline(it, outline) }
+                assertEquals(it.radiusPx, outline.radius, 0f)
+            }
+            val bitmap = projection?.bitmap
             optionsCalls++
             inputBitmap = bitmap
             openBundle = Bundle(extras)
-            if (!provideOptions && recycleRejectedInput) bitmap.recycle()
+            if (!provideOptions && recycleRejectedInput) bitmap?.recycle()
             this.callbacks = callbacks
             return if (provideOptions) ActivityOptions.makeBasic() else null
         }

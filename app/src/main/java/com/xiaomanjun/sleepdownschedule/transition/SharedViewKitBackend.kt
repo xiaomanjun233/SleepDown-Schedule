@@ -25,11 +25,14 @@ internal class SharedViewKitBackend(
         val source: WeakReference<Activity>,
         val capabilities: SharedViewKitCapabilities,
         val generation: Long,
-        val kitBitmap: Bitmap,
-        val sourceView: SharedViewKitSourceView,
+        val kitBitmap: Bitmap?,
+        val sourceView: View,
         var closing: Boolean = false,
         var watchdog: Runnable? = null
     ) {
+        val projection = sourceView as? SharedViewKitSourceView
+        private val originalAlpha = sourceView.alpha
+        private val originalVisibility = sourceView.visibility
         var kitReturnBitmap: Bitmap? = null
         var pendingReturnAnchor: TransitionAnchorFrame? = null
         var releaseReturnCover: (() -> Unit)? = null
@@ -45,8 +48,11 @@ internal class SharedViewKitBackend(
             releaseReturnCover = null
             if (!coverAttached) pendingReturnAnchor?.bitmap?.let { if (!it.isRecycled) it.recycle() }
             pendingReturnAnchor = null
-            sourceView.release()
-            if (!kitBitmap.isRecycled) kitBitmap.recycle()
+            if (projection != null) projection.release() else {
+                sourceView.alpha = originalAlpha
+                sourceView.visibility = originalVisibility
+            }
+            kitBitmap?.let { if (!it.isRecycled) it.recycle() }
             kitReturnBitmap?.let { if (!it.isRecycled) it.recycle() }
             kitReturnBitmap = null
         }
@@ -54,8 +60,15 @@ internal class SharedViewKitBackend(
 
     override suspend fun open(request: TransitionOpenRequest): TransitionBackendOpenResult {
         val anchor = request.payload?.openingAnchor
-        if (anchor?.isValid != true || !anchor.cornerRadiusPx.isFinite() || anchor.cornerRadiusPx < 0f)
+        val liveView = request.payload?.openingSourceView?.takeIf {
+            it.isAttachedToWindow && it.visibility == View.VISIBLE && it.width > 1 && it.height > 1 &&
+                it.windowToken == request.activity.window.decorView.windowToken
+        }
+        if (anchor == null || !anchor.hasBounds || (liveView == null && !anchor.isValid) ||
+            !anchor.cornerRadiusPx.isFinite() || anchor.cornerRadiusPx < 0f)
             return rejected("invalidAnchor")
+        if (request.route.id == TransitionRouteId.HomeDockToImport && liveView == null)
+            return rejected("liveSourceUnavailable")
         if (request.activity.isDestroyed || request.activity.isFinishing ||
             request.activity.isInMultiWindowMode || request.activity.isInPictureInPictureMode)
             return rejected("unsupportedWindow")
@@ -72,23 +85,25 @@ internal class SharedViewKitBackend(
         // Compose GraphicsLayer snapshots are Config#HARDWARE. The vendor implementation reads
         // pixels for the return mask color and rejects hardware bitmaps, so hand it an app-owned
         // software copy; the payload bitmap stays untouched for the Legacy fallback.
-        val kitBitmap = anchor.bitmap?.softwareCopyForKit(anchor.cornerRadiusPx)
-            ?: return rejected("softwareBitmapUnavailable")
-        if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST)
-            Log.i("SharedViewKit", "bitmap=${anchor.bitmap.config}->${kitBitmap.config} ${kitBitmap.width}x${kitBitmap.height}")
+        val kitBitmap = if (liveView != null) null else {
+            anchor.bitmap?.softwareCopyForKit(anchor.cornerRadiusPx) ?: return rejected("softwareBitmapUnavailable")
+        }
+        if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST) {
+            Log.i("SharedViewKit", "route=${request.route.id.wireName} source=${if (liveView != null) "live-view" else "bitmap-projection"}")
+        }
         val session = request.session
-        val sourceView = SharedViewKitSourceView.attach(request.activity, anchor, kitBitmap)
+        val sourceView = liveView ?: SharedViewKitSourceView.attach(request.activity, anchor, checkNotNull(kitBitmap))
         if (sourceView == null) {
-            kitBitmap.recycle()
+            kitBitmap?.recycle()
             return rejected("sourceViewUnavailable")
         }
         if (!session.moveTo(TransitionSessionState.NativeRegistered)) {
-            sourceView.release()
-            kitBitmap.recycle()
+            (sourceView as? SharedViewKitSourceView)?.release()
+            kitBitmap?.recycle()
             return rejected("invalidSessionState")
         }
         val resource = Resource(session, WeakReference(request.activity), capabilities, session.nextCallbackGeneration(), kitBitmap, sourceView)
-        sourceView.onNativeSourceRestored = {
+        resource.projection?.onNativeSourceRestored = {
             dispatch { if (current(resource) && resource.closing && resource.returnStarted) showReturnCover(resource) }
         }
         resources[session.id] = resource
@@ -109,10 +124,11 @@ internal class SharedViewKitBackend(
             } }
         )
         val extras = Bundle().apply {
-            putFloat(SharedViewKitContract.Radius, sourceView.radiusPx)
+            putFloat(SharedViewKitContract.Radius, resource.projection?.radiusPx ?: anchor.cornerRadiusPx)
             capabilities.fallbackType?.let { putInt(SharedViewKitContract.FallbackType, it) }
-            putInt(SharedViewKitContract.Color, anchor.surfaceColor ?: transitionSurfaceColor(kitBitmap,
-                request.payload?.backgroundColor ?: android.graphics.Color.TRANSPARENT))
+            val background = request.payload?.backgroundColor ?: android.graphics.Color.TRANSPARENT
+            putInt(SharedViewKitContract.Color, anchor.surfaceColor
+                ?: kitBitmap?.let { transitionSurfaceColor(it, background) } ?: background)
         }
         val options = sdk("options") { api.options(sourceView, extras, callbacks) }
         if (options == null) {
@@ -143,11 +159,14 @@ internal class SharedViewKitBackend(
         val anchor = runCatching {
             TransitionPayloadStore.payload(session.id)?.returnAnchorProvider?.resolve()
         }.getOrNull()
+        val validReturn = anchor?.let {
+            it.isValid || (resource.projection == null && resource.sourceView.isAttachedToWindow && it.hasBounds)
+        } == true
         val bundle = Bundle().apply {
-            if (source != null && anchor?.isValid == true) {
+            if (source != null && validReturn && anchor != null) {
                 putParcelable(SharedViewKitContract.Bounds, boundsForKit(source.window.decorView, anchor, resource.capabilities))
                 putFloat(SharedViewKitContract.Radius, anchor.cornerRadiusPx)
-                if (resource.capabilities.returnBitmap) {
+                if (resource.projection != null && resource.capabilities.returnBitmap) {
                     anchor.bitmap?.softwareCopyForKit(anchor.cornerRadiusPx)?.let { bitmap ->
                         // The opening menu and the return FAB are different surfaces. Updating
                         // bounds alone leaves the SDK animating the opening menu's old pixels.
@@ -156,7 +175,7 @@ internal class SharedViewKitBackend(
                     }
                 }
             } else putInt(SharedViewKitContract.BackType, checkNotNull(resource.capabilities.missingTargetBackType))
-            val pixels = resource.kitReturnBitmap ?: anchor?.bitmap
+            val pixels = if (resource.projection != null) resource.kitReturnBitmap ?: anchor?.bitmap else null
             putInt(SharedViewKitContract.Color, anchor?.surfaceColor ?: pixels?.let {
                 transitionSurfaceColor(it, android.graphics.Color.TRANSPARENT)
             } ?: android.graphics.Color.TRANSPARENT)
@@ -169,7 +188,7 @@ internal class SharedViewKitBackend(
         resource.closing = true
         movingSession = session.id
         // Prepare pixels only. Do not draw a second button underneath the whole return animation.
-        if (source != null && anchor?.isValid == true) {
+        if (resource.projection != null && source != null && anchor?.isValid == true) {
             (resource.kitReturnBitmap ?: anchor.bitmap)?.softwareCopyForKit(anchor.cornerRadiusPx)?.let { bitmap ->
                 resource.pendingReturnAnchor = anchor.copy(bitmap = bitmap)
             }
@@ -184,7 +203,7 @@ internal class SharedViewKitBackend(
         if (mode == SharedViewKitContract.Open && !resource.closing &&
             resource.session.moveFrom(TransitionSessionState.NativeRegistered, TransitionSessionState.NativeRunning)) {
             TransitionPayloadStore.handoffOpeningSource(resource.session.id)
-            resource.sourceView.visibility = View.INVISIBLE
+            resource.projection?.visibility = View.INVISIBLE
         }
     }
 

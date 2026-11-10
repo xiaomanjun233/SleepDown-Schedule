@@ -148,6 +148,7 @@ fun EduSchoolPickerScreen(
     warehouseGeneration: Int = 0,
     availableAdapters: List<EduAdapter>? = null,
     adapterBadge: (EduAdapter) -> String? = { null },
+    additionalTopPadding: Dp = 0.dp,
     onSelect: (EduAdapter) -> Unit
 ) {
     val context = LocalContext.current
@@ -166,7 +167,7 @@ fun EduSchoolPickerScreen(
             .getOrDefault(emptyList())
     }
     var adapterChoices by remember { mutableStateOf<List<EduAdapter>?>(null) }
-    var query by remember { mutableStateOf("") }
+    var query by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf("") }
     val filtered = remember(query, adapters) {
         val keyword = query.trim()
         val sorted = adapters.sortedWith(
@@ -189,6 +190,7 @@ fun EduSchoolPickerScreen(
         backdrop = backdrop,
         adapters = filtered,
         adapterBadge = adapterBadge,
+        additionalTopPadding = additionalTopPadding,
         query = query,
         onQueryChange = { query = it },
         onSelect = { school ->
@@ -330,6 +332,7 @@ fun EduSchoolIndexedSelectScreen(
     query: String,
     onQueryChange: (String) -> Unit,
     adapterBadge: (EduAdapter) -> String? = { null },
+    additionalTopPadding: Dp = 0.dp,
     onSelect: (EduSchool) -> Unit
 ) {
     val window = LocalActivity.current?.window
@@ -352,7 +355,7 @@ fun EduSchoolIndexedSelectScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val haptic = LocalHapticFeedback.current
-    val topPadding = detailContentTopPadding()
+    val topPadding = detailContentTopPadding() + additionalTopPadding
     val schoolGroups = remember(adapters) {
         adapters
             .groupBy { it.school.id }

@@ -71,20 +71,31 @@ object ActivityTransitionCoordinator {
         val landscape = activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         val normalizedPayload = if (landscape) payload?.copy(
             openingAnchor = null, returnAnchorProvider = null,
-            backgroundBitmap = null, parentSessionId = parentId
+            backgroundBitmap = null, parentSessionId = parentId, openingSourceView = null
         ) else payload?.copy(parentSessionId = parentId)
         val session = TransitionPayloadStore.create(routeId, normalizedPayload, parentId)
         intent.putTransitionIdentity(session)
         val legacyRequest = TransitionOpenRequest(activity, intent, route, session, normalizedPayload)
+        val hasLiveSource = normalizedPayload?.openingSourceView?.let {
+            it.isAttachedToWindow && it.visibility == android.view.View.VISIBLE && it.width > 1 && it.height > 1 &&
+                it.windowToken == activity.window.decorView.windowToken
+        } == true
         val returnAnchorReady = if (!route.requiresReturnAnchor) {
             true
         } else {
-            runCatching { normalizedPayload?.returnAnchorProvider?.resolve()?.isValid == true }
+            runCatching {
+                normalizedPayload?.returnAnchorProvider?.resolve()?.let {
+                    it.isValid || (hasLiveSource && it.hasBounds)
+                } == true
+            }
                 .getOrDefault(false)
         }
         val nativeDestination = route.nativeDestinationClassName
         val nativeEligible = !landscape && TransitionFeatureGate.allowsSharedViewKit(route) &&
-            (!route.requiresOpeningAnchor || normalizedPayload?.openingAnchor?.isValid == true) &&
+            (routeId != TransitionRouteId.HomeDockToImport || hasLiveSource) &&
+            (!route.requiresOpeningAnchor || normalizedPayload?.openingAnchor?.let {
+                it.isValid || (hasLiveSource && it.hasBounds)
+            } == true) &&
             returnAnchorReady &&
             nativeDestination != null
         if (nativeEligible) {

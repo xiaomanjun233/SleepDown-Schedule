@@ -40,6 +40,7 @@ class TransitionRouteCatalogTest {
                 TransitionRouteId.ManualImportToHistory,
                 TransitionRouteId.AiProgressToHistory,
                 TransitionRouteId.HomeToEduImport,
+                TransitionRouteId.HomeDockToImport,
                 TransitionRouteId.HomeToCourseManagement,
                 TransitionRouteId.QuickSheetToSettingsDetail,
                 TransitionRouteId.SpecialCourseToEditor
@@ -64,6 +65,7 @@ class TransitionRouteCatalogTest {
             TransitionRouteId.ManualImportToHistory,
             TransitionRouteId.AiProgressToHistory,
             TransitionRouteId.HomeToEduImport,
+            TransitionRouteId.HomeDockToImport,
             TransitionRouteId.HomeToCourseManagement,
             TransitionRouteId.QuickSheetToSettingsDetail,
             TransitionRouteId.SpecialCourseToEditor
@@ -91,6 +93,10 @@ class TransitionRouteCatalogTest {
             "com.xiaomanjun.sleepdownschedule.NativeEduSchoolSelectActivity",
             TransitionRouteCatalog.get(TransitionRouteId.HomeToEduImport)
                 .nativeDestinationClassName
+        )
+        assertEquals(
+            TransitionRouteCatalog.get(TransitionRouteId.HomeToEduImport).nativeDestinationClassName,
+            TransitionRouteCatalog.get(TransitionRouteId.HomeDockToImport).nativeDestinationClassName
         )
         assertEquals(
             "com.xiaomanjun.sleepdownschedule.NativeCourseManagementActivity",

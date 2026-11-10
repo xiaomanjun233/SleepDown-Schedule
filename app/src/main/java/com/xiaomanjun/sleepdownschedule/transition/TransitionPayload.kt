@@ -4,6 +4,7 @@ import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.os.Looper
+import android.view.View
 import androidx.compose.ui.geometry.Rect
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -17,9 +18,11 @@ data class TransitionAnchorFrame(
     /** Fill of the moving surface, independent of the source Activity's page background. */
     val surfaceColor: Int? = null
 ) {
+    val hasBounds: Boolean
+        get() = boundsInWindow.width > 1f && boundsInWindow.height > 1f
+
     val isValid: Boolean
-        get() = boundsInWindow.width > 1f && boundsInWindow.height > 1f &&
-            bitmap != null && !bitmap.isRecycled
+        get() = hasBounds && bitmap != null && !bitmap.isRecycled
 }
 
 /**
@@ -102,7 +105,8 @@ data class TransitionPayload(
      * It is session scoped and runs exactly once for native completion, Legacy completion or
      * cancellation, so source Activities never have to guess from an early onResume callback.
      */
-    val onSourceReleased: (() -> Unit)? = null
+    val onSourceReleased: (() -> Unit)? = null,
+    val openingSourceView: View? = null
 )
 
 private class CleanupHandle(private val cleanup: () -> Unit) {

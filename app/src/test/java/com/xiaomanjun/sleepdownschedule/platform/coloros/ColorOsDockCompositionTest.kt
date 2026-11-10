@@ -15,8 +15,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.core.performance.StartupPhase
@@ -24,10 +22,12 @@ import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCourseCardMode
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
+import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
 import com.xiaomanjun.sleepdownschedule.core.ui.material.VisualEffectsState
 import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
 import com.itos.coui.backdrop.rememberCouiBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.CourseWallpaperSampling
 import com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.kyant.backdrop.backdrops.SharedBlurBackdrop
@@ -58,7 +58,7 @@ class ColorOsDockCompositionTest {
         val receive: (Pair<Float, Float>) -> Unit = { received = it }
         val select: (Int) -> Unit = {}
         val home: () -> Unit = {}
-        val menu: (Rect, GraphicsLayer) -> Unit = { _, _ -> }
+        val menu: (DockImportSource) -> Unit = { it.release() }
         ShadowLog.clear()
         compose.setContent {
             SideEffect { providerCommits++ }
@@ -93,7 +93,7 @@ class ColorOsDockCompositionTest {
     fun oldSystemFallsBackEvenWhenCouiKitIsMarkedAvailable() {
         var fallbackRendered = 0
         val select: (Int) -> Unit = {}
-        val menu: (Rect, GraphicsLayer) -> Unit = { _, _ -> }
+        val menu: (DockImportSource) -> Unit = { it.release() }
         compose.setContent {
             val pageBackdrop = rememberCouiBackdrop(diagnosticName = "dock-page-test-33")
             val fallback = rememberUpdatedState<@Composable () -> Unit> {
@@ -123,7 +123,7 @@ class ColorOsDockCompositionTest {
         var renderedFallbackRevision = -1
         val select: (Int) -> Unit = {}
         val home: () -> Unit = {}
-        val menu: (Rect, GraphicsLayer) -> Unit = { _, _ -> }
+        val menu: (DockImportSource) -> Unit = { it.release() }
         ShadowLog.clear()
         compose.setContent {
             val revision = backgroundRevision.intValue
@@ -157,13 +157,18 @@ class ColorOsDockCompositionTest {
         var receivedRadius = -1f
         val select: (Int) -> Unit = {}
         val home: () -> Unit = {}
-        val menu: (Rect, GraphicsLayer) -> Unit = { _, _ -> }
+        val menu: (DockImportSource) -> Unit = { it.release() }
         val receive: (Float) -> Unit = { receivedRadius = it }
         ShadowLog.clear()
         compose.setContent {
             val source = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "course-preview-test")
             val pixels = radius.intValue.toFloat()
-            val shared = remember(source, pixels) { SharedBlurBackdrop(source, pixels, false) }
+            val wallpaper = remember {
+                mutableStateOf<com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPixels?>(null)
+            }
+            val shared = remember(source, pixels) {
+                CourseWallpaperSampling(SharedBlurBackdrop(source, pixels, false), wallpaper) { 1f }
+            }
             val fallback = rememberUpdatedState<@Composable () -> Unit> { Box(Modifier.size(64.dp)) }
             CompositionLocalProvider(LocalSharedCourseBackdrop provides shared) {
                 CourseSamplerConsumer(receive)
@@ -200,5 +205,5 @@ private fun NativeCoursePreviewConsumer(receive: (Pair<Float, Float>) -> Unit) {
 @Composable
 private fun CourseSamplerConsumer(receive: (Float) -> Unit) {
     val sampler = LocalSharedCourseBackdrop.current
-    SideEffect { receive(requireNotNull(sampler).radiusPx) }
+    SideEffect { receive(requireNotNull(sampler).filtered.radiusPx) }
 }
