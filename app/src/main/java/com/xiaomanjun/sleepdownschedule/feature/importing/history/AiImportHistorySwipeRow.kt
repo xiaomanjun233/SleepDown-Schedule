@@ -49,7 +49,6 @@ import com.itos.coui.effect.CouiMetaballBody
 import com.itos.coui.effect.CouiMetaballRenderer
 import com.itos.coui.effect.couiButtonFeedback
 import com.itos.coui.motion.rememberCouiMetaballFollowingTranslation
-import com.itos.coui.shape.CouiCapsuleShape
 import com.itos.coui.swipereveal.CouiSwipeRevealDefaults
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.R
@@ -60,6 +59,9 @@ import kotlinx.coroutines.launch
 
 private val HistoryRowHeight = 78.dp
 private val HistoryRowRadius = 18.dp
+// ColorOS SystemUI notification_menu_icon_with_background_width / standard_height.
+private val HistorySwipeActionWidth = 60.dp
+private val HistorySwipeActionHeight = 68.dp
 
 @Composable
 internal fun AiImportHistorySwipeRow(
@@ -77,10 +79,10 @@ internal fun AiImportHistorySwipeRow(
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val defaults = CouiSwipeRevealDefaults
-    val actionSize = defaults.fusedActionSize
-    val actionPx = with(density) { actionSize.toPx() }
+    val actionSize = with(density) { Size(HistorySwipeActionWidth.toPx(), HistorySwipeActionHeight.toPx()) }
+    val actionWidth = actionSize.width
     val followingPx = with(density) { defaults.menuFollowingDistance.toPx() }
-    val restPx = with(density) { (actionSize + maxOf(HistoryRowHeight - 42.dp, defaults.menuMinimumGap)).toPx() }
+    val restPx = actionWidth + with(density) { defaults.menuMinimumGap.toPx() }
     val openThreshold = with(density) { defaults.openTriggerDistance.toPx() }
     val maxVelocity = with(density) { defaults.itemMaxVelocity.toPx() }
     val motion = remember(entry.id) { Animatable(0f) }
@@ -93,10 +95,10 @@ internal fun AiImportHistorySwipeRow(
     val latestDelete by rememberUpdatedState(onDelete)
     val latestRevealChange by rememberUpdatedState(onRevealChange)
     val atRest by remember { derivedStateOf { !dragging && !deleting && distance <= .5f } }
-    val actionVisible by remember(actionPx, followingPx) {
-        derivedStateOf { !deleting && distance >= (actionPx + followingPx) * defaults.fusedRevealStart }
+    val actionVisible by remember(actionWidth, followingPx) {
+        derivedStateOf { !deleting && distance >= (actionWidth + followingPx) * defaults.fusedRevealStart }
     }
-    val following by rememberCouiMetaballFollowingTranslation({ distance }, actionPx, followingPx)
+    val following by rememberCouiMetaballFollowingTranslation({ distance }, actionWidth, followingPx)
 
     fun settle(target: Float, velocity: Float = 0f) {
         job?.cancel()
@@ -123,7 +125,7 @@ internal fun AiImportHistorySwipeRow(
             job?.cancel()
             job = scope.launch {
                 motion.snapTo(distance)
-                motion.animateTo(widthPx + actionPx, tween(240, easing = FastOutSlowInEasing)) { distance = value }
+                motion.animateTo(widthPx + actionWidth, tween(240, easing = FastOutSlowInEasing)) { distance = value }
                 collapse.animateTo(1f, tween(145, easing = FastOutSlowInEasing))
                 latestDelete()
             }
@@ -188,14 +190,14 @@ internal fun AiImportHistorySwipeRow(
             )
         }) {
             if (active) Canvas(Modifier.matchParentSize()) {
-                drawHistorySwipe(renderer, distance, actionPx, following, restPx, deleting, rtl, cardColor)
+                drawHistorySwipe(renderer, distance, actionSize, following, restPx, deleting, rtl, cardColor)
             }
             val cardSurface = when {
                 !active -> Modifier.clip(shape).background(cardColor)
                 mask != null -> Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                     .drawWithContent {
                         drawContent()
-                        drawHistorySwipe(mask, distance, actionPx, following, restPx, deleting, rtl, Color.White, BlendMode.DstIn)
+                        drawHistorySwipe(mask, distance, actionSize, following, restPx, deleting, rtl, Color.White, BlendMode.DstIn)
                     }
                 else -> Modifier.drawWithContent {
                     clipRect(left = if (rtl) distance.coerceAtMost(size.width) else 0f,
@@ -226,13 +228,13 @@ internal fun AiImportHistorySwipeRow(
             if (actionVisible) {
                 val interaction = remember { MutableInteractionSource() }
                 val dark = MaterialTheme.colorScheme.background.luminance() < .5f
-                Box(Modifier.align(Alignment.CenterEnd).size(actionSize).graphicsLayer {
+                Box(Modifier.align(Alignment.CenterEnd).size(HistorySwipeActionWidth, HistorySwipeActionHeight).graphicsLayer {
                     translationX = direction * following
-                    alpha = ((distance / (actionPx + followingPx) - defaults.fusedRevealStart) /
+                    alpha = ((distance / (actionWidth + followingPx) - defaults.fusedRevealStart) /
                         (1f - defaults.fusedRevealStart)).coerceIn(0f, 1f)
-                }.clip(CouiCapsuleShape).couiButtonFeedback(dark, interaction)
+                }.clip(shape).couiButtonFeedback(dark, interaction)
                     .clickable(interaction, null, onClick = ::delete), contentAlignment = Alignment.Center) {
-                    Icon(painterResource(R.drawable.ic_delete_history), "删除", Modifier.size(21.dp),
+                    Icon(painterResource(R.drawable.ic_delete_history), "删除", Modifier.size(24.dp),
                         tint = MaterialTheme.colorScheme.error)
                 }
             }
@@ -241,11 +243,12 @@ internal fun AiImportHistorySwipeRow(
 }
 
 private fun DrawScope.drawHistorySwipe(
-    renderer: CouiMetaballRenderer?, distance: Float, actionSize: Float, following: Float,
+    renderer: CouiMetaballRenderer?, distance: Float, actionSize: Size, following: Float,
     rest: Float, deleting: Boolean, rtl: Boolean, color: Color, blend: BlendMode = BlendMode.SrcOver,
 ) {
     val cardWidth = (size.width - distance).coerceAtLeast(0f)
-    val actionWidth = (actionSize + (distance - rest).coerceAtLeast(0f)).coerceAtMost(size.width)
+    val actionWidth = (actionSize.width + (distance - rest).coerceAtLeast(0f)).coerceAtMost(size.width)
+    val actionHeight = actionSize.height.coerceAtMost(size.height)
     val radius = HistoryRowRadius.toPx()
     val actionAlpha = if (deleting) (cardWidth / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) else 1f
     scale(if (rtl) -1f else 1f, 1f, pivot = center) {
@@ -255,15 +258,15 @@ private fun DrawScope.drawHistorySwipe(
                 scope = this,
                 first = CouiMetaballBody(Offset(cardWidth / 2f, size.height / 2f), Size(cardWidth, size.height), radius),
                 second = CouiMetaballBody(Offset(actionX + actionWidth / 2f, size.height / 2f),
-                    Size(actionWidth, minOf(actionSize, size.height)), radius),
+                    Size(actionWidth, actionHeight), radius),
                 color = color, blendRangePx = CouiSwipeRevealDefaults.metaballBlendRange.toPx(),
                 fusionEnabled = distance in 0f..rest && !deleting,
                 secondAlpha = actionAlpha, blendMode = blend, size = size,
             )
         } else {
             drawRoundRect(color, size = Size(cardWidth, size.height), cornerRadius = CornerRadius(radius))
-            drawRoundRect(color.copy(alpha = actionAlpha), Offset(actionX, (size.height - actionSize) / 2f),
-                Size(actionWidth, actionSize), CornerRadius(radius))
+            drawRoundRect(color.copy(alpha = actionAlpha), Offset(actionX, (size.height - actionHeight) / 2f),
+                Size(actionWidth, actionHeight), CornerRadius(radius))
         }
     }
 }
