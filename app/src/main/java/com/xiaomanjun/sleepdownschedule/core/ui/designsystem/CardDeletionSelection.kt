@@ -9,9 +9,9 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -186,16 +186,25 @@ internal fun <T> BoxScope.CardSelectionChrome(
             LiquidButton(
                 onClick = { error = null; pending = selected },
                 backdrop = backdrop,
-                modifier = Modifier.width(152.dp),
+                modifier = Modifier.width(148.dp),
                 height = deleteHeight,
                 enabled = enabled,
                 preserveMaterialWhenDisabled = true,
                 nativePrimaryColor = Color.Unspecified,
                 surfaceColor = colors.background.copy(alpha = 0.86f)
             ) {
-                Icon(CouiIcons.Delete, null, Modifier.size(20.dp), tint = ink)
-                Spacer(Modifier.width(6.dp))
-                Text(if (selection.deleting) "正在删除" else "删除", color = ink)
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(CouiIcons.Delete, null, Modifier.size(24.dp), tint = ink)
+                    com.itos.coui.text.Text(
+                        text = if (selection.deleting) "正在删除" else "删除",
+                        kind = CouiTextKind.GroupTitle,
+                        color = ink,
+                        maxLines = 1,
+                    )
+                }
             }
         }
     }
