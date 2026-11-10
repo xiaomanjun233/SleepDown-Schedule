@@ -31,6 +31,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 
@@ -46,6 +47,7 @@ fun DonateSettingsScreen(
 		SleepDownRemoteConfig.refresh(scope, force = true)
 	}
     val topPadding = detailContentTopPadding()
+    val rewardCode = if (appUsesDarkTheme(state.config)) R.drawable.donate_reward else R.drawable.donate_reward_light
     SleepDownSecondaryPageList(
         contentTopPadding = topPadding,
         contentBottomPadding = detailContentBottomPadding(),
@@ -57,7 +59,7 @@ fun DonateSettingsScreen(
         }
         item(key = "donation-reward-code") {
             Image(
-                painter = painterResource(R.drawable.donate_reward),
+                painter = painterResource(rewardCode),
                 contentDescription = "微信赞赏码",
                 modifier = Modifier
                     .fillMaxWidth()
