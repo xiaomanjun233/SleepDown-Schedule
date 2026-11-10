@@ -544,13 +544,15 @@ fun EduSchoolIndexedSelectScreen(
                 contentPadding = PaddingValues(
                     start = 16.dp,
                     end = 16.dp,
-                    top = topPadding + 12.dp,
+                    top = if (hasListHeader) topPadding else topPadding + 12.dp,
                     // Keep rows visible behind the floating glass and let the last one scroll clear.
                     bottom = listDockClearance + 12.dp
                 )
             ) {
                 if (listHeader != null) {
-                    item(key = "edu-school-header") { listHeader() }
+                    item(key = "edu-school-header") {
+                        Box(Modifier.padding(bottom = 12.dp)) { listHeader() }
+                    }
                 }
                 if (adapters.isEmpty()) {
                     item { Text("没有找到学校适配资源", color = MaterialTheme.colorScheme.error) }
