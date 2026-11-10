@@ -158,6 +158,7 @@ private fun AiImportHistoryPage(
     val context = androidx.compose.ui.platform.LocalContext.current
     val textColor = glassForegroundColor(settingsVisualConfig(config))
     var entries by remember { mutableStateOf(AiImportHistoryStore.load(context)) }
+    var revealedEntryId by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val snapshotLayer = rememberGraphicsLayer()
     val snapshotRequested = remember { AtomicBoolean(false) }
@@ -205,10 +206,14 @@ private fun AiImportHistoryPage(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(entries, key = { it.id }) { entry ->
-                        AiEduHistorySwipeRow(
+                        AiImportHistorySwipeRow(
                             entry = entry,
                                 textColor = textColor,
-                                showSource = true,
+                                revealed = revealedEntryId == entry.id,
+                                onRevealChange = { open ->
+                                    if (open) revealedEntryId = entry.id
+                                    else if (revealedEntryId == entry.id) revealedEntryId = null
+                                },
                                 onDelete = {
                                     AiImportHistoryStore.delete(context, entry.id)
                                     entries = entries.filterNot { it.id == entry.id }
@@ -232,7 +237,7 @@ private fun AiImportHistoryPage(
                                     }
                                 },
                             onBoundsChanged = { bounds ->
-                                val fullyVisible = rootSize.height > 0 &&
+                                val fullyVisible = rootSize.height > 0 && bounds.width > 0f && bounds.height > 0f &&
                                     bounds.top >= rootPosition.y &&
                                     bounds.bottom <= rootPosition.y + rootSize.height &&
                                     bounds.left >= rootPosition.x &&

@@ -29,7 +29,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -88,13 +87,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
@@ -104,7 +101,6 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -156,7 +152,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost
 
 open class AiEduImportProgressActivityHost : ComponentActivity() {
@@ -989,193 +984,6 @@ private fun AiEduHistoryButton(
         darkOverride = appUsesDarkTheme(config),
         foregroundOverride = LocalAiImportTextColors.current.primary
     )
-}
-
-@Composable
-internal fun AiEduHistorySwipeRow(
-    entry: AiImportHistoryEntry,
-    textColor: Color = Color.White,
-    showSource: Boolean = true,
-    onDelete: () -> Unit,
-    onOpen: (Rect) -> Unit,
-    onBoundsChanged: (Rect) -> Unit = {}
-) {
-    val density = LocalDensity.current
-    val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
-    val offset = remember(entry.id) { Animatable(0f) }
-    val removal = remember(entry.id) { Animatable(0f) }
-    var revealThresholdCrossed by remember(entry.id) { mutableStateOf(false) }
-    var deleteThresholdCrossed by remember(entry.id) { mutableStateOf(false) }
-    var deletionStarted by remember(entry.id) { mutableStateOf(false) }
-    var widthPx by remember { mutableStateOf(1f) }
-    var cardBounds by remember(entry.id) { mutableStateOf(Rect.Zero) }
-    val actionWidthPx = with(density) { 64.dp.toPx() }
-    val actionGapPx = with(density) { 14.dp.toPx() }
-    val revealPx = actionWidthPx + actionGapPx
-    val deleteTriggerPx = maxOf(
-        revealPx + with(density) { 156.dp.toPx() },
-        widthPx * 0.78f
-    ).coerceAtMost(widthPx * 0.88f)
-    val maximumDragPx = (widthPx - with(density) { 16.dp.toPx() }).coerceAtLeast(revealPx)
-    val settleSpring = spring<Float>(dampingRatio = 0.52f, stiffness = 420f)
-    fun deleteWithMorph(performHaptic: Boolean = true) {
-        if (deletionStarted) return
-        deletionStarted = true
-        scope.launch {
-            if (performHaptic) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            if (abs(offset.value) < revealPx * 0.9f) {
-                offset.animateTo(-revealPx, settleSpring)
-            }
-            if (abs(offset.value) < deleteTriggerPx) {
-                offset.animateTo(-deleteTriggerPx, tween(180, easing = DetailExitEasing))
-            }
-            kotlinx.coroutines.coroutineScope {
-                launch { offset.animateTo(-widthPx * 1.08f, tween(300, easing = DetailExitEasing)) }
-                launch { removal.animateTo(1f, tween(360, easing = DetailExitEasing)) }
-            }
-            onDelete()
-        }
-    }
-    val collapseProgress = ((removal.value - 0.82f) / 0.18f).coerceIn(0f, 1f)
-    val dragDistance = (-offset.value).coerceAtLeast(0f)
-    val gestureStretch = (
-        (dragDistance - revealPx) / (deleteTriggerPx - revealPx).coerceAtLeast(1f)
-        ).coerceIn(0f, 1f)
-    val removalStretch = (removal.value / 0.42f).coerceIn(0f, 1f)
-    val actionExpansion = maxOf(gestureStretch, removalStretch)
-    val renderedActionWidthPx = actionWidthPx +
-        (widthPx - with(density) { 32.dp.toPx() } - actionWidthPx)
-        .coerceAtLeast(0f) * actionExpansion
-    val overlapSafeActionWidthPx = minOf(
-        renderedActionWidthPx,
-        (dragDistance - actionGapPx).coerceAtLeast(actionWidthPx)
-    )
-    val revealProgress = (dragDistance / revealPx).coerceIn(0f, 1f)
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height((78 * (1f - collapseProgress)).coerceAtLeast(1f).dp)
-            .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
-    ) {
-        val deleteModifier = Modifier
-             .align(Alignment.CenterEnd)
-             .padding(end = 16.dp)
-             .fillMaxHeight()
-             .width(with(density) { overlapSafeActionWidthPx.toDp() })
-             .graphicsLayer {
-                  val elasticStretch = (removal.value / 0.28f).coerceIn(0f, 1f)
-                  val verticalSquash = ((removal.value - 0.16f) / 0.46f).coerceIn(0f, 1f)
-                  val vanish = ((removal.value - 0.66f) / 0.30f).coerceIn(0f, 1f)
-                  alpha = maxOf(revealProgress, removalStretch) * (1f - vanish)
-                  scaleX = (1f + 0.09f * elasticStretch) * (1f - 0.27f * vanish)
-                  scaleY = (1f - 0.26f * verticalSquash) * (1f - 0.20f * vanish)
-                  transformOrigin = TransformOrigin(1f, 0.5f)
-                  compositingStrategy = CompositingStrategy.Offscreen
-                  renderEffect = platformBlurRenderEffect(10.dp.toPx() * vanish)
-              }
-         Box(
-             deleteModifier
-                 .squircleSurface(color = Color(0xFFFF3B30), cornerRadius = 15.dp)
-                 .clickable(onClick = ::deleteWithMorph),
-             contentAlignment = Alignment.Center
-         ) {
-             val iconVanish = ((removal.value - 0.72f) / 0.24f).coerceIn(0f, 1f)
-             Image(
-                 painter = painterResource(R.drawable.ic_delete_history),
-                 contentDescription = "删除",
-                 modifier = Modifier
-                     .size(26.dp)
-                     .graphicsLayer {
-                         alpha = 1f - iconVanish
-                         scaleX = 1f - 0.22f * iconVanish
-                         scaleY = 1f - 0.22f * iconVanish
-                     }
-             )
-         }
-        Box(
-            Modifier
-                .fillMaxSize()
-                .offset { IntOffset(offset.value.roundToInt(), 0) }
-                .pointerInput(entry.id, widthPx) {
-                    detectHorizontalDragGestures(
-                        onHorizontalDrag = drag@{ change, dragAmount ->
-                            change.consume()
-                            if (deletionStarted) return@drag
-                            val next = (offset.value + dragAmount).coerceIn(
-                                -maximumDragPx,
-                                with(density) { 8.dp.toPx() }
-                            )
-                            val revealCrossed = abs(next) >= revealPx * 0.48f
-                            if (revealCrossed != revealThresholdCrossed) {
-                                revealThresholdCrossed = revealCrossed
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                            scope.launch { offset.snapTo(next) }
-                            val deleteCrossed = abs(next) >= deleteTriggerPx
-                            if (deleteCrossed && !deleteThresholdCrossed) {
-                                deleteThresholdCrossed = true
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                deleteWithMorph(performHaptic = false)
-                            }
-                        },
-                        onDragEnd = dragEnd@{
-                            if (deletionStarted) return@dragEnd
-                            scope.launch {
-                                 val target = if (abs(offset.value) >= revealPx * 0.48f) -revealPx else 0f
-                                 revealThresholdCrossed = target < 0f
-                                 deleteThresholdCrossed = false
-                                 offset.animateTo(target, settleSpring)
-                             }
-                         },
-                         onDragCancel = dragCancel@{
-                             if (deletionStarted) return@dragCancel
-                             revealThresholdCrossed = false
-                             deleteThresholdCrossed = false
-                             scope.launch { offset.animateTo(0f, settleSpring) }
-                         }
-                    )
-                }
-        ) {
-            if (showSource) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp)
-                        .clip(RoundedRectangle(18.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh)
-                        .onGloballyPositioned {
-                            val bounds = it.boundsInWindow()
-                            if (bounds != cardBounds) {
-                                cardBounds = bounds
-                                onBoundsChanged(bounds)
-                            }
-                        }
-                ) {
-                    AiImportHistoryRowContent(
-                         entry = entry,
-                         textColor = textColor,
-                         modifier = Modifier.fillMaxSize().clickable(
-                             interactionSource = remember { MutableInteractionSource() },
-                             indication = null
-                         ) {
-                             if (abs(offset.value) > with(density) { 2.dp.toPx() }) {
-                                 scope.launch { offset.animateTo(0f, settleSpring) }
-                             } else if (cardBounds.width > 0f) {
-                                 onOpen(cardBounds)
-                             }
-                         }
-                    )
-                }
-            } else {
-                Spacer(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp)
-                )
-            }
-        }
-    }
 }
 
 @Composable
