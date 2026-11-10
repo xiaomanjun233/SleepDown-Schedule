@@ -4,6 +4,8 @@ import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
+import androidx.compose.foundation.MutatePriority
+import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -41,6 +43,7 @@ import com.itos.coui.theme.LocalCouiMaterialEnabled
 import com.itos.coui.topappbar.*
 import com.itos.coui.search.SearchBar
 import com.itos.coui.search.CouiSearchBarDefaults
+import com.itos.coui.search.CouiSearchBarState
 import com.itos.coui.search.rememberCouiSearchBarState
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
@@ -60,9 +63,10 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 
-internal val LocalCouiSettingsListState = staticCompositionLocalOf<LazyListState?> { null }
-internal val LocalCouiSettingsExpandTitle = staticCompositionLocalOf<(() -> Unit)?> { null }
 internal val LocalCouiSettingsToolbar = staticCompositionLocalOf { false }
 internal val LocalCouiSettingsContentPadding = staticCompositionLocalOf<PaddingValues?> { null }
 
@@ -73,26 +77,66 @@ internal data class CouiSettingsSearch(
     val onExpandedChange: (Boolean) -> Unit,
 )
 
-internal val LocalCouiSettingsSearch = staticCompositionLocalOf<CouiSettingsSearch?> { null }
-
 @Composable
-internal fun CouiSettingsRootScaffold(title: String, config: ScheduleConfigEntity,
-    content: @Composable (PaddingValues, Backdrop) -> Unit) {
+internal fun CouiSettingsRootScaffold(
+    title: String,
+    config: ScheduleConfigEntity,
+    search: CouiSettingsSearch,
+    content: @Composable (PaddingValues, Backdrop, LazyListState, Boolean, suspend () -> Unit) -> Unit,
+) {
     val list = rememberLazyListState()
     val header = CouiTopAppBarDefaults.exitUntilCollapsedScrollBehavior {
         list.canScrollForward || list.canScrollBackward
     }
-    val expandTitle = remember(header.state) { header.state::expand }
     val density = LocalDensity.current
-    val search = LocalCouiSettingsSearch.current
-    BackHandler(enabled = search?.expanded == true) { search?.onExpandedChange(false) }
+    val searchState = rememberCouiSearchBarState(search.expanded)
+    val searchClosing = !search.expanded && searchState.active
+    BackHandler(enabled = search.expanded) { search.onExpandedChange(false) }
+    LaunchedEffect(searchClosing) {
+        if (searchClosing) list.stopScroll(MutatePriority.PreventUserInput)
+    }
     CouiSettingsPageScaffold(title = title, config = config, largeHeader = header, rootSearch = search,
+        rootSearchState = searchState,
         modifier = Modifier.nestedScroll(header.nestedScrollConnection)) { padding, backdrop ->
         val compensated = remember(header, padding, density) { header.state.contentPadding(padding, density) }
-        CompositionLocalProvider(
-            LocalCouiSettingsListState provides list,
-            LocalCouiSettingsExpandTitle provides expandTitle
-        ) { content(compensated, backdrop) }
+        val revealDistance = with(density) { CouiCollapsingAppBarDefaults.titleHeight.roundToPx() }
+        content(compensated, backdrop, list, !searchClosing) {
+            if (search.expanded) {
+                if (list.canScrollBackward) list.animateScrollToItem(0)
+            } else if (!searchState.active) {
+                returnSettingsListToTop(list, header.state, revealDistance)
+            }
+        }
+    }
+}
+
+private suspend fun returnSettingsListToTop(
+    list: LazyListState,
+    header: CouiCollapsingAppBarState,
+    revealDistance: Int,
+) = coroutineScope {
+    if (!list.canScrollBackward) {
+        header.expand()
+        return@coroutineScope
+    }
+    val startFraction = header.collapsedFraction
+    var startOffset = 0
+    val reveal = launch(start = CoroutineStart.UNDISPATCHED) {
+        // Once the first group is visible, derive the header reveal from the list's actual offset.
+        snapshotFlow {
+            list.firstVisibleItemScrollOffset.takeIf { list.firstVisibleItemIndex == 0 }
+        }.collect { offset ->
+            if (offset != null) {
+                if (startOffset == 0) startOffset = offset.coerceIn(1, revealDistance.coerceAtLeast(1))
+                header.snapScrollCollapseFraction(startFraction * (offset.toFloat() / startOffset).coerceAtMost(1f))
+            }
+        }
+    }
+    try {
+        list.animateScrollToItem(0)
+        header.snapScrollCollapseFraction(0f)
+    } finally {
+        reveal.cancel()
     }
 }
 
@@ -116,6 +160,7 @@ internal fun CouiSettingsPageScaffold(
     modifier: Modifier = Modifier,
     largeHeader: CouiTopAppBarScrollBehavior? = null,
     rootSearch: CouiSettingsSearch? = null,
+    rootSearchState: CouiSearchBarState? = null,
     showBack: Boolean = false,
     onBack: () -> Unit = {},
     topBarVisible: Boolean = true,
@@ -137,7 +182,7 @@ internal fun CouiSettingsPageScaffold(
     val editor = remember { mutableFloatStateOf(0f) }
     val inheritedOverlay = LocalDetailActivityFloatingOverlayHost.current
     val overlays = remember(inheritedOverlay) { inheritedOverlay ?: DetailActivityFloatingOverlayHost() }
-    val searchState = rememberCouiSearchBarState(rootSearch?.expanded == true)
+    val searchState = rootSearchState ?: rememberCouiSearchBarState(rootSearch?.expanded == true)
     CouiSettingsTheme(pageConfig) {
         val colors = CouiTheme.colorScheme
         val sampling = Build.VERSION.SDK_INT >= 31 && !isolateContentFromBackdrop

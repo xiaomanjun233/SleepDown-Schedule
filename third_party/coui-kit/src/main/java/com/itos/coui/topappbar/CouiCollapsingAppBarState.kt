@@ -116,6 +116,16 @@ class CouiCollapsingAppBarState internal constructor(rangePx: Float, initialFrac
         if (!searchLocked && logicalOffset != 0f) animateOffset(0f, animateContent = true)
     }
 
+    /** Follows a host-driven scroll animation without starting another spring. */
+    fun snapScrollCollapseFraction(fraction: Float) {
+        if (searchLocked) return
+        dispose()
+        val target = (fraction.coerceIn(0f, 1f) * rangePx).let { Math.round(it).toFloat() }
+        logicalOffset = target
+        offsetPx = target
+        contentOffsetPx = target
+    }
+
     private fun animateOffset(target: Float, response: Float = CouiCollapsingAppBarDefaults.snapResponse,
         animateContent: Boolean = false) {
         logicalOffset = target

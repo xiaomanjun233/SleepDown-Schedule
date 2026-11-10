@@ -68,14 +68,10 @@ import java.io.File
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.itos.coui.scroll.rememberCouiOverscrollEffect
 import com.xiaomanjun.sleepdownschedule.BuildConfig
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsListState
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsExpandTitle
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsSearch
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsSearch
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsListLayout
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsContentPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsArrowPreference
-import androidx.compose.foundation.lazy.rememberLazyListState
 
 @Composable
 fun SettingsRootScreen(
@@ -105,22 +101,21 @@ fun SettingsRootScreen(
     LaunchedEffect(versionName) {
         GiteeAppUpdater.restoreCachedStatus(context, versionName)
     }
-    CompositionLocalProvider(LocalCouiSettingsSearch provides CouiSettingsSearch(
-        searchQuery, searchExpanded, { searchQuery = it }, { expanded ->
-            searchExpanded = expanded
-            if (!expanded) searchQuery = ""
-        },
-    )) {
     CouiSettingsRootScaffold(
         title = "设置",
-        config = state.config
-    ) { innerPadding, pageBackdrop ->
+        config = state.config,
+        search = CouiSettingsSearch(searchQuery, searchExpanded, { searchQuery = it }, { expanded ->
+            searchExpanded = expanded
+            if (!expanded) searchQuery = ""
+        })
+    ) { innerPadding, pageBackdrop, list, scrollEnabled, scrollToTop ->
         val backdrop = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS && android.os.Build.VERSION.SDK_INT < 31) null
             else if (BuildConfig.SLEEPDOWN_COUI_SETTINGS || LocalSettingsSharedGradient.current != null) pageBackdrop else inheritedBackdrop
         CompositionLocalProvider(LocalCouiSettingsListLayout provides BuildConfig.SLEEPDOWN_COUI_SETTINGS) {
         SleepDownLazyColumn(
-            state = LocalCouiSettingsListState.current ?: rememberLazyListState(),
-            onReachedTop = LocalCouiSettingsExpandTitle.current,
+            state = list,
+            userScrollEnabled = scrollEnabled,
+            onScrollToTop = scrollToTop,
             overscrollEffect = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) rememberCouiOverscrollEffect()
                 else androidx.compose.foundation.rememberOverscrollEffect(),
             modifier = Modifier
@@ -253,6 +248,5 @@ fun SettingsRootScreen(
         }
         }
         }
-    }
     }
 }

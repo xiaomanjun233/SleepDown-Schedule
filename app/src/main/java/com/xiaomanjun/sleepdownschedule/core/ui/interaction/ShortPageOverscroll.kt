@@ -32,6 +32,19 @@ internal fun Modifier.pageVerticalScroll(state: ScrollState, enabled: Boolean = 
     else verticalScroll(state, enabled = enabled)
 
 @Composable
+internal fun Modifier.shortListPull(state: ScrollableState, edge: CouiOverscrollEffect): Modifier {
+    val edgeState = remember(state) {
+        object : ScrollableState by state {
+            override val canScrollForward = true
+            override val canScrollBackward = true
+        }
+    }
+    return overscroll(edge).scrollable(
+        edgeState, Orientation.Vertical, overscrollEffect = edge, reverseDirection = true
+    )
+}
+
+@Composable
 internal fun SleepDownLazyColumn(
     modifier: Modifier = Modifier,
     state: LazyListState = rememberLazyListState(),
@@ -42,24 +55,15 @@ internal fun SleepDownLazyColumn(
     flingBehavior: FlingBehavior = ScrollableDefaults.flingBehavior(),
     userScrollEnabled: Boolean = true,
     overscrollEffect: OverscrollEffect? = rememberOverscrollEffect(),
-    onReachedTop: (() -> Unit)? = null,
+    onScrollToTop: (suspend () -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
     val short = userScrollEnabled && overscrollEffect != null && !state.canScrollForward && !state.canScrollBackward
     val edge = if (short) overscrollEffect as? CouiOverscrollEffect ?: rememberCouiOverscrollEffect() else null
-    val input = if (edge != null) {
-        val edgeState = remember(state) {
-            object : ScrollableState by state {
-                override val canScrollForward = true
-                override val canScrollBackward = true
-            }
-        }
-        Modifier.overscroll(edge).scrollable(edgeState, Orientation.Vertical, overscrollEffect = edge,
-            reverseDirection = true)
-    } else Modifier
+    val input = if (edge != null) Modifier.shortListPull(state, edge) else Modifier
     val scrollToTop = if (userScrollEnabled && !reverseLayout) Modifier.animateScrollToTop {
-        if (state.canScrollBackward) state.animateScrollToItem(0)
-        if (!state.canScrollBackward) onReachedTop?.invoke()
+        if (onScrollToTop != null) onScrollToTop()
+        else if (state.canScrollBackward) state.animateScrollToItem(0)
     } else Modifier
     LazyColumn(
         modifier = modifier.then(scrollToTop).then(input), state = state, contentPadding = contentPadding,
