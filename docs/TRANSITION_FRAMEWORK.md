@@ -2,13 +2,13 @@
 
 ## 职责与入口
 
-业务入口声明目标、源截图及可重新解析的返回锚点，由 `ActivityTransitionCoordinator` 选择 SharedViewKit 或该路线原有 Legacy。路由、载荷和会话只保留一套：
+业务入口声明目标、源 View 或截图，以及可重新解析的返回锚点。`ActivityTransitionCoordinator` 根据路线选择 SharedViewKit 或 Legacy。
 
 | 入口 | 职责 |
 | --- | --- |
 | `transition/TransitionRoute.kt` | 稳定 wireName、Legacy 效果、允许的原生候选与真实目的 Activity |
 | `transition/TransitionSession.kt` | 状态边、callback generation 与父子会话 |
-| `transition/TransitionPayload.kt` | 进程内 Bitmap、锚点解析、源交接与幂等释放 |
+| `transition/TransitionPayload.kt` | 进程内源 View、Bitmap、锚点解析与释放回调 |
 | `transition/ActivityTransitionCoordinator.kt` | 导航、窗口装配及后端分派 |
 | `transition/CrossActivityTransitionHost.kt` | 原生稳定内容与 Legacy renderer 的仲裁、原有保存退出握手 |
 | `transition/SharedViewKitBackend.kt` | Kit 握手、回调、返回更新、坐标转换和有界超时清理 |
@@ -37,7 +37,7 @@ ActivityTransitionCoordinator.open(
 
 目的 Activity 在 `super.onCreate` 前调用 `prepareDestinationBeforeOnCreate(this)`，之后安装窗口背景，并在 `CrossActivityTransitionHost` 中呈现原业务内容。关闭沿用 host 提供的 `requestClose`，在必要的保存/校验后执行。
 
-Intent 只承载 route/session 身份；Bitmap、返回解析器与临时资源保存在 `TransitionPayloadStore`。进程重建找不到会话时直接显示实际页面，沿用平台/Legacy 返回，不重建已经失效的系统动画。
+Intent 承载 route/session 身份。源 View、Bitmap、返回解析器与临时资源保存在 `TransitionPayloadStore`。进程重建后如果找不到会话，直接显示目标页面并使用平台或 Legacy 返回。
 
 课程管理按当前组身份和已附着布局重新解析返回位置。删除、改组、回收或裁切的卡片不作为可靠返回目标。Legacy host 也在关闭请求时刷新落点，不缓存第一次 Compose 时的位置。
 
@@ -45,7 +45,9 @@ Intent 只承载 route/session 身份；Bitmap、返回解析器与临时资源�
 
 ## 路线门控
 
-当前 Kit 候选为 `course_management_to_detail`、`ai_history_to_detail`、`ai_progress_to_history`、`manual_import_to_history`、`home_to_edu_import`、`home_to_course_management`、`quick_sheet_to_settings_detail` 与 `special_course_to_editor`。快速设置保留真实按钮及动态返回位置，详细设置仍先保存、后退出。特殊课程只捕获点击卡片，返回重新解析实时位置，源被删除则使用 SDK 安全返回类型；编辑页保留保存／放弃确认。GitHub 版具备 SDK，商店版不依赖/打包 SDK。普通发布默认使用 Legacy；全局开关与逐路线白名单都满足才尝试 Kit，例如只开放首条：
+当前 Kit 候选为 `course_management_to_detail`、`ai_history_to_detail`、`ai_progress_to_history`、`manual_import_to_history`、`home_dock_to_import`、`home_to_edu_import`、`home_to_course_management`、`quick_sheet_to_settings_detail` 与 `special_course_to_editor`。快速设置保留真实按钮和动态返回位置，详细设置先保存再退出。特殊课程捕获点击卡片并在返回时重新解析位置。源被删除后使用 SDK 安全返回类型，编辑页沿用保存与放弃确认。
+
+关闭本地构建开关后，可通过远程全局开关和逐路线白名单启用候选路线。以下配置开放课程管理到详情。
 
 ```json
 {
@@ -64,7 +66,8 @@ GitHub 渠道的 Debug 和签名 Release 默认启用已适配路线的金标动
 
 - SDK 固定为已核对的 `gsai.sdk:sharedview-kit:1.0.0.4`；Nexus 仅解析 `gsai.sdk`。升级时重新核对官方发布、接口、产物校验和 Release。
 - `isViewAnimationSupported() > 0` 才继续，不能将 Oplus 的旧版本阈值移植到标准 Kit。
-- Compose 路线把已有局部像素投影到会话持有的独立源 View，按完整窗口 bounds attach 到 decor overlay，以 px 圆角提供 Outline，并在软件采样时保留透明圆角；不传整个 ComposeView。系统接管后只隐藏该源 View，直到会话结束才移除，返回桥接也采用相同圆角。源尺寸与像素不匹配、越出窗口或未 attach 时拒绝本次原生注册，沿用既有降级。
+- 使用截图的 Compose 路线把局部像素投影到会话持有的独立源 View，按完整窗口坐标挂到 decor overlay，并用像素圆角提供 Outline。软件采样保留透明圆角。系统接管后隐藏源 View，会话结束时移除，返回桥接采用相同圆角。源尺寸和像素不匹配、越出窗口或未挂载时走 Legacy。
+- `home_dock_to_import` 要求已挂载的加号 View。原生 Dock 直接传按钮，Compose Dock 通过 decor overlay 的 View 重放加号的绘制指令。会话保留该 View，并在返回时读取当前位置。快照用于 Legacy 回退。
 - 标准 metadata 明确 WINDOW 时使用项目窗口锚点；SCREEN/缺省时增加同一根 View 的屏幕/窗口位置差。打开与关闭共用转换，不硬编码状态栏高度。
 - 首批要求设备声明可写的安全返回策略；BACK/FALLBACK 的支持集合分别解析。未声明的扩展参数不传入。
 - 源卡片保留至 OPEN 接管；稳定目的内容由系统转场使用，不能再叠加 Legacy Morph、应用背景缩放或第二层模糊。

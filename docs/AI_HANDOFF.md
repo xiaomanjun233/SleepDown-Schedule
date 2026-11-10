@@ -1,5 +1,35 @@
 # 当前工作交接
 
+## 2026-11-10 助理卡轻模糊与巡检跟进
+
+核对 E 盘流体云的 `CardBackgroundView` 和 `BackgroundUtils`。轻效果由 `livealert_effect_light.enable` 选中，原厂在系统窗口模糊中使用 100 档，再叠渐变蒙版，旧档为 540。两个系统档位和应用的局部 Backdrop 半径使用不同的渲染链路。按轻档思路调低今日助理卡的采样半径，凝光收起态 14 → 9 dp，展开态 18 → 12 dp。液态玻璃深浅卡片分别为 8 → 5 dp 和 10 → 6 dp。提交 `bd82530e`。
+
+巡检以当前分支为准。手动浏览器和后台刷新均调用 `AutoRefreshWebSession.restore`，HTTPS 的缺失 Cookie 等待带 `Secure` 的写入结果再加载页面，恢复使用 `Path=/` 和仅当前域名的 Cookie。此路径已包含在 `dc252420`。教务胶囊的纯黑条件为 `geometryProgress < 0.04f`，修正已包含在 `3cb7285f`。学校真实首请求及 [#104 黑白屏](https://github.com/xiaomanjun233/SleepDown-Schedule/issues/104) 仍待带设备和日志复现。
+
+[#103](https://github.com/xiaomanjun233/SleepDown-Schedule/issues/103) 由 `45609f7e` 修复。在同一条通知更新内刷新 smallIcon、超级岛深浅色的四个图片键及更新序号。使用原通知 ID 和 tag，保留课程、计时和其它图片元数据。刷新与课程通知发布共用锁，发布前也会核对当前图标，避免较早构造的通知在切换后覆盖新图。启动、离开应用、备份恢复和主题变化均使用相同入口。
+
+`45609f7e` 的 GitHub Release 和 12 项图标定向测试通过。测试包括小图标已更新时修复四张旧图、深浅色、序号以及普通通知扩展字段。V2 签名包为 `tmp/review-apks/SleepDown-1.2.8-beta2-FluidCloud-45609f7e.apk`，7,853,520 字节，SHA-256 `1E37B3598400566B09428DA026C081A9A24E23ABBA4FEDA257293270BC233544`。构建日志 `tmp/assistant-surface-inspection-build.log`。小米系统上的超级岛显示待真机验收。
+
+后台 Pixel 10 Pro 的 SDK ADB 5037、隔离用户 10 已覆盖安装并回读相同 SHA。使用完整的凝光阅读验收课表和同一张壁纸复核凝光与液态玻璃，测试后切回凝光。同壁纸下凝光卡片的背景差异较轻。截图在 `tmp/nav3-qa/assistant-blur-before.png`、`assistant-blur-after.png` 和 `assistant-blur-alternate.png`，日志为 `tmp/nav3-qa/assistant-blur-smoke.log`。
+
+在同一后台模拟器从统一导入页进入 AI 教务浏览器，地址框取得焦点并接收了完整的测试地址。此用例停在输入阶段，日志为 `tmp/nav3-qa/edu-inspection-smoke.log`。
+
+## 2026-11-10 统一导入与今日助理进度条
+
+在 `codex/restore-activity-navigation` 的 `4003db61` 上完成。右下角加号打开统一导入页，左上返回、右上导入历史。「常规导入」和「教务系统导入」采用可点击或滑选的分段控件。教务沿用学校列表和悬浮搜索。添加单节课在首页「更多」菜单。
+
+`home_dock_to_import` 的 SharedViewKit 注册使用窗口中已挂载的加号 View。原生 Dock 直接传按钮，Compose Dock 重放加号的现有绘制指令，返回时读取实际位置。缺少可用 View 或设备能力时走 Legacy。两种后端使用同一导入页及现有教务组件。
+
+可在本地识别的口令粘贴后直接预览。通过文件选择器选择规范 JSON 或可本地读取的 ICS 会自动进入解析页并显示已校验结果。需交给 AI 的资料在解析页内确认后发送。写入课表沿用新建或覆盖的确认入口。普通导入成功后和 AI 导入共用历史，详情可用 AI 继续修改。历史最多保留十条，过期按已有设置。普通导入从此版开始记录。
+
+进度条按用户指定的流体云播放器核对 E 盘 PMX110 `17.0.0.115` 的 `SystemUIPlugin.apk`（插件 `17.000.002`，SHA-256 前缀 `43FC34F7D4AA`）。解码 `res/OG.xml` 并追踪 `MediaPlayerSection`、`DirectionAwareSeekBar`、`Sc` 和 `C0361m7`。XML 写入 6dp 背景和 4dp 进度，构造函数统一使用默认 4dp。填充裁剪在轨道内，白色渐变最多覆盖轨道五分之一，圆头比锥光中心向前延伸 2dp。锥光在进度绘制后用 SCREEN 合成，低进度时收窄。插件的锥光 shader 与项目逐项核对，项目保留分母下限以处理透明像素。
+
+深底按插件的滤色绘制锥光和 15% 白色底轨。浅底采用系统对应的 8% 黑色轨道，轨道内同样滤色，轨道外对同形尾光增加低透明度反差，以便在接近白色时也可见。低版本的径向近似收在光头后方。诊断使用的反编译输出放在工作区 `tmp/nav3-qa/coloros-progress-reference`。
+
+导入提交 `3bff3630`、`7f44022a`、`d711d81e`，进度条提交 `a3b44b54`、`e390f7fb`、`f9b55a97`。导入链路的会话、历史与预览 36 项定向测试通过，实际 View 的 SDK 入参与回退由 SharedViewKit 后端测试覆盖。后台 Pixel 10 Pro AVD 使用 Android 16、SDK ADB 5037、`emulator-5556` 的隔离用户 10。已点验加号、滑选、悬浮搜索、口令自动预览和保存、普通历史的 AI 输入框、本地 JSON 预览与保存、历史重开，以及非标准 JSON 到达发送确认页。日志在工作区 `tmp/unified-import-verified-build.log` 与 `tmp/nav3-qa/unified-import-verified-smoke.log`。
+
+`f9b55a97` 的 `assembleGithubRelease`、R8、资源压缩、lintVital 和 V2 签名通过。签名包为 `tmp/review-apks/SleepDown-1.2.8-beta2-UnifiedImport-f9b55a97.apk`，7,853,520 字节，SHA-256 `D850D1D9D39BD646C01D8FC15294067B601F77DF9F7C8BF8EBFD8943B846A20B`。后台模拟器覆盖安装后回读相同 SHA。核对普通历史已无空对话气泡，约 18% 的浅底进度可见圆头和轨外尾光。恢复完整课表后看到普通课、冲突课和特殊课程。构建和点验日志在 `tmp/unified-import-fluid-cloud-build.log` 与 `tmp/nav3-qa/unified-import-fluid-cloud-smoke.log`。ColorOS 实机的金标开合和进度条观感待验收。
+
 ## 2026-11-10 凝光设置顶栏性能
 
 在 `codex/restore-activity-navigation` 以 `77ef05ee` 签名包对照。设置页大标题展开、未滚动时，渐变不透明度为零，旧包仍提交全分辨率横纵模糊。在两段各 1.25 秒的采样窗口中，课表进设置和设置回课表分别有 134、94 次 966×570 模糊图层绘制，最长渲染同步等待分别为 96.9、54.9 ms。
