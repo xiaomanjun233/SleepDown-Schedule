@@ -23,6 +23,7 @@ internal interface AgentConicLightPainter {
         rowHeight: Float,
         progress: Float,
         accent: Color,
+        useScreenBlend: Boolean,
         alphaReveal: Float,
         shapeReveal: Float
     )
@@ -43,7 +44,6 @@ private class AgentConicLightPainterApi33 : AgentConicLightPainter {
     private val runtimeShader = RuntimeShader(ConicLightShader)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         shader = runtimeShader
-        blendMode = BlendMode.SCREEN
     }
 
     override fun draw(
@@ -52,6 +52,7 @@ private class AgentConicLightPainterApi33 : AgentConicLightPainter {
         rowHeight: Float,
         progress: Float,
         accent: Color,
+        useScreenBlend: Boolean,
         alphaReveal: Float,
         shapeReveal: Float
     ) {
@@ -101,6 +102,8 @@ private class AgentConicLightPainterApi33 : AgentConicLightPainter {
         runtimeShader.setFloatUniform("u_miscParams", 1f, 0f, 0f, 0f)
 
         val native = canvas.nativeCanvas
+        // SCREEN cannot show a colored tail over a white card.
+        paint.blendMode = if (useScreenBlend) BlendMode.SCREEN else BlendMode.SRC_OVER
         native.save()
         native.translate(-ConicLightHorizontalPadding, rowHeight / 2f - lightHeight / 2f)
         native.drawRect(0f, 0f, lightWidth, lightHeight, paint)

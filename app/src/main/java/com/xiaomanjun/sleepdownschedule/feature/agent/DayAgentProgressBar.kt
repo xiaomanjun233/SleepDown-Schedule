@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -22,6 +21,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -64,11 +65,8 @@ internal fun DayAgentProgressRow(
         ),
         label = "agent-read-bar-value"
     )
-    val highlightVisible by remember(active, animatedValue) {
-        derivedStateOf { active && animatedValue.value > .2f }
-    }
     val highlightAlpha by animateFloatAsState(
-        if (highlightVisible) 1f else 0f, conicLightSpring(.5f), label = "agent-read-bar-leading-edge"
+        if (active) 1f else 0f, conicLightSpring(.5f), label = "agent-read-bar-leading-edge"
     )
     Box(
         modifier.fillMaxWidth().height(4.dp).drawBehind {
@@ -159,6 +157,8 @@ private fun DrawScope.drawConicReadBar(
             }
         }
         if (safeProgress > 0f) {
+            val darkSurface = foreground.luminance() >= 0.5f
+            val glowColor = if (darkSurface) accent else lerp(accent, foreground, 0.22f)
             if (painter != null) {
                 // The card's own rounded clip owns the outer boundary. Do not clip to the 4dp
                 // read-bar row: the native conic light is allowed to diffuse above and below
@@ -168,12 +168,13 @@ private fun DrawScope.drawConicReadBar(
                     trackWidth = size.width,
                     rowHeight = size.height,
                     progress = safeProgress,
-                    accent = accent,
+                    accent = glowColor,
+                    useScreenBlend = darkSurface,
                     alphaReveal = alphaReveal,
                     shapeReveal = shapeReveal
                 )
             } else {
-                drawFallbackConicGlow(safeProgress, accent, alphaReveal, shapeReveal)
+                drawFallbackConicGlow(safeProgress, glowColor, alphaReveal, shapeReveal)
             }
         }
     }
