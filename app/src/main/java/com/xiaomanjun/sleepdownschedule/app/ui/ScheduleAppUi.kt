@@ -403,7 +403,8 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
-import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
+import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
+import com.xiaomanjun.sleepdownschedule.transition.softwareCopyForKit
 import com.xiaomanjun.sleepdownschedule.transition.legacy.DetailMorphRequest
 import com.xiaomanjun.sleepdownschedule.transition.legacy.DetailMorphState
 import com.xiaomanjun.sleepdownschedule.transition.legacy.DetailScheduleMorphOverlay
@@ -2140,50 +2141,45 @@ fun CourseScheduleAppUi(
         }
         dockImportOpening = true
         appScope.launch {
-            var removeCover: (() -> Unit)? = null
             var sessionOwnsSource = false
             var nativeStarted = false
             var released = false
             fun releaseSource() {
                 if (released) return
                 released = true
-                removeCover?.invoke()
                 dockImportSourceHidden = false
-                if (nativeStarted && source.ownsView) {
-                    // Leave the system's returned View on screen until Compose can draw the FAB again.
-                    appScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                        try {
-                            withFrameNanos { }
-                            withFrameNanos { }
-                        } finally {
-                            source.release()
-                            dockImportOpening = false
-                        }
-                    }
-                } else {
-                    source.release()
-                    dockImportOpening = false
-                }
+                (source.view as? LiveDockImportSourceView)?.clearSoftwareFrame()
+                source.release()
+                dockImportOpening = false
+            }
+            fun sourceBounds(view: android.view.View): Rect? {
+                if (!view.isAttachedToWindow || view.width <= 1 || view.height <= 1) return null
+                val location = IntArray(2).also(view::getLocationInWindow)
+                return Rect(location[0].toFloat(), location[1].toFloat(),
+                    (location[0] + view.width).toFloat(), (location[1] + view.height).toFloat())
             }
             try {
-                val bounds = source.boundsInRoot.translate(homeRootPositionInWindow)
-                val bitmap = source.fallbackBitmap ?: runCatching {
+                val background = runCatching { detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                withFrameNanos { }
+                val originalView = source.view?.takeIf { it.isShown && it.context === activity }
+                val bounds = originalView?.let(::sourceBounds) ?: source.boundsInRoot.translate(homeRootPositionInWindow)
+                val radius = minOf(bounds.width, bounds.height) / 2f
+                val cookie = System.identityHashCode(source)
+                if (Build.VERSION.SDK_INT >= 29) android.os.Trace.beginAsyncSection("SleepDown Dock.capturePlus", cookie)
+                val captured = try {
+                    captureGlassWindowRegion(activity.window, bounds)?.let { frame ->
+                        try { frame.softwareCopyForKit(radius) } finally { frame.recycle() }
+                    }
+                } finally {
+                    if (Build.VERSION.SDK_INT >= 29) android.os.Trace.endAsyncSection("SleepDown Dock.capturePlus", cookie)
+                }
+                val bitmap = captured ?: runCatching {
                     source.fallbackLayer?.toImageBitmap()?.asAndroidBitmap()
                 }.getOrNull()
-                val anchor = TransitionAnchorFrame(bounds, minOf(bounds.width, bounds.height) / 2f, bitmap)
-                val liveView = source.view?.takeIf {
-                    it.isAttachedToWindow && (it !is LiveDockImportSourceView || it.prepareSoftwareFrame(bitmap))
+                val anchor = TransitionAnchorFrame(bounds, radius, bitmap)
+                val liveView = originalView?.takeIf {
+                    it !is LiveDockImportSourceView || it.prepareSoftwareFrame(bitmap)
                 }
-                if (liveView == null) {
-                    if (source.ownsView) source.view?.visibility = android.view.View.INVISIBLE
-                    removeCover = activity.attachOpeningSourceSnapshotHandoff(anchor)
-                }
-                dockImportSourceHidden = source.ownsView || removeCover != null
-                if (dockImportSourceHidden) {
-                    withFrameNanos { }
-                    withFrameNanos { }
-                }
-                val background = runCatching { detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
                 val result = ActivityTransitionCoordinator.open(
                     activity, TransitionRouteId.HomeDockToImport,
                     Intent(context, EduSchoolSelectActivity::class.java)
@@ -2191,16 +2187,14 @@ fun CourseScheduleAppUi(
                     TransitionPayload(
                         openingAnchor = anchor,
                         returnAnchorProvider = TransitionAnchorProvider {
-                            if (liveView == null) anchor else liveView.takeIf { it.isAttachedToWindow }?.let { view ->
-                                val location = IntArray(2).also(view::getLocationInWindow)
-                                anchor.copy(boundsInWindow = Rect(location[0].toFloat(), location[1].toFloat(),
-                                    (location[0] + view.width).toFloat(), (location[1] + view.height).toFloat()))
+                            if (originalView == null) anchor else sourceBounds(originalView)?.let {
+                                anchor.copy(boundsInWindow = it, cornerRadiusPx = minOf(it.width, it.height) / 2f)
                             }
                         },
                         backgroundBitmap = background,
                         onOpeningSourceHandoff = {
-                            removeCover?.invoke()
-                            if (!nativeStarted && source.ownsView) liveView?.visibility = android.view.View.INVISIBLE
+                            // SharedViewKit controls the original View while its leash is active.
+                            if (!nativeStarted) dockImportSourceHidden = true
                         },
                         onSourceReleased = ::releaseSource,
                         openingSourceView = liveView

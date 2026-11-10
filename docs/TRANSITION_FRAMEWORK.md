@@ -67,7 +67,7 @@ GitHub 渠道的 Debug 和签名 Release 默认启用已适配路线的金标动
 - SDK 固定为已核对的 `gsai.sdk:sharedview-kit:1.0.0.4`；Nexus 仅解析 `gsai.sdk`。升级时重新核对官方发布、接口、产物校验和 Release。
 - `isViewAnimationSupported() > 0` 才继续，不能将 Oplus 的旧版本阈值移植到标准 Kit。
 - 使用截图的 Compose 路线把局部像素投影到会话持有的独立源 View，按完整窗口坐标挂到 decor overlay，并用像素圆角提供 Outline。软件采样保留透明圆角。系统接管后隐藏源 View，会话结束时移除，返回桥接采用相同圆角。源尺寸和像素不匹配、越出窗口或未挂载时走 Legacy。
-- `home_dock_to_import` 要求已挂载的加号 View。具有 Activity Context 的原生按钮直接交给 Kit。Compose Dock 通过 decor overlay 的 View 重放加号绘制指令，厂商主题 Context 的按钮也用 Activity Context 包装实际画面。系统注册时可通过软件画布绘制同一帧。会话保留该 View，返回时读取当前位置，Legacy 共用加号快照。
+- `home_dock_to_import` 将平时显示加号的 Android View 直接交给 Kit。凝光和液态玻璃都用该 View 绘制原有按钮图层。登记前从窗口读取同一按钮的像素供 SDK 软件画布和 Legacy 使用。会话保持 View 身份，返回时读取它的实际位置。厂商主题 Context 的按钮由 Kit 能力与源检查决定转场路径。
 - 标准 metadata 明确 WINDOW 时使用项目窗口锚点；SCREEN/缺省时增加同一根 View 的屏幕/窗口位置差。打开与关闭共用转换，不硬编码状态栏高度。
 - 首批要求设备声明可写的安全返回策略；BACK/FALLBACK 的支持集合分别解析。未声明的扩展参数不传入。
 - 源卡片保留至 OPEN 接管；稳定目的内容由系统转场使用，不能再叠加 Legacy Morph、应用背景缩放或第二层模糊。

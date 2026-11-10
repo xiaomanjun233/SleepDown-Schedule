@@ -1,7 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
 import android.os.Build
-import android.os.Trace
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.WindowInsets
@@ -9,20 +9,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.navigationBarsIgnoringVisibility
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -30,14 +22,13 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.os.trace
 import com.itos.coui.backdrop.CouiBackdrop
 import com.itos.coui.effect.CouiFloatingRenderer
@@ -54,13 +45,9 @@ import com.xiaomanjun.sleepdownschedule.core.ui.interaction.dockImeCompensationP
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
-import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
 import com.xiaomanjun.sleepdownschedule.platform.coloros.rememberCouiDockAccent
-import com.xiaomanjun.sleepdownschedule.transition.softwareCopyForKit
-import java.util.concurrent.atomic.AtomicBoolean
-import kotlinx.coroutines.launch
 
 /**
  * 独立的 COUI 导航胶囊 + FAB。两个主体共享采样、材质、阴影和融球链路；
@@ -152,66 +139,12 @@ internal fun CouiHomeDock(
     val bottomInset = with(density) { systemBottom.toDp() }
     val imeCompensation = dockImeCompensationPx(WindowInsets.ime.getBottom(density), systemBottom)
 
-    val hostContext = LocalContext.current
-    val composeRoot = LocalView.current
-    val haptic = LocalHapticFeedback.current
+    val activity = LocalContext.current.findActivityOrNull()
     val layoutDirection = LocalLayoutDirection.current
-    val scope = rememberCoroutineScope()
-    val opening = remember { AtomicBoolean(false) }
+    val haptic = LocalHapticFeedback.current
     val liveLayer = rememberGraphicsLayer()
-    var dockOrigin by remember { mutableStateOf(Offset.Zero) }
-    var sourceBounds by remember { mutableStateOf<Rect?>(null) }
-    var liveView by remember { mutableStateOf<LiveDockImportSourceView?>(null) }
-    fun releaseSource() {
-        liveView?.release()
-        liveView = null
-        sourceBounds = null
-    }
-    DisposableEffect(Unit) { onDispose { releaseSource() } }
-    val latestEnabled by rememberUpdatedState(plusEnabled)
-    val latestOpen by rememberUpdatedState(onOpenMenu)
-    fun openPlusMenu(bounds: Rect) {
-        if (!latestEnabled || sourceBounds != null || !opening.compareAndSet(false, true)) return
-        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-        scope.launch {
-            var handedOff = false
-            try {
-                val activity = hostContext.findActivityOrNull() ?: return@launch
-                sourceBounds = bounds
-                withFrameNanos { }
-                withFrameNanos { }
-                val rootLocation = IntArray(2).also(composeRoot::getLocationInWindow)
-                val cookie = System.identityHashCode(liveLayer)
-                Trace.beginAsyncSection("SleepDown Dock.capturePlus", cookie)
-                val bitmap = try {
-                    captureGlassWindowRegion(activity.window, bounds.translate(rootLocation[0].toFloat(), rootLocation[1].toFloat()))
-                } finally {
-                    Trace.endAsyncSection("SleepDown Dock.capturePlus", cookie)
-                }
-                val fallbackBitmap = bitmap?.let {
-                    try {
-                        it.softwareCopyForKit(minOf(it.width, it.height) / 2f)
-                    } finally {
-                        it.recycle()
-                    }
-                }
-                if (!latestEnabled) return@launch
-                liveView = LiveDockImportSourceView.attach(
-                    activity, composeRoot, bounds, liveLayer, bounds.translate(-dockOrigin), density, layoutDirection
-                )
-                handedOff = true
-                latestOpen(DockImportSource(
-                    boundsInRoot = bounds,
-                    view = liveView,
-                    ownsView = liveView != null,
-                    release = ::releaseSource,
-                    fallbackBitmap = fallbackBitmap,
-                ))
-            } finally {
-                if (!handedOff) releaseSource()
-                opening.set(false)
-            }
-        }
+    val plusView = remember(activity, liveLayer) {
+        activity?.let { LiveDockImportSourceView(it, liveLayer, density, layoutDirection) }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -220,37 +153,59 @@ internal fun CouiHomeDock(
             CouiDockDefaults.menuWidth,
             (available - CouiDockDefaults.plusSlot).coerceAtLeast(120.dp),
         )
-        CouiDockBar(
-            modifier = Modifier.align(Alignment.BottomCenter)
-                .padding(bottom = bottomInset + 8.dp)
-                .graphicsLayer { translationY = imeCompensation.toFloat() }
-                .onGloballyPositioned { dockOrigin = it.positionInRoot() }
-                .drawWithContent {
-                    val source = sourceBounds?.translate(-dockOrigin)
-                    if (source == null) drawContent() else {
-                        liveLayer.record {
-                            withRecordingDensity(density) { this@drawWithContent.drawContent() }
-                        }
-                        if (buttonHidden) {
-                            clipRect(source.left, source.top, source.right, source.bottom, ClipOp.Difference) {
+        Box(Modifier.align(Alignment.BottomCenter)
+            .padding(bottom = bottomInset + 8.dp)
+            .graphicsLayer { translationY = imeCompensation.toFloat() }) {
+            if (plusVisible && plusView != null) {
+                AndroidView(
+                    factory = { plusView },
+                    modifier = Modifier.align(Alignment.CenterEnd).size(CouiDockDefaults.plusSize),
+                    update = { it.updatePresentation(density, layoutDirection, render = !buttonHidden) },
+                )
+            }
+            CouiDockBar(
+                modifier = Modifier.drawWithContent {
+                    val button = plusView?.takeIf { plusVisible && it.isAttachedToWindow && it.width > 0 }
+                    if (button == null && !buttonHidden) {
+                        drawContent()
+                    } else {
+                        val width = button?.width?.toFloat() ?: CouiDockDefaults.plusSize.toPx()
+                        val left = if (layoutDirection == LayoutDirection.Ltr) size.width - width else 0f
+                        if (button != null) {
+                            // Record the pair once. The original FAB View presents its part of
+                            // that same layer while Compose presents the remaining pixels.
+                            liveLayer.record {
+                                withRecordingDensity(density) { this@drawWithContent.drawContent() }
+                            }
+                            button.updateCrop(left)
+                            clipRect(left, 0f, left + width, size.height, ClipOp.Difference) {
                                 drawLayer(liveLayer)
                             }
-                        } else drawLayer(liveLayer)
+                        } else {
+                            clipRect(left, 0f, left + width, size.height, ClipOp.Difference) {
+                                this@drawWithContent.drawContent()
+                            }
+                        }
                     }
                 },
-            backdrop = backdrop,
-            renderer = renderer,
-            items = items,
-            selectedIndex = selectedIndex.coerceIn(0, 2),
-            style = dockStyle,
-            plusStyle = plusStyle,
-            plusVisible = plusVisible,
-            // During the handoff the same commands still feed the attached Android View.
-            plusEnabled = plusEnabled || (plusVisible && sourceBounds != null),
-            menuWidth = dockWidth,
-            onSelection = { trace("SleepDown Dock.select") { onSelect(it) } },
-            onPlusClick = ::openPlusMenu,
-        )
+                backdrop = backdrop,
+                renderer = renderer,
+                items = items,
+                selectedIndex = selectedIndex.coerceIn(0, 2),
+                style = dockStyle,
+                plusStyle = plusStyle,
+                plusVisible = plusVisible,
+                plusEnabled = plusEnabled,
+                menuWidth = dockWidth,
+                onSelection = { trace("SleepDown Dock.select") { onSelect(it) } },
+                onPlusClick = { bounds ->
+                    if (plusEnabled) {
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        onOpenMenu(DockImportSource(bounds, view = plusView))
+                    }
+                },
+            )
+        }
     }
     return true
 }

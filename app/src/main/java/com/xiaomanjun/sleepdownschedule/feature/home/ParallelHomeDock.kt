@@ -25,8 +25,10 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.viewinterop.AndroidView
 import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
 import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
 import androidx.compose.ui.util.lerp
@@ -96,8 +98,10 @@ internal fun ParallelHomeDock(
     val density = LocalDensity.current
     val recordingDensity = density
     val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
-    val root = androidx.compose.ui.platform.LocalView.current
     val activity = androidx.compose.ui.platform.LocalContext.current.findActivityOrNull()
+    val plusView = remember(activity, returnButtonLayer) {
+        activity?.let { LiveDockImportSourceView(it, returnButtonLayer, density, direction) }
+    }
     val systemBottom = WindowInsets.navigationBarsIgnoringVisibility.getBottom(density)
     val bottomInset = with(density) { systemBottom.toDp() }
     val imeCompensation = dockImeCompensationPx(WindowInsets.ime.getBottom(density), systemBottom)
@@ -115,6 +119,14 @@ internal fun ParallelHomeDock(
             } }
         }
         val buttonInteractive = homeSelected && splitReady && !buttonHidden
+        val buttonOffset: Density.() -> IntOffset = {
+            val s = split.value.coerceIn(0f, 1f)
+            val body = dockBounds.value
+            IntOffset(
+                lerp(body.right - 54.dp.toPx(), (groupWidth - 54.dp).toPx(), s).roundToInt(),
+                (body.top - 3.dp.toPx() * sin(PI * s).toFloat()).roundToInt()
+            )
+        }
         Box(Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset + 8.dp)
             .width(groupWidth).height(dockTop + 54.dp).graphicsLayer { translationY = imeCompensation.toFloat() }) {
             // Keep the original LiquidButton mounted throughout the split. Its glass, shadow,
@@ -125,40 +137,31 @@ internal fun ParallelHomeDock(
                 val mask = Path().apply { addRoundRect(RoundRect(body, CornerRadius(body.height / 2f))) }
                 clipPath(mask, ClipOp.Difference) { this@drawWithContent.drawContent() }
             }) {
+                if (plusView != null) AndroidView(
+                    factory = { plusView },
+                    modifier = Modifier.offset(buttonOffset).size(54.dp),
+                    update = { it.updatePresentation(density, direction, render = !buttonHidden) },
+                )
                 SleepDownFloatingAddButton(onClick = {
                     if (buttonBounds.width > 1f && buttonBounds.height > 1f) {
-                        val source = activity?.let {
-                            LiveDockImportSourceView.attach(
-                                it, root, buttonBounds, returnButtonLayer,
-                                Rect(0f, 0f, buttonBounds.width, buttonBounds.height), density, direction
-                            )
-                        }
                         onOpenMenu(DockImportSource(
-                            buttonBounds, returnButtonLayer, source, ownsView = source != null,
-                            release = { source?.release() }
+                            buttonBounds, returnButtonLayer, plusView
                         ))
                     }
                 }, backdrop = backdrop, contentDescription = "导入课表", enabled = buttonInteractive,
-                    modifier = Modifier.offset {
-                        val s = split.value.coerceIn(0f, 1f)
-                        val body = dockBounds.value
-                        IntOffset(
-                            lerp(body.right - 54.dp.toPx(), (groupWidth - 54.dp).toPx(), s).roundToInt(),
-                            (body.top - 3.dp.toPx() * sin(PI * s).toFloat()).roundToInt()
-                        )
-                    }.size(54.dp)
+                    modifier = Modifier.offset(buttonOffset).size(54.dp)
                         .onGloballyPositioned { buttonBounds = it.boundsInRoot() }
                         .drawWithContent {
-                            // Hidden disables LiquidButton's press transform. Record that resting
-                            // endpoint for an eventual Activity handoff, without reading a bitmap
-                            // (or recording the cropped pressed button) on the opening tap.
+                            // The attached View and the Legacy return use this same button layer.
                             returnButtonLayer.record {
                                 // Pin LocalDensity: record's delegated density otherwise recurses.
                                 withRecordingDensity(recordingDensity) {
                                     this@drawWithContent.drawContent()
                                 }
                             }
-                            if (!buttonHidden) drawLayer(returnButtonLayer)
+                            if (!buttonHidden && (plusView == null || !plusView.isAttachedToWindow || plusView.width <= 0)) {
+                                drawLayer(returnButtonLayer)
+                            }
                         }
                         .then(if (buttonInteractive) plusInteraction.gestureModifier else Modifier)
                         .excludeParentPullGesture()
