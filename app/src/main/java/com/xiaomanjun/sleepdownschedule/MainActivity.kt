@@ -132,6 +132,7 @@ fun CourseScheduleTheme(
     config: ScheduleConfigEntity = defaultConfig(),
     content: @Composable () -> Unit
 ) {
+    com.xiaomanjun.sleepdownschedule.platform.coloros.ColorOsStatusBarScrollToTop()
     com.xiaomanjun.sleepdownschedule.app.ui.ProvideVisualEffects {
         CourseScheduleThemeContent(config, content)
     }
