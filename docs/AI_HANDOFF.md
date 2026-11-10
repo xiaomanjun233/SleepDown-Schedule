@@ -16,6 +16,8 @@ AI 导入只在输入框上沿上升后覆盖内容时调整对话。长对话�
 
 SDK ADB 37.0.1 使用 5038，在 Pixel 10 Pro Android 16 AVD（`emulator-5556`，同机本地端点 `127.0.0.1:5557`）测试用户 10 覆盖安装，回读 SHA 一致。`d7bbc50d` 点验历史外壳和箭头对齐、胶囊换行、滑删露出与反向收回、打开详情，截图位于主工作区 `tmp/nav3-qa/sleepdown-20-d7bbc50d-history-*.png`。本轮还点验了 18 门课预览整页滚动、短页拖动回弹、导入按钮阴影、作息 Sheet 下拉保持打开和系统返回、节次时长与日期作息选择器、快速设置弹窗留白和详细设置入口、特殊课程入口、首页课程长按菜单。其余截图位于 `tmp/nav3-qa/sleepdown-20-import-settings-*` 和 `tmp/nav3-qa/sleepdown-20-bd78145c-*`。
 
+2026-11-10 22:40 按用户要求将同一 `d7bbc50d` 签名包覆盖安装到 OPPO PLJ110（Android 17、API 37、ColorOS V17.0.0、用户 0）。使用 `D:/Android studio/AndroidSDK/platform-tools/adb.exe` 37.0.1 客户端及同来源的 5038 服务，经 USB 定向到 `3B15AE023YL00000`。安装返回 Success，手机回读版本 2.0、版本代码 36，base APK SHA-256 与归档包一致。实机操作留给用户试用。
+
 ## 2026-11-10 2.0 教务列表与二级页细节
 
 在 `codex/restore-activity-navigation` 的 `ec4c6749` 上续作，签名包源码为 `86f3a6fd`。GitHub 渠道版本 2.0、版本代码 36。教务列表复用公共设置分组、行距和分隔线。对照 E 盘 ColorOS 17 Settings 的 `COUIAppListFastScroller`，采用 26 × 38dp 浮动滑柄，按住时放大并显示分组字母，停滚 2 秒后淡出。导入滑块到常规输入区为 16dp，教务悬浮搜索在安全区内下移 6dp。关于首图到 GitHub 分组及下个分组均为 16dp。
