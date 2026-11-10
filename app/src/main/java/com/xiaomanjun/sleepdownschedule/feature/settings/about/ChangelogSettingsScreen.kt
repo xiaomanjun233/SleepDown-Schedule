@@ -1,11 +1,14 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings.about
 
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroupPosition
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
@@ -16,24 +19,32 @@ fun ChangelogSettingsScreen(
     state: AppState,
     backdrop: Backdrop?,
 ) {
+    val currentNotes = rememberBundledReleaseNotes(ConsolidatedReleaseVersion)
+    val history = remember(currentNotes) {
+        listOf(ReleaseHistoryEntry(ConsolidatedReleaseVersion, currentNotes.flatMap { it.entries }.joinToString("\n"))) +
+            ArchivedReleaseHistory.entries
+    }
     SleepDownSecondaryPageList(contentTopPadding = detailContentTopPadding(),
         contentBottomPadding = detailContentBottomPadding()) {
-        item(key = "release-history") {
-            SettingsGroup(backdrop, state.config) { AboutVersionHistory() }
+        itemsIndexed(history, key = { _, release -> release.version }) { index, release ->
+            val position = when (index) {
+                0 -> SettingsGroupPosition.First
+                history.lastIndex -> SettingsGroupPosition.Last
+                else -> SettingsGroupPosition.Middle
+            }
+            SettingsGroup(backdrop, state.config, topSpacing = 0.dp.takeIf { index > 0 }, position = position) {
+                CollapsibleChangelogRow(release.version, release.body)
+                if (index < history.lastIndex) SettingsDivider()
+            }
         }
     }
 }
 
-@Composable
-internal fun AboutVersionHistory() {
-    @Composable
-    fun changelogItem(version: String, body: String) {
-        CollapsibleChangelogRow(version, body)
-        if (version != "1.0") SettingsDivider()
-    }
-    Column {
-        val currentNotes = rememberBundledReleaseNotes(ConsolidatedReleaseVersion)
-        changelogItem(ConsolidatedReleaseVersion, currentNotes.flatMap { it.entries }.joinToString("\n"))
+private data class ReleaseHistoryEntry(val version: String, val body: String)
+
+private object ArchivedReleaseHistory {
+    val entries = buildList<ReleaseHistoryEntry> {
+        fun changelogItem(version: String, body: String) { add(ReleaseHistoryEntry(version, body)) }
         changelogItem(
             "1.2.7.1",
             """
