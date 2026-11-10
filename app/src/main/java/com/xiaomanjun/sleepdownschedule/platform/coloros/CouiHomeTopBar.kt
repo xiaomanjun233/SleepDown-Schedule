@@ -10,7 +10,6 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.itos.coui.backdrop.CouiBackdrop
 import com.itos.coui.topappbar.CouiTopAppBarButtonDefaults
 import com.itos.coui.topappbar.TopAppBarButton
 import com.itos.coui.theme.CouiTheme
@@ -32,7 +31,6 @@ internal fun CouiHomeIconButton(
     modifier: Modifier,
     onClick: () -> Unit,
     enabled: Boolean,
-    backdrop: CouiBackdrop = checkNotNull(LocalHomeToolbarBackdrop.current),
 ) {
     val scheme = CouiTheme.colorSchemeFor(dark)
     val content = if (selected) MaterialTheme.colorScheme.primary else scheme.onSurface
@@ -52,7 +50,7 @@ internal fun CouiHomeIconButton(
             onClick = onClick,
             enabled = enabled && interactive,
             style = style,
-            backdrop = backdrop,
+            backdrop = checkNotNull(LocalHomeToolbarBackdrop.current),
         ) {
             Icon(
                 homeActionIconPainter(iconRes),

@@ -17,6 +17,8 @@ class GiteeAppUpdaterTest {
 
     @Test
     fun comparesNumericVersions() {
+        assertTrue(GiteeAppUpdater.isVersionNewer("v2.0", "1.2.8_beta2"))
+        assertFalse(GiteeAppUpdater.isVersionNewer("v1.2.8_beta2", "2.0"))
         assertTrue(GiteeAppUpdater.isVersionNewer("v1.1", "1.0"))
         assertTrue(GiteeAppUpdater.isVersionNewer("1.0.1", "1.0"))
         assertFalse(GiteeAppUpdater.isVersionNewer("1.0", "1.0"))

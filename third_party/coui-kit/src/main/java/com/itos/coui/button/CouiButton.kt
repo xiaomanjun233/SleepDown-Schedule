@@ -163,6 +163,7 @@ fun CouiCapsuleButton(
     backgroundModifier: Modifier = Modifier,
     interactionSource: MutableInteractionSource? = null,
     underlayModifier: Modifier = Modifier,
+    pressFeedback: Boolean = Build.VERSION.SDK_INT < 33,
     content: @Composable RowScope.() -> Unit,
 ) {
     val source = interactionSource ?: remember { MutableInteractionSource() }
@@ -192,7 +193,7 @@ fun CouiCapsuleButton(
                 surfaceColor = if (enabled || preserveMaterialWhenDisabled) colors.surface else colors.disabledSurface,
                 style = style,
                 surfaceSheen = surfaceSheen,
-            ).couiButtonFeedback(dark, source, enabled, pressFeedback = Build.VERSION.SDK_INT < 33)
+            ).couiButtonFeedback(dark, source, enabled, pressFeedback = pressFeedback)
             .clickable(source, indication = null, enabled = enabled, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
         propagateMinConstraints = true,

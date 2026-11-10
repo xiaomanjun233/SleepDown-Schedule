@@ -1,18 +1,25 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
+import android.graphics.Paint
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.asComposeRenderEffect
+import androidx.compose.ui.graphics.nativeCanvas
 import android.graphics.BlendMode
 import com.itos.coui.floatingactionbutton.CouiFabDefaults
 import com.itos.coui.topappbar.CouiTopAppBarButtonDefaults
 import com.itos.coui.segmentbutton.CouiSegmentedControlDefaults
 import com.itos.coui.effect.CouiFloatingMaterial
+import com.itos.coui.effect.CouiContour
+import com.itos.coui.effect.LocalCouiContourGlowEnabled
 import com.itos.coui.effect.couiControlMaterialEffect
 import com.itos.coui.shape.CouiCapsuleShape
+import com.itos.coui.shape.CouiShape
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.drawBackdrop
 
@@ -54,6 +61,25 @@ internal fun couiUpdateCardMaterial(backdrop: Backdrop, shape: Shape): Modifier 
         )
     }
     return couiControlMaterial(backdrop, shape, material)
+}
+
+@Composable
+internal fun couiUpdateCardOutline(shape: CouiShape): Modifier {
+    if (Build.VERSION.SDK_INT < 33 || !LocalCouiContourGlowEnabled.current) return Modifier
+    val contour = remember { CouiContour() }
+    val paint = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
+    return Modifier.drawWithCache {
+        if (size.width > 0f && size.height > 0f) {
+            paint.shader = contour.shader(size, density, shape.radius.toPx(), shape.cornerWeight,
+                Color.Transparent, innerGlowAlpha = .05f, lineAlpha = .5f, effectAlpha = 1f)
+        }
+        onDrawBehind {
+            val canvas = drawContext.canvas.nativeCanvas
+            if (canvas.isHardwareAccelerated && size.width > 0f && size.height > 0f) {
+                canvas.drawRect(0f, 0f, size.width, size.height, paint)
+            }
+        }
+    }
 }
 
 @Composable

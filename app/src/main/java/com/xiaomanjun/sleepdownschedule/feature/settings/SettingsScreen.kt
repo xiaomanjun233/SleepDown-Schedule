@@ -95,6 +95,7 @@ fun SettingsScreen(
         onDispose { latestAboutBackgroundChanged(null) }
     }
     var backupPreviewUriString by rememberSaveable { mutableStateOf<String?>(null) }
+    var showingUpdateNotes by rememberSaveable { mutableStateOf(false) }
     var autoRefreshWarehouseRequest by remember { mutableIntStateOf(0) }
     val autoRefreshProfile = AutoRefreshScheduleStore.observe(context).collectAsStateWithLifecycle().value
     GlassMiuixSettingsTheme(pageConfig) {
@@ -137,6 +138,7 @@ fun SettingsScreen(
             fun applyTabletRootPage(nextPage: SettingsPage) {
                 detailNavigationDirection = 0
                 tabletNavigation = tabletNavigation.selectRoot(nextPage)
+                showingUpdateNotes = false
                 backupPreviewUriString = null
                 pendingPageName = null
             }
@@ -161,6 +163,10 @@ fun SettingsScreen(
                 tabletNavigation = nextNavigation
             }
             fun popTabletDetailPage() {
+                if (displayedPage == SettingsPage.SoftwareUpdate && showingUpdateNotes) {
+                    showingUpdateNotes = false
+                    return
+                }
                 val nextNavigation = tabletNavigation.popDetail()
                 if (nextNavigation == tabletNavigation) return
                 if (displayedPage == SettingsPage.PeriodSchemes) periodSchemeReturnRequest++
@@ -223,7 +229,7 @@ fun SettingsScreen(
                         label = "TabletSettingsDetailNavigation"
                     ) { targetPage ->
                         CouiSettingsTabletDetailPaneScaffold(
-                            title = targetPage.title(),
+                            title = if (targetPage == SettingsPage.SoftwareUpdate && showingUpdateNotes) "更新说明" else targetPage.title(),
                             config = pageConfig,
                             topBarVisible = !(targetPage == SettingsPage.Widgets && tabletWidgetEditorVisible),
                             showBackButton = targetPage != selectedPage,
@@ -251,6 +257,8 @@ fun SettingsScreen(
                                 pageState = pageState,
                                 backdrop = paneBackdrop,
                                 onPageChange = ::pushTabletDetailPage,
+                                showUpdateNotes = showingUpdateNotes,
+                                onOpenUpdateNotes = { showingUpdateNotes = true },
                                 onSave = onSave,
                                 onUpdateConfig = onUpdateConfig,
                                 onUpdateGeneralConfig = onUpdateGeneralConfig,
@@ -300,12 +308,15 @@ fun SettingsScreen(
             }
             }
         } else {
+            BackHandler(enabled = page == SettingsPage.SoftwareUpdate && showingUpdateNotes) { showingUpdateNotes = false }
             SettingsPageContent(
                 page = page,
                 state = state,
                 pageState = pageState,
                 backdrop = backdrop,
                 onPageChange = onPageChange,
+                showUpdateNotes = showingUpdateNotes,
+                onOpenUpdateNotes = { showingUpdateNotes = true },
                 onSave = onSave,
                 onUpdateConfig = onUpdateConfig,
                 onUpdateGeneralConfig = onUpdateGeneralConfig,
@@ -335,6 +346,8 @@ private fun SettingsPageContent(
     pageState: AppState,
     backdrop: Backdrop?,
     onPageChange: (SettingsPage) -> Unit,
+    showUpdateNotes: Boolean,
+    onOpenUpdateNotes: () -> Unit,
     onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
     onUpdateConfig: (ScheduleConfigEntity) -> Unit,
     onUpdateGeneralConfig: (ScheduleConfigEntity) -> Unit,
@@ -450,7 +463,7 @@ private fun SettingsPageContent(
             onSoftwareUpdate = { onPageChange(SettingsPage.SoftwareUpdate) },
         )
         SettingsPage.Changelog -> ChangelogSettingsScreen(pageState, backdrop)
-        SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(pageState, backdrop)
+        SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(pageState, backdrop, showUpdateNotes, onOpenUpdateNotes)
         SettingsPage.AutoUpdate -> AutoUpdateSettingsScreen(pageState.config, backdrop, onUpdateGeneralConfig)
 		SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
 		SettingsPage.PrivacyPolicy -> PrivacyPolicySettingsScreen(pageState, backdrop)

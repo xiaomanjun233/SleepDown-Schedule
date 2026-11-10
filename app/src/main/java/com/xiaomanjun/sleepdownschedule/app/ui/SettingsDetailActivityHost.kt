@@ -14,6 +14,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -166,6 +167,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                 intent.transitionRouteIdOrNull() == TransitionRouteId.QuickSheetToSettingsDetail
             }
             val immersiveUpdate = section == SettingsPage.SoftwareUpdate && LocalConfiguration.current.screenWidthDp < 600
+            var showingUpdateNotes by rememberSaveable(section) { mutableStateOf(false) }
             val pageConfig = if (immersiveUpdate) state.config.copy(darkMode = true, followSystemDarkMode = false)
                 else state.config
             CourseScheduleTheme(config = pageConfig) {
@@ -225,7 +227,8 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                     )
                 }
                 val requestExit: () -> Unit = {
-                    when (section) {
+                    if (showingUpdateNotes) showingUpdateNotes = false
+                    else when (section) {
                         SettingsPage.Schedule, SettingsPage.PeriodSchemes, SettingsPage.SpecialCourses -> scheduleExitRequest++
                         else -> closeSettings()
                     }
@@ -236,7 +239,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                 val anchoredScheduleBackRequired =
                     section == SettingsPage.Schedule && isAnchoredSettingsEntry
                 BackHandler(
-                    enabled = interceptSystemBack || anchoredScheduleBackRequired,
+                    enabled = interceptSystemBack || anchoredScheduleBackRequired || showingUpdateNotes,
                     onBack = requestExit
                 )
                 Box(Modifier.fillMaxSize()) {
@@ -244,7 +247,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                 DetailActivityScaffold(
                     title = if (isTimeSlotEditor) {
                         if (intent.getStringExtra(TimeSlotCourseOriginalExtra).isNullOrEmpty()) "添加特殊课程" else "编辑特殊课程"
-                    } else section.title(),
+                    } else if (showingUpdateNotes) "更新说明" else section.title(),
                     config = pageConfig,
                     compactTopBar = section.usesPersistentCenteredSettingsTitle(),
                     centerCompactTitle = section.usesPersistentCenteredSettingsTitle(),
@@ -401,7 +404,9 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                             }
                         }
                         SettingsPage.Changelog -> ChangelogSettingsScreen(state, backdrop)
-                        SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(state, backdrop)
+                        SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(
+                            state, backdrop, showingUpdateNotes, onOpenVersionNotes = { showingUpdateNotes = true },
+                        )
                         SettingsPage.AutoUpdate -> AutoUpdateSettingsScreen(
                             state.config, backdrop, onUpdateConfig = viewModel::saveGeneralSettings
                         )

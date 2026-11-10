@@ -3,8 +3,6 @@ package com.xiaomanjun.sleepdownschedule.feature.settings.about
 import android.os.Build
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.NorthEast
@@ -12,9 +10,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
@@ -23,7 +21,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.vectorResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -31,7 +28,6 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itos.coui.button.CouiButtonDefaults
 import com.itos.coui.button.CouiCapsuleButton
-import com.itos.coui.effect.couiButtonFeedback
 import com.itos.coui.shape.CouiCapsuleShape
 import com.itos.coui.shape.CouiShape
 import com.itos.coui.text.CouiTextKind
@@ -82,19 +78,12 @@ internal fun ColorOsAboutSettingsScreen(
             AboutVersionHeader(version, available, expanded = configuration.smallestScreenWidthDp >= 600,
                 onCheck = onSoftwareUpdate)
         }
-        item(key = "about-github-links") {
-            Row(
-                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                AboutGitHubCard("关于开发者", "xiaomanjun233", githubIcon,
-                    Modifier.weight(1f).fillMaxHeight()) { open(SleepDownDeveloperUrl) }
-                AboutGitHubCard("项目仓库", "SleepDown-Schedule", githubIcon,
-                    Modifier.weight(1f).fillMaxHeight()) { open(SleepDownSourceUrl) }
-            }
-        }
         item(key = "about-links") {
             SettingsGroup(backdrop, state.config) {
+                AboutGitHubRow("关于开发者", "xiaomanjun233", githubIcon) { open(SleepDownDeveloperUrl) }
+                SettingsDivider()
+                AboutGitHubRow("项目仓库", "SleepDown-Schedule", githubIcon) { open(SleepDownSourceUrl) }
+                SettingsDivider()
                 SettingsNavigationRow("官方网站", onClick = { open(SleepDownWebsiteUrl) })
                 SettingsDivider()
                 SettingsNavigationRow("问题反馈", onClick = { open(SleepDownIssuesUrl) })
@@ -110,19 +99,19 @@ internal fun ColorOsAboutSettingsScreen(
             GlassPreferenceSection("项目致谢") {
                 SettingsGroup(backdrop, state.config) {
                     SettingsNavigationRow("AndroidLiquidGlass", "Kyant0 · 液态玻璃",
-                        leadingIcon = githubIcon, leadingIconTint = colors.onSurface,
+                        leadingIcon = githubIcon, leadingIconTint = Color(0xFF0A84FF), minHeight = 52.dp,
                         onClick = { open(AndroidLiquidGlassUrl) })
-                    SettingsDivider()
+                    SettingsDivider(startIndent = 56.dp)
                     SettingsNavigationRow("MIUIX", "compose-miuix-ui · Popup",
-                        leadingIcon = githubIcon, leadingIconTint = colors.onSurface,
+                        leadingIcon = githubIcon, leadingIconTint = Color(0xFFFF9500), minHeight = 52.dp,
                         onClick = { open(MiuixUrl) })
-                    SettingsDivider()
+                    SettingsDivider(startIndent = 56.dp)
                     SettingsNavigationRow("COUI-Kit", "ItosEO · MPL 2.0",
-                        leadingIcon = githubIcon, leadingIconTint = colors.onSurface,
+                        leadingIcon = githubIcon, leadingIconTint = Color(0xFF5856D6), minHeight = 52.dp,
                         onClick = { open("https://github.com/ItosEO/COUI-Kit") })
-                    SettingsDivider()
+                    SettingsDivider(startIndent = 56.dp)
                     SettingsNavigationRow("shiguang_warehouse", "XingHeYuZhuan · 教务适配",
-                        leadingIcon = githubIcon, leadingIconTint = colors.onSurface,
+                        leadingIcon = githubIcon, leadingIconTint = Color(0xFF34C759), minHeight = 52.dp,
                         onClick = { open(ShiguangWarehouseUrl) })
                 }
             }
@@ -140,24 +129,18 @@ internal const val SleepDownDeveloperUrl = "https://github.com/xiaomanjun233"
 
 @Composable
 internal fun VersionCardArtwork(modifier: Modifier) {
-    val dark = CouiTheme.isDark
     Box(modifier) {
-        Image(painterResource(R.drawable.about_sleepdown_hero), null, Modifier.matchParentSize(),
-            contentScale = ContentScale.Crop)
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(
-            if (dark) listOf(Color.Black.copy(alpha = .36f), Color.Black.copy(alpha = .60f))
-            else listOf(Color.White.copy(alpha = .08f), Color.White.copy(alpha = .18f)),
-        )))
+        Image(
+            painterResource(R.drawable.software_update_wallpaper), null, Modifier.matchParentSize(),
+            alignment = BiasAlignment(0f, .24f), contentScale = ContentScale.Crop,
+        )
+        Box(Modifier.matchParentSize().background(Color(0x6612152D)))
     }
 }
 
 @Composable
-internal fun versionCardForeground(): Color = if (CouiTheme.isDark) Color.White else Color(0xFF15243D)
-
-@Composable
 private fun AboutVersionHeader(version: String, updateAvailable: Boolean, expanded: Boolean, onCheck: () -> Unit) {
-    val dark = CouiTheme.isDark
-    val foreground = versionCardForeground()
+    val foreground = Color.White
     val density = LocalDensity.current
     val artwork = if (Build.VERSION.SDK_INT >= 31 && !AppMaterialPreferences.isSuperPerformance) {
         rememberGlassLayerBackdrop(GlassBackdropDomain.Background, "about-version-artwork")
@@ -166,14 +149,14 @@ private fun AboutVersionHeader(version: String, updateAvailable: Boolean, expand
     val buttonMaterial = if (Build.VERSION.SDK_INT >= 31 && artwork != null) {
         couiTransparentButtonMaterial(artwork, CouiCapsuleShape)
     } else Modifier
-    // Settings 的 AboutDeviceOtaUpdatePreference 在绑定时覆盖 XML 的首卡尺寸和定位。
     val cardHeight = if (expanded) 240.dp else 328.dp
-    val cardRadius = if (expanded) 24.dp else 28.dp
+    // Settings 17 将视频卡 XML 的 XX-Large 24dp 映射为 34dp、权重 3 的平滑轮廓。
+    val cardShape = CouiShape(34.dp, 3f)
     val titleTop = if (expanded) 66.dp else 104.dp
     val buttonBottom = if (expanded) 20.dp else 40.dp
     Box(
         Modifier.padding(top = 12.dp, bottom = 16.dp).fillMaxWidth()
-            .clip(CouiShape(cardRadius, 2.5f)).background(CouiTheme.colorScheme.container),
+            .clip(cardShape).background(CouiTheme.colorScheme.container),
     ) {
         VersionCardArtwork(Modifier.matchParentSize().then(artworkProducer))
         Column(
@@ -198,8 +181,8 @@ private fun AboutVersionHeader(version: String, updateAvailable: Boolean, expand
             }
             CouiCapsuleButton(
                 onClick = onCheck,
-                dark = dark,
-                colors = CouiButtonDefaults.secondaryColors(dark, material = true).copy(
+                dark = true,
+                colors = CouiButtonDefaults.secondaryColors(dark = true, material = true).copy(
                     surface = if (artwork != null) Color.Transparent else Color.White.copy(alpha = .20f),
                 ),
                 height = 40.dp,
@@ -221,21 +204,21 @@ private fun AboutVersionHeader(version: String, updateAvailable: Boolean, expand
 }
 
 @Composable
-private fun AboutGitHubCard(
-    title: String, subtitle: String, githubIcon: ImageVector, modifier: Modifier, onClick: () -> Unit,
+private fun AboutGitHubRow(
+    title: String, subtitle: String, githubIcon: ImageVector, onClick: () -> Unit,
 ) {
     val colors = CouiTheme.colorScheme
-    val interaction = remember { MutableInteractionSource() }
-    Column(
-        modifier.clip(CouiShape(20.dp, 2.5f)).background(colors.container)
-            .couiButtonFeedback(interactionSource = interaction, list = true)
-            .clickable(interaction, null, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
+    SettingsBasicComponent(
+        onClick = onClick,
+        endActions = { SettingsForwardIndicator(Modifier.padding(start = 4.dp)) },
     ) {
-        Icon(githubIcon, null, Modifier.size(24.dp), tint = colors.onSurface)
-        Spacer(Modifier.height(8.dp))
-        Text(title, style = rememberCouiTextStyle(CouiTextKind.PreferenceTitle), color = colors.onSurface)
-        Text(subtitle, style = rememberCouiTextStyle(CouiTextKind.PreferenceSummary), color = colors.onSurfaceVariant,
-            maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(title, style = rememberCouiTextStyle(CouiTextKind.PreferenceTitle),
+            color = colors.onSurface.copy(alpha = .9f))
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(subtitle, Modifier.weight(1f, fill = false),
+                style = rememberCouiTextStyle(CouiTextKind.PreferenceSummary), color = colors.onSurfaceVariant,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Icon(githubIcon, null, Modifier.size(14.dp), tint = colors.onSurfaceVariant)
+        }
     }
 }

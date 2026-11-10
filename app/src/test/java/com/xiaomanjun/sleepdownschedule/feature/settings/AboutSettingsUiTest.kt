@@ -47,18 +47,23 @@ import org.robolectric.annotation.GraphicsMode
 class AboutSettingsUiTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun aboutShowsTwoGitHubCardsAndKeepsHistoryInSoftwareUpdate() {
+    @Test fun aboutShowsGitHubRowsAndSoftwareUpdateShowsBundledNotesAndImmediateMenu() {
         val config = defaultConfig().copy(darkMode = true, followSystemDarkMode = false)
         var notesOpens = 0
+        var pickedPage: SettingsPage? = null
         RuntimeEnvironment.getApplication().applicationInfo.nonLocalizedLabel = "SleepDown课程表"
         compose.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
                     effectiveMode = VisualEffectMode.ColorOsGlow, colorOsAvailable = true)) {
                     var page by remember { mutableStateOf(SettingsPage.About) }
-                    val back = { page = if (page == SettingsPage.SoftwareUpdate) SettingsPage.About else SettingsPage.SoftwareUpdate }
+                    var showingNotes by remember { mutableStateOf(false) }
+                    val back: () -> Unit = {
+                        if (page == SettingsPage.SoftwareUpdate && showingNotes) showingNotes = false
+                        else page = if (page == SettingsPage.SoftwareUpdate) SettingsPage.About else SettingsPage.SoftwareUpdate
+                    }
                     CouiSettingsPageScaffold(
-                        title = page.title(),
+                        title = if (page == SettingsPage.SoftwareUpdate && showingNotes) "更新说明" else page.title(),
                         config = config,
                         showBack = true,
                         onBack = back,
@@ -66,7 +71,10 @@ class AboutSettingsUiTest {
                             { SoftwareUpdateToolbarButton(CouiIcons.Back, "返回", back) }
                         } else null,
                         topBarActions = { source ->
-                            if (page == SettingsPage.SoftwareUpdate) SoftwareUpdateMenu(source) { page = it }
+                            if (page == SettingsPage.SoftwareUpdate) SoftwareUpdateMenu(source) {
+                                pickedPage = it
+                                page = it
+                            }
                         },
                     ) { _, source ->
                         when (page) {
@@ -74,8 +82,9 @@ class AboutSettingsUiTest {
                                 onSoftwareUpdate = { page = SettingsPage.SoftwareUpdate })
                             SettingsPage.Changelog -> ChangelogSettingsScreen(AppState(config = config), source)
                             SettingsPage.AutoUpdate -> AutoUpdateSettingsScreen(config, source, onUpdateConfig = {})
-                            else -> SoftwareUpdatePageContent("1.2.8_beta2", AppUpdateDialog.UpToDate("1.2.8_beta2"),
-                                {}, {}, {}, {}, onOpenVersionNotes = { notesOpens++ })
+                            else -> SoftwareUpdatePageContent("2.0", AppUpdateDialog.UpToDate("2.0"),
+                                {}, {}, {}, {}, onOpenVersionNotes = { notesOpens++; showingNotes = true },
+                                showVersionNotes = showingNotes)
                         }
                     }
                 }
@@ -87,9 +96,10 @@ class AboutSettingsUiTest {
         assertEquals(40f * density, update.fetchSemanticsNode().boundsInRoot.height, 1f)
         val profile = compose.onNodeWithText("关于开发者").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val repository = compose.onNodeWithText("项目仓库").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        assertEquals(profile.top, repository.top, 1f)
-        assertEquals(profile.width, repository.width, 1f)
-        assertTrue(profile.right < repository.left)
+        assertEquals(profile.left, repository.left, 1f)
+        assertTrue(profile.bottom < repository.top)
+        compose.onNodeWithText("xiaomanjun233").assertIsDisplayed()
+        compose.onNodeWithText("SleepDown-Schedule").assertIsDisplayed()
         compose.onNodeWithText("更新日志").assertDoesNotExist()
         compose.onNodeWithText("源代码").assertDoesNotExist()
         writeSettingsVisualArtifact("about-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
@@ -105,17 +115,35 @@ class AboutSettingsUiTest {
         writeSettingsVisualArtifact("software-current-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
         notes.performClick()
         compose.runOnIdle { assertEquals(1, notesOpens) }
+        compose.onNodeWithText("软件版本").assertIsDisplayed()
+        compose.onNodeWithText("课表与作息").assertIsDisplayed()
+        writeSettingsVisualArtifact("software-version-notes-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
+        compose.onNodeWithContentDescription("收起更新说明").performClick()
+        compose.onNodeWithText("课表与作息").assertDoesNotExist()
+        compose.onNodeWithContentDescription("展开更新说明").performClick()
+        compose.onNodeWithText("课表与作息").assertIsDisplayed()
+        compose.onNodeWithContentDescription("返回").performClick()
+        compose.onNodeWithText("已是最新版本").assertIsDisplayed()
         compose.onNodeWithText("历史日志").assertDoesNotExist()
         val more = compose.onNodeWithContentDescription("更多选项")
         more.performClick()
-        compose.onNodeWithText("历史日志").assertIsDisplayed()
-        compose.onNodeWithText("自动更新设置").performClick()
+        val historyMenuItem = compose.onNodeWithText("历史日志").assertIsDisplayed()
+        assertTrue(historyMenuItem.fetchSemanticsNode().boundsInRoot.width < 196f * density)
+        compose.mainClock.autoAdvance = false
+        try {
+            compose.onNodeWithText("自动更新设置").performClick()
+            compose.runOnIdle { assertEquals(SettingsPage.AutoUpdate, pickedPage) }
+        } finally {
+            compose.mainClock.autoAdvance = true
+        }
         compose.onNodeWithText("自动检查更新").assertIsDisplayed()
         compose.onNodeWithText("接收 Beta 版更新").assertIsDisplayed()
         compose.onNodeWithContentDescription("返回").performClick()
         more.performClick()
         compose.onNodeWithText("历史日志").performClick()
-        compose.onNodeWithText("1.2.8_beta1").assertExists()
+        compose.onNodeWithText("2.0").assertExists()
+        compose.onNodeWithText("1.2.8_beta1").assertDoesNotExist()
+        compose.onNodeWithText("1.2.8_beta2").assertDoesNotExist()
         writeSettingsVisualArtifact("changelog-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
     }
 
@@ -129,7 +157,7 @@ class AboutSettingsUiTest {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 CouiSettingsPageScaffold("软件更新", config, showBack = true,
                     topBarNavigation = { SoftwareUpdateToolbarButton(CouiIcons.Back, "返回") {} }) { _, _ ->
-                    SoftwareUpdatePageContent("1.2.8_beta2", AppUpdateDialog.Available(release), {},
+                    SoftwareUpdatePageContent("2.0", AppUpdateDialog.Available(release), {},
                         { assertEquals(release, it); downloads++ }, {}, {})
                 }
             }

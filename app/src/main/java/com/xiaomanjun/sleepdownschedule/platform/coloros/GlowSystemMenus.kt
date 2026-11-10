@@ -21,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.isSpecified
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -29,6 +30,7 @@ import com.itos.coui.menu.CouiMenuItem
 import com.itos.coui.menu.CouiMenuDefaults
 import com.itos.coui.menu.CouiMenuPlacement
 import com.itos.coui.menu.CouiMenuContourStyle
+import com.itos.coui.menu.ProvideCouiMenuBackdrop
 import com.itos.coui.shape.CouiCapsuleShape
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeActionIconPainter
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
@@ -60,50 +62,57 @@ private fun actionMenuStyle(dark: Boolean, placement: CouiMenuPlacement) = CouiM
     placement = placement,
 )
 
-/** 首页动作可以即时提交，需要切页的宿主可以等待窗口退场。 */
+/** 动作即时提交，菜单的退场回调只清理窗口状态。 */
 @Composable
 internal fun GlowOverflowMenuButton(dark: Boolean, interactive: Boolean, actions: List<AddMenuAction>,
-    modifier: Modifier, deferSelectionUntilClosed: Boolean = false,
+    modifier: Modifier, containerColor: Color = Color.Unspecified,
     content: @Composable (onClick: () -> Unit) -> Unit) {
     var mounted by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
-    var submitted by remember { mutableStateOf<AddMenuAction?>(null) }
+    var submitted by remember { mutableStateOf(false) }
     var shownActions by remember { mutableStateOf(emptyList<AddMenuAction>()) }
     val latestActions by rememberUpdatedState(actions)
     val items = shownActions.couiItems()
     val onBounds = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenuBounds.current
     Box(modifier) {
         content {
-            if (interactive && latestActions.isNotEmpty() && submitted == null) {
+            if (interactive && latestActions.isNotEmpty() && !submitted) {
                 if (!mounted) shownActions = latestActions.toList()
                 mounted = true
                 expanded = true
             }
         }
         if (mounted) {
-            Menu(modifier = Modifier.width(196.dp), expanded = expanded, items = items,
-                style = actionMenuStyle(dark, CouiMenuPlacement.AnchorCenter), offset = DpOffset(0.dp, 8.dp),
-                onDismissRequest = { expanded = false },
-                onItemClick = { item ->
-                    val action = shownActions.getOrNull(item.value)
-                    if (expanded && submitted == null && action != null) {
-                        submitted = action
-                        expanded = false
-                        if (!deferSelectionUntilClosed) action.onClick()
-                    }
-                },
-                onDismissFinished = {
-                    val action = submitted
-                    submitted = null
-                    mounted = false
-                    if (deferSelectionUntilClosed) action?.onClick?.invoke()
-                }, onMenuPositioned = { onBounds?.invoke(it) })
+            val style = actionMenuStyle(dark, CouiMenuPlacement.AnchorCenter)
+            val hasIcons = items.any { it.icon != null || it.iconPainter != null }
+            val menu: @Composable () -> Unit = {
+                Menu(modifier = if (hasIcons) Modifier.width(196.dp) else Modifier,
+                    expanded = expanded, items = items,
+                    style = if (containerColor.isSpecified) style.copy(colors = style.colors.copy(container = containerColor)) else style,
+                    offset = DpOffset(0.dp, 8.dp),
+                    onDismissRequest = { expanded = false },
+                    onItemClick = { item ->
+                        val action = shownActions.getOrNull(item.value)
+                        if (expanded && !submitted && action != null) {
+                            submitted = true
+                            expanded = false
+                            action.onClick()
+                        }
+                    },
+                    onDismissFinished = {
+                        submitted = false
+                        mounted = false
+                    }, onMenuPositioned = { onBounds?.invoke(it) })
+            }
+            if (containerColor.isSpecified) {
+                ProvideCouiMenuBackdrop(isolateContent = false, enabled = false) { menu() }
+            } else menu()
         }
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) { submitted = null; expanded = false; mounted = false }
+            if (event == Lifecycle.Event.ON_STOP) { submitted = false; expanded = false; mounted = false }
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
