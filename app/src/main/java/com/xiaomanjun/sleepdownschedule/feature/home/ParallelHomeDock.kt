@@ -18,6 +18,7 @@ import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
@@ -163,6 +164,10 @@ internal fun ParallelHomeDock(
                             }
                             if (!buttonHidden && (plusView == null || !plusView.isAttachedToWindow || plusView.width <= 0)) {
                                 drawLayer(returnButtonLayer)
+                            } else if (!buttonHidden && plusView?.showsOverflow == true) {
+                                clipRect(0f, 0f, size.width, size.height, ClipOp.Difference) {
+                                    drawLayer(returnButtonLayer)
+                                }
                             }
                         }
                         .then(if (buttonInteractive) plusInteraction.gestureModifier else Modifier)

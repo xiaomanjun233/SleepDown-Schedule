@@ -181,7 +181,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
-import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionSourceView
+import com.xiaomanjun.sleepdownschedule.transition.liveTransitionBoundsInActivity
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenu
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
@@ -2148,21 +2148,15 @@ fun CourseScheduleAppUi(
                 if (released) return
                 released = true
                 dockImportSourceHidden = false
-                (source.view as? LiveTransitionSourceView)?.clearSoftwareFrame()
                 source.release()
                 dockImportOpening = false
-            }
-            fun sourceBounds(view: android.view.View): Rect? {
-                if (!view.isAttachedToWindow || view.width <= 1 || view.height <= 1) return null
-                val location = IntArray(2).also(view::getLocationInWindow)
-                return Rect(location[0].toFloat(), location[1].toFloat(),
-                    (location[0] + view.width).toFloat(), (location[1] + view.height).toFloat())
             }
             try {
                 val background = runCatching { detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
                 withFrameNanos { }
-                val originalView = source.view?.takeIf { it.isShown && it.context === activity }
-                val bounds = originalView?.let(::sourceBounds) ?: source.boundsInRoot.translate(homeRootPositionInWindow)
+                val viewBounds = source.view?.liveTransitionBoundsInActivity(activity)
+                val originalView = source.view?.takeIf { viewBounds != null }
+                val bounds = viewBounds ?: source.boundsInRoot.translate(homeRootPositionInWindow)
                 val radius = minOf(bounds.width, bounds.height) / 2f
                 val cookie = System.identityHashCode(source)
                 if (Build.VERSION.SDK_INT >= 29) android.os.Trace.beginAsyncSection("SleepDown Dock.capturePlus", cookie)
@@ -2177,9 +2171,6 @@ fun CourseScheduleAppUi(
                     source.fallbackLayer?.toImageBitmap()?.asAndroidBitmap()
                 }.getOrNull()
                 val anchor = TransitionAnchorFrame(bounds, radius, bitmap)
-                val liveView = originalView?.takeIf {
-                    it !is LiveTransitionSourceView || it.prepareSoftwareFrame(bitmap)
-                }
                 val result = ActivityTransitionCoordinator.open(
                     activity, TransitionRouteId.HomeDockToImport,
                     Intent(context, EduSchoolSelectActivity::class.java)
@@ -2187,7 +2178,7 @@ fun CourseScheduleAppUi(
                     TransitionPayload(
                         openingAnchor = anchor,
                         returnAnchorProvider = TransitionAnchorProvider {
-                            if (originalView == null) anchor else sourceBounds(originalView)?.let {
+                            if (originalView == null) anchor else originalView.liveTransitionBoundsInActivity(activity, coveredWindow = true)?.let {
                                 anchor.copy(boundsInWindow = it, cornerRadiusPx = minOf(it.width, it.height) / 2f)
                             }
                         },
@@ -2197,7 +2188,7 @@ fun CourseScheduleAppUi(
                             if (!nativeStarted) dockImportSourceHidden = true
                         },
                         onSourceReleased = ::releaseSource,
-                        openingSourceView = liveView
+                        openingSourceView = originalView
                     )
                 )
                 nativeStarted = result is TransitionLaunchResult.NativeRegistered
@@ -2430,13 +2421,13 @@ fun CourseScheduleAppUi(
                                     }
                                     withFrameNanos { }
                                     withFrameNanos { }
-                                    val sourceBoundsInWindow = resolveSourceBounds()
-
                                     // Let the released press state reach the source window before copying its
                                     // final compositor output. This is the authoritative path for the custom
                                     // schedule picker, whose nested RenderNodes cannot be flattened reliably by
                                     // recording only the outer Compose layer.
                                     withFrameNanos { }
+                                    val sourceBoundsInWindow = sourceView?.liveTransitionBoundsInActivity(activity)
+                                        ?: resolveSourceBounds()
                                     val windowSnapshot = captureDetailMorphWindowSnapshot(
                                         activity = activity,
                                         rootPositionInWindow = homeRootPositionInWindow,

@@ -67,7 +67,8 @@ GitHub 渠道的 Debug 和签名 Release 默认启用已适配路线的金标动
 - SDK 固定为已核对的 `gsai.sdk:sharedview-kit:1.0.0.4`；Nexus 仅解析 `gsai.sdk`。升级时重新核对官方发布、接口、产物校验和 Release。
 - `isViewAnimationSupported() > 0` 才继续，不能将 Oplus 的旧版本阈值移植到标准 Kit。
 - 使用截图的 Compose 路线把局部像素投影到会话持有的独立源 View，按完整窗口坐标挂到 decor overlay，并用像素圆角提供 Outline。软件采样保留透明圆角。系统接管后隐藏源 View，会话结束时移除，返回桥接采用相同圆角。源尺寸和像素不匹配、越出窗口或未挂载时走 Legacy。
-- 加号、导入历史、快速设置的详细设置和特殊课程入口将平时绘制控件的 Android View 直接交给 Kit。Compose 控件在原材质坐标绘制，持续挂载的 View 呈现同一图层。窗口像素仅用于 SDK 软件画布和 Legacy。会话保持 View 身份，返回时读取实际位置。源必须属于同一 Activity、已经挂载且可见。缺少该 View 时使用既有 Legacy 转场。
+- 加号、导入历史、快速设置的详细设置和特殊课程入口把持续挂载并绘制原控件的 View 传给 Kit。开场像素按该 View 裁取，声明支持 `EXTRA_BITMAP` 时随 View 一起传入，供 Kit 覆盖自动截图。其他设备可用同一帧进行 View 的软件绘制。开场以 View 的实测矩形与像素圆角为准，支持显式 bounds 时固定此矩形。
+- 按钮的影子与外扩高光跟随 SDK 对原 View 的显隐，目的页在原生注册时直接绘制稳定内容。支持 `EXTRA_VIEW_WITH_ALPHA` 时声明透明源。只有源页有确定纯色底时才传遮罩底色。返回在目的 Activity 的 `finish()` 前读取同一 View 的位置。被目的窗口盖住的源页仍可返回到已挂载的按钮，按钮被隐藏、回收或尺寸改变时使用声明支持的返回降级。
 - 标准 metadata 明确 WINDOW 时使用项目窗口锚点；SCREEN/缺省时增加同一根 View 的屏幕/窗口位置差。打开与关闭共用转换，不硬编码状态栏高度。
 - 首批要求设备声明可写的安全返回策略；BACK/FALLBACK 的支持集合分别解析。未声明的扩展参数不传入。
 - 源卡片保留至 OPEN 接管；稳定目的内容由系统转场使用，不能再叠加 Legacy Morph、应用背景缩放或第二层模糊。
@@ -90,4 +91,4 @@ BACK 结束时先恢复业务源，再由来源窗口的下一次 pre-draw 撤�
 
 SDK POM 标明 ITGSA 专有授权；Demo MIT 不替代 SDK 协议。GitHub 产物包含 SDK，构建开关不改变许可要求，发布前仍需确认使用资格。当前官方 Nexus 是 HTTP，固定版本并记录已核验产物，不能用动态 `+` 作为正式候选。
 
-首次调查与官方链接见[接入调查](reports/2026-10-21-sharedviewkit-integration-audit.md)。构建/回归不等于目标设备支持、实机视觉或金标认证通过；扩大路线前先验证真实开合、取消、窗口、主题与数据保存。
+按钮接入按 [官方 SharedViewDemo 文档](https://gitee.com/itgsa_sharedviewkit/SharedViewDemo/blob/b449a426a340f1827d942592bddf0a416eae3ac4/README.md) 的 View 源、坐标系、透明参数和返回刷新契约实现。首次调查见[接入调查](reports/2026-10-21-sharedviewkit-integration-audit.md)。扩大路线前先验证真实开合、取消、窗口、主题与数据保存。

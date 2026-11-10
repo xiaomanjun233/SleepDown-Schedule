@@ -198,6 +198,7 @@ internal fun CouiHomeDock(
                 plusVisible = plusVisible,
                 plusEnabled = plusEnabled,
                 menuWidth = dockWidth,
+                showPlusSurface = { plusView?.showsOverflow != false },
                 onSelection = { trace("SleepDown Dock.select") { onSelect(it) } },
                 onPlusClick = { bounds ->
                     if (plusEnabled) {

@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.transition
 
 import android.app.Activity
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.graphics.Rect
 import android.os.Bundle
 import android.os.Handler
@@ -27,6 +28,7 @@ internal class SharedViewKitBackend(
         val generation: Long,
         val kitBitmap: Bitmap?,
         val sourceView: View,
+        val openingViewBounds: Rect?,
         var closing: Boolean = false,
         var watchdog: Runnable? = null
     ) {
@@ -60,7 +62,8 @@ internal class SharedViewKitBackend(
     }
 
     override suspend fun open(request: TransitionOpenRequest): TransitionBackendOpenResult {
-        val anchor = request.payload?.openingAnchor
+        val payload = request.payload
+        val anchor = payload?.openingAnchor
         val liveView = request.payload?.openingSourceView?.takeIf { it.isLiveTransitionSource(request.activity) }
         if (anchor == null || !anchor.hasBounds || (liveView == null && !anchor.isValid) ||
             !anchor.cornerRadiusPx.isFinite() || anchor.cornerRadiusPx < 0f)
@@ -80,16 +83,26 @@ internal class SharedViewKitBackend(
             ?: return rejected("unsupportedProtocol")
         // Pilot routes must be able to return safely when their business source was removed.
         if (capabilities.missingTargetBackType == null) return rejected("safeReturnUnavailable")
-        if (liveView is LiveTransitionSourceView && !liveView.hasSoftwareFrame &&
-            !liveView.prepareSoftwareFrame(anchor.bitmap)) return rejected("softwareFrameUnavailable")
-        // Compose GraphicsLayer snapshots are Config#HARDWARE. The vendor implementation reads
-        // pixels for the return mask color and rejects hardware bitmaps, so hand it an app-owned
-        // software copy; the payload bitmap stays untouched for the Legacy fallback.
-        val kitBitmap = if (liveView != null) null else {
-            anchor.bitmap?.softwareCopyForKit(anchor.cornerRadiusPx) ?: return rejected("softwareBitmapUnavailable")
+        val viewBounds = liveView?.liveTransitionBoundsOnScreen(request.activity)
+        if (liveView != null && viewBounds == null) return rejected("liveSourceBoundsUnavailable")
+        val radius = (liveView as? LiveTransitionSourceView)?.sourceRadiusPx ?: anchor.cornerRadiusPx
+        // Keep the ROM's software input private. Some ROMs reclaim it after rejection or return.
+        val kitBitmap = when (liveView) {
+            is LiveTransitionSourceView -> {
+                val frame = anchor.bitmap?.takeIf {
+                    it.width == liveView.width && it.height == liveView.height
+                }?.softwareCopyForKit(radius) ?: return rejected("softwareFrameUnavailable")
+                if (!liveView.prepareSoftwareFrame(frame)) {
+                    frame.recycle()
+                    return rejected("softwareFrameUnavailable")
+                }
+                frame
+            }
+            null -> anchor.bitmap?.softwareCopyForKit(radius) ?: return rejected("softwareBitmapUnavailable")
+            else -> null
         }
         if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST) {
-            Log.i("SharedViewKit", "route=${request.route.id.wireName} source=${if (liveView != null) "live-view" else "bitmap-projection"}")
+            Log.i("SharedViewKit", "route=${request.route.id.wireName} source=${if (liveView != null) "live-view" else "bitmap-projection"} bounds=$viewBounds alpha=${liveView != null && capabilities.viewWithAlpha}")
         }
         val session = request.session
         val sourceView = liveView ?: SharedViewKitSourceView.attach(request.activity, anchor, checkNotNull(kitBitmap))
@@ -103,7 +116,8 @@ internal class SharedViewKitBackend(
             kitBitmap?.recycle()
             return rejected("invalidSessionState")
         }
-        val resource = Resource(session, WeakReference(request.activity), capabilities, session.nextCallbackGeneration(), kitBitmap, sourceView)
+        val resource = Resource(session, WeakReference(request.activity), capabilities, session.nextCallbackGeneration(),
+            kitBitmap, sourceView, viewBounds)
         resource.projection?.onNativeSourceRestored = {
             dispatch { if (current(resource) && resource.closing && resource.returnStarted) showReturnCover(resource) }
         }
@@ -125,11 +139,22 @@ internal class SharedViewKitBackend(
             } }
         )
         val extras = Bundle().apply {
-            putFloat(SharedViewKitContract.Radius, resource.projection?.radiusPx ?: anchor.cornerRadiusPx)
+            putFloat(SharedViewKitContract.Radius, resource.projection?.radiusPx ?: radius)
             capabilities.fallbackType?.let { putInt(SharedViewKitContract.FallbackType, it) }
-            val background = request.payload?.backgroundColor ?: android.graphics.Color.TRANSPARENT
-            putInt(SharedViewKitContract.Color, anchor.surfaceColor
-                ?: kitBitmap?.let { transitionSurfaceColor(it, background) } ?: background)
+            if (liveView != null && viewBounds != null) {
+                // Pin the presented View's rectangle. The interop RenderNode can move with
+                // the window animation even while the button stays fixed in the source window.
+                if (capabilities.explicitBounds) {
+                    putParcelable(SharedViewKitContract.Bounds, liveBoundsForKit(liveView, viewBounds, capabilities))
+                }
+                if (capabilities.viewWithAlpha) putBoolean(SharedViewKitContract.ViewWithAlpha, true)
+                if (capabilities.returnBitmap && kitBitmap != null) putParcelable(SharedViewKitContract.Bitmap, kitBitmap)
+                payload?.backgroundColor?.takeIf { Color.alpha(it) == 255 }?.let { putInt(SharedViewKitContract.Color, it) }
+            } else {
+                val background = payload?.backgroundColor ?: Color.TRANSPARENT
+                putInt(SharedViewKitContract.Color, anchor.surfaceColor
+                    ?: kitBitmap?.let { transitionSurfaceColor(it, background) } ?: background)
+            }
         }
         val options = sdk("options") { api.options(sourceView, extras, callbacks) }
         if (options == null) {
@@ -157,14 +182,23 @@ internal class SharedViewKitBackend(
             return false
         }
         val source = resource.source.get()?.takeUnless { it.isDestroyed || it.isFinishing }
-        val anchor = runCatching {
-            TransitionPayloadStore.payload(session.id)?.returnAnchorProvider?.resolve()
-        }.getOrNull()
-        val validReturn = anchor?.let {
-            it.isValid || (resource.projection == null && resource.sourceView.isAttachedToWindow && it.hasBounds)
-        } == true
+        val payload = TransitionPayloadStore.payload(session.id)
+        val anchor = runCatching { payload?.returnAnchorProvider?.resolve() }.getOrNull()
+        val liveReturnBounds = if (source != null && resource.openingViewBounds != null && anchor?.hasBounds == true) {
+            resource.sourceView.liveTransitionBoundsOnScreen(source, coveredWindow = true)?.takeIf {
+                it.width() == resource.openingViewBounds.width() && it.height() == resource.openingViewBounds.height()
+            }
+        } else null
         val bundle = Bundle().apply {
-            if (source != null && validReturn && anchor != null) {
+            if (resource.openingViewBounds != null) {
+                if (liveReturnBounds != null) {
+                    putParcelable(SharedViewKitContract.Bounds, liveBoundsForKit(resource.sourceView, liveReturnBounds, resource.capabilities))
+                } else putInt(SharedViewKitContract.BackType, checkNotNull(resource.capabilities.missingTargetBackType))
+                // Color fills the outside of the return mask. A wallpaper has no single fill color.
+                payload?.backgroundColor?.takeIf { Color.alpha(it) == 255 }?.let { putInt(SharedViewKitContract.Color, it) }
+                return@apply
+            }
+            if (source != null && anchor?.isValid == true) {
                 putParcelable(SharedViewKitContract.Bounds, boundsForKit(source.window.decorView, anchor, resource.capabilities))
                 putFloat(SharedViewKitContract.Radius, anchor.cornerRadiusPx)
                 if (resource.projection != null && resource.capabilities.returnBitmap) {
@@ -180,6 +214,9 @@ internal class SharedViewKitBackend(
             putInt(SharedViewKitContract.Color, anchor?.surfaceColor ?: pixels?.let {
                 transitionSurfaceColor(it, android.graphics.Color.TRANSPARENT)
             } ?: android.graphics.Color.TRANSPARENT)
+        }
+        if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST && resource.openingViewBounds != null) {
+            Log.i("SharedViewKit", "route=${session.routeId.wireName} returnViewBounds=$liveReturnBounds")
         }
         val updated = sdk("return") { api.updateReturn(activity, bundle); true } == true
         if (!updated || !session.moveTo(TransitionSessionState.Closing)) {
@@ -314,6 +351,9 @@ internal class SharedViewKitBackend(
         internal const val AnimationInProgressReason = "animationInProgress"
     }
 }
+
+private fun liveBoundsForKit(view: View, screenBounds: Rect, capabilities: SharedViewKitCapabilities): Rect =
+    if (capabilities.windowCoordinates) view.screenBoundsInWindow(screenBounds) else screenBounds
 
 /** Read a few interior edge pixels once, never a GPU readback or a per-frame bitmap scan. */
 internal fun transitionSurfaceColor(bitmap: Bitmap, fallback: Int): Int {

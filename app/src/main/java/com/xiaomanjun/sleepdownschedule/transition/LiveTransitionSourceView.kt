@@ -3,18 +3,24 @@ package com.xiaomanjun.sleepdownschedule.transition
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
+import android.graphics.Matrix
 import android.graphics.Outline
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.Rect as AndroidRect
 import android.graphics.RectF
 import android.view.View
 import android.view.ViewOutlineProvider
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.ClipOp
@@ -49,6 +55,8 @@ internal class LiveTransitionSourceView(
     private var softwareFrame: Bitmap? = null
     private var cropLeft = 0f
     private var renderButton = true
+    var showsOverflow by mutableStateOf(true)
+        private set
 
     init {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -64,6 +72,13 @@ internal class LiveTransitionSourceView(
         softwareOutline.reset()
         val radius = radius(w, h)
         softwareOutline.addRoundRect(softwareBounds, radius, radius, Path.Direction.CW)
+        invalidateOutline()
+    }
+
+    override fun setAlpha(alpha: Float) {
+        super.setAlpha(alpha)
+        // The ROM hides/restores the View, including the shadow drawn outside it by Compose.
+        showsOverflow = alpha > 0f
     }
 
     private fun radius(w: Int, h: Int): Float {
@@ -71,7 +86,8 @@ internal class LiveTransitionSourceView(
         return cornerRadiusPx?.coerceIn(0f, maximum) ?: maximum
     }
 
-    val hasSoftwareFrame: Boolean get() = softwareFrame?.isRecycled == false
+    val sourceRadiusPx: Float get() = radius(width, height)
+    val presentsButton: Boolean get() = renderButton
 
     fun updatePresentation(density: Density, layoutDirection: LayoutDirection, render: Boolean) {
         if (drawingDensity == density && direction == layoutDirection && renderButton == render) return
@@ -150,13 +166,55 @@ internal fun LiveTransitionButton(
                     layer.record { withRecordingDensity(density) { this@drawWithContent.drawContent() } }
                     // The View owns the button bounds. Shadows and glow can extend into
                     // adjacent Compose space without changing the SDK's source rectangle.
-                    clipRect(0f, 0f, size.width, size.height, ClipOp.Difference) { drawLayer(layer) }
+                    if (source.showsOverflow) {
+                        clipRect(0f, 0f, size.width, size.height, ClipOp.Difference) { drawLayer(layer) }
+                    }
                 }
             }
         }) { content(source) }
     }
 }
 
+private fun View.isMountedTransitionSource(activity: Activity): Boolean =
+    context === activity && isAttachedToWindow && width > 1 && height > 1 &&
+        windowToken != null && display == activity.window.decorView.display &&
+        (this !is LiveTransitionSourceView || presentsButton)
+
 internal fun View.isLiveTransitionSource(activity: Activity): Boolean =
-    context === activity && isAttachedToWindow && isShown && width > 1 && height > 1 &&
-        windowToken != null && display == activity.window.decorView.display
+    isMountedTransitionSource(activity) && isShown
+
+/** Resolve the mounted View, including its Android ancestors and window position. */
+internal fun View.liveTransitionBoundsOnScreen(activity: Activity, coveredWindow: Boolean = false): AndroidRect? {
+    if (!isMountedTransitionSource(activity)) return null
+    if (coveredWindow) {
+        // Android can hide the source decor behind an opaque destination. The button
+        // and its layout ancestors still need to be visible within that source window.
+        val root = rootView
+        var node = this
+        while (node !== root) {
+            if (node.visibility != View.VISIBLE) return null
+            node = node.parent as? View ?: return null
+        }
+    } else if (!isShown) return null
+    val matrix = Matrix().also(::transformMatrixToGlobal)
+    val bounds = RectF(0f, 0f, width.toFloat(), height.toFloat())
+    if (!matrix.mapRect(bounds)) return null
+    val screen = AndroidRect().also(bounds::round)
+    val visible = AndroidRect()
+    if (screen.width() < 2 || screen.height() < 2 || !getGlobalVisibleRect(visible) ||
+        visible.width() + 1 < screen.width() || visible.height() + 1 < screen.height()) return null
+    return screen
+}
+
+internal fun View.screenBoundsInWindow(screenBounds: AndroidRect): AndroidRect {
+    val screen = IntArray(2).also(::getLocationOnScreen)
+    val window = IntArray(2).also(::getLocationInWindow)
+    return AndroidRect(screenBounds).apply { offset(window[0] - screen[0], window[1] - screen[1]) }
+}
+
+/** Legacy and PixelCopy use the owner Activity's window even for a button inside a dialog. */
+internal fun View.liveTransitionBoundsInActivity(activity: Activity, coveredWindow: Boolean = false): Rect? =
+    liveTransitionBoundsOnScreen(activity, coveredWindow)?.let {
+        val window = activity.window.decorView.screenBoundsInWindow(it)
+        Rect(window.left.toFloat(), window.top.toFloat(), window.right.toFloat(), window.bottom.toFloat())
+    }

@@ -82,11 +82,13 @@ internal suspend fun openTimeSlotCourseEditor(
     val sourceReleased = AtomicBoolean(false)
     val restoreSource = { if (sourceReleased.compareAndSet(false, true)) onSourceReleased() }
     try {
+        val viewBounds = sourceView?.liveTransitionBoundsInActivity(activity)
+        val captureBounds = viewBounds ?: bounds
         bitmap = if (TransitionFeatureGate.allowsSharedViewKit(route) &&
-            activity.resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE && bounds != null)
-            captureTimeSlotCard(activity, bounds) else null
-        val anchor = if (bitmap != null && bounds != null) TransitionAnchorFrame(bounds, cornerRadiusPx, bitmap) else null
-        val liveSource = sourceView?.takeIf { it.isLiveTransitionSource(activity) }
+            activity.resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE && captureBounds != null)
+            captureTimeSlotCard(activity, captureBounds) else null
+        val anchor = if (bitmap != null && captureBounds != null) TransitionAnchorFrame(captureBounds, cornerRadiusPx, bitmap) else null
+        val liveSource = sourceView?.takeIf { viewBounds != null }
         releaseCover = if (liveSource == null) anchor?.let { activity.attachOpeningSourceSnapshotHandoff(it) } else null
         if (anchor != null && releaseCover != null) {
             onSourceHidden()

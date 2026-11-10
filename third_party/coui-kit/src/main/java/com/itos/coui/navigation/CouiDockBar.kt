@@ -139,6 +139,7 @@ fun CouiDockBar(
     plusVisible: Boolean,
     plusEnabled: Boolean,
     menuWidth: Dp = CouiDockDefaults.menuWidth,
+    showPlusSurface: () -> Boolean = { true },
     onSelection: (Int) -> Unit,
     onPlusClick: (Rect) -> Unit,
 ) {
@@ -189,7 +190,7 @@ fun CouiDockBar(
     val heightPx = with(density) { CouiDockDefaults.barHeight.toPx() }
     fun plusSlot() = rawPlusSlot.value.coerceAtLeast(0.dp)
     fun plusX() = menuWidthPx + with(density) { plusSlot().toPx() } - plusSizePx
-    fun alpha() = plusAlpha.value.coerceIn(0f, 1f)
+    fun alpha() = if (showPlusSurface()) plusAlpha.value.coerceIn(0f, 1f) else 0f
     val extension = with(density) { 4.dp.roundToPx() }
     val materials = remember(style.material, plusStyle.material, extension) {
         listOf(

@@ -40,9 +40,8 @@ fun CrossActivityTransitionHost(
     val session = remember(sessionId) { TransitionPayloadStore.session(sessionId) }
     val payload = remember(sessionId) { TransitionPayloadStore.payload(sessionId) }
     val routeId = session?.routeId ?: activity.intent.transitionRouteIdOrNull()
-    val legacyProfile = routeId
-        ?.let(TransitionRouteCatalog::get)
-        ?.legacyProfile
+    val route = routeId?.let(TransitionRouteCatalog::get)
+    val legacyProfile = route?.legacyProfile
     val profile = legacyProfile as? LegacyTransitionProfile.Anchored
     val state = if (session != null) {
         val observed by session.state.collectAsState()
@@ -51,6 +50,8 @@ fun CrossActivityTransitionHost(
         null
     }
     val openingMode = when {
+        state == TransitionSessionState.NativeRegistered && route?.requiresLiveSourceView == true ->
+            AnchoredDetailOpeningMode.ShowDestination
         state == TransitionSessionState.NativeRegistered ->
             AnchoredDetailOpeningMode.HoldSourceFrame
         session?.hasReachedNativeRunning == true &&

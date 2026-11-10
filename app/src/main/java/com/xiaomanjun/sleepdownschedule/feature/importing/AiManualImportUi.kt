@@ -96,6 +96,7 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
 import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionButton
+import com.xiaomanjun.sleepdownschedule.transition.liveTransitionBoundsInActivity
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
@@ -786,19 +787,20 @@ fun NormalizedAiManualImportScreen(
         onHistoryButtonBoundsChanged = { historyButtonBounds = it },
         onOpenHistory = { sourceBounds, sourceView ->
             scope.launch {
+                val activity = context as? ComponentActivity ?: return@launch
+                val bounds = sourceView?.liveTransitionBoundsInActivity(activity) ?: sourceBounds
                 // The idle recording of the button itself is the source. A page crop cannot see
                 // this sheet's footer and would animate the wallpaper behind it into the system.
                 val sourceSnapshot = cleanHistoryButtonBitmap
                     ?: runCatching { historyButtonLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
                         ?.takeIf { it.width > 1 && it.height > 1 }
                     ?: (cleanHistoryCapture ?: captureHistoryBackground())
-                        ?.cropToAiHistorySource(sourceBounds)
+                        ?.cropToAiHistorySource(bounds)
                 // A malformed crop cannot represent the real source button. Keeping the source
                 // mounted is preferable to hiding it and exposing a black/uncurved Activity shell.
                 if (sourceSnapshot == null) return@launch
-                val activity = context as? ComponentActivity ?: return@launch
                 val anchor = TransitionAnchorFrame(
-                    boundsInWindow = sourceBounds,
+                    boundsInWindow = bounds,
                     cornerRadiusPx = with(transitionDensity) { 21.dp.toPx() },
                     bitmap = sourceSnapshot
                 )
@@ -819,6 +821,7 @@ fun NormalizedAiManualImportScreen(
                 if (sourceView != null) {
                     historySourceHidden = false
                     withFrameNanos { }
+                    releaseOpeningSource()
                 }
                 val intent = Intent(context, AiImportHistoryActivity::class.java)
                 val launchResult = ActivityTransitionCoordinator.open(
@@ -832,7 +835,7 @@ fun NormalizedAiManualImportScreen(
                                 ?.let { anchor.copy(boundsInWindow = it) }
                         },
                         backgroundBitmap = backgroundSnapshot,
-                        onOpeningSourceHandoff = releaseOpeningSource,
+                        onOpeningSourceHandoff = releaseOpeningSource.takeIf { sourceView == null },
                         onSourceReleased = { historySourceHidden = false },
                         openingSourceView = sourceView
                     )

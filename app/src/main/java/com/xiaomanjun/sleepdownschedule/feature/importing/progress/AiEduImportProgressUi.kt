@@ -141,6 +141,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionButton
+import com.xiaomanjun.sleepdownschedule.transition.liveTransitionBoundsInActivity
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
@@ -453,7 +454,8 @@ internal fun AiEduImportConversationPane(
                                         val activity = context as? ComponentActivity ?: return@launch
                                         withFrameNanos { }
                                         withFrameNanos { }
-                                        val bounds = historyButtonBounds.takeUnless { it.isEmpty } ?: sourceBounds
+                                        val bounds = sourceView?.liveTransitionBoundsInActivity(activity)
+                                            ?: historyButtonBounds.takeUnless { it.isEmpty } ?: sourceBounds
                                         val snapshot = captureGlassWindowRegion(activity.window, bounds)
                                         val anchor = snapshot?.let {
                                             TransitionAnchorFrame(bounds, minOf(bounds.width, bounds.height) / 2f, it)
@@ -470,6 +472,8 @@ internal fun AiEduImportConversationPane(
                                         if (sourceView != null && historySourceHidden) {
                                             historySourceHidden = false
                                             withFrameNanos { }
+                                            releaseCover?.invoke()
+                                            releaseCover = null
                                         }
                                         val payload = anchor?.let {
                                             TransitionPayload(

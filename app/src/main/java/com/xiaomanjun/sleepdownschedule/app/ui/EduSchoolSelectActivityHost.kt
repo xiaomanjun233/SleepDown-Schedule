@@ -77,6 +77,7 @@ import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
 import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionButton
+import com.xiaomanjun.sleepdownschedule.transition.liveTransitionBoundsInActivity
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
@@ -136,7 +137,8 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                         withFrameNanos { }
                         val decor = window.decorView
                         val windowBounds = Rect(0f, 0f, decor.width.toFloat(), decor.height.toFloat())
-                        val bounds = historyBounds
+                        val bounds = sourceView?.liveTransitionBoundsInActivity(this@EduSchoolSelectActivityHost)
+                            ?: historyBounds
                         val fullFrame = captureGlassWindowRegion(window, windowBounds)
                         val snapshot = fullFrame?.let {
                             AiImportHistoryBackgroundCapture(it, 0f, 0f).cropToAiHistorySource(bounds)
@@ -150,6 +152,15 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                             withFrameNanos { }
                             withFrameNanos { }
                         }
+                        val background = if (historyHidden) runCatching {
+                            historyScene.toImageBitmap().asAndroidBitmap()
+                        }.getOrNull() else fullFrame
+                        if (sourceView != null && historyHidden) {
+                            historyHidden = false
+                            withFrameNanos { }
+                            removeCover?.invoke()
+                            removeCover = null
+                        }
                         val payload = anchor?.let {
                             TransitionPayload(
                                 openingAnchor = it,
@@ -157,17 +168,11 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                     historyBounds.takeIf { bounds -> bounds.width > 1f && bounds.height > 1f }
                                         ?.let { bounds -> it.copy(boundsInWindow = bounds) }
                                 },
-                                backgroundBitmap = if (historyHidden) runCatching {
-                                    historyScene.toImageBitmap().asAndroidBitmap()
-                                }.getOrNull() else fullFrame,
+                                backgroundBitmap = background,
                                 onOpeningSourceHandoff = removeCover,
                                 onSourceReleased = { historyHidden = false; historyOpening = false },
                                 openingSourceView = sourceView
                             )
-                        }
-                        if (sourceView != null && historyHidden) {
-                            historyHidden = false
-                            withFrameNanos { }
                         }
                         val result = ActivityTransitionCoordinator.open(
                             this@EduSchoolSelectActivityHost,
