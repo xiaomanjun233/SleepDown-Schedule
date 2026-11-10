@@ -6,17 +6,12 @@ import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -39,8 +34,6 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectableGroup
@@ -77,20 +70,13 @@ import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.hapticfeedback.HapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
@@ -102,10 +88,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.itos.coui.layout.CouiPageDefaults
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
@@ -121,6 +107,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceCategory
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroupPosition
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
@@ -133,9 +120,6 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.legacy.detailMotionBlurRadiusDp
-import kotlin.math.abs
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -353,8 +337,6 @@ fun EduSchoolIndexedSelectScreen(
         }
     }
     val listState = rememberLazyListState()
-    val scope = rememberCoroutineScope()
-    val haptic = LocalHapticFeedback.current
     val topPadding = detailContentTopPadding()
     val schoolGroups = remember(adapters) {
         adapters
@@ -389,7 +371,6 @@ fun EduSchoolIndexedSelectScreen(
             .groupBy { it.school.initial.ifBlank { "#" }.uppercase() }
             .toSortedMap()
     }
-    val letters = remember(grouped) { grouped.keys.toList() }
     val sections = remember(grouped, aiEduSchools, pinnedSchools, localSchools) {
         buildList {
             if (aiEduSchools.isNotEmpty()) add(EduSchoolSection("ai-edu", "AI教务导入", aiEduSchools))
@@ -435,39 +416,30 @@ fun EduSchoolIndexedSelectScreen(
     val currentSearchConfig = rememberUpdatedState(state.config)
     val currentSearchImeLift = rememberUpdatedState(imeLift)
     val currentRailListState = rememberUpdatedState(listState)
-    val currentRailLetters = rememberUpdatedState(letters)
     val currentRailPositions = rememberUpdatedState(sectionPositions)
     val currentRailTopPadding = rememberUpdatedState(topPadding)
-    val currentRailScope = rememberUpdatedState(scope)
-    val currentRailHaptic = rememberUpdatedState(haptic)
     val floatingSearchDock: (@Composable () -> Unit)? = if (floatingOverlayHost != null) {
         remember(floatingOverlayHost) {
             @Composable {
                 EduSchoolDockViewport { bottomInset ->
-                val controlsModifier = floatingOverlayHost.controlsModifier()
-                EduSchoolSearchDock(
-                    value = currentSearchQuery.value,
-                    onValueChange = currentSearchOnChange.value,
-                    backdrop = currentSearchBackdrop.value,
-                    config = currentSearchConfig.value,
-                    imeLift = currentSearchImeLift.value,
-                    bottomInset = bottomInset,
-                    controlsModifier = controlsModifier
-                )
-                // The alphabet rail floats at the same root level as the top bar, as a sibling of
-                // the Miuix Scaffold instead of a page child. Its gradient blur therefore keeps a
-                // full-window envelope and can no longer be cropped by the card/list subtrees.
-                Box(Modifier.fillMaxSize().then(controlsModifier)) { EduAlphabetRailDock(
-                    listState = currentRailListState.value,
-                    letters = currentRailLetters.value,
-                    sectionPositions = currentRailPositions.value,
-                    backdrop = currentSearchBackdrop.value,
-                    config = currentSearchConfig.value,
-                    topPadding = currentRailTopPadding.value,
-                    bottomInset = bottomInset,
-                    scope = currentRailScope.value,
-                    haptic = currentRailHaptic.value
-                ) }
+                    val controlsModifier = floatingOverlayHost.controlsModifier()
+                    EduSchoolSearchDock(
+                        value = currentSearchQuery.value,
+                        onValueChange = currentSearchOnChange.value,
+                        backdrop = currentSearchBackdrop.value,
+                        config = currentSearchConfig.value,
+                        imeLift = currentSearchImeLift.value,
+                        bottomInset = bottomInset,
+                        controlsModifier = controlsModifier
+                    )
+                    EduSchoolFastScroller(
+                        listState = currentRailListState.value,
+                        sectionPositions = currentRailPositions.value,
+                        dark = appUsesDarkTheme(currentSearchConfig.value),
+                        topPadding = currentRailTopPadding.value,
+                        bottomPadding = bottomInset + EduSearchDockBottomPadding + EduSearchDockHeight,
+                        modifier = controlsModifier,
+                    )
                 }
             }
         }
@@ -538,31 +510,21 @@ fun EduSchoolIndexedSelectScreen(
                 .fillMaxSize()
                 .glassBackdropProducer(listBackdrop)
         ) {
-            LazyColumn(
+            SleepDownSecondaryPageList(
                 state = listState,
                 modifier = Modifier.fillMaxSize().clipToBounds().nestedScroll(keyboardDismissScrollConnection),
-                contentPadding = PaddingValues(
-                    start = 16.dp,
-                    end = 16.dp,
-                    top = if (hasListHeader) topPadding else topPadding + 12.dp,
-                    // Keep rows visible behind the floating glass and let the last one scroll clear.
-                    bottom = listDockClearance + 12.dp
-                )
+                contentTopPadding = topPadding,
+                contentBottomPadding = listDockClearance + CouiPageDefaults.categoryTopSpacing,
             ) {
                 if (listHeader != null) {
-                    item(key = "edu-school-header") {
-                        Box(Modifier.padding(bottom = 12.dp)) { listHeader() }
-                    }
+                    item(key = "edu-school-header") { listHeader() }
                 }
                 if (adapters.isEmpty()) {
                     item { Text("没有找到学校适配资源", color = MaterialTheme.colorScheme.error) }
                 } else {
-                    sections.forEachIndexed { sectionIndex, section ->
+                    sections.forEach { section ->
                         item(key = "school-heading-${section.key}") {
-                            GlassPreferenceCategory(
-                                section.title,
-                                Modifier.padding(top = if (sectionIndex == 0) 0.dp else 14.dp, bottom = 14.dp)
-                            )
+                            GlassPreferenceCategory(section.title)
                         }
                         // Each row has its own bounded hit target even in a tall letter section.
                         itemsIndexed(section.schools, key = { _, group -> "school-${section.key}-${group.school.id}" }) { index, group ->
@@ -572,14 +534,14 @@ fun EduSchoolIndexedSelectScreen(
                                 index == section.schools.lastIndex -> SettingsGroupPosition.Last
                                 else -> SettingsGroupPosition.Middle
                             }
-                            val topSpacing = 0.dp.takeIf { index > 0 }
-                            SettingsGroup(backdrop, state.config, topSpacing = topSpacing, position = position) {
+                            SettingsGroup(backdrop, state.config, topSpacing = 0.dp, position = position) {
                                 SettingsNavigationRow(
                                     title = group.school.name,
                                     subtitle = group.adapters.joinToString(" / ") { it.adapterName },
                                     badgeText = if (section.local) "本地" else group.adapters.firstNotNullOfOrNull(adapterBadge),
                                     onClick = { onSelect(group.school) }
                                 )
+                                if (index < section.schools.lastIndex) SettingsDivider()
                             }
                         }
                     }
@@ -590,25 +552,21 @@ fun EduSchoolIndexedSelectScreen(
         // Miuix Scaffold. The fallback keeps previews/other callers usable before that host exists.
         if (!rootOverlayMounted) {
             EduSchoolDockViewport { bottomInset ->
-            EduSchoolSearchDock(
-                value = query,
-                onValueChange = onQueryChange,
-                backdrop = overlayBackdrop,
-                config = state.config,
-                imeLift = imeLift,
-                bottomInset = bottomInset
-            )
-            EduAlphabetRailDock(
-                listState = listState,
-                letters = letters,
-                sectionPositions = sectionPositions,
-                backdrop = overlayBackdrop,
-                config = state.config,
-                topPadding = topPadding,
-                bottomInset = bottomInset,
-                scope = scope,
-                haptic = haptic
-            )
+                EduSchoolSearchDock(
+                    value = query,
+                    onValueChange = onQueryChange,
+                    backdrop = overlayBackdrop,
+                    config = state.config,
+                    imeLift = imeLift,
+                    bottomInset = bottomInset
+                )
+                EduSchoolFastScroller(
+                    listState = listState,
+                    sectionPositions = sectionPositions,
+                    dark = appUsesDarkTheme(state.config),
+                    topPadding = topPadding,
+                    bottomPadding = bottomInset + EduSearchDockBottomPadding + EduSearchDockHeight,
+                )
             }
         }
     }
@@ -623,242 +581,6 @@ private fun EduSchoolDockViewport(content: @Composable (Dp) -> Unit) {
 }
 
 
-@Composable
-private fun EduAlphabetRailDock(
-    listState: LazyListState,
-    letters: List<String>,
-    sectionPositions: Map<String, Int>,
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    topPadding: Dp,
-    bottomInset: Dp,
-    scope: CoroutineScope,
-    haptic: HapticFeedback
-) {
-    if (letters.isEmpty()) return
-    val density = LocalDensity.current
-    // Center the rail only in the usable list window: the measured top bar and the entire search
-    // dock (including its safe-area/IME lift) are excluded from the centering bounds.
-    val alphabetRailBottomExclusion = EduSearchDockHeight + EduSearchDockBottomPadding + bottomInset
-    var railDragging by remember { mutableStateOf(false) }
-    var railPointerIndex by remember { mutableIntStateOf(-1) }
-    val railScrolling by remember {
-        derivedStateOf { listState.isScrollInProgress || railDragging }
-    }
-    // Keep the rail visible briefly after the list settles so it does not pop away the moment
-    // the finger leaves the screen.
-    var showAlphabetRail by remember { mutableStateOf(false) }
-    var alphabetRailExpanded by remember { mutableStateOf(false) }
-    LaunchedEffect(railScrolling) {
-        if (railScrolling) {
-            showAlphabetRail = true
-            alphabetRailExpanded = true
-        } else {
-            delay(760)
-            // Let the full glass shell perform its fade/motion-blur exit first. Collapse the
-            // width only after the visibility transition has left the composition, otherwise the
-            // blur would be applied to a 10dp sliver and the rail would look lopsided.
-            showAlphabetRail = false
-            delay(240)
-            alphabetRailExpanded = false
-        }
-    }
-    val visibleSectionIndex by remember(letters, sectionPositions) {
-        derivedStateOf {
-            if (!listState.canScrollForward) {
-                letters.lastIndex.coerceAtLeast(0)
-            } else {
-                val firstVisible = listState.firstVisibleItemIndex
-                letters.indexOfLast { letter ->
-                    (sectionPositions[letter] ?: Int.MAX_VALUE) <= firstVisible
-                }.coerceAtLeast(0)
-            }
-        }
-    }
-    val activeAlphabetIndex = railPointerIndex.takeIf { it >= 0 } ?: visibleSectionIndex
-    val alphabetRailWidth by animateDpAsState(
-        // Keep the touch target generous while moving the visible letters closer to the physical
-        // right edge. The surrounding blur veil remains independent of this content width.
-        targetValue = if (alphabetRailExpanded) 46.dp else 10.dp,
-        animationSpec = tween(180),
-        label = "edu-alphabet-width"
-    )
-    val alphabetContentAlpha by animateFloatAsState(
-        targetValue = if (alphabetRailExpanded) 1f else 0f,
-        animationSpec = tween(130),
-        label = "edu-alphabet-content"
-    )
-    val alphabetIndicatorProgress by animateFloatAsState(
-        targetValue = activeAlphabetIndex
-            .coerceIn(0, letters.lastIndex.coerceAtLeast(0))
-            .toFloat(),
-        animationSpec = spring(
-            dampingRatio = 0.76f,
-            stiffness = 560f,
-            visibilityThreshold = 0.001f
-        ),
-        label = "edu-alphabet-indicator"
-    )
-    // Root-level dock: the whole window is the layout envelope, so the gradient blur can fade
-    // out toward the page without being cropped by any card/list/offscreen boundary.
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .graphicsLayer { clip = false }
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(
-                    top = topPadding,
-                    bottom = alphabetRailBottomExclusion
-                )
-                .graphicsLayer { clip = false }
-        ) {
-            AnimatedVisibility(
-                visible = showAlphabetRail,
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .offset(x = 4.dp),
-                enter = fadeIn(tween(240)),
-                exit = fadeOut(tween(240))
-            ) {
-                val railMotionProgress by transition.animateFloat(
-                    transitionSpec = { tween(240) },
-                    label = "edu-alphabet-motion"
-                ) { state ->
-                    if (state == EnterExitState.Visible) 1f else 0f
-                }
-                val railTint = if (appUsesDarkTheme(config)) {
-                    ComposeColor(0xFF111318)
-                } else {
-                    ComposeColor.White
-                }
-                Box(
-                    modifier = Modifier
-                        .width(96.dp),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    // The veil owns a fixed 2D envelope. It is measured from the alphabet content
-                    // plus top/bottom fade space, but never participates in touch handling or the
-                    // rail's 10dp -> 58dp content-width animation.
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                        .progressiveBackdropBlur(
-                            backdrop = backdrop,
-                            tintColor = railTint,
-                            blurRadius = 8.dp,
-                            tintIntensity = if (appUsesDarkTheme(config)) 0.08f else 0.18f,
-                            domain = GlassBackdropDomain.ChromeCombined,
-                            direction = ProgressiveBlurDirection.RailThreeWay,
-                            topMaskFadeStart = 0.04f,
-                            topMaskFadeEnd = 0.96f,
-                            topTintFadeStart = 0.12f,
-                            topTintFadeEnd = 0.98f,
-                            fallbackTintStops = listOf(
-                                0f to railTint.copy(alpha = 0.40f),
-                                0.58f to railTint.copy(alpha = 0.08f),
-                                1f to ComposeColor.Transparent
-                            )
-                        )
-                    )
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterEnd)
-                            .padding(vertical = 32.dp)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .pointerInput(letters, sectionPositions, haptic) {
-                                    awaitPointerEventScope {
-                                        var lastIndex = -1
-                                        while (true) {
-                                            val event = awaitPointerEvent()
-                                            val pressed = event.changes.firstOrNull { it.pressed }
-                                            if (pressed == null) {
-                                                railDragging = false
-                                                railPointerIndex = -1
-                                                lastIndex = -1
-                                                continue
-                                            }
-                                            railDragging = true
-                                            val itemHeight = size.height / letters.size.toFloat()
-                                            val index = (pressed.position.y / itemHeight).toInt()
-                                                .coerceIn(0, letters.lastIndex)
-                                            if (index == lastIndex) continue
-                                            lastIndex = index
-                                            railPointerIndex = index
-                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                            sectionPositions[letters[index]]?.let { position ->
-                                                scope.launch { listState.scrollToItem(position) }
-                                            }
-                                        }
-                                    }
-                                }
-                                .width(alphabetRailWidth)
-                                .then(
-                                    if (railMotionProgress > 0.001f && railMotionProgress < 0.999f) {
-                                        Modifier.graphicsLayer {
-                                            compositingStrategy = CompositingStrategy.Offscreen
-                                            renderEffect = platformBlurRenderEffect(
-                                                detailMotionBlurRadiusDp(railMotionProgress) * density.density
-                                            )
-                                            clip = false
-                                        }
-                                    } else {
-                                        Modifier
-                                    }
-                                ),
-                            contentAlignment = Alignment.CenterEnd
-                        ) {
-                            Column(
-                                modifier = Modifier
-                                    .graphicsLayer { alpha = alphabetContentAlpha }
-                                    .padding(horizontal = 5.dp, vertical = 8.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(1.dp)
-                            ) {
-                                letters.forEachIndexed { index, letter ->
-                                    val highlight = (1f - abs(
-                                        index.toFloat() - alphabetIndicatorProgress
-                                    )).coerceIn(0f, 1f)
-                                    Text(
-                                        letter,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(Capsule())
-                                            .clickable(
-                                                interactionSource = remember { MutableInteractionSource() },
-                                                indication = null
-                                            ) {
-                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                sectionPositions[letter]?.let { position ->
-                                                    scope.launch { listState.animateScrollToItem(position) }
-                                                }
-                                            }
-                                            .padding(horizontal = 4.dp, vertical = 1.dp),
-                                        color = lerp(
-                                            sleepDownPanelForegroundColor(config).copy(
-                                                alpha = if (appUsesDarkTheme(config)) 0.52f else 0.68f
-                                            ),
-                                            ComposeColor(0xFF0A84FF),
-                                            highlight
-                                        ),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        fontWeight = FontWeight.SemiBold,
-                                        textAlign = TextAlign.Center
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 private fun eduAdapterCategoryLabel(category: String): String = when (category.uppercase()) {
     "BACHELOR_AND_ASSOCIATE" -> "本科 / 专科教务"
     "POSTGRADUATE" -> "研究生教务"
@@ -868,7 +590,7 @@ private fun eduAdapterCategoryLabel(category: String): String = when (category.u
 
 private val EduSearchVerticalOverscan = 18.dp
 private val EduSearchHorizontalOverscan = 16.dp
-private val EduSearchDockBottomPadding = 18.dp
+private val EduSearchDockBottomPadding = 12.dp
 private val EduSearchDockHeight = com.itos.coui.search.CouiSearchBarDefaults.height
 private val LightEduSearchDockShadow = com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidSearchStyle.shadow
 
