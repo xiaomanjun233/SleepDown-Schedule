@@ -91,13 +91,13 @@ object ActivityTransitionCoordinator {
                 .getOrDefault(false)
         }
         val nativeDestination = route.nativeDestinationClassName
-        val nativeEligible = !landscape && TransitionFeatureGate.allowsSharedViewKit(route) &&
+        val nativeAllowed = TransitionFeatureGate.allowsSharedViewKit(route)
+        val openingAnchorReady = !route.requiresOpeningAnchor || normalizedPayload?.openingAnchor?.let {
+            it.isValid || (hasLiveSource && it.hasBounds)
+        } == true
+        val nativeEligible = !landscape && nativeAllowed &&
             (routeId != TransitionRouteId.HomeDockToImport || hasLiveSource) &&
-            (!route.requiresOpeningAnchor || normalizedPayload?.openingAnchor?.let {
-                it.isValid || (hasLiveSource && it.hasBounds)
-            } == true) &&
-            returnAnchorReady &&
-            nativeDestination != null
+            openingAnchorReady && returnAnchorReady && nativeDestination != null
         if (nativeEligible) {
             session.moveTo(TransitionSessionState.SourceReady)
             val nativeIntent = android.content.Intent(intent).setClassName(
@@ -118,6 +118,16 @@ object ActivityTransitionCoordinator {
                     }
                 }
             }
+        } else if (routeId == TransitionRouteId.HomeDockToImport) {
+            val reason = when {
+                landscape -> "landscape"
+                !nativeAllowed -> "routeDisabled"
+                !hasLiveSource -> "liveSourceUnavailable"
+                !openingAnchorReady -> "openingAnchorUnavailable"
+                !returnAnchorReady -> "returnAnchorUnavailable"
+                else -> "nativeDestinationUnavailable"
+            }
+            log(session, nativeBackend.name, "fallback", reason)
         }
         launchLegacy(legacyRequest)
     }

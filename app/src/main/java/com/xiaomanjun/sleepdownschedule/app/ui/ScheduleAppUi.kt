@@ -181,6 +181,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
+import com.xiaomanjun.sleepdownschedule.feature.home.LiveDockImportSourceView
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenu
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
@@ -2166,10 +2167,17 @@ fun CourseScheduleAppUi(
             }
             try {
                 val bounds = source.boundsInRoot.translate(homeRootPositionInWindow)
-                val bitmap = runCatching { source.fallbackLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                val bitmap = source.fallbackBitmap ?: runCatching {
+                    source.fallbackLayer?.toImageBitmap()?.asAndroidBitmap()
+                }.getOrNull()
                 val anchor = TransitionAnchorFrame(bounds, minOf(bounds.width, bounds.height) / 2f, bitmap)
-                val liveView = source.view?.takeIf { it.isAttachedToWindow }
-                if (liveView == null) removeCover = activity.attachOpeningSourceSnapshotHandoff(anchor)
+                val liveView = source.view?.takeIf {
+                    it.isAttachedToWindow && (it !is LiveDockImportSourceView || it.prepareSoftwareFrame(bitmap))
+                }
+                if (liveView == null) {
+                    if (source.ownsView) source.view?.visibility = android.view.View.INVISIBLE
+                    removeCover = activity.attachOpeningSourceSnapshotHandoff(anchor)
+                }
                 dockImportSourceHidden = source.ownsView || removeCover != null
                 if (dockImportSourceHidden) {
                     withFrameNanos { }

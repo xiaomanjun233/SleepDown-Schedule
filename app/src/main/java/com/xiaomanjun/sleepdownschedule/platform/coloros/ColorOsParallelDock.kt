@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
+import com.xiaomanjun.sleepdownschedule.feature.home.LiveDockImportSourceView
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
@@ -243,8 +244,19 @@ internal fun ColorOsParallelHomeDock(
                             composeRoot.getLocationOnScreen(rootLocation)
                             val left = (location[0] - rootLocation[0]).toFloat()
                             val top = (location[1] - rootLocation[1]).toFloat()
+                            val bounds = Rect(left, top, left + fab.main.width, top + fab.main.height)
+                            val activity = host.findActivityOrNull()
+                            // The Kit's View overload needs an Activity context; vendor widgets use a themed context.
+                            val directView = fab.main.takeIf { it.context === activity }
+                            val projection = if (directView == null && activity != null) {
+                                LiveDockImportSourceView.attach(
+                                    activity, composeRoot, bounds, returnLayer,
+                                    Rect(0f, 0f, bounds.width, bounds.height), density, layoutDirection,
+                                )
+                            } else null
                             open.value(DockImportSource(
-                                Rect(left, top, left + fab.main.width, top + fab.main.height), returnLayer, fab.main
+                                bounds, returnLayer, directView ?: projection, ownsView = projection != null,
+                                release = { projection?.release() },
                             ))
                         } finally {
                             opening.set(false)

@@ -1,8 +1,12 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
 import android.app.Activity
+import android.graphics.Bitmap
 import android.graphics.Canvas as AndroidCanvas
 import android.graphics.Outline
+import android.graphics.Paint
+import android.graphics.Path
+import android.graphics.RectF
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewOutlineProvider
@@ -27,6 +31,10 @@ internal class LiveDockImportSourceView private constructor(
     private val direction: LayoutDirection
 ) : View(activity) {
     private val scope = CanvasDrawScope()
+    private val softwarePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+    private val softwareBounds = RectF()
+    private val softwareOutline = Path()
+    private var softwareFrame: Bitmap? = null
 
     init {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -38,8 +46,33 @@ internal class LiveDockImportSourceView private constructor(
         }
     }
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        softwareBounds.set(0f, 0f, w.toFloat(), h.toFloat())
+        softwareOutline.reset()
+        val radius = minOf(w, h) / 2f
+        softwareOutline.addRoundRect(softwareBounds, radius, radius, Path.Direction.CW)
+    }
+
+    /** SharedViewKit can call View.draw on a software Canvas while registering a live View. */
+    fun prepareSoftwareFrame(bitmap: Bitmap?): Boolean {
+        softwareFrame = bitmap?.takeUnless { it.isRecycled }?.let {
+            if (it.config == Bitmap.Config.HARDWARE) {
+                runCatching { it.copy(Bitmap.Config.ARGB_8888, false) }.getOrNull()
+            } else it
+        }
+        return softwareFrame != null
+    }
+
     override fun onDraw(canvas: AndroidCanvas) {
-        if (drawing.isReleased) return
+        if (!canvas.isHardwareAccelerated || drawing.isReleased) {
+            softwareFrame?.takeUnless { it.isRecycled }?.let { frame ->
+                val count = canvas.save()
+                canvas.clipPath(softwareOutline)
+                canvas.drawBitmap(frame, null, softwareBounds, softwarePaint)
+                canvas.restoreToCount(count)
+            }
+            return
+        }
         scope.draw(drawingDensity, direction, Canvas(canvas), Size(width.toFloat(), height.toFloat())) {
             translate(-crop.left, -crop.top) { drawLayer(drawing) }
         }
@@ -47,6 +80,7 @@ internal class LiveDockImportSourceView private constructor(
 
     fun release() {
         root.overlay.remove(this)
+        softwareFrame = null
     }
 
     companion object {

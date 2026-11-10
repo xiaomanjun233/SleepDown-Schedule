@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.material
 
+import android.graphics.Bitmap
 import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
@@ -13,10 +14,11 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
 
 internal data class DockImportSource(
     val boundsInRoot: Rect,
-    val fallbackLayer: GraphicsLayer,
+    val fallbackLayer: GraphicsLayer? = null,
     val view: View? = null,
     val ownsView: Boolean = false,
-    val release: () -> Unit = {}
+    val release: () -> Unit = {},
+    val fallbackBitmap: Bitmap? = null
 )
 
 /** A false result leaves layout and input with the calling Compose control. */

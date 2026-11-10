@@ -25,9 +25,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ClipOp
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
@@ -40,7 +37,6 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.core.os.trace
 import com.itos.coui.backdrop.CouiBackdrop
@@ -62,6 +58,7 @@ import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
 import com.xiaomanjun.sleepdownschedule.platform.coloros.rememberCouiDockAccent
+import com.xiaomanjun.sleepdownschedule.transition.softwareCopyForKit
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.launch
 
@@ -161,7 +158,6 @@ internal fun CouiHomeDock(
     val layoutDirection = LocalLayoutDirection.current
     val scope = rememberCoroutineScope()
     val opening = remember { AtomicBoolean(false) }
-    val returnLayer = rememberGraphicsLayer()
     val liveLayer = rememberGraphicsLayer()
     var dockOrigin by remember { mutableStateOf(Offset.Zero) }
     var sourceBounds by remember { mutableStateOf<Rect?>(null) }
@@ -185,16 +181,19 @@ internal fun CouiHomeDock(
                 withFrameNanos { }
                 withFrameNanos { }
                 val rootLocation = IntArray(2).also(composeRoot::getLocationInWindow)
-                val cookie = System.identityHashCode(returnLayer)
+                val cookie = System.identityHashCode(liveLayer)
                 Trace.beginAsyncSection("SleepDown Dock.capturePlus", cookie)
                 val bitmap = try {
                     captureGlassWindowRegion(activity.window, bounds.translate(rootLocation[0].toFloat(), rootLocation[1].toFloat()))
                 } finally {
                     Trace.endAsyncSection("SleepDown Dock.capturePlus", cookie)
                 }
-                if (bitmap != null) returnLayer.record(density, layoutDirection, IntSize(bitmap.width, bitmap.height)) {
-                    val outline = Path().apply { addOval(Rect(0f, 0f, size.width, size.height)) }
-                    clipPath(outline) { drawImage(bitmap.asImageBitmap()) }
+                val fallbackBitmap = bitmap?.let {
+                    try {
+                        it.softwareCopyForKit(minOf(it.width, it.height) / 2f)
+                    } finally {
+                        it.recycle()
+                    }
                 }
                 if (!latestEnabled) return@launch
                 liveView = LiveDockImportSourceView.attach(
@@ -202,7 +201,11 @@ internal fun CouiHomeDock(
                 )
                 handedOff = true
                 latestOpen(DockImportSource(
-                    bounds, returnLayer, liveView, ownsView = liveView != null, release = ::releaseSource
+                    boundsInRoot = bounds,
+                    view = liveView,
+                    ownsView = liveView != null,
+                    release = ::releaseSource,
+                    fallbackBitmap = fallbackBitmap,
                 ))
             } finally {
                 if (!handedOff) releaseSource()
