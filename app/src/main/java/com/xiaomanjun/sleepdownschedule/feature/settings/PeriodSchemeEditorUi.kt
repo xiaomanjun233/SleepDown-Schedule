@@ -25,6 +25,7 @@ import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
@@ -483,7 +484,7 @@ internal fun PeriodSchemeEditor(
                                                 } else {
                                                 Box(Modifier.fillMaxWidth()) {
                                                 Box(Modifier.fillMaxWidth().padding(end = 38.dp)) {
-                                                TimelineEditCard(block,
+                                                TimelineEditCard(block, dark = dark,
                                                     resizeStartHeight = if (block.isBreak && breakExpansion.value < 1f)
                                                         previousBreakHeights[stableKey] ?: 0.dp else null,
                                                     resizeProgress = { breakExpansion.value },
@@ -652,7 +653,7 @@ private fun PeriodEditorToolbar(dark: Boolean, backdrop: Backdrop, enabled: Bool
 
 @Composable
 private fun TimelineEditCard(
-    block: TimelineBlock, enabled: Boolean, sizeProgress: () -> Float,
+    block: TimelineBlock, dark: Boolean, enabled: Boolean, sizeProgress: () -> Float,
     resizeStartHeight: Dp?, resizeProgress: () -> Float,
     onPick: () -> Unit, onDelete: () -> Unit, onResizeStarted: () -> Unit, onResizeFinished: () -> Unit,
     onResize: (Int) -> Int
@@ -666,6 +667,10 @@ private fun TimelineEditCard(
     val latestFinish by rememberUpdatedState(onResizeFinished)
     var dragging by remember { mutableStateOf(false) }
     DisposableEffect(Unit) { onDispose { if (dragging) latestFinish() } }
+    val surface = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 1f)
+    val fill = lerp(surface, block.color, if (dragging) 0.34f else 0.24f)
+    val durationColor = if (dark) lerp(block.color, Color.White, 0.32f)
+        else lerp(block.color, Color.Black, 0.24f)
     val targetHeight = block.displayHeight(density.fontScale)
     val height = resizeStartHeight?.let { it + (targetHeight - it) * resizeProgress() } ?: targetHeight
     BoxWithConstraints(Modifier.fillMaxWidth().height(height).graphicsLayer {
@@ -675,8 +680,7 @@ private fun TimelineEditCard(
     }) {
         val cardWidth = maxWidth
         Box(Modifier.fillMaxSize().clip(RoundedRectangle(24.dp))
-            .background(MaterialTheme.colorScheme.surfaceContainer)
-            .background(block.color.copy(alpha = if (dragging) 0.18f else 0.08f))
+            .background(fill)
             .clickable(enabled = enabled, onClickLabel = "选择${block.title}时间", onClick = onPick)) {
             Row(Modifier.fillMaxSize().padding(start = 22.dp, end = 24.dp),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -686,7 +690,7 @@ private fun TimelineEditCard(
                     Text("${timelineMinuteText(block.start)} – ${timelineMinuteText(block.end)}", fontSize = if (block.isBreak) 12.sp else 14.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Text("${block.minutes}分钟", color = block.color,
+                Text("${block.minutes}分钟", color = durationColor,
                     fontSize = if (cardWidth < 300.dp) 24.sp else 28.sp,
                     fontWeight = FontWeight.SemiBold, maxLines = 1)
             }
@@ -733,7 +737,7 @@ private fun TimelineEditCard(
                     }
                 }
             }, contentAlignment = Alignment.BottomEnd) {
-            Box(Modifier.size(34.dp).background(block.color.copy(alpha = if (dragging) 0.95f else 0.65f), cornerShape))
+            Box(Modifier.size(34.dp).background(lerp(block.color, fill, if (dragging) 0f else 0.25f), cornerShape))
         }
     }
 }
