@@ -15,13 +15,17 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
@@ -68,29 +72,34 @@ internal fun DayAgentProgressRow(
         transitionSpec = { conicLightSpring(.5f) }, label = "agent-read-bar-leading-edge"
     ) { if (it) 1f else 0f }
     Box(
-        modifier.fillMaxWidth().height(4.dp).drawBehind {
-            val centerY = size.height / 2f
-            val hairline = 1.dp.toPx()
-            if (reveal < 0.999f) {
-                drawRect(
-                    color = foreground.copy(alpha = 0.10f * (1f - reveal)),
-                    topLeft = Offset(0f, centerY - hairline / 2f),
-                    size = Size(size.width, hairline)
-                )
+        modifier.fillMaxWidth().height(4.dp).drawWithCache {
+            val radius = CornerRadius(size.height / 2f)
+            val railClip = Path().apply {
+                addRoundRect(RoundRect(Rect(0f, 0f, size.width, size.height), radius))
             }
-            if (reveal > 0.01f) {
-                drawConicReadBar(
-                    progress = animatedValue.value,
-                    accent = accent,
-                    foreground = foreground,
-                    darkSurface = darkSurface,
-                    reveal = reveal,
-                    alphaReveal = alphaReveal,
-                    shapeReveal = shapeReveal,
-                    highlightAlpha = highlightAlpha,
-                    painter = lightPainter,
-                    rtl = layoutDirection == LayoutDirection.Rtl
-                )
+            val hairline = 1.dp.toPx()
+            onDrawBehind {
+                if (reveal < 0.999f) {
+                    drawRect(
+                        color = foreground.copy(alpha = 0.10f * (1f - reveal)),
+                        topLeft = Offset(0f, (size.height - hairline) / 2f),
+                        size = Size(size.width, hairline)
+                    )
+                }
+                if (reveal > 0.01f) {
+                    drawConicReadBar(
+                        progress = animatedValue.value,
+                        accent = accent,
+                        darkSurface = darkSurface,
+                        reveal = reveal,
+                        alphaReveal = alphaReveal,
+                        shapeReveal = shapeReveal,
+                        highlightAlpha = highlightAlpha,
+                        painter = lightPainter,
+                        railClip = railClip,
+                        rtl = layoutDirection == LayoutDirection.Rtl
+                    )
+                }
             }
         }
     )
@@ -106,37 +115,49 @@ private fun conicLightSpring(response: Float) = spring<Float>(
 private fun DrawScope.drawConicReadBar(
     progress: Float,
     accent: Color,
-    foreground: Color,
     darkSurface: Boolean,
     reveal: Float,
     alphaReveal: Float,
     shapeReveal: Float,
     highlightAlpha: Float,
     painter: AgentConicLightPainter?,
+    railClip: Path,
     rtl: Boolean
 ) {
     val drawLtr: DrawScope.() -> Unit = bar@{
-        val trackHeight = 4.dp.toPx()
-        val centerY = size.height / 2f
-        val top = centerY - trackHeight / 2f
-        val radius = CornerRadius(trackHeight / 2f)
-        // COUIIntentSeekBar uses a 4dp track and progress; the passive read bar keeps the
-        // track at the assistant card's 15% foreground tint.
-        drawRoundRect(
-            color = foreground.copy(alpha = foreground.alpha * 0.15f * reveal),
-            topLeft = Offset(0f, top),
-            size = Size(size.width, trackHeight),
-            cornerRadius = radius
-        )
+        val trackHeight = size.height
+        val halfHeight = trackHeight / 2f
+        val radius = CornerRadius(halfHeight)
+        val railColor = if (darkSurface) Color(0x26FFFFFF) else Color(0x14000000)
+        drawRoundRect(color = railColor.copy(alpha = railColor.alpha * reveal), cornerRadius = radius)
         val safeProgress = progress.coerceIn(0f, 1f)
         val fillWidth = size.width * safeProgress
         if (fillWidth <= 0f) return@bar
-        drawRoundRect(
-            color = accent.copy(alpha = accent.alpha * reveal),
-            topLeft = Offset(0f, top),
-            size = Size(fillWidth, trackHeight),
-            cornerRadius = radius
-        )
+        val capEnd = fillWidth + halfHeight
+        // The player clips the stroke to the rail and rounds it around the light's center.
+        clipPath(railClip) {
+            drawRoundRect(
+                color = accent.copy(alpha = accent.alpha * reveal),
+                topLeft = Offset(-halfHeight, 0f),
+                size = Size(fillWidth + trackHeight, trackHeight),
+                cornerRadius = radius
+            )
+            if (highlightAlpha > 0f) {
+                val highlightWidth = (size.width * 0.2f).coerceAtMost(fillWidth)
+                val capLeft = fillWidth - highlightWidth - halfHeight
+                drawRoundRect(
+                    brush = Brush.horizontalGradient(
+                        0f to Color.White.copy(alpha = 0f),
+                        1f to Color.White.copy(alpha = highlightAlpha),
+                        startX = capLeft,
+                        endX = capEnd
+                    ),
+                    topLeft = Offset(capLeft, 0f),
+                    size = Size(capEnd - capLeft, trackHeight),
+                    cornerRadius = radius
+                )
+            }
+        }
         if (painter != null) {
             // Let the cone feather outside the track, within the card's rounded clip.
             painter.draw(
@@ -151,22 +172,6 @@ private fun DrawScope.drawConicReadBar(
             )
         } else {
             drawFallbackConicGlow(fillWidth, accent, darkSurface, alphaReveal, shapeReveal)
-        }
-        if (highlightAlpha > 0f) {
-            // The native head covers up to one fifth of the whole track, including at low progress.
-            val capWidth = (size.width * 0.2f).coerceAtMost(fillWidth)
-            val capLeft = fillWidth - capWidth
-            drawRoundRect(
-                brush = Brush.horizontalGradient(
-                    0f to Color.White.copy(alpha = 0f),
-                    1f to Color.White.copy(alpha = highlightAlpha),
-                    startX = capLeft,
-                    endX = fillWidth
-                ),
-                topLeft = Offset(capLeft, top),
-                size = Size(capWidth, trackHeight),
-                cornerRadius = radius
-            )
         }
     }
     if (rtl) {

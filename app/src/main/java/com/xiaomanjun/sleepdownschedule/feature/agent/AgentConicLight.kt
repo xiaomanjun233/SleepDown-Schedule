@@ -104,14 +104,27 @@ private class AgentConicLightPainterApi33 : AgentConicLightPainter {
         runtimeShader.setFloatUniform("u_miscParams", 1f, 0f, 0f, 0f)
 
         val native = canvas.nativeCanvas
-        // The additive shader can nearly cover a pale card at full opacity.
-        // Keep its geometry and tint, with lighter coverage on that surface.
-        paint.blendMode = if (darkSurface) BlendMode.SCREEN else BlendMode.SRC_OVER
-        paint.alpha = if (darkSurface) 255 else (lightAlpha * LightSurfaceConeOpacity * 255f).roundToInt()
-        native.save()
-        native.translate(-ConicLightHorizontalPadding, rowHeight / 2f - lightHeight / 2f)
+        val saved = native.save()
+        val trackTop = (lightHeight - rowHeight) / 2f
+        val trackLeft = ConicLightHorizontalPadding
+        val trackRight = trackLeft + trackWidth
+        val trackBottom = trackTop + rowHeight
+        native.translate(-trackLeft, -trackTop)
+        if (!darkSurface) {
+            // Screen is nearly invisible against a pale card. Shade only outside the rail
+            // so the bar and its white head still receive the player's additive light.
+            val outer = native.save()
+            native.clipOutRect(trackLeft, trackTop, trackRight, trackBottom)
+            paint.blendMode = BlendMode.SRC_OVER
+            paint.alpha = (lightAlpha * LightSurfaceConeOpacity * 255f).roundToInt()
+            native.drawRect(0f, 0f, lightWidth, lightHeight, paint)
+            native.restoreToCount(outer)
+            native.clipRect(trackLeft, trackTop, trackRight, trackBottom)
+        }
+        paint.blendMode = BlendMode.SCREEN
+        paint.alpha = 255
         native.drawRect(0f, 0f, lightWidth, lightHeight, paint)
-        native.restore()
+        native.restoreToCount(saved)
     }
 }
 
