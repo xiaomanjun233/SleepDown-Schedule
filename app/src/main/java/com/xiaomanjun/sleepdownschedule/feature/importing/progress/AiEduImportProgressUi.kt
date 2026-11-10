@@ -1236,19 +1236,21 @@ private fun AiEduUserMessage(
                 )
             }
         }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.86f)
-                .wrapContentWidth(Alignment.End)
-                .clip(UnevenRoundedRectangle(22.dp, 22.dp, 6.dp, 22.dp))
-                .background(if (appUsesDarkTheme(config)) Color(0xFF142D49) else Color(0xFFDCEBFF))
-        ) {
-            Text(
-                progress.userPrompt,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                color = textColor,
-                style = MaterialTheme.typography.bodyLarge,
-            )
+        if (progress.userPrompt.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.86f)
+                    .wrapContentWidth(Alignment.End)
+                    .clip(UnevenRoundedRectangle(22.dp, 22.dp, 6.dp, 22.dp))
+                    .background(if (appUsesDarkTheme(config)) Color(0xFF142D49) else Color(0xFFDCEBFF))
+            ) {
+                Text(
+                    progress.userPrompt,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    color = textColor,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
         }
     }
 }
