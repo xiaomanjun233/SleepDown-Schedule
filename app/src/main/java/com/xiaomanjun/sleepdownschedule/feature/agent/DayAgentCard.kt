@@ -231,7 +231,7 @@ fun TodayAgentCard(
     val useNativeLiquidStroke = !effects.usesNativeControls &&
         effects.colorOsAvailable && nativeStrokeRenderer != null
     val cardTokens = GlassTokens.dialog(intensity = 1.12f).copy(
-        blur = if (cardIsDark) 8.dp else 10.dp,
+        blur = if (cardIsDark) 5.dp else 6.dp,
         lensHeight = 20.dp,
         lensAmount = 40.dp,
         surfaceAlpha = if (cardIsDark) 0.46f else 0.50f,
@@ -400,8 +400,8 @@ fun TodayAgentCard(
     }
 }
 
-private val DayAgentCompactNativeBlurRadius = 14.dp
-internal val DayAgentNativeBlurRadius = 18.dp
+private val DayAgentCompactNativeBlurRadius = 9.dp
+internal val DayAgentNativeBlurRadius = 12.dp
 
 internal fun weatherEmoji(summary: String): String {
     // The suffix may contain precipitation advice/probability even when the current condition is
