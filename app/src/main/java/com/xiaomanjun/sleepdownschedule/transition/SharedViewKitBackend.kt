@@ -118,8 +118,15 @@ internal class SharedViewKitBackend(
             kitBitmap?.recycle()
             return rejected("liveSourceChangedBeforeLaunch")
         }
+        // Window sampling has already composited the material against its backdrop. Rounded
+        // corners alone do not require the SDK's translucent-source crossfade.
+        val liveSourceColor = if (liveView != null) {
+            anchor.surfaceColor ?: kitBitmap?.let { transitionSurfaceColor(it, Color.TRANSPARENT) }
+                ?.takeUnless { it == Color.TRANSPARENT }
+        } else null
+        val crossfade = capabilities.viewWithAlpha && liveSourceColor?.let { Color.alpha(it) < 255 } == true
         if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST) {
-            Log.i("SharedViewKit", "route=${request.route.id.wireName} source=${if (liveView != null) "live-view" else "bitmap-projection"} bounds=$viewBounds alpha=${liveView != null && capabilities.viewWithAlpha}")
+            Log.i("SharedViewKit", "route=${request.route.id.wireName} source=${if (liveView != null) "live-view" else "bitmap-projection"} bounds=$viewBounds alpha=$crossfade")
         }
         val session = request.session
         val sourceView = liveView ?: SharedViewKitSourceView.attach(request.activity, anchor, checkNotNull(kitBitmap))
@@ -158,10 +165,9 @@ internal class SharedViewKitBackend(
         val extras = Bundle().apply {
             putFloat(SharedViewKitContract.Radius, resource.projection?.radiusPx ?: radius)
             capabilities.fallbackType?.let { putInt(SharedViewKitContract.FallbackType, it) }
-            if (liveView != null && viewBounds != null) {
-                if (capabilities.viewWithAlpha) putBoolean(SharedViewKitContract.ViewWithAlpha, true)
-                if (capabilities.returnBitmap && kitBitmap != null) putParcelable(SharedViewKitContract.Bitmap, kitBitmap)
-                payload?.backgroundColor?.takeIf { Color.alpha(it) == 255 }?.let { putInt(SharedViewKitContract.Color, it) }
+            if (liveView != null) {
+                liveSourceColor?.let { putInt(SharedViewKitContract.Color, it) }
+                if (crossfade) putBoolean(SharedViewKitContract.ViewWithAlpha, true)
             } else {
                 val background = payload?.backgroundColor ?: Color.TRANSPARENT
                 putInt(SharedViewKitContract.Color, anchor.surfaceColor
