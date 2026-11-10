@@ -19,11 +19,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CourseCardDeleteBottomSpace
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CourseCardSelection
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CourseCardSelectionChrome
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardDeleteBottomSpace
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardDeletionSelection
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardSelectionChrome
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CourseManagementCardShape
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.courseCardInteraction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.cardSelectionInteraction
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.LandscapePageTransition
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.animateScrollToTop
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
@@ -45,7 +45,7 @@ internal fun LandscapeCourseManagementPane(
     modifier: Modifier = Modifier
 ) {
     val groups = remember(state.courses) { buildManagedCourseGroups(state.courses) }
-    val selection = remember(state.config.id) { CourseCardSelection() }
+    val selection = remember(state.config.id) { CardDeletionSelection() }
     var selected by remember(state.config.id) { mutableStateOf(groups.firstOrNull()) }
     var exitHandler by remember { mutableStateOf<((() -> Unit) -> Unit)?>(null) }
     var selectionMoving by remember { mutableStateOf(false) }
@@ -79,7 +79,7 @@ internal fun LandscapeCourseManagementPane(
         Row(Modifier.fillMaxSize()) {
             Box(Modifier.width(listWidth).fillMaxHeight()) {
                 val insets = WindowInsets.safeDrawing.asPaddingValues()
-                val bottomSpace = if (selection.active) CourseCardDeleteBottomSpace else 12.dp
+                val bottomSpace = if (selection.active) CardDeleteBottomSpace else 12.dp
                 LazyVerticalStaggeredGrid(
                     columns = StaggeredGridCells.Fixed(2), state = listState,
                     modifier = Modifier.fillMaxSize().glassBackdropProducer(listBackdrop).animateScrollToTop {
@@ -99,7 +99,7 @@ internal fun LandscapeCourseManagementPane(
                     items(groups, key = { it.key }) { group ->
                         val active = selected?.courses?.any { course -> group.courses.any { it.id == course.id } } == true
                         val gesture = Modifier.fillMaxWidth().clip(CourseManagementCardShape)
-                            .courseCardInteraction(selection, group.key, !selectionMoving, dark, onLongClick = {
+                            .cardSelectionInteraction(selection, group.key, !selectionMoving, dark, onLongClick = {
                                 val startSelection = {
                                     selectGroup(null)
                                     selection.start(group.key)
@@ -121,7 +121,7 @@ internal fun LandscapeCourseManagementPane(
                     }
                 }
                 CouiSettingsTheme(pageConfig) {
-                    CourseCardSelectionChrome(
+                    CardSelectionChrome(
                         selection = selection,
                         cards = remember(groups) { groups.associateBy(ManagedCourseGroup::key) },
                         config = pageConfig,

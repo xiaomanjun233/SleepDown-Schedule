@@ -191,7 +191,32 @@ object AiImportHistoryStore {
         )
     }
 
-    @Synchronized fun delete(context: Context, id: String) = save(context, load(context).filterNot { it.id == id })
+    fun delete(context: Context, id: String) = delete(context, setOf(id))
+
+    @Synchronized
+    fun delete(context: Context, ids: Set<String>) {
+        if (ids.isEmpty()) return
+        val prefs = context.getSharedPreferences(PrefsName, Context.MODE_PRIVATE)
+        val original = prefs.getString(KeyEntries, null) ?: return
+        val entries = JSONArray(original)
+        val remaining = JSONArray()
+        val retainedIds = mutableSetOf<String>()
+        for (index in 0 until entries.length()) {
+            val entry = entries.getJSONObject(index)
+            val id = entry.getString("id")
+            if (id !in ids) {
+                remaining.put(entry)
+                retainedIds += id
+            }
+        }
+        if (remaining.length() == entries.length()) return
+        if (!prefs.edit().putString(KeyEntries, remaining.toString()).commit()) {
+            prefs.edit().putString(KeyEntries, original).apply()
+            error("无法删除导入记录，请重试")
+        }
+        // Delete detached files only after the history index has been written.
+        cleanupUnreferencedContextFiles(context, retainedIds)
+    }
 
     @Synchronized fun update(
         context: Context,

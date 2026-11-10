@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
@@ -46,6 +47,7 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
 import com.itos.coui.effect.CouiMetaballBody
@@ -55,7 +57,10 @@ import com.itos.coui.motion.rememberCouiMetaballFollowingTranslation
 import com.itos.coui.swipereveal.CouiSwipeRevealDefaults
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardDeletionSelection
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.cardSelectionInteraction
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportHistoryEntry
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -70,9 +75,12 @@ private val HistorySwipeActionHeight = 68.dp
 internal fun AiImportHistorySwipeRow(
     entry: AiImportHistoryEntry,
     textColor: Color,
+    selection: CardDeletionSelection,
+    onStartSelection: () -> Unit,
     revealed: Boolean,
     onRevealChange: (Boolean) -> Unit,
-    onDelete: () -> Unit,
+    onDelete: suspend () -> Unit,
+    onDeleteFailed: (String) -> Unit,
     onOpen: (Rect) -> Unit,
     onBoundsChanged: (Rect) -> Unit,
 ) {
@@ -88,6 +96,9 @@ internal fun AiImportHistorySwipeRow(
     val restPx = actionWidth + with(density) { defaults.menuMinimumGap.toPx() }
     val openThreshold = with(density) { defaults.openTriggerDistance.toPx() }
     val maxVelocity = with(density) { defaults.itemMaxVelocity.toPx() }
+    val revealStart = (actionWidth + followingPx) * defaults.fusedRevealStart
+    val swipeEnabled = !selection.active
+    val dark = MaterialTheme.colorScheme.background.luminance() < .5f
     val motion = remember(entry.id) { Animatable(0f) }
     val collapse = remember(entry.id) { Animatable(0f) }
     var distance by remember(entry.id) { mutableFloatStateOf(0f) }
@@ -97,10 +108,11 @@ internal fun AiImportHistorySwipeRow(
     var widthPx by remember(entry.id) { mutableFloatStateOf(0f) }
     var cardBounds by remember(entry.id) { mutableStateOf(Rect.Zero) }
     val latestDelete by rememberUpdatedState(onDelete)
+    val latestDeleteFailed by rememberUpdatedState(onDeleteFailed)
     val latestRevealChange by rememberUpdatedState(onRevealChange)
     val atRest by remember { derivedStateOf { !dragging && !deleting && distance <= .5f } }
-    val actionVisible by remember(actionWidth, followingPx) {
-        derivedStateOf { !deleting && distance >= (actionWidth + followingPx) * defaults.fusedRevealStart }
+    val actionVisible by remember(revealStart) {
+        derivedStateOf { !deleting && distance >= revealStart }
     }
     val following by rememberCouiMetaballFollowingTranslation({ distance }, actionWidth, followingPx)
 
@@ -116,7 +128,16 @@ internal fun AiImportHistorySwipeRow(
     LaunchedEffect(revealed, restPx) {
         if (!dragging && !deleting && !revealed && distance > .5f) settle(0f)
     }
-    LaunchedEffect(cardBounds, atRest) { onBoundsChanged(if (atRest) cardBounds else Rect.Zero) }
+    LaunchedEffect(swipeEnabled) {
+        if (!swipeEnabled && !deleting) {
+            job?.cancel()
+            dragging = false
+            distance = 0f
+        }
+    }
+    LaunchedEffect(cardBounds, atRest, swipeEnabled) {
+        onBoundsChanged(if (atRest && swipeEnabled) cardBounds else Rect.Zero)
+    }
 
     Box(Modifier.clipToBounds().layout { measurable, constraints ->
         // Keep the card at its measured size while the viewport collapses after dismissal.
@@ -134,15 +155,25 @@ internal fun AiImportHistorySwipeRow(
                 motion.snapTo(distance)
                 motion.animateTo(widthPx + actionWidth, tween(240, easing = FastOutSlowInEasing)) { distance = value }
                 collapse.animateTo(1f, tween(145, easing = FastOutSlowInEasing))
-                latestDelete()
+                try {
+                    latestDelete()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    distance = 0f
+                    collapse.animateTo(0f, defaults.itemSettleSpec)
+                    deleting = false
+                    latestDeleteFailed(failure.message ?: "无法删除导入记录，请重试")
+                }
             }
         }
-        val active = !atRest
+        val active = !atRest && (swipeEnabled || deleting)
         val renderer = remember(active) { if (active && Build.VERSION.SDK_INT >= 33) CouiMetaballRenderer() else null }
         val mask = remember(active) { if (active && Build.VERSION.SDK_INT >= 33) CouiMetaballRenderer() else null }
         val cardColor = MaterialTheme.colorScheme.surfaceContainerHigh
         val shape = RoundedRectangle(HistoryRowRadius)
-        Box(Modifier.pointerInput(entry.id, widthPx, restPx, rtl) {
+        Box(Modifier.pointerInput(entry.id, widthPx, restPx, rtl, swipeEnabled) {
+            if (!swipeEnabled) return@pointerInput
             val tracker = VelocityTracker()
             var initialDistance = 0f
             var lastPosition: Offset? = null
@@ -217,14 +248,15 @@ internal fun AiImportHistorySwipeRow(
                         bounds.width >= coordinates.size.width - 1 && bounds.height >= coordinates.size.height - 1
                     } ?: Rect.Zero
                 }
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() }, indication = null, enabled = !deleting,
-                    onClick = {
-                        if (distance > .5f || revealed) { settle(0f); latestRevealChange(false) }
-                        else if (cardBounds.width > 0f) onOpen(cardBounds)
-                    },
-                ).semantics {
-                    if (atRest) customActions = listOf(CustomAccessibilityAction("显示删除操作") {
+                .cardSelectionInteraction(selection, entry.id, !deleting, dark, onLongClick = onStartSelection) {
+                    if (distance > .5f || revealed) {
+                        settle(0f)
+                        latestRevealChange(false)
+                    } else if (cardBounds.width > 0f) {
+                        onOpen(cardBounds)
+                    }
+                }.semantics {
+                    if (atRest && swipeEnabled) customActions = listOf(CustomAccessibilityAction("显示删除操作") {
                         latestRevealChange(true)
                         settle(restPx)
                         true
@@ -233,32 +265,61 @@ internal fun AiImportHistorySwipeRow(
                 AiImportHistoryRowContent(
                     entry = entry,
                     textColor = textColor,
-                    modifier = Modifier.graphicsLayer { translationX = -direction * distance },
+                    modifier = Modifier.graphicsLayer {
+                        translationX = if (active) -direction * distance else 0f
+                    },
+                    checkedForDeletion = if (selection.active) entry.id in selection.selectedKeys else null,
+                    selectionEnabled = !selection.deleting && !deleting,
                 )
             }
-            if (actionVisible) {
+            if (actionVisible && swipeEnabled) {
                 val interaction = remember { MutableInteractionSource() }
-                val dark = MaterialTheme.colorScheme.background.luminance() < .5f
-                Box(Modifier.align(Alignment.CenterEnd).size(HistorySwipeActionWidth, HistorySwipeActionHeight).graphicsLayer {
+                Box(Modifier.align(Alignment.CenterEnd).layout { measurable, constraints ->
+                    val width = historyActionWidth(actionWidth, distance, restPx, widthPx).roundToInt()
+                        .coerceAtMost(constraints.maxWidth)
+                    val height = actionSize.height.roundToInt().coerceAtMost(constraints.maxHeight)
+                    val action = measurable.measure(Constraints.fixed(width, height))
+                    layout(action.width, action.height) { action.placeRelative(0, 0) }
+                }.graphicsLayer {
                     translationX = direction * following
                     alpha = ((distance / (actionWidth + followingPx) - defaults.fusedRevealStart) /
                         (1f - defaults.fusedRevealStart)).coerceIn(0f, 1f)
                 }.clip(shape).couiButtonFeedback(dark, interaction)
                     .clickable(interaction, null, onClick = ::delete), contentAlignment = Alignment.Center) {
-                    Icon(painterResource(R.drawable.ic_delete_history), "删除", Modifier.size(24.dp),
-                        tint = MaterialTheme.colorScheme.error)
+                    HistoryDeleteIcon { ((distance - revealStart) / (restPx - revealStart)).coerceIn(0f, 1f) }
                 }
             }
         }
     }
 }
 
+@Composable
+private fun HistoryDeleteIcon(openProgress: () -> Float) {
+    Icon(
+        painterResource(R.drawable.ic_delete_history),
+        "删除",
+        Modifier.size(24.dp).drawWithContent {
+            val gap = size.height * (7.3f / 24f)
+            clipRect(top = gap) { this@drawWithContent.drawContent() }
+            // The system icon rotates its lid 18 degrees about the right end of the rim.
+            val hinge = Offset(size.width * (19.5f / 24f), size.height * (6.55f / 24f))
+            rotate(18f * openProgress(), hinge) {
+                clipRect(bottom = gap) { this@drawWithContent.drawContent() }
+            }
+        },
+        tint = MaterialTheme.colorScheme.error
+    )
+}
+
+private fun historyActionWidth(base: Float, distance: Float, rest: Float, viewport: Float): Float =
+    (base + (distance - rest).coerceAtLeast(0f)).coerceAtMost(viewport)
+
 private fun DrawScope.drawHistorySwipe(
     renderer: CouiMetaballRenderer?, distance: Float, actionSize: Size, following: Float,
     rest: Float, deleting: Boolean, rtl: Boolean, color: Color, blend: BlendMode = BlendMode.SrcOver,
 ) {
     val cardWidth = (size.width - distance).coerceAtLeast(0f)
-    val actionWidth = (actionSize.width + (distance - rest).coerceAtLeast(0f)).coerceAtMost(size.width)
+    val actionWidth = historyActionWidth(actionSize.width, distance, rest, size.width)
     val actionHeight = actionSize.height.coerceAtMost(size.height)
     val radius = HistoryRowRadius.toPx()
     val actionAlpha = if (deleting) (cardWidth / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) else 1f

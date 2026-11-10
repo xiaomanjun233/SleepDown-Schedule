@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.PlatformTextStyle
@@ -40,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaomanjun.sleepdownschedule.*
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardSelectionCheck
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsForwardIndicator
@@ -133,7 +135,9 @@ open class AiImportHistoryDetailActivityHost : ComponentActivity() {
 internal fun AiImportHistoryRowContent(
     entry: AiImportHistoryEntry,
     modifier: Modifier = Modifier,
-    textColor: Color = Color.White
+    textColor: Color = Color.White,
+    checkedForDeletion: Boolean? = null,
+    selectionEnabled: Boolean = true,
 ) {
     val locale = LocalConfiguration.current.locales[0]
     val (date, time) = remember(entry.createdAt, locale) {
@@ -162,7 +166,12 @@ internal fun AiImportHistoryRowContent(
                 ImportHistoryChip(entry.sourceSummary.ifBlank { "课表导入" }, textColor)
             }
         }
-        SettingsForwardIndicator()
+        if (checkedForDeletion == null) {
+            SettingsForwardIndicator()
+        } else {
+            CardSelectionCheck(checkedForDeletion, selectionEnabled,
+                dark = MaterialTheme.colorScheme.background.luminance() < .5f)
+        }
     }
 }
 

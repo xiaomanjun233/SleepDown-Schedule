@@ -118,7 +118,7 @@ fun TimeSlotCourseManagementScreen(
     val courses = decoded.getOrDefault(emptyList())
     val currentCourses by rememberUpdatedState(courses)
     val currentState by rememberUpdatedState(state)
-    val selection = remember(state.config.id) { CourseCardSelection() }
+    val selection = remember(state.config.id) { CardDeletionSelection() }
     SideEffect { onExitInterceptionChange(launching != null || selection.active) }
     DisposableEffect(Unit) { onDispose { onExitInterceptionChange(false) } }
     LaunchedEffect(exitCommitRequest) {
@@ -166,7 +166,7 @@ fun TimeSlotCourseManagementScreen(
             contentPadding = PaddingValues(
                 start = 16.dp, end = 16.dp,
                 top = detailContentTopPadding() + 12.dp,
-                bottom = detailContentBottomPadding() + CourseCardDeleteBottomSpace,
+                bottom = detailContentBottomPadding() + CardDeleteBottomSpace,
             ),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalItemSpacing = 8.dp,
@@ -206,7 +206,7 @@ fun TimeSlotCourseManagementScreen(
                 }
             }
         }
-        CourseCardSelectionChrome(
+        CardSelectionChrome(
             selection = selection,
             cards = remember(courses) { courses.associateBy(TimeSlotCourse::id) },
             config = config,
@@ -221,7 +221,7 @@ fun TimeSlotCourseManagementScreen(
 @Composable
 private fun TimeSlotCourseCard(
     slot: TimeSlotCourse,
-    selection: CourseCardSelection,
+    selection: CardDeletionSelection,
     enabled: Boolean,
     dark: Boolean,
     onOpen: () -> Unit,
@@ -231,14 +231,14 @@ private fun TimeSlotCourseCard(
     Column(
         Modifier.fillMaxWidth().clip(CourseManagementCardShape)
             .background(colors.surfaceContainerHigh)
-            .courseCardInteraction(selection, slot.id, enabled, dark, onClick = onOpen)
+            .cardSelectionInteraction(selection, slot.id, enabled, dark, onClick = onOpen)
             .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         Row(verticalAlignment = Alignment.Top) {
             Text(slot.name, Modifier.weight(1f), color = foreground,
                 style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (selection.active) CourseCardSelectionCheck(
+            if (selection.active) CardSelectionCheck(
                 checked = slot.id in selection.selectedKeys, enabled = enabled && !selection.deleting, dark = dark
             )
         }

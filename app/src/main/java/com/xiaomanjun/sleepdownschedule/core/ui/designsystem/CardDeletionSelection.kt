@@ -60,7 +60,7 @@ internal val CourseManagementCardCornerRadius = 20.dp
 internal val CourseManagementCardShape = RoundedRectangle(CourseManagementCardCornerRadius)
 
 @Stable
-internal class CourseCardSelection {
+internal class CardDeletionSelection(val selectLabel: String = "选择课程") {
     private var keys by mutableStateOf<Set<String>?>(null)
     val active: Boolean get() = keys != null
     val selectedKeys: Set<String> get() = keys.orEmpty()
@@ -85,8 +85,8 @@ internal class CourseCardSelection {
 }
 
 @Composable
-internal fun Modifier.courseCardInteraction(
-    selection: CourseCardSelection,
+internal fun Modifier.cardSelectionInteraction(
+    selection: CardDeletionSelection,
     key: String,
     enabled: Boolean,
     dark: Boolean,
@@ -103,22 +103,22 @@ internal fun Modifier.courseCardInteraction(
     } else {
         feedback.combinedClickable(
             interactionSource = interaction, indication = null, enabled = interactive,
-            role = Role.Button, onLongClickLabel = "选择课程", onLongClick = onLongClick, onClick = onClick
+            role = Role.Button, onLongClickLabel = selection.selectLabel, onLongClick = onLongClick, onClick = onClick
         )
     }
 }
-internal val CourseCardDeleteBottomSpace = 80.dp
+internal val CardDeleteBottomSpace = 80.dp
 
 @Composable
-internal fun CourseCardSelectionCheck(checked: Boolean, enabled: Boolean, dark: Boolean) {
+internal fun CardSelectionCheck(checked: Boolean, enabled: Boolean, dark: Boolean) {
     Checkbox(checked = checked, enabled = enabled,
         colors = CouiCheckboxDefaults.colors(MaterialTheme.colorScheme.primary, dark))
 }
 
 /** Draws the editing chrome after the list that supplies the material. */
 @Composable
-internal fun <T> BoxScope.CourseCardSelectionChrome(
-    selection: CourseCardSelection,
+internal fun <T> BoxScope.CardSelectionChrome(
+    selection: CardDeletionSelection,
     cards: Map<String, T>,
     config: ScheduleConfigEntity,
     backdrop: Backdrop,
@@ -155,7 +155,7 @@ internal fun <T> BoxScope.CourseCardSelectionChrome(
                 .then(if (material) Modifier else Modifier.background(colors.background)),
             title = {
                 com.itos.coui.text.Text(
-                    text = if (selected.isEmpty()) "选择课程" else "已选 ${selected.size} 项",
+                    text = if (selected.isEmpty()) selection.selectLabel else "已选 ${selected.size} 项",
                     kind = CouiTextKind.Toolbar, maxLines = 1
                 )
             },

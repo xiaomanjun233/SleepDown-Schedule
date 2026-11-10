@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -47,6 +48,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itos.coui.scroll.couiVerticalScroll
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardDeleteBottomSpace
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardDeletionSelection
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardSelectionChrome
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
@@ -54,6 +58,9 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.progress.*
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
@@ -66,6 +73,8 @@ import com.xiaomanjun.sleepdownschedule.transition.legacy.*
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 open class AiImportHistoryActivityHost : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -157,9 +166,22 @@ private fun AiImportHistoryPage(
     ) -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val textColor = glassForegroundColor(settingsVisualConfig(config))
+    val pageConfig = settingsVisualConfig(config)
+    val pageColor = settingsPageBackground(pageConfig)
+    val textColor = glassForegroundColor(pageConfig)
     var entries by remember { mutableStateOf(AiImportHistoryStore.load(context)) }
     var revealedEntryId by remember { mutableStateOf<String?>(null) }
+    var deleteError by remember { mutableStateOf<String?>(null) }
+    val selection = remember { CardDeletionSelection("选择导入记录") }
+    val listBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "import-history-list") {
+        drawRect(pageColor)
+        drawContent()
+    }
+    suspend fun deleteEntries(ids: Set<String>) {
+        deleteError = null
+        withContext(Dispatchers.IO) { AiImportHistoryStore.delete(context, ids) }
+        entries = entries.filterNot { it.id in ids }
+    }
     val scope = rememberCoroutineScope()
     val snapshotLayer = rememberGraphicsLayer()
     val snapshotRequested = remember { AtomicBoolean(false) }
@@ -192,7 +214,8 @@ private fun AiImportHistoryPage(
             compactTopBar = true,
             centerCompactTitle = true
         ) { _ ->
-            val scrollable = Modifier.fillMaxSize().couiVerticalScroll(rememberScrollState())
+            val scrollable = Modifier.fillMaxSize().glassBackdropProducer(listBackdrop)
+                .couiVerticalScroll(rememberScrollState())
             if (entries.isEmpty()) {
                 Box(scrollable, contentAlignment = Alignment.Center) {
                     Text("还没有导入记录", color = textColor.copy(alpha = 0.52f))
@@ -203,24 +226,30 @@ private fun AiImportHistoryPage(
                         start = 16.dp,
                         end = 16.dp,
                         top = detailContentTopPadding() + 10.dp,
-                        bottom = detailContentBottomPadding()
+                        bottom = detailContentBottomPadding() +
+                            if (selection.active) CardDeleteBottomSpace else 0.dp
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    deleteError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     entries.forEach { entry ->
                         key(entry.id) {
                             AiImportHistorySwipeRow(
                                 entry = entry,
                                 textColor = textColor,
+                                selection = selection,
+                                onStartSelection = {
+                                    revealedEntryId = null
+                                    deleteError = null
+                                    selection.start(entry.id)
+                                },
                                 revealed = revealedEntryId == entry.id,
                                 onRevealChange = { open ->
-                                    if (open) revealedEntryId = entry.id
+                                    if (open && !selection.active) revealedEntryId = entry.id
                                     else if (revealedEntryId == entry.id) revealedEntryId = null
                                 },
-                                onDelete = {
-                                    AiImportHistoryStore.delete(context, entry.id)
-                                    entries = entries.filterNot { it.id == entry.id }
-                                },
+                                onDelete = { deleteEntries(setOf(entry.id)) },
+                                onDeleteFailed = { deleteError = it },
                                 onOpen = { bounds ->
                                     scope.launch {
                                         snapshotRequested.set(true)
@@ -230,6 +259,7 @@ private fun AiImportHistoryPage(
                                         val frame = runCatching {
                                             snapshotLayer.toImageBitmap().asAndroidBitmap()
                                         }.getOrNull()
+                                        if (selection.active || entries.none { it.id == entry.id }) return@launch
                                         onOpen(
                                             entry,
                                             bounds,
@@ -255,6 +285,17 @@ private fun AiImportHistoryPage(
                         }
                     }
                 }
+            }
+            Box(Modifier.fillMaxSize()) {
+                CardSelectionChrome(
+                    selection = selection,
+                    cards = remember(entries) { entries.associateBy(AiImportHistoryEntry::id) },
+                    config = pageConfig,
+                    backdrop = listBackdrop,
+                    confirmationTitle = "删除导入记录？",
+                    confirmationMessage = { count -> "将删除 ${count} 条导入记录及其保存的对话和附件。" },
+                    onDelete = { selected -> deleteEntries(selected.mapTo(mutableSetOf()) { it.id }) }
+                )
             }
         }
     }

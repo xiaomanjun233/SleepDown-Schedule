@@ -247,7 +247,7 @@ internal fun CourseManagementScreen(
     val foreground = appPanelForegroundColor(state.config)
     val scope = rememberCoroutineScope()
     val activity = transitionActivity
-    val selection = remember(state.config.id) { CourseCardSelection() }
+    val selection = remember(state.config.id) { CardDeletionSelection() }
     val pageConfig = settingsVisualConfig(state.config)
     val pageColor = settingsPageBackground(pageConfig)
     val listBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "course-management-list") {
@@ -276,7 +276,7 @@ internal fun CourseManagementScreen(
                     start = 12.dp,
                     top = detailContentTopPadding() + 8.dp,
                     end = 12.dp,
-                    bottom = if (selection.active) detailContentBottomPadding() + CourseCardDeleteBottomSpace else 16.dp
+                    bottom = if (selection.active) detailContentBottomPadding() + CardDeleteBottomSpace else 16.dp
                 ),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalItemSpacing = 8.dp
@@ -358,7 +358,7 @@ internal fun CourseManagementScreen(
                 }
             }
         }
-        CourseCardSelectionChrome(
+        CardSelectionChrome(
             selection = selection,
             cards = remember(groups) { groups.associateBy(ManagedCourseGroup::key) },
             config = pageConfig,
@@ -376,7 +376,7 @@ private fun ManagedCourseListCard(
     group: ManagedCourseGroup,
     config: ScheduleConfigEntity,
     periods: List<PeriodEntity>,
-    selection: CourseCardSelection,
+    selection: CardDeletionSelection,
     enabled: Boolean,
     sourceHidden: Boolean,
     onClick: (Rect, () -> Rect?) -> Unit
@@ -389,7 +389,7 @@ private fun ManagedCourseListCard(
             .fillMaxWidth()
             .onGloballyPositioned { coordinates = it; sourceBounds = it.boundsInWindow() }
             .clip(CourseManagementCardShape)
-            .courseCardInteraction(selection, group.key, enabled, appUsesDarkTheme(config)) {
+            .cardSelectionInteraction(selection, group.key, enabled, appUsesDarkTheme(config)) {
                 sourceBounds?.let { bounds ->
                     onClick(bounds) {
                         coordinates?.takeIf { it.isAttached }?.let { current ->
@@ -498,7 +498,7 @@ internal fun ManagedCourseListCardContent(
                     .padding(start = 8.dp)
             )
             if (checkedForDeletion != null) {
-                CourseCardSelectionCheck(checkedForDeletion, selectionEnabled, appUsesDarkTheme(config))
+                CardSelectionCheck(checkedForDeletion, selectionEnabled, appUsesDarkTheme(config))
             } else {
                 Icon(
                     painter = painterResource(R.drawable.ic_arrow_back),
