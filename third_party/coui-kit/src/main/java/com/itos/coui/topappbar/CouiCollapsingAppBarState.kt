@@ -111,6 +111,11 @@ class CouiCollapsingAppBarState internal constructor(rangePx: Float, initialFrac
         animateOffset(target, animateContent = true)
     }
 
+    /** Expands the title when the settings list has returned to its start. */
+    fun expand() {
+        if (!searchLocked && logicalOffset != 0f) animateOffset(0f, animateContent = true)
+    }
+
     private fun animateOffset(target: Float, response: Float = CouiCollapsingAppBarDefaults.snapResponse,
         animateContent: Boolean = false) {
         logicalOffset = target

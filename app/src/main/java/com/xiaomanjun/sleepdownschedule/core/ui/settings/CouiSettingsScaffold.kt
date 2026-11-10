@@ -62,6 +62,7 @@ import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 
 internal val LocalCouiSettingsListState = staticCompositionLocalOf<LazyListState?> { null }
+internal val LocalCouiSettingsExpandTitle = staticCompositionLocalOf<(() -> Unit)?> { null }
 internal val LocalCouiSettingsToolbar = staticCompositionLocalOf { false }
 internal val LocalCouiSettingsContentPadding = staticCompositionLocalOf<PaddingValues?> { null }
 
@@ -81,13 +82,17 @@ internal fun CouiSettingsRootScaffold(title: String, config: ScheduleConfigEntit
     val header = CouiTopAppBarDefaults.exitUntilCollapsedScrollBehavior {
         list.canScrollForward || list.canScrollBackward
     }
+    val expandTitle = remember(header.state) { header.state::expand }
     val density = LocalDensity.current
     val search = LocalCouiSettingsSearch.current
     BackHandler(enabled = search?.expanded == true) { search?.onExpandedChange(false) }
     CouiSettingsPageScaffold(title = title, config = config, largeHeader = header, rootSearch = search,
         modifier = Modifier.nestedScroll(header.nestedScrollConnection)) { padding, backdrop ->
         val compensated = remember(header, padding, density) { header.state.contentPadding(padding, density) }
-        CompositionLocalProvider(LocalCouiSettingsListState provides list) { content(compensated, backdrop) }
+        CompositionLocalProvider(
+            LocalCouiSettingsListState provides list,
+            LocalCouiSettingsExpandTitle provides expandTitle
+        ) { content(compensated, backdrop) }
     }
 }
 

@@ -51,12 +51,12 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.LocationOn
@@ -112,6 +112,8 @@ import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.performance.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.LightTopBarButtonShadow
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.animateScrollToTop
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
@@ -253,9 +255,13 @@ internal fun CourseManagementScreen(
                 Text("当前课表还没有课程", color = foreground.copy(alpha = 0.62f))
             }
         } else {
+            val listState = rememberLazyStaggeredGridState()
             LazyVerticalStaggeredGrid(
                 columns = StaggeredGridCells.Fixed(2),
-                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                modifier = Modifier.fillMaxSize().animateScrollToTop {
+                    if (listState.canScrollBackward) listState.animateScrollToItem(0)
+                },
                 contentPadding = PaddingValues(
                     start = 12.dp,
                     top = detailContentTopPadding() + 8.dp,
@@ -760,7 +766,7 @@ internal fun CourseManagementDetailPage(
         // Centered dialogs and their action capsules resolve LocalCenteredDialogSceneBackdrop.
         // The Miuix scaffold hosts them as a sibling of the complete page producer, so every layer
         // can be sampled without allowing the dialog subtree to feed itself back into RenderThread.
-        LazyColumn(
+        SleepDownLazyColumn(
             state = listState,
             // The explicit modifier is the only Miuix path that still responds when a single
             // arrangement fits entirely in the viewport; disable the theme factory to avoid a

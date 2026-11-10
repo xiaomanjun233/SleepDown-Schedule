@@ -42,6 +42,7 @@ internal fun SleepDownLazyColumn(
     flingBehavior: FlingBehavior = ScrollableDefaults.flingBehavior(),
     userScrollEnabled: Boolean = true,
     overscrollEffect: OverscrollEffect? = rememberOverscrollEffect(),
+    onReachedTop: (() -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
     val short = userScrollEnabled && overscrollEffect != null && !state.canScrollForward && !state.canScrollBackward
@@ -56,8 +57,12 @@ internal fun SleepDownLazyColumn(
         Modifier.overscroll(edge).scrollable(edgeState, Orientation.Vertical, overscrollEffect = edge,
             reverseDirection = true)
     } else Modifier
+    val scrollToTop = if (userScrollEnabled && !reverseLayout) Modifier.animateScrollToTop {
+        if (state.canScrollBackward) state.animateScrollToItem(0)
+        if (!state.canScrollBackward) onReachedTop?.invoke()
+    } else Modifier
     LazyColumn(
-        modifier = modifier.then(input), state = state, contentPadding = contentPadding,
+        modifier = modifier.then(scrollToTop).then(input), state = state, contentPadding = contentPadding,
         reverseLayout = reverseLayout, verticalArrangement = verticalArrangement,
         horizontalAlignment = horizontalAlignment, flingBehavior = flingBehavior,
         userScrollEnabled = userScrollEnabled && !short, overscrollEffect = if (short) null else overscrollEffect,

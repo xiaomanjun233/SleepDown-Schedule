@@ -8,6 +8,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
 import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -18,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.LandscapePageTransition
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.animateScrollToTop
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 
 /** Selection keeps the original group snapshot until its draft has been saved or discarded. */
@@ -49,11 +51,14 @@ internal fun LandscapeCourseManagementPane(
         selected = group
     }
     val ink = appPanelForegroundColor(state.config)
+    val listState = rememberLazyStaggeredGridState()
     BoxWithConstraints(modifier.fillMaxSize()) {
         val listWidth = (maxWidth * 0.48f).coerceIn(280.dp, 520.dp).coerceAtMost(maxWidth * 0.52f)
         Row(Modifier.fillMaxSize()) {
-            LazyVerticalStaggeredGrid(columns = StaggeredGridCells.Fixed(2),
-                modifier = Modifier.width(listWidth).fillMaxHeight(),
+            LazyVerticalStaggeredGrid(columns = StaggeredGridCells.Fixed(2), state = listState,
+                modifier = Modifier.width(listWidth).fillMaxHeight().animateScrollToTop {
+                    if (listState.canScrollBackward) listState.animateScrollToItem(0)
+                },
                 contentPadding = PaddingValues(start = 12.dp, end = 12.dp,
                     top = WindowInsets.safeDrawing.asPaddingValues().calculateTopPadding() + 12.dp,
                     bottom = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding() + 12.dp),

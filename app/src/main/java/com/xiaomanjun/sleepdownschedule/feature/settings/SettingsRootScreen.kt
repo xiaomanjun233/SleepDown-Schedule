@@ -69,6 +69,7 @@ import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.itos.coui.scroll.rememberCouiOverscrollEffect
 import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsListState
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsExpandTitle
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsSearch
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsSearch
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsListLayout
@@ -119,6 +120,7 @@ fun SettingsRootScreen(
         CompositionLocalProvider(LocalCouiSettingsListLayout provides BuildConfig.SLEEPDOWN_COUI_SETTINGS) {
         SleepDownLazyColumn(
             state = LocalCouiSettingsListState.current ?: rememberLazyListState(),
+            onReachedTop = LocalCouiSettingsExpandTitle.current,
             overscrollEffect = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) rememberCouiOverscrollEffect()
                 else androidx.compose.foundation.rememberOverscrollEffect(),
             modifier = Modifier
