@@ -141,6 +141,7 @@ fun CouiDockBar(
     menuWidth: Dp = CouiDockDefaults.menuWidth,
     showPlusSurface: () -> Boolean = { true },
     onSelection: (Int) -> Unit,
+    plusInputModifier: Modifier = Modifier,
     onPlusClick: (Rect) -> Unit,
 ) {
     require(items.isNotEmpty() && selectedIndex in items.indices)
@@ -258,7 +259,8 @@ fun CouiDockBar(
         Box(
             Modifier.offset { IntOffset(plusX().roundToInt(), 0) }.size(CouiDockDefaults.plusSize)
                 .graphicsLayer { this.alpha = alpha() }
-                .onGloballyPositioned { plusBounds = it.boundsInRoot() },
+                .onGloballyPositioned { plusBounds = it.boundsInRoot() }
+                .then(plusInputModifier),
         ) {
             CouiDockPlusContent(
                 modifier = Modifier.fillMaxSize(),

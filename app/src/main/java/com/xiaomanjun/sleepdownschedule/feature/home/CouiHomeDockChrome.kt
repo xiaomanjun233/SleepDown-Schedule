@@ -48,6 +48,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
 import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionSourceView
+import com.xiaomanjun.sleepdownschedule.transition.captureTransitionPress
 import com.xiaomanjun.sleepdownschedule.platform.coloros.rememberCouiDockAccent
 
 /**
@@ -200,6 +201,8 @@ internal fun CouiHomeDock(
                 menuWidth = dockWidth,
                 showPlusSurface = { plusView?.showsOverflow != false },
                 onSelection = { trace("SleepDown Dock.select") { onSelect(it) } },
+                plusInputModifier = if (plusEnabled) Modifier.captureTransitionPress(plusView, activity?.window)
+                    else Modifier,
                 onPlusClick = { bounds ->
                     if (plusEnabled) {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)

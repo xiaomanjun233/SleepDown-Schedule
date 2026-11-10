@@ -91,13 +91,14 @@ internal class SharedViewKitBackend(
         // Keep the ROM's software input private. Some ROMs reclaim it after rejection or return.
         val kitBitmap = when (liveView) {
             is LiveTransitionSourceView -> {
+                val screenBounds = checkNotNull(viewBounds)
+                val window = payload?.openingSourceWindow ?: request.activity.window
+                val beforePress = liveView.copyRestFrame(window, screenBounds)
                 val existingFrame = anchor.bitmap?.takeIf {
                     it.width == liveView.width && it.height == liveView.height
                 }
-                val frame = if (existingFrame != null) existingFrame.softwareCopyForKit(radius)
-                else {
-                    val window = payload?.openingSourceWindow ?: request.activity.window
-                    val rect = window.decorView.screenBoundsInWindow(checkNotNull(viewBounds))
+                val frame = beforePress ?: existingFrame?.softwareCopyForKit(radius) ?: run {
+                    val rect = window.decorView.screenBoundsInWindow(screenBounds)
                     captureGlassWindowRegion(window, ComposeRect(rect.left.toFloat(), rect.top.toFloat(),
                         rect.right.toFloat(), rect.bottom.toFloat()))?.let {
                         try { it.softwareCopyForKit(radius) } finally { it.recycle() }

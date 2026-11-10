@@ -9,8 +9,12 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.Rect as AndroidRect
 import android.graphics.RectF
+import android.content.res.Configuration
 import android.view.View
 import android.view.ViewOutlineProvider
+import android.view.Window
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -30,19 +34,28 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.DialogWindowProvider
+import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.findActivity
+import com.xiaomanjun.sleepdownschedule.glass.requestGlassWindowRegion
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
+import kotlinx.coroutines.CompletableDeferred
+
+private const val PressFrameRetentionMillis = 500L
 
 /** Presents the real control from its first frame and serves as the SharedViewKit source. */
 internal class LiveTransitionSourceView(
-    activity: Activity,
+    private val activity: Activity,
     private val drawing: GraphicsLayer,
     private var drawingDensity: Density,
     private var direction: LayoutDirection,
@@ -53,10 +66,21 @@ internal class LiveTransitionSourceView(
     private val softwareBounds = RectF()
     private val softwareOutline = Path()
     private var softwareFrame: Bitmap? = null
+    private var beforePress: RestFrame? = null
+    private val discardRestFrame = Runnable { clearRestFrame() }
+    private val supportsRestCapture by lazy(LazyThreadSafetyMode.NONE) {
+        BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES &&
+            runCatching { PlatformSharedViewKitApi.supportedProtocol() > 0 }.getOrDefault(false)
+    }
     private var cropLeft = 0f
     private var renderButton = true
     var showsOverflow by mutableStateOf(true)
         private set
+
+    private class RestFrame(val window: Window, val boundsOnScreen: AndroidRect) {
+        val ready = CompletableDeferred<Unit>()
+        var bitmap: Bitmap? = null
+    }
 
     init {
         importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_NO
@@ -73,6 +97,12 @@ internal class LiveTransitionSourceView(
         val radius = radius(w, h)
         softwareOutline.addRoundRect(softwareBounds, radius, radius, Path.Direction.CW)
         invalidateOutline()
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(discardRestFrame)
+        clearRestFrame()
+        super.onDetachedFromWindow()
     }
 
     override fun setAlpha(alpha: Float) {
@@ -101,6 +131,45 @@ internal class LiveTransitionSourceView(
         if (cropLeft == left) return
         cropLeft = left
         invalidate()
+    }
+
+    fun captureBeforePress(window: Window) {
+        if (!supportsRestCapture || activity.isInMultiWindowMode ||
+            activity.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) return
+        val bounds = liveTransitionBoundsOnScreen(activity) ?: return
+        removeCallbacks(discardRestFrame)
+        // Reuse the same neutral pixels for a rapid second tap while the first touch is settling.
+        val existing = beforePress
+        if (existing != null && existing.window === window && existing.boundsOnScreen == bounds) return
+        clearRestFrame()
+        val capture = RestFrame(window, bounds)
+        beforePress = capture
+        val windowBounds = window.decorView.screenBoundsInWindow(bounds)
+        requestGlassWindowRegion(window, Rect(windowBounds.left.toFloat(), windowBounds.top.toFloat(),
+            windowBounds.right.toFloat(), windowBounds.bottom.toFloat())) { bitmap ->
+            if (beforePress === capture) {
+                capture.bitmap = bitmap
+                capture.ready.complete(Unit)
+            } else bitmap?.recycle()
+        }
+    }
+
+    fun finishPress() {
+        if (beforePress != null) postDelayed(discardRestFrame, PressFrameRetentionMillis)
+    }
+
+    suspend fun copyRestFrame(window: Window, bounds: AndroidRect): Bitmap? {
+        val capture = beforePress?.takeIf { it.window === window && it.boundsOnScreen == bounds } ?: return null
+        capture.ready.await()
+        return capture.bitmap?.softwareCopyForKit(sourceRadiusPx)
+    }
+
+    private fun clearRestFrame() {
+        val capture = beforePress ?: return
+        beforePress = null
+        capture.bitmap?.recycle()
+        capture.bitmap = null
+        capture.ready.complete(Unit)
     }
 
     /** The SDK can call View.draw with a software canvas. Sample the original button's pixels. */
@@ -148,12 +217,13 @@ internal fun LiveTransitionButton(
     val activity = LocalContext.current.findActivity()
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
+    val window = (LocalView.current.parent as? DialogWindowProvider)?.window ?: activity?.window
     val layer = rememberGraphicsLayer()
     val radius = cornerRadius?.let { with(density) { it.toPx() } }
     val source = remember(activity, layer, radius) {
         activity?.let { LiveTransitionSourceView(it, layer, density, direction, radius) }
     }
-    Box(modifier) {
+    Box(modifier.captureTransitionPress(source, window)) {
         if (source != null) key(source) {
             AndroidView(factory = { source }, modifier = Modifier.matchParentSize(),
                 update = { it.updatePresentation(density, direction, render = show) })
@@ -174,6 +244,22 @@ internal fun LiveTransitionButton(
         }) { content(source) }
     }
 }
+
+/** Observe the presented frame before the child handles DOWN and starts its touch animation. */
+internal fun Modifier.captureTransitionPress(source: LiveTransitionSourceView?, window: Window?): Modifier =
+    if (source == null || window == null) this else pointerInput(source, window) {
+        awaitEachGesture {
+            awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+            source.captureBeforePress(window)
+            try {
+                do {
+                    val event = awaitPointerEvent(PointerEventPass.Final)
+                } while (event.changes.any { it.pressed })
+            } finally {
+                source.finishPress()
+            }
+        }
+    }
 
 private fun View.isMountedTransitionSource(activity: Activity): Boolean =
     context === activity && isAttachedToWindow && width > 1 && height > 1 &&

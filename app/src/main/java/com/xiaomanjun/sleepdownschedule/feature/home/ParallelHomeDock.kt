@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
 import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionSourceView
+import com.xiaomanjun.sleepdownschedule.transition.captureTransitionPress
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -170,7 +171,8 @@ internal fun ParallelHomeDock(
                                 }
                             }
                         }
-                        .then(if (buttonInteractive) plusInteraction.gestureModifier else Modifier)
+                        .then(if (buttonInteractive) Modifier.captureTransitionPress(plusView, activity?.window)
+                            .then(plusInteraction.gestureModifier) else Modifier)
                         .excludeParentPullGesture()
                         .then(if (buttonInteractive) Modifier.semantics { testTag = "parallel_import_button" }
                             else Modifier.clearAndSetSemantics {}),
