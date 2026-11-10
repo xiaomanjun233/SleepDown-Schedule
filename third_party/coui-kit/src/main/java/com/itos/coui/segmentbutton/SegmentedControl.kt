@@ -1,7 +1,10 @@
 package com.itos.coui.segmentbutton
 
 import android.graphics.Paint
+import android.view.ViewConfiguration
 import androidx.annotation.RequiresApi
+import androidx.compose.animation.rememberSplineBasedDecay
+import androidx.compose.animation.core.calculateTargetValue
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -60,6 +63,7 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -131,11 +135,15 @@ fun SegmentedControl(
     surfaceModifier: Modifier? = null,
     renderer: CouiFloatingRenderer? = if (backdrop != null && containerSurfaceEnabled)
         remember { CouiFloatingRenderer.standalone() } else null,
+    flingOnRelease: Boolean = false,
 ) {
     require(labels.isNotEmpty() && selectedIndex in labels.indices) { "分段标签不能为空，选中下标必须在范围内" }
     val floating = containerSurfaceEnabled && backdrop != null
     require(!floating || renderer != null) { "透明模糊需要独立的单主体 renderer" }
     val density = LocalDensity.current
+    val context = LocalContext.current
+    val flingDecay = if (commitOnRelease && flingOnRelease) rememberSplineBasedDecay<Float>() else null
+    val minimumFlingVelocity = remember(context) { ViewConfiguration.get(context).scaledMinimumFlingVelocity }
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val current = rememberUpdatedState(selectedIndex)
     val submit = rememberUpdatedState(onSelected)
@@ -259,7 +267,7 @@ fun SegmentedControl(
                 .then(content).clip(if (floating) CouiCapsuleShape else indicatorShape)) {
                 Row(Modifier.fillMaxSize().padding(horizontal = with(density) { padding.toDp() })
                     .onGloballyPositioned { inputCoordinates = it }
-                    .pointerInput(geometry, labels, enabled, commitOnRelease, containerSurfaceEnabled) {
+                    .pointerInput(geometry, labels, enabled, commitOnRelease, containerSurfaceEnabled, flingDecay) {
                         if (!enabled) return@pointerInput
                         awaitEachGesture {
                             val down = awaitFirstDown()
@@ -345,8 +353,16 @@ fun SegmentedControl(
                                         pressedLabel = target
                                     }
                                     if (!change.pressed) {
-                                        if (target != null) session.select(target, commitOnRelease) { submit.value(it) }
-                                        completed = target != null
+                                        val slop = viewConfiguration.touchSlop
+                                        val releaseTarget = if (ownsDrag && flingDecay != null &&
+                                            change.position.y in -slop..(size.height + slop)) {
+                                            val velocity = tracker.velocityPixelsPerSecond()
+                                            val end = if (abs(velocity.x) >= minimumFlingVelocity && abs(velocity.x) > abs(velocity.y))
+                                                flingDecay.calculateTargetValue(x, velocity.x) else x
+                                            geometry.hit(end) ?: if ((end < geometry.width / 2f) != rtl) 0 else labels.lastIndex
+                                        } else target
+                                        if (releaseTarget != null) session.select(releaseTarget, commitOnRelease) { submit.value(it) }
+                                        completed = releaseTarget != null
                                         touch.release(tracker.releaseVelocity())
                                         change.consume()
                                         break

@@ -28,6 +28,11 @@ internal class CouiVelocityTracker(private val downTime: Long) {
         return Offset(tracker.xVelocity * 0.3f, tracker.yVelocity * 0.3f)
     }
 
+    fun velocityPixelsPerSecond(): Offset {
+        tracker.computeCurrentVelocity(1000, Float.MAX_VALUE)
+        return Offset(tracker.xVelocity, tracker.yVelocity)
+    }
+
     fun recycle() { tracker.recycle() }
 
     private fun addMovement(time: Long, action: Int, position: Offset) {

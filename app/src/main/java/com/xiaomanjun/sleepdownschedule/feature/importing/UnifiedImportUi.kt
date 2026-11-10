@@ -1,7 +1,10 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import android.os.Build
+import android.os.SystemClock
+import androidx.compose.animation.rememberSplineBasedDecay
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.calculateTargetValue
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -12,12 +15,14 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -46,6 +51,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -61,8 +69,14 @@ import com.itos.coui.shape.CouiShape
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBackdropBlur
+import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBlurDirection
 
 private val ImportTabLabels = listOf("常规导入", "教务系统导入")
 
@@ -82,7 +96,7 @@ internal fun UnifiedImportTabs(
         SegmentedControl(
             modifier = modifier.fillMaxWidth(), labels = ImportTabLabels, selectedIndex = selectedIndex,
             onSelected = onSelected, dark = dark, enabled = enabled, backdrop = material,
-            commitOnRelease = true,
+            commitOnRelease = true, flingOnRelease = true,
         )
         return
     }
@@ -94,20 +108,33 @@ internal fun UnifiedImportTabs(
     )
     val select by rememberUpdatedState(onSelected)
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val decay = rememberSplineBasedDecay<Float>()
     BoxWithConstraints(
         modifier.fillMaxWidth().height(CouiSegmentedControlDefaults.height)
             .clip(CouiCapsuleShape).background(CouiSegmentedControlDefaults.containerColor(dark))
             .selectableGroup()
-            .pointerInput(enabled, rtl) {
+            .pointerInput(enabled, rtl, decay) {
                 if (!enabled) return@pointerInput
+                val tracker = VelocityTracker()
+                var lastMove = 0L
+                var position = 0f
                 detectHorizontalDragGestures(
+                    onDragStart = { tracker.resetTracking() },
                     onDragEnd = {
-                        dragPosition?.let { select(if (it < 0.5f) 0 else 1) }
+                        if (dragPosition != null) {
+                            val speed = if (SystemClock.uptimeMillis() - lastMove < 40)
+                                tracker.calculateVelocity().x else 0f
+                            val end = decay.calculateTargetValue(position, speed)
+                            select(if ((end < size.width / 2f) != rtl) 0 else 1)
+                        }
                         dragPosition = null
                     },
                     onDragCancel = { dragPosition = null },
                 ) { change, _ ->
                     change.consume()
+                    tracker.addPointerInputChange(change)
+                    position = change.position.x
+                    lastMove = change.uptimeMillis
                     val fraction = (change.position.x * 2f / size.width.coerceAtLeast(1) - 0.5f).coerceIn(0f, 1f)
                     dragPosition = if (rtl) 1f - fraction else fraction
                 }
@@ -205,11 +232,18 @@ internal fun InlineRegularImportForm(
             input()
         }
     }
-    Box(Modifier.fillMaxSize().imePadding().navigationBarsPadding()) {
-        if (hasPreview) {
-            preview(form)
-        } else {
-            Column(Modifier.fillMaxSize().couiVerticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+    val scroll = rememberScrollState()
+    val navigationInset = regularImportNavigationInset()
+    val showBottomBlur = navigationInset > 0.dp && (hasPreview || scroll.canScrollForward || scroll.canScrollBackward)
+    val pageColor = settingsPageBackground(config)
+    val contentBackdrop = if (showBottomBlur && Build.VERSION.SDK_INT >= 33 && !AppMaterialPreferences.isSuperPerformance)
+        rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "regular-import-bottom") else null
+    Box(Modifier.fillMaxSize().imePadding()) {
+        val producer = if (contentBackdrop != null) Modifier.glassBackdropProducer(contentBackdrop) else Modifier
+        Box(Modifier.matchParentSize().then(producer).background(pageColor)) {
+            if (hasPreview) preview(form)
+            else Column(Modifier.fillMaxSize().couiVerticalScroll(scroll)
+                .padding(start = 16.dp, end = 16.dp, bottom = navigationInset)) {
                 form()
                 Text(
                     message ?: if (resolving) "正在读取导入内容…" else "支持 SleepDown、WakeUp、星链口令，也可以上传课表文件。",
@@ -219,5 +253,18 @@ internal fun InlineRegularImportForm(
                 )
             }
         }
+        if (showBottomBlur) {
+            ProgressiveBackdropBlur(
+                backdrop = contentBackdrop, modifier = Modifier.align(Alignment.BottomCenter),
+                tintColor = pageColor, height = navigationInset + 36.dp, blurRadius = 12.dp,
+                direction = ProgressiveBlurDirection.BottomToTop,
+                fallbackTintStops = listOf(0f to pageColor, .45f to pageColor.copy(alpha = .65f), 1f to Color.Transparent),
+            )
+        }
     }
+}
+
+@Composable
+internal fun regularImportNavigationInset() = with(LocalDensity.current) {
+    (WindowInsets.navigationBars.getBottom(this) - WindowInsets.ime.getBottom(this)).coerceAtLeast(0).toDp()
 }

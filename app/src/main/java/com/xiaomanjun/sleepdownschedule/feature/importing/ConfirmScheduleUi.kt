@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberOverscrollEffect
 import androidx.compose.foundation.text.BasicTextField
@@ -109,10 +109,11 @@ fun ConfirmScheduleScreen(
         return
     }
     val previewCourses = remember(previewDraft) { previewDraft.resolvedCoursesForPreview() }
-    LazyColumn(
+    val navigationInset = if (listHeader != null) regularImportNavigationInset() else 0.dp
+    SleepDownLazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
-            top = if (listHeader == null) 16.dp else 0.dp, bottom = 16.dp),
+            top = if (listHeader == null) 16.dp else 0.dp, bottom = 16.dp + navigationInset),
         overscrollEffect = if (listHeader != null) rememberCouiOverscrollEffect() else rememberOverscrollEffect(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
@@ -213,7 +214,7 @@ private fun AiImportChatPreview(
     Column(Modifier.fillMaxSize()) {
         errorMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(16.dp)) }
         if (submitting) Text("正在保存课表…", modifier = Modifier.padding(16.dp))
-        LazyColumn(
+        SleepDownLazyColumn(
             modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
                 top = if (listHeader == null) 14.dp else 0.dp, bottom = 14.dp),
