@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
+import kotlin.math.roundToInt
 
 /**
  * COUIIntentSeekBar's conic-light progress effect, ported from the ColorOS seek bar renderer.
@@ -23,7 +24,7 @@ internal interface AgentConicLightPainter {
         rowHeight: Float,
         progress: Float,
         accent: Color,
-        useScreenBlend: Boolean,
+        darkSurface: Boolean,
         alphaReveal: Float,
         shapeReveal: Float
     )
@@ -52,7 +53,7 @@ private class AgentConicLightPainterApi33 : AgentConicLightPainter {
         rowHeight: Float,
         progress: Float,
         accent: Color,
-        useScreenBlend: Boolean,
+        darkSurface: Boolean,
         alphaReveal: Float,
         shapeReveal: Float
     ) {
@@ -91,10 +92,11 @@ private class AgentConicLightPainterApi33 : AgentConicLightPainter {
             heightFalloff
         )
         runtimeShader.setFloatUniform("u_basicParams", 3f, 1f, 2f, 0.2f)
+        val lightAlpha = alphaReveal.coerceIn(0f, 1f)
         runtimeShader.setFloatUniform(
             "u_alphaParams",
-            alphaReveal.coerceIn(0f, 1f),
-            0.6f * alphaReveal.coerceIn(0f, 1f),
+            lightAlpha,
+            0.6f * lightAlpha,
             w0,
             ConicLightSpotRadius
         )
@@ -102,8 +104,10 @@ private class AgentConicLightPainterApi33 : AgentConicLightPainter {
         runtimeShader.setFloatUniform("u_miscParams", 1f, 0f, 0f, 0f)
 
         val native = canvas.nativeCanvas
-        // SCREEN cannot show a colored tail over a white card.
-        paint.blendMode = if (useScreenBlend) BlendMode.SCREEN else BlendMode.SRC_OVER
+        // The additive shader can nearly cover a pale card at full opacity.
+        // Keep its geometry and tint, with lighter coverage on that surface.
+        paint.blendMode = if (darkSurface) BlendMode.SCREEN else BlendMode.SRC_OVER
+        paint.alpha = if (darkSurface) 255 else (lightAlpha * LightSurfaceConeOpacity * 255f).roundToInt()
         native.save()
         native.translate(-ConicLightHorizontalPadding, rowHeight / 2f - lightHeight / 2f)
         native.drawRect(0f, 0f, lightWidth, lightHeight, paint)
@@ -114,6 +118,7 @@ private class AgentConicLightPainterApi33 : AgentConicLightPainter {
 private const val ConicLightHeight = 450f
 private const val ConicLightHorizontalPadding = 300f
 private const val ConicLightSpotRadius = 500f
+private const val LightSurfaceConeOpacity = 0.26f
 
 /** AGSL from com.coui.appcompat.seekbar.shader.ConicLightShaderParams. */
 private const val ConicLightShader = """

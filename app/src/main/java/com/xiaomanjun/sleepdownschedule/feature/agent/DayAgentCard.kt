@@ -691,6 +691,7 @@ private fun DayAgentCardVisualCore(
                     progress = visual.countdownProgress,
                     accent = activityAccent,
                     foreground = foreground,
+                    darkSurface = visual.cardIsDark,
                     modifier = Modifier.fillMaxWidth()
                 )
                 Text(
