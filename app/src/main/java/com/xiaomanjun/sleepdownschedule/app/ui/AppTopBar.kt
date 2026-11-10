@@ -204,7 +204,7 @@ internal fun AppTopBar(
                         SettingsPage.Widgets -> "小组件设置"
                         SettingsPage.AiImport -> "AI 设置"
                         SettingsPage.DayAgent -> "AI 助理"
-                        SettingsPage.Schedule -> "课表详细设置"
+                        SettingsPage.Schedule -> "课表设置"
                         SettingsPage.PeriodSchemes -> "作息管理"
                         SettingsPage.SpecialCourses -> "特殊课程"
                         SettingsPage.AutoRefreshSchedule -> "自动刷新课表"

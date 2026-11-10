@@ -185,7 +185,7 @@ fun SettingsRootScreen(
                     )
                     SettingsDivider(startIndent = 56.dp)
                     SettingsNavigationRow(
-                        "当前课表详细设置",
+                        "当前课表设置",
                         leadingIcon = Icons.Rounded.Tune,
                         leadingIconTint = ComposeColor(0xFF5856D6),
                         selected = selectedPage == SettingsPage.Schedule,

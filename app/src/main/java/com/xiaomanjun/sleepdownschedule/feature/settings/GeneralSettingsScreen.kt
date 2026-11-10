@@ -109,7 +109,6 @@ fun GeneralSettingsScreen(
                         defaultHomeMode = draft.defaultHomeMode,
                         onSelected = { applyChange(draft.copy(darkMode = it, followSystemDarkMode = false)) }
                     )
-                    SettingsDivider()
                     SettingsToggleRow(
                         title = "跟随系统",
                         subtitle = "",

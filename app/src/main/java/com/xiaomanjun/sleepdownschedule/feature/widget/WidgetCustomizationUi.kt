@@ -417,7 +417,6 @@ fun WidgetCustomizationScreen(
                         },
                         modifier = Modifier.weight(1f),
                         textColorOverride = Color.White,
-                        lightShadow = lightRenderer != null,
                         surfaceColorOverride = controlAccentColor(Color(0xFF0A84FF)).copy(alpha = 0.72f)
                     )
                     LiquidMenuButton(
@@ -439,7 +438,6 @@ fun WidgetCustomizationScreen(
                             Color.White.copy(alpha = 0.74f)
                         },
                         lightBackdrop = lightRenderer != null,
-                        lightShadow = lightRenderer != null,
                         surfaceSheen = lightSheen.takeIf { lightRenderer != null }
                     )
                     }
@@ -484,7 +482,6 @@ fun WidgetCustomizationScreen(
                             }
                         }
                     )
-                    SettingsDivider()
                     WidgetSliderRow(
                         title = "壁纸亮度",
                         valueText = "${(current.brightness * 100).toInt()}%",

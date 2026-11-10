@@ -20,9 +20,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
@@ -57,7 +54,6 @@ internal data class PeriodSchemeManagementRequest(
     val id: String,
     val libraryId: String,
     val session: PeriodTimelineSession,
-    val source: Rect,
     val creating: Boolean = false,
     val original: SavedPeriodScheme? = null
 )
@@ -89,7 +85,6 @@ fun PeriodSchemeManagementScreen(
     var editing by remember { mutableStateOf<PeriodSchemeManagementRequest?>(null) }
     var deleting by remember { mutableStateOf<SavedPeriodScheme?>(null) }
     var switching by remember(state.config.id) { mutableStateOf<PeriodSchemeSwitchPreview?>(null) }
-    var addBounds by remember { mutableStateOf(Rect.Zero) }
 
     fun isCurrent(saved: SavedPeriodScheme): Boolean = currentSnapshot?.id == saved.id
 
@@ -171,7 +166,7 @@ fun PeriodSchemeManagementScreen(
             val message = if (request.creating) "已新建${saved.name}" else "作息已保存，引用它的课表已同步更新"
             Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         },
-        managementContent = { hideSource ->
+        managementContent = {
             Box(Modifier.fillMaxSize()) {
                 SleepDownSecondaryPageList(modifier = Modifier.fillMaxSize(),
                     contentTopPadding = topPadding + if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) 0.dp else 12.dp,
@@ -185,10 +180,9 @@ fun PeriodSchemeManagementScreen(
                     } }
                     items(library, key = { it.id }) { saved ->
                         PeriodSchemeCard(saved, isCurrent(saved), loaded && !busy, backdrop, visualState.config,
-                            hideEditAction = hideSource && editing?.libraryId == saved.id,
                             disambiguate = library.count { it.name == saved.name } > 1,
-                            onEdit = { source -> editing = PeriodSchemeManagementRequest(UUID.randomUUID().toString(), saved.id,
-                                savedPeriodSchemeSession(saved, state.config), source, original = saved) },
+                            onEdit = { editing = PeriodSchemeManagementRequest(UUID.randomUUID().toString(), saved.id,
+                                savedPeriodSchemeSession(saved, state.config), original = saved) },
                             onDuplicate = { duplicate(saved) }, onDelete = { deleting = saved },
                             onSelect = { switchPeriodScheme(saved) })
                     }
@@ -208,15 +202,14 @@ fun PeriodSchemeManagementScreen(
                         if (canCreate) {
                             currentSnapshot?.let { seed ->
                                 editing = PeriodSchemeManagementRequest(UUID.randomUUID().toString(), UUID.randomUUID().toString(),
-                                    savedPeriodSchemeSession(seed, state.config), addBounds, creating = true)
+                                    savedPeriodSchemeSession(seed, state.config), creating = true)
                             }
                         }
                     },
                     modifier = Modifier.align(Alignment.BottomEnd)
                         .padding(end = 32.dp, bottom = navigationBottom + 32.dp)
-                        .minimumInteractiveComponentSize().alpha(if (hideSource && editing?.creating == true) 0f else if (canCreate) 1f else 0.38f)
-                        .semantics { if (!canCreate) disabled() }
-                        .onGloballyPositioned { addBounds = it.boundsInRoot() },
+                        .minimumInteractiveComponentSize().alpha(if (canCreate) 1f else 0.38f)
+                        .semantics { if (!canCreate) disabled() },
                 )
             }
         }
@@ -266,11 +259,9 @@ fun PeriodSchemeManagementScreen(
 @Composable
 private fun PeriodSchemeCard(
     saved: SavedPeriodScheme, selected: Boolean, enabled: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntity,
-    disambiguate: Boolean, hideEditAction: Boolean, onEdit: (Rect) -> Unit, onDuplicate: () -> Unit,
+    disambiguate: Boolean, onEdit: () -> Unit, onDuplicate: () -> Unit,
     onDelete: () -> Unit, onSelect: () -> Unit
 ) {
-    var editBounds by remember { mutableStateOf(Rect.Zero) }
-    val density = androidx.compose.ui.platform.LocalDensity.current
     val parts = listOf("上午" to saved.morningPeriodCount, "中午" to saved.noonPeriodCount,
         "下午" to saved.afternoonPeriodCount, "晚上" to saved.eveningPeriodCount).filter { it.second > 0 }
     val starts = listOf("上午" to saved.morningStartTime, "中午" to saved.noonStartTime,
@@ -314,15 +305,9 @@ private fun PeriodSchemeCard(
                 Spacer(Modifier.width(8.dp))
                 DialogLiquidButton(
                     backdrop = backdrop, label = "编辑${saved.name}",
-                    onClick = { if (enabled) onEdit(editBounds) },
-                    modifier = Modifier.minimumInteractiveComponentSize().alpha(if (hideEditAction) 0f else if (enabled) 1f else 0.38f)
-                        .semantics { if (!enabled) disabled() }
-                        .onGloballyPositioned {
-                            val bounds = it.boundsInRoot()
-                            val half = with(density) { 21.dp.toPx() }
-                            editBounds = Rect(bounds.center.x - half, bounds.center.y - half,
-                                bounds.center.x + half, bounds.center.y + half)
-                        },
+                    onClick = { if (enabled) onEdit() },
+                    modifier = Modifier.minimumInteractiveComponentSize().alpha(if (enabled) 1f else 0.38f)
+                        .semantics { if (!enabled) disabled() },
                     role = DialogButtonRole.Confirm, iconRes = R.drawable.ic_edit,
                     roundIcon = true, shadowEnabled = false
                 )

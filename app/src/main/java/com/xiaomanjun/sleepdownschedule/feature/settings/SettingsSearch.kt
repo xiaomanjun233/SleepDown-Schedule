@@ -5,7 +5,7 @@ internal data class SettingsSearchEntry(val page: SettingsPage, val title: Strin
 private val settingsSearchEntries = listOf(
     SettingsSearchEntry(SettingsPage.General, "通用设置", "外观 深色 主题 图标 导航 视效 材质"),
     SettingsSearchEntry(SettingsPage.Widgets, "小组件设置", "桌面 小部件 颜色 背景 透明度"),
-    SettingsSearchEntry(SettingsPage.Schedule, "当前课表详细设置", "学期 总周数 开学日期 节次 时间 作息 特殊课程"),
+    SettingsSearchEntry(SettingsPage.Schedule, "当前课表设置", "详细 学期 总周数 开学日期 节次 时间 作息 特殊课程"),
     SettingsSearchEntry(SettingsPage.AutoRefreshSchedule, "自动刷新课表", "教务 适配 自动更新"),
     SettingsSearchEntry(SettingsPage.Notifications, "通知设置", "提醒 课前 铃声 勿扰 静音 明日课程 实时活动"),
     SettingsSearchEntry(SettingsPage.AiImport, "AI 设置", "人工智能 导入 模型 服务 API 密钥"),

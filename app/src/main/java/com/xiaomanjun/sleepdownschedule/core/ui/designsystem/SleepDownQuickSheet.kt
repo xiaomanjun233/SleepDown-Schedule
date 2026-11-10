@@ -494,8 +494,7 @@ internal fun SleepDownFloatingSheet(
             androidx.compose.material3.LocalContentColor provides foreground
         ) {
             Column(contentModifier.fillMaxWidth().then(if (couiChrome) Modifier.padding(
-                top = 12.dp,
-                bottom = com.itos.coui.dialog.CouiDialogDefaults.buttonBottomPadding) else Modifier),
+                vertical = com.itos.coui.dialog.CouiDialogDefaults.buttonBottomPadding) else Modifier),
                 verticalArrangement = Arrangement.spacedBy(if (couiChrome) 8.dp else 12.dp)) {
                 Row(Modifier.fillMaxWidth().then(if (couiChrome) Modifier.padding(
                     horizontal = com.itos.coui.dialog.CouiDialogDefaults.buttonEdgePadding) else Modifier),
