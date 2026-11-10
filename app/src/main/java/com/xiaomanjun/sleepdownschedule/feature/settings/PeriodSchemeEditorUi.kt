@@ -402,11 +402,15 @@ internal fun PeriodSchemeEditor(
             draggable = false,
             dismissOnClickOutside = false,
             showDragHandle = false,
+            contentDrawsBehindNavigationBar = true,
             colors = CouiSheetDefaults.colors(dark).copy(surface = pageColor),
             material = sheetMaterial,
             backdrop = windowBackdrop,
             isolateContent = false,
         ) {
+            val navigationInset = with(density) {
+                (WindowInsets.navigationBars.getBottom(this) - WindowInsets.ime.getBottom(this)).coerceAtLeast(0).toDp()
+            }
             val sheetScene = rememberCenteredDialogSceneBackdrop("period-editor-dialog-scene")
             val editorBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "period-editor-content") {
                 drawRect(pageColor)
@@ -435,7 +439,7 @@ internal fun PeriodSchemeEditor(
                     .couiVerticalScroll(editScroll, enabled = interactive && dragBase == null)
                     // Keep the current offset valid even when a card near the bottom becomes shorter.
                     .heightIn(min = with(density) { (retainedScroll + viewportHeight).toDp() })
-                    .padding(start = 16.dp, end = 16.dp, top = 72.dp, bottom = 16.dp),
+                    .padding(start = 16.dp, end = 16.dp, top = 72.dp, bottom = 16.dp + navigationInset),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(if (managementContent != null)
                         "拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间；保存后同步到引用这套作息的全部课表"
@@ -541,6 +545,12 @@ internal fun PeriodSchemeEditor(
                     tintColor = pageColor, height = 72.dp, blurRadius = 12.dp,
                     fallbackTintStops = listOf(0f to pageColor.copy(alpha = 0.42f),
                         0.68f to pageColor.copy(alpha = 0.18f), 1f to Color.Transparent))
+                if (navigationInset > 0.dp) ProgressiveBackdropBlur(
+                    editorBackdrop, Modifier.align(Alignment.BottomCenter),
+                    tintColor = pageColor, height = navigationInset + 32.dp, blurRadius = 12.dp,
+                    direction = ProgressiveBlurDirection.BottomToTop,
+                    fallbackTintStops = listOf(0f to pageColor, .5f to pageColor.copy(alpha = .45f), 1f to Color.Transparent),
+                )
                 PeriodEditorToolbar(dark, editorBackdrop, interactive, onExit = ::requestExit)
             }
             CompositionLocalProvider(LocalCenteredDialogSceneBackdrop provides sheetScene) {

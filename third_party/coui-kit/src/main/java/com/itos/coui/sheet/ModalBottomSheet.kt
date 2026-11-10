@@ -149,6 +149,7 @@ fun ModalBottomSheet(
     isolateContent: Boolean = true,
     onDismissFinished: (() -> Unit)? = null,
     onShowFinished: (() -> Unit)? = null,
+    contentDrawsBehindNavigationBar: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     require(sheetHeight == null || (sheetHeight.value.isFinite() && sheetHeight > 0.dp)) { "面板高度必须为有限正值" }
@@ -297,10 +298,12 @@ fun ModalBottomSheet(
                             sampleCoordinates = { panelCoordinates }, sampleTranslation = { Offset(0f, motion.offset) }) {
                             CompositionLocalProvider(LocalCouiMenuVisibleBounds provides menuBounds,
                                 LocalCouiSheetSurfaceBackdrop provides surfaceBackdrop) {
-                                Column(Modifier.fillMaxWidth().then(if (sheetHeight != null) Modifier.fillMaxHeight() else Modifier)
+                                val navigationPadding = if (contentDrawsBehindNavigationBar) Modifier else Modifier
                                     .padding(bottom = bottomPadding)
+                                    .consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
+                                Column(Modifier.fillMaxWidth().then(if (sheetHeight != null) Modifier.fillMaxHeight() else Modifier)
                                     .consumeWindowInsets(WindowInsets.statusBars.only(WindowInsetsSides.Top))
-                                    .consumeWindowInsets(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))) {
+                                    .then(navigationPadding)) {
                                     if (showDragHandle) {
                                         var handlePressed by remember { mutableStateOf(false) }
                                         val handlePressAlpha by animateFloatAsState(
