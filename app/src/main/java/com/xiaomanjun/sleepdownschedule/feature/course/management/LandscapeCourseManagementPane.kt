@@ -22,6 +22,7 @@ import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CourseCardDeleteBottomSpace
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CourseCardSelection
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CourseCardSelectionChrome
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CourseManagementCardShape
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.courseCardInteraction
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.LandscapePageTransition
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.animateScrollToTop

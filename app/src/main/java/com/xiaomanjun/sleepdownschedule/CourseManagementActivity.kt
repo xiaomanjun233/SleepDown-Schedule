@@ -25,12 +25,12 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xiaomanjun.sleepdownschedule.app.state.*
 import com.xiaomanjun.sleepdownschedule.core.performance.*
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CourseManagementCardCornerRadius
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
@@ -141,7 +141,7 @@ open class CourseManagementActivity : ComponentActivity() {
                                                     boundsInWindow = detailSourceBounds,
                                                     bitmap = snapshots?.source,
                                                     cornerRadiusPx = with(transitionDensity) {
-                                                        20.dp.toPx()
+                                                        CourseManagementCardCornerRadius.toPx()
                                                     },
                                                     surfaceColor = cardSurfaceArgb
                                                 )

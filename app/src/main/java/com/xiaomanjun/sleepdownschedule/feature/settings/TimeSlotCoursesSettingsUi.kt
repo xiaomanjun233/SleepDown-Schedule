@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import com.itos.coui.floatingactionbutton.CouiFabDefaults
 import com.itos.coui.floatingactionbutton.Fab
 import com.itos.coui.scroll.rememberCouiOverscrollEffect
-import com.itos.coui.shape.CouiShape
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.AppState
@@ -178,7 +177,7 @@ fun TimeSlotCourseManagementScreen(
             }
             items(courses, key = { "slot:${it.id}" }) { slot ->
                 val resolved = remember(slot, state.periods) { resolvedTimeSlotCourse(slot, state.periods) }
-                LiveTransitionButton(Modifier.fillMaxWidth(), cornerRadius = 12.dp) { sourceView ->
+                LiveTransitionButton(Modifier.fillMaxWidth(), cornerRadius = CourseManagementCardCornerRadius) { sourceView ->
                     TimeSlotCourseCard(resolved, selection, launching == null, dark) { open(slot, sourceView) }
                 }
             }
@@ -229,7 +228,7 @@ private fun TimeSlotCourseCard(
     val colors = MaterialTheme.colorScheme
     val foreground = colors.onSurface
     Column(
-        Modifier.fillMaxWidth().clip(CouiShape(12.dp, 2.5f))
+        Modifier.fillMaxWidth().clip(CourseManagementCardShape)
             .background(colors.surfaceContainerHigh)
             .courseCardInteraction(selection, slot.id, enabled, dark, onClick = onOpen)
             .padding(start = 12.dp, end = 12.dp, top = 10.dp, bottom = 12.dp),

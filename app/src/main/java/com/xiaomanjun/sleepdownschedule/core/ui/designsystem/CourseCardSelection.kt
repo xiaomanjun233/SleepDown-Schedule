@@ -50,11 +50,15 @@ import com.itos.coui.topappbar.TopAppBar
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.shapes.Capsule
+import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsEditorProgress
 import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+
+internal val CourseManagementCardCornerRadius = 20.dp
+internal val CourseManagementCardShape = RoundedRectangle(CourseManagementCardCornerRadius)
 
 @Stable
 internal class CourseCardSelection {
