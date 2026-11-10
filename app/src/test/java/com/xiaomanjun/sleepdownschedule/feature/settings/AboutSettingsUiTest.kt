@@ -11,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -91,7 +92,8 @@ class AboutSettingsUiTest {
             }
         }
         compose.onNodeWithText("SleepDown课程表").assertIsDisplayed()
-        val update = compose.onNodeWithText("检查更新").assertIsDisplayed()
+        val update = compose.onNode(hasText("检查更新") or hasText("正在检查更新…") or
+            hasText("发现新版本") or hasText("已是最新版本")).assertIsDisplayed()
         val density = RuntimeEnvironment.getApplication().resources.displayMetrics.density
         assertEquals(40f * density, update.fetchSemanticsNode().boundsInRoot.height, 1f)
         val profile = compose.onNodeWithText("关于开发者").assertIsDisplayed().fetchSemanticsNode().boundsInRoot

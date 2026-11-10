@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.settings.about
 import android.os.Build
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.NorthEast
@@ -14,6 +15,7 @@ import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalConfiguration
@@ -28,6 +30,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itos.coui.button.CouiButtonDefaults
 import com.itos.coui.button.CouiCapsuleButton
+import com.itos.coui.motion.couiPressMotion
+import com.itos.coui.motion.rememberCouiPressMotion
 import com.itos.coui.shape.CouiCapsuleShape
 import com.itos.coui.shape.CouiShape
 import com.itos.coui.text.CouiTextKind
@@ -37,6 +41,7 @@ import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
 import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
@@ -45,6 +50,8 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
 import com.xiaomanjun.sleepdownschedule.core.web.openSleepDownCustomTab
 import com.xiaomanjun.sleepdownschedule.core.web.resolveSleepDownCustomTabsPackage
 import com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdater
+import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateDialog
+import com.xiaomanjun.sleepdownschedule.feature.update.rememberAppUpdateSession
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.couiTransparentButtonMaterial
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -67,15 +74,27 @@ internal fun ColorOsAboutSettingsScreen(
             .getOrNull() ?: BuildConfig.VERSION_NAME
     }
     val available by GiteeAppUpdater.updateAvailable.collectAsStateWithLifecycle()
+    val updates = rememberAppUpdateSession(version)
+    val updateAvailable = updates.dialog is AppUpdateDialog.Available ||
+        (updates.dialog !is AppUpdateDialog.UpToDate && available)
+    val updateLabel = when {
+        updates.dialog is AppUpdateDialog.UpToDate -> "已是最新版本"
+        updateAvailable -> "发现新版本"
+        updates.dialog == AppUpdateDialog.Checking -> "正在检查更新…"
+        else -> "检查更新"
+    }
     val browser = remember(context) { context.resolveSleepDownCustomTabsPackage() }
     fun open(url: String) = context.openSleepDownCustomTab(url, providerPackage = browser,
         initialWidthPx = with(density) { (configuration.screenWidthDp.dp * .68f).roundToPx() }, darkTheme = dark)
-    LaunchedEffect(version) { GiteeAppUpdater.restoreCachedStatus(context, version) }
+    LaunchedEffect(updates) {
+        GiteeAppUpdater.restoreCachedStatus(context, version)
+        if (AppDistribution.supportsSelfUpdate) updates.checkForUpdate(markDailyCheck = false)
+    }
 
     SleepDownSecondaryPageList(contentTopPadding = detailContentTopPadding(),
         contentBottomPadding = detailContentBottomPadding(), horizontalPadding = 16.dp) {
         item(key = "about-version-and-update") {
-            AboutVersionHeader(version, available, expanded = configuration.smallestScreenWidthDp >= 600,
+            AboutVersionHeader(version, updateLabel, updateAvailable, expanded = configuration.smallestScreenWidthDp >= 600,
                 onCheck = onSoftwareUpdate)
         }
         item(key = "about-github") {
@@ -142,7 +161,9 @@ internal fun VersionCardArtwork(modifier: Modifier) {
 }
 
 @Composable
-private fun AboutVersionHeader(version: String, updateAvailable: Boolean, expanded: Boolean, onCheck: () -> Unit) {
+private fun AboutVersionHeader(
+    version: String, updateLabel: String, updateAvailable: Boolean, expanded: Boolean, onCheck: () -> Unit
+) {
     val foreground = Color.White
     val density = LocalDensity.current
     val artwork = if (Build.VERSION.SDK_INT >= 31 && !AppMaterialPreferences.isSuperPerformance) {
@@ -157,9 +178,16 @@ private fun AboutVersionHeader(version: String, updateAvailable: Boolean, expand
     val cardShape = CouiShape(34.dp, 3f)
     val titleTop = if (expanded) 66.dp else 104.dp
     val buttonBottom = if (expanded) 20.dp else 40.dp
+    val press = rememberCouiPressMotion()
     Box(
         Modifier.padding(top = 12.dp).fillMaxWidth()
-            .clip(cardShape).background(CouiTheme.colorScheme.container),
+            .couiPressMotion(press, cancelOnConsumedMove = true)
+            .graphicsLayer {
+                scaleX = 1f + (press.scale.value - 1f) * 0.6f
+                scaleY = scaleX
+            }
+            .clip(cardShape).background(CouiTheme.colorScheme.container)
+            .clickable(interactionSource = null, indication = null, onClickLabel = "软件更新", onClick = onCheck),
     ) {
         VersionCardArtwork(Modifier.matchParentSize().then(artworkProducer))
         Column(
@@ -194,7 +222,7 @@ private fun AboutVersionHeader(version: String, updateAvailable: Boolean, expand
                 backgroundModifier = buttonMaterial,
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(if (updateAvailable) "发现新版本" else "检查更新", color = foreground, textAlign = TextAlign.Center,
+                    Text(updateLabel, color = foreground, textAlign = TextAlign.Center,
                         style = rememberCouiTextStyle(CouiTextKind.Progress).copy(
                             fontSize = with(density) { 14.dp.toSp() }, lineHeight = with(density) { 20.dp.toSp() }))
                     if (updateAvailable) {
