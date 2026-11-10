@@ -393,9 +393,11 @@ fun NormalizedAiManualImportScreen(
             }
         }
         aiParsing = false
-        AiEduImportProgressSession.clearActions()
-        AiEduImportProgressSession.update(if (historySaved) progress
-            else progress.copy(checkpointNotice = "课表已读取，历史记录保存失败"))
+        // A new task must explicitly carry its validated checkpoint into the session.
+        AiEduImportProgressSession.beginTask(
+            progress = if (historySaved) progress else progress.copy(checkpointNotice = "课表已读取，历史记录保存失败"),
+            preserveCheckpointsFromTaskId = progress.taskId
+        )
         context.openRegisteredActivity(
             TransitionRouteId.ImportToAiProgress,
             Intent(context, AiEduImportProgressActivity::class.java)
