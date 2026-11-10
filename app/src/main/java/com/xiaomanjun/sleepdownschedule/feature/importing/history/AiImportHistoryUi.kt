@@ -12,16 +12,16 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,10 +44,11 @@ import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itos.coui.scroll.couiVerticalScroll
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
@@ -165,8 +166,7 @@ private fun AiImportHistoryPage(
     var snapshotRequestVersion by remember { mutableStateOf(0) }
     var rootPosition by remember { mutableStateOf(Offset.Zero) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
-    // Live row geometry for the return animation. Entries that leave the viewport are removed so a
-    // deleted or recycled row can never be used as the CLOSE target.
+    // Only fully visible cards can be used as the return anchor.
     val rowBounds = remember {
         mutableStateMapOf<String, androidx.compose.ui.geometry.Rect>()
     }
@@ -192,22 +192,25 @@ private fun AiImportHistoryPage(
             compactTopBar = true,
             centerCompactTitle = true
         ) { _ ->
+            val scrollable = Modifier.fillMaxSize().couiVerticalScroll(rememberScrollState())
             if (entries.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(scrollable, contentAlignment = Alignment.Center) {
                     Text("还没有导入记录", color = textColor.copy(alpha = 0.52f))
                 }
             } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(
+                Column(
+                    modifier = scrollable.padding(
+                        start = 16.dp,
+                        end = 16.dp,
                         top = detailContentTopPadding() + 10.dp,
-                        bottom = DockScrollPadding
+                        bottom = detailContentBottomPadding()
                     ),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    items(entries, key = { it.id }) { entry ->
-                        AiImportHistorySwipeRow(
-                            entry = entry,
+                    entries.forEach { entry ->
+                        key(entry.id) {
+                            AiImportHistorySwipeRow(
+                                entry = entry,
                                 textColor = textColor,
                                 revealed = revealedEntryId == entry.id,
                                 onRevealChange = { open ->
@@ -236,18 +239,19 @@ private fun AiImportHistoryPage(
                                         )
                                     }
                                 },
-                            onBoundsChanged = { bounds ->
-                                val fullyVisible = rootSize.height > 0 && bounds.width > 0f && bounds.height > 0f &&
-                                    bounds.top >= rootPosition.y &&
-                                    bounds.bottom <= rootPosition.y + rootSize.height &&
-                                    bounds.left >= rootPosition.x &&
-                                    bounds.right <= rootPosition.x + rootSize.width
-                                if (fullyVisible) rowBounds[entry.id] = bounds
-                                else rowBounds.remove(entry.id)
+                                onBoundsChanged = { bounds ->
+                                    val fullyVisible = rootSize.height > 0 && bounds.width > 0f && bounds.height > 0f &&
+                                        bounds.top >= rootPosition.y &&
+                                        bounds.bottom <= rootPosition.y + rootSize.height &&
+                                        bounds.left >= rootPosition.x &&
+                                        bounds.right <= rootPosition.x + rootSize.width
+                                    if (fullyVisible) rowBounds[entry.id] = bounds
+                                    else rowBounds.remove(entry.id)
+                                }
+                            )
+                            DisposableEffect(entry.id) {
+                                onDispose { rowBounds.remove(entry.id) }
                             }
-                        )
-                        DisposableEffect(entry.id) {
-                            onDispose { rowBounds.remove(entry.id) }
                         }
                     }
                 }

@@ -35,7 +35,9 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -44,6 +46,7 @@ import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
 import com.itos.coui.effect.CouiMetaballBody
 import com.itos.coui.effect.CouiMetaballRenderer
@@ -56,8 +59,8 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportHistoryEntry
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
-private val HistoryRowHeight = 78.dp
 private val HistoryRowRadius = 18.dp
 // ColorOS SystemUI notification_menu_icon_with_background_width / standard_height.
 private val HistorySwipeActionWidth = 60.dp
@@ -91,6 +94,7 @@ internal fun AiImportHistorySwipeRow(
     var dragging by remember(entry.id) { mutableStateOf(false) }
     var deleting by remember(entry.id) { mutableStateOf(false) }
     var job by remember(entry.id) { mutableStateOf<Job?>(null) }
+    var widthPx by remember(entry.id) { mutableFloatStateOf(0f) }
     var cardBounds by remember(entry.id) { mutableStateOf(Rect.Zero) }
     val latestDelete by rememberUpdatedState(onDelete)
     val latestRevealChange by rememberUpdatedState(onRevealChange)
@@ -114,9 +118,12 @@ internal fun AiImportHistorySwipeRow(
     }
     LaunchedEffect(cardBounds, atRest) { onBoundsChanged(if (atRest) cardBounds else Rect.Zero) }
 
-    BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 16.dp)
-        .height(HistoryRowHeight * (1f - collapse.value).coerceAtLeast(.02f)).clipToBounds()) {
-        val widthPx = with(density) { maxWidth.toPx() }
+    Box(Modifier.clipToBounds().layout { measurable, constraints ->
+        // Keep the card at its measured size while the viewport collapses after dismissal.
+        val card = measurable.measure(constraints)
+        val height = constraints.constrainHeight((card.height * (1f - collapse.value)).roundToInt())
+        layout(card.width, height) { card.placeRelative(0, 0) }
+    }.onSizeChanged { widthPx = it.width.toFloat() }) {
         val commitPx = (restPx + with(density) { 54.dp.toPx() }).coerceAtMost(widthPx * .9f)
         fun delete() {
             if (deleting) return
@@ -135,7 +142,7 @@ internal fun AiImportHistorySwipeRow(
         val mask = remember(active) { if (active && Build.VERSION.SDK_INT >= 33) CouiMetaballRenderer() else null }
         val cardColor = MaterialTheme.colorScheme.surfaceContainerHigh
         val shape = RoundedRectangle(HistoryRowRadius)
-        Box(Modifier.fillMaxSize().pointerInput(entry.id, widthPx, restPx, rtl) {
+        Box(Modifier.pointerInput(entry.id, widthPx, restPx, rtl) {
             val tracker = VelocityTracker()
             var initialDistance = 0f
             var lastPosition: Offset? = null
@@ -204,8 +211,12 @@ internal fun AiImportHistorySwipeRow(
                         right = if (rtl) size.width else (size.width - distance).coerceAtLeast(0f)) { this@drawWithContent.drawContent() }
                 }
             }
-            Box(Modifier.fillMaxSize().then(cardSurface)
-                .onGloballyPositioned { cardBounds = it.boundsInWindow() }
+            Box(Modifier.then(cardSurface)
+                .onGloballyPositioned { coordinates ->
+                    cardBounds = coordinates.boundsInWindow().takeIf { bounds ->
+                        bounds.width >= coordinates.size.width - 1 && bounds.height >= coordinates.size.height - 1
+                    } ?: Rect.Zero
+                }
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() }, indication = null, enabled = !deleting,
                     onClick = {
@@ -222,7 +233,7 @@ internal fun AiImportHistorySwipeRow(
                 AiImportHistoryRowContent(
                     entry = entry,
                     textColor = textColor,
-                    modifier = Modifier.fillMaxSize().graphicsLayer { translationX = -direction * distance },
+                    modifier = Modifier.graphicsLayer { translationX = -direction * distance },
                 )
             }
             if (actionVisible) {

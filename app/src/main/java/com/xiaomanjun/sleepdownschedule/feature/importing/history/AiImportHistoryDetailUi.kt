@@ -6,10 +6,21 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -21,11 +32,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.text.PlatformTextStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsForwardIndicator
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.progress.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
@@ -36,6 +53,7 @@ import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 open class AiImportHistoryDetailActivityHost : ComponentActivity() {
     companion object {
@@ -117,19 +135,52 @@ internal fun AiImportHistoryRowContent(
     modifier: Modifier = Modifier,
     textColor: Color = Color.White
 ) {
-    val summary = listOf(
-        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
-            .format(Date(entry.createdAt)),
-        entry.sourceSummary,
-        entry.prompt
-    ).filter { it.isNotBlank() }.joinToString(" · ")
-    Column(modifier = modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
-        Text(entry.title, color = textColor, style = MaterialTheme.typography.titleMedium)
+    val locale = LocalConfiguration.current.locales[0]
+    val (date, time) = remember(entry.createdAt, locale) {
+        val created = Date(entry.createdAt)
+        DateFormat.getDateInstance(DateFormat.SHORT, locale).format(created) to
+            DateFormat.getTimeInstance(DateFormat.SHORT, locale).format(created)
+    }
+    Row(
+        modifier = modifier.widthIn(min = 160.dp).heightIn(min = 68.dp)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(
+            modifier = Modifier.weight(1f, fill = false).padding(end = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(entry.title, color = textColor, style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold)
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                ImportHistoryChip(date, textColor, Icons.Outlined.DateRange)
+                ImportHistoryChip(time, textColor, Icons.Outlined.Schedule)
+                ImportHistoryChip(entry.sourceSummary.ifBlank { "课表导入" }, textColor)
+            }
+        }
+        SettingsForwardIndicator()
+    }
+}
+
+@Composable
+private fun ImportHistoryChip(label: String, textColor: Color, icon: ImageVector? = null) {
+    val foreground = textColor.copy(alpha = 0.78f)
+    Row(
+        modifier = Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f),
+            RoundedCornerShape(14.dp)).padding(horizontal = 8.dp, vertical = 5.dp),
+        horizontalArrangement = Arrangement.spacedBy(5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        icon?.let { Icon(it, null, Modifier.size(13.dp), tint = foreground.copy(alpha = 0.68f)) }
         Text(
-            summary,
-            color = textColor.copy(alpha = 0.68f),
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 2
+            label,
+            color = foreground,
+            style = MiuixTheme.textStyles.body2.copy(fontSize = 12.sp, lineHeight = 17.sp,
+                platformStyle = PlatformTextStyle(includeFontPadding = false))
         )
     }
 }
