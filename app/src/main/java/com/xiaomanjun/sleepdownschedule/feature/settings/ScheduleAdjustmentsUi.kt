@@ -7,7 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -237,7 +237,7 @@ internal fun ScheduleAdjustmentsScreen(
         onBack = ::requestBack
     ) { backdrop ->
         Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().glassBackdropProducer(pageBackdrop).verticalScroll(rememberScrollState())
+        Column(Modifier.fillMaxSize().glassBackdropProducer(pageBackdrop).pageVerticalScroll(rememberScrollState())
             .padding(start = 16.dp, end = 16.dp, top = detailContentTopPadding() + 12.dp,
                 bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + DockScrollPadding),
             verticalArrangement = Arrangement.spacedBy(14.dp)) {

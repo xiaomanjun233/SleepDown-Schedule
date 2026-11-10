@@ -31,7 +31,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.verticalScroll
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -360,7 +360,7 @@ internal fun HomeSidebar(
                         }
                     }
                     Spacer(Modifier.height(6.dp))
-                    Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
+                    Column(Modifier.weight(1f).pageVerticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         SidebarDestinationRow(HomeSidebarDestination.Day, "今日", HomeTodayIcon,
                             selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Day) }

@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -120,7 +120,7 @@ internal fun CourseEditorFormPage(
     }
     CompositionLocalProvider(LocalContentColor provides editorContentColor) {
     Box(modifier = Modifier.fillMaxSize()) {
-    LazyColumn(
+    SleepDownLazyColumn(
         // Compose only visible fields. Hidden input/selector rows and adjacent full forms must
         // not compete with the first visible editor frame. Drafts remain owned above the list.
         modifier = Modifier

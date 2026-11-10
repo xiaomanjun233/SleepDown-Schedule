@@ -49,7 +49,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -927,7 +927,7 @@ internal fun DayAgentConversationDialog(
                               message.role == "assistant" && runStatuses.isNotEmpty()
                           }
                           ?.id
-                      LazyColumn(
+                      SleepDownLazyColumn(
                          state = conversationListState,
                          modifier = if (homePresentation && !homeFullScreen) {
                              Modifier.heightIn(max = homeAnswerLimit).onSizeChanged {

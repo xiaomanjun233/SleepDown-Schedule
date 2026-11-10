@@ -2,7 +2,7 @@ package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -87,7 +87,7 @@ internal fun AutoRefreshReviewHost(config: ScheduleConfigEntity, backdrop: Backd
             }
             Column(Modifier.fillMaxWidth().weight(1f, fill = false)
                 .heightIn(max = SleepDownDesignTokens.CenteredDialog.SelectionContentMaxHeight)
-                .verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                .pageVerticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (review.termChanged) {
                     ReviewItem("学期信息", review.beforeTerm.description(), review.afterTerm.description(),
                         useTerm, !saving, backdrop) { useTerm = it }

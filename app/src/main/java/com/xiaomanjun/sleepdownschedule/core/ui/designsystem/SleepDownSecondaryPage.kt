@@ -3,7 +3,7 @@ package com.xiaomanjun.sleepdownschedule.core.ui.designsystem
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.consumeWindowInsets
-import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -62,7 +62,7 @@ fun SleepDownSecondaryPageList(
     }
     CompositionLocalProvider(LocalCouiSettingsListLayout provides
         (LocalCouiSettingsEnabled.current && style == SleepDownSecondaryPageStyle.Settings && sectionSpacing == null)) {
-    LazyColumn(
+    SleepDownLazyColumn(
         modifier = modifier.then(LocalCouiSettingsContentPadding.current?.let {
             Modifier.consumeWindowInsets(it)
         } ?: Modifier),

@@ -9,7 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ChatBubble
@@ -117,7 +117,7 @@ fun SettingsRootScreen(
         val backdrop = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS && android.os.Build.VERSION.SDK_INT < 31) null
             else if (BuildConfig.SLEEPDOWN_COUI_SETTINGS || LocalSettingsSharedGradient.current != null) pageBackdrop else inheritedBackdrop
         CompositionLocalProvider(LocalCouiSettingsListLayout provides BuildConfig.SLEEPDOWN_COUI_SETTINGS) {
-        LazyColumn(
+        SleepDownLazyColumn(
             state = LocalCouiSettingsListState.current ?: rememberLazyListState(),
             overscrollEffect = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) rememberCouiOverscrollEffect()
                 else androidx.compose.foundation.rememberOverscrollEffect(),

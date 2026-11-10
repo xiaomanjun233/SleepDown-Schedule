@@ -3,7 +3,7 @@ package com.xiaomanjun.sleepdownschedule.feature.importing.progress
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -55,7 +55,7 @@ internal fun AiEduImportProgressPage(
                         Text("导入历史", color = colors.primary, style = AiImportTextStyles.Title,
                             modifier = Modifier.padding(12.dp, 20.dp))
                         SidebarRow("当前导入", selectedId == null) { showCurrent = true }
-                        LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 12.dp),
+                        SleepDownLazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 12.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             items(entries, key = { it.id }) { entry ->
                                 SidebarRow(entry.title, selectedId == entry.id, entry.sourceSummary) {

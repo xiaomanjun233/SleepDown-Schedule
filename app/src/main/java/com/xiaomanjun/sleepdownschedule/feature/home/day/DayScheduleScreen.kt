@@ -16,13 +16,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -488,7 +488,7 @@ internal fun DayScheduleScreen(
                             .width(adaptiveMetrics.daySidePaneWidth)
                             .fillMaxHeight()
                             .padding(top = adaptiveMetrics.dayContentTopPadding)
-                            .verticalScroll(rememberScrollState())
+                            .pageVerticalScroll(rememberScrollState())
                             // Bottom clearance belongs to the scroll content. Padding the viewport
                             // itself clips the assistant cards before they reach the window edge.
                             .padding(bottom = if (adaptiveMetrics.usesSidebar) 20.dp + adaptiveMetrics.safeBottom else DayDockScrollPadding),
@@ -497,7 +497,7 @@ internal fun DayScheduleScreen(
                         headerContent()
                         agentContent()
                     }
-                    LazyColumn(
+                    SleepDownLazyColumn(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
@@ -512,7 +512,7 @@ internal fun DayScheduleScreen(
                 }
             } else {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                    LazyColumn(
+                    SleepDownLazyColumn(
                         modifier = if (adaptiveMetrics.isLargeScreen) {
                             Modifier
                                 .widthIn(max = 760.dp)
