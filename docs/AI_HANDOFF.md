@@ -1,5 +1,23 @@
 # 当前工作交接
 
+## 2026-11-10 COUI-Kit、统一导入与软件更新
+
+在 `codex/restore-activity-navigation` 的 `0387d8f9` 上续作，候选源码为 `584b284e`。用 GitHub 插件核对 ItosEO/COUI-Kit 的 `main`，同步到 [`3463800`](https://github.com/ItosEO/COUI-Kit/commit/3463800923d62f5b8c3156f0ad96265a24170aa1)，包含分段控件 PR #21。合并实际 Kit 模块差异，保留宿主的融合采样优化、HD 指示器模式、整排起滑与松手提交。提交 `058f4f02`。
+
+ColorOS framework 的 SharedViewKit View 重载要求 Activity Context。注册期间会用 `View.draw(Canvas(bitmap))` 取样。旧加号投影只有 Compose 硬件绘制指令，软件取样无法得到完整帧。凝光沿用已有加号 PixelCopy，将剪圆后的同一帧交给软件画布和 Legacy，保留硬件画布的实时 View。液态玻璃从原加号图层准备软件帧。源仍从 View 重载提交，返回读取该 View 的窗口坐标。增加路线的拒绝原因日志和软件 Canvas 回归。提交 `302a8f12`。
+
+统一导入使用 Kit 的 32dp 紧凑样式，越过分段即切换，教务侧滑块作为列表头随内容滚动。普通和教务在列表顶部的起始位置一致，学校索引计入列表头。更新页共用首页凝光三点菜单的 196dp 宽度、轮廓、文字、跟手光及退场行为，保留「自动更新设置」「历史日志」两项，待退场完成后切页。提交 `666361dd`、`ca7582cf`、`584b284e`。
+
+软件更新壁纸以 ColorOS OTA 17 的 `kv_bg_17` 为参考，通过内置 imagegen 改色。编码后的应用资源为 `app/src/main/res/drawable-nodpi/software_update_wallpaper.webp`，841×1870、24,646 字节。最终提示词如下。
+
+```text
+Use case: style-transfer. Recolor the supplied full-bleed portrait ColorOS wallpaper for the SleepDown software update screen. Preserve the original extremely tall portrait framing, the single translucent orb clipped by the right edge, its scale and exact position in the lower half, the smooth low wave, the dark diagonal band and all their silhouettes and negative space. Preserve the nearly black midnight navy upper 38 percent and dark navy at the bottom for legible white UI. Replace the saturated orange and yellow of the luminous ribbon and orb with luminous icy cornflower blue and a pale periwinkle edge, with lavender transitions. Keep subtle blue-purple gradients and an elegant moderately saturated blue glow. Preserve contrast and the velvety soft edges of the original, with a restrained dark cool SleepDown palette. Full bleed, no UI, text, typography, logos, extra shapes, ornaments, grain or borders.
+```
+
+最终候选的 48 项定向测试通过，其中应用 34 项、Kit 14 项。GitHub Release、R8、资源压缩、lintVital 和 V2 签名核对通过。包为 `tmp/review-apks/SleepDown-1.2.8-beta2-COUI-Import-OTA-584b284e.apk`，7,910,601 字节，SHA-256 为 `0AACD7292CA2F594C591FA6D42A2A5083D89A89694DECE52A48FA5673E597AB9`。构建日志在主工作区 `tmp/coui-3463800-import-ota-final-build.log`。
+
+后台 Pixel 10 Pro AVD 使用 Android 16、SDK ADB 5037、`emulator-5556` 的隔离用户 10。最终包覆盖安装并回读相同 SHA。确认凝光下两个入口的滑块起始位置一致，滑选和竖滚可用，滑块滚出后悬浮搜索仍在。两个更新菜单项及返回通过。此前同 Kit 版本在宽屏通过整排起滑、反滑、竖拖和点击，在液态玻璃通过加号、切换教务和返回。设备恢复 864×1856 与凝光。截图与点验日志在主工作区 `tmp/nav3-qa/compact-*` 及 `tmp/nav3-qa/coui-3463800-hd-smoke.log`。模拟器记录 `supportedProtocol=0` 后走 Legacy，ColorOS 真机的金标开合待验收。
+
 ## 2026-11-10 软件更新底卡和关于页细节
 
 以 `2de39897` 为基线。用户的 ColorOS 实机图显示手机软件更新使用全屏背景、居中品牌和底部状态卡。重新反编译本地保留的真机 OTA 17.0.3 APK，`FragmentBusy` 的 WebView 接收版本状态及两项操作，包内原生 `logo_area` 和 `version_layout` 属于其他布局分支。底卡以用户实机图测量，左右边距 16dp、内边距 24dp、底部安全区外留 20dp、按钮 44dp 高且相隔 8dp。宽屏保留独立头卡。手机品牌区把短版本号缩为 22sp，底卡保留完整版本。主操作是重新检查，查看更新说明打开安装版本对应的发布页。
