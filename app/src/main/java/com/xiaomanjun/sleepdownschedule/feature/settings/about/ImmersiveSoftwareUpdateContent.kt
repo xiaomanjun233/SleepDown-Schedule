@@ -55,14 +55,12 @@ internal fun ImmersiveSoftwareUpdateContent(
         val titleArea = (viewport * .52f - top).coerceAtLeast(120.dp)
         val producer = if (wallpaper != null) Modifier.glassBackdropProducer(wallpaper) else Modifier
         Box(Modifier.matchParentSize().then(producer).background(Color(0xFF12152D))) {
-            Image(painterResource(R.drawable.about_sleepdown_hero), null, Modifier.matchParentSize(),
-                contentScale = ContentScale.Crop, alignment = Alignment.CenterEnd)
+            Image(painterResource(R.drawable.software_update_wallpaper), null, Modifier.matchParentSize(),
+                contentScale = ContentScale.Crop)
             Box(Modifier.matchParentSize().background(Brush.verticalGradient(
-                0f to Color(0xFF12152D),
-                .27f to Color(0xC912152D),
-                .57f to Color(0x64181D3B),
-                .76f to Color(0x3D181D3B),
-                1f to Color(0xF212152D),
+                0f to Color(0x2612152D),
+                .50f to Color.Transparent,
+                1f to Color(0x4012152D),
             )))
         }
         Column(

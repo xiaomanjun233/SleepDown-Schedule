@@ -56,20 +56,21 @@ private fun actionMenuStyle(dark: Boolean, placement: CouiMenuPlacement) = CouiM
     placement = placement,
 )
 
-/** 选定动作立即交给业务，窗口退场只清理资源；不把液滴 Morph 套在凝光菜单上。 */
+/** 首页动作可以即时提交，需要切页的宿主可以等待窗口退场。 */
 @Composable
 internal fun GlowOverflowMenuButton(dark: Boolean, interactive: Boolean, actions: List<AddMenuAction>,
-    modifier: Modifier, content: @Composable (onClick: () -> Unit) -> Unit) {
+    modifier: Modifier, deferSelectionUntilClosed: Boolean = false,
+    content: @Composable (onClick: () -> Unit) -> Unit) {
     var mounted by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
-    var submitted by remember { mutableStateOf(false) }
+    var submitted by remember { mutableStateOf<AddMenuAction?>(null) }
     var shownActions by remember { mutableStateOf(emptyList<AddMenuAction>()) }
     val latestActions by rememberUpdatedState(actions)
     val items = shownActions.couiItems()
     val onBounds = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenuBounds.current
     Box(modifier) {
         content {
-            if (interactive && latestActions.isNotEmpty() && !submitted) {
+            if (interactive && latestActions.isNotEmpty() && submitted == null) {
                 if (!mounted) shownActions = latestActions.toList()
                 mounted = true
                 expanded = true
@@ -80,22 +81,25 @@ internal fun GlowOverflowMenuButton(dark: Boolean, interactive: Boolean, actions
                 style = actionMenuStyle(dark, CouiMenuPlacement.AnchorCenter), offset = DpOffset(0.dp, 8.dp),
                 onDismissRequest = { expanded = false },
                 onItemClick = { item ->
-                    if (expanded && !submitted) {
-                        submitted = true
+                    val action = shownActions.getOrNull(item.value)
+                    if (expanded && submitted == null && action != null) {
+                        submitted = action
                         expanded = false
-                        shownActions.getOrNull(item.value)?.onClick?.invoke()
+                        if (!deferSelectionUntilClosed) action.onClick()
                     }
                 },
                 onDismissFinished = {
-                    submitted = false
+                    val action = submitted
+                    submitted = null
                     mounted = false
+                    if (deferSelectionUntilClosed) action?.onClick?.invoke()
                 }, onMenuPositioned = { onBounds?.invoke(it) })
         }
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) { submitted = false; expanded = false; mounted = false }
+            if (event == Lifecycle.Event.ON_STOP) { submitted = null; expanded = false; mounted = false }
         }
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }

@@ -1,6 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings.about
 
 import android.net.Uri
+import android.os.Build
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -12,15 +14,18 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.BiasAlignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextAlign
@@ -35,16 +40,17 @@ import com.itos.coui.button.CouiButtonDefaults
 import com.itos.coui.button.CouiButtonStyle
 import com.itos.coui.button.CouiCapsuleButton
 import com.itos.coui.icons.CouiIcons
-import com.itos.coui.menu.CouiMenuItem
-import com.itos.coui.menu.Menu
 import com.itos.coui.shape.CouiCapsuleShape
 import com.itos.coui.shape.CouiShape
 import com.itos.coui.text.CouiTextKind
 import com.itos.coui.text.rememberCouiTextStyle
 import com.itos.coui.theme.CouiTheme
+import com.itos.coui.theme.LocalCouiMaterialEnabled
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
+import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsToolbarButton
@@ -52,6 +58,9 @@ import com.xiaomanjun.sleepdownschedule.core.web.openSleepDownCustomTab
 import com.xiaomanjun.sleepdownschedule.core.web.resolveSleepDownCustomTabsPackage
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.feature.update.*
+import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
+import com.xiaomanjun.sleepdownschedule.platform.coloros.CouiHomeIconButton
+import com.xiaomanjun.sleepdownschedule.platform.coloros.GlowOverflowMenuButton
 
 /** 独立全屏软件更新页，沿用既有检查、下载、安装及底部权限窗口。 */
 @Composable
@@ -98,36 +107,35 @@ internal fun SoftwareUpdateSettingsScreen(state: AppState, backdrop: Backdrop?) 
 
 @Composable
 internal fun SoftwareUpdateMenu(backdrop: Backdrop?, onOpenPage: (SettingsPage) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    var destination by remember { mutableStateOf<SettingsPage?>(null) }
-    val items = remember {
+    val compact = LocalConfiguration.current.screenWidthDp < 600
+    val dark = compact || CouiTheme.isDark
+    val openPage by rememberUpdatedState(onOpenPage)
+    val actions = remember {
         buildList {
-            if (AppDistribution.supportsSelfUpdate) add(CouiMenuItem(SettingsPage.AutoUpdate, "自动更新设置"))
-            add(CouiMenuItem(SettingsPage.Changelog, "历史日志"))
+            if (AppDistribution.supportsSelfUpdate) {
+                add(AddMenuAction(R.drawable.ic_settings, "自动更新设置") { openPage(SettingsPage.AutoUpdate) })
+            }
+            add(AddMenuAction(R.drawable.ic_history, "历史日志") { openPage(SettingsPage.Changelog) })
         }
     }
-    Box {
-        if (LocalConfiguration.current.screenWidthDp < 600) {
-            SoftwareUpdateToolbarButton(CouiIcons.More, "更多选项") { expanded = true }
-        } else {
-            CouiSettingsToolbarButton(backdrop, onClick = { expanded = true }) {
-                Icon(CouiIcons.More, "更多选项", Modifier.size(24.dp), tint = CouiTheme.colorScheme.onSurface)
-            }
+    GlowOverflowMenuButton(dark, interactive = true, actions, Modifier, deferSelectionUntilClosed = true) { open ->
+        if (Build.VERSION.SDK_INT >= 34 && LocalCouiMaterialEnabled.current && backdrop != null) {
+            CouiHomeIconButton(
+                iconRes = R.drawable.ic_more_horizontal,
+                contentDescription = "更多选项",
+                dark = dark,
+                interactive = true,
+                selected = false,
+                modifier = Modifier.size(48.dp),
+                onClick = open,
+                enabled = true,
+                backdrop = rememberCouiGlassBackdrop(backdrop),
+            )
+        } else if (compact) {
+            SoftwareUpdateToolbarButton(CouiIcons.More, "更多选项", open)
+        } else CouiSettingsToolbarButton(backdrop, onClick = open) {
+            Icon(CouiIcons.More, "更多选项", Modifier.size(24.dp), tint = CouiTheme.colorScheme.onSurface)
         }
-        Menu(
-            expanded = expanded,
-            items = items,
-            onDismissRequest = { expanded = false },
-            onItemClick = {
-                destination = it.value
-                expanded = false
-            },
-            onDismissFinished = {
-                val page = destination
-                destination = null
-                page?.let(onOpenPage)
-            },
-        )
     }
 }
 
@@ -215,7 +223,7 @@ internal fun SoftwareUpdatePageContent(
 
 @Composable
 private fun SoftwareUpdateHero(version: String, updateAvailable: Boolean) {
-    val foreground = versionCardForeground()
+    val foreground = Color.White
     val density = LocalDensity.current
     // logo_area 的常规卡高 240dp，V1/Q 绑定后的升级卡使用 343dp。
     Box(
@@ -223,7 +231,11 @@ private fun SoftwareUpdateHero(version: String, updateAvailable: Boolean) {
             .clip(CouiShape(16.dp, 2.5f)),
         contentAlignment = Alignment.Center,
     ) {
-        VersionCardArtwork(Modifier.matchParentSize())
+        Image(
+            painterResource(R.drawable.software_update_wallpaper), null, Modifier.matchParentSize(),
+            alignment = BiasAlignment(0f, .24f), contentScale = ContentScale.Crop,
+        )
+        Box(Modifier.matchParentSize().background(Color(0x6612152D)))
         if (updateAvailable) {
             Text("发现新版本", Modifier.align(Alignment.TopCenter).padding(top = 32.dp, start = 16.dp, end = 16.dp),
                 color = foreground, textAlign = TextAlign.Center,

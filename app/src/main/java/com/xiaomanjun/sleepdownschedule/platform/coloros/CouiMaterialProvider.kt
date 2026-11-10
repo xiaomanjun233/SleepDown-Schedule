@@ -36,7 +36,7 @@ private object CouiHomeControls : HomeMaterialControls {
     @Composable
     override fun OverflowMenuButton(dark: Boolean, interactive: Boolean, actions: List<AddMenuAction>,
         modifier: Modifier, content: @Composable (onClick: () -> Unit) -> Unit): Boolean {
-        GlowOverflowMenuButton(dark, interactive, actions, modifier, content)
+        GlowOverflowMenuButton(dark, interactive, actions, modifier, content = content)
         return true
     }
 
