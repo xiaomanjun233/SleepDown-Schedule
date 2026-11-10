@@ -7,14 +7,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -33,7 +30,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextAlign
@@ -42,6 +38,7 @@ import com.itos.coui.checkbox.Checkbox
 import com.itos.coui.checkbox.CouiCheckboxDefaults
 import com.itos.coui.effect.couiButtonFeedback
 import com.itos.coui.icons.CouiIcons
+import com.itos.coui.navigation.CouiDockDefaults
 import com.itos.coui.text.CouiTextKind
 import com.itos.coui.theme.CouiTheme
 import com.itos.coui.theme.LocalCouiMaterialEnabled
@@ -49,9 +46,11 @@ import com.itos.coui.topappbar.CouiTopAppBarDefaults
 import com.itos.coui.topappbar.TopAppBar
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
-import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.LiquidHomeDockHeight
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsToolbarTextButton
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsEditorProgress
 import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
 import kotlinx.coroutines.CancellationException
@@ -108,7 +107,6 @@ internal fun Modifier.courseCardInteraction(
         )
     }
 }
-
 internal val CourseCardDeleteBottomSpace = 80.dp
 
 @Composable
@@ -136,6 +134,8 @@ internal fun <T> BoxScope.CourseCardSelectionChrome(
     val colors = CouiTheme.colorScheme
     val editorProgress = LocalSettingsEditorProgress.current
     val material = LocalCouiMaterialEnabled.current
+    val effects = LocalVisualEffects.current
+    val deleteHeight = if (effects.usesGlowMaterials) CouiDockDefaults.barHeight else LiquidHomeDockHeight
     fun cancel() {
         if (canAct) {
             error = null
@@ -159,9 +159,9 @@ internal fun <T> BoxScope.CourseCardSelectionChrome(
                     kind = CouiTextKind.Toolbar, maxLines = 1
                 )
             },
-            navigationIcon = { SelectionTextButton("取消", canAct, ::cancel) },
+            navigationIcon = { CouiSettingsToolbarTextButton("取消", canAct, ::cancel) },
             actions = {
-                SelectionTextButton(
+                CouiSettingsToolbarTextButton(
                     if (cards.isNotEmpty() && selected.size == cards.size) "取消全选" else "全选",
                     canAct && cards.isNotEmpty()
                 ) { selection.selectAll(cards.keys) }
@@ -187,6 +187,7 @@ internal fun <T> BoxScope.CourseCardSelectionChrome(
                 onClick = { error = null; pending = selected },
                 backdrop = backdrop,
                 modifier = Modifier.width(152.dp),
+                height = deleteHeight,
                 enabled = enabled,
                 preserveMaterialWhenDisabled = true,
                 nativePrimaryColor = Color.Unspecified,
@@ -223,21 +224,5 @@ internal fun <T> BoxScope.CourseCardSelectionChrome(
                 }
             )
         )
-    }
-}
-
-@Composable
-private fun SelectionTextButton(label: String, enabled: Boolean, onClick: () -> Unit) {
-    val interaction = remember { MutableInteractionSource() }
-    val accent = CouiTheme.colorScheme.accentOnSurface
-    Box(
-        Modifier.heightIn(min = 48.dp).clip(Capsule())
-            .couiButtonFeedback(CouiTheme.isDark, interaction, enabled)
-            .clickable(interaction, null, enabled, role = Role.Button, onClick = onClick)
-            .padding(horizontal = 8.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        com.itos.coui.text.Text(text = label, kind = CouiTextKind.Toolbar,
-            color = accent.copy(alpha = if (enabled) 1f else 0.4f), maxLines = 1)
     }
 }

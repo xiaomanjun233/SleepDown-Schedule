@@ -32,6 +32,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
 import com.itos.coui.effect.couiButtonFeedback
+import com.itos.coui.button.CouiButtonDefaults
+import com.itos.coui.button.CouiCapsuleButton
 import com.itos.coui.icons.CouiIcons
 import com.itos.coui.layout.Scaffold
 import com.itos.coui.layout.CouiPageDefaults
@@ -39,6 +41,7 @@ import com.itos.coui.menu.ProvideCouiMenuBackdrop
 import com.itos.coui.text.CouiTextKind
 import com.itos.coui.text.Text
 import com.itos.coui.theme.CouiTheme
+import com.itos.coui.theme.LocalCouiContentColor
 import com.itos.coui.theme.LocalCouiMaterialEnabled
 import com.itos.coui.topappbar.*
 import com.itos.coui.search.SearchBar
@@ -173,6 +176,7 @@ internal fun CouiSettingsPageScaffold(
     topBarBackgroundColor: androidx.compose.runtime.State<Color?>? = null,
     topBarActions: @Composable (Backdrop?) -> Unit = {},
     topBarNavigation: (@Composable () -> Unit)? = null,
+    centerTopBarTitle: Boolean = false,
     content: @Composable (PaddingValues, Backdrop) -> Unit,
 ) {
     val pageConfig = settingsVisualConfig(config)
@@ -281,7 +285,7 @@ internal fun CouiSettingsPageScaffold(
                                     else TopAppBar(modifier = chrome, title = label,
                                         navigationIcon = navigation,
                                         actions = { topBarActions(topBarBackdropOverride ?: source) }, windowInsets = insets,
-                                        colors = barColors, contentModifier = toolbarContent)
+                                        colors = barColors, contentModifier = toolbarContent, centerTitle = centerTopBarTitle)
                                 }
                             }
                             if (LocalCouiLiquidMaterial.current && sampling && showTopGradientBlur)
@@ -421,4 +425,32 @@ internal fun CouiSettingsToolbarButton(backdrop: Backdrop?, onClick: () -> Unit,
         .couiButtonFeedback(dark, interaction, true)
         .clickable(interaction, null, role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center, content = { content() })
+}
+
+/** ColorOS action-menu text uses a 60dp minimum width and a 40dp capsule. */
+@Composable
+internal fun CouiSettingsToolbarTextButton(label: String, enabled: Boolean = true, onClick: () -> Unit) {
+    val dark = CouiTheme.isDark
+    val textStyle = rememberCouiTextStyle(CouiTextKind.Button)
+    if (Build.VERSION.SDK_INT >= 34 && LocalCouiMaterialEnabled.current) {
+        val style = CouiTopAppBarButtonDefaults.style(dark).copy(
+            textStyle = textStyle,
+            material = { CouiTopAppBarButtonDefaults.systemMaterial(dark, it) }
+        )
+        TopAppBarButton(onClick = onClick, enabled = enabled, text = true, style = style) {
+            Text(text = label, kind = CouiTextKind.Button, color = LocalCouiContentColor.current, maxLines = 1)
+        }
+    } else {
+        val colors = CouiButtonDefaults.secondaryColors(dark)
+        Box(Modifier.height(48.dp), contentAlignment = Alignment.Center) {
+            CouiCapsuleButton(
+                modifier = Modifier.widthIn(min = 60.dp), onClick = onClick, dark = dark, enabled = enabled,
+                colors = colors, height = 40.dp, contentPadding = PaddingValues(horizontal = 12.dp),
+                preserveMaterialWhenDisabled = true
+            ) {
+                Text(text = label, kind = CouiTextKind.Button,
+                    color = if (enabled) colors.content else colors.disabledContent, maxLines = 1)
+            }
+        }
+    }
 }

@@ -47,13 +47,14 @@ fun TopAppBar(
         "顶栏需要显式 backdrop 或 ProvideCouiBackdrop 作用域"
     },
     contentModifier: Modifier = Modifier,
+    centerTitle: Boolean = false,
 ) {
     TopAppBarSurface(modifier.fillMaxWidth(), backdrop,
         gradientColor = colors.backgroundColor, dark = dark) {
         CompositionLocalProvider(LocalCouiDarkTheme provides dark) {
             AppBarLayout(title, navigationIcon, actions, colors, windowInsets,
                 CouiTopAppBarDefaults.height, CouiTopAppBarDefaults.height, null,
-                modifier = contentModifier)
+                modifier = contentModifier, centerTitle = centerTitle)
         }
     }
 }
@@ -131,6 +132,7 @@ private fun AppBarLayout(
     expandedTitleSize: TextUnit = TextUnit.Unspecified,
     collapsedTitleSize: TextUnit = TextUnit.Unspecified,
     modifier: Modifier = Modifier,
+    centerTitle: Boolean = false,
 ) {
     val large = expandedHeight > collapsedHeight
     val density = LocalDensity.current
@@ -183,7 +185,8 @@ private fun AppBarLayout(
         val offset = (state?.offsetPx ?: 0f).coerceIn(0f, range.toFloat())
         val height = constraints.constrainHeight((expanded - offset).roundToInt())
         val toolbarHeight = if (large) minOf(collapsed, height) else height
-        val padding = CouiTopAppBarDefaults.horizontalPadding.roundToPx().coerceAtMost(width / 2)
+        val horizontalPadding = if (centerTitle) 16.dp else CouiTopAppBarDefaults.horizontalPadding
+        val padding = horizontalPadding.roundToPx().coerceAtMost(width / 2)
         val gap = CouiTopAppBarDefaults.titleGap.roundToPx()
         val slotWidth = (width - 2 * padding).coerceAtLeast(0)
         val navigation = nodes[0].measure(Constraints(maxWidth = slotWidth, maxHeight = toolbarHeight))
@@ -202,7 +205,8 @@ private fun AppBarLayout(
         val end = if (large && action.width == 0) CouiCollapsingAppBarDefaults.titleOnlyStart.toPx()
             else compactEnd.toFloat()
         // 用缩放后的可见宽度限制标题，避免收起时覆盖导航或操作按钮。
-        val titleWidth = ((width - start - end).coerceAtLeast(0f) / scale).roundToInt()
+        val titleInsets = if (centerTitle) 2f * maxOf(start, end) else start + end
+        val titleWidth = ((width - titleInsets).coerceAtLeast(0f) / scale).roundToInt()
         val titleNode = nodes[2].measure(Constraints(maxWidth = titleWidth, maxHeight = (height / scale).toInt()))
         layout(width, height) {
             val navigationY = (toolbarHeight - navigation.height) / 2
@@ -219,7 +223,8 @@ private fun AppBarLayout(
                     expandedY + (range + collapsedY - expandedY) * progress - offset
                 }
             } else (height - titleNode.height) / 2f
-            titleNode.placeRelative(start.roundToInt(),
+            val titleX = if (centerTitle) (width - titleNode.width) / 2 else start.roundToInt()
+            titleNode.placeRelative(titleX,
                 (if (curvedTitle) titleY.coerceAtLeast(0f) else
                     titleY.coerceIn(0f, (height - titleNode.height * scale).coerceAtLeast(0f))).roundToInt())
         }

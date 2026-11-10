@@ -17,6 +17,7 @@ import com.xiaomanjun.sleepdownschedule.normalizedHomeChromeBlurScale
 internal val DayDockScrollPadding = 104.dp
 internal val WeekDockScrollPadding = 132.dp
 internal val DockScrollPadding = 132.dp
+internal val LiquidHomeDockHeight = 54.dp
 internal val HomeHeaderGlassBlur = 2.dp
 internal val HomeHeaderGlassLensHeight = 12.dp
 internal val HomeHeaderGlassLensAmount = 24.dp

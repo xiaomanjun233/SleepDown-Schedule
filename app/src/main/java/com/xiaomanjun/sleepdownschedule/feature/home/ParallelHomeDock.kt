@@ -32,6 +32,7 @@ import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.LiquidHomeDockHeight
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
 import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
@@ -119,7 +120,7 @@ internal fun ParallelHomeDock(
             derivedStateOf { with(density) {
                 val s = split.value.coerceIn(0f, 1f)
                 val dockX = ((groupWidth - dockWidth) / 2).toPx() * (1f - s)
-                Rect(dockX, dockTop.toPx(), dockX + dockWidth.toPx(), dockTop.toPx() + 54.dp.toPx())
+                Rect(dockX, dockTop.toPx(), dockX + dockWidth.toPx(), dockTop.toPx() + LiquidHomeDockHeight.toPx())
             } }
         }
         val buttonInteractive = homeSelected && splitReady && !buttonHidden
@@ -132,7 +133,7 @@ internal fun ParallelHomeDock(
             )
         }
         Box(Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset + 8.dp)
-            .width(groupWidth).height(dockTop + 54.dp).graphicsLayer { translationY = imeCompensation.toFloat() }) {
+            .width(groupWidth).height(dockTop + LiquidHomeDockHeight).graphicsLayer { translationY = imeCompensation.toFloat() }) {
             // Keep the original LiquidButton mounted throughout the split. Its glass, shadow,
             // refraction and press response use the same renderer at rest and while travelling.
             // Clip its returning part behind the Dock even though the Dock itself is translucent.
