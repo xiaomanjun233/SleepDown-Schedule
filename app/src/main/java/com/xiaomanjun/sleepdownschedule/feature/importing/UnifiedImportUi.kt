@@ -2,6 +2,8 @@ package com.xiaomanjun.sleepdownschedule.feature.importing
 
 import android.os.Build
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +22,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.BasicTextField
@@ -32,7 +35,11 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.movableContentOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -46,6 +53,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.itos.coui.scroll.couiVerticalScroll
 import com.itos.coui.segmentbutton.CouiSegmentedControlDefaults
 import com.itos.coui.segmentbutton.SegmentedControl
 import com.itos.coui.shape.CouiCapsuleShape
@@ -74,10 +82,16 @@ internal fun UnifiedImportTabs(
         SegmentedControl(
             modifier = modifier.fillMaxWidth(), labels = ImportTabLabels, selectedIndex = selectedIndex,
             onSelected = onSelected, dark = dark, enabled = enabled, backdrop = material,
+            commitOnRelease = true,
         )
         return
     }
-    val indicator by animateFloatAsState(selectedIndex.toFloat(), label = "import-tab")
+    var dragPosition by remember { mutableStateOf<Float?>(null) }
+    val indicator by animateFloatAsState(
+        dragPosition ?: selectedIndex.toFloat(),
+        animationSpec = if (dragPosition == null) spring() else snap(),
+        label = "import-tab",
+    )
     val select by rememberUpdatedState(onSelected)
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     BoxWithConstraints(
@@ -86,9 +100,16 @@ internal fun UnifiedImportTabs(
             .selectableGroup()
             .pointerInput(enabled, rtl) {
                 if (!enabled) return@pointerInput
-                detectHorizontalDragGestures { change, _ ->
+                detectHorizontalDragGestures(
+                    onDragEnd = {
+                        dragPosition?.let { select(if (it < 0.5f) 0 else 1) }
+                        dragPosition = null
+                    },
+                    onDragCancel = { dragPosition = null },
+                ) { change, _ ->
                     change.consume()
-                    select(if ((change.position.x < size.width / 2f) != rtl) 0 else 1)
+                    val fraction = (change.position.x * 2f / size.width.coerceAtLeast(1) - 0.5f).coerceIn(0f, 1f)
+                    dragPosition = if (rtl) 1f - fraction else fraction
                 }
             }
             .padding(4.dp)
@@ -127,13 +148,14 @@ internal fun InlineRegularImportForm(
     hasError: Boolean,
     onParse: () -> Unit,
     onUpload: () -> Unit,
-    preview: @Composable () -> Unit
+    header: @Composable () -> Unit,
+    preview: @Composable (header: @Composable () -> Unit) -> Unit
 ) {
     val dark = appUsesDarkTheme(config)
     val foreground = if (dark) Color.White else Color(0xFF161616)
-    Column(Modifier.fillMaxSize().imePadding().navigationBarsPadding()) {
+    val inputContent by rememberUpdatedState<@Composable () -> Unit> {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp).clip(CouiShape(24.dp))
+            Modifier.fillMaxWidth().clip(CouiShape(24.dp))
                 .background(if (dark) Color(0xFF1C1C1E) else Color.White)
                 .padding(start = 16.dp, top = 15.dp, end = 12.dp, bottom = 8.dp)
         ) {
@@ -175,16 +197,27 @@ internal fun InlineRegularImportForm(
                 }
             }
         }
-        if (!hasPreview) {
-            (message ?: "支持 SleepDown、WakeUp、星链口令，也可以上传课表文件。").let {
+    }
+    val input = remember { movableContentOf { inputContent() } }
+    val form: @Composable () -> Unit = {
+        Column(Modifier.fillMaxWidth()) {
+            header()
+            input()
+        }
+    }
+    Box(Modifier.fillMaxSize().imePadding().navigationBarsPadding()) {
+        if (hasPreview) {
+            preview(form)
+        } else {
+            Column(Modifier.fillMaxSize().couiVerticalScroll(rememberScrollState()).padding(horizontal = 16.dp)) {
+                form()
                 Text(
-                    if (resolving && message == null) "正在读取导入内容…" else it,
+                    message ?: if (resolving) "正在读取导入内容…" else "支持 SleepDown、WakeUp、星链口令，也可以上传课表文件。",
                     style = MaterialTheme.typography.bodySmall,
                     color = if (hasError) MaterialTheme.colorScheme.error else foreground.copy(alpha = 0.58f),
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 10.dp)
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 10.dp)
                 )
             }
         }
-        Box(Modifier.weight(1f).fillMaxWidth()) { preview() }
     }
 }

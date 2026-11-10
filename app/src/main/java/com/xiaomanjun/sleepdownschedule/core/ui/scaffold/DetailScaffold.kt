@@ -76,6 +76,7 @@ fun DetailActivityScaffold(
     centerCompactTitle: Boolean = false,
     compactTitleMatchesSettings: Boolean = false,
     topBarVisible: Boolean = true,
+    avoidIme: Boolean = true,
     preserveStatusBarSpace: Boolean = false,
     topBarBackdropOverride: Backdrop? = null,
     topBarBackgroundColor: androidx.compose.runtime.State<ComposeColor?>? = null,
@@ -86,7 +87,8 @@ fun DetailActivityScaffold(
     CouiSettingsPageScaffold(title, config, showBack = true, onBack = onBack,
         topBarVisible = topBarVisible, showTopGradientBlur = showTopGradientBlur,
         isolateContentFromBackdrop = isolateContentFromBackdrop,
-        preserveStatusBarSpace = preserveStatusBarSpace, topBarBackdropOverride = topBarBackdropOverride,
+        preserveStatusBarSpace = preserveStatusBarSpace, avoidIme = avoidIme,
+        topBarBackdropOverride = topBarBackdropOverride,
         topBarBackgroundColor = topBarBackgroundColor, topBarActions = topBarActions,
         topBarNavigation = topBarNavigation) { _, source ->
         content(source.takeUnless { isolateContentFromBackdrop || android.os.Build.VERSION.SDK_INT < 31 })

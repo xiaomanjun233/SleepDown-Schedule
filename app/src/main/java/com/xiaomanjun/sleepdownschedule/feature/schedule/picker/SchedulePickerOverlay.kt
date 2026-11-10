@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.schedule.picker
 
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionButton
+
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
 import android.graphics.Bitmap
@@ -227,7 +229,7 @@ fun QuickScheduleSettingsSheets(
     onDismissFinished: () -> Unit,
     onSave: (QuickScheduleDraft, () -> Unit) -> Unit,
     suppressDetailedButton: Boolean = false,
-    onDetailedSettings: (Int, () -> Rect?, android.view.Window?, ((() -> Unit) -> Unit)) -> Unit,
+    onDetailedSettings: (Int, () -> Rect?, android.view.Window?, android.view.View?, ((() -> Unit) -> Unit)) -> Unit,
     savedDraft: QuickScheduleDraft? = draft
 ) {
     // One composition lifetime per opening, including the full exit. Keeping the sheet's
@@ -270,7 +272,7 @@ private fun QuickScheduleSettingsSheetSession(
     onDismissFinished: () -> Unit,
     onSave: (QuickScheduleDraft, () -> Unit) -> Unit,
     suppressDetailedButton: Boolean,
-    onDetailedSettings: (Int, () -> Rect?, android.view.Window?, ((() -> Unit) -> Unit)) -> Unit
+    onDetailedSettings: (Int, () -> Rect?, android.view.Window?, android.view.View?, ((() -> Unit) -> Unit)) -> Unit
 ) {
     var retainedDraft by remember { mutableStateOf(initialDraft) }
     var saving by remember { mutableStateOf(false) }
@@ -407,7 +409,8 @@ private fun QuickScheduleSettingsSheetSession(
             Column(
                 Modifier
                     .fillMaxWidth()
-                    .then(if (LocalNativeDialogSurface.current) Modifier else Modifier.padding(bottom = 18.dp)),
+                    // The Miuix handle and title's top inset reserve 30dp above the controls.
+                    .then(if (LocalNativeDialogSurface.current) Modifier else Modifier.padding(bottom = 30.dp)),
                 verticalArrangement = Arrangement.spacedBy(if (LocalNativeDialogSurface.current) 10.dp else 14.dp)
             ) {
                 Column(Modifier.fillMaxWidth().then(if (LocalNativeDialogSurface.current)
@@ -488,8 +491,8 @@ private fun QuickScheduleSettingsSheetSession(
                         )
                     }
                 }
-                if (!suppressDetailedButton) Box(Modifier.fillMaxWidth().then(if (LocalNativeDialogSurface.current)
-                    Modifier.padding(horizontal = com.itos.coui.dialog.CouiDialogDefaults.buttonEdgePadding) else Modifier)) {
+                if (!suppressDetailedButton) LiveTransitionButton(Modifier.fillMaxWidth().then(if (LocalNativeDialogSurface.current)
+                    Modifier.padding(horizontal = com.itos.coui.dialog.CouiDialogDefaults.buttonEdgePadding) else Modifier)) { sourceView ->
                     if (backdrop != null) LiquidButton(
                         onClick = {
                             val raw = latestDraft() ?: return@LiquidButton
@@ -500,7 +503,7 @@ private fun QuickScheduleSettingsSheetSession(
                                 ?: raw.currentWeek.coerceIn(1, total)
                             val value = raw.copy(totalWeeks = total, currentWeek = current)
                             detailLaunching = true
-                            onDetailedSettings(value.scheduleId, anchor::resolve, sourceWindow) { afterSaved ->
+                            onDetailedSettings(value.scheduleId, anchor::resolve, sourceWindow, sourceView) { afterSaved ->
                                 saving = true
                                 onSave(value) {
                                     saving = false
@@ -552,7 +555,7 @@ private fun QuickScheduleSettingsSheetSession(
                                 } ?: raw.currentWeek.coerceIn(1, total)
                                 val updated = raw.copy(totalWeeks = total, currentWeek = current)
                                 detailLaunching = true
-                                onDetailedSettings(updated.scheduleId, anchor::resolve, sourceWindow) { afterSaved ->
+                                onDetailedSettings(updated.scheduleId, anchor::resolve, sourceWindow, sourceView) { afterSaved ->
                                     saving = true
                                     onSave(updated) {
                                         saving = false

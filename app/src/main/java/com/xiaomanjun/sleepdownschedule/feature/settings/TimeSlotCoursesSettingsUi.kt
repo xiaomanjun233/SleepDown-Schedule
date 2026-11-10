@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import android.view.View
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionButton
+
 import com.xiaomanjun.sleepdownschedule.core.ui.text.unclippedMarquee
 import androidx.compose.foundation.background
 import androidx.compose.ui.draw.clip
@@ -115,7 +118,7 @@ fun TimeSlotCourseManagementScreen(
     }
     val padding = PaddingValues(start = 12.dp, end = 12.dp, top = detailContentTopPadding() + 8.dp,
         bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 32.dp)
-    fun open(original: TimeSlotCourse?, bounds: Rect?, returnBounds: () -> Rect?) {
+    fun open(original: TimeSlotCourse?, bounds: Rect?, returnBounds: () -> Rect?, sourceView: View?) {
         val owner = activity ?: return
         if (launching != null) return
         val key = original?.id?.let { "slot:$it" } ?: "add"
@@ -128,7 +131,7 @@ fun TimeSlotCourseManagementScreen(
                         val stillPresent = if (original == null) currentCourses.size < MaxTimeSlotCourses
                             else currentCourses.any { it.id == original.id }
                         if (stillPresent) returnBounds() else null
-                    }, onSourceHidden = { hidden = key }, onSourceVisible = { hidden = null },
+                    }, sourceView = sourceView, onSourceHidden = { hidden = key }, onSourceVisible = { hidden = null },
                     onSourceReleased = { hidden = null; launching = null })
                 if (result is TransitionLaunchResult.Failed) error = "暂时无法打开特殊课程，请稍后重试"
             } catch (failure: Exception) {
@@ -151,14 +154,14 @@ fun TimeSlotCourseManagementScreen(
             staggeredItems(decoded.getOrDefault(emptyList()), key = { it.id }) { slot ->
                 TimeSlotCourseNavigationCard(slot.name, "", resolvedTimeSlotCourse(slot, state.periods),
                     backdrop, config, enabled = true, hidden = hidden == "slot:${slot.id}",
-                    onClick = { bounds, liveBounds -> open(slot, bounds, liveBounds) })
+                    onClick = { bounds, liveBounds, sourceView -> open(slot, bounds, liveBounds, sourceView) })
             }
             item {
                 val count = decoded.getOrNull()?.size ?: 0
                 TimeSlotCourseNavigationCard("添加特殊课程",
                         if (count < MaxTimeSlotCourses) "自定义名称、时间段和显示星期" else "最多添加 $MaxTimeSlotCourses 个时间段",
                     null, backdrop, config, enabled = decoded.isSuccess && count < MaxTimeSlotCourses,
-                    hidden = hidden == "add", onClick = { bounds, liveBounds -> open(null, bounds, liveBounds) })
+                    hidden = hidden == "add", onClick = { bounds, liveBounds, sourceView -> open(null, bounds, liveBounds, sourceView) })
             }
         }
 }
@@ -166,15 +169,17 @@ fun TimeSlotCourseManagementScreen(
 @Composable
 private fun TimeSlotCourseNavigationCard(
     title: String, subtitle: String, slot: TimeSlotCourse?, backdrop: Backdrop?, config: ScheduleConfigEntity,
-    enabled: Boolean, hidden: Boolean, onClick: (Rect?, () -> Rect?) -> Unit
+    enabled: Boolean, hidden: Boolean, onClick: (Rect?, () -> Rect?, View?) -> Unit
 ) {
     var coordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
     DisposableEffect(Unit) { onDispose { coordinates = null } }
     fun bounds(): Rect? = coordinates?.takeIf { it.isAttached }?.boundsInWindow()
-    SettingsGroup(backdrop, config, Modifier.fillMaxWidth().homeSwitchGroup()
-        .onGloballyPositioned { coordinates = it }.graphicsLayer { alpha = if (hidden) 0f else 1f }) {
+    val radius = if (LocalGlassMiuixEnabled.current) 24.dp else 30.dp
+    LiveTransitionButton(Modifier.fillMaxWidth().onGloballyPositioned { coordinates = it },
+        cornerRadius = radius, show = !hidden) { sourceView ->
+    SettingsGroup(backdrop, config, Modifier.fillMaxWidth().homeSwitchGroup()) {
         val foreground = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.38f)
-        MiuixBasicComponent(enabled = enabled, role = Role.Button, onClick = { onClick(bounds(), ::bounds) },
+        MiuixBasicComponent(enabled = enabled, role = Role.Button, onClick = { onClick(bounds(), ::bounds, sourceView) },
             insideMargin = PaddingValues(horizontal = 14.dp, vertical = 16.dp)) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -197,6 +202,7 @@ private fun TimeSlotCourseNavigationCard(
                 }
             }
         }
+    }
     }
 }
 

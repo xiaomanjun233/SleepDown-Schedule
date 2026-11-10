@@ -9,6 +9,7 @@ import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
 import android.view.PixelCopy
+import android.view.View
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.runtime.withFrameNanos
 import com.xiaomanjun.sleepdownschedule.AppState
@@ -62,6 +63,7 @@ internal suspend fun openTimeSlotCourseEditor(
     cornerRadiusPx: Float,
     backgroundColor: Int,
     returnBounds: () -> Rect?,
+    sourceView: View?,
     onSourceHidden: () -> Unit,
     onSourceVisible: () -> Unit,
     onSourceReleased: () -> Unit
@@ -84,7 +86,8 @@ internal suspend fun openTimeSlotCourseEditor(
             activity.resources.configuration.orientation != Configuration.ORIENTATION_LANDSCAPE && bounds != null)
             captureTimeSlotCard(activity, bounds) else null
         val anchor = if (bitmap != null && bounds != null) TransitionAnchorFrame(bounds, cornerRadiusPx, bitmap) else null
-        releaseCover = anchor?.let { activity.attachOpeningSourceSnapshotHandoff(it) }
+        val liveSource = sourceView?.takeIf { it.isLiveTransitionSource(activity) }
+        releaseCover = if (liveSource == null) anchor?.let { activity.attachOpeningSourceSnapshotHandoff(it) } else null
         if (anchor != null && releaseCover != null) {
             onSourceHidden()
             // Keep the exact cover while the actual source leaves its last drawn frame.
@@ -98,7 +101,8 @@ internal suspend fun openTimeSlotCourseEditor(
             },
             backgroundColor = backgroundColor,
             onOpeningSourceHandoff = releaseCover,
-            onSourceReleased = restoreSource
+            onSourceReleased = restoreSource,
+            openingSourceView = liveSource
         ))
         if (result !is TransitionLaunchResult.NativeRegistered) {
             releaseCover?.invoke()

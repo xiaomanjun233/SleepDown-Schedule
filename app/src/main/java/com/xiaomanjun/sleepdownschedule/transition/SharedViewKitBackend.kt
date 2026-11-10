@@ -51,6 +51,7 @@ internal class SharedViewKitBackend(
             if (projection != null) projection.release() else {
                 sourceView.alpha = originalAlpha
                 sourceView.visibility = originalVisibility
+                (sourceView as? LiveTransitionSourceView)?.clearSoftwareFrame()
             }
             kitBitmap?.let { if (!it.isRecycled) it.recycle() }
             kitReturnBitmap?.let { if (!it.isRecycled) it.recycle() }
@@ -60,14 +61,11 @@ internal class SharedViewKitBackend(
 
     override suspend fun open(request: TransitionOpenRequest): TransitionBackendOpenResult {
         val anchor = request.payload?.openingAnchor
-        val liveView = request.payload?.openingSourceView?.takeIf {
-            it.isAttachedToWindow && it.visibility == View.VISIBLE && it.width > 1 && it.height > 1 &&
-                it.windowToken == request.activity.window.decorView.windowToken
-        }
+        val liveView = request.payload?.openingSourceView?.takeIf { it.isLiveTransitionSource(request.activity) }
         if (anchor == null || !anchor.hasBounds || (liveView == null && !anchor.isValid) ||
             !anchor.cornerRadiusPx.isFinite() || anchor.cornerRadiusPx < 0f)
             return rejected("invalidAnchor")
-        if (request.route.id == TransitionRouteId.HomeDockToImport && liveView == null)
+        if (request.route.requiresLiveSourceView && liveView == null)
             return rejected("liveSourceUnavailable")
         if (request.activity.isDestroyed || request.activity.isFinishing ||
             request.activity.isInMultiWindowMode || request.activity.isInPictureInPictureMode)
@@ -82,6 +80,8 @@ internal class SharedViewKitBackend(
             ?: return rejected("unsupportedProtocol")
         // Pilot routes must be able to return safely when their business source was removed.
         if (capabilities.missingTargetBackType == null) return rejected("safeReturnUnavailable")
+        if (liveView is LiveTransitionSourceView && !liveView.hasSoftwareFrame &&
+            !liveView.prepareSoftwareFrame(anchor.bitmap)) return rejected("softwareFrameUnavailable")
         // Compose GraphicsLayer snapshots are Config#HARDWARE. The vendor implementation reads
         // pixels for the return mask color and rejects hardware bitmaps, so hand it an app-owned
         // software copy; the payload bitmap stays untouched for the Legacy fallback.
@@ -99,6 +99,7 @@ internal class SharedViewKitBackend(
         }
         if (!session.moveTo(TransitionSessionState.NativeRegistered)) {
             (sourceView as? SharedViewKitSourceView)?.release()
+            (sourceView as? LiveTransitionSourceView)?.clearSoftwareFrame()
             kitBitmap?.recycle()
             return rejected("invalidSessionState")
         }

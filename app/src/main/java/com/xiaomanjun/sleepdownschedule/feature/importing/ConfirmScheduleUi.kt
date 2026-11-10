@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.rememberOverscrollEffect
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itos.coui.scroll.rememberCouiOverscrollEffect
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
 import com.kyant.shapes.RoundedRectangle
@@ -73,6 +75,7 @@ fun ConfirmScheduleScreen(
     backdrop: Backdrop? = null,
     onCancel: () -> Unit,
     onDraftChanged: ((ImportDraft) -> Unit)? = null,
+    listHeader: (@Composable () -> Unit)? = null,
     onConfirm: (Boolean) -> Unit
 ) {
     val historyContext = LocalContext.current
@@ -100,16 +103,20 @@ fun ConfirmScheduleScreen(
             backdrop = backdrop,
             onCancel = onCancel,
             onDraftChanged = onDraftChanged,
-            onConfirm = onConfirm
+            onConfirm = onConfirm,
+            listHeader = listHeader
         )
         return
     }
     val previewCourses = remember(previewDraft) { previewDraft.resolvedCoursesForPreview() }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(16.dp),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
+            top = if (listHeader == null) 16.dp else 0.dp, bottom = 16.dp),
+        overscrollEffect = if (listHeader != null) rememberCouiOverscrollEffect() else rememberOverscrollEffect(),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        if (listHeader != null) item(key = "import_form") { listHeader() }
         item { Text("即将导入 " + previewDraft.courses.size + " 门课程，请确认后写入课表。") }
         itemsIndexed(previewDraft.notices) { _, notice -> Text(notice, style = MaterialTheme.typography.bodyMedium) }
         (errorMessage ?: compatibility.exceptionOrNull()?.message)?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
@@ -176,7 +183,8 @@ private fun AiImportChatPreview(
     backdrop: Backdrop?,
     onCancel: () -> Unit,
     onDraftChanged: ((ImportDraft) -> Unit)?,
-    onConfirm: (Boolean) -> Unit
+    onConfirm: (Boolean) -> Unit,
+    listHeader: (@Composable () -> Unit)?
 ) {
     val context = LocalContext.current
     val progress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
@@ -207,9 +215,12 @@ private fun AiImportChatPreview(
         if (submitting) Text("正在保存课表…", modifier = Modifier.padding(16.dp))
         LazyColumn(
             modifier = Modifier.weight(1f),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp,
+                top = if (listHeader == null) 14.dp else 0.dp, bottom = 14.dp),
+            overscrollEffect = if (listHeader != null) rememberCouiOverscrollEffect() else rememberOverscrollEffect(),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
+            if (listHeader != null) item(key = "import_form") { listHeader() }
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

@@ -181,7 +181,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
-import com.xiaomanjun.sleepdownschedule.feature.home.LiveDockImportSourceView
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionSourceView
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenu
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
@@ -2148,7 +2148,7 @@ fun CourseScheduleAppUi(
                 if (released) return
                 released = true
                 dockImportSourceHidden = false
-                (source.view as? LiveDockImportSourceView)?.clearSoftwareFrame()
+                (source.view as? LiveTransitionSourceView)?.clearSoftwareFrame()
                 source.release()
                 dockImportOpening = false
             }
@@ -2178,7 +2178,7 @@ fun CourseScheduleAppUi(
                 }.getOrNull()
                 val anchor = TransitionAnchorFrame(bounds, radius, bitmap)
                 val liveView = originalView?.takeIf {
-                    it !is LiveDockImportSourceView || it.prepareSoftwareFrame(bitmap)
+                    it !is LiveTransitionSourceView || it.prepareSoftwareFrame(bitmap)
                 }
                 val result = ActivityTransitionCoordinator.open(
                     activity, TransitionRouteId.HomeDockToImport,
@@ -2378,7 +2378,7 @@ fun CourseScheduleAppUi(
                                 )
                             },
                             suppressDetailedButton = detailMorphState !is DetailMorphState.Idle,
-                            onDetailedSettings = { scheduleId, resolveSourceBounds, sourceWindow, saveBeforeOpening ->
+                            onDetailedSettings = { scheduleId, resolveSourceBounds, sourceWindow, sourceView, saveBeforeOpening ->
                                 if (homeAdaptiveMetrics.isTabletLandscape) {
                                     saveBeforeOpening {
                                         appScope.launch {
@@ -2509,7 +2509,8 @@ fun CourseScheduleAppUi(
                                                         else openingAnchor.copy(boundsInWindow = currentBounds)
                                                     },
                                                     backgroundBitmap = fullSnapshot,
-                                                    backgroundDialog = windowSnapshot?.dialog
+                                                    backgroundDialog = windowSnapshot?.dialog,
+                                                    openingSourceView = sourceView
                                                 )
                                             )
                                         }
@@ -2563,7 +2564,7 @@ fun CourseScheduleAppUi(
                         modifier = Modifier.zIndex(260f)
                     ) { exitCommitRequest, requestToolbarBack, onExitCommitFinished ->
                         DetailActivityScaffold(
-                            title = "课表详细设置",
+                            title = "课表设置",
                             config = detailState.config,
                             onBack = requestToolbarBack
                         ) { backdrop ->

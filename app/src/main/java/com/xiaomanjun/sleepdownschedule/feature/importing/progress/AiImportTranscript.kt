@@ -137,37 +137,71 @@ internal suspend fun LazyListState.scrollToAiImportEnd() {
 }
 
 private data class TranscriptLayout(val count: Int, val lastIndex: Int, val lastHeight: Int,
-    val viewportStart: Int, val viewportEnd: Int, val bottomPadding: Int)
+    val viewportStart: Int, val viewportEnd: Int, val bottomPadding: Int) {
+    val readingBottom: Int get() = viewportEnd - bottomPadding
+}
 
-private data class TranscriptViewport(val layout: TranscriptLayout, val canScrollForward: Boolean, val dragging: Boolean)
+private data class TranscriptViewport(
+    val layout: TranscriptLayout,
+    val canScrollForward: Boolean,
+    val dragging: Boolean,
+    val keyboardRaised: Boolean,
+    val firstIndex: Int,
+    val firstOffset: Int,
+    val tailBottom: Int?,
+)
 
 /** Follow new content until the user scrolls back; token updates never force a return to the end. */
 @Composable
-internal fun rememberAiImportFollowingLatest(list: LazyListState, taskId: String): MutableState<Boolean> {
+internal fun rememberAiImportFollowingLatest(
+    list: LazyListState,
+    taskId: String,
+    keyboardRaised: () -> Boolean = { false },
+): MutableState<Boolean> {
     val following = remember(taskId) { mutableStateOf(true) }
     val dragging = list.interactionSource.collectIsDraggedAsState()
+    val readKeyboardRaised by rememberUpdatedState(keyboardRaised)
     LaunchedEffect(list, taskId) {
-        var previous: TranscriptLayout? = null
+        var previous: TranscriptViewport? = null
+        var keyboardShift = 0
         var scrolling: Job? = null
         snapshotFlow {
             val layout = list.layoutInfo
             val last = layout.visibleItemsInfo.lastOrNull()
             TranscriptViewport(TranscriptLayout(layout.totalItemsCount, last?.index ?: -1, last?.size ?: 0,
                 layout.viewportStartOffset, layout.viewportEndOffset, layout.afterContentPadding),
-                list.canScrollForward, dragging.value)
+                list.canScrollForward, dragging.value, readKeyboardRaised(), list.firstVisibleItemIndex,
+                list.firstVisibleItemScrollOffset,
+                last?.takeIf { it.index == layout.totalItemsCount - 1 }?.let { it.offset + it.size })
         }.collect { viewport ->
+            val before = previous
+            previous = viewport
             if (viewport.dragging) {
                 scrolling?.cancel()
+                keyboardShift = 0
                 following.value = !viewport.canScrollForward
-            } else if (!viewport.canScrollForward) following.value = true
-            // The IME can grow the composer padding or resize the window without changing
-            // a single message. Keep a previously pinned end above that changing boundary.
+                return@collect
+            }
             val shape = viewport.layout
-            if (shape != previous && following.value && !viewport.dragging) {
+            val rise = before?.let { it.layout.readingBottom - shape.readingBottom } ?: 0
+            if (before != null && rise != 0 && (viewport.keyboardRaised || before.keyboardRaised || keyboardShift > 0)) {
+                // Anchor the content against the composer's upper edge. For a short conversation,
+                // consume the gap above the composer before moving any content.
+                val shift = if (rise > 0) {
+                    before.tailBottom?.let { (it - shape.readingBottom).coerceIn(0, rise) } ?: rise
+                } else -minOf(-rise, keyboardShift)
+                keyboardShift += shift
+                if (shift != 0 && shape.count > 0) {
+                    scrolling?.cancel()
+                    list.requestScrollToItem(before.firstIndex.coerceAtMost(shape.count - 1), before.firstOffset + shift)
+                }
+                return@collect
+            }
+            if (!viewport.canScrollForward) following.value = true
+            if (shape != before?.layout && following.value) {
                 scrolling?.cancel()
                 scrolling = launch { withFrameNanos { }; list.scrollToAiImportEnd() }
             }
-            previous = shape
         }
     }
     return following

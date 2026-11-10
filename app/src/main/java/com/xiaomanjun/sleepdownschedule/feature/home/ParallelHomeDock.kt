@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionSourceView
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -100,7 +102,7 @@ internal fun ParallelHomeDock(
     val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
     val activity = androidx.compose.ui.platform.LocalContext.current.findActivityOrNull()
     val plusView = remember(activity, returnButtonLayer) {
-        activity?.let { LiveDockImportSourceView(it, returnButtonLayer, density, direction) }
+        activity?.let { LiveTransitionSourceView(it, returnButtonLayer, density, direction) }
     }
     val systemBottom = WindowInsets.navigationBarsIgnoringVisibility.getBottom(density)
     val bottomInset = with(density) { systemBottom.toDp() }

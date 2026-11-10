@@ -76,10 +76,7 @@ object ActivityTransitionCoordinator {
         val session = TransitionPayloadStore.create(routeId, normalizedPayload, parentId)
         intent.putTransitionIdentity(session)
         val legacyRequest = TransitionOpenRequest(activity, intent, route, session, normalizedPayload)
-        val hasLiveSource = normalizedPayload?.openingSourceView?.let {
-            it.isAttachedToWindow && it.visibility == android.view.View.VISIBLE && it.width > 1 && it.height > 1 &&
-                it.windowToken == activity.window.decorView.windowToken
-        } == true
+        val hasLiveSource = normalizedPayload?.openingSourceView?.isLiveTransitionSource(activity) == true
         val returnAnchorReady = if (!route.requiresReturnAnchor) {
             true
         } else {
@@ -96,7 +93,7 @@ object ActivityTransitionCoordinator {
             it.isValid || (hasLiveSource && it.hasBounds)
         } == true
         val nativeEligible = !landscape && nativeAllowed &&
-            (routeId != TransitionRouteId.HomeDockToImport || hasLiveSource) &&
+            (!route.requiresLiveSourceView || hasLiveSource) &&
             openingAnchorReady && returnAnchorReady && nativeDestination != null
         if (nativeEligible) {
             session.moveTo(TransitionSessionState.SourceReady)
@@ -118,7 +115,7 @@ object ActivityTransitionCoordinator {
                     }
                 }
             }
-        } else if (routeId == TransitionRouteId.HomeDockToImport) {
+        } else if (route.requiresLiveSourceView) {
             val reason = when {
                 landscape -> "landscape"
                 !nativeAllowed -> "routeDisabled"

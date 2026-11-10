@@ -54,7 +54,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
@@ -96,6 +95,7 @@ import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvide
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionButton
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
@@ -172,7 +172,8 @@ fun NormalizedAiManualImportScreen(
     initialText: String? = null,
     onInitialTextConsumed: () -> Unit = {},
     transitionActive: Boolean = false,
-    inlinePreview: (@Composable () -> Unit)? = null,
+    inlineHeader: @Composable () -> Unit = {},
+    inlinePreview: (@Composable (header: @Composable () -> Unit) -> Unit)? = null,
     inlineHasPreview: Boolean = false,
     inlineSubmitting: Boolean = false,
     onInlineTextChange: (String) -> Unit = {},
@@ -754,6 +755,7 @@ fun NormalizedAiManualImportScreen(
             onUpload = {
                 backgroundPermissionGate.continueWithPermissionTip { fileLauncher.launch(arrayOf("*/*")) }
             },
+            header = inlineHeader,
             preview = inlinePreview
         )
     } else AiManualImportDialogContent(
@@ -782,7 +784,7 @@ fun NormalizedAiManualImportScreen(
         historySourceHidden = historySourceHidden,
         historyButtonModifier = historyButtonRecordModifier,
         onHistoryButtonBoundsChanged = { historyButtonBounds = it },
-        onOpenHistory = { sourceBounds ->
+        onOpenHistory = { sourceBounds, sourceView ->
             scope.launch {
                 // The idle recording of the button itself is the source. A page crop cannot see
                 // this sheet's footer and would animate the wallpaper behind it into the system.
@@ -814,6 +816,10 @@ fun NormalizedAiManualImportScreen(
                     historySourceHidden = false
                     return@launch
                 }
+                if (sourceView != null) {
+                    historySourceHidden = false
+                    withFrameNanos { }
+                }
                 val intent = Intent(context, AiImportHistoryActivity::class.java)
                 val launchResult = ActivityTransitionCoordinator.open(
                     activity = activity,
@@ -827,7 +833,8 @@ fun NormalizedAiManualImportScreen(
                         },
                         backgroundBitmap = backgroundSnapshot,
                         onOpeningSourceHandoff = releaseOpeningSource,
-                        onSourceReleased = { historySourceHidden = false }
+                        onSourceReleased = { historySourceHidden = false },
+                        openingSourceView = sourceView
                     )
                 )
                 if (launchResult is TransitionLaunchResult.Failed) {
@@ -951,7 +958,7 @@ private fun AiManualImportDialogContent(
     historySourceHidden: Boolean,
     historyButtonModifier: Modifier = Modifier,
     onHistoryButtonBoundsChanged: (Rect) -> Unit,
-    onOpenHistory: (Rect) -> Unit,
+    onOpenHistory: (Rect, android.view.View?) -> Unit,
     onOpenHistoryEntry: (AiImportHistoryEntry, Rect) -> Unit,
     onPrimaryAction: () -> Unit
 ) {
@@ -1175,12 +1182,13 @@ private fun AiManualImportDialogContent(
         }
         val historyAction: @Composable (Modifier) -> Unit = { historyModifier ->
             var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
-            Box(
-                historyModifier.onGloballyPositioned {
+            LiveTransitionButton(
+                modifier = historyModifier.onGloballyPositioned {
                     historyButtonBounds = it.boundsInWindow()
                     onHistoryButtonBoundsChanged(historyButtonBounds)
-                }
-            ) {
+                },
+                show = !historySourceHidden,
+            ) { sourceView ->
                 // Keep the real button in the layout while the native transition owns it: a
                 // placeholder of a different height would move the measured return bounds.
                 DialogLiquidButton(
@@ -1188,15 +1196,13 @@ private fun AiManualImportDialogContent(
                     label = "导入历史",
                     role = DialogButtonRole.Cancel,
                     iconRes = R.drawable.ic_history,
-                    modifier = Modifier.fillMaxWidth()
-                        .alpha(if (historySourceHidden) 0f else 1f)
-                        .then(historyButtonModifier),
+                    modifier = Modifier.fillMaxWidth().then(historyButtonModifier),
                     destructiveFilled = !nativeChrome,
                     monochromeNeutral = nativeChrome,
                     height = if (nativeChrome) com.itos.coui.dialog.CouiDialogDefaults.buttonHeight else 40.dp,
                     onClick = {
                         if (!historySourceHidden && historyButtonBounds.width > 1f)
-                            onOpenHistory(historyButtonBounds)
+                            onOpenHistory(historyButtonBounds, sourceView)
                     }
                 )
             }

@@ -2,13 +2,13 @@ package com.xiaomanjun.sleepdownschedule.app.ui
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -76,6 +76,7 @@ import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
 import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionButton
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
@@ -123,7 +124,7 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
             var historyOpening by remember { mutableStateOf(false) }
             var historyHidden by remember { mutableStateOf(false) }
             val historyScene = rememberGraphicsLayer()
-            fun openHistory() {
+            fun openHistory(sourceView: View?) {
                 if (historyOpening || form.submitting) return
                 historyOpening = true
                 refreshScope.launch {
@@ -160,8 +161,13 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                     historyScene.toImageBitmap().asAndroidBitmap()
                                 }.getOrNull() else fullFrame,
                                 onOpeningSourceHandoff = removeCover,
-                                onSourceReleased = { historyHidden = false; historyOpening = false }
+                                onSourceReleased = { historyHidden = false; historyOpening = false },
+                                openingSourceView = sourceView
                             )
+                        }
+                        if (sourceView != null && historyHidden) {
+                            historyHidden = false
+                            withFrameNanos { }
                         }
                         val result = ActivityTransitionCoordinator.open(
                             this@EduSchoolSelectActivityHost,
@@ -255,16 +261,16 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                     modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
                                     buttonHeight = 42.dp
                                 )
-                                if (unifiedImport) Box(
-                                    Modifier.onGloballyPositioned { historyBounds = it.boundsInWindow() }
-                                        .graphicsLayer { alpha = if (historyHidden) 0f else 1f }
-                                ) {
+                                if (unifiedImport) LiveTransitionButton(
+                                    modifier = Modifier.onGloballyPositioned { historyBounds = it.boundsInWindow() },
+                                    show = !historyHidden,
+                                ) { sourceView ->
                                     TopGlassIconButton(
                                         backdrop = topBackdrop,
                                         config = settingsVisualConfig(state.config),
                                         iconRes = R.drawable.ic_history,
                                         contentDescription = "导入历史",
-                                        onClick = ::openHistory,
+                                        onClick = { openHistory(sourceView) },
                                         modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize)
                                     )
                                 }
@@ -302,18 +308,16 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                         )
                                     }
                                 )
-                            } else Column(Modifier.fillMaxSize().padding(top = topPadding)) {
-                                Box(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 10.dp)) {
-                                    importTabs()
-                                }
+                            } else Box(Modifier.fillMaxSize().padding(top = topPadding)) {
                                 NormalizedAiManualImportScreen(
                                     state = state, backdrop = backdrop, onCancel = requestClose,
                                     initialText = form.input,
+                                    inlineHeader = { Box(Modifier.padding(bottom = 10.dp)) { importTabs() } },
                                     inlineHasPreview = form.draft != null,
                                     inlineSubmitting = form.submitting,
                                     onInlineTextChange = { form.input = it; form.draft = null; form.saveError = null },
                                     onParsed = { form.draft = it; form.saveError = null },
-                                    inlinePreview = {
+                                    inlinePreview = { header ->
                                         form.draft?.let { draft ->
                                             ConfirmScheduleScreen(
                                                 draft = draft, backdrop = backdrop, submitting = form.submitting,
@@ -332,7 +336,8 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                                         PendingImportSetupStore.put(this@EduSchoolSelectActivityHost, scheduleId)
                                                         requestClose()
                                                     }
-                                                }
+                                                },
+                                                listHeader = header
                                             )
                                         }
                                     }

@@ -47,6 +47,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
 import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionSourceView
 import com.xiaomanjun.sleepdownschedule.platform.coloros.rememberCouiDockAccent
 
 /**
@@ -144,7 +145,7 @@ internal fun CouiHomeDock(
     val haptic = LocalHapticFeedback.current
     val liveLayer = rememberGraphicsLayer()
     val plusView = remember(activity, liveLayer) {
-        activity?.let { LiveDockImportSourceView(it, liveLayer, density, layoutDirection) }
+        activity?.let { LiveTransitionSourceView(it, liveLayer, density, layoutDirection) }
     }
 
     BoxWithConstraints(Modifier.fillMaxSize()) {

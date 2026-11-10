@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionSourceView
+
 import android.app.Activity
 import android.app.Application
 import android.graphics.Bitmap
@@ -44,7 +46,7 @@ class LiveDockImportSourceViewTest {
             )
         }
         val view = compose.runOnIdle {
-            activity.window.decorView.allViews.filterIsInstance<LiveDockImportSourceView>().single()
+            activity.window.decorView.allViews.filterIsInstance<LiveTransitionSourceView>().single()
         }
         compose.onNodeWithContentDescription("导入课表").performClick()
         compose.runOnIdle {

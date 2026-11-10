@@ -9,6 +9,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.util.Base64
+import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -133,12 +134,14 @@ import com.xiaomanjun.sleepdownschedule.feature.home.day.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
-import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionButton
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
@@ -314,7 +317,10 @@ internal fun AiEduImportConversationPane(
         onImportSubmitted()
     }
     val listState = rememberLazyListState()
-    var followingLatest by rememberAiImportFollowingLatest(listState, current.taskId)
+    val inputInsets = rememberFloatingInputInsets()
+    var followingLatest by rememberAiImportFollowingLatest(listState, current.taskId) {
+        inputInsets.isKeyboardRaised
+    }
     val textColor = LocalAiImportTextColors.current.primary
     val pageTitle = current.routeLabel.takeIf { it.isNotBlank() } ?: "AI 教务导入"
     var previewAttachment by remember { mutableStateOf<AiEduAttachmentPreviewRequest?>(null) }
@@ -367,25 +373,8 @@ internal fun AiEduImportConversationPane(
     val runtimePickerState = rememberAiRuntimePickerState()
     var historySourceHidden by remember { mutableStateOf(false) }
     var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
-    // Cache the top-bar frame while the history button is idle; onClick captures would include
-    // the native press/deformation state and produce a warped source for the system animation.
-    var cleanHistoryFrame by remember { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(historyButtonBounds, historySourceHidden, textColor, conversationPageColor) {
-        cleanHistoryFrame = null
-        if (!historySourceHidden &&
-            historyButtonBounds.width > 1f && historyButtonBounds.height > 1f
-        ) {
-            historySnapshotRequested.set(true)
-            historySnapshotRequestVersion += 1
-            withFrameNanos { }
-            withFrameNanos { }
-            cleanHistoryFrame = runCatching {
-                historySnapshotLayer.toImageBitmap().asAndroidBitmap()
-            }.getOrNull()
-        }
-    }
+    var historyOpening by remember { mutableStateOf(false) }
     val density = LocalDensity.current
-    val inputInsets = rememberFloatingInputInsets()
     val conversationScope = rememberCoroutineScope()
     LaunchedEffect(
         historicalMode,
@@ -446,80 +435,72 @@ internal fun AiEduImportConversationPane(
             onBack = onClose,
             compactTopBar = true,
             centerCompactTitle = true,
+            avoidIme = false,
             topBarActions = { topBarBackdrop ->
                 if (showHistoryAction) {
-                    if (historySourceHidden) {
-                        Spacer(Modifier.size(42.dp))
-                    } else {
-                        AiEduHistoryButton(
-                            config = config,
-                            backdrop = topBarBackdrop,
-                            onBoundsChanged = { historyButtonBounds = it },
-                             onClick = { sourceBounds ->
-                                 conversationScope.launch {
-                                     // Use the idle frame cached before press-down; capturing here
-                                     // would bake the native button's press/deformation into the
-                                     // system source bitmap.
-                                     val sourceFrame = cleanHistoryFrame ?: run {
-                                         historySnapshotRequested.set(true)
-                                         historySnapshotRequestVersion += 1
-                                         withFrameNanos { }
-                                         withFrameNanos { }
-                                         runCatching {
-                                             historySnapshotLayer.toImageBitmap().asAndroidBitmap()
-                                         }.getOrNull()
-                                     }
-                                     val sourceSnapshot = sourceFrame?.cropToWindowBounds(
-                                         sourceBounds,
-                                         rootPositionInWindow
-                                     ) ?: return@launch
-                                     val activity = context as? ComponentActivity
-                                         ?: return@launch
-                                     val anchor = TransitionAnchorFrame(
-                                         boundsInWindow = sourceBounds,
-                                         cornerRadiusPx = with(density) { 21.dp.toPx() },
-                                         bitmap = sourceSnapshot
-                                     )
-                                     val releaseOpeningSource =
-                                         activity.attachOpeningSourceSnapshotHandoff(anchor)
-                                             ?: return@launch
-                                     historySourceHidden = true
-                                     historySnapshotRequested.set(true)
-                                     historySnapshotRequestVersion += 1
-                                     withFrameNanos { }
-                                     withFrameNanos { }
-                                     val backgroundSnapshot = runCatching {
-                                         historySnapshotLayer.toImageBitmap().asAndroidBitmap()
-                                     }.getOrNull() ?: run {
-                                         releaseOpeningSource()
-                                         historySourceHidden = false
-                                         return@launch
-                                     }
-                                     val intent = Intent(context, AiImportHistoryActivity::class.java)
-                                     val launchResult = ActivityTransitionCoordinator.open(
-                                         activity = activity,
-                                         routeId = TransitionRouteId.AiProgressToHistory,
-                                         intent = intent,
-                                         payload = TransitionPayload(
-                                             openingAnchor = anchor,
-                                             returnAnchorProvider =
-                                                 StaticTransitionAnchorProvider(anchor),
-                                             backgroundBitmap = backgroundSnapshot,
-                                             backgroundColor = conversationPageColor.toArgb(),
-                                             onOpeningSourceHandoff = releaseOpeningSource,
-                                             onSourceReleased = {
-                                                 historySourceHidden = false
-                                             }
-                                         )
-                                     )
-                                     if (launchResult is TransitionLaunchResult.Failed) {
-                                         releaseOpeningSource()
-                                         historySourceHidden = false
-                                     }
+                    AiEduHistoryButton(
+                        config = config,
+                        backdrop = topBarBackdrop,
+                        show = !historySourceHidden,
+                        onBoundsChanged = { historyButtonBounds = it },
+                        onClick = { sourceBounds, sourceView ->
+                            if (!historyOpening) {
+                                historyOpening = true
+                                conversationScope.launch {
+                                    var releaseCover: (() -> Unit)? = null
+                                    var sessionOwnsSource = false
+                                    try {
+                                        val activity = context as? ComponentActivity ?: return@launch
+                                        withFrameNanos { }
+                                        withFrameNanos { }
+                                        val bounds = historyButtonBounds.takeUnless { it.isEmpty } ?: sourceBounds
+                                        val snapshot = captureGlassWindowRegion(activity.window, bounds)
+                                        val anchor = snapshot?.let {
+                                            TransitionAnchorFrame(bounds, minOf(bounds.width, bounds.height) / 2f, it)
+                                        }
+                                        releaseCover = anchor?.let { activity.attachOpeningSourceSnapshotHandoff(it) }
+                                        val background = if (releaseCover != null) {
+                                            historySourceHidden = true
+                                            historySnapshotRequested.set(true)
+                                            historySnapshotRequestVersion += 1
+                                            withFrameNanos { }
+                                            withFrameNanos { }
+                                            runCatching { historySnapshotLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                                        } else null
+                                        if (sourceView != null && historySourceHidden) {
+                                            historySourceHidden = false
+                                            withFrameNanos { }
+                                        }
+                                        val payload = anchor?.let {
+                                            TransitionPayload(
+                                                openingAnchor = it,
+                                                returnAnchorProvider = TransitionAnchorProvider {
+                                                    historyButtonBounds.takeUnless { bounds -> bounds.isEmpty }
+                                                        ?.let { bounds -> it.copy(boundsInWindow = bounds) }
+                                                },
+                                                backgroundBitmap = background,
+                                                backgroundColor = conversationPageColor.toArgb(),
+                                                onOpeningSourceHandoff = releaseCover,
+                                                onSourceReleased = { historySourceHidden = false; historyOpening = false },
+                                                openingSourceView = sourceView
+                                            )
+                                        }
+                                        val result = ActivityTransitionCoordinator.open(
+                                            activity, TransitionRouteId.AiProgressToHistory,
+                                            Intent(context, AiImportHistoryActivity::class.java), payload
+                                        )
+                                        sessionOwnsSource = payload != null && result !is TransitionLaunchResult.Failed
+                                    } finally {
+                                        if (!sessionOwnsSource) {
+                                            releaseCover?.invoke()
+                                            historySourceHidden = false
+                                            historyOpening = false
+                                        }
+                                    }
                                 }
                             }
-                        )
-                    }
+                        }
+                    )
                 }
             }
         ) { backdrop ->
@@ -825,17 +806,6 @@ internal fun AiEduImportConversationPane(
 }
 }
 
-private fun Bitmap.cropToWindowBounds(
-    bounds: androidx.compose.ui.geometry.Rect,
-    rootPosition: Offset
-): Bitmap? = runCatching {
-    val left = (bounds.left - rootPosition.x).roundToInt().coerceIn(0, width - 1)
-    val top = (bounds.top - rootPosition.y).roundToInt().coerceIn(0, height - 1)
-    val cropWidth = bounds.width.roundToInt().coerceIn(1, width - left)
-    val cropHeight = bounds.height.roundToInt().coerceIn(1, height - top)
-    Bitmap.createBitmap(this, left, top, cropWidth, cropHeight)
-}.getOrNull()
-
 @Composable
 private fun AiEduConversationTurnReply(
     turn: AiEduImportConversationTurn,
@@ -961,29 +931,29 @@ private data class AiEduAttachmentPreviewRequest(
 private fun AiEduHistoryButton(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
-    onClick: (Rect) -> Unit,
-    modifier: Modifier = Modifier,
-    onBoundsChanged: (Rect) -> Unit = {}
+    show: Boolean,
+    onClick: (Rect, View?) -> Unit,
+    onBoundsChanged: (Rect) -> Unit,
 ) {
     var bounds by remember { mutableStateOf(Rect.Zero) }
-    TopGlassIconButton(
-        backdrop = backdrop,
-        config = config,
-        iconRes = R.drawable.ic_history,
-        contentDescription = "历史记录",
-        onClick = { if (bounds.width > 0f) onClick(bounds) },
-        modifier = modifier
-            .size(42.dp)
-            .onGloballyPositioned {
-                val next = it.boundsInWindow()
-                if (next != bounds) {
-                    bounds = next
-                    onBoundsChanged(next)
-                }
-            },
-        darkOverride = appUsesDarkTheme(config),
-        foregroundOverride = LocalAiImportTextColors.current.primary
-    )
+    LiveTransitionButton(
+        modifier = Modifier.size(42.dp).onGloballyPositioned {
+            bounds = it.boundsInWindow()
+            onBoundsChanged(bounds)
+        },
+        show = show,
+    ) { sourceView ->
+        TopGlassIconButton(
+            backdrop = backdrop,
+            config = config,
+            iconRes = R.drawable.ic_history,
+            contentDescription = "历史记录",
+            onClick = { if (show && !bounds.isEmpty) onClick(bounds, sourceView) },
+            modifier = Modifier.fillMaxSize(),
+            darkOverride = appUsesDarkTheme(config),
+            foregroundOverride = LocalAiImportTextColors.current.primary
+        )
+    }
 }
 
 @Composable

@@ -77,7 +77,8 @@ data class TransitionRouteSpec(
      */
     val nativeDestinationClassName: String? = null,
     val requiresOpeningAnchor: Boolean = false,
-    val requiresReturnAnchor: Boolean = false
+    val requiresReturnAnchor: Boolean = false,
+    val requiresLiveSourceView: Boolean = false,
 )
 
 /**
@@ -131,7 +132,8 @@ object TransitionRouteCatalog {
             destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
             nativeDestinationClassName = "$PackageName.NativeAiImportHistoryActivity",
             requiresOpeningAnchor = true,
-            requiresReturnAnchor = true
+            requiresReturnAnchor = true,
+            requiresLiveSourceView = true
         ),
         TransitionRouteSpec(
             id = TransitionRouteId.AiProgressToHistory,
@@ -144,7 +146,8 @@ object TransitionRouteCatalog {
             destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
             nativeDestinationClassName = "$PackageName.NativeAiImportHistoryActivity",
             requiresOpeningAnchor = true,
-            requiresReturnAnchor = true
+            requiresReturnAnchor = true,
+            requiresLiveSourceView = true
         ),
         TransitionRouteSpec(
             id = TransitionRouteId.AiHistoryToDetail,
@@ -178,7 +181,8 @@ object TransitionRouteCatalog {
             destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
             nativeDestinationClassName = "$PackageName.NativeQuickSheetSettingsDetailActivity",
             requiresOpeningAnchor = true,
-            requiresReturnAnchor = true
+            requiresReturnAnchor = true,
+            requiresLiveSourceView = true
         ),
         TransitionRouteSpec(
             id = TransitionRouteId.SpecialCourseToEditor,
@@ -191,7 +195,8 @@ object TransitionRouteCatalog {
             destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
             nativeDestinationClassName = "$PackageName.feature.settings.NativeSpecialCourseEditorActivity",
             requiresOpeningAnchor = true,
-            requiresReturnAnchor = true
+            requiresReturnAnchor = true,
+            requiresLiveSourceView = true
         ),
         TransitionRouteSpec(
             TransitionRouteId.SettingsToSettingsDetail,
@@ -236,7 +241,8 @@ object TransitionRouteCatalog {
             nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
             nativeDestinationClassName = "$PackageName.NativeEduSchoolSelectActivity",
             requiresOpeningAnchor = true,
-            requiresReturnAnchor = true
+            requiresReturnAnchor = true,
+            requiresLiveSourceView = true
         ),
         TransitionRouteSpec(
             TransitionRouteId.SchoolSelectToEduImport,

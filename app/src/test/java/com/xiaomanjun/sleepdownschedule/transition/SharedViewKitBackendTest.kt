@@ -125,7 +125,11 @@ class SharedViewKitBackendTest {
     }
 
     @Test fun specialCourseRouteUsesNativeReturnAndSafelyHandlesADeletedSource() = runBlocking {
-        val request = request(routeId = TransitionRouteId.SpecialCourseToEditor)
+        val card = View(source)
+        source.setContentView(card)
+        card.layout(10, 20, 160, 110)
+        val base = request(routeId = TransitionRouteId.SpecialCourseToEditor)
+        val request = base.copy(payload = base.payload!!.copy(openingSourceView = card))
         assertTrue(request.route.legacyProfile is LegacyTransitionProfile.Depth)
         assertEquals(TransitionBackendOpenResult.Started, backend.open(request))
         api.callbacks!!.onEnd(SharedViewKitContract.Open)

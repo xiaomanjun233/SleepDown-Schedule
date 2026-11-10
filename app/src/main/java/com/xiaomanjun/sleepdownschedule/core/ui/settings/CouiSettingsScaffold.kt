@@ -118,6 +118,7 @@ internal fun CouiSettingsPageScaffold(
     isolateContentFromBackdrop: Boolean = false,
     preserveStatusBarSpace: Boolean = false,
     avoidHomeTabBar: Boolean = false,
+    avoidIme: Boolean = true,
     topBarBackdropOverride: Backdrop? = null,
     topBarBackgroundColor: androidx.compose.runtime.State<Color?>? = null,
     topBarActions: @Composable (Backdrop?) -> Unit = {},
@@ -153,7 +154,7 @@ internal fun CouiSettingsPageScaffold(
                     .then(if (sampling) Modifier.glassBackdropProducer(backgroundSource) else Modifier)
                     .then(paneBackground.modifier))
                 // 与 DemoApp 一致：弹窗持有输入时，下层页面不跟随键盘重新布局。
-                val imeAvoidance = if (LocalWindowInfo.current.isWindowFocused) Modifier.imePadding() else Modifier
+                val imeAvoidance = if (avoidIme && LocalWindowInfo.current.isWindowFocused) Modifier.imePadding() else Modifier
                 // Keep the searching toolbar's viewport and backdrop source at their window size.
                 // Only the results viewport needs to follow the IME while the capsules separate.
                 Scaffold(modifier = Modifier.fillMaxSize()
