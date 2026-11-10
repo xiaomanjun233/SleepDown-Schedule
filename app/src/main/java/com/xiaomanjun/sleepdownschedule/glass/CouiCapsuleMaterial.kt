@@ -21,6 +21,8 @@ import com.itos.coui.effect.couiControlMaterialEffect
 import com.itos.coui.shape.CouiCapsuleShape
 import com.itos.coui.shape.CouiShape
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.LayerBackdrop
+import com.kyant.backdrop.backdrops.withTransformCompensation
 import com.kyant.backdrop.drawBackdrop
 
 /** 普通浮动按钮只消费调用方背景域；Dialog 内的操作沿用 Kit 原生填色，不追加采样。 */
@@ -104,7 +106,11 @@ internal fun couiIlluminatedCapsuleMaterial(backdrop: Backdrop, shape: Shape): M
 @Composable
 private fun couiControlMaterial(backdrop: Backdrop?, shape: Shape, material: CouiFloatingMaterial): Modifier {
     val effect = remember(material) { couiControlMaterialEffect(material).asComposeRenderEffect() }
-    return Modifier.drawBackdrop(checkNotNull(backdrop), shape = { shape }, effects = {
+    val source = remember(backdrop) {
+        val layer = checkNotNull(backdrop)
+        if (layer is LayerBackdrop) layer.withTransformCompensation() else layer
+    }
+    return Modifier.drawBackdrop(source, shape = { shape }, effects = {
         padding = material.blurRadius
         renderEffect = effect
     }, highlight = null, shadow = null)

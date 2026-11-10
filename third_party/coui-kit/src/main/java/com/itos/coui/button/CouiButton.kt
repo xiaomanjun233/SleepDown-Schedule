@@ -185,6 +185,14 @@ fun CouiCapsuleButton(
         }.couiTouchMotion(motion, enabled, cancelOnConsumedMove = true)
             .couiPressMotion(press, enabled, cancelOnConsumedMove = true).then(lightInput)
             .then(underlayModifier).clip(shape).then(backgroundModifier).drawWithContent {
+                if (backgroundModifier != Modifier) {
+                    // A graphicsLayer-only animation otherwise stretches the cached backdrop.
+                    motion.scaleX.value
+                    motion.scaleY.value
+                    motion.translationX.value
+                    motion.translationY.value
+                    press.scale.value
+                }
                 drawContent()
                 drawLight?.invoke(this)
             }.couiButtonSurface(
