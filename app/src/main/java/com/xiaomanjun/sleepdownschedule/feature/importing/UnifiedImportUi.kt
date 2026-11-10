@@ -72,7 +72,7 @@ internal fun UnifiedImportTabs(
             rememberCouiGlassBackdrop(backdrop)
         } else null
         SegmentedControl(
-            modifier = modifier, labels = ImportTabLabels, selectedIndex = selectedIndex,
+            modifier = modifier.fillMaxWidth(), labels = ImportTabLabels, selectedIndex = selectedIndex,
             onSelected = onSelected, dark = dark, enabled = enabled, backdrop = material,
         )
         return
@@ -81,7 +81,7 @@ internal fun UnifiedImportTabs(
     val select by rememberUpdatedState(onSelected)
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     BoxWithConstraints(
-        modifier.width(192.dp).height(CouiSegmentedControlDefaults.height)
+        modifier.fillMaxWidth().height(CouiSegmentedControlDefaults.height)
             .clip(CouiCapsuleShape).background(CouiSegmentedControlDefaults.containerColor(dark))
             .selectableGroup()
             .pointerInput(enabled, rtl) {

@@ -303,7 +303,7 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                     }
                                 )
                             } else Column(Modifier.fillMaxSize().padding(top = topPadding)) {
-                                importTabs()
+                                Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) { importTabs() }
                                 NormalizedAiManualImportScreen(
                                     state = state, backdrop = backdrop, onCancel = requestClose,
                                     initialText = form.input,
