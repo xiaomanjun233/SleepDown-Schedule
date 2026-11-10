@@ -1,5 +1,25 @@
 # 当前工作交接
 
+## 2026-11-11 2.0 金标形变、导入边缘与作息卡片
+
+在独立工作树的 `codex/restore-activity-navigation` 从 `df9461dc` 续作，签名包源码为 `a5b63a7f`。保留 GitHub 版 2.0 与版本代码 36。
+
+实机确认早期 `b454fac0` 的加号、导入历史已进入原生宿主，关闭时却把被遮住的源窗口判为找不到按钮，显式选了系统横滑。修正后用持续附着的按钮 View 返回，稳定位置沿用原生注册，尺寸一致的位置变动才刷新 bounds。原生打开只取按钮区域，整页兼容转场截图延后到需要时准备。
+
+复查 E 盘 ColorOS 17 日历与通讯录。日历 `MainCalendarFragment.n5` 传被点击 View、半宽圆角与实际底色。通讯录 `COUIFloatingButtonSeamlessImpl.setSeamlessBundle` 同样用原 View 和圆角，另有系统专用的弹簧参数。框架对 `viewWithAlpha` 源交叉淡化页面和按钮蒙层。SleepDown 的按钮像素已与底层合成，改为以实测按钮色走实色形变，由 SDK 从同一个 View 绘制。公开 SharedViewKit 路线继续使用设备的弹簧参数。现有按钮样式和兼容转场保留。
+
+常规导入的分段保留跟手拖动、松手提交，快速滑动按 Kit 速度和减速距离预测落点。核对 COUI-Kit 已同步的 PR #21 与随后上游提交，未发现后续分段实现需要回接。口令预览延伸到手势栏底部，底部渐变模糊采样滚动内容。ColorOS 状态栏实际点击事件接到前台 Compose 纵向滚动列表。公共短页增加 Kit 的零滚动范围回弹。
+
+更新说明一张卡随日志整体滚到顶栏下，展开高度随完整内容，滚动时渐变保护顶栏文字。作息 Sheet 的卡片采用蓝紫实色，时长文字按明暗调对比度，保留彩色时间条。最后一节和添加按钮按实际手势栏高度留白。通用设置恢复主题预览与「跟随系统」之间原有分割线。
+
+`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 与 V2 签名。Windows 锁住原 Kit 中间产物，构建用临时 init script 指向同工作树的独立输出目录。构建日志在主工作区 `tmp/sleepdown-gold-solid-timeline-build.log`。本轮按用户要求以设备点验为主。APK 为 `tmp/review-apks/SleepDown-2.0-GitHub-a5b63a7f.apk`，7,921,518 字节，SHA-256 为 `C062F952FF7930FAEA5BF217686ADF06AF8748910607DD78C7C25406BF97F541`。
+
+2026-11-11 00:08 经 SDK ADB 37.0.1 客户端及同来源 5038 服务，覆盖安装至 USB 连接的 OPPO PLJ110（`3B15AE023YL00000`，ColorOS 17 / Android 17，用户 0）与后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10）。两端回读 APK SHA-256 一致。安装日志在主工作区 `tmp/nav3-qa/sleepdown-a5b63a7f-install.log`。
+
+后台模拟器以签名包点验主题分割线、蓝紫实色作息卡片、彩色时间条、Sheet 下拉保持打开、最后一节与添加按钮、节次及日期选择器。更新说明整卡滚过顶栏，展开、收起、再展开通过，短卡下拉有位移并回到原位。导入在分段交界线前快甩双向切换，慢拖保持当前分段。18 门合成课程预览滚动到手势栏下方，截图确认渐变。日志及截图位于主工作区 `tmp/nav3-qa/sleepdown-a5b63a7f-avd-*`。
+
+OPPO 上已覆盖安装最终包。手机当时在使用其他应用，最终实色金标开合、快速设置及特殊课程原生路径、系统状态栏回顶留待真机点验。下一次可复用主工作区 `tmp/nav3-qa/Trace-PhoneNativeHandoff.ps1 -Source a5b63a7f`，同时记录真机开关中间帧与 SharedViewKit 日志。
+
 ## 2026-11-10 2.0 导入与课表设置精修
 
 在 `codex/restore-activity-navigation` 的 `98514df7` 上续作，签名源码为 `d7bbc50d`。常规导入生成预览后，输入区与分段滑块作为列表头随课程一起滚动。短表单和历史空态、短列表使用 Kit 的零滚动范围回弹。分段拖动过程中持续跟手，松手后提交落点。历史卡片等宽，两侧边缘与右侧进入箭头分别对齐，高度由内容决定。日期、时间、来源分别使用课程管理的胶囊几何，长来源自动换行。详情仍用原对话。
