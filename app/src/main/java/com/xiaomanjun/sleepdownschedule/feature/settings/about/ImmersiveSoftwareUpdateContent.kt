@@ -21,6 +21,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
@@ -34,6 +35,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -118,7 +120,7 @@ internal fun ImmersiveSoftwareUpdateContent(
             )))
         }
         Column(
-            modifier = Modifier.fillMaxSize().verticalScroll(if (showVersionNotes) notesScroll else statusScroll)
+            modifier = Modifier.fillMaxSize().pageVerticalScroll(if (showVersionNotes) notesScroll else statusScroll)
                 .heightIn(min = viewport).padding(top = top, bottom = bottom),
             verticalArrangement = placement,
         ) {
@@ -156,6 +158,18 @@ internal fun ImmersiveSoftwareUpdateContent(
                     else SoftwareUpdateStatus(version, dialog, releaseNotes, primary, secondary, downloadPercent)
                 }
             }
+        }
+        if (showVersionNotes) {
+            Box(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(top + 8.dp).drawWithCache {
+                val fade = Brush.verticalGradient(
+                    0f to SoftwareUpdateBackground,
+                    .82f to SoftwareUpdateBackground.copy(alpha = .93f),
+                    1f to Color.Transparent,
+                )
+                onDrawBehind {
+                    if (notesScroll.value > 0) drawRect(fade)
+                }
+            })
         }
     }
 }
@@ -229,44 +243,44 @@ internal fun SoftwareUpdateVersionNotes(version: String) {
     val headingStyle = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = 19.sp, lineHeight = 26.sp)
     val bodyStyle = rememberCouiTextStyle(CouiTextKind.PreferenceValue).copy(fontSize = 15.sp, lineHeight = 23.sp)
     Column(Modifier.fillMaxWidth().padding(18.dp)) {
-            Text("软件版本", color = Color.White, style = headingStyle)
-            Text(version, Modifier.padding(top = 5.dp), color = Color.White.copy(alpha = .9f), style = bodyStyle)
-            Box(Modifier.padding(top = 18.dp, bottom = 14.dp).fillMaxWidth().height(.5.dp)
-                .background(Color.White.copy(alpha = .16f)))
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween) {
-                Text("更新说明", color = Color.White, style = headingStyle)
-                CouiCapsuleButton(
-                    modifier = Modifier.width(36.dp), height = 36.dp,
-                    onClick = { expanded = !expanded }, dark = true, colors = SoftwareUpdateToolbarColors,
-                    contentPadding = PaddingValues(0.dp), pressFeedback = true,
-                ) {
-                    Icon(Icons.Rounded.ExpandMore, if (expanded) "收起更新说明" else "展开更新说明",
-                        Modifier.size(23.dp).rotate(arrowRotation), tint = Color.White)
-                }
-            }
-            AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically(tween(310), expandFrom = Alignment.Top) + fadeIn(tween(200)),
-                exit = shrinkVertically(tween(265), shrinkTowards = Alignment.Top) + fadeOut(tween(150)),
+        Text("软件版本", color = Color.White, style = headingStyle)
+        Text(version, Modifier.padding(top = 5.dp), color = Color.White.copy(alpha = .9f), style = bodyStyle)
+        Box(Modifier.padding(top = 18.dp, bottom = 14.dp).fillMaxWidth().height(.5.dp)
+            .background(Color.White.copy(alpha = .16f)))
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("更新说明", color = Color.White, style = headingStyle)
+            CouiCapsuleButton(
+                modifier = Modifier.width(36.dp), height = 36.dp,
+                onClick = { expanded = !expanded }, dark = true, colors = SoftwareUpdateToolbarColors,
+                contentPadding = PaddingValues(0.dp), pressFeedback = true,
             ) {
-                Column(Modifier.padding(top = 7.dp, bottom = 2.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
-                    if (sections.isEmpty()) {
-                        Text("此版本暂无内置更新说明。", color = Color.White.copy(alpha = .87f), style = bodyStyle)
-                    }
-                    sections.forEach { section ->
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(section.title, color = Color.White.copy(alpha = .78f), style = headingStyle.copy(fontSize = 17.sp))
-                            section.entries.forEach { entry ->
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("•", color = Color.White.copy(alpha = .87f), style = bodyStyle)
-                                    Text(entry, Modifier.weight(1f), color = Color.White.copy(alpha = .87f), style = bodyStyle)
-                                }
+                Icon(Icons.Rounded.ExpandMore, if (expanded) "收起更新说明" else "展开更新说明",
+                    Modifier.size(23.dp).rotate(arrowRotation), tint = Color.White)
+            }
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = expandVertically(tween(310), expandFrom = Alignment.Top) + fadeIn(tween(200)),
+            exit = shrinkVertically(tween(265), shrinkTowards = Alignment.Top) + fadeOut(tween(150)),
+        ) {
+            Column(Modifier.padding(top = 7.dp, bottom = 2.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                if (sections.isEmpty()) {
+                    Text("此版本暂无内置更新说明。", color = Color.White.copy(alpha = .87f), style = bodyStyle)
+                }
+                sections.forEach { section ->
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(section.title, color = Color.White.copy(alpha = .78f), style = headingStyle.copy(fontSize = 17.sp))
+                        section.entries.forEach { entry ->
+                            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("•", color = Color.White.copy(alpha = .87f), style = bodyStyle)
+                                Text(entry, Modifier.weight(1f), color = Color.White.copy(alpha = .87f), style = bodyStyle)
                             }
                         }
                     }
                 }
             }
+        }
     }
 }
 
