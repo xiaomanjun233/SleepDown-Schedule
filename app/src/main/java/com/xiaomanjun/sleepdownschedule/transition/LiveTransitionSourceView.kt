@@ -185,25 +185,30 @@ internal fun View.isLiveTransitionSource(activity: Activity): Boolean =
 
 /** Resolve the mounted View, including its Android ancestors and window position. */
 internal fun View.liveTransitionBoundsOnScreen(activity: Activity, coveredWindow: Boolean = false): AndroidRect? {
-    if (!isMountedTransitionSource(activity)) return null
     if (coveredWindow) {
-        // Android can hide the source decor behind an opaque destination. The button
-        // and its layout ancestors still need to be visible within that source window.
-        val root = rootView
-        var node = this
-        while (node !== root) {
-            if (node.visibility != View.VISIBLE) return null
-            node = node.parent as? View ?: return null
-        }
-    } else if (!isShown) return null
+        if (!isTransitionReturnTarget(activity)) return null
+    } else if (!isLiveTransitionSource(activity)) return null
     val matrix = Matrix().also(::transformMatrixToGlobal)
     val bounds = RectF(0f, 0f, width.toFloat(), height.toFloat())
     if (!matrix.mapRect(bounds)) return null
     val screen = AndroidRect().also(bounds::round)
     val visible = AndroidRect()
-    if (screen.width() < 2 || screen.height() < 2 || !getGlobalVisibleRect(visible) ||
-        visible.width() + 1 < screen.width() || visible.height() + 1 < screen.height()) return null
+    if (screen.width() < 2 || screen.height() < 2) return null
+    if (!coveredWindow && (!getGlobalVisibleRect(visible) ||
+        visible.width() + 1 < screen.width() || visible.height() + 1 < screen.height())) return null
     return screen
+}
+
+internal fun View.isTransitionReturnTarget(activity: Activity): Boolean {
+    if (!isMountedTransitionSource(activity)) return false
+    // The system can hide the source decor while the destination covers it.
+    val root = rootView
+    var node = this
+    while (node !== root) {
+        if (node.visibility != View.VISIBLE) return false
+        node = node.parent as? View ?: return false
+    }
+    return true
 }
 
 internal fun View.screenBoundsInWindow(screenBounds: AndroidRect): AndroidRect {

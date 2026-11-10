@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.os.Looper
 import android.view.View
+import android.view.Window
 import androidx.compose.ui.geometry.Rect
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
@@ -106,7 +107,8 @@ data class TransitionPayload(
      * cancellation, so source Activities never have to guess from an early onResume callback.
      */
     val onSourceReleased: (() -> Unit)? = null,
-    val openingSourceView: View? = null
+    val openingSourceView: View? = null,
+    val openingSourceWindow: Window? = null,
 )
 
 private class CleanupHandle(private val cleanup: () -> Unit) {
@@ -119,7 +121,7 @@ private class CleanupHandle(private val cleanup: () -> Unit) {
 
 private class StoredTransitionPayload(
     val session: TransitionSession,
-    val payload: TransitionPayload?
+    @Volatile var payload: TransitionPayload?
 ) {
     private val closed = AtomicBoolean(false)
     private val cleanup = CopyOnWriteArrayList<CleanupHandle>()
@@ -178,6 +180,11 @@ object TransitionPayloadStore {
     fun session(id: TransitionSessionId?): TransitionSession? = id?.let { entries[it]?.session }
 
     fun payload(id: TransitionSessionId?): TransitionPayload? = id?.let { entries[it]?.payload }
+
+    /** Legacy captures are prepared after a rejected native launch and before the Activity starts. */
+    internal fun replaceOpeningVisuals(id: TransitionSessionId, payload: TransitionPayload) {
+        entries[id]?.payload = payload
+    }
 
     fun registerCleanup(id: TransitionSessionId, cleanup: () -> Unit): Boolean {
         val entry = entries[id]

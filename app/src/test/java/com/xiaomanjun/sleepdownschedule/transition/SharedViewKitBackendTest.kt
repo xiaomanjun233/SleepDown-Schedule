@@ -73,6 +73,7 @@ class SharedViewKitBackendTest {
     }
 
     @Test fun dockPassesItsAttachedViewAndReturnsToItWithoutABitmapProjection() = runBlocking {
+        api.supportsViewWithAlpha = true
         val button = View(source)
         source.setContentView(button)
         button.layout(10, 20, 64, 74)
@@ -83,11 +84,13 @@ class SharedViewKitBackendTest {
         )))
         assertSame(button, api.inputView)
         assertNull(api.inputBitmap)
+        assertTrue(api.openBundle!!.getBoolean(SharedViewKitContract.ViewWithAlpha))
+        assertFalse(api.openBundle!!.containsKey(SharedViewKitContract.Bounds))
         api.callbacks!!.onEnd(SharedViewKitContract.Open)
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(View.VISIBLE, button.visibility)
         assertTrue(backend.requestClose(source, request.session))
-        assertTrue(api.returnBundle!!.containsKey(SharedViewKitContract.Bounds))
+        assertNull(api.returnBundle)
         api.callbacks!!.onEnd(SharedViewKitContract.Back)
         shadowOf(Looper.getMainLooper()).idle()
         assertTrue(button.isAttachedToWindow)
@@ -414,6 +417,7 @@ class SharedViewKitBackendTest {
 
     private class FakeApi : SharedViewKitApi {
         var supportsReturnBitmap = false
+        var supportsViewWithAlpha = false
         var protocol = 100
         var provideOptions = true
         var optionsCalls = 0
@@ -428,7 +432,8 @@ class SharedViewKitBackendTest {
         override fun supportedProtocol() = protocol
         override fun extras() = mapOf(SharedViewKitContract.Bounds to "rect|WINDOW|bounds",
             SharedViewKitContract.BackType to "int|VIEW_ANIM_FOLLOW_SYSTEM,VIEW_ANIM_FADE_OUT|back") +
-            if (supportsReturnBitmap) mapOf(SharedViewKitContract.Bitmap to "Bitmap||return pixels") else emptyMap()
+            (if (supportsReturnBitmap) mapOf(SharedViewKitContract.Bitmap to "Bitmap||return pixels") else emptyMap()) +
+            (if (supportsViewWithAlpha) mapOf(SharedViewKitContract.ViewWithAlpha to "boolean") else emptyMap())
         override fun options(source: View, extras: Bundle,
             callbacks: SharedViewKitCallbacks): ActivityOptions? {
             inputView = source

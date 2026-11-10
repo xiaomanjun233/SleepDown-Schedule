@@ -56,7 +56,8 @@ object ActivityTransitionCoordinator {
         activity: Activity,
         routeId: TransitionRouteId,
         intent: android.content.Intent,
-        payload: TransitionPayload? = null
+        payload: TransitionPayload? = null,
+        prepareLegacy: (suspend (TransitionPayload) -> TransitionPayload)? = null,
     ): TransitionLaunchResult = withContext(Dispatchers.Main.immediate) {
         val route = TransitionRouteCatalog.get(routeId)
         validateDestination(route, intent)
@@ -71,7 +72,7 @@ object ActivityTransitionCoordinator {
         val landscape = activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         val normalizedPayload = if (landscape) payload?.copy(
             openingAnchor = null, returnAnchorProvider = null,
-            backgroundBitmap = null, parentSessionId = parentId, openingSourceView = null
+            backgroundBitmap = null, parentSessionId = parentId, openingSourceView = null, openingSourceWindow = null,
         ) else payload?.copy(parentSessionId = parentId)
         val session = TransitionPayloadStore.create(routeId, normalizedPayload, parentId)
         intent.putTransitionIdentity(session)
@@ -126,7 +127,17 @@ object ActivityTransitionCoordinator {
             }
             log(session, nativeBackend.name, "fallback", reason)
         }
-        launchLegacy(legacyRequest)
+        val request = if (prepareLegacy != null && normalizedPayload != null && !landscape) {
+            val prepared = try {
+                prepareLegacy(normalizedPayload)
+            } catch (error: Exception) {
+                TransitionPayloadStore.remove(session.id)
+                throw error
+            }
+            TransitionPayloadStore.replaceOpeningVisuals(session.id, prepared)
+            legacyRequest.copy(payload = prepared)
+        } else legacyRequest
+        launchLegacy(request)
     }
 
     /** Non-native routes can use an Activity Result launcher while keeping the catalog policy. */

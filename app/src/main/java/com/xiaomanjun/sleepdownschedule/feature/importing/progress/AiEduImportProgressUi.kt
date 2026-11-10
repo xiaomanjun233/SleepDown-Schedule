@@ -51,7 +51,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -452,48 +452,42 @@ internal fun AiEduImportConversationPane(
                                     var sessionOwnsSource = false
                                     try {
                                         val activity = context as? ComponentActivity ?: return@launch
-                                        withFrameNanos { }
-                                        withFrameNanos { }
                                         val bounds = sourceView?.liveTransitionBoundsInActivity(activity)
                                             ?: historyButtonBounds.takeUnless { it.isEmpty } ?: sourceBounds
-                                        val snapshot = captureGlassWindowRegion(activity.window, bounds)
-                                        val anchor = snapshot?.let {
-                                            TransitionAnchorFrame(bounds, minOf(bounds.width, bounds.height) / 2f, it)
-                                        }
-                                        releaseCover = anchor?.let { activity.attachOpeningSourceSnapshotHandoff(it) }
-                                        val background = if (releaseCover != null) {
-                                            historySourceHidden = true
-                                            historySnapshotRequested.set(true)
-                                            historySnapshotRequestVersion += 1
-                                            withFrameNanos { }
-                                            withFrameNanos { }
-                                            runCatching { historySnapshotLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
-                                        } else null
-                                        if (sourceView != null && historySourceHidden) {
-                                            historySourceHidden = false
-                                            withFrameNanos { }
-                                            releaseCover?.invoke()
-                                            releaseCover = null
-                                        }
-                                        val payload = anchor?.let {
-                                            TransitionPayload(
-                                                openingAnchor = it,
-                                                returnAnchorProvider = TransitionAnchorProvider {
-                                                    historyButtonBounds.takeUnless { bounds -> bounds.isEmpty }
-                                                        ?.let { bounds -> it.copy(boundsInWindow = bounds) }
-                                                },
-                                                backgroundBitmap = background,
-                                                backgroundColor = conversationPageColor.toArgb(),
-                                                onOpeningSourceHandoff = releaseCover,
-                                                onSourceReleased = { historySourceHidden = false; historyOpening = false },
-                                                openingSourceView = sourceView
-                                            )
+                                        val anchor = TransitionAnchorFrame(bounds, minOf(bounds.width, bounds.height) / 2f, bitmap = null)
+                                        fun returnAnchor(frame: TransitionAnchorFrame) = TransitionAnchorProvider {
+                                            val current = sourceView?.liveTransitionBoundsInActivity(activity, coveredWindow = true)
+                                                ?: historyButtonBounds
+                                            frame.copy(boundsInWindow = current).takeIf { it.hasBounds }
                                         }
                                         val result = ActivityTransitionCoordinator.open(
                                             activity, TransitionRouteId.AiProgressToHistory,
-                                            Intent(context, AiImportHistoryActivity::class.java), payload
+                                            Intent(context, AiImportHistoryActivity::class.java),
+                                            TransitionPayload(
+                                                openingAnchor = anchor,
+                                                returnAnchorProvider = returnAnchor(anchor),
+                                                backgroundColor = conversationPageColor.toArgb(),
+                                                onOpeningSourceHandoff = { releaseCover?.invoke() },
+                                                onSourceReleased = { historySourceHidden = false; historyOpening = false },
+                                                openingSourceView = sourceView
+                                            ),
+                                            prepareLegacy = { pending ->
+                                                withFrameNanos { }
+                                                val captured = anchor.copy(bitmap = captureGlassWindowRegion(activity.window, bounds))
+                                                releaseCover = activity.attachOpeningSourceSnapshotHandoff(captured)
+                                                val background = if (releaseCover != null) {
+                                                    historySourceHidden = true
+                                                    historySnapshotRequested.set(true)
+                                                    historySnapshotRequestVersion += 1
+                                                    withFrameNanos { }
+                                                    withFrameNanos { }
+                                                    runCatching { historySnapshotLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                                                } else null
+                                                pending.copy(openingAnchor = captured, returnAnchorProvider = returnAnchor(captured),
+                                                    backgroundBitmap = background)
+                                            }
                                         )
-                                        sessionOwnsSource = payload != null && result !is TransitionLaunchResult.Failed
+                                        sessionOwnsSource = result !is TransitionLaunchResult.Failed
                                     } finally {
                                         if (!sessionOwnsSource) {
                                             releaseCover?.invoke()
@@ -514,7 +508,7 @@ internal fun AiEduImportConversationPane(
                         .fillMaxSize()
                         .glassBackdropProducer(conversationContentBackdrop)
                 ) {
-                    LazyColumn(
+                    SleepDownLazyColumn(
                         state = listState,
                         modifier = Modifier.align(Alignment.TopCenter).widthIn(max = 840.dp).fillMaxSize(),
                         contentPadding = PaddingValues(
@@ -1274,7 +1268,7 @@ private fun AiEduAttachmentMorphOverlay(
                     Text(request.attachment.title, modifier = Modifier.weight(1f), color = textColor, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Text("完成", modifier = Modifier.clickable(onClick = ::dismiss).padding(12.dp), color = controlAccentColor(Color(0xFF0A84FF)), fontWeight = FontWeight.SemiBold)
                 }
-                LazyColumn(
+                SleepDownLazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)

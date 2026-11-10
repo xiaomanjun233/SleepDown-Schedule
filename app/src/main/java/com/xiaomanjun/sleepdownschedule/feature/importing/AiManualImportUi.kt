@@ -35,7 +35,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -789,40 +789,17 @@ fun NormalizedAiManualImportScreen(
             scope.launch {
                 val activity = context as? ComponentActivity ?: return@launch
                 val bounds = sourceView?.liveTransitionBoundsInActivity(activity) ?: sourceBounds
-                // The idle recording of the button itself is the source. A page crop cannot see
-                // this sheet's footer and would animate the wallpaper behind it into the system.
-                val sourceSnapshot = cleanHistoryButtonBitmap
-                    ?: runCatching { historyButtonLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
-                        ?.takeIf { it.width > 1 && it.height > 1 }
-                    ?: (cleanHistoryCapture ?: captureHistoryBackground())
-                        ?.cropToAiHistorySource(bounds)
-                // A malformed crop cannot represent the real source button. Keeping the source
-                // mounted is preferable to hiding it and exposing a black/uncurved Activity shell.
-                if (sourceSnapshot == null) return@launch
                 val anchor = TransitionAnchorFrame(
                     boundsInWindow = bounds,
                     cornerRadiusPx = with(transitionDensity) { 21.dp.toPx() },
-                    bitmap = sourceSnapshot
+                    bitmap = null
                 )
-                val releaseOpeningSource =
-                    activity.attachOpeningSourceSnapshotHandoff(anchor) ?: return@launch
-                historySourceHidden = true
-                withFrameNanos { }
-                withFrameNanos { }
-                val backgroundSnapshot = captureHistoryBackground()?.bitmap
-                // The detail Activity needs both halves of the handoff. Starting it without
-                // the clean source-page frame regresses to the black fallback shell that the
-                // real source was just hidden to avoid.
-                if (backgroundSnapshot == null) {
-                    releaseOpeningSource()
-                    historySourceHidden = false
-                    return@launch
+                fun returnAnchor(frame: TransitionAnchorFrame) = TransitionAnchorProvider {
+                    val current = sourceView?.liveTransitionBoundsInActivity(activity, coveredWindow = true)
+                        ?: historyButtonBounds
+                    frame.copy(boundsInWindow = current).takeIf { it.hasBounds }
                 }
-                if (sourceView != null) {
-                    historySourceHidden = false
-                    withFrameNanos { }
-                    releaseOpeningSource()
-                }
+                var releaseOpeningSource: (() -> Unit)? = null
                 val intent = Intent(context, AiImportHistoryActivity::class.java)
                 val launchResult = ActivityTransitionCoordinator.open(
                     activity = activity,
@@ -830,18 +807,34 @@ fun NormalizedAiManualImportScreen(
                     intent = intent,
                     payload = TransitionPayload(
                         openingAnchor = anchor,
-                        returnAnchorProvider = TransitionAnchorProvider {
-                            historyButtonBounds.takeIf { it.width > 1f && it.height > 1f }
-                                ?.let { anchor.copy(boundsInWindow = it) }
-                        },
-                        backgroundBitmap = backgroundSnapshot,
-                        onOpeningSourceHandoff = releaseOpeningSource.takeIf { sourceView == null },
+                        returnAnchorProvider = returnAnchor(anchor),
+                        onOpeningSourceHandoff = { releaseOpeningSource?.invoke() },
                         onSourceReleased = { historySourceHidden = false },
                         openingSourceView = sourceView
-                    )
+                    ),
+                    prepareLegacy = { pending ->
+                        val snapshot = cleanHistoryButtonBitmap
+                            ?: runCatching { historyButtonLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                                ?.takeIf { it.width > 1 && it.height > 1 }
+                            ?: (cleanHistoryCapture ?: captureHistoryBackground())?.cropToAiHistorySource(bounds)
+                        val captured = anchor.copy(bitmap = snapshot)
+                        releaseOpeningSource = activity.attachOpeningSourceSnapshotHandoff(captured)
+                        if (releaseOpeningSource != null) {
+                            historySourceHidden = true
+                            withFrameNanos { }
+                            withFrameNanos { }
+                        }
+                        val background = captureHistoryBackground()?.bitmap
+                        if (background == null) {
+                            releaseOpeningSource?.invoke()
+                            historySourceHidden = false
+                            pending.copy(openingAnchor = null, returnAnchorProvider = null)
+                        } else pending.copy(openingAnchor = captured, returnAnchorProvider = returnAnchor(captured),
+                            backgroundBitmap = background)
+                    }
                 )
                 if (launchResult is TransitionLaunchResult.Failed) {
-                    releaseOpeningSource()
+                    releaseOpeningSource?.invoke()
                     historySourceHidden = false
                     return@launch
                 }
@@ -1100,7 +1093,7 @@ private fun AiManualImportDialogContent(
             }
         } else {
             LiquidDialogBody {
-                LazyColumn(
+                SleepDownLazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {

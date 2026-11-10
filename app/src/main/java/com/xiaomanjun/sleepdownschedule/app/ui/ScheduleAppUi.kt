@@ -2152,44 +2152,42 @@ fun CourseScheduleAppUi(
                 dockImportOpening = false
             }
             try {
-                val background = runCatching { detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
-                withFrameNanos { }
                 val viewBounds = source.view?.liveTransitionBoundsInActivity(activity)
                 val originalView = source.view?.takeIf { viewBounds != null }
                 val bounds = viewBounds ?: source.boundsInRoot.translate(homeRootPositionInWindow)
                 val radius = minOf(bounds.width, bounds.height) / 2f
-                val cookie = System.identityHashCode(source)
-                if (Build.VERSION.SDK_INT >= 29) android.os.Trace.beginAsyncSection("SleepDown Dock.capturePlus", cookie)
-                val captured = try {
-                    captureGlassWindowRegion(activity.window, bounds)?.let { frame ->
-                        try { frame.softwareCopyForKit(radius) } finally { frame.recycle() }
+                val anchor = TransitionAnchorFrame(bounds, radius, bitmap = null)
+                fun returnAnchor(frame: TransitionAnchorFrame) = TransitionAnchorProvider {
+                    if (originalView == null) frame
+                    else originalView.liveTransitionBoundsInActivity(activity, coveredWindow = true)?.let {
+                        frame.copy(boundsInWindow = it, cornerRadiusPx = minOf(it.width, it.height) / 2f)
                     }
-                } finally {
-                    if (Build.VERSION.SDK_INT >= 29) android.os.Trace.endAsyncSection("SleepDown Dock.capturePlus", cookie)
                 }
-                val bitmap = captured ?: runCatching {
-                    source.fallbackLayer?.toImageBitmap()?.asAndroidBitmap()
-                }.getOrNull()
-                val anchor = TransitionAnchorFrame(bounds, radius, bitmap)
                 val result = ActivityTransitionCoordinator.open(
                     activity, TransitionRouteId.HomeDockToImport,
                     Intent(context, EduSchoolSelectActivity::class.java)
                         .putExtra(EduSchoolSelectActivityHost.UnifiedImportExtra, true),
                     TransitionPayload(
                         openingAnchor = anchor,
-                        returnAnchorProvider = TransitionAnchorProvider {
-                            if (originalView == null) anchor else originalView.liveTransitionBoundsInActivity(activity, coveredWindow = true)?.let {
-                                anchor.copy(boundsInWindow = it, cornerRadiusPx = minOf(it.width, it.height) / 2f)
-                            }
-                        },
-                        backgroundBitmap = background,
+                        returnAnchorProvider = returnAnchor(anchor),
                         onOpeningSourceHandoff = {
                             // SharedViewKit controls the original View while its leash is active.
                             if (!nativeStarted) dockImportSourceHidden = true
                         },
                         onSourceReleased = ::releaseSource,
                         openingSourceView = originalView
-                    )
+                    ),
+                    prepareLegacy = { pending ->
+                        val background = runCatching {
+                            detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                        }.getOrNull()
+                        val snapshot = captureGlassWindowRegion(activity.window, bounds)?.let { frame ->
+                            try { frame.softwareCopyForKit(radius) } finally { frame.recycle() }
+                        } ?: runCatching { source.fallbackLayer?.toImageBitmap()?.asAndroidBitmap() }.getOrNull()
+                        val captured = anchor.copy(bitmap = snapshot)
+                        pending.copy(openingAnchor = captured, returnAnchorProvider = returnAnchor(captured),
+                            backgroundBitmap = background)
+                    }
                 )
                 nativeStarted = result is TransitionLaunchResult.NativeRegistered
                 sessionOwnsSource = result !is TransitionLaunchResult.Failed
@@ -2419,60 +2417,56 @@ fun CourseScheduleAppUi(
                                         while (androidx.core.view.ViewCompat.getRootWindowInsets(inputWindow.decorView)
                                                 ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime()) == true) withFrameNanos { }
                                     }
-                                    withFrameNanos { }
-                                    withFrameNanos { }
-                                    // Let the released press state reach the source window before copying its
-                                    // final compositor output. This is the authoritative path for the custom
-                                    // schedule picker, whose nested RenderNodes cannot be flattened reliably by
-                                    // recording only the outer Compose layer.
-                                    withFrameNanos { }
-                                    val sourceBoundsInWindow = sourceView?.liveTransitionBoundsInActivity(activity)
-                                        ?: resolveSourceBounds()
-                                    val windowSnapshot = captureDetailMorphWindowSnapshot(
-                                        activity = activity,
-                                        rootPositionInWindow = homeRootPositionInWindow,
-                                        rootSize = homeReadabilityRootSize,
-                                        overlayWindow = sourceWindow
-                                    )
-                                    val layeredSnapshot = if (windowSnapshot == null && sourceWindow == null) {
-                                        val sourceUnderlaySnapshot = runCatching {
-                                            detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
-                                        }.getOrNull()
-                                        val sourcePopupSnapshot = try {
-                                            capturePopupFrame()
-                                        } finally {
-                                            detailPopupCaptureActive = false
-                                        }
-                                        if (sourceUnderlaySnapshot != null && sourcePopupSnapshot != null) {
-                                            composeDetailMorphSnapshot(sourceUnderlaySnapshot, sourcePopupSnapshot)
+                                    fun returnAnchor(frame: TransitionAnchorFrame?) = TransitionAnchorProvider {
+                                        val current = sourceView?.liveTransitionBoundsInActivity(activity, coveredWindow = true)
+                                            ?: resolveSourceBounds()
+                                        if (current == null || frame == null) null else frame.copy(boundsInWindow = current)
+                                    }
+                                    suspend fun prepareFallback(pending: TransitionPayload): TransitionPayload {
+                                        val anchor = pending.openingAnchor ?: return pending
+                                        withFrameNanos { }
+                                        val sourceBoundsInWindow = anchor.boundsInWindow
+                                        val windowSnapshot = captureDetailMorphWindowSnapshot(
+                                            activity = activity,
+                                            rootPositionInWindow = homeRootPositionInWindow,
+                                            rootSize = homeReadabilityRootSize,
+                                            overlayWindow = sourceWindow
+                                        )
+                                        val layeredSnapshot = if (windowSnapshot == null && sourceWindow == null) {
+                                            val sourceUnderlaySnapshot = runCatching {
+                                                detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
+                                            }.getOrNull()
+                                            val sourcePopupSnapshot = try {
+                                                capturePopupFrame()
+                                            } finally {
+                                                detailPopupCaptureActive = false
+                                            }
+                                            if (sourceUnderlaySnapshot != null && sourcePopupSnapshot != null) {
+                                                composeDetailMorphSnapshot(sourceUnderlaySnapshot, sourcePopupSnapshot)
+                                            } else {
+                                                null
+                                            }
                                         } else {
                                             null
                                         }
-                                    } else {
-                                        null
+                                        val fullSnapshot = windowSnapshot?.bitmap ?: layeredSnapshot
+                                        // This source is not a normal page: the home underlay and QuickSheet are two
+                                        // sibling draw layers in the root Miuix Scaffold. Preserve their already
+                                        // composed frame for the destination-side depth/blur renderer; cross-window
+                                        // blur cannot reconstruct that Compose backdrop topology on ColorOS.
+                                        val snapshotOriginInWindow = windowSnapshot?.originInWindow
+                                            ?: homeRootPositionInWindow
+                                        val sourceBoundsInSnapshot = sourceBoundsInWindow.translate(-snapshotOriginInWindow)
+                                        val buttonSnapshot = windowSnapshot?.dialog?.let { layer ->
+                                            layer.foreground.cropToAnchoredBounds(sourceBoundsInSnapshot.translate(-layer.windowBounds.topLeft))
+                                        } ?: fullSnapshot?.cropToAnchoredBounds(sourceBoundsInSnapshot)
+                                        com.xiaomanjun.sleepdownschedule.glass.GlassBackendTrace.durationSince(
+                                            "Detail.InputThroughCapture", detailInputNanos
+                                        )
+                                        val captured = anchor.copy(bitmap = buttonSnapshot)
+                                        return pending.copy(openingAnchor = captured, returnAnchorProvider = returnAnchor(captured),
+                                            backgroundBitmap = fullSnapshot, backgroundDialog = windowSnapshot?.dialog)
                                     }
-                                    val fullSnapshot = windowSnapshot?.bitmap ?: layeredSnapshot
-                                    // This source is not a normal page: the home underlay and QuickSheet are two
-                                    // sibling draw layers in the root Miuix Scaffold. Preserve their already
-                                    // composed frame for the destination-side depth/blur renderer; cross-window
-                                    // blur cannot reconstruct that Compose backdrop topology on ColorOS.
-                                    val snapshotOriginInWindow = windowSnapshot?.originInWindow
-                                        ?: homeRootPositionInWindow
-                                    val sourceBoundsInSnapshot = sourceBoundsInWindow?.translate(-snapshotOriginInWindow)
-                                    val buttonSnapshot = sourceBoundsInSnapshot?.let { bounds ->
-                                        windowSnapshot?.dialog?.let { layer ->
-                                            layer.foreground.cropToAnchoredBounds(bounds.translate(-layer.windowBounds.topLeft))
-                                        } ?: fullSnapshot?.cropToAnchoredBounds(bounds)
-                                    }
-                                    com.xiaomanjun.sleepdownschedule.glass.GlassBackendTrace.durationSince(
-                                        "Detail.InputThroughCapture", detailInputNanos
-                                    )
-                                    val openingAnchor = if (sourceBoundsInSnapshot == null ||
-                                        (sourceWindow != null && fullSnapshot == null)) null else TransitionAnchorFrame(
-                                        boundsInWindow = requireNotNull(sourceBoundsInWindow),
-                                        cornerRadiusPx = with(density) { 25.dp.toPx() },
-                                        bitmap = buttonSnapshot
-                                    )
                                     // The destination must not race the draft write. Keeping the real button in
                                     // place while saving gives the translucent destination an unchanged live
                                     // underlay and ensures the first detailed-settings composition sees the
@@ -2486,6 +2480,10 @@ fun CourseScheduleAppUi(
                                             com.xiaomanjun.sleepdownschedule.glass.GlassBackendTrace.durationSince(
                                                 "Detail.InputToOpenDispatch", detailInputNanos
                                             )
+                                            val openingAnchor = (sourceView?.liveTransitionBoundsInActivity(activity)
+                                                ?: resolveSourceBounds())?.let { bounds ->
+                                                TransitionAnchorFrame(bounds, with(density) { 25.dp.toPx() }, bitmap = null)
+                                            }
                                             ActivityTransitionCoordinator.open(
                                                 activity = activity,
                                                 routeId = TransitionRouteId.QuickSheetToSettingsDetail,
@@ -2494,15 +2492,11 @@ fun CourseScheduleAppUi(
                                                     .putExtra(ScheduleCustomizeIdExtra, scheduleId),
                                                 payload = TransitionPayload(
                                                     openingAnchor = openingAnchor,
-                                                    returnAnchorProvider = com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider {
-                                                        val currentBounds = resolveSourceBounds()
-                                                        if (currentBounds == null || openingAnchor == null) null
-                                                        else openingAnchor.copy(boundsInWindow = currentBounds)
-                                                    },
-                                                    backgroundBitmap = fullSnapshot,
-                                                    backgroundDialog = windowSnapshot?.dialog,
-                                                    openingSourceView = sourceView
-                                                )
+                                                    returnAnchorProvider = returnAnchor(openingAnchor),
+                                                    openingSourceView = sourceView,
+                                                    openingSourceWindow = sourceWindow,
+                                                ),
+                                                prepareLegacy = ::prepareFallback
                                             )
                                         }
                                     }

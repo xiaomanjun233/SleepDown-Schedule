@@ -134,53 +134,49 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                     try {
                         focus.clearFocus(force = true)
                         keyboard?.hide()
-                        withFrameNanos { }
-                        val decor = window.decorView
-                        val windowBounds = Rect(0f, 0f, decor.width.toFloat(), decor.height.toFloat())
                         val bounds = sourceView?.liveTransitionBoundsInActivity(this@EduSchoolSelectActivityHost)
                             ?: historyBounds
-                        val fullFrame = captureGlassWindowRegion(window, windowBounds)
-                        val snapshot = fullFrame?.let {
-                            AiImportHistoryBackgroundCapture(it, 0f, 0f).cropToAiHistorySource(bounds)
-                        }
-                        val anchor = snapshot?.let {
-                            TransitionAnchorFrame(bounds, minOf(bounds.width, bounds.height) / 2f, it)
-                        }
-                        removeCover = anchor?.let { attachOpeningSourceSnapshotHandoff(it) }
-                        if (removeCover != null) {
-                            historyHidden = true
-                            withFrameNanos { }
-                            withFrameNanos { }
-                        }
-                        val background = if (historyHidden) runCatching {
-                            historyScene.toImageBitmap().asAndroidBitmap()
-                        }.getOrNull() else fullFrame
-                        if (sourceView != null && historyHidden) {
-                            historyHidden = false
-                            withFrameNanos { }
-                            removeCover?.invoke()
-                            removeCover = null
-                        }
-                        val payload = anchor?.let {
-                            TransitionPayload(
-                                openingAnchor = it,
-                                returnAnchorProvider = TransitionAnchorProvider {
-                                    historyBounds.takeIf { bounds -> bounds.width > 1f && bounds.height > 1f }
-                                        ?.let { bounds -> it.copy(boundsInWindow = bounds) }
-                                },
-                                backgroundBitmap = background,
-                                onOpeningSourceHandoff = removeCover,
-                                onSourceReleased = { historyHidden = false; historyOpening = false },
-                                openingSourceView = sourceView
-                            )
+                        val anchor = TransitionAnchorFrame(bounds, minOf(bounds.width, bounds.height) / 2f, bitmap = null)
+                        fun returnAnchor(frame: TransitionAnchorFrame) = TransitionAnchorProvider {
+                            val current = sourceView?.liveTransitionBoundsInActivity(
+                                this@EduSchoolSelectActivityHost, coveredWindow = true
+                            ) ?: historyBounds
+                            frame.copy(boundsInWindow = current).takeIf { it.hasBounds }
                         }
                         val result = ActivityTransitionCoordinator.open(
                             this@EduSchoolSelectActivityHost,
                             TransitionRouteId.ManualImportToHistory,
                             Intent(this@EduSchoolSelectActivityHost, AiImportHistoryActivity::class.java),
-                            payload
+                            TransitionPayload(
+                                openingAnchor = anchor,
+                                returnAnchorProvider = returnAnchor(anchor),
+                                onOpeningSourceHandoff = { removeCover?.invoke() },
+                                onSourceReleased = { historyHidden = false; historyOpening = false },
+                                openingSourceView = sourceView
+                            ),
+                            prepareLegacy = { pending ->
+                                withFrameNanos { }
+                                val decor = window.decorView
+                                val windowBounds = Rect(0f, 0f, decor.width.toFloat(), decor.height.toFloat())
+                                val fullFrame = captureGlassWindowRegion(window, windowBounds)
+                                val snapshot = fullFrame?.let {
+                                    AiImportHistoryBackgroundCapture(it, 0f, 0f).cropToAiHistorySource(bounds)
+                                }
+                                val captured = anchor.copy(bitmap = snapshot)
+                                removeCover = attachOpeningSourceSnapshotHandoff(captured)
+                                if (removeCover != null) {
+                                    historyHidden = true
+                                    withFrameNanos { }
+                                    withFrameNanos { }
+                                }
+                                val background = if (historyHidden) runCatching {
+                                    historyScene.toImageBitmap().asAndroidBitmap()
+                                }.getOrNull() else fullFrame
+                                pending.copy(openingAnchor = captured, returnAnchorProvider = returnAnchor(captured),
+                                    backgroundBitmap = background)
+                            }
                         )
-                        sessionOwnsSource = payload != null && result !is TransitionLaunchResult.Failed
+                        sessionOwnsSource = result !is TransitionLaunchResult.Failed
                     } finally {
                         if (!sessionOwnsSource) {
                             removeCover?.invoke()
