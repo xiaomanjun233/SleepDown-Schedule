@@ -8,8 +8,10 @@ import android.graphics.drawable.Icon
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import androidx.core.os.BundleCompat
 import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.core.identity.currentLiveUpdateIconResId
+import com.xiaomanjun.sleepdownschedule.core.identity.matchesAppNotificationIcon
 import com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdateKind
 import com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdatePayload
 import com.xiaomanjun.sleepdownschedule.feature.reminder.LiveUpdatePhase
@@ -29,9 +31,13 @@ internal object XiaomiSuperIsland {
     private const val Sequence = "xiaomi_island_sequence"
     const val ChannelId = "course_reminder_island"
     private const val FocusParameter = "miui.focus.param"
+    private const val FocusPictures = "miui.focus.pics"
     private const val SmallPicture = "miui.focus.pic_small"
     const val DndActionKey = "miui.focus.action_dnd"
     private val sequence = AtomicLong(System.currentTimeMillis())
+    private val appIconPictureKeys = listOf(
+        "miui.focus.pic_app_icon", "miui.focus.pic_app_icon_dark", SmallPicture, "miui.focus.pic_small_dark"
+    )
 
     fun isXiaomiDevice(manufacturer: String, brand: String): Boolean =
         listOf(manufacturer, brand).any { value ->
@@ -162,18 +168,36 @@ internal object XiaomiSuperIsland {
             payload, status, shortText, System.currentTimeMillis(), options(context), actionTitle,
             nextSequence(context)
         ))
-        val appIcon = Icon.createWithResource(context, currentLiveUpdateIconResId(context))
-        notification.extras.putBundle("miui.focus.pics", Bundle().apply {
-            putParcelable("miui.focus.pic_app_icon", appIcon)
-            putParcelable("miui.focus.pic_app_icon_dark", appIcon)
-            putParcelable(SmallPicture, appIcon)
-            putParcelable("miui.focus.pic_small_dark", appIcon)
-        })
+        notification.extras.putBundle(FocusPictures, iconPictures(context, currentLiveUpdateIconResId(context)))
     }
 
-    private fun nextSequence(context: Context): Long = synchronized(sequence) {
+    internal fun refreshedIconExtras(context: Context, notification: Notification, iconResId: Int): Bundle? {
+        if (!BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES || notification.channelId != ChannelId) return null
+        val extras = notification.extras
+        val raw = extras.getString(FocusParameter) ?: return null
+        val pictures = extras.getBundle(FocusPictures)
+        if (pictures != null && appIconPictureKeys.all { key ->
+                BundleCompat.getParcelable(pictures, key, Icon::class.java).matchesAppNotificationIcon(context, iconResId)
+            }) return null
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: return null
+        val parameters = root.optJSONObject("param_v2") ?: return null
+        parameters.put("sequence", nextSequence(context, parameters.optLong("sequence")))
+        return Bundle().apply {
+            putBundle(FocusPictures, iconPictures(context, iconResId, pictures))
+            putString(FocusParameter, root.toString())
+        }
+    }
+
+    private fun iconPictures(context: Context, iconResId: Int, previous: Bundle? = null): Bundle {
+        val icon = Icon.createWithResource(context, iconResId)
+        return (previous?.let(::Bundle) ?: Bundle()).apply {
+            appIconPictureKeys.forEach { key -> putParcelable(key, icon) }
+        }
+    }
+
+    private fun nextSequence(context: Context, after: Long = 0L): Long = synchronized(sequence) {
         val prefs = context.getSharedPreferences(Prefs, Context.MODE_PRIVATE)
-        val next = maxOf(sequence.get(), prefs.getLong(Sequence, 0L), System.currentTimeMillis()) + 1L
+        val next = maxOf(sequence.get(), prefs.getLong(Sequence, 0L), System.currentTimeMillis(), after) + 1L
         sequence.set(next)
         prefs.edit().putLong(Sequence, next).commit()
         next

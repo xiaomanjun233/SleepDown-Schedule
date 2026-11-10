@@ -1,7 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.reminder
 
 import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
-import com.xiaomanjun.sleepdownschedule.core.identity.refreshAppNotificationIcons
+import com.xiaomanjun.sleepdownschedule.core.identity.currentLiveUpdateIconResId
+import com.xiaomanjun.sleepdownschedule.core.identity.usesAppNotificationIcon
+import com.xiaomanjun.sleepdownschedule.core.identity.withUpdatedAppNotificationIcon
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseReminderSessions
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments
@@ -932,8 +934,32 @@ object NotificationScheduler {
         )
     }
 
+    @SuppressLint("MissingPermission")
     fun refreshLiveUpdateIcon(context: Context) {
-        refreshAppNotificationIcons(context)
+        val app = context.applicationContext as CourseScheduleApp
+        app.applicationScope.launch(Dispatchers.IO) {
+            synchronized(liveUpdatePostLock) {
+                val manager = app.getSystemService(NotificationManager::class.java)
+                if (manager == null || !manager.areNotificationsEnabled()) return@synchronized
+                for (active in manager.activeNotifications) {
+                    val notification = active.notification
+                    if (!notification.usesAppNotificationIcon() && notification.channelId != XiaomiSuperIsland.ChannelId) continue
+                    val updated = updatedLiveUpdateIcon(app, notification) ?: continue
+                    try {
+                        XiaomiSuperIsland.post(app, updated) { manager.notify(active.tag, active.id, updated) }
+                    } catch (error: SecurityException) {
+                        Log.w(TAG, "Notification permission changed during icon refresh", error)
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    internal fun updatedLiveUpdateIcon(context: Context, notification: Notification): Notification? {
+        val iconResId = currentLiveUpdateIconResId(context)
+        val islandExtras = XiaomiSuperIsland.refreshedIconExtras(context, notification, iconResId)
+        return notification.withUpdatedAppNotificationIcon(context, iconResId, islandExtras)
     }
 
     private fun refreshVisibleLiveUpdate(context: Context) {
@@ -1040,11 +1066,13 @@ object NotificationScheduler {
                 identity, LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID
             )
         }
-        logLiveUpdateIcon(context, notification)
+        // A notification built before the icon changed may reach this lock after the refresh.
+        val currentNotification = updatedLiveUpdateIcon(context, notification) ?: notification
+        logLiveUpdateIcon(context, currentNotification)
         // Post first. Reattach the running foreground service before removing its former slot.
-        val delivered = XiaomiSuperIsland.post(context, notification) {
-            manager.notify(id, notification)
-            attachForeground?.invoke(id, notification)
+        val delivered = XiaomiSuperIsland.post(context, currentNotification) {
+            manager.notify(id, currentNotification)
+            attachForeground?.invoke(id, currentNotification)
         }
         (if (preview) listOf(SUPER_ISLAND_TEST_ID, SUPER_ISLAND_TEST_ALTERNATE_ID)
             else listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID, SUPER_ISLAND_ID, SUPER_ISLAND_ALTERNATE_ID))
