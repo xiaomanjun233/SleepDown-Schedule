@@ -546,12 +546,6 @@ internal fun PeriodSchemeEditor(
                     tintColor = pageColor, height = 72.dp, blurRadius = 12.dp,
                     fallbackTintStops = listOf(0f to pageColor.copy(alpha = 0.42f),
                         0.68f to pageColor.copy(alpha = 0.18f), 1f to Color.Transparent))
-                if (navigationInset > 0.dp) ProgressiveBackdropBlur(
-                    editorBackdrop, Modifier.align(Alignment.BottomCenter),
-                    tintColor = pageColor, height = navigationInset + 32.dp, blurRadius = 12.dp,
-                    direction = ProgressiveBlurDirection.BottomToTop,
-                    fallbackTintStops = listOf(0f to pageColor, .5f to pageColor.copy(alpha = .45f), 1f to Color.Transparent),
-                )
                 PeriodEditorToolbar(dark, editorBackdrop, interactive, onExit = ::requestExit)
             }
             CompositionLocalProvider(LocalCenteredDialogSceneBackdrop provides sheetScene) {

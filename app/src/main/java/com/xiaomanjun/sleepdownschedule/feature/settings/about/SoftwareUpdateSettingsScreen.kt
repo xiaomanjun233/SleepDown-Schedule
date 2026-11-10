@@ -8,7 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.rememberScrollState
-import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -190,7 +190,7 @@ internal fun SoftwareUpdatePageContent(
     AnimatedContent(showVersionNotes, Modifier.fillMaxSize(),
         transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "wide-software-update") { showingNotes ->
         if (showingNotes) {
-            Column(Modifier.fillMaxSize().pageVerticalScroll(rememberScrollState())
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                 .padding(start = 24.dp, end = 24.dp, top = top + 12.dp, bottom = bottom),
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 SoftwareUpdateCard(wallpaper = null, modifier = Modifier.widthIn(max = 660.dp)) {
@@ -199,7 +199,7 @@ internal fun SoftwareUpdatePageContent(
             }
         } else Column(Modifier.fillMaxSize().padding(bottom = bottom), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(
-            modifier = Modifier.weight(1f).fillMaxWidth().pageVerticalScroll(rememberScrollState())
+            modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
                 .padding(top = top + 12.dp, bottom = 20.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {

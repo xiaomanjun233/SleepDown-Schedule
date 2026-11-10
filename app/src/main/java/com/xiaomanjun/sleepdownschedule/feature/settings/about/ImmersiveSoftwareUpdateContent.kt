@@ -21,7 +21,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.Icon
@@ -120,7 +119,7 @@ internal fun ImmersiveSoftwareUpdateContent(
             )))
         }
         Column(
-            modifier = Modifier.fillMaxSize().pageVerticalScroll(if (showVersionNotes) notesScroll else statusScroll)
+            modifier = Modifier.fillMaxSize().verticalScroll(if (showVersionNotes) notesScroll else statusScroll)
                 .heightIn(min = viewport).padding(top = top, bottom = bottom),
             verticalArrangement = placement,
         ) {
