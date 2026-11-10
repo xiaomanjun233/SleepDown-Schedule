@@ -78,12 +78,15 @@ internal fun ColorOsAboutSettingsScreen(
             AboutVersionHeader(version, available, expanded = configuration.smallestScreenWidthDp >= 600,
                 onCheck = onSoftwareUpdate)
         }
-        item(key = "about-links") {
+        item(key = "about-github") {
             SettingsGroup(backdrop, state.config) {
                 AboutGitHubRow("关于开发者", "xiaomanjun233", githubIcon) { open(SleepDownDeveloperUrl) }
                 SettingsDivider()
                 AboutGitHubRow("项目仓库", "SleepDown-Schedule", githubIcon) { open(SleepDownSourceUrl) }
-                SettingsDivider()
+            }
+        }
+        item(key = "about-links") {
+            SettingsGroup(backdrop, state.config) {
                 SettingsNavigationRow("官方网站", onClick = { open(SleepDownWebsiteUrl) })
                 SettingsDivider()
                 SettingsNavigationRow("问题反馈", onClick = { open(SleepDownIssuesUrl) })
@@ -155,7 +158,7 @@ private fun AboutVersionHeader(version: String, updateAvailable: Boolean, expand
     val titleTop = if (expanded) 66.dp else 104.dp
     val buttonBottom = if (expanded) 20.dp else 40.dp
     Box(
-        Modifier.padding(top = 12.dp, bottom = 16.dp).fillMaxWidth()
+        Modifier.padding(top = 12.dp).fillMaxWidth()
             .clip(cardShape).background(CouiTheme.colorScheme.container),
     ) {
         VersionCardArtwork(Modifier.matchParentSize().then(artworkProducer))
