@@ -9,6 +9,7 @@ class SettingsSearchTest {
         assertEquals(listOf(SettingsPage.BackupRestore), settingsSearchResults("webdav").map { it.page })
         assertEquals(listOf(SettingsPage.Notifications), settingsSearchResults("课前").map { it.page })
         assertEquals(listOf(SettingsPage.General), settingsSearchResults("深色 主题").map { it.page })
+        assertEquals(listOf(SettingsPage.SoftwareUpdate), settingsSearchResults("Beta 更新").map { it.page })
     }
 
     @Test fun blankOrUnknownQueriesDoNotCreateNavigationResults() {

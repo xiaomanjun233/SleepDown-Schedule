@@ -57,8 +57,10 @@ import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.importing.DonateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.ScheduleManagerScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.AutoUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateMenu
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.aboutPageGradientColors
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCustomizationScreen
@@ -237,6 +239,8 @@ fun SettingsScreen(
                                         modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
                                         buttonHeight = 42.dp
                                     )
+                                } else if (targetPage == SettingsPage.SoftwareUpdate) {
+                                    SoftwareUpdateMenu(topBackdrop, onOpenPage = ::pushTabletDetailPage)
                                 }
                             },
                             modifier = Modifier.fillMaxSize()
@@ -444,12 +448,10 @@ private fun SettingsPageContent(
 			onDonate = { onPageChange(SettingsPage.Donate) },
 			onPrivacyPolicy = { onPageChange(SettingsPage.PrivacyPolicy) },
             onSoftwareUpdate = { onPageChange(SettingsPage.SoftwareUpdate) },
-            onHistory = { onPageChange(SettingsPage.Changelog) },
         )
         SettingsPage.Changelog -> ChangelogSettingsScreen(pageState, backdrop)
-        SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(
-            pageState, backdrop, onHistory = { onPageChange(SettingsPage.Changelog) }
-        )
+        SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(pageState, backdrop)
+        SettingsPage.AutoUpdate -> AutoUpdateSettingsScreen(pageState.config, backdrop, onUpdateGeneralConfig)
 		SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
 		SettingsPage.PrivacyPolicy -> PrivacyPolicySettingsScreen(pageState, backdrop)
     }

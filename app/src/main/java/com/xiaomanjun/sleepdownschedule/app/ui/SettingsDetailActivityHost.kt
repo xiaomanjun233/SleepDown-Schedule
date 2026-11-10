@@ -37,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -84,8 +85,10 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsRootScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsSection
 import com.xiaomanjun.sleepdownschedule.feature.settings.VisualEffectsSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.AutoUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateMenu
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
 import com.xiaomanjun.sleepdownschedule.feature.settings.usesPersistentCenteredSettingsTitle
@@ -160,8 +163,11 @@ open class SettingsDetailActivityHost : ComponentActivity() {
             val isQuickSheetSettingsEntry = remember {
                 intent.transitionRouteIdOrNull() == TransitionRouteId.QuickSheetToSettingsDetail
             }
-            CourseScheduleTheme(config = state.config) {
-                val darkWindowBackground = appUsesDarkTheme(state.config)
+            val immersiveUpdate = section == SettingsPage.SoftwareUpdate && LocalConfiguration.current.screenWidthDp < 600
+            val pageConfig = if (immersiveUpdate) state.config.copy(darkMode = true, followSystemDarkMode = false)
+                else state.config
+            CourseScheduleTheme(config = pageConfig) {
+                val darkWindowBackground = appUsesDarkTheme(pageConfig)
                 LaunchedEffect(darkWindowBackground, isAnchoredSettingsEntry) {
                     // Keep the Activity surface consistent with the Compose page while it is
                     // leaving the screen. Some Android 13/ColorOS back animations otherwise
@@ -237,7 +243,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                     title = if (isTimeSlotEditor) {
                         if (intent.getStringExtra(TimeSlotCourseOriginalExtra).isNullOrEmpty()) "添加特殊课程" else "编辑特殊课程"
                     } else section.title(),
-                    config = state.config,
+                    config = pageConfig,
                     compactTopBar = section.usesPersistentCenteredSettingsTitle(),
                     centerCompactTitle = section.usesPersistentCenteredSettingsTitle(),
                     compactTitleMatchesSettings = section.usesPersistentCenteredSettingsTitle(),
@@ -254,6 +260,8 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
                                 buttonHeight = 42.dp
                             )
+                        } else if (section == SettingsPage.SoftwareUpdate) {
+                            SoftwareUpdateMenu(topBackdrop, onOpenPage = ::openSettingsPage)
                         }
                     }
                 ) { backdrop ->
@@ -346,7 +354,6 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                             onDonate = { openSettingsPage(SettingsPage.Donate) },
                             onPrivacyPolicy = { openSettingsPage(SettingsPage.PrivacyPolicy) },
                             onSoftwareUpdate = { openSettingsPage(SettingsPage.SoftwareUpdate) },
-                            onHistory = { openSettingsPage(SettingsPage.Changelog) },
                         )
                         SettingsPage.BackupRestore -> BackupRestoreSettingsScreen(
                             state = state,
@@ -389,8 +396,9 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                             }
                         }
                         SettingsPage.Changelog -> ChangelogSettingsScreen(state, backdrop)
-                        SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(
-                            state, backdrop, onHistory = { openSettingsPage(SettingsPage.Changelog) }
+                        SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(state, backdrop)
+                        SettingsPage.AutoUpdate -> AutoUpdateSettingsScreen(
+                            state.config, backdrop, onUpdateConfig = viewModel::saveGeneralSettings
                         )
 						SettingsPage.Donate -> DonateSettingsScreen(state, backdrop)
 						SettingsPage.PrivacyPolicy -> PrivacyPolicySettingsScreen(state, backdrop)

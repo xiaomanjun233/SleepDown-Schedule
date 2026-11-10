@@ -1,5 +1,15 @@
 # 当前工作交接
 
+## 2026-11-10 关于应用与软件更新
+
+在 `codex/restore-activity-navigation` 的 `f23bba81` 上续做。对照 E 盘 PMX110 ColorOS 17.0.0.115 的 Settings（SHA-256 前缀 `D97DF8A92275`）及 OTA 17.0.3（`02D0A839B457`）。关于首卡以 `AboutDeviceOtaUpdatePreference` 的运行时布局为准，手机高 328dp、28dp 圆角，宽屏高 240dp、24dp 圆角。两侧各 16dp。40dp 胶囊随文字宽度，左右各 16dp，版本号和按钮文字分别为 16dp 与 14dp。头图和应用名使用 SleepDown 原素材与排版文本。
+
+关于页并列个人 GitHub 与仓库入口，项目致谢行带 GitHub 图标。原独立更新日志行及重复源代码行取消。软件更新按 OTA `FragmentIdle`、`FragmentBusy` 与下载按钮的运行时设置对照，窄窗口为沉浸背景，宽窗口为 240dp 头卡。更新说明滚动，44dp 下载胶囊固定在底部，宽度按窗口为 296dp 或 280dp。下载进度读取当前发布版本的既有下载状态。
+
+软件更新右上角的两项进入「自动更新设置」和「更新日志」。通用设置移出的自动检查与 Beta 渠道沿用原配置保存与偏好存储。手机从设置页返回时按实际 Beta 偏好变更重新检查，宽屏进入新详情时沿用对应详情栈。
+
+GitHub Release 的 `compileGithubReleaseKotlin` 通过。GitHub Debug 的 AboutSettingsUiTest 与 SettingsSearchTest 共 4 项通过，覆盖两张卡的并排布局、40dp 检查按钮、菜单两条路线、搜索定位、296×44dp 下载按钮及单次下载回调。360dp 的本地渲染测得首卡 328dp 高、两侧 16dp。截图和构建日志在主工作区 `tmp/c17-about-device-20261110/`。ColorOS 真机视觉及真实下载待验收。
+
 ## 2026-11-10 助理卡轻模糊与巡检跟进
 
 核对 E 盘流体云的 `CardBackgroundView` 和 `BackgroundUtils`。轻效果由 `livealert_effect_light.enable` 选中，原厂在系统窗口模糊中使用 100 档，再叠渐变蒙版，旧档为 540。两个系统档位和应用的局部 Backdrop 半径使用不同的渲染链路。按轻档思路调低今日助理卡的采样半径，凝光收起态 14 → 9 dp，展开态 18 → 12 dp。液态玻璃深浅卡片分别为 8 → 5 dp 和 10 → 6 dp。提交 `bd82530e`。

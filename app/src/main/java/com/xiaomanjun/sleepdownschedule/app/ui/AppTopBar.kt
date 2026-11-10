@@ -216,6 +216,7 @@ internal fun AppTopBar(
                         SettingsPage.About -> "关于应用"
                         SettingsPage.Changelog -> "更新日志"
                         SettingsPage.SoftwareUpdate -> "软件更新"
+                        SettingsPage.AutoUpdate -> "自动更新设置"
                         SettingsPage.Donate -> "捐赠支持"
 						SettingsPage.PrivacyPolicy -> "隐私政策"
                     },

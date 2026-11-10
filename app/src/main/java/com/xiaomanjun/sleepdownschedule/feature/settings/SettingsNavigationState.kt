@@ -10,7 +10,7 @@ import kotlinx.coroutines.flow.map
 internal const val SettingsDetailPageExtra = "settings_page"
 
 enum class SettingsSection { Schedule, Notifications }
-enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, PeriodSchemes, SpecialCourses, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, WebDav, BackupPreview, About, Changelog, Donate, PrivacyPolicy, SoftwareUpdate }
+enum class SettingsPage { Root, General, LiquidGlass, Widgets, AiImport, DayAgent, Schedule, PeriodSchemes, SpecialCourses, AutoRefreshSchedule, Notifications, ScheduleManager, BackupRestore, WebDav, BackupPreview, About, Changelog, Donate, PrivacyPolicy, SoftwareUpdate, AutoUpdate }
 
 internal fun SettingsPage.title(): String = when (this) {
     SettingsPage.Root -> "设置"
@@ -31,6 +31,7 @@ internal fun SettingsPage.title(): String = when (this) {
     SettingsPage.About -> "关于应用"
     SettingsPage.Changelog -> "更新日志"
     SettingsPage.SoftwareUpdate -> "软件更新"
+    SettingsPage.AutoUpdate -> "自动更新设置"
     SettingsPage.Donate -> "捐赠支持"
 	SettingsPage.PrivacyPolicy -> "隐私政策"
 }
@@ -44,6 +45,7 @@ internal fun SettingsPage.usesPersistentCenteredSettingsTitle(): Boolean = when 
     SettingsPage.About,
 	SettingsPage.Changelog,
     SettingsPage.SoftwareUpdate,
+    SettingsPage.AutoUpdate,
 	SettingsPage.PrivacyPolicy -> true
     else -> false
 }

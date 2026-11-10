@@ -12,8 +12,8 @@ import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import com.xiaomanjun.sleepdownschedule.AppState
@@ -21,15 +21,16 @@ import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.material.VisualEffectsState
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsPageScaffold
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.AutoUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateMenu
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdatePageContent
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateDialog
 import com.xiaomanjun.sleepdownschedule.feature.update.GiteeReleaseInfo
 import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -44,7 +45,7 @@ import org.robolectric.annotation.GraphicsMode
 class AboutSettingsUiTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun aboutUsesFullNameAndOpensTheHistoryAsASeparatePage() {
+    @Test fun aboutShowsTwoGitHubCardsAndKeepsHistoryInSoftwareUpdate() {
         val config = defaultConfig().copy(darkMode = true, followSystemDarkMode = false)
         RuntimeEnvironment.getApplication().applicationInfo.nonLocalizedLabel = "SleepDown课程表"
         compose.setContent {
@@ -52,36 +53,58 @@ class AboutSettingsUiTest {
                 CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
                     effectiveMode = VisualEffectMode.ColorOsGlow, colorOsAvailable = true)) {
                     var page by remember { mutableStateOf(SettingsPage.About) }
-                    CouiSettingsPageScaffold(page.title(), config, showBack = true,
-                        onBack = { page = SettingsPage.About }) { _, source ->
+                    CouiSettingsPageScaffold(
+                        title = page.title(),
+                        config = config,
+                        showBack = true,
+                        onBack = { page = if (page == SettingsPage.SoftwareUpdate) SettingsPage.About else SettingsPage.SoftwareUpdate },
+                        topBarActions = { source ->
+                            if (page == SettingsPage.SoftwareUpdate) SoftwareUpdateMenu(source) { page = it }
+                        },
+                    ) { _, source ->
                         when (page) {
                             SettingsPage.About -> ColorOsAboutSettingsScreen(AppState(config = config), source, {}, {},
-                                onSoftwareUpdate = { page = SettingsPage.SoftwareUpdate },
-                                onHistory = { page = SettingsPage.Changelog })
+                                onSoftwareUpdate = { page = SettingsPage.SoftwareUpdate })
                             SettingsPage.Changelog -> ChangelogSettingsScreen(AppState(config = config), source)
-                            else -> SoftwareUpdatePageContent("1.2.8_beta2", AppUpdateDialog.UpToDate("1.2.8_beta2"), {}, {}, {}, {})
+                            SettingsPage.AutoUpdate -> AutoUpdateSettingsScreen(config, source, onUpdateConfig = {})
+                            else -> SoftwareUpdatePageContent("1.2.8_beta2", AppUpdateDialog.UpToDate("1.2.8_beta2"),
+                                {}, {}, {}, {})
                         }
                     }
                 }
             }
         }
         compose.onNodeWithText("SleepDown课程表").assertIsDisplayed()
-        compose.onNodeWithText("检查更新").assertIsDisplayed()
-        compose.onNodeWithText("github.com/xiaomanjun233").assertIsDisplayed()
-        compose.onNodeWithText("应用名称").assertDoesNotExist()
+        val update = compose.onNodeWithText("检查更新").assertIsDisplayed()
+        val density = RuntimeEnvironment.getApplication().resources.displayMetrics.density
+        assertEquals(40f * density, update.fetchSemanticsNode().boundsInRoot.height, 1f)
+        val profile = compose.onNodeWithText("GitHub 主页").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val repository = compose.onNodeWithText("项目仓库").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertEquals(profile.top, repository.top, 1f)
+        assertEquals(profile.width, repository.width, 1f)
+        assertTrue(profile.right < repository.left)
+        compose.onNodeWithText("更新日志").assertDoesNotExist()
+        compose.onNodeWithText("源代码").assertDoesNotExist()
         writeSettingsVisualArtifact("about-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
-        compose.onNodeWithText("更新日志").performClick()
-        compose.onNodeWithText("1.2.8_beta1").assertExists()
-        compose.onNodeWithText("github.com/xiaomanjun233").assertDoesNotExist()
-        writeSettingsVisualArtifact("changelog-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
-        compose.onNodeWithContentDescription("返回").performClick()
-        compose.onNodeWithText("检查更新").performClick()
+        update.performClick()
         compose.onNodeWithText("已是最新版本").assertIsDisplayed()
-        compose.onNodeWithText("github.com/xiaomanjun233").assertDoesNotExist()
+        compose.onNodeWithText("GitHub 主页").assertDoesNotExist()
         writeSettingsVisualArtifact("software-current-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
+        compose.onNodeWithText("历史日志").assertDoesNotExist()
+        val more = compose.onNodeWithContentDescription("更多选项")
+        more.performClick()
+        compose.onNodeWithText("历史日志").assertIsDisplayed()
+        compose.onNodeWithText("自动更新设置").performClick()
+        compose.onNodeWithText("自动检查更新").assertIsDisplayed()
+        compose.onNodeWithText("接收 Beta 版更新").assertIsDisplayed()
+        compose.onNodeWithContentDescription("返回").performClick()
+        more.performClick()
+        compose.onNodeWithText("历史日志").performClick()
+        compose.onNodeWithText("1.2.8_beta1").assertExists()
+        writeSettingsVisualArtifact("changelog-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
     }
 
-    @Test fun softwareUpdateUsesTheOriginalButtonSizeAndDownloadsExactlyOnce() {
+    @Test fun softwareUpdateUsesThePhoneOtaButtonSizeAndDownloadsExactlyOnce() {
         val config = defaultConfig().copy(darkMode = true, followSystemDarkMode = false)
         val release = GiteeReleaseInfo(name = "SleepDown 1.2.8", tagName = "v1.2.8", notes = "版本说明测试",
             apkName = "sleepdown.apk", apkUrl = "https://example.com/sleepdown.apk",
@@ -89,20 +112,16 @@ class AboutSettingsUiTest {
         var downloads = 0
         compose.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                CouiSettingsPageScaffold("软件更新", config, showBack = true) { _, source ->
+                CouiSettingsPageScaffold("软件更新", config, showBack = true) { _, _ ->
                     SoftwareUpdatePageContent("1.2.8_beta2", AppUpdateDialog.Available(release), {},
-                        { assertEquals(release, it); downloads++ }, {}, {}, history = {
-                            SettingsGroup(source, config) {
-                                SettingsNavigationRow("历史更新日志", onClick = {})
-                            }
-                        })
+                        { assertEquals(release, it); downloads++ }, {}, {})
                 }
             }
         }
         val button = compose.onNodeWithText("下载并安装")
         val bounds = button.fetchSemanticsNode().boundsInRoot
         val density = RuntimeEnvironment.getApplication().resources.displayMetrics.density
-        assertEquals(220f * density, bounds.width, 1f)
+        assertEquals(296f * density, bounds.width, 1f)
         assertEquals(44f * density, bounds.height, 1f)
         writeSettingsVisualArtifact("software-update-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
         button.performClick()

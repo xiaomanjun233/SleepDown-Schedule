@@ -48,7 +48,7 @@ object AgentSettingRegistry {
         AgentSettingDefinition("FOLLOW_SYSTEM_DARK_MODE", "跟随系统深浅模式", "true/false", "GENERAL"),
         AgentSettingDefinition("DARK_MODE", "应用深色模式（关闭跟随后生效）", "true/false", "GENERAL"),
         AgentSettingDefinition("HIDE_FROM_RECENTS", "从最近任务隐藏", "true/false", "GENERAL"),
-        AgentSettingDefinition("AUTO_CHECK_UPDATES", "自动检查应用更新", "true/false", "GENERAL"),
+        AgentSettingDefinition("AUTO_CHECK_UPDATES", "自动检查应用更新", "true/false", "DOWNLOAD"),
         AgentSettingDefinition("HOME_TEXT_STYLE", "首页文字明暗", "LIGHT/DARK", "PERSONALIZATION"),
         AgentSettingDefinition("DEFAULT_WALLPAPER_STYLE", "默认壁纸样式", "KANBAN/NONE", "PERSONALIZATION"),
         AgentSettingDefinition("DEFAULT_HOME_MODE", "首页默认日视图或周视图", "DAY/WEEK", "GENERAL"),
