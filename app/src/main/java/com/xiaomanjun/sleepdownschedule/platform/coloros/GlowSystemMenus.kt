@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -65,7 +66,7 @@ private fun actionMenuStyle(dark: Boolean, placement: CouiMenuPlacement) = CouiM
 /** 动作即时提交，菜单的退场回调只清理窗口状态。 */
 @Composable
 internal fun GlowOverflowMenuButton(dark: Boolean, interactive: Boolean, actions: List<AddMenuAction>,
-    modifier: Modifier, containerColor: Color = Color.Unspecified,
+    modifier: Modifier, containerColor: Color = Color.Unspecified, menuWidth: Dp = 196.dp,
     content: @Composable (onClick: () -> Unit) -> Unit) {
     var mounted by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
@@ -84,9 +85,8 @@ internal fun GlowOverflowMenuButton(dark: Boolean, interactive: Boolean, actions
         }
         if (mounted) {
             val style = actionMenuStyle(dark, CouiMenuPlacement.AnchorCenter)
-            val hasIcons = items.any { it.icon != null || it.iconPainter != null }
             val menu: @Composable () -> Unit = {
-                Menu(modifier = if (hasIcons) Modifier.width(196.dp) else Modifier,
+                Menu(modifier = Modifier.width(menuWidth),
                     expanded = expanded, items = items,
                     style = if (containerColor.isSpecified) style.copy(colors = style.colors.copy(container = containerColor)) else style,
                     offset = DpOffset(0.dp, 8.dp),

@@ -114,7 +114,8 @@ internal fun SoftwareUpdateMenu(backdrop: Backdrop?, onOpenPage: (SettingsPage) 
     }
     val panelColor = if (compact) SoftwareUpdateToolbarColors.surface.compositeOver(SoftwareUpdateBackground)
         else Color.Unspecified
-    GlowOverflowMenuButton(dark, interactive = true, actions, Modifier, containerColor = panelColor) { open ->
+    GlowOverflowMenuButton(dark, interactive = true, actions, Modifier, containerColor = panelColor,
+        menuWidth = 164.dp) { open ->
         if (compact) {
             SoftwareUpdateToolbarButton(CouiIcons.More, "更多选项", open)
         } else CouiSettingsToolbarButton(backdrop, onClick = open) {
