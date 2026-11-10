@@ -1,5 +1,15 @@
 # 当前工作交接
 
+## 2026-11-11 多选删除胶囊与作息归属方案
+
+在 `codex/restore-activity-navigation` 从 `acf1046d` 续作，签名源码为 `b15c945b`。对照 ColorOS 17 便签的 `COUIBottomFloatingEditToolbar` 竖排单项宽度和图标间距。导入历史、课程管理及特殊课程共用的删除胶囊改为上方 24dp 图标、下方文字，宽度 148dp，高度跟随对应材质的 Dock。整颗胶囊保留原有点击和确认操作。
+
+`assembleGithubRelease` 完成 R8、资源压缩、lintVital、打包和 V2 签名。GitHub 2.0 版本代码 36，主工作区归档包为 `tmp/review-apks/SleepDown-2.0-GitHub-b15c945b.apk`，8,107,666 字节，SHA-256 为 `A656AA4158C6373B0D10EB2A82E26B1796E75EDC53BFEC587C8072530D26A281`。构建日志在 `tmp/sleepdown-vertical-delete-build.log`。
+
+02:59 经 SDK ADB 37.0.1 的 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，隔离用户 10），回读 SHA-256 一致。导入历史入场结束后长按多选两条合成记录，点击确认并取消，验证可点击区域 148 × 56dp、两条仍选中、退出多选后记录仍在。截图和日志在主工作区 `tmp/nav3-qa/sleepdown-b15c945b-avd-*`。
+
+用户明确认可现有单套作息时间轴，要求整改多作息和跨表复用。以 Nexio 两个公开仓库一致的 `d6744fbb` 核对了节次归属、生效选择和整套复制行为。[多作息与跨课表复用整改方案](reports/2026-11-11-period-settings-simplification.md) 记录常规与当前生效的区分、复制单套和整套的边界、旧共享与备份兼容。本轮作息部分交付方案。
+
 ## 2026-11-11 2.0 课程多选与系统页面细节
 
 接续独立工作树的 `codex/restore-activity-navigation`，从 `92b7b5ac` 到签名包源码 `b27dcd6b`。GitHub 版 2.0、版本代码 36。
