@@ -1,9 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings.about
 
-import androidx.compose.foundation.Image
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.rememberScrollState
@@ -15,22 +14,26 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.itos.coui.effect.couiButtonFeedback
+import com.itos.coui.button.CouiButtonDefaults
+import com.itos.coui.button.CouiButtonStyle
+import com.itos.coui.button.CouiCapsuleButton
 import com.itos.coui.icons.CouiIcons
 import com.itos.coui.menu.CouiMenuItem
 import com.itos.coui.menu.Menu
@@ -41,7 +44,6 @@ import com.itos.coui.text.rememberCouiTextStyle
 import com.itos.coui.theme.CouiTheme
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
-import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
@@ -78,12 +80,14 @@ internal fun SoftwareUpdateSettingsScreen(state: AppState, backdrop: Backdrop?) 
         (downloadState as? UpdateDownloadState.Downloading)
             ?.takeIf { it.releaseTag == dialog.release.tagName }?.progressPercent
     } else null
+    val installedTag = "v${updates.versionName.removePrefix("v")}"
     SoftwareUpdatePageContent(
         version = updates.versionName, dialog = dialog,
         onRetry = { if (AppDistribution.supportsSelfUpdate) updates.checkForUpdate() else open(SleepDownReleasesUrl) },
         onDownload = updates::downloadAndInstall, onOpenRelease = { open(it.releaseUrl) },
         onOpenBackup = { open(SleepDownReleasesUrl) },
         downloadPercent = downloadPercent,
+        onOpenVersionNotes = { open("$SleepDownReleasesUrl/tag/${Uri.encode(installedTag)}") },
     )
     if (updates.dialog == AppUpdateDialog.InstallPermissionRequired) {
         AppUpdateDialogHost(updates, backdrop, state.config,
@@ -103,8 +107,12 @@ internal fun SoftwareUpdateMenu(backdrop: Backdrop?, onOpenPage: (SettingsPage) 
         }
     }
     Box {
-        CouiSettingsToolbarButton(backdrop, onClick = { expanded = true }) {
-            Icon(CouiIcons.More, "更多选项", Modifier.size(24.dp), tint = CouiTheme.colorScheme.onSurface)
+        if (LocalConfiguration.current.screenWidthDp < 600) {
+            SoftwareUpdateToolbarButton(CouiIcons.More, "更多选项") { expanded = true }
+        } else {
+            CouiSettingsToolbarButton(backdrop, onClick = { expanded = true }) {
+                Icon(CouiIcons.More, "更多选项", Modifier.size(24.dp), tint = CouiTheme.colorScheme.onSurface)
+            }
         }
         Menu(
             expanded = expanded,
@@ -123,17 +131,31 @@ internal fun SoftwareUpdateMenu(backdrop: Backdrop?, onOpenPage: (SettingsPage) 
     }
 }
 
-/** 对应系统更新的沉浸式窄屏和宽屏头卡，底部操作与正文滚动分开。 */
+@Composable
+internal fun SoftwareUpdateToolbarButton(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+        CouiCapsuleButton(
+            modifier = Modifier.width(40.dp),
+            onClick = onClick, dark = true, height = 40.dp,
+            colors = CouiButtonDefaults.secondaryColors(dark = true, material = true).copy(
+                surface = Color.White.copy(alpha = .15f),
+            ),
+            contentPadding = PaddingValues(0.dp),
+        ) {
+            Icon(icon, label, Modifier.size(24.dp), tint = Color.White)
+        }
+    }
+}
+
+/** 手机用沉浸式状态卡，宽屏沿用 OTA 的独立头卡布局。 */
 @Composable
 internal fun SoftwareUpdatePageContent(
     version: String, dialog: AppUpdateDialog?, onRetry: () -> Unit,
     onDownload: (GiteeReleaseInfo) -> Unit, onOpenRelease: (GiteeReleaseInfo) -> Unit,
-    onOpenBackup: () -> Unit, downloadPercent: Int? = null,
+    onOpenBackup: () -> Unit, downloadPercent: Int? = null, onOpenVersionNotes: () -> Unit = onOpenBackup,
 ) {
     val screenWidth = LocalConfiguration.current.screenWidthDp
-    val immersive = screenWidth < 600
     val colors = CouiTheme.colorScheme
-    val foreground = if (immersive) Color.White else colors.onSurface
     val release = when (dialog) {
         is AppUpdateDialog.Available -> dialog.release
         is AppUpdateDialog.Downloading -> dialog.release
@@ -148,107 +170,92 @@ internal fun SoftwareUpdatePageContent(
         else -> null
     }
     val hasBackup = dialog is AppUpdateDialog.Error || dialog is AppUpdateDialog.NoApk
+    val displayVersion = release?.tagName?.removePrefix("v") ?: version
+    if (screenWidth < 600) {
+        val upToDate = dialog is AppUpdateDialog.UpToDate
+        ImmersiveSoftwareUpdateContent(
+            version = displayVersion,
+            dialog = dialog,
+            releaseNotes = release?.notes,
+            primary = if (upToDate) "重新检查" to onRetry else action,
+            secondary = when {
+                upToDate -> "查看更新说明" to onOpenVersionNotes
+                hasBackup -> "备用下载" to onOpenBackup
+                else -> null
+            },
+            downloadPercent = downloadPercent,
+        )
+        return
+    }
     val top = detailContentTopPadding()
     val bottom = detailContentBottomPadding() + 8.dp
-    Box(Modifier.fillMaxSize()) {
-        if (immersive) {
-            Box(Modifier.matchParentSize().background(Color(0xFF111329))) {
-                Image(painterResource(R.drawable.about_sleepdown_hero), null, Modifier.matchParentSize(),
-                    alignment = Alignment.CenterEnd, contentScale = ContentScale.Crop)
-                Box(Modifier.matchParentSize().background(Brush.verticalGradient(
-                    0f to Color(0xFF111329),
-                    .32f to Color(0xFF111329).copy(alpha = .78f),
-                    .68f to Color(0xFF111329).copy(alpha = .46f),
-                    1f to Color(0xFF111329),
-                )))
+    Column(Modifier.fillMaxSize().padding(bottom = bottom), horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                .padding(top = top + 12.dp, bottom = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Column(Modifier.padding(horizontal = 24.dp).widthIn(max = 660.dp).fillMaxWidth()) {
+                SoftwareUpdateHero(displayVersion, updateAvailable = release != null)
+                SoftwareUpdateDetails(dialog, release, displayVersion, onRetry, onOpenVersionNotes)
             }
         }
-        Column(Modifier.fillMaxSize().padding(bottom = bottom), horizontalAlignment = Alignment.CenterHorizontally) {
-            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
-                val viewport = maxHeight
-                val bottomAligned = immersive && release == null
-                Column(
-                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                        .heightIn(min = if (bottomAligned) viewport else 0.dp)
-                        .padding(top = top, bottom = 20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = if (bottomAligned) Arrangement.SpaceBetween else Arrangement.Top,
-                ) {
-                    val heroTop = if (immersive) {
-                        if (release != null) 44.dp else (viewport - 320.dp).coerceIn(20.dp, 163.dp)
-                    } else 12.dp
-                    val displayVersion = release?.tagName?.removePrefix("v") ?: version
-                    SoftwareUpdateHero(displayVersion, heroTop, immersive)
-                    SoftwareUpdateDetails(dialog, release, displayVersion, immersive, onRetry)
-                }
+        if (action != null || downloading) {
+            // OTA 在绑定进度按钮时按窗口类别覆盖 InstallDownloadLarge 的资源宽度。
+            val buttonWidth = if (screenWidth in 600..839) 280.dp else 296.dp
+            val label = action?.first ?: downloadPercent?.let { "正在下载 · $it%" } ?: "正在下载"
+            Box(Modifier.padding(horizontal = 24.dp)) {
+                SoftwareUpdateAction(label, buttonWidth, action?.second, downloadPercent)
             }
-            if (action != null || downloading) {
-                // OTA 在绑定进度按钮时按窗口类别覆盖 InstallDownloadLarge 的资源宽度。
-                val buttonWidth = if (screenWidth in 600..839) 280.dp else 296.dp
-                val label = action?.first ?: downloadPercent?.let { "正在下载 · $it%" } ?: "正在下载"
-                Box(Modifier.padding(horizontal = 24.dp)) {
-                    SoftwareUpdateAction(label, buttonWidth, action?.second, downloadPercent)
-                }
-                if (hasBackup) Text("备用下载", Modifier.clickable(role = Role.Button, onClick = onOpenBackup)
-                    .padding(12.dp), color = foreground, style = rememberCouiTextStyle(CouiTextKind.PreferenceValue))
-            }
+            if (hasBackup) Text("备用下载", Modifier.clickable(role = Role.Button, onClick = onOpenBackup)
+                .padding(12.dp), color = colors.onSurface, style = rememberCouiTextStyle(CouiTextKind.PreferenceValue))
         }
     }
 }
 
 @Composable
-private fun SoftwareUpdateHero(version: String, topPadding: Dp, immersive: Boolean) {
+private fun SoftwareUpdateHero(version: String, updateAvailable: Boolean) {
+    val foreground = versionCardForeground()
+    val density = LocalDensity.current
+    // logo_area 的常规卡高 240dp，V1/Q 绑定后的升级卡使用 343dp。
     Box(
-        modifier = Modifier.padding(horizontal = if (immersive) 16.dp else 24.dp)
-            .padding(top = topPadding).widthIn(max = 660.dp).fillMaxWidth()
-            .then(if (immersive) Modifier else Modifier.heightIn(min = 240.dp)
-                .clip(CouiShape(16.dp, 2.5f))),
+        modifier = Modifier.fillMaxWidth().heightIn(min = if (updateAvailable) 343.dp else 240.dp)
+            .clip(CouiShape(16.dp, 2.5f)),
         contentAlignment = Alignment.Center,
     ) {
-        if (!immersive) {
-            Image(painterResource(R.drawable.about_sleepdown_hero), null, Modifier.matchParentSize(),
-                contentScale = ContentScale.Crop)
-            Box(Modifier.matchParentSize().background(Color(0x99111329)))
+        VersionCardArtwork(Modifier.matchParentSize())
+        if (updateAvailable) {
+            Text("发现新版本", Modifier.align(Alignment.TopCenter).padding(top = 32.dp, start = 16.dp, end = 16.dp),
+                color = foreground, textAlign = TextAlign.Center,
+                style = rememberCouiTextStyle(CouiTextKind.PreferenceTitle).copy(fontSize = with(density) { 18.dp.toSp() }))
         }
-        Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(Modifier.heightIn(min = if (immersive) 132.dp else 90.dp), contentAlignment = Alignment.Center) {
-                val versionSize = if (immersive) 68.sp else 52.sp
-                Text(version.substringBefore('_').substringBefore('-'), color = Color.White,
-                    textAlign = TextAlign.Center,
-                    style = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = versionSize, lineHeight = versionSize))
-            }
-            Text(SleepDownFullName, color = Color.White, textAlign = TextAlign.Center,
+        Column(Modifier.padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(SleepDownFullName, color = foreground, textAlign = TextAlign.Center,
                 style = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = 26.sp, lineHeight = 32.sp))
+            Text(version, color = foreground.copy(alpha = .85f), textAlign = TextAlign.Center,
+                style = rememberCouiTextStyle(CouiTextKind.PreferenceValue))
         }
     }
 }
 
 @Composable
 private fun SoftwareUpdateDetails(
-    dialog: AppUpdateDialog?, release: GiteeReleaseInfo?, version: String, immersive: Boolean, onRetry: () -> Unit,
+    dialog: AppUpdateDialog?, release: GiteeReleaseInfo?, version: String,
+    onRetry: () -> Unit, onOpenVersionNotes: () -> Unit,
 ) {
     val colors = CouiTheme.colorScheme
-    val foreground = if (immersive) Color.White else colors.onSurface
-    val secondary = if (immersive) Color.White.copy(alpha = .72f) else colors.onSurfaceVariant
-    val contentWidth = Modifier.widthIn(max = 660.dp).fillMaxWidth()
+    val foreground = colors.onSurface
+    val secondary = colors.onSurfaceVariant
     val titleStyle = rememberCouiTextStyle(CouiTextKind.PreferenceTitle)
     val summaryStyle = rememberCouiTextStyle(CouiTextKind.PreferenceSummary)
     when {
         dialog == AppUpdateDialog.Checking -> {
-            Row(
-                modifier = contentWidth.padding(start = 16.dp, top = 16.dp, end = 16.dp)
-                    .heightIn(min = 64.dp).clip(CouiShape(24.dp, 2.5f))
-                    .background(if (immersive) Color.White.copy(alpha = .16f) else colors.container)
-                    .padding(start = 24.dp, end = 27.dp, top = 8.dp, bottom = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("正在检查更新…", Modifier.weight(1f), color = foreground, style = titleStyle)
-                CircularProgressIndicator(Modifier.size(19.5.dp), color = foreground, strokeWidth = 2.dp)
-            }
+            SoftwareUpdateChecking(foreground, Modifier.fillMaxWidth().padding(top = 16.dp)
+                .clip(CouiShape(20.dp, 2.85f)).background(colors.container))
         }
         release != null -> {
-            Column(contentWidth.padding(horizontal = if (immersive) 40.dp else 24.dp).padding(top = 24.dp),
+            Column(Modifier.fillMaxWidth().padding(top = 24.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(release.name, color = foreground, style = titleStyle)
                 Text(version, color = secondary, style = summaryStyle)
@@ -267,16 +274,22 @@ private fun SoftwareUpdateDetails(
                 AppUpdateDialog.InstallPermissionRequired -> "安装包已下载" to "允许安装此来源的应用后继续。"
                 else -> "软件版本" to version
             }
-            val align = if (immersive) TextAlign.Center else TextAlign.Start
-            Column(contentWidth.padding(start = 24.dp, top = 24.dp, end = 24.dp),
-                horizontalAlignment = if (immersive) Alignment.CenterHorizontally else Alignment.Start,
-                verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(title, color = foreground, textAlign = align, style = titleStyle)
-                Text(message, color = secondary, textAlign = align, style = summaryStyle)
+            Column(Modifier.fillMaxWidth().padding(top = 24.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(title, color = foreground, style = titleStyle)
+                Text(message, color = secondary, style = summaryStyle)
                 if (dialog is AppUpdateDialog.UpToDate) {
-                    Text("重新检查", Modifier.clickable(role = Role.Button, onClick = onRetry)
-                        .padding(vertical = 12.dp), color = foreground,
-                        style = rememberCouiTextStyle(CouiTextKind.PreferenceValue))
+                    val dark = CouiTheme.isDark
+                    val buttonColors = CouiButtonDefaults.secondaryColors(dark)
+                    CouiCapsuleButton(
+                        modifier = Modifier.padding(top = 8.dp),
+                        onClick = onRetry, dark = dark, height = 40.dp, colors = buttonColors,
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                    ) {
+                        Text("重新检查", color = buttonColors.content,
+                            style = rememberCouiTextStyle(CouiTextKind.Progress))
+                    }
+                    Text("查看更新说明", Modifier.clickable(role = Role.Button, onClick = onOpenVersionNotes)
+                        .padding(vertical = 12.dp), color = colors.accent, style = summaryStyle)
                 }
             }
         }
@@ -284,27 +297,63 @@ private fun SoftwareUpdateDetails(
 }
 
 @Composable
-private fun SoftwareUpdateAction(label: String, width: Dp, onClick: (() -> Unit)?, percent: Int?) {
+internal fun SoftwareUpdateChecking(foreground: Color, modifier: Modifier) {
+    Row(
+        modifier = modifier.heightIn(min = 64.dp).padding(start = 24.dp, end = 27.dp, top = 8.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Text("正在检查更新…", Modifier.weight(1f), color = foreground,
+            style = rememberCouiTextStyle(CouiTextKind.PreferenceTitle))
+        CircularProgressIndicator(Modifier.size(19.5.dp), color = foreground, strokeWidth = 2.dp)
+    }
+}
+
+@Composable
+internal fun SoftwareUpdateAction(
+    label: String, width: Dp, onClick: (() -> Unit)?, percent: Int?, lightSurface: Boolean = false,
+) {
     val colors = CouiTheme.colorScheme
-    val interaction = remember { MutableInteractionSource() }
+    val accent = if (lightSurface) Color(0xFFEFEFF3) else colors.accent
+    val onAccent = if (lightSurface) Color(0xFF15151B) else colors.onAccent
+    val widthModifier = Modifier.widthIn(max = width).fillMaxWidth()
+    val labelStyle = rememberCouiTextStyle(if (lightSurface) CouiTextKind.Button else CouiTextKind.Progress)
+    if (onClick != null) {
+        CouiCapsuleButton(
+            modifier = widthModifier,
+            onClick = onClick, dark = CouiTheme.isDark && !lightSurface, height = 44.dp,
+            colors = CouiButtonDefaults.primaryColors(accent).copy(content = onAccent),
+            style = CouiButtonStyle.Primary,
+            shape = CouiCapsuleShape,
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        ) {
+            Text(label, color = onAccent, style = labelStyle)
+        }
+        return
+    }
     val fraction = percent?.div(100f)
-    val button = if (onClick != null) Modifier.couiButtonFeedback(interactionSource = interaction)
-        .clickable(interaction, null, role = Role.Button, onClick = onClick)
-    else if (fraction != null) Modifier.progressSemantics(fraction)
-    else Modifier.progressSemantics()
+    val progress = if (fraction == null) Modifier.progressSemantics() else Modifier.progressSemantics(fraction)
     Box(
-        modifier = Modifier.widthIn(max = width).fillMaxWidth().heightIn(min = 44.dp)
+        modifier = widthModifier.heightIn(min = 44.dp)
             .clip(CouiCapsuleShape)
-            .background(if (onClick != null) colors.accent else colors.accent.copy(alpha = .35f))
-            .then(button),
+            .background(accent.copy(alpha = .35f)).then(progress),
         contentAlignment = Alignment.Center,
     ) {
-        if (onClick == null && fraction != null) {
-            Box(Modifier.matchParentSize(), contentAlignment = Alignment.CenterStart) {
-                Box(Modifier.fillMaxWidth(fraction).fillMaxHeight().background(colors.accent))
+        val labelPadding = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+        Text(label, labelPadding, color = if (lightSurface) Color.White else colors.onSurface, style = labelStyle)
+        if (fraction != null) {
+            // 原厂下载组件在填充区内单独裁切进度色和文字色。
+            Box(
+                Modifier.matchParentSize().drawWithContent {
+                    val filled = size.width * fraction
+                    val rtl = layoutDirection == LayoutDirection.Rtl
+                    clipRect(left = if (rtl) size.width - filled else 0f,
+                        right = if (rtl) size.width else filled) { this@drawWithContent.drawContent() }
+                }.background(accent),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(label, labelPadding.clearAndSetSemantics {}, color = onAccent, style = labelStyle)
             }
         }
-        Text(label, Modifier.padding(horizontal = 12.dp, vertical = 8.dp), color = colors.onAccent,
-            style = rememberCouiTextStyle(CouiTextKind.Progress))
     }
 }

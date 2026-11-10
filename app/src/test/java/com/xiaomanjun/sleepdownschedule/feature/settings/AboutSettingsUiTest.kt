@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import com.itos.coui.icons.CouiIcons
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
@@ -24,6 +25,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsPageScaffol
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.AutoUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateMenu
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateToolbarButton
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdatePageContent
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateDialog
@@ -47,17 +49,22 @@ class AboutSettingsUiTest {
 
     @Test fun aboutShowsTwoGitHubCardsAndKeepsHistoryInSoftwareUpdate() {
         val config = defaultConfig().copy(darkMode = true, followSystemDarkMode = false)
+        var notesOpens = 0
         RuntimeEnvironment.getApplication().applicationInfo.nonLocalizedLabel = "SleepDown课程表"
         compose.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
                     effectiveMode = VisualEffectMode.ColorOsGlow, colorOsAvailable = true)) {
                     var page by remember { mutableStateOf(SettingsPage.About) }
+                    val back = { page = if (page == SettingsPage.SoftwareUpdate) SettingsPage.About else SettingsPage.SoftwareUpdate }
                     CouiSettingsPageScaffold(
                         title = page.title(),
                         config = config,
                         showBack = true,
-                        onBack = { page = if (page == SettingsPage.SoftwareUpdate) SettingsPage.About else SettingsPage.SoftwareUpdate },
+                        onBack = back,
+                        topBarNavigation = if (page == SettingsPage.SoftwareUpdate) {
+                            { SoftwareUpdateToolbarButton(CouiIcons.Back, "返回", back) }
+                        } else null,
                         topBarActions = { source ->
                             if (page == SettingsPage.SoftwareUpdate) SoftwareUpdateMenu(source) { page = it }
                         },
@@ -68,7 +75,7 @@ class AboutSettingsUiTest {
                             SettingsPage.Changelog -> ChangelogSettingsScreen(AppState(config = config), source)
                             SettingsPage.AutoUpdate -> AutoUpdateSettingsScreen(config, source, onUpdateConfig = {})
                             else -> SoftwareUpdatePageContent("1.2.8_beta2", AppUpdateDialog.UpToDate("1.2.8_beta2"),
-                                {}, {}, {}, {})
+                                {}, {}, {}, {}, onOpenVersionNotes = { notesOpens++ })
                         }
                     }
                 }
@@ -78,7 +85,7 @@ class AboutSettingsUiTest {
         val update = compose.onNodeWithText("检查更新").assertIsDisplayed()
         val density = RuntimeEnvironment.getApplication().resources.displayMetrics.density
         assertEquals(40f * density, update.fetchSemanticsNode().boundsInRoot.height, 1f)
-        val profile = compose.onNodeWithText("GitHub 主页").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val profile = compose.onNodeWithText("关于开发者").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val repository = compose.onNodeWithText("项目仓库").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertEquals(profile.top, repository.top, 1f)
         assertEquals(profile.width, repository.width, 1f)
@@ -88,8 +95,16 @@ class AboutSettingsUiTest {
         writeSettingsVisualArtifact("about-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
         update.performClick()
         compose.onNodeWithText("已是最新版本").assertIsDisplayed()
-        compose.onNodeWithText("GitHub 主页").assertDoesNotExist()
+        compose.onNodeWithText("关于开发者").assertDoesNotExist()
+        val retryBounds = compose.onNodeWithText("重新检查").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val notes = compose.onNodeWithText("查看更新说明").assertIsDisplayed()
+        val notesBounds = notes.fetchSemanticsNode().boundsInRoot
+        assertEquals(44f * density, retryBounds.height, 1f)
+        assertEquals(retryBounds.width, notesBounds.width, 1f)
+        assertEquals(8f * density, notesBounds.top - retryBounds.bottom, 1f)
         writeSettingsVisualArtifact("software-current-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
+        notes.performClick()
+        compose.runOnIdle { assertEquals(1, notesOpens) }
         compose.onNodeWithText("历史日志").assertDoesNotExist()
         val more = compose.onNodeWithContentDescription("更多选项")
         more.performClick()
@@ -112,7 +127,8 @@ class AboutSettingsUiTest {
         var downloads = 0
         compose.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
-                CouiSettingsPageScaffold("软件更新", config, showBack = true) { _, _ ->
+                CouiSettingsPageScaffold("软件更新", config, showBack = true,
+                    topBarNavigation = { SoftwareUpdateToolbarButton(CouiIcons.Back, "返回") {} }) { _, _ ->
                     SoftwareUpdatePageContent("1.2.8_beta2", AppUpdateDialog.Available(release), {},
                         { assertEquals(release, it); downloads++ }, {}, {})
                 }
@@ -121,7 +137,7 @@ class AboutSettingsUiTest {
         val button = compose.onNodeWithText("下载并安装")
         val bounds = button.fetchSemanticsNode().boundsInRoot
         val density = RuntimeEnvironment.getApplication().resources.displayMetrics.density
-        assertEquals(296f * density, bounds.width, 1f)
+        assertEquals(280f * density, bounds.width, 1f)
         assertEquals(44f * density, bounds.height, 1f)
         writeSettingsVisualArtifact("software-update-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
         button.performClick()

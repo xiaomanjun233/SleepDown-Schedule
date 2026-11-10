@@ -45,6 +45,7 @@ import androidx.compose.ui.zIndex
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itos.coui.icons.CouiIcons
 import com.kyant.backdrop.effects.blur
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
@@ -90,6 +91,7 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettings
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateMenu
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateToolbarButton
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
 import com.xiaomanjun.sleepdownschedule.feature.settings.usesPersistentCenteredSettingsTitle
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCustomizationScreen
@@ -249,6 +251,9 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                     compactTitleMatchesSettings = section.usesPersistentCenteredSettingsTitle(),
                     topBarVisible = !widgetEditorVisible,
                     onBack = requestExit,
+                    topBarNavigation = if (immersiveUpdate) {
+                        { SoftwareUpdateToolbarButton(CouiIcons.Back, "返回", requestExit) }
+                    } else null,
                     topBarActions = { topBackdrop ->
                         if (section == SettingsPage.AutoRefreshSchedule && autoRefreshProfile == null) {
                             TopGlassIconButton(

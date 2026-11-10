@@ -1,5 +1,19 @@
 # 当前工作交接
 
+## 2026-11-10 软件更新底卡和关于页细节
+
+以 `2de39897` 为基线。用户的 ColorOS 实机图显示手机软件更新使用全屏背景、居中品牌和底部状态卡。重新反编译本地保留的真机 OTA 17.0.3 APK，`FragmentBusy` 的 WebView 接收版本状态及两项操作，包内原生 `logo_area` 和 `version_layout` 属于其他布局分支。底卡以用户实机图测量，左右边距 16dp、内边距 24dp、底部安全区外留 20dp、按钮 44dp 高且相隔 8dp。宽屏保留独立头卡。手机品牌区把短版本号缩为 22sp，底卡保留完整版本。主操作是重新检查，查看更新说明打开安装版本对应的发布页。
+
+按钮使用 COUI-Kit 胶囊、描边和跟手光。透明按钮按原版 `TYPE_CONTENT_TRANSPARENT_BUTTON` 的 25px 采样、叠加与明度混合实现。状态卡沿用 APK 内 `MaterialLoadingView` 的 20px 两层混色，在同一张应用头图上采样。壁纸、底卡与按钮分层绘制。左侧 GitHub 卡片改为「关于开发者」。
+
+头图通过内置 imagegen 调整原图的银蓝和蓝紫。工作区资源为 `app/src/main/res/drawable-nodpi/about_sleepdown_hero.webp`，1280×640、23,676 字节。最终提示词如下。
+
+```text
+Use case: style-transfer. Edit the supplied original SleepDown card background with a restrained color grade only. Preserve its exact wide 2:1 framing, ribbon shapes and positions, soft gradients, highlights, fine detail and overall lightness. Keep the original calm silver-blue and muted periwinkle-lavender palette. Increase saturation very slightly in the existing blue and lavender midtones, roughly ten percent, and shift the deepest blue areas gently toward periwinkle. Keep whites and the pale center almost identical for interface readability. No added shapes, new lights, warm accents, bright purple, text, logo, or border. The result should be recognizably the same image at a glance, just a little more colorful within the existing cool palette.
+```
+
+最终 GitHub Debug 定向测试 4 项通过，覆盖底卡 44dp 高按钮、8dp 间距、当前版本说明回调、菜单与搜索。在本地渲染图确认底卡暗底和两颗按钮同帧显示。GitHub Release 完整构建、R8、lintVital 和 V2 签名核对通过，签名证书与前版一致。归档 `tmp/review-apks/SleepDown-1.2.8-beta2-OtaStatusCard-df6ba53e.apk`，SHA-256 为 `DF6BA53E3305610666E13E6B302D83B48912D3C111D1927693AF49E889526141`。预览与日志位于主工作区 `tmp/c17-about-device-20261110/`，最终设备材质观感待 ColorOS 真机验收。
+
 ## 2026-11-10 关于应用与软件更新
 
 在 `codex/restore-activity-navigation` 的 `f23bba81` 上续做。对照 E 盘 PMX110 ColorOS 17.0.0.115 的 Settings（SHA-256 前缀 `D97DF8A92275`）及 OTA 17.0.3（`02D0A839B457`）。关于首卡以 `AboutDeviceOtaUpdatePreference` 的运行时布局为准，手机高 328dp、28dp 圆角，宽屏高 240dp、24dp 圆角。两侧各 16dp。40dp 胶囊随文字宽度，左右各 16dp，版本号和按钮文字分别为 16dp 与 14dp。头图和应用名使用 SleepDown 原素材与排版文本。

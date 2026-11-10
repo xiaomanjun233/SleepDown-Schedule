@@ -121,6 +121,7 @@ internal fun CouiSettingsPageScaffold(
     topBarBackdropOverride: Backdrop? = null,
     topBarBackgroundColor: androidx.compose.runtime.State<Color?>? = null,
     topBarActions: @Composable (Backdrop?) -> Unit = {},
+    topBarNavigation: (@Composable () -> Unit)? = null,
     content: @Composable (PaddingValues, Backdrop) -> Unit,
 ) {
     val pageConfig = settingsVisualConfig(config)
@@ -188,9 +189,12 @@ internal fun CouiSettingsPageScaffold(
                                     }
                                     val navigation: @Composable () -> Unit = {
                                         if (showBack) {
-                                            CouiSettingsToolbarButton(topBarBackdropOverride ?: source, onBack,
-                                                darkOverride = sampledDark, sampleExplicitBackdrop = webToolbarMaterial) {
-                                                Icon(CouiIcons.Back, "返回", Modifier.size(24.dp), tint = toolbarForeground)
+                                            if (topBarNavigation != null) topBarNavigation()
+                                            else {
+                                                CouiSettingsToolbarButton(topBarBackdropOverride ?: source, onBack,
+                                                    darkOverride = sampledDark, sampleExplicitBackdrop = webToolbarMaterial) {
+                                                    Icon(CouiIcons.Back, "返回", Modifier.size(24.dp), tint = toolbarForeground)
+                                                }
                                             }
                                         }
                                     }

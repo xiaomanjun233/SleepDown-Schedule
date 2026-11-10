@@ -80,13 +80,15 @@ fun DetailActivityScaffold(
     topBarBackdropOverride: Backdrop? = null,
     topBarBackgroundColor: androidx.compose.runtime.State<ComposeColor?>? = null,
     topBarActions: @Composable (Backdrop?) -> Unit = {},
+    topBarNavigation: (@Composable () -> Unit)? = null,
     content: @Composable (Backdrop?) -> Unit
 ) {
     CouiSettingsPageScaffold(title, config, showBack = true, onBack = onBack,
         topBarVisible = topBarVisible, showTopGradientBlur = showTopGradientBlur,
         isolateContentFromBackdrop = isolateContentFromBackdrop,
         preserveStatusBarSpace = preserveStatusBarSpace, topBarBackdropOverride = topBarBackdropOverride,
-        topBarBackgroundColor = topBarBackgroundColor, topBarActions = topBarActions) { _, source ->
+        topBarBackgroundColor = topBarBackgroundColor, topBarActions = topBarActions,
+        topBarNavigation = topBarNavigation) { _, source ->
         content(source.takeUnless { isolateContentFromBackdrop || android.os.Build.VERSION.SDK_INT < 31 })
     }
 }

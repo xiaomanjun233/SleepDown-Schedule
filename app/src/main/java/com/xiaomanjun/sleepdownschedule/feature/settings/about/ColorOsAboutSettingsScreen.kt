@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings.about
 
+import android.os.Build
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -28,6 +29,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itos.coui.button.CouiButtonDefaults
+import com.itos.coui.button.CouiCapsuleButton
 import com.itos.coui.effect.couiButtonFeedback
 import com.itos.coui.shape.CouiCapsuleShape
 import com.itos.coui.shape.CouiShape
@@ -38,6 +41,7 @@ import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
@@ -45,6 +49,10 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
 import com.xiaomanjun.sleepdownschedule.core.web.openSleepDownCustomTab
 import com.xiaomanjun.sleepdownschedule.core.web.resolveSleepDownCustomTabsPackage
 import com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdater
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.couiTransparentButtonMaterial
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 
 /** 关于页保留版本入口，更新和历史日志交给独立的全屏页面。 */
 @Composable
@@ -79,7 +87,7 @@ internal fun ColorOsAboutSettingsScreen(
                 modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                AboutGitHubCard("GitHub 主页", "xiaomanjun233", githubIcon,
+                AboutGitHubCard("关于开发者", "xiaomanjun233", githubIcon,
                     Modifier.weight(1f).fillMaxHeight()) { open(SleepDownDeveloperUrl) }
                 AboutGitHubCard("项目仓库", "SleepDown-Schedule", githubIcon,
                     Modifier.weight(1f).fillMaxHeight()) { open(SleepDownSourceUrl) }
@@ -131,11 +139,33 @@ internal const val SleepDownFullName = "SleepDown课程表"
 internal const val SleepDownDeveloperUrl = "https://github.com/xiaomanjun233"
 
 @Composable
+internal fun VersionCardArtwork(modifier: Modifier) {
+    val dark = CouiTheme.isDark
+    Box(modifier) {
+        Image(painterResource(R.drawable.about_sleepdown_hero), null, Modifier.matchParentSize(),
+            contentScale = ContentScale.Crop)
+        Box(Modifier.matchParentSize().background(Brush.verticalGradient(
+            if (dark) listOf(Color.Black.copy(alpha = .36f), Color.Black.copy(alpha = .60f))
+            else listOf(Color.White.copy(alpha = .08f), Color.White.copy(alpha = .18f)),
+        )))
+    }
+}
+
+@Composable
+internal fun versionCardForeground(): Color = if (CouiTheme.isDark) Color.White else Color(0xFF15243D)
+
+@Composable
 private fun AboutVersionHeader(version: String, updateAvailable: Boolean, expanded: Boolean, onCheck: () -> Unit) {
     val dark = CouiTheme.isDark
-    val foreground = if (dark) Color.White else Color(0xFF15243D)
+    val foreground = versionCardForeground()
     val density = LocalDensity.current
-    val interaction = remember { MutableInteractionSource() }
+    val artwork = if (Build.VERSION.SDK_INT >= 31 && !AppMaterialPreferences.isSuperPerformance) {
+        rememberGlassLayerBackdrop(GlassBackdropDomain.Background, "about-version-artwork")
+    } else null
+    val artworkProducer = if (artwork != null) Modifier.glassBackdropProducer(artwork) else Modifier
+    val buttonMaterial = if (Build.VERSION.SDK_INT >= 31 && artwork != null) {
+        couiTransparentButtonMaterial(artwork, CouiCapsuleShape)
+    } else Modifier
     // Settings 的 AboutDeviceOtaUpdatePreference 在绑定时覆盖 XML 的首卡尺寸和定位。
     val cardHeight = if (expanded) 240.dp else 328.dp
     val cardRadius = if (expanded) 24.dp else 28.dp
@@ -145,10 +175,7 @@ private fun AboutVersionHeader(version: String, updateAvailable: Boolean, expand
         Modifier.padding(top = 12.dp, bottom = 16.dp).fillMaxWidth()
             .clip(CouiShape(cardRadius, 2.5f)).background(CouiTheme.colorScheme.container),
     ) {
-        Image(painterResource(R.drawable.about_sleepdown_hero), null, Modifier.matchParentSize(), contentScale = ContentScale.Crop)
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(if (dark)
-            listOf(Color.Black.copy(alpha = .36f), Color.Black.copy(alpha = .60f))
-            else listOf(Color.White.copy(alpha = .08f), Color.White.copy(alpha = .18f)))))
+        VersionCardArtwork(Modifier.matchParentSize().then(artworkProducer))
         Column(
             modifier = Modifier.fillMaxWidth().heightIn(min = cardHeight)
                 .padding(start = 16.dp, top = titleTop, end = 16.dp, bottom = buttonBottom),
@@ -169,19 +196,24 @@ private fun AboutVersionHeader(version: String, updateAvailable: Boolean, expand
                     style = rememberCouiTextStyle(CouiTextKind.PreferenceTitle).copy(
                         fontSize = with(density) { 16.dp.toSp() }, lineHeight = with(density) { 22.dp.toSp() }))
             }
-            Row(
-                modifier = Modifier.heightIn(min = 40.dp).clip(CouiCapsuleShape)
-                    .background(Color.White.copy(alpha = .20f)).couiButtonFeedback(dark, interaction)
-                    .clickable(interaction, null, role = Role.Button, onClick = onCheck)
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+            CouiCapsuleButton(
+                onClick = onCheck,
+                dark = dark,
+                colors = CouiButtonDefaults.secondaryColors(dark, material = true).copy(
+                    surface = if (artwork != null) Color.Transparent else Color.White.copy(alpha = .20f),
+                ),
+                height = 40.dp,
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                shape = CouiCapsuleShape,
+                backgroundModifier = buttonMaterial,
             ) {
-                Text(if (updateAvailable) "发现新版本" else "检查更新", color = foreground, textAlign = TextAlign.Center,
-                    style = rememberCouiTextStyle(CouiTextKind.Progress).copy(
-                        fontSize = with(density) { 14.dp.toSp() }, lineHeight = with(density) { 20.dp.toSp() }))
-                if (updateAvailable) {
-                    Icon(Icons.Rounded.NorthEast, null, Modifier.size(12.dp), tint = foreground)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(if (updateAvailable) "发现新版本" else "检查更新", color = foreground, textAlign = TextAlign.Center,
+                        style = rememberCouiTextStyle(CouiTextKind.Progress).copy(
+                            fontSize = with(density) { 14.dp.toSp() }, lineHeight = with(density) { 20.dp.toSp() }))
+                    if (updateAvailable) {
+                        Icon(Icons.Rounded.NorthEast, null, Modifier.size(12.dp), tint = foreground)
+                    }
                 }
             }
         }

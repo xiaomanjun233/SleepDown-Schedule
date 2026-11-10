@@ -26,6 +26,36 @@ internal fun couiCapsuleMaterial(backdrop: Backdrop?, shape: Shape, dark: Boolea
     return couiControlMaterial(backdrop, shape, material)
 }
 
+/** COUIButton 的 TYPE_CONTENT_TRANSPARENT_BUTTON，描边由按钮本身负责。 */
+@androidx.annotation.RequiresApi(31)
+@Composable
+internal fun couiTransparentButtonMaterial(backdrop: Backdrop, shape: Shape): Modifier {
+    retainGlassSources(backdrop)
+    val material = remember {
+        CouiFloatingMaterial(
+            firstColor = Color(0x3F333333), firstBlendMode = BlendMode.OVERLAY,
+            secondColor = Color(0x3FFFFFFF), secondBlendMode = BlendMode.LUMINOSITY,
+            blurRadius = 25f, edgeAlpha = 0f, innerGlowAlpha = 0f,
+        )
+    }
+    return couiControlMaterial(backdrop, shape, material)
+}
+
+/** OTA MaterialLoadingView 的底卡采样配方，外框与底色由宿主绘制。 */
+@androidx.annotation.RequiresApi(31)
+@Composable
+internal fun couiUpdateCardMaterial(backdrop: Backdrop, shape: Shape): Modifier {
+    retainGlassSources(backdrop)
+    val material = remember {
+        CouiFloatingMaterial(
+            firstColor = Color(0x802F2F2F), firstBlendMode = BlendMode.LUMINOSITY,
+            secondColor = Color(0xB32E2E2E), secondBlendMode = BlendMode.OVERLAY,
+            blurRadius = 20f, edgeAlpha = 0f, innerGlowAlpha = 0f,
+        )
+    }
+    return couiControlMaterial(backdrop, shape, material)
+}
+
 @Composable
 internal fun couiSegmentMaterial(backdrop: Backdrop?, dark: Boolean): Modifier {
     val material = remember(dark) { CouiSegmentedControlDefaults.material(dark) }
