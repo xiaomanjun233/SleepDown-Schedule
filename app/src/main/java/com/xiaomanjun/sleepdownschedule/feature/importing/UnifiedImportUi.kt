@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import android.graphics.BlendMode
 import android.os.Build
 import android.os.SystemClock
 import androidx.compose.animation.rememberSplineBasedDecay
@@ -79,6 +80,8 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBackdropBlur
 import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBlurDirection
 
 private val ImportTabLabels = listOf("常规导入", "教务系统导入")
+// SecurityPermission's privacy and security dashboard overrides the light segment track.
+private val LightImportSegmentTrack = Color(0xFFE2E3E4)
 
 @Composable
 internal fun UnifiedImportTabs(
@@ -89,14 +92,22 @@ internal fun UnifiedImportTabs(
     modifier: Modifier = Modifier,
     backdrop: Backdrop? = null,
 ) {
+    val track = if (dark) CouiSegmentedControlDefaults.containerColor(true) else LightImportSegmentTrack
     if (Build.VERSION.SDK_INT >= 34) {
         val material = if (backdrop != null && !AppMaterialPreferences.isSuperPerformance) {
             rememberCouiGlassBackdrop(backdrop)
         } else null
+        val lightTrackMaterial = remember {
+            CouiSegmentedControlDefaults.material(false).copy(
+                secondColor = LightImportSegmentTrack.copy(alpha = 0.92f),
+                secondBlendMode = BlendMode.SRC_OVER,
+            )
+        }
         SegmentedControl(
             modifier = modifier.fillMaxWidth(), labels = ImportTabLabels, selectedIndex = selectedIndex,
             onSelected = onSelected, dark = dark, enabled = enabled, backdrop = material,
             commitOnRelease = true, flingOnRelease = true,
+            containerColor = track, containerMaterial = lightTrackMaterial.takeUnless { dark },
         )
         return
     }
@@ -111,7 +122,7 @@ internal fun UnifiedImportTabs(
     val decay = rememberSplineBasedDecay<Float>()
     BoxWithConstraints(
         modifier.fillMaxWidth().height(CouiSegmentedControlDefaults.height)
-            .clip(CouiCapsuleShape).background(CouiSegmentedControlDefaults.containerColor(dark))
+            .clip(CouiCapsuleShape).background(track)
             .selectableGroup()
             .pointerInput(enabled, rtl, decay) {
                 if (!enabled) return@pointerInput

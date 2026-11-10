@@ -109,7 +109,7 @@ import kotlin.math.roundToInt
 /**
  * 受控胶囊分段选择器。默认在拖过新项目时提交，commitOnRelease 仅在有效 UP 后提交草稿。
  * backdrop 为空时使用普通填色，适合 Group；传入源时使用透明模糊，适合直接放在页面或多色背景上。
- * 源须是不含本控件的不透明 SDR 兄弟背景节点。containerColor 只用于普通填色，indicatorColor 用于两种外观。
+ * 源须是不含本控件的不透明 SDR 兄弟背景节点。containerColor 用于普通填色，containerMaterial 用于透明模糊。
  * renderer 仅用于透明模糊，须逐节点独立创建；宿主可在 remember 工厂中捕获构造失败后决定是否进入组件。
  * small 使用 32dp/2dp 紧凑预设；普通预设为 40dp/4dp。
  * Modifier 可覆盖尺寸，指示器、采样和输入均使用实际约束。取消不新增提交，已即时提交的选择由宿主保留。
@@ -136,6 +136,7 @@ fun SegmentedControl(
     renderer: CouiFloatingRenderer? = if (backdrop != null && containerSurfaceEnabled)
         remember { CouiFloatingRenderer.standalone() } else null,
     flingOnRelease: Boolean = false,
+    containerMaterial: com.itos.coui.effect.CouiFloatingMaterial? = null,
 ) {
     require(labels.isNotEmpty() && selectedIndex in labels.indices) { "分段标签不能为空，选中下标必须在范围内" }
     val floating = containerSurfaceEnabled && backdrop != null
@@ -162,7 +163,7 @@ fun SegmentedControl(
     val indicatorShape = remember { CouiShape(999.dp, 2f) }
     val indicatorDrawing = remember(density, rtl) { SegmentIndicatorDrawing() }
     val contentLayer = if (floating) rememberGraphicsLayer() else null
-    val material = remember(dark) { CouiSegmentedControlDefaults.material(dark) }
+    val material = containerMaterial ?: remember(dark) { CouiSegmentedControlDefaults.material(dark) }
     val labelColor = textStyle.color.takeOrElse { CouiTheme.colorSchemeFor(dark).onSurface }
     val shadow = remember { CouiFloatingShadow(0f, Color.Transparent, 0f, 0f, 0f, Color.Transparent, Rect.Zero, 0f) }
     val (lightInput, light) = if (floating || containerSurfaceEnabled && surfaceModifier != null) {
