@@ -1,5 +1,17 @@
 # 当前工作交接
 
+## 2026-11-10 2.0 教务列表与二级页细节
+
+在 `codex/restore-activity-navigation` 的 `ec4c6749` 上续作，签名包源码为 `86f3a6fd`。GitHub 渠道版本 2.0、版本代码 36。教务列表复用公共设置分组、行距和分隔线。对照 E 盘 ColorOS 17 Settings 的 `COUIAppListFastScroller`，采用 26 × 38dp 浮动滑柄，按住时放大并显示分组字母，停滚 2 秒后淡出。导入滑块到常规输入区为 16dp，教务悬浮搜索在安全区内下移 6dp。关于首图到 GitHub 分组及下个分组均为 16dp。
+
+软件更新在同一张壁纸上用静态模糊渐变，模糊从底卡后方向上衰减。更新说明卡去掉内框。历史日志按版本独立布局，每行标题处理点击，展开状态按版本保存。模拟器重复展开和收起 1.2.7.1、1.2.7-r1，补测从列表顶端拖动右侧滑柄至 K–M 段，按住时截到 F 分组提示。
+
+凝光和液态玻璃的首页 Dock 把已显示的原加号 View 交给 `home_dock_to_import`，软件 Canvas 取样用该 View 当前画面。单测验证了点击前已挂载的 View 与交接对象是同一实例。模拟器走 Legacy，ColorOS 真机金标效果待验收。通知预览等二级页悬浮按钮在跟手变形期间刷新材质取样，按变形后的坐标补偿底层位置。模拟器点验使用凝光，并截取通知按钮实际拉伸画面。
+
+`assembleGithubRelease` 完成 R8、资源压缩、lintVital 和 V2 签名。原加号 View、SharedViewKit 后端和关于更新页合计 27 项定向测试通过。归档包 `tmp/review-apks/SleepDown-2.0-GitHub-86f3a6fd.apk` 为 7,921,518 字节，SHA-256 为 `81228141428FECECEAA93F6C2965F88A95477B71B421ACCC6D97C86280D8CDA5`。构建和测试日志位于主工作区 `tmp/sleepdown-2.0-coui-detail-polish-build.log` 与 `tmp/sleepdown-2.0-coui-detail-polish-tests.log`。
+
+后台 Pixel 10 Pro AVD 使用 Android 16、SDK ADB 5038、`emulator-5556` 的隔离用户 10。签名包覆盖安装后回读 SHA 一致。截图和点验日志位于主工作区 `tmp/nav3-qa/sleepdown-20-polish-86f3a6fd-*`。
+
 ## 2026-11-10 2.0 版本候选与界面细节
 
 在 `codex/restore-activity-navigation` 的 `584b284e` 上续作，源码候选为 `3dccfe22`。GitHub 渠道应用版本名改为 2.0，版本代码为 36。有效的 1.2.8 Beta 内容和后续改动归并到 [2.0 更新日志](../release-notes/v2.0.md)，与包内资源逐字节一致。仓库中的旧 Beta 说明保留。
