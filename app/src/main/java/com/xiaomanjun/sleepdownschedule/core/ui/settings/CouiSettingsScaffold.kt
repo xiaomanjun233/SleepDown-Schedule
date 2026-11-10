@@ -93,7 +93,7 @@ internal fun CouiSettingsRootScaffold(
     }
     val density = LocalDensity.current
     val searchState = rememberCouiSearchBarState(search.expanded)
-    val searchClosing = !search.expanded && searchState.active
+    val searchClosing = !search.expanded && searchState.blocksHeaderScroll
     BackHandler(enabled = search.expanded) { search.onExpandedChange(false) }
     LaunchedEffect(searchClosing) {
         if (searchClosing) list.stopScroll(MutatePriority.PreventUserInput)
@@ -106,7 +106,7 @@ internal fun CouiSettingsRootScaffold(
         content(compensated, backdrop, list, !searchClosing) {
             if (search.expanded) {
                 if (list.canScrollBackward) list.animateScrollToItem(0)
-            } else if (!searchState.active) {
+            } else if (!searchState.blocksHeaderScroll) {
                 returnSettingsListToTop(list, header.state, revealDistance)
             }
         }

@@ -55,6 +55,7 @@ fun CollapsingTopAppBar(
     val hasSearchBar = searchBar != null
     val searchActive = hasSearchBar && searchState.active
     val searchExpanded = hasSearchBar && searchState.expanded
+    val searchScrollLocked = hasSearchBar && searchState.blocksHeaderScroll
     val titleColor = if (color == Color.Unspecified) CouiTheme.colorSchemeFor(dark).onSurface else color
     val titleStyle = if (hasSearchBar) rememberCouiTextStyle(CouiTextKind.HomeTitle) else remember(density) {
         val typeface = Typeface.create(Typeface.create("sans-serif-semibold", Typeface.NORMAL), 700, false)
@@ -85,7 +86,7 @@ fun CollapsingTopAppBar(
     SideEffect {
         state.updateRange(density, hasSearchBar, CouiCollapsingAppBarDefaults.titleOnlyHeight,
             CouiCollapsingAppBarDefaults.collapsedTitleHeight)
-        state.updateSearch(searchExpanded, searchActive)
+        state.updateSearch(searchExpanded, searchScrollLocked)
     }
     TopAppBarSurface(modifier.fillMaxWidth(), backdrop,
         referenceBlurRadius = with(density) { CouiCollapsingAppBarDefaults.referenceBlurRadiusPx.toDp() },

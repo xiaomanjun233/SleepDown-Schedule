@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -25,6 +26,9 @@ class CouiSearchBarState internal constructor(expanded: Boolean) {
     internal val pageProgress: Float get() = page.value / 1000f
     internal var running by mutableStateOf(false)
     val active: Boolean get() = expanded || running || widthProgress > 0f
+    // Unlock scrolling when the page is back, before the width and cancel button springs finish.
+    private val headerScrollLock = derivedStateOf { expanded || pageProgress > 0.05f }
+    val blocksHeaderScroll: Boolean get() = headerScrollLock.value
     /** 原首页在进入时使用立方淡出，退出使用线性淡入。 */
     val contentAlpha: Float get() = (1f - pageProgress).coerceIn(0f, 1f).let { if (expanded) it.pow(3) else it }
     val resultsAlpha: Float get() = (results.value / 1000f).coerceIn(0f, 1f)
