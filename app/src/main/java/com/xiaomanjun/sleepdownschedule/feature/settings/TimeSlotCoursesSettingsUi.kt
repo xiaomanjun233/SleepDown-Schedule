@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
@@ -267,8 +268,8 @@ private fun TimeSlotCourseCardInfo(icon: ImageVector, label: String, foreground:
 @Composable
 fun TimeSlotCourseEditorScreen(
     state: AppState, backdrop: Backdrop?, originalJson: String, handoffToken: Long,
-    exitCommitRequest: Int, deleteRequest: Int, onExitCommitFinished: (Boolean) -> Unit,
-    onExitInterceptionChange: (Boolean) -> Unit
+    exitCommitRequest: Int, deleteRequest: Int, saveRequest: Int, onExitCommitFinished: (Boolean) -> Unit,
+    onExitInterceptionChange: (Boolean) -> Unit, onSaveEnabledChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val repository = remember(context) { (context.applicationContext as CourseScheduleApp).repository }
@@ -280,7 +281,8 @@ fun TimeSlotCourseEditorScreen(
     SideEffect { onExitInterceptionChange(true) }
     DisposableEffect(Unit) { onDispose { onExitInterceptionChange(false) } }
     TimeSlotCourseEditor(original, state.periods, config, backdrop, LocalSettingsPopupBackdrop.current ?: backdrop,
-        saving, error, exitCommitRequest, deleteRequest, onClose = { if (!saving) onExitCommitFinished(true) },
+        saving, error, exitCommitRequest, deleteRequest, saveRequest, onSaveEnabledChange,
+        onClose = { if (!saving) onExitCommitFinished(true) },
         onSave = { updated ->
             if (!saving) {
                 saving = true; error = null
@@ -302,7 +304,8 @@ fun TimeSlotCourseEditorScreen(
 private fun TimeSlotCourseEditor(
     original: TimeSlotCourse?, periods: List<PeriodEntity>, config: ScheduleConfigEntity,
     backdrop: Backdrop?, popupBackdrop: Backdrop?,
-    saving: Boolean, saveError: String?, exitRequest: Int, deleteRequest: Int,
+    saving: Boolean, saveError: String?, exitRequest: Int, deleteRequest: Int, saveRequest: Int,
+    onSaveEnabledChange: (Boolean) -> Unit,
     onClose: () -> Unit, onSave: (TimeSlotCourse?) -> Unit
 ) {
     val defaultEnd = remember(periods) {
@@ -343,6 +346,8 @@ private fun TimeSlotCourseEditor(
     val availablePeriods = remember(periods) { periods.map { it.periodIndex }.distinct().sorted() }
     val positions = remember(start, end, periods) { allowedTimeSlotAnchors(start, end, periods) }
     val positionError = if (positions.isEmpty()) "所选时间段没有匹配的位置，请检查作息" else null
+    val canSaveFromToolbar = original == null && !saving && name.isNotBlank() && anchor in positions
+    SideEffect { onSaveEnabledChange(canSaveFromToolbar) }
     LaunchedEffect(positions) {
         if (positions.isNotEmpty() && anchor !in positions) anchor = positions.first()
     }
@@ -373,6 +378,13 @@ private fun TimeSlotCourseEditor(
         val failure = runCatching { validateTimeSlotCourses(listOf(updated)) }.exceptionOrNull()
         if (failure != null) error = failure.message else { error = null; showExit = false; onSave(updated) }
     }
+    var handledSave by remember { mutableIntStateOf(saveRequest) }
+    LaunchedEffect(saveRequest) {
+        if (handledSave != saveRequest) {
+            handledSave = saveRequest
+            if (canSaveFromToolbar) submit()
+        }
+    }
     fun updateClock(newStart: String, newEnd: String) {
         start = newStart; end = newEnd
         val nextPositions = allowedTimeSlotAnchors(newStart, newEnd, periods)
@@ -391,13 +403,24 @@ private fun TimeSlotCourseEditor(
         drawContent()
     }
     var actionHeight by remember { mutableIntStateOf(0) }
-    val actionClearance = with(LocalDensity.current) { actionHeight.toDp().coerceAtLeast(42.dp) } + 18.dp
+    val actionClearance = if (original != null) {
+        with(LocalDensity.current) { actionHeight.toDp().coerceAtLeast(42.dp) } + 18.dp
+    } else 0.dp
+    val formList = rememberLazyListState()
+    val formError = error ?: saveError ?: positionError
+    LaunchedEffect(formError) {
+        if (original == null && formError != null && formList.canScrollBackward) formList.animateScrollToItem(0)
+    }
     Box(Modifier.fillMaxSize()) {
         SleepDownSecondaryPageList(
             modifier = Modifier.fillMaxSize().glassBackdropProducer(bodyBackdrop).imePadding(),
+            state = formList,
             contentTopPadding = detailContentTopPadding(),
             contentBottomPadding = detailContentBottomPadding() + actionClearance
         ) {
+            if (original == null && formError != null) item(key = "save-error") {
+                Text(formError, Modifier.padding(horizontal = 8.dp, vertical = 6.dp), color = MaterialTheme.colorScheme.error)
+            }
             item(key = "identity") {
                 GlassPreferenceSection("基本信息") {
                     SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
@@ -494,10 +517,10 @@ private fun TimeSlotCourseEditor(
                 }
             }
         }
-        SettingsFloatingActionArea(pageColor, appUsesDarkTheme(config), followIme = false) { modifier ->
+        if (original != null) SettingsFloatingActionArea(pageColor, appUsesDarkTheme(config), followIme = false) { modifier ->
             Column(modifier.onSizeChanged { actionHeight = it.height },
                 verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                (error ?: saveError ?: positionError)?.let { message ->
+                formError?.let { message ->
                     Text(message, Modifier.padding(horizontal = 6.dp), color = MaterialTheme.colorScheme.error)
                 }
                 SettingsActionButton(if (saving) "保存中…" else "保存", bodyBackdrop, ::submit,
