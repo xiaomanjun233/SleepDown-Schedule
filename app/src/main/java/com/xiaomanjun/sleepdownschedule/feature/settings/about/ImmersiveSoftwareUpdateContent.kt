@@ -7,8 +7,7 @@ import android.graphics.Shader
 import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.ExperimentalSharedTransitionApi
-import androidx.compose.animation.SharedTransitionLayout
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -45,6 +44,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.itos.coui.button.CouiButtonDefaults
@@ -63,8 +63,8 @@ import com.xiaomanjun.sleepdownschedule.glass.couiUpdateCardMaterial
 import com.xiaomanjun.sleepdownschedule.glass.couiUpdateCardOutline
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import kotlin.math.roundToInt
 
-@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 internal fun ImmersiveSoftwareUpdateContent(
     version: String,
@@ -81,6 +81,20 @@ internal fun ImmersiveSoftwareUpdateContent(
     val wallpaper = if (Build.VERSION.SDK_INT >= 31 && !AppMaterialPreferences.isSuperPerformance) {
         rememberGlassLayerBackdrop(GlassBackdropDomain.Background, "software-update-wallpaper")
     } else null
+    val statusScroll = rememberScrollState()
+    val notesScroll = rememberScrollState()
+    val statusProgress = animateFloatAsState(if (showVersionNotes) 0f else 1f, tween(360), label = "update-card-position")
+    val placement = remember {
+        object : Arrangement.Vertical {
+            override fun Density.arrange(totalSize: Int, sizes: IntArray, outPositions: IntArray) {
+                outPositions[0] = 0
+                if (sizes.size == 2) {
+                    val space = (totalSize - sizes[0] - sizes[1]).coerceAtLeast(0)
+                    outPositions[1] = sizes[0] + (space * statusProgress.value).roundToInt()
+                }
+            }
+        }
+    }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val viewport = maxHeight
         val titleArea = (viewport * .52f - top).coerceAtLeast(120.dp)
@@ -103,43 +117,43 @@ internal fun ImmersiveSoftwareUpdateContent(
                 1f to Color(0x4012152D),
             )))
         }
-        SharedTransitionLayout(Modifier.matchParentSize()) {
-            AnimatedContent(
-                targetState = showVersionNotes,
-                modifier = Modifier.fillMaxSize(),
-                transitionSpec = { fadeIn(tween(240, delayMillis = 55)) togetherWith fadeOut(tween(165)) },
-                label = "software-update-mode",
-            ) { showingNotes ->
-                val cardBounds = Modifier.sharedBounds(
-                    sharedContentState = rememberSharedContentState("software-update-card"),
-                    animatedVisibilityScope = this,
-                    boundsTransform = { _, _ -> tween(400) },
-                    renderInOverlayDuringTransition = false,
-                )
-                if (showingNotes) {
-                    Box(Modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = top + 16.dp, bottom = bottom)) {
-                        SoftwareUpdateVersionNotes(installedVersion, wallpaper, cardBounds)
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(if (showVersionNotes) notesScroll else statusScroll)
+                .heightIn(min = viewport).padding(top = top, bottom = bottom),
+            verticalArrangement = placement,
+        ) {
+            AnimatedVisibility(
+                visible = !showVersionNotes,
+                enter = expandVertically(tween(360), expandFrom = Alignment.Top) + fadeIn(tween(220)),
+                exit = shrinkVertically(tween(360), shrinkTowards = Alignment.Top) + fadeOut(tween(165)),
+            ) {
+                Box(Modifier.fillMaxWidth().heightIn(min = titleArea).padding(horizontal = 24.dp, vertical = 20.dp),
+                    contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(version.substringBefore('_').substringBefore('-'), color = Color.White.copy(alpha = .9f),
+                            textAlign = TextAlign.Center,
+                            style = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = 22.sp, lineHeight = 28.sp))
+                        Text(SleepDownFullName, color = Color.White, textAlign = TextAlign.Center,
+                            style = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = 30.sp, lineHeight = 36.sp))
                     }
-                } else Column(
-                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                        .heightIn(min = viewport).padding(top = top, bottom = bottom),
-                    verticalArrangement = Arrangement.SpaceBetween,
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Box(Modifier.fillMaxWidth().heightIn(min = titleArea).padding(horizontal = 24.dp, vertical = 20.dp),
-                        contentAlignment = Alignment.Center) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(version.substringBefore('_').substringBefore('-'), color = Color.White.copy(alpha = .9f),
-                                textAlign = TextAlign.Center,
-                                style = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = 22.sp, lineHeight = 28.sp))
-                            Text(SleepDownFullName, color = Color.White, textAlign = TextAlign.Center,
-                                style = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = 30.sp, lineHeight = 36.sp))
-                        }
-                    }
-                    Box(Modifier.fillMaxWidth().padding(start = 16.dp, top = 16.dp, end = 16.dp)) {
-                        SoftwareUpdateStatusCard(version, dialog, releaseNotes, primary, secondary, downloadPercent, wallpaper, cardBounds)
-                    }
+                }
+            }
+            SoftwareUpdateCard(
+                wallpaper, Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp),
+                sampleWallpaper = !showVersionNotes,
+            ) {
+                AnimatedContent(
+                    targetState = showVersionNotes,
+                    modifier = Modifier.fillMaxWidth(),
+                    transitionSpec = {
+                        (fadeIn(tween(230, delayMillis = 65)) togetherWith fadeOut(tween(155)))
+                            .using(SizeTransform { _, _ -> tween(360) })
+                    },
+                    label = "software-update-card-content",
+                ) { showingNotes ->
+                    if (showingNotes) SoftwareUpdateVersionNotes(installedVersion)
+                    else SoftwareUpdateStatus(version, dialog, releaseNotes, primary, secondary, downloadPercent)
                 }
             }
         }
@@ -159,17 +173,15 @@ private fun softwareUpdateWallpaperBlur(height: Float, radius: Float): androidx.
 }
 
 @Composable
-private fun SoftwareUpdateStatusCard(
+private fun SoftwareUpdateStatus(
     version: String,
     dialog: AppUpdateDialog?,
     releaseNotes: String?,
     primary: Pair<String, () -> Unit>?,
     secondary: Pair<String, () -> Unit>?,
     downloadPercent: Int?,
-    wallpaper: Backdrop?,
-    modifier: Modifier,
 ) {
-    SoftwareUpdateCard(wallpaper, modifier.animateContentSize(tween(285))) {
+    Box(Modifier.fillMaxWidth().animateContentSize(tween(285))) {
         if (dialog == AppUpdateDialog.Checking) {
             SoftwareUpdateChecking(Color.White, Modifier.fillMaxWidth())
         } else {
@@ -210,14 +222,13 @@ private fun SoftwareUpdateStatusCard(
 }
 
 @Composable
-internal fun SoftwareUpdateVersionNotes(version: String, wallpaper: Backdrop?, modifier: Modifier = Modifier) {
+internal fun SoftwareUpdateVersionNotes(version: String) {
     val sections = rememberBundledReleaseNotes(version)
     var expanded by rememberSaveable { mutableStateOf(true) }
     val arrowRotation by animateFloatAsState(if (expanded) 180f else 0f, tween(240), label = "update-notes-arrow")
     val headingStyle = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = 19.sp, lineHeight = 26.sp)
     val bodyStyle = rememberCouiTextStyle(CouiTextKind.PreferenceValue).copy(fontSize = 15.sp, lineHeight = 23.sp)
-    SoftwareUpdateCard(wallpaper, modifier, outline = false) {
-        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(18.dp)) {
+    Column(Modifier.fillMaxWidth().padding(18.dp)) {
             Text("软件版本", color = Color.White, style = headingStyle)
             Text(version, Modifier.padding(top = 5.dp), color = Color.White.copy(alpha = .9f), style = bodyStyle)
             Box(Modifier.padding(top = 18.dp, bottom = 14.dp).fillMaxWidth().height(.5.dp)
@@ -256,25 +267,24 @@ internal fun SoftwareUpdateVersionNotes(version: String, wallpaper: Backdrop?, m
                     }
                 }
             }
-        }
     }
 }
 
 @Composable
-private fun SoftwareUpdateCard(
+internal fun SoftwareUpdateCard(
     wallpaper: Backdrop?,
     modifier: Modifier,
-    outline: Boolean = true,
+    sampleWallpaper: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val shape = CouiShape(24.dp)
-    val material = if (Build.VERSION.SDK_INT >= 31 && wallpaper != null) couiUpdateCardMaterial(wallpaper, shape)
+    // The tall notes use the already blurred wallpaper under the card tint.
+    val material = if (Build.VERSION.SDK_INT >= 31 && wallpaper != null && sampleWallpaper) couiUpdateCardMaterial(wallpaper, shape)
         else Modifier
     val panelTint = if (wallpaper != null) Color(0x97151627) else Color(0xF0222337)
     Box(modifier.fillMaxWidth().clip(shape)) {
-        if (wallpaper != null) Box(Modifier.matchParentSize().then(material))
-        val outlineModifier = if (outline) couiUpdateCardOutline(shape) else Modifier
-        Box(Modifier.matchParentSize().background(panelTint).then(outlineModifier))
+        if (material != Modifier) Box(Modifier.matchParentSize().then(material))
+        Box(Modifier.matchParentSize().background(panelTint).then(couiUpdateCardOutline(shape)))
         content()
     }
 }

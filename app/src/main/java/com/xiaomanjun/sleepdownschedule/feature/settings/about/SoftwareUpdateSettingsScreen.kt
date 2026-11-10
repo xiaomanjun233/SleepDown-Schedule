@@ -190,9 +190,12 @@ internal fun SoftwareUpdatePageContent(
     AnimatedContent(showVersionNotes, Modifier.fillMaxSize(),
         transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "wide-software-update") { showingNotes ->
         if (showingNotes) {
-            Box(Modifier.fillMaxSize().padding(start = 24.dp, end = 24.dp, top = top + 12.dp, bottom = bottom),
-                contentAlignment = Alignment.TopCenter) {
-                SoftwareUpdateVersionNotes(version, wallpaper = null, modifier = Modifier.widthIn(max = 660.dp))
+            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                .padding(start = 24.dp, end = 24.dp, top = top + 12.dp, bottom = bottom),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                SoftwareUpdateCard(wallpaper = null, modifier = Modifier.widthIn(max = 660.dp)) {
+                    SoftwareUpdateVersionNotes(version)
+                }
             }
         } else Column(Modifier.fillMaxSize().padding(bottom = bottom), horizontalAlignment = Alignment.CenterHorizontally) {
         Column(
