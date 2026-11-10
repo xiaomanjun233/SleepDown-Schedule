@@ -268,7 +268,7 @@ private fun TimeSlotCourseCardInfo(icon: ImageVector, label: String, foreground:
 @Composable
 fun TimeSlotCourseEditorScreen(
     state: AppState, backdrop: Backdrop?, originalJson: String, handoffToken: Long,
-    exitCommitRequest: Int, onExitCommitFinished: (Boolean) -> Unit,
+    exitCommitRequest: Int, deleteRequest: Int, onExitCommitFinished: (Boolean) -> Unit,
     onExitInterceptionChange: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
@@ -281,7 +281,7 @@ fun TimeSlotCourseEditorScreen(
     SideEffect { onExitInterceptionChange(true) }
     DisposableEffect(Unit) { onDispose { onExitInterceptionChange(false) } }
     TimeSlotCourseEditor(original, state.periods, config, backdrop, LocalSettingsPopupBackdrop.current ?: backdrop,
-        saving, error, exitCommitRequest, onClose = { if (!saving) onExitCommitFinished(true) },
+        saving, error, exitCommitRequest, deleteRequest, onClose = { if (!saving) onExitCommitFinished(true) },
         onSave = { updated ->
             if (!saving) {
                 saving = true; error = null
@@ -303,7 +303,7 @@ fun TimeSlotCourseEditorScreen(
 private fun TimeSlotCourseEditor(
     original: TimeSlotCourse?, periods: List<PeriodEntity>, config: ScheduleConfigEntity,
     backdrop: Backdrop?, popupBackdrop: Backdrop?,
-    saving: Boolean, saveError: String?, exitRequest: Int,
+    saving: Boolean, saveError: String?, exitRequest: Int, deleteRequest: Int,
     onClose: () -> Unit, onSave: (TimeSlotCourse?) -> Unit
 ) {
     val defaultEnd = remember(periods) {
@@ -358,6 +358,13 @@ private fun TimeSlotCourseEditor(
     var handledExit by remember { mutableIntStateOf(exitRequest) }
     LaunchedEffect(exitRequest) {
         if (handledExit != exitRequest) { handledExit = exitRequest; requestClose() }
+    }
+    var handledDelete by remember { mutableIntStateOf(deleteRequest) }
+    LaunchedEffect(deleteRequest) {
+        if (handledDelete != deleteRequest) {
+            handledDelete = deleteRequest
+            if (original != null && !saving) showDelete = true
+        }
     }
     fun submit() {
         if (anchor !in positions) { error = positionError ?: "请重新选择显示位置"; return }
@@ -486,10 +493,6 @@ private fun TimeSlotCourseEditor(
                         }
                     }
                 }
-            }
-            if (original != null) item(key = "delete") {
-                SettingsActionButton("删除特殊课程", backdrop, { showDelete = true },
-                    modifier = Modifier.fillMaxWidth(), destructive = true, glowing = true, enabled = !saving)
             }
         }
         SettingsFloatingActionArea(pageColor, appUsesDarkTheme(config), followIme = false) { modifier ->

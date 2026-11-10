@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Widgets
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -47,6 +48,7 @@ import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itos.coui.icons.CouiIcons
+import com.itos.coui.theme.CouiTheme
 import com.kyant.backdrop.effects.blur
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
@@ -60,6 +62,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.TopGlassIconButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsToolbarButton
 import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.defaultPeriods
 import com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestorePreviewScreen
@@ -123,6 +126,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
         }
         val customizeScheduleId = intent.getIntExtra(ScheduleCustomizeIdExtra, -1).takeIf { it > 0 }
         val isTimeSlotEditor = this is SpecialCourseEditorActivity || this is NativeSpecialCourseEditorActivity
+        val timeSlotOriginalJson = intent.getStringExtra(TimeSlotCourseOriginalExtra).orEmpty()
         if (isTimeSlotEditor) timeSlotHandoffToken = intent.getLongExtra(TimeSlotCourseStateTokenExtra, 0L)
         val timeSlotInitialState = TimeSlotCourseStateHandoff.get(timeSlotHandoffToken)?.state
         if (intent.getStringExtra(SettingsDetailPageExtra) == SettingsPage.AutoRefreshSchedule.name) {
@@ -208,6 +212,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                     }
                 }
                 var scheduleExitRequest by remember { mutableIntStateOf(0) }
+                var timeSlotDeleteRequest by remember { mutableIntStateOf(0) }
                 var autoRefreshWarehouseRequest by remember { mutableIntStateOf(0) }
                 val autoRefreshProfile = if (section == SettingsPage.AutoRefreshSchedule) {
                     AutoRefreshScheduleStore.observe(this@SettingsDetailActivityHost)
@@ -246,7 +251,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                 val settingsDetailContent: @Composable () -> Unit = {
                 DetailActivityScaffold(
                     title = if (isTimeSlotEditor) {
-                        if (intent.getStringExtra(TimeSlotCourseOriginalExtra).isNullOrEmpty()) "添加特殊课程" else "编辑特殊课程"
+                        if (timeSlotOriginalJson.isEmpty()) "添加特殊课程" else "编辑特殊课程"
                     } else if (showingUpdateNotes) "更新说明" else section.title(),
                     config = pageConfig,
                     compactTopBar = section.usesPersistentCenteredSettingsTitle(),
@@ -259,7 +264,12 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                         { SoftwareUpdateToolbarButton(CouiIcons.Back, "返回", requestExit) }
                     } else null,
                     topBarActions = { topBackdrop ->
-                        if (section == SettingsPage.AutoRefreshSchedule && autoRefreshProfile == null) {
+                        if (isTimeSlotEditor && scheduleEditReady && timeSlotOriginalJson.isNotEmpty()) {
+                            CouiSettingsToolbarButton(topBackdrop, onClick = { timeSlotDeleteRequest++ }) {
+                                Icon(CouiIcons.Delete, "删除特殊课程", Modifier.size(20.dp),
+                                    tint = CouiTheme.colorScheme.onSurface)
+                            }
+                        } else if (section == SettingsPage.AutoRefreshSchedule && autoRefreshProfile == null) {
                             TopGlassIconButton(
                                 backdrop = topBackdrop,
                                 config = settingsVisualConfig(state.config),
@@ -334,8 +344,9 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                         SettingsPage.SpecialCourses -> if (scheduleEditReady) {
                             if (isTimeSlotEditor) TimeSlotCourseEditorScreen(
                                 state = scheduleEditState, backdrop = backdrop,
-                                originalJson = intent.getStringExtra(TimeSlotCourseOriginalExtra).orEmpty(),
+                                originalJson = timeSlotOriginalJson,
                                 handoffToken = timeSlotHandoffToken, exitCommitRequest = scheduleExitRequest,
+                                deleteRequest = timeSlotDeleteRequest,
                                 onExitCommitFinished = { saved -> if (saved) closeSettings() },
                                 onExitInterceptionChange = { interceptSystemBack = it }
                             ) else
