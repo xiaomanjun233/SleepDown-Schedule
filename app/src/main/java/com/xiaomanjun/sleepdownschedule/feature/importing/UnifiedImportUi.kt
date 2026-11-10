@@ -50,8 +50,11 @@ import com.itos.coui.segmentbutton.CouiSegmentedControlDefaults
 import com.itos.coui.segmentbutton.SegmentedControl
 import com.itos.coui.shape.CouiCapsuleShape
 import com.itos.coui.shape.CouiShape
+import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
 
 private val ImportTabLabels = listOf("常规导入", "教务系统导入")
 
@@ -61,12 +64,16 @@ internal fun UnifiedImportTabs(
     onSelected: (Int) -> Unit,
     dark: Boolean,
     enabled: Boolean,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    backdrop: Backdrop? = null,
 ) {
     if (Build.VERSION.SDK_INT >= 34) {
+        val material = if (backdrop != null && !AppMaterialPreferences.isSuperPerformance) {
+            rememberCouiGlassBackdrop(backdrop)
+        } else null
         SegmentedControl(
             modifier = modifier, labels = ImportTabLabels, selectedIndex = selectedIndex,
-            onSelected = onSelected, dark = dark, enabled = enabled, small = true,
+            onSelected = onSelected, dark = dark, enabled = enabled, backdrop = material,
         )
         return
     }
@@ -74,7 +81,7 @@ internal fun UnifiedImportTabs(
     val select by rememberUpdatedState(onSelected)
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     BoxWithConstraints(
-        modifier.width(192.dp).height(CouiSegmentedControlDefaults.smallHeight)
+        modifier.width(192.dp).height(CouiSegmentedControlDefaults.height)
             .clip(CouiCapsuleShape).background(CouiSegmentedControlDefaults.containerColor(dark))
             .selectableGroup()
             .pointerInput(enabled, rtl) {
@@ -84,7 +91,7 @@ internal fun UnifiedImportTabs(
                     select(if ((change.position.x < size.width / 2f) != rtl) 0 else 1)
                 }
             }
-            .padding(2.dp)
+            .padding(4.dp)
     ) {
         val halfWidth = maxWidth / 2
         Box(

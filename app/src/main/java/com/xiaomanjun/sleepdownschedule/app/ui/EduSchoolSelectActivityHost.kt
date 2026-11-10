@@ -117,18 +117,6 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                     selectedTab = index
                 }
             }
-            val importTabs = remember {
-                movableContentOf {
-                    Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
-                        UnifiedImportTabs(
-                            selectedIndex = selectedTab,
-                            onSelected = selectTab,
-                            dark = appUsesDarkTheme(state.config),
-                            enabled = !form.submitting,
-                        )
-                    }
-                }
-            }
             val recordingDensity = LocalDensity.current
             val refreshScope = rememberCoroutineScope()
             var historyBounds by remember { mutableStateOf(Rect.Zero) }
@@ -284,6 +272,20 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                         }
                     ) { backdrop ->
                         val topPadding = detailContentTopPadding()
+                        val tabBackdrop by rememberUpdatedState(backdrop)
+                        val importTabs = remember {
+                            movableContentOf {
+                                Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                    UnifiedImportTabs(
+                                        selectedIndex = selectedTab,
+                                        onSelected = selectTab,
+                                        dark = appUsesDarkTheme(state.config),
+                                        enabled = !form.submitting,
+                                        backdrop = tabBackdrop,
+                                    )
+                                }
+                            }
+                        }
                         Box(Modifier.fillMaxSize()) {
                             if (schoolSelected) retainedTabs.SaveableStateProvider("school-import") {
                                 EduSchoolPickerScreen(
