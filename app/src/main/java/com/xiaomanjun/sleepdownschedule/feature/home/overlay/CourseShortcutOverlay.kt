@@ -231,7 +231,11 @@ internal fun CourseShortcutOverlay(
                     }
             ) {
                 CourseGlassCard(
-                    backdrop = cardBackdrop, config = config, course = request.course,
+                    backdrop = cardBackdrop,
+                    config = remember(config) { config.copy(courseCardOutlineLightEnabled = false) },
+                    course = request.course,
+                    followTouch = false,
+                    nativeEdgeEffects = false,
                     modifier = Modifier.fillMaxSize(),
                     shape = RoundedRectangle(with(density) { request.cornerPx.toDp() }), onClick = null
                 ) { WeekCourseOverlayCardContent(request.course, config) }
