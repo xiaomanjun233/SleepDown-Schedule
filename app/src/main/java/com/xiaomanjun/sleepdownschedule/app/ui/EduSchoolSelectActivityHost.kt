@@ -275,7 +275,7 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                         val tabBackdrop by rememberUpdatedState(backdrop)
                         val importTabs = remember {
                             movableContentOf {
-                                Box(Modifier.fillMaxWidth().padding(vertical = 8.dp), contentAlignment = Alignment.Center) {
+                                Box(Modifier.fillMaxWidth().padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
                                     UnifiedImportTabs(
                                         selectedIndex = selectedTab,
                                         onSelected = selectTab,
