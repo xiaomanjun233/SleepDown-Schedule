@@ -102,6 +102,7 @@ internal fun LazyListScope.scheduleAdjustmentItems(
                 revealed = swipes.revealedDate == entry.date,
                 onRevealChange = { swipes.reveal(entry.date, it) },
                 swipeEnabled = enabled,
+                slideContent = false,
                 confirmDelete = { confirmDelete(entry) },
                 onDelete = { onDelete(entry) },
                 onDeleteFailed = onDeleteFailed,

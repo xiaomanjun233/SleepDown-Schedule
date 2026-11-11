@@ -212,7 +212,7 @@ internal fun ScheduleAdjustmentsScreen(
                         }
                         MakeupReview(makeup.date, source?.toString().orEmpty(), source != null)
                     })
-                }, added)
+                }, added, existingDates = saved.keys)
                 previewVisible = true
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -242,6 +242,7 @@ internal fun ScheduleAdjustmentsScreen(
     }
 
     fun applySelected() {
+        if (!previewVisible) return
         val pending = preview ?: return
         runCatching {
             val imported = buildList {
@@ -320,7 +321,7 @@ internal fun ScheduleAdjustmentsScreen(
 
         preview?.let { pending ->
             val selectedDates = remember(pending) { pending.selectedDates() }
-            val replacements = remember(selectedDates, entries) { entries.count { it.date in selectedDates } }
+            val replacements = remember(pending) { selectedDates.count { it in pending.existingDates } }
             HolidayAdjustmentPreviewSheet(
                 visible = previewVisible,
                 preview = pending,

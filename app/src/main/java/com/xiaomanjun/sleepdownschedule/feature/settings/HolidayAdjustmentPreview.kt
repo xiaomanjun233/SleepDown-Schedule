@@ -46,6 +46,7 @@ internal data class HolidayAdjustmentPreview(
     val year: Int,
     val reviews: List<HolidayReview>,
     val alreadyAdded: List<HolidayPlan>,
+    val existingDates: Set<String>,
 ) {
     fun selectedDates(): Set<String> = buildSet {
         reviews.forEach { review ->

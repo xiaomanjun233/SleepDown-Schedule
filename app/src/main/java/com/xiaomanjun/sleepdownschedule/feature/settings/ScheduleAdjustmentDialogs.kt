@@ -143,7 +143,7 @@ internal fun AdjustmentEditorDialog(
                             onClick = { openDate(AdjustmentPickerPage.TargetDate) })
                         SettingsDivider()
                         if (draft.rest) {
-                            SettingsToggleRow("全天占位", "用全天假期卡显示停课，无课时也显示",
+                            SettingsToggleRow("全天占位", "无课也显示全天假期卡",
                                 draft.allDayPlaceholder, backdrop) { onDraftChange(draft.copy(allDayPlaceholder = it)) }
                         } else {
                             val source = parseScheduleDate(draft.source)

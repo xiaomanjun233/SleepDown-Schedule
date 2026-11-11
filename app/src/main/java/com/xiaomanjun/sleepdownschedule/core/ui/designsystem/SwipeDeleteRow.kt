@@ -89,6 +89,7 @@ internal fun SwipeDeleteRow(
     onDeleteFailed: (Exception) -> Unit,
     modifier: Modifier = Modifier,
     swipeEnabled: Boolean = true,
+    slideContent: Boolean = true,
     confirmDelete: (suspend () -> Boolean)? = null,
     onSlideProgress: ((Float) -> Unit)? = null,
     rowCorners: (Float) -> SwipeDeleteCorners = { SwipeDeleteCorners(SwipeRowRadius) },
@@ -304,8 +305,11 @@ internal fun SwipeDeleteRow(
                         }
                     )
                 }) {
+                val contentMotion = if (slideContent) Modifier.graphicsLayer {
+                    translationX = if (active) -direction * distance else 0f
+                } else Modifier
                 content(
-                    Modifier.graphicsLayer { translationX = if (active) -direction * distance else 0f },
+                    contentMotion,
                     deleting || confirming,
                     ::openOrClose,
                 )
