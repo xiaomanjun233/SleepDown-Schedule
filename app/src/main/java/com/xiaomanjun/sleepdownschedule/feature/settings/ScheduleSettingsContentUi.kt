@@ -7,12 +7,10 @@ import android.net.Uri
 import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -25,17 +23,16 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceCategory
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceSection
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionButton
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDatePickerRow
@@ -48,8 +45,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTimePickerRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsToggleRow
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsValueRow
-import com.xiaomanjun.sleepdownschedule.domain.schedule.SavedPeriodScheme
 import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationChoiceRow
 import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationDetails
 import com.xiaomanjun.sleepdownschedule.feature.experimental.ExperimentalNotificationPreview
@@ -64,14 +59,9 @@ import java.time.LocalTime
 import kotlinx.coroutines.flow.map
 
 @Composable
-fun ScheduleSettingsContent(
-    section: SettingsSection,
+internal fun ScheduleNotificationSettingsContent(
     state: AppState,
     backdrop: Backdrop?,
-    totalWeeks: String,
-    onTotalWeeksChange: (String) -> Unit,
-    currentWeek: String,
-    onCurrentWeekChange: (String) -> Unit,
     leadMinutes: String,
     onLeadMinutesChange: (String) -> Unit,
     notificationsEnabled: Boolean,
@@ -82,39 +72,7 @@ fun ScheduleSettingsContent(
     onLiveUpdateChipTextModeChange: (LiveUpdateChipTextMode) -> Unit,
     liveUpdateActionsEnabled: Boolean,
     onLiveUpdateActionsEnabledChange: (Boolean) -> Unit,
-    autoCurrentWeek: Boolean,
-    hideEmptyWeekends: Boolean,
-    showNonCurrentWeekCourses: Boolean,
-    onHideEmptyWeekendsChange: (Boolean) -> Unit,
-    onShowNonCurrentWeekCoursesChange: (Boolean) -> Unit,
-    termStartDate: String,
-    onTermStartDateChange: (String) -> Unit,
-    classDurationMinutes: String,
-    onClassDurationMinutesChange: (String) -> Unit,
-    breakDurationMinutes: String,
-    onBreakDurationMinutesChange: (String) -> Unit,
-    morningPeriodCount: Int,
-    noonPeriodCount: Int,
-    afternoonPeriodCount: Int,
-    eveningPeriodCount: Int,
-    onPeriodCountsChange: (Int, Int, Int, Int) -> Unit,
-    schemeDraft: SchedulePeriodSchemesDraft?,
-    onSchemeDraftChange: (SchedulePeriodSchemesDraft) -> Unit,
-    onAutoMatchPeriodEnds: () -> Unit,
-    periods: List<PeriodEntity>,
-    onPeriodsChange: (List<PeriodEntity>) -> Unit,
-    detectedWeek: Int,
-    detectedWeekDescription: String,
-    error: String?,
-    onPreviewLiveUpdate: (com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity) -> Unit,
-    scheduleAdjustmentsJson: String = state.config.scheduleAdjustmentsJson,
-    onScheduleAdjustmentsChange: (String) -> Unit = {},
-    onOpenPeriodSchemes: () -> Unit = {},
-    onOpenSpecialCourses: () -> Unit = {},
-    onOpenDateTimetables: () -> Unit = {},
-    periodSchemeLibrary: List<SavedPeriodScheme> = emptyList(),
-    onSelectPeriodScheme: (SavedPeriodScheme) -> Unit = {},
-    periodEditorExit: PeriodEditorExitCoordinator? = null
+    onPreviewLiveUpdate: (ScheduleConfigEntity) -> Unit,
 ) {
     val appContext = LocalContext.current
     val experimentalNotifications = rememberExperimentalNotificationUiState(notificationMode)
@@ -127,50 +85,6 @@ fun ScheduleSettingsContent(
         NotificationScheduler.requestReschedule(appContext)
     }
     val topPadding = detailContentTopPadding()
-    if (section == SettingsSection.Schedule) {
-        ScheduleSettingsContentFixed(
-            state = state,
-            backdrop = backdrop,
-            totalWeeks = totalWeeks,
-            onTotalWeeksChange = onTotalWeeksChange,
-            currentWeek = currentWeek,
-            onCurrentWeekChange = onCurrentWeekChange,
-            autoCurrentWeek = autoCurrentWeek,
-            hideEmptyWeekends = hideEmptyWeekends,
-            showNonCurrentWeekCourses = showNonCurrentWeekCourses,
-            onHideEmptyWeekendsChange = onHideEmptyWeekendsChange,
-            onShowNonCurrentWeekCoursesChange = onShowNonCurrentWeekCoursesChange,
-            termStartDate = termStartDate,
-            onTermStartDateChange = onTermStartDateChange,
-            classDurationMinutes = classDurationMinutes,
-            onClassDurationMinutesChange = onClassDurationMinutesChange,
-            breakDurationMinutes = breakDurationMinutes,
-            onBreakDurationMinutesChange = onBreakDurationMinutesChange,
-            morningPeriodCount = morningPeriodCount,
-            noonPeriodCount = noonPeriodCount,
-            afternoonPeriodCount = afternoonPeriodCount,
-            eveningPeriodCount = eveningPeriodCount,
-            onPeriodCountsChange = onPeriodCountsChange,
-            schemeDraft = schemeDraft,
-            onSchemeDraftChange = onSchemeDraftChange,
-            onAutoMatchPeriodEnds = onAutoMatchPeriodEnds,
-            periods = periods,
-            onPeriodsChange = onPeriodsChange,
-            detectedWeek = detectedWeek,
-            detectedWeekDescription = detectedWeekDescription,
-            error = error,
-            topPadding = topPadding,
-            scheduleAdjustmentsJson = scheduleAdjustmentsJson,
-            onScheduleAdjustmentsChange = onScheduleAdjustmentsChange,
-            onOpenPeriodSchemes = onOpenPeriodSchemes,
-            onOpenSpecialCourses = onOpenSpecialCourses,
-            onOpenDateTimetables = onOpenDateTimetables,
-            periodSchemeLibrary = periodSchemeLibrary,
-            onSelectPeriodScheme = onSelectPeriodScheme,
-            periodEditorExit = periodEditorExit
-        )
-        return
-    }
     val previewPageColor = settingsPageBackground(state.config)
     val previewBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "notification-settings-body") {
         drawRect(previewPageColor)
@@ -182,236 +96,179 @@ fun ScheduleSettingsContent(
             contentTopPadding = topPadding,
             contentBottomPadding = DockScrollPadding,
         ) {
-            if (section == SettingsSection.Schedule) {
-                item {
+            item(key = "course-quiet-settings") {
+                CourseQuietSettingsGroup(backdrop, state.config)
+            }
+            item(key = "notification-options") {
+                GlassPreferenceSection("课前提醒") {
                     SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                        SettingsTextFieldRow("总周数", totalWeeks, { onTotalWeeksChange(it.filter(Char::isDigit)) }, KeyboardType.Number)
+                        SettingsToggleRow(
+                            title = "课程提醒",
+                            subtitle = "",
+                            checked = notificationsEnabled,
+                            backdrop = backdrop,
+                            onCheckedChange = onNotificationsEnabledChange
+                        )
                         SettingsDivider()
-                        SettingsTextFieldRow("当前周（自动）", currentWeek, {}, KeyboardType.Number, enabled = false)
+                        SettingsMinutePickerRow(
+                            title = "提前提醒时间",
+                            value = leadMinutes.toIntOrNull() ?: state.config.notificationLeadMinutes,
+                            onValueChange = { onLeadMinutesChange(it.toString()) },
+                            backdrop = backdrop,
+                            config = state.config,
+                            enabled = notificationsEnabled
+                        )
                         SettingsDivider()
-                        SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
-                    }
-                }
-                item {
-                    GlassPreferenceSection("节次时间") {
-                    SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                        val sortedPeriods = periods.sortedBy { it.periodIndex }
-                        sortedPeriods.forEachIndexed { idx, period ->
-                            val bounds = periodTimePickerBounds(
-                                previousEnd = sortedPeriods.getOrNull(idx - 1)?.endTime,
-                                nextStart = sortedPeriods.getOrNull(idx + 1)?.startTime
-                            )
-                            val startMinute = parseMinuteOfDay(period.startTime) ?: bounds.minimumStartMinute
-                            val endMinute = parseMinuteOfDay(period.endTime) ?: (startMinute + 1)
-                            SettingsValueRow("第 ${period.periodIndex} 节", "")
-                            SettingsTimePickerRow("开始时间", period.startTime, { value ->
-                                onPeriodsChange(periods.map { if (it.periodIndex == period.periodIndex) it.copy(startTime = value) else it })
-                            }, backdrop, state.config,
-                                minimumMinute = bounds.minimumStartMinute,
-                                maximumMinute = minOf(endMinute - 1, bounds.maximumEndMinute - 1)
-                                    .coerceAtLeast(bounds.minimumStartMinute)
-                            )
-                            SettingsTimePickerRow("结束时间", period.endTime, { value ->
-                                onPeriodsChange(periods.map { if (it.periodIndex == period.periodIndex) it.copy(endTime = value) else it })
-                            }, backdrop, state.config,
-                                minimumMinute = maxOf(startMinute + 1, bounds.minimumStartMinute + 1)
-                                    .coerceAtMost(bounds.maximumEndMinute),
-                                maximumMinute = bounds.maximumEndMinute
-                            )
-                            if (idx != periods.lastIndex) SettingsDivider()
-                        }
-                    }
-                }
-                    }
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SettingsActionButton("添加节次", backdrop, onClick = {
-                            val next = (periods.maxOfOrNull { it.periodIndex } ?: 0) + 1
-                            onPeriodsChange(periods + PeriodEntity(next, "08:00", "08:45"))
-                        })
-                        SettingsActionButton("删除末节", backdrop, onClick = {
-                            if (periods.isNotEmpty()) onPeriodsChange(periods.dropLast(1))
-                        })
-                    }
-                }
-            } else {
-                item(key = "course-quiet-settings") {
-                    CourseQuietSettingsGroup(backdrop, state.config)
-                }
-                item(key = "notification-options") {
-                    GlassPreferenceSection("课前提醒") {
-                        SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                            SettingsToggleRow(
-                                title = "课程提醒",
-                                subtitle = "",
-                                checked = notificationsEnabled,
-                                backdrop = backdrop,
-                                onCheckedChange = onNotificationsEnabledChange
-                            )
-                            SettingsDivider()
-                            SettingsMinutePickerRow(
-                                title = "提前提醒时间",
-                                value = leadMinutes.toIntOrNull() ?: state.config.notificationLeadMinutes,
-                                onValueChange = { onLeadMinutesChange(it.toString()) },
-                                backdrop = backdrop,
-                                config = state.config,
-                                enabled = notificationsEnabled
-                            )
-                            SettingsDivider()
-                            ExperimentalNotificationChoiceRow(
-                                state = experimentalNotifications,
-                                notificationMode = notificationMode,
-                                config = state.config,
-                                backdrop = backdrop,
-                                onNotificationModeChange = onNotificationModeChange
-                            )
-                            if (experimentalNotifications.allowsLiveUpdateOptions(notificationMode) &&
-                                !experimentalNotifications.superIslandEnabled) {
-                                SettingsDivider()
-                                SettingsLiveUpdateChipTextRow(
-                                    liveUpdateChipTextMode,
-                                    backdrop,
-                                    state.config,
-                                    onLiveUpdateChipTextModeChange
-                                )
-                            }
-                        }
-                    }
-                }
-                if (experimentalNotifications.hasDetails) {
-                    item(key = "notification-experimental") {
-                        ExperimentalNotificationDetails(
+                        ExperimentalNotificationChoiceRow(
                             state = experimentalNotifications,
-                            appState = state,
-                            backdrop = backdrop
+                            notificationMode = notificationMode,
+                            config = state.config,
+                            backdrop = backdrop,
+                            onNotificationModeChange = onNotificationModeChange
                         )
-                    }
-                }
-                if (experimentalNotifications.allowsLiveUpdateOptions(notificationMode)) {
-                    item(key = "notification-live-course") {
-                        GlassPreferenceSection(
-                            if (experimentalNotifications.superIslandEnabled) "课程超级岛" else "课程实时活动"
-                        ) {
-                            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                                SettingsToggleRow(
-                                    title = if (experimentalNotifications.superIslandEnabled) "提醒按钮" else "实时活动按钮",
-                                    subtitle = "显示取消提醒和课程勿扰按钮",
-                                    checked = liveUpdateActionsEnabled,
-                                    backdrop = backdrop,
-                                    enabled = notificationsEnabled,
-                                    onCheckedChange = onLiveUpdateActionsEnabledChange
-                                )
-                                SettingsDivider()
-                                SettingsToggleRow(
-                                    title = if (experimentalNotifications.superIslandEnabled) "上课中超级岛" else "上课中实时活动",
-                                    subtitle = if (experimentalNotifications.superIslandEnabled)
-                                        "开启后显示课中提醒与距下课倒计时"
-                                    else "开启后会用实时活动提醒距离最近课间还有多久",
-                                    checked = livePreferences.duringClassEnabled,
-                                    backdrop = backdrop,
-                                    enabled = notificationsEnabled,
-                                    onCheckedChange = { enabled ->
-                                        updateLivePreferences {
-                                            LiveUpdatePreferences.setDuringClassEnabled(appContext, enabled)
-                                        }
-                                    }
-                                )
-                                SettingsDivider()
-                                SettingsToggleRow(
-                                    title = "课间提醒",
-                                    subtitle = if (experimentalNotifications.superIslandEnabled)
-                                        "开启后在课间显示距离下次上课还有多久"
-                                    else "开启后会在课间用实时活动提醒你还有多久上课",
-                                    checked = livePreferences.breakStatusEnabled,
-                                    backdrop = backdrop,
-                                    enabled = notificationsEnabled && livePreferences.duringClassEnabled,
-                                    onCheckedChange = { enabled ->
-                                        updateLivePreferences {
-                                            LiveUpdatePreferences.setBreakStatusEnabled(appContext, enabled)
-                                        }
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    item(key = "notification-tomorrow") {
-                        GlassPreferenceSection("明日课程") {
-                            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                                SettingsToggleRow(
-                                    title = "睡前提醒",
-                                    subtitle = "第二天有课时，在你设置的时间提醒你",
-                                    checked = livePreferences.tomorrowReminderEnabled,
-                                    backdrop = backdrop,
-                                    enabled = notificationsEnabled,
-                                    onCheckedChange = { enabled ->
-                                        updateLivePreferences {
-                                            LiveUpdatePreferences.setTomorrowReminderEnabled(appContext, enabled)
-                                        }
-                                    }
-                                )
-                                SettingsDivider()
-                                SettingsTimePickerRow(
-                                    title = "提醒时间",
-                                    value = livePreferences.tomorrowReminderTime.toString(),
-                                    onValueChange = { value ->
-                                        val time = runCatching { LocalTime.parse(value) }.getOrNull()
-                                            ?: return@SettingsTimePickerRow
-                                        updateLivePreferences {
-                                            LiveUpdatePreferences.setTomorrowReminderTime(appContext, time)
-                                        }
-                                    },
-                                    backdrop = backdrop,
-                                    config = state.config,
-                                    enabled = notificationsEnabled && livePreferences.tomorrowReminderEnabled
-                                )
-                            }
-                        }
-                    }
-                }
-                item(key = "notification-live-settings") {
-                    SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                        SettingsInfoRow(
-                            title = "系统权限",
-                            body = "允许通知与后台运行，及时接收课程提醒"
-                        )
-                        SettingsDivider()
-                        Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            SettingsActionButton(
-                                "通知设置",
+                        if (experimentalNotifications.allowsLiveUpdateOptions(notificationMode) &&
+                            !experimentalNotifications.superIslandEnabled) {
+                            SettingsDivider()
+                            SettingsLiveUpdateChipTextRow(
+                                liveUpdateChipTextMode,
                                 backdrop,
-                                onClick = {
-                                    val intent = if (experimentalNotifications.superIslandEnabled) {
-                                        NotificationScheduler.notificationSettingsIntent(appContext)
-                                    } else {
-                                        NotificationScheduler.promotedNotificationSettingsIntent(appContext)
-                                            ?: NotificationScheduler.notificationSettingsIntent(appContext)
-                                    }
-                                    appContext.startActivity(intent)
-                                },
-                                modifier = Modifier.weight(1f),
-                                monochrome = true
-                            )
-                            SettingsActionButton(
-                                "后台运行",
-                                backdrop,
-                                onClick = {
-                                    // 系统后台入口各不相同，统一打开本应用的权限管理页
-                                    val intent = Intent(
-                                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
-                                        Uri.fromParts("package", appContext.packageName, null)
-                                    )
-                                    appContext.startActivity(intent)
-                                },
-                                modifier = Modifier.weight(1f),
-                                monochrome = true
+                                state.config,
+                                onLiveUpdateChipTextModeChange
                             )
                         }
                     }
                 }
             }
-            error?.let {
-                item(key = "notification-error") { Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(horizontal = 4.dp)) }
+            if (experimentalNotifications.hasDetails) {
+                item(key = "notification-experimental") {
+                    ExperimentalNotificationDetails(
+                        state = experimentalNotifications,
+                        appState = state,
+                        backdrop = backdrop
+                    )
+                }
+            }
+            if (experimentalNotifications.allowsLiveUpdateOptions(notificationMode)) {
+                item(key = "notification-live-course") {
+                    GlassPreferenceSection(
+                        if (experimentalNotifications.superIslandEnabled) "课程超级岛" else "课程实时活动"
+                    ) {
+                        SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                            SettingsToggleRow(
+                                title = if (experimentalNotifications.superIslandEnabled) "提醒按钮" else "实时活动按钮",
+                                subtitle = "显示取消提醒和课程勿扰按钮",
+                                checked = liveUpdateActionsEnabled,
+                                backdrop = backdrop,
+                                enabled = notificationsEnabled,
+                                onCheckedChange = onLiveUpdateActionsEnabledChange
+                            )
+                            SettingsDivider()
+                            SettingsToggleRow(
+                                title = if (experimentalNotifications.superIslandEnabled) "上课中超级岛" else "上课中实时活动",
+                                subtitle = if (experimentalNotifications.superIslandEnabled)
+                                    "开启后显示课中提醒与距下课倒计时"
+                                else "开启后会用实时活动提醒距离最近课间还有多久",
+                                checked = livePreferences.duringClassEnabled,
+                                backdrop = backdrop,
+                                enabled = notificationsEnabled,
+                                onCheckedChange = { enabled ->
+                                    updateLivePreferences {
+                                        LiveUpdatePreferences.setDuringClassEnabled(appContext, enabled)
+                                    }
+                                }
+                            )
+                            SettingsDivider()
+                            SettingsToggleRow(
+                                title = "课间提醒",
+                                subtitle = if (experimentalNotifications.superIslandEnabled)
+                                    "开启后在课间显示距离下次上课还有多久"
+                                else "开启后会在课间用实时活动提醒你还有多久上课",
+                                checked = livePreferences.breakStatusEnabled,
+                                backdrop = backdrop,
+                                enabled = notificationsEnabled && livePreferences.duringClassEnabled,
+                                onCheckedChange = { enabled ->
+                                    updateLivePreferences {
+                                        LiveUpdatePreferences.setBreakStatusEnabled(appContext, enabled)
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
+                item(key = "notification-tomorrow") {
+                    GlassPreferenceSection("明日课程") {
+                        SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                            SettingsToggleRow(
+                                title = "睡前提醒",
+                                subtitle = "第二天有课时，在你设置的时间提醒你",
+                                checked = livePreferences.tomorrowReminderEnabled,
+                                backdrop = backdrop,
+                                enabled = notificationsEnabled,
+                                onCheckedChange = { enabled ->
+                                    updateLivePreferences {
+                                        LiveUpdatePreferences.setTomorrowReminderEnabled(appContext, enabled)
+                                    }
+                                }
+                            )
+                            SettingsDivider()
+                            SettingsTimePickerRow(
+                                title = "提醒时间",
+                                value = livePreferences.tomorrowReminderTime.toString(),
+                                onValueChange = { value ->
+                                    val time = runCatching { LocalTime.parse(value) }.getOrNull()
+                                        ?: return@SettingsTimePickerRow
+                                    updateLivePreferences {
+                                        LiveUpdatePreferences.setTomorrowReminderTime(appContext, time)
+                                    }
+                                },
+                                backdrop = backdrop,
+                                config = state.config,
+                                enabled = notificationsEnabled && livePreferences.tomorrowReminderEnabled
+                            )
+                        }
+                    }
+                }
+            }
+            item(key = "notification-live-settings") {
+                SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsInfoRow(
+                        title = "系统权限",
+                        body = "允许通知与后台运行，及时接收课程提醒"
+                    )
+                    SettingsDivider()
+                    Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        SettingsActionButton(
+                            "通知设置",
+                            backdrop,
+                            onClick = {
+                                val intent = if (experimentalNotifications.superIslandEnabled) {
+                                    NotificationScheduler.notificationSettingsIntent(appContext)
+                                } else {
+                                    NotificationScheduler.promotedNotificationSettingsIntent(appContext)
+                                        ?: NotificationScheduler.notificationSettingsIntent(appContext)
+                                }
+                                appContext.startActivity(intent)
+                            },
+                            modifier = Modifier.weight(1f),
+                            monochrome = true
+                        )
+                        SettingsActionButton(
+                            "后台运行",
+                            backdrop,
+                            onClick = {
+                                // 系统后台入口各不相同，统一打开本应用的权限管理页
+                                val intent = Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", appContext.packageName, null)
+                                )
+                                appContext.startActivity(intent)
+                            },
+                            modifier = Modifier.weight(1f),
+                            monochrome = true
+                        )
+                    }
+                }
             }
         }
         SettingsFloatingActionArea(previewPageColor, appUsesDarkTheme(state.config)) { modifier ->
@@ -433,128 +290,62 @@ fun ScheduleSettingsContent(
 }
 
 @Composable
-fun ScheduleSettingsContentFixed(
+internal fun ScheduleSettingsContent(
     state: AppState,
     backdrop: Backdrop?,
+    draftConfig: ScheduleConfigEntity,
     totalWeeks: String,
     onTotalWeeksChange: (String) -> Unit,
     currentWeek: String,
-    onCurrentWeekChange: (String) -> Unit,
-    autoCurrentWeek: Boolean,
-    hideEmptyWeekends: Boolean,
-    showNonCurrentWeekCourses: Boolean,
     onHideEmptyWeekendsChange: (Boolean) -> Unit,
     onShowNonCurrentWeekCoursesChange: (Boolean) -> Unit,
-    termStartDate: String,
     onTermStartDateChange: (String) -> Unit,
-    classDurationMinutes: String,
-    onClassDurationMinutesChange: (String) -> Unit,
-    breakDurationMinutes: String,
-    onBreakDurationMinutesChange: (String) -> Unit,
-    morningPeriodCount: Int,
-    noonPeriodCount: Int,
-    afternoonPeriodCount: Int,
-    eveningPeriodCount: Int,
-    onPeriodCountsChange: (Int, Int, Int, Int) -> Unit,
-    schemeDraft: SchedulePeriodSchemesDraft?,
-    onSchemeDraftChange: (SchedulePeriodSchemesDraft) -> Unit,
-    onAutoMatchPeriodEnds: () -> Unit,
-    periods: List<PeriodEntity>,
-    onPeriodsChange: (List<PeriodEntity>) -> Unit,
-    detectedWeek: Int,
-    detectedWeekDescription: String,
+    scheduleAdjustmentsJson: String,
+    onScheduleAdjustmentsChange: (String) -> Unit,
+    onOpenPeriodSchemes: () -> Unit,
+    onOpenSpecialCourses: () -> Unit,
     error: String?,
-    topPadding: Dp = detailContentTopPadding(),
-    scheduleAdjustmentsJson: String = state.config.scheduleAdjustmentsJson,
-    onScheduleAdjustmentsChange: (String) -> Unit = {},
-    onOpenPeriodSchemes: () -> Unit = {},
-    onOpenSpecialCourses: () -> Unit = {},
-    onOpenDateTimetables: () -> Unit = {},
-    periodSchemeLibrary: List<SavedPeriodScheme> = emptyList(),
-    onSelectPeriodScheme: (SavedPeriodScheme) -> Unit = {},
-    periodEditorExit: PeriodEditorExitCoordinator? = null
 ) {
+    val config = state.config
+    val combo = config.activeTimetableComboId?.let { id ->
+        state.timetableCatalog.combos.firstOrNull { it.id == id }
+    }
+    val routineCount = (listOfNotNull(config.activePeriodSchemeId, combo?.baseSchemeId) +
+        state.timetableCatalog.rules.filter { it.comboId == combo?.id }.map { it.schemeId })
+        .distinct().size.coerceAtLeast(1)
 
-    val draftConfig = state.config.copy(
-        totalWeeks = totalWeeks.toIntOrNull()?.coerceAtLeast(1) ?: state.config.totalWeeks,
-        currentWeek = currentWeek.toIntOrNull()?.coerceAtLeast(1) ?: state.config.currentWeek,
-        autoCurrentWeek = autoCurrentWeek,
-        termStartDate = termStartDate.ifBlank { null },
-        scheduleAdjustmentsJson = scheduleAdjustmentsJson,
-        morningPeriodCount = morningPeriodCount,
-        noonPeriodCount = noonPeriodCount,
-        afternoonPeriodCount = afternoonPeriodCount,
-        eveningPeriodCount = eveningPeriodCount
-    )
-    val termSettings: @Composable () -> Unit = {
-        GlassPreferenceSection("学期与显示") {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsTextFieldRow("总周数", totalWeeks, { onTotalWeeksChange(it.filter(Char::isDigit)) }, KeyboardType.Number)
-                SettingsDivider()
-                SettingsTextFieldRow("当前周（自动）", currentWeek, {}, KeyboardType.Number, enabled = false)
-                SettingsDivider()
-                SettingsToggleRow("隐藏空周末", "", hideEmptyWeekends, backdrop, onCheckedChange = onHideEmptyWeekendsChange)
-                SettingsDivider()
-                SettingsToggleRow("显示非本周课程", "灰色预告后续课程，结课后自动隐藏；当周课程优先",
-                    showNonCurrentWeekCourses, backdrop, onCheckedChange = onShowNonCurrentWeekCoursesChange)
-                SettingsDivider()
-                SettingsDatePickerRow("学期开始日期", termStartDate, onTermStartDateChange, backdrop, state.config)
-            }
-        }
-        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-        TimeSlotCoursesSettings(config = state.config, backdrop = backdrop, onOpen = onOpenSpecialCourses)
-        ScheduleAdjustmentsSettings(state.copy(config = draftConfig), backdrop, scheduleAdjustmentsJson, onScheduleAdjustmentsChange)
-    }
-    val timetableSettings: @Composable () -> Unit = {
-        if (schemeDraft != null) {
-            val active = schemeDraft.schemes.first { it.scheme.id == schemeDraft.activeSchemeId }
-            val currentIndex = periodSchemeLibrary.indexOfFirst { it.id == active.scheme.publicId }
-            val labels = periodSchemeLibrary.map { scheme ->
-                if (periodSchemeLibrary.count { it.name == scheme.name } > 1) {
-                    val source = scheme.sources.firstOrNull()?.scheduleName ?: "公共作息"
-                    "${scheme.name}（$source · #${scheme.roomId}）"
-                } else scheme.name
-            }
-            SleepDownLiquidDropdownPreference(
-                items = labels,
-                selectedIndex = currentIndex,
-                title = "当前作息", backdrop = backdrop, config = state.config,
-                insideMargin = com.xiaomanjun.sleepdownschedule.core.ui.settings.settingsPreferencePadding(),
-                maxHeight = 318.dp, onExpandedChange = {},
-                onSelectedIndexChange = { index ->
-                    periodSchemeLibrary.getOrNull(index)?.let(onSelectPeriodScheme)
+    SleepDownSecondaryPageList(
+        contentTopPadding = detailContentTopPadding(),
+        contentBottomPadding = detailContentBottomPadding(),
+    ) {
+        item {
+            GlassPreferenceSection("学期与显示") {
+                SettingsGroup(backdrop = backdrop, config = config, modifier = Modifier.fillMaxWidth()) {
+                    SettingsTextFieldRow("总周数", totalWeeks, { onTotalWeeksChange(it.filter(Char::isDigit)) }, KeyboardType.Number)
+                    SettingsDivider()
+                    SettingsTextFieldRow("当前周（自动）", currentWeek, {}, KeyboardType.Number, enabled = false)
+                    SettingsDivider()
+                    SettingsToggleRow("隐藏空周末", "", draftConfig.hideEmptyWeekends, backdrop,
+                        onCheckedChange = onHideEmptyWeekendsChange)
+                    SettingsDivider()
+                    SettingsToggleRow("显示非本周课程", "灰色预告后续课程，结课后自动隐藏；当周课程优先",
+                        draftConfig.showNonCurrentWeekCourses, backdrop, onCheckedChange = onShowNonCurrentWeekCoursesChange)
+                    SettingsDivider()
+                    SettingsDatePickerRow("学期开始日期", draftConfig.termStartDate.orEmpty(), onTermStartDateChange, backdrop, config)
                 }
-            )
-            SettingsDivider()
-        }
-        SettingsNavigationRow("日期作息", "在不同时间应用不同的作息", onClick = onOpenDateTimetables)
-        SettingsDivider()
-        SettingsInfoRow("编辑范围", "这里修改作息仅对本课表生效；共用作息请在下方“作息管理”中编辑")
-    }
-    val publicTimetableSettings: @Composable () -> Unit = {
-        GlassPreferenceSection("作息管理") {
-            SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-                SettingsNavigationRow("公共作息库", "新建、复制、编辑和删除公共作息", onClick = onOpenPeriodSchemes)
             }
         }
-    }
-    if (schemeDraft != null) {
-        PeriodSchemeEditor(
-            state, backdrop, draftConfig, schemeDraft,
-            onSchemeDraftChange, onPeriodCountsChange, topPadding,
-            leadingContent = termSettings,
-            exitCoordinator = periodEditorExit,
-            timetableContent = timetableSettings,
-            trailingContent = publicTimetableSettings
-        )
-    } else {
-        SleepDownSecondaryPageList(
-            contentTopPadding = topPadding,
-            contentBottomPadding = com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding(),
-        ) {
-            item { termSettings() }
-            item { Text("正在读取作息…", modifier = Modifier.padding(20.dp)) }
-            item { publicTimetableSettings() }
+        item {
+            GlassPreferenceSection("课程与作息") {
+                SettingsGroup(backdrop = backdrop, config = config, modifier = Modifier.fillMaxWidth()) {
+                    TimeSlotCoursesSettingsRow(config, onOpenSpecialCourses)
+                    SettingsDivider()
+                    ScheduleAdjustmentsSettingsRow(draftConfig, scheduleAdjustmentsJson, onScheduleAdjustmentsChange)
+                    SettingsDivider()
+                    SettingsNavigationRow("作息", "$routineCount 套作息 · 上课时间与跨表复制", onClick = onOpenPeriodSchemes)
+                }
+            }
         }
+        error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
     }
 }

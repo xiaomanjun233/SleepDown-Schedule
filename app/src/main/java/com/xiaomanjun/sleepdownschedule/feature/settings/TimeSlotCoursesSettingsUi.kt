@@ -78,17 +78,13 @@ import java.util.UUID
 
 /** The schedule page contains only the same navigation row used by other settings. */
 @Composable
-fun TimeSlotCoursesSettings(config: ScheduleConfigEntity, backdrop: Backdrop?, onOpen: () -> Unit) {
+internal fun TimeSlotCoursesSettingsRow(config: ScheduleConfigEntity, onOpen: () -> Unit) {
     val decoded = remember(config.timeSlotCoursesJson) { runCatching { decodeTimeSlotCourses(config.timeSlotCoursesJson) } }
-    GlassPreferenceSection("特殊课程") {
-        SettingsGroup(backdrop, config, Modifier.fillMaxWidth().homeSwitchGroup()) {
-            SettingsNavigationRow("特殊课程",
-                decoded.fold(
-                    onSuccess = { if (it.isEmpty()) "设置早读、午休、晚自修等时间段" else "${it.size} 个时间段 · 添加、编辑和删除" },
-                    onFailure = { "数据无法读取，点此查看" }
-                ), onClick = onOpen)
-        }
-    }
+    SettingsNavigationRow("特殊课程",
+        decoded.fold(
+            onSuccess = { if (it.isEmpty()) "设置早读、午休、晚自修等时间段" else "${it.size} 个时间段 · 添加、编辑和删除" },
+            onFailure = { "数据无法读取，点此查看" }
+        ), onClick = onOpen)
 }
 
 /** Only a confirmed entry is persisted; the parent schedule's other settings stay independent. */

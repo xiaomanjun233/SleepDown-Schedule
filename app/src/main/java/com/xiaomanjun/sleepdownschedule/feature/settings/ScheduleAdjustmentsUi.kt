@@ -62,7 +62,7 @@ private val AdjustmentDateFormat = java.time.format.DateTimeFormatter.ofPattern(
 private fun shortDate(date: LocalDate) = date.format(AdjustmentDateFormat)
 
 @Composable
-fun ScheduleAdjustmentsSettings(state: AppState, backdrop: Backdrop?, value: String, onChange: (String) -> Unit) {
+internal fun ScheduleAdjustmentsSettingsRow(config: ScheduleConfigEntity, value: String, onChange: (String) -> Unit) {
     val context = LocalContext.current
     val currentOnChange by rememberUpdatedState(onChange)
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -71,20 +71,16 @@ fun ScheduleAdjustmentsSettings(state: AppState, backdrop: Backdrop?, value: Str
         }
     }
     val entries = remember(value) { decodeScheduleAdjustments(value) }
-    GlassPreferenceSection("调休课表") {
-        SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
-            SettingsNavigationRow(
-                title = "调休课表",
-                subtitle = if (entries.isEmpty()) "自定义停课与补课，或获取节假日后确认" else
-                    "${entries.count { it.sourceDate == null }} 天停课 · ${entries.count { it.sourceDate != null }} 天补课",
-                onClick = {
-                    context.openRegisteredActivity(TransitionRouteId.SettingsToScheduleAdjustments,
-                        ScheduleAdjustmentsActivity.intent(context, state.config, value),
-                        launchActivity = { launcher.launch(it) })
-                }
-            )
+    SettingsNavigationRow(
+        title = "调休课表",
+        subtitle = if (entries.isEmpty()) "自定义停课与补课，或获取节假日后确认" else
+            "${entries.count { it.sourceDate == null }} 天停课 · ${entries.count { it.sourceDate != null }} 天补课",
+        onClick = {
+            context.openRegisteredActivity(TransitionRouteId.SettingsToScheduleAdjustments,
+                ScheduleAdjustmentsActivity.intent(context, config, value),
+                launchActivity = { launcher.launch(it) })
         }
-    }
+    )
 }
 
 /** A fetched holiday period plus the review state; nothing is written before 采用所选日期. */

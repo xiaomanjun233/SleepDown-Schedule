@@ -13,10 +13,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.minimumInteractiveComponentSize
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import com.itos.coui.scroll.couiVerticalScroll
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsContentPadding
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -50,10 +49,8 @@ import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceCategory
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiLiquidMaterial
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsPopupBackdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsMinutePickerContent
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsPickerValueRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
@@ -67,6 +64,7 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.model.*
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 private val TimelineCourseColor = Color(0xFF0A84FF)
@@ -156,72 +154,49 @@ internal fun preservePeriodSchemeMetadataForRename(
 
 @Composable
 internal fun PeriodSchemeEditor(
-    state: AppState,
-    backdrop: Backdrop?,
     config: ScheduleConfigEntity,
-    draft: SchedulePeriodSchemesDraft,
-    onDraftChange: (SchedulePeriodSchemesDraft) -> Unit,
-    onCountsChange: (Int, Int, Int, Int) -> Unit,
-    topPadding: androidx.compose.ui.unit.Dp,
-    leadingContent: @Composable () -> Unit,
-    managementContent: (@Composable () -> Unit)? = null,
-    managementRequest: PeriodSchemeManagementRequest? = null,
-    onSaveSession: (suspend (PeriodTimelineSession) -> Unit)? = null,
-    onEditorFinished: () -> Unit = {},
-    exitCommitRequest: Int = 0,
-    exitCoordinator: PeriodEditorExitCoordinator? = null,
-    timetableContent: (@Composable () -> Unit)? = null,
-    trailingContent: @Composable () -> Unit = {}
+    request: PeriodTimelineSession,
+    onSaveSession: suspend (PeriodTimelineSession) -> Unit,
+    onEditorFinished: () -> Unit,
+    exitCommitRequest: Int,
+    hasAdditionalChanges: Boolean,
+    canChangeStructure: Boolean,
+    metadataContent: @Composable (Backdrop, Boolean) -> Unit,
+    onDeleteRoutine: (suspend () -> Unit)? = null,
 ) {
-    val active = draft.schemes.firstOrNull { it.scheme.id == draft.activeSchemeId } ?: return
-    val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
-    var session by remember(config.id) { mutableStateOf<PeriodTimelineSession?>(null) }
-    var initialSession by remember(config.id) { mutableStateOf<PeriodTimelineSession?>(null) }
-    var showWizard by remember { mutableStateOf(false) }
+    val initialSession = remember(request) {
+        request.updateActive(request.active.materializeForTimeline(request.config))
+    }
+    var session by remember(request) { mutableStateOf(initialSession) }
     var showExitConfirmation by remember { mutableStateOf(false) }
+    var showDeleteConfirmation by remember { mutableStateOf(false) }
     var deletingBlock by remember { mutableStateOf<TimelineBlock?>(null) }
     var pickingBlock by remember { mutableStateOf<TimelineBlock?>(null) }
     var pickingPart by remember { mutableStateOf<PeriodDayPart?>(null) }
-    var requestedBlock by remember { mutableStateOf<TimelineBlock?>(null) }
-    var sheetVisible by remember { mutableStateOf(false) }
+    var sheetVisible by remember { mutableStateOf(true) }
     var editorReady by remember { mutableStateOf(false) }
-    var pendingDraft by remember { mutableStateOf<PeriodTimelineSession?>(null) }
     var dragBase by remember { mutableStateOf<PeriodTimelineSession?>(null) }
     var localError by remember { mutableStateOf<String?>(null) }
     var additionError by remember { mutableStateOf<String?>(null) }
     var closing by remember { mutableStateOf(false) }
-    var lessonKeys by remember { mutableStateOf(emptyList<Int>()) }
-    var nextLessonKey by remember { mutableIntStateOf(0) }
+    var lessonKeys by remember(request) { mutableStateOf((1..request.config.totalPeriodCount()).toList()) }
+    var nextLessonKey by remember(request) { mutableIntStateOf(request.config.totalPeriodCount() + 1) }
     var changingKeys by remember { mutableStateOf(emptySet<String>()) }
     var changingStructure by remember { mutableStateOf(false) }
     val cardMotion = remember { Animatable(1f) }
     val breakExpansion = remember { Animatable(1f) }
     var previousBreakHeights by remember { mutableStateOf(emptyMap<String, Dp>()) }
     val scope = rememberCoroutineScope()
-    val normalScroll = rememberScrollState()
     val density = LocalDensity.current
-    val summary = remember(config, active) { timelineBlocks(config, active) }
-    val pageColor = settingsPageBackground(state.config)
-    DisposableEffect(exitCoordinator) { onDispose { exitCoordinator?.abandon() } }
+    val pageColor = settingsPageBackground(config)
 
-    fun enter(value: PeriodTimelineSession) {
-        exitCoordinator?.opened()
-        initialSession = PeriodTimelineSession(config, draft)
-        localError = null
-        additionError = null
-        editorReady = false
-        lessonKeys = (1..value.config.totalPeriodCount()).toList()
-        nextLessonKey = value.config.totalPeriodCount() + 1
-        session = value
-        sheetVisible = true
-    }
     fun addPeriod(
         part: PeriodDayPart,
         restoring: Boolean = false,
         operation: (PeriodTimelineSession) -> PeriodTimelineSession?
     ) {
-        if (changingStructure) return
-        val current = session ?: return
+        if (changingStructure || !canChangeStructure) return
+        val current = session
         val value = operation(current)
         if (value == null) {
             if (current.config.totalPeriodCount() >= 40) {
@@ -262,127 +237,50 @@ internal fun PeriodSchemeEditor(
     }
     fun leave(commit: Boolean) {
         if (closing || changingStructure || !editorReady) return
-        val current = session ?: return
-        if (commit) {
+        val current = session
+        val hasChanges = current.hasChangesFrom(initialSession) || hasAdditionalChanges
+        if (commit && hasChanges) {
             val error = current.draft.schemes.firstNotNullOfOrNull {
                 validateResolvedPeriodTimes(resolveSchemeTimes(current.config, it))
             }
-            if (error != null) { localError = error; exitCoordinator?.cancelRequest(); return }
+            if (error != null) {
+                localError = error
+                return
+            }
         }
-        val hasChanges = initialSession?.let { current.hasChangesFrom(it) } ?: true
         closing = true
         scope.launch {
-            if (commit && hasChanges && onSaveSession != null) {
+            if (commit && hasChanges) {
                 try {
-                    val initial = initialSession
-                    // The timeline materializes automatic rules for manipulation. A name-only
-                    // edit must keep the original generation mode, overrides and special breaks.
-                    val savedSession = if (managementRequest?.creating == false && initial != null)
-                        preservePeriodSchemeMetadataForRename(initial, current) else current
-                    onSaveSession(savedSession)
+                    onSaveSession(preservePeriodSchemeMetadataForRename(request, current))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (failure: Exception) {
-                    if (failure is kotlinx.coroutines.CancellationException) throw failure
                     localError = failure.message ?: "作息保存失败"
-                    exitCoordinator?.cancelRequest()
                     closing = false
                     return@launch
                 }
             }
-            pendingDraft = current.takeIf { commit && hasChanges && onSaveSession == null }
             sheetVisible = false
         }
     }
-    fun finishExit() {
-        pendingDraft?.let { current ->
-            onCountsChange(current.config.morningPeriodCount, current.config.noonPeriodCount,
-                current.config.afternoonPeriodCount, current.config.eveningPeriodCount)
-            onDraftChange(current.draft)
-        }
-        pendingDraft = null
-        session = null
-        initialSession = null
-        editorReady = false
-        closing = false
-        localError = null
-        onEditorFinished()
-        exitCoordinator?.closedAfterDraftHandoff()
-    }
+
     fun requestExit() {
-        val current = session ?: return
-        val initial = initialSession ?: return
-        if (!closing && !changingStructure && editorReady) {
-            if (current.hasChangesFrom(initial)) showExitConfirmation = true
-            else leave(commit = false)
-        }
+        if (closing || changingStructure || !editorReady) return
+        if (session.hasChangesFrom(initialSession) || hasAdditionalChanges) showExitConfirmation = true
+        else leave(commit = false)
     }
-    LaunchedEffect(managementRequest?.id) {
-        val request = managementRequest ?: return@LaunchedEffect
-        if (request.creating) showWizard = true
-        else enter(request.session.updateActive(request.session.active.materializeForTimeline(request.session.config)))
-    }
+
+    var handledExitRequest by remember { mutableIntStateOf(exitCommitRequest) }
     LaunchedEffect(exitCommitRequest) {
-        if (exitCommitRequest > 0 && session != null) requestExit()
-    }
-    LaunchedEffect(exitCoordinator?.requestVersion, editorReady) {
-        if (exitCoordinator?.pending == true && editorReady) requestExit()
-    }
-    if (managementContent != null) {
-        managementContent()
-    } else {
-        Column(
-            Modifier.fillMaxSize()
-                .consumeWindowInsets(LocalCouiSettingsContentPadding.current ?: PaddingValues(0.dp))
-                .couiVerticalScroll(normalScroll, enabled = session == null)
-                .padding(start = 16.dp, end = 16.dp, top = topPadding + 12.dp,
-                    bottom = com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
-        ) {
-            leadingContent()
-            Column(Modifier.fillMaxWidth()) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    GlassPreferenceCategory("本课表作息", modifier = Modifier.weight(1f).offset(y = 8.dp))
-                    DialogLiquidButton(backdrop, "编辑", {
-                        enter(PeriodTimelineSession(config, draft).updateActive(active.materializeForTimeline(config)))
-                    }, role = DialogButtonRole.Confirm,
-                        height = 32.dp, horizontalPadding = 12.dp, shadowEnabled = false,
-                        modifier = Modifier.minimumInteractiveComponentSize())
-                }
-                Spacer(Modifier.height(8.dp))
-                SettingsGroup(backdrop, state.config, Modifier.fillMaxWidth()) {
-                    timetableContent?.let {
-                        it()
-                        SettingsDivider()
-                    }
-                    val lessons = summary.filterNot { it.isBreak }
-                    lessons.forEachIndexed { position, block ->
-                        key(block.key) {
-                            if (position > 0) {
-                                val previous = lessons[position - 1]
-                                val gap = summary.firstOrNull { it.isBreak && it.period == previous.period }
-                                Box(Modifier.fillMaxWidth()) {
-                                    when {
-                                        previous.part != block.part -> PeriodTimelineSeparator("${block.part.timelineLabel()}时段", TimelineCourseColor)
-                                        gap != null && gap.minutes != active.scheme.breakDurationMinutes ->
-                                            PeriodTimelineSeparator(if (gap.minutes == 0) "连课" else "课间 · ${gap.minutes}分钟", TimelineBreakColor)
-                                        else -> Unit
-                                    }
-                                }
-                            }
-                            SettingsPickerValueRow(block.title, "${timelineMinuteText(block.start)} - ${timelineMinuteText(block.end)}",
-                                onClick = {
-                                    enter(PeriodTimelineSession(config, draft).updateActive(active.materializeForTimeline(config)))
-                                    requestedBlock = block
-                                })
-                        }
-                    }
-                }
-            }
-            trailingContent()
+        if (exitCommitRequest != handledExitRequest) {
+            handledExitRequest = exitCommitRequest
+            requestExit()
         }
     }
 
-    session?.let { edit ->
-        val dark = appUsesDarkTheme(state.config)
+    session.let { edit ->
+        val dark = appUsesDarkTheme(config)
         val windowBackdrop = rememberCouiWindowBackdrop()
         val sheetMaterial = if (Build.VERSION.SDK_INT >= 33 && windowBackdrop != null &&
             LocalCouiMaterialEnabled.current && !LocalCouiLiquidMaterial.current
@@ -390,12 +288,8 @@ internal fun PeriodSchemeEditor(
         ModalBottomSheet(
             visible = sheetVisible,
             onDismissRequest = ::requestExit,
-            onDismissFinished = ::finishExit,
-            onShowFinished = {
-                editorReady = true
-                requestedBlock?.let { pickingBlock = it }
-                requestedBlock = null
-            },
+            onDismissFinished = onEditorFinished,
+            onShowFinished = { editorReady = true },
             title = "编辑作息",
             dismissDescription = "关闭编辑作息",
             dark = dark,
@@ -429,7 +323,7 @@ internal fun PeriodSchemeEditor(
                     }
                 }
                 fun resize(block: TimelineBlock, minutes: Int): Int {
-                    val current = session ?: return block.minutes
+                    val current = session
                     val updated = resizeTimelineEntry(dragBase ?: current, block, minutes)
                     session = updated
                     return timelineBlocks(updated.config, updated.active, includeLeading = true)
@@ -442,17 +336,13 @@ internal fun PeriodSchemeEditor(
                     .heightIn(min = with(density) { (retainedScroll + viewportHeight).toDp() })
                     .padding(start = 16.dp, end = 16.dp, top = 72.dp, bottom = 16.dp + navigationInset),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(if (managementContent != null)
-                        "拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间；保存后同步到引用这套作息的全部课表"
-                        else "拖动右下角调整时长 · 每格 1 分钟\n仅修改当前课表，保存作息修改时创建公共副本", fontSize = 12.sp,
+                    Text("拖动右下角调整时长 · 每格 1 分钟\n点按卡片选择时间", fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (managementContent != null) {
-                        Box(Modifier.fillMaxWidth()) {
-                            SettingsTextFieldRow("作息名称", edit.active.scheme.name, { name ->
-                                if (interactive) session = edit.updateActive(edit.active.copy(
-                                    scheme = edit.active.scheme.copy(name = name.take(60))))
-                            }, enabled = interactive)
-                        }
+                    SettingsTextFieldRow("作息名称", edit.active.scheme.name, { name ->
+                        session = edit.updateActive(edit.active.copy(scheme = edit.active.scheme.copy(name = name.take(60))))
+                    }, enabled = interactive)
+                    CompositionLocalProvider(LocalSettingsPopupBackdrop provides sheetScene) {
+                        metadataContent(sheetScene, interactive)
                     }
                     PeriodDayPart.entries.forEach { part ->
                         val partBlocks = blocks.filter { it.part == part }
@@ -491,7 +381,9 @@ internal fun PeriodSchemeEditor(
                                                     sizeProgress = { if (stableKey in changingKeys) cardMotion.value else 1f },
                                                     enabled = interactive,
                                                     onPick = { pickingBlock = block },
-                                                    onDelete = { deletingBlock = block },
+                                                    onDelete = if (block.isBreak || canChangeStructure) {
+                                                        { deletingBlock = block }
+                                                    } else null,
                                                     onResizeStarted = {
                                                         retainedScroll = editScroll.value
                                                         dragBase = session
@@ -523,7 +415,7 @@ internal fun PeriodSchemeEditor(
                                                 addPeriod(part, restoring = true) { insertTimelinePeriod(it, vacancy.id) }
                                             }
                                         }
-                                        if (vacancies.none { it.after == edit.config.periodCount(part) }) {
+                                        if (canChangeStructure && vacancies.none { it.after == edit.config.periodCount(part) }) {
                                             TimelineAddPeriodButton(editorBackdrop, interactive,
                                                 Modifier.padding(end = 38.dp)) {
                                                 addPeriod(part) { appendTimelinePeriod(it, part) }
@@ -531,7 +423,7 @@ internal fun PeriodSchemeEditor(
                                         }
                                     }
                             }
-                        } else {
+                        } else if (canChangeStructure) {
                             // Vacancies are editor-local; an empty saved section still needs an entry point.
                             TimelineAddPeriodButton(editorBackdrop, interactive,
                                 Modifier.padding(end = 38.dp),
@@ -540,7 +432,15 @@ internal fun PeriodSchemeEditor(
                             }
                         }
                     }
-                    localError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    if (onDeleteRoutine != null) {
+                        TextButton(
+                            onClick = { showDeleteConfirmation = true },
+                            enabled = interactive,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        ) {
+                            Text("删除作息", color = MaterialTheme.colorScheme.error)
+                        }
+                    }
                 }
                 ProgressiveBackdropBlur(editorBackdrop, Modifier.align(Alignment.TopCenter),
                     tintColor = pageColor, height = 72.dp, blurRadius = 12.dp,
@@ -552,25 +452,49 @@ internal fun PeriodSchemeEditor(
                 additionError?.let { message ->
                     LiquidAlertDialog("无法添加节次", message,
                         listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { additionError = null })),
-                        sheetScene, state.config, { additionError = null })
+                        sheetScene, config, { additionError = null })
                 }
-                if (showExitConfirmation) LiquidAlertDialog("保存作息调整",
-                    if (managementRequest?.creating == true) "要保存这套新作息吗？保存后可在课表设置中选择。"
-                    else if (managementContent != null) "要保存本次作息调整吗？${managementRequest?.original?.usages.orEmpty().size} 张引用此作息的课表会同步更新。"
-                    else "要保留本次作息调整吗？保存课表设置时会创建公共副本，仅影响当前课表。",
+                localError?.let { message ->
+                    LiquidAlertDialog("无法调整作息", message,
+                        listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) { localError = null }),
+                        sheetScene, config, { localError = null })
+                }
+                if (showExitConfirmation) LiquidAlertDialog(
+                    "保存作息调整",
+                    if (session.draft.topologyOperations.isEmpty()) "要保存这张课表的作息调整吗？"
+                    else "节次结构会同步到本课表各套作息，保存前会检查课程的节次。",
                     listOf(
-                        LiquidAlertAction("保存", LiquidAlertActionStyle.Primary, onClick = { showExitConfirmation = false; leave(true) }),
-                        LiquidAlertAction("不保存", LiquidAlertActionStyle.Destructive, onClick = { showExitConfirmation = false; leave(false) }),
-                        LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Cancel, onClick = {
-                            showExitConfirmation = false; exitCoordinator?.cancelRequest()
-                        })
-                    ), sheetScene, state.config, { showExitConfirmation = false; exitCoordinator?.cancelRequest() })
+                        LiquidAlertAction("保存", LiquidAlertActionStyle.Primary) { showExitConfirmation = false; leave(true) },
+                        LiquidAlertAction("不保存", LiquidAlertActionStyle.Destructive) { showExitConfirmation = false; leave(false) },
+                        LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Cancel) { showExitConfirmation = false }
+                    ), sheetScene, config, { showExitConfirmation = false })
+                if (showDeleteConfirmation && onDeleteRoutine != null) {
+                    LiquidAlertDialog("删除作息", "删除“${initialSession.active.scheme.name}”及其日期安排？这些日期将使用下一条适用的作息。",
+                        listOf(
+                            LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showDeleteConfirmation = false },
+                            LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive) {
+                                showDeleteConfirmation = false
+                                closing = true
+                                scope.launch {
+                                    try {
+                                        onDeleteRoutine()
+                                        sheetVisible = false
+                                    } catch (cancelled: CancellationException) {
+                                        throw cancelled
+                                    } catch (failure: Exception) {
+                                        localError = failure.message ?: "删除作息失败"
+                                        closing = false
+                                    }
+                                }
+                            }
+                        ), sheetScene, config, { showDeleteConfirmation = false })
+                }
                 deletingBlock?.let { block ->
                     LiquidAlertDialog("移除${block.title}", if (block.isBreak) "后续课程将在当前时段内提前 ${block.minutes} 分钟，节次编号不变。"
                         else "这套作息的节次编号将连续调整，删除后可从课间下方添加节次。如果课程占用了被删除的节次，保存会被阻止。",
                         listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = { deletingBlock = null }),
                             LiquidAlertAction("移除", LiquidAlertActionStyle.Destructive, onClick = {
-                                session?.let { edit ->
+                                session.let { edit ->
                                     val result = if (block.isBreak) resizeTimelineEntry(edit, block, 0) else deleteTimelinePeriod(edit, block.period)
                                     if (result == null) localError = "至少需要保留一个节次" else if (!changingStructure) {
                                         changingStructure = true
@@ -603,23 +527,19 @@ internal fun PeriodSchemeEditor(
                                     }
                                 }
                                 deletingBlock = null
-                            })), sheetScene, state.config, { deletingBlock = null })
+                            })), sheetScene, config, { deletingBlock = null })
                 }
                 pickingBlock?.let { block ->
-                    val edit = session
-                    if (edit != null) TimelineBlockPicker(block, edit, sheetScene, state.config,
+                    TimelineBlockPicker(block, session, sheetScene, config,
                         onDismiss = { pickingBlock = null }, onChange = { session = it; pickingBlock = null })
                 }
                 pickingPart?.let { part ->
-                    session?.let { edit -> TimelinePartStartPicker(part, edit, sheetScene, state.config,
-                        onDismiss = { pickingPart = null }, onChange = { session = it; pickingPart = null }) }
+                    TimelinePartStartPicker(part, session, sheetScene, config,
+                        onDismiss = { pickingPart = null }, onChange = { session = it; pickingPart = null })
                 }
             }
         }
     }
-    if (showWizard) PeriodSchemeCreationWizard(config, draft, popupBackdrop, state.config,
-        onDismiss = { showWizard = false; if (managementContent != null) onEditorFinished() },
-        onCreated = { showWizard = false; enter(it) }, standalone = managementContent != null)
 }
 
 @Composable
@@ -649,7 +569,7 @@ private fun PeriodEditorToolbar(dark: Boolean, backdrop: Backdrop, enabled: Bool
 private fun TimelineEditCard(
     block: TimelineBlock, dark: Boolean, enabled: Boolean, sizeProgress: () -> Float,
     resizeStartHeight: Dp?, resizeProgress: () -> Float,
-    onPick: () -> Unit, onDelete: () -> Unit, onResizeStarted: () -> Unit, onResizeFinished: () -> Unit,
+    onPick: () -> Unit, onDelete: (() -> Unit)?, onResizeStarted: () -> Unit, onResizeFinished: () -> Unit,
     onResize: (Int) -> Int
 ) {
     val view = LocalView.current
@@ -689,7 +609,7 @@ private fun TimelineEditCard(
                     fontWeight = FontWeight.SemiBold, maxLines = 1)
             }
         }
-        Box(
+        if (onDelete != null) Box(
             Modifier.align(Alignment.TopStart).offset(x = (-5).dp, y = (-5).dp).size(48.dp)
                 .semantics { contentDescription = "移除${block.title}" }
                 .clickable(enabled = enabled, interactionSource = null, indication = null, onClick = onDelete)
@@ -743,15 +663,6 @@ private fun TimelineAddPeriodButton(
 ) {
     Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         DialogLiquidButton(backdrop, label, { if (enabled) onClick() }, role = DialogButtonRole.Confirm)
-    }
-}
-
-@Composable
-private fun PeriodTimelineSeparator(label: String, tint: Color) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
-        Text(label, Modifier.clip(Capsule()).background(tint.copy(alpha = 0.18f)).padding(horizontal = 11.dp, vertical = 5.dp),
-            color = tint, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, maxLines = 1)
     }
 }
 

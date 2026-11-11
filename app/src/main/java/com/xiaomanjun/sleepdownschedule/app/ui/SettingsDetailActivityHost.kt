@@ -348,8 +348,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                             PeriodSchemeManagementScreen(
                                 state = scheduleEditState, backdrop = backdrop, exitCommitRequest = scheduleExitRequest,
                                 onExitCommitFinished = { saved -> if (saved) closeSettings() },
-                                onExitInterceptionChange = { interceptSystemBack = it },
-                                onOpenScheduleSettings = if (customizeScheduleId != null) closeSettings else null
+                                onExitInterceptionChange = { interceptSystemBack = it }
                             )
                         }
                         SettingsPage.SpecialCourses -> if (scheduleEditReady) {

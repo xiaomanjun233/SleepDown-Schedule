@@ -569,6 +569,76 @@ class SharedPeriodSchemeRepositoryTest {
         assertEquals(clocks, courseTimeSegments(coursesForDate(restored, date).single(), restored.periods))
     }
 
+    @Test
+    fun scheduleRoutineCopyClonesAllDateRulesAndRemapsTargetCoursesByDayPart() = runBlocking {
+        val scheme = requireNotNull(database.periodSchemeDao().getScheme(11))
+        database.periodSchemeDao().upsertScheme(scheme.copy(id = 21, publicId = "source", name = "来源常规",
+            morningPeriodCount = 3))
+        database.periodSchemeDao().upsertTimes(standardTimes(21).take(2) + listOf(
+            PeriodSchemeTimeEntity(21, 3, "10:00", "10:45"),
+            PeriodSchemeTimeEntity(21, 4, "14:00", "14:45", alias = "下午第一节"),
+        ))
+        database.periodSchemeDao().upsertScheme(scheme.copy(id = 22, publicId = "sparse", name = "临时调整"))
+        database.periodSchemeDao().upsertTimes(listOf(PeriodSchemeTimeEntity(22, 1, "08:10", "08:55")))
+        val combo = database.timetableDao().putCombo(TimetableComboEntity(name = "来源组合", baseSchemeId = 21))
+        database.timetableDao().putRules(listOf(
+            TimetableDateRuleEntity(combo, 0, 22, "2026-09-01", "2026-09-02"),
+            TimetableDateRuleEntity(combo, 1, 22, "2026-10-01", "2026-10-01"),
+        ))
+        val config = requireNotNull(database.configDao().getConfig(1))
+        database.configDao().upsertConfig(config.copy(activePeriodSchemeId = 21, activeTimetableComboId = combo))
+        val second = LocalDate.of(2026, 11, 1)
+        val source = repository.addScheduleRoutine(repository.loadScheduleRoutines(1), "另一个日期作息", second, second)
+
+        database.courseDao().insertCourses(listOf(
+            course(2, listOf(3)).copy(name = "下午课程", originalPeriodTimes = "3,14:00-14:45"),
+            course(2, listOf(3)).copy(name = "固定时间", customStartTime = "15:00", customEndTime = "15:45"),
+        ))
+        val preview = repository.previewScheduleRoutineCopy(1, 2)
+        val copied = repository.copyScheduleRoutines(preview)
+        assertEquals(1, preview.changedCourses)
+        assertEquals(20, copied.config.totalWeeks)
+        assertEquals(3, copied.config.morningPeriodCount)
+        assertEquals("下午第一节", copied.grid.times.last().alias)
+        assertEquals(source.rules.map { it.startDate to it.endDate }, copied.rules.map { it.startDate to it.endDate })
+        assertEquals(source.schemes.map { it.scheme.name }, copied.schemes.map { it.scheme.name })
+        assertTrue(copied.schemes.none { copy -> source.schemes.any { it.scheme.id == copy.scheme.id } })
+        assertEquals(2, copied.rules.map { it.schemeId }.distinct().size)
+        assertEquals(listOf(4), copied.courses.first { it.name == "下午课程" }.periods)
+        assertEquals("4,14:00-14:45", copied.courses.first { it.name == "下午课程" }.originalPeriodTimes)
+        assertEquals(preview.target.courses.first { it.name == "固定时间" }, copied.courses.first { it.name == "固定时间" })
+
+        val dateId = copied.rules.first().schemeId
+        val session = copied.timeline(dateId)
+        assertEquals(listOf(1, 2, 3, 4), session.active.times.map { it.periodIndex })
+        val edited = session.updateActive(changeFirstBell(session.active))
+        val saved = repository.saveScheduleRoutine(copied, edited, copied.rules)
+        val changed = saved.schemes.first { it.scheme.id == saved.rules.first().schemeId }
+        assertEquals(listOf(1), changed.times.map { it.periodIndex })
+        assertEquals("08:05", changed.times.single().startTime)
+        assertEquals("08:00", saved.regular.times.first().startTime)
+        val deleted = repository.deleteScheduleRoutine(saved, changed.scheme.id)
+        assertEquals(listOf(second.toString()), deleted.rules.map { it.startDate })
+        assertEquals(source, repository.loadScheduleRoutines(1))
+    }
+
+    @Test
+    fun scheduleRoutineCopyRejectsUnmappedCoursesAndStalePreviewsWithoutWritingTarget() = runBlocking {
+        database.courseDao().insertCourses(listOf(course(2, listOf(4))))
+        val before = state()
+        rejected { repository.previewScheduleRoutineCopy(1, 2) }
+        assertEquals(before, state())
+
+        val existing = database.courseDao().getCourses(2).single()
+        database.courseDao().insertCourses(listOf(existing.copy(periods = listOf(3))))
+        val preview = repository.previewScheduleRoutineCopy(1, 2)
+        val today = LocalDate.now()
+        repository.addScheduleRoutine(preview.source, "后加作息", today, today)
+        val target = repository.loadScheduleRoutines(2)
+        rejected { repository.copyScheduleRoutines(preview) }
+        assertEquals(target, repository.loadScheduleRoutines(2))
+    }
+
     private fun academicDraft(courses: String, dateRule: Boolean = false): ImportDraft {
         val session = ShiguangImportSession()
         session.begin(defaultConfig(), defaultPeriods(), allowImportedBellTimes = true)

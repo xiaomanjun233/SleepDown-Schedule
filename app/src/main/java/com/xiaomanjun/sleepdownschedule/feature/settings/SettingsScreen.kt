@@ -299,7 +299,6 @@ fun SettingsScreen(
                                     }
                                 },
                                 autoRefreshWarehouseRequest = autoRefreshWarehouseRequest,
-                                onOpenScheduleSettings = ::popTabletDetailPage,
                                 periodSchemeReturnRequest = periodSchemeReturnRequest
                             )
                         }
@@ -364,7 +363,6 @@ private fun SettingsPageContent(
     onExitCommitFinished: (Boolean) -> Unit = {},
     onExitInterceptionChange: (Boolean) -> Unit = {},
     autoRefreshWarehouseRequest: Int = 0,
-    onOpenScheduleSettings: (() -> Unit)? = null,
     periodSchemeReturnRequest: Int = 0
 ) {
     when (page) {
@@ -408,8 +406,7 @@ private fun SettingsPageContent(
         SettingsPage.PeriodSchemes -> PeriodSchemeManagementScreen(
             state = state, backdrop = backdrop, exitCommitRequest = exitCommitRequest,
             onExitCommitFinished = onExitCommitFinished,
-            onExitInterceptionChange = onExitInterceptionChange,
-            onOpenScheduleSettings = onOpenScheduleSettings ?: { onPageChange(SettingsPage.Schedule) }
+            onExitInterceptionChange = onExitInterceptionChange
         )
         SettingsPage.SpecialCourses -> TimeSlotCourseManagementScreen(
             state, exitCommitRequest, onExitCommitFinished, onExitInterceptionChange
