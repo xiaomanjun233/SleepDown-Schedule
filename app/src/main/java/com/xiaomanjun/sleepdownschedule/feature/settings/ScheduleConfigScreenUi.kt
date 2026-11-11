@@ -174,6 +174,7 @@ fun ScheduleConfigScreen(
         totalWeeks = totalWeeks,
         onTotalWeeksChange = { totalWeeks = it },
         currentWeek = effectiveCurrentWeek(preview).toString(),
+        onWeekStartsOnSundayChange = { draft = draft.copy(weekStartsOnSunday = it) },
         onHideEmptyWeekendsChange = { draft = draft.copy(hideEmptyWeekends = it) },
         onShowNonCurrentWeekCoursesChange = { draft = draft.copy(showNonCurrentWeekCourses = it) },
         onTermStartDateChange = { draft = draft.copy(termStartDate = it.ifBlank { null }) },

@@ -297,6 +297,7 @@ internal fun ScheduleSettingsContent(
     totalWeeks: String,
     onTotalWeeksChange: (String) -> Unit,
     currentWeek: String,
+    onWeekStartsOnSundayChange: (Boolean) -> Unit,
     onHideEmptyWeekendsChange: (Boolean) -> Unit,
     onShowNonCurrentWeekCoursesChange: (Boolean) -> Unit,
     onTermStartDateChange: (String) -> Unit,
@@ -325,10 +326,13 @@ internal fun ScheduleSettingsContent(
                     SettingsDivider()
                     SettingsTextFieldRow("当前周（自动）", currentWeek, {}, KeyboardType.Number, enabled = false)
                     SettingsDivider()
+                    SettingsToggleRow("周日作为周首日", "", draftConfig.weekStartsOnSunday, backdrop,
+                        onCheckedChange = onWeekStartsOnSundayChange)
+                    SettingsDivider()
                     SettingsToggleRow("隐藏空周末", "", draftConfig.hideEmptyWeekends, backdrop,
                         onCheckedChange = onHideEmptyWeekendsChange)
                     SettingsDivider()
-                    SettingsToggleRow("显示非本周课程", "灰色预告后续课程，结课后自动隐藏；当周课程优先",
+                    SettingsToggleRow("显示非本周课程", "在周视图中显示非本周课程，如对应位置处本周有课，会优先显示本周课程",
                         draftConfig.showNonCurrentWeekCourses, backdrop, onCheckedChange = onShowNonCurrentWeekCoursesChange)
                     SettingsDivider()
                     SettingsDatePickerRow("学期开始日期", draftConfig.termStartDate.orEmpty(), onTermStartDateChange, backdrop, config)
