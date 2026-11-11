@@ -1,5 +1,11 @@
 # 当前工作交接
 
+## 2026-11-11 通知教程 Sheet 的手势区适配
+
+通过 SDK ADB 37.0.1 的 5038 服务读取 USB OPPO PLJ110 19:25 的最新截图。`1b385aae` 的流体云「教程与诊断」列表在 1256×2760 图像的 y=2563 处截断，距离屏幕底部 197px。共用教程 Sheet 采用 COUI 边到边正文布局，滚动末尾留出导航栏实际高度和 16dp 间距。
+
+签名包源码为 `f99b7dea`。GitHub 2.0、版本代码 36，`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 10 分 42 秒。归档包 `tmp/review-apks/SleepDown-2.0-GitHub-f99b7dea.apk` 为 8,074,898 字节，SHA-256 为 `9DDAC698516AA923CDDD4F0B3476C0E157C9B1B56AF3932A126F347E10D14E3A`。19:41 经同来源 ADB 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读一致。Pixel 仅提供普通通知与实时活动入口，修复后的厂商 Sheet 待 OPPO 复看。构建日志和安装日志分别为 `tmp/sleepdown-notification-sheet-edge-f99b7dea-build.log` 与 `tmp/nav3-qa/sleepdown-f99b7dea-avd-install.log`。
+
 ## 2026-11-11 厂商通知教程 Sheet 与滑删拉伸
 
 课程安排整卡滑动接回公共删除按钮的拉伸。按钮露出后，继续拖动会增加宽度，图标跟随按钮居中。流体云、YOYO 建议与超级岛复用「教程与诊断」COUI Sheet，分为使用教程和当前诊断，顶栏支持关闭、刷新。流体云页保留组件和重新同步，超级岛页通过一行选择 Shizuku 或 root，并提供焦点通知与显示设置。超级岛的教程说明即时发送预览，流体云的教程说明临时课程和观察时间。
