@@ -288,6 +288,12 @@ internal fun SwipeDeleteRow(
                 drawSwipeSurface(renderer, distance, actionSize, following, restPx, deleting, rtl,
                     surfaceColor, rowCorners(swipeProgress()))
             }
+            val cardContentClip = Modifier.drawWithContent {
+                clipRect(left = if (rtl) distance.coerceAtMost(size.width) else 0f,
+                    right = if (rtl) size.width else (size.width - distance).coerceAtLeast(0f)) {
+                    this@drawWithContent.drawContent()
+                }
+            }
             val cardSurface = when {
                 !active -> Modifier.graphicsLayer {
                     shape = rowCorners(0f).shape()
@@ -299,10 +305,9 @@ internal fun SwipeDeleteRow(
                         drawSwipeSurface(mask, distance, actionSize, following, restPx, deleting, rtl,
                             Color.White, rowCorners(swipeProgress()), BlendMode.DstIn)
                     }
-                else -> Modifier.drawWithContent {
-                    clipRect(left = if (rtl) distance.coerceAtMost(size.width) else 0f,
-                        right = if (rtl) size.width else (size.width - distance).coerceAtLeast(0f)) { this@drawWithContent.drawContent() }
-                }
+                    // When content stays anchored, the delete surface must not reveal the row's trailing icon.
+                    .then(if (slideContent) Modifier else cardContentClip)
+                else -> cardContentClip
             }
             Box(Modifier.then(cardSurface)
                 .onGloballyPositioned { coordinates ->
