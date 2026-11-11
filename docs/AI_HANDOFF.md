@@ -1,5 +1,13 @@
 # 当前工作交接
 
+## 2026-11-11 通知教程 Sheet 顶栏渐变模糊
+
+OPPO 19:44 的截图确认 `f99b7dea` 的诊断列表已延伸到小白条下。教程 Sheet 的滚动列表复用作息编辑的渐变模糊做法，顶栏独立绘制，列表按实测顶栏高度留出初始间距。渐变只覆盖顶栏，末项继续按实际手势区高度加 16dp 留白。
+
+签名包源码为 `6bcbc93e`。GitHub 2.0、版本代码 36，`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 10 分 16 秒。归档包 `tmp/review-apks/SleepDown-2.0-GitHub-6bcbc93e.apk` 为 8,074,898 字节，SHA-256 为 `CEFAA2786ABFED93F8F11457DC213E14B919117C8A6BBCA650764E358B16B240`。
+
+20:21 通过 SDK ADB 37.0.1 的 5038 服务覆盖 USB OPPO PLJ110（Android 17 / API 37，`3B15AE023YL00000`，用户 0）和后台 Pixel 10 Pro AVD（Android 16，`emulator-5556`，用户 10），两处 APK 回读一致。修正后的厂商 Sheet 滚动效果待 OPPO 复看。构建日志为 `tmp/sleepdown-notification-sheet-blur-6bcbc93e-build.log`，安装日志为 `tmp/nav3-qa/sleepdown-6bcbc93e-install.log`。
+
 ## 2026-11-11 通知教程 Sheet 的手势区适配
 
 通过 SDK ADB 37.0.1 的 5038 服务读取 USB OPPO PLJ110 19:25 的最新截图。`1b385aae` 的流体云「教程与诊断」列表在 1256×2760 图像的 y=2563 处截断，距离屏幕底部 197px。共用教程 Sheet 采用 COUI 边到边正文布局，滚动末尾留出导航栏实际高度和 16dp 间距。
