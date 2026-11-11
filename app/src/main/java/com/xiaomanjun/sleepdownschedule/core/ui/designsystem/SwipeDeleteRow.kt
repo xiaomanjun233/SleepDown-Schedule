@@ -4,6 +4,7 @@ import android.os.Build
 import android.os.SystemClock
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -116,6 +117,7 @@ internal fun SwipeDeleteRow(
     var dragging by remember(rowKey) { mutableStateOf(false) }
     var deleting by remember(rowKey) { mutableStateOf(false) }
     var confirming by remember(rowKey) { mutableStateOf(false) }
+    var pastDeleteThreshold by remember(rowKey) { mutableStateOf(false) }
     var job by remember(rowKey) { mutableStateOf<Job?>(null) }
     var widthPx by remember(rowKey) { mutableFloatStateOf(0f) }
     var cardBounds by remember(rowKey) { mutableStateOf(Rect.Zero) }
@@ -126,8 +128,15 @@ internal fun SwipeDeleteRow(
     val latestRevealChange by rememberUpdatedState(onRevealChange)
     val atRest by remember { derivedStateOf { !dragging && !deleting && distance <= .5f } }
     val actionVisible by remember(revealStart) {
-        derivedStateOf { !deleting && distance >= revealStart }
+        derivedStateOf {
+            distance >= revealStart && (!deleting || pastDeleteThreshold && distance < widthPx)
+        }
     }
+    val lidProgress by animateFloatAsState(
+        targetValue = if (pastDeleteThreshold) 1f else 0f,
+        animationSpec = tween(120, delayMillis = if (pastDeleteThreshold) 16 else 0, easing = FastOutSlowInEasing),
+        label = "删除桶盖",
+    )
     val following by rememberCouiMetaballFollowingTranslation({ distance }, actionWidth, followingPx)
 
     fun swipeProgress(): Float = (distance / restPx).coerceIn(0f, 1f)
@@ -139,6 +148,7 @@ internal fun SwipeDeleteRow(
 
     fun settle(target: Float, velocity: Float = 0f) {
         job?.cancel()
+        pastDeleteThreshold = false
         job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             motion.snapTo(distance)
             motion.animateTo(target, defaults.itemSettleSpec, initialVelocity = velocity) {
@@ -153,6 +163,7 @@ internal fun SwipeDeleteRow(
         if (!swipeEnabled && !deleting) {
             job?.cancel()
             dragging = false
+            pastDeleteThreshold = false
             moveTo(0f)
         }
     }
@@ -174,6 +185,7 @@ internal fun SwipeDeleteRow(
             job = scope.launch {
                 try {
                     if (latestConfirmation?.invoke() == false) {
+                        pastDeleteThreshold = false
                         latestRevealChange(false)
                         motion.snapTo(distance)
                         motion.animateTo(0f, defaults.itemSettleSpec) { moveTo(value) }
@@ -192,6 +204,7 @@ internal fun SwipeDeleteRow(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
+                    pastDeleteThreshold = false
                     moveTo(0f)
                     collapse.animateTo(0f, defaults.itemSettleSpec)
                     confirming = false
@@ -220,7 +233,6 @@ internal fun SwipeDeleteRow(
             val tracker = VelocityTracker()
             var initialDistance = 0f
             var lastPosition: Offset? = null
-            var crossed = false
             detectHorizontalDragGestures(
                 onDragStart = {
                     if (!deleting && !confirming) {
@@ -228,7 +240,7 @@ internal fun SwipeDeleteRow(
                         dragging = true
                         initialDistance = distance
                         lastPosition = null
-                        crossed = false
+                        pastDeleteThreshold = false
                         tracker.resetTracking()
                         latestRevealChange(true)
                     }
@@ -241,8 +253,10 @@ internal fun SwipeDeleteRow(
                         lastPosition = change.position
                         moveTo((distance - direction * amount).coerceIn(0f, widthPx))
                         val commitReached = distance >= commitPx
-                        if (commitReached && !crossed) haptic.performHapticFeedback(HapticFeedbackType.ToggleOn)
-                        crossed = commitReached
+                        if (commitReached && !pastDeleteThreshold) {
+                            haptic.performHapticFeedback(HapticFeedbackType.ToggleOn)
+                        }
+                        pastDeleteThreshold = commitReached
                     }
                 },
                 onDragEnd = {
@@ -324,11 +338,14 @@ internal fun SwipeDeleteRow(
                     layout(action.width, action.height) { action.placeRelative(0, 0) }
                 }.graphicsLayer {
                     translationX = direction * following
-                    alpha = ((distance / (actionWidth + followingPx) - defaults.fusedRevealStart) /
+                    val revealAlpha = ((distance / (actionWidth + followingPx) - defaults.fusedRevealStart) /
                         (1f - defaults.fusedRevealStart)).coerceIn(0f, 1f)
-                }.clip(actionShape).couiButtonFeedback(dark, interaction, enabled = !confirming)
-                    .clickable(interaction, null, enabled = !confirming, onClick = ::delete), contentAlignment = Alignment.Center) {
-                    SwipeDeleteIcon { ((distance - revealStart) / (restPx - revealStart)).coerceIn(0f, 1f) }
+                    val deleteAlpha = if (deleting) (1f - distance / widthPx.coerceAtLeast(1f)).coerceIn(0f, 1f) else 1f
+                    alpha = revealAlpha * deleteAlpha
+                }.clip(actionShape).couiButtonFeedback(dark, interaction, enabled = !confirming && !deleting)
+                    .clickable(interaction, null, enabled = !confirming && !deleting, onClick = ::delete),
+                    contentAlignment = Alignment.Center) {
+                    SwipeDeleteIcon { lidProgress }
                 }
             }
         }
