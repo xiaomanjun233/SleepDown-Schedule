@@ -44,16 +44,6 @@ internal data class ScheduleRoutines(
     }
 }
 
-internal data class ScheduleRoutineCopy(
-    val source: ScheduleRoutines,
-    val target: ScheduleRoutines,
-    val mappedCourses: List<CourseEntity>,
-) {
-    val changedCourses: Int get() = target.courses.zip(mappedCourses).count { (before, after) ->
-        before.periods != after.periods
-    }
-}
-
 /** Keep an ordinary course at the same position within its part of the day. */
 internal fun mapCoursesForRoutineCopy(target: ScheduleRoutines, source: ScheduleRoutines): List<CourseEntity> {
     val sourceIndices = source.grid.times.mapTo(hashSetOf()) { it.periodIndex }

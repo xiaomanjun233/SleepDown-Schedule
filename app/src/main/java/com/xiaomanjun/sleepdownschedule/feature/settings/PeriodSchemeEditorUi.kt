@@ -160,6 +160,7 @@ internal fun PeriodSchemeEditor(
     onEditorFinished: () -> Unit,
     exitCommitRequest: Int,
     hasAdditionalChanges: Boolean,
+    saveMessage: String?,
     canChangeStructure: Boolean,
     metadataContent: @Composable (Backdrop, Boolean) -> Unit,
     onDeleteRoutine: (suspend () -> Unit)? = null,
@@ -461,7 +462,7 @@ internal fun PeriodSchemeEditor(
                 }
                 if (showExitConfirmation) LiquidAlertDialog(
                     "保存作息调整",
-                    if (session.draft.topologyOperations.isEmpty()) "要保存这张课表的作息调整吗？"
+                    saveMessage ?: if (session.draft.topologyOperations.isEmpty()) "要保存这张课表的作息调整吗？"
                     else "节次结构会同步到本课表各套作息，保存前会检查课程的节次。",
                     listOf(
                         LiquidAlertAction("保存", LiquidAlertActionStyle.Primary) { showExitConfirmation = false; leave(true) },

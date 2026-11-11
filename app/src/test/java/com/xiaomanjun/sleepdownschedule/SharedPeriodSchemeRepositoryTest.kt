@@ -588,15 +588,14 @@ class SharedPeriodSchemeRepositoryTest {
         val config = requireNotNull(database.configDao().getConfig(1))
         database.configDao().upsertConfig(config.copy(activePeriodSchemeId = 21, activeTimetableComboId = combo))
         val second = LocalDate.of(2026, 11, 1)
-        val source = repository.addScheduleRoutine(repository.loadScheduleRoutines(1), "另一个日期作息", second, second)
+        val source = saveTestDateRoutine(repository.loadScheduleRoutines(1), "另一个日期作息", second)
 
         database.courseDao().insertCourses(listOf(
             course(2, listOf(3)).copy(name = "下午课程", originalPeriodTimes = "3,14:00-14:45"),
             course(2, listOf(3)).copy(name = "固定时间", customStartTime = "15:00", customEndTime = "15:45"),
         ))
-        val preview = repository.previewScheduleRoutineCopy(1, 2)
-        val copied = repository.copyScheduleRoutines(preview)
-        assertEquals(1, preview.changedCourses)
+        val target = repository.loadScheduleRoutines(2)
+        val copied = repository.saveScheduleRoutine(source, source.timeline(source.regularId), source.rules, copyTarget = target)
         assertEquals(20, copied.config.totalWeeks)
         assertEquals(3, copied.config.morningPeriodCount)
         assertEquals("下午第一节", copied.grid.times.last().alias)
@@ -606,7 +605,7 @@ class SharedPeriodSchemeRepositoryTest {
         assertEquals(2, copied.rules.map { it.schemeId }.distinct().size)
         assertEquals(listOf(4), copied.courses.first { it.name == "下午课程" }.periods)
         assertEquals("4,14:00-14:45", copied.courses.first { it.name == "下午课程" }.originalPeriodTimes)
-        assertEquals(preview.target.courses.first { it.name == "固定时间" }, copied.courses.first { it.name == "固定时间" })
+        assertEquals(target.courses.first { it.name == "固定时间" }, copied.courses.first { it.name == "固定时间" })
 
         val dateId = copied.rules.first().schemeId
         val session = copied.timeline(dateId)
@@ -623,20 +622,35 @@ class SharedPeriodSchemeRepositoryTest {
     }
 
     @Test
-    fun scheduleRoutineCopyRejectsUnmappedCoursesAndStalePreviewsWithoutWritingTarget() = runBlocking {
+    fun scheduleRoutineCopyRejectsUnmappedCoursesAndStaleDraftsWithoutWritingTarget() = runBlocking {
         database.courseDao().insertCourses(listOf(course(2, listOf(4))))
+        val source = repository.loadScheduleRoutines(1)
+        val session = source.timeline(source.regularId)
+        val unmappedTarget = repository.loadScheduleRoutines(2)
         val before = state()
-        rejected { repository.previewScheduleRoutineCopy(1, 2) }
+        rejected { repository.saveScheduleRoutine(source, session, source.rules, copyTarget = unmappedTarget) }
         assertEquals(before, state())
 
         val existing = database.courseDao().getCourses(2).single()
         database.courseDao().insertCourses(listOf(existing.copy(periods = listOf(3))))
-        val preview = repository.previewScheduleRoutineCopy(1, 2)
-        val today = LocalDate.now()
-        repository.addScheduleRoutine(preview.source, "后加作息", today, today)
         val target = repository.loadScheduleRoutines(2)
-        rejected { repository.copyScheduleRoutines(preview) }
+        saveTestDateRoutine(source, "后加作息", LocalDate.now())
+        rejected { repository.saveScheduleRoutine(source, session, source.rules, copyTarget = target) }
         assertEquals(target, repository.loadScheduleRoutines(2))
+    }
+
+    private suspend fun saveTestDateRoutine(source: ScheduleRoutines, name: String, date: LocalDate): ScheduleRoutines {
+        val session = source.timeline(source.regularId)
+        val id = -1L
+        val newRoutine = session.active.copy(
+            scheme = session.active.scheme.copy(id = id, name = name),
+            times = session.active.times.map { it.copy(schemeId = id) },
+        )
+        val edited = session.copy(draft = session.draft.copy(
+            schemes = session.draft.schemes + newRoutine, activeSchemeId = id,
+        ))
+        val rules = source.rules + TimetableDateRuleEntity(0, source.rules.size, id, date.toString(), date.toString())
+        return repository.saveScheduleRoutine(source, edited, rules)
     }
 
     private fun academicDraft(courses: String, dateRule: Boolean = false): ImportDraft {

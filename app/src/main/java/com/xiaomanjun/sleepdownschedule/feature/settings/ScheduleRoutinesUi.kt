@@ -41,9 +41,9 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
 import com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTimelineSession
 import com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleRoutines
+import com.xiaomanjun.sleepdownschedule.domain.schedule.parseScheduleDate
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 import com.xiaomanjun.sleepdownschedule.model.AppState
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
@@ -52,9 +52,18 @@ import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
-private enum class RoutineDialog { Add, Copy }
+private data class RoutineCreation(val source: ScheduleRoutines, val target: ScheduleRoutines) {
+    val copying: Boolean get() = source.config.id != target.config.id
+}
 
-private data class RoutineEdit(val original: ScheduleRoutines, val session: PeriodTimelineSession)
+private data class RoutineEdit(
+    val source: ScheduleRoutines,
+    val target: ScheduleRoutines,
+    val session: PeriodTimelineSession,
+    val creating: Boolean = false,
+) {
+    val copying: Boolean get() = source.config.id != target.config.id
+}
 
 @Composable
 fun PeriodSchemeManagementScreen(
@@ -73,9 +82,11 @@ fun PeriodSchemeManagementScreen(
     var routines by remember(scheduleId) { mutableStateOf<ScheduleRoutines?>(null) }
     var editing by remember(scheduleId) { mutableStateOf<RoutineEdit?>(null) }
     var editedRules by remember(scheduleId) { mutableStateOf(emptyList<TimetableDateRuleEntity>()) }
-    var dialog by remember(scheduleId) { mutableStateOf<RoutineDialog?>(null) }
-    var dialogVisible by remember(scheduleId) { mutableStateOf(false) }
-    var dialogError by remember(scheduleId) { mutableStateOf<String?>(null) }
+    var creation by remember(scheduleId) { mutableStateOf<RoutineCreation?>(null) }
+    var pendingCopy by remember(scheduleId) { mutableStateOf<RoutineCreation?>(null) }
+    var copyPickerMounted by remember(scheduleId) { mutableStateOf(false) }
+    var copyPickerVisible by remember(scheduleId) { mutableStateOf(false) }
+    var copyError by remember(scheduleId) { mutableStateOf<String?>(null) }
     var busy by remember(scheduleId) { mutableStateOf(false) }
     var loadError by remember(scheduleId) { mutableStateOf<String?>(null) }
     var retry by remember(scheduleId) { mutableIntStateOf(0) }
@@ -92,42 +103,37 @@ fun PeriodSchemeManagementScreen(
             loadError = failure.message ?: "作息读取失败"
         }
     }
-    SideEffect { onExitInterceptionChange(editing != null || dialog != null) }
+    val modalOpen = editing != null || creation != null || copyPickerMounted
+    SideEffect { onExitInterceptionChange(modalOpen) }
     DisposableEffect(Unit) { onDispose { onExitInterceptionChange(false) } }
 
     fun dismissDialog() {
-        if (!busy) dialogVisible = false
+        if (!busy) copyPickerVisible = false
     }
     LaunchedEffect(exitCommitRequest) {
         if (exitCommitRequest != handledExitRequest) {
             handledExitRequest = exitCommitRequest
-            if (dialog != null) dismissDialog()
-            else if (editing == null) onExitCommitFinished(true)
+            if (copyPickerMounted) dismissDialog()
+            else if (!modalOpen) onExitCommitFinished(true)
         }
-    }
-    fun showDialog(value: RoutineDialog) {
-        dialogError = null
-        dialog = value
-        dialogVisible = true
     }
     fun publish(updated: ScheduleRoutines, message: String) {
         routines = updated
         NotificationScheduler.requestReschedule(context)
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
-    fun applyDialogChange(operation: suspend () -> Pair<ScheduleRoutines, String>) {
+    fun prepareCopy(sourceId: Int, target: ScheduleRoutines) {
         if (busy) return
         busy = true
-        dialogError = null
+        copyError = null
         scope.launch {
             try {
-                val (updated, message) = operation()
-                publish(updated, message)
-                dialogVisible = false
+                pendingCopy = RoutineCreation(repository.loadScheduleRoutines(sourceId), target)
+                copyPickerVisible = false
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                dialogError = failure.message ?: "作息操作失败"
+                copyError = failure.message ?: "来源课表读取失败"
             } finally {
                 busy = false
             }
@@ -158,17 +164,19 @@ fun PeriodSchemeManagementScreen(
                                     title = scheme.scheme.name,
                                     subtitle = routineSubtitle(current, id),
                                     badgeText = if (id == activeId && current.schemes.size > 1) "生效中" else null,
-                                    enabled = dialog == null && editing == null,
+                                    enabled = !modalOpen,
                                     onClick = {
                                         editedRules = current.rules
-                                        editing = RoutineEdit(current, current.timeline(id))
+                                        editing = RoutineEdit(current, current, current.timeline(id))
                                     },
                                 )
                             }
                         }
                         SettingsDivider()
-                        SettingsNavigationRow("添加作息", enabled = dialog == null && editing == null,
-                            onClick = { showDialog(RoutineDialog.Add) })
+                        SettingsNavigationRow("添加作息",
+                            subtitle = if (current.rules.size >= 24) "已达到 24 条日期安排" else null,
+                            enabled = !modalOpen && current.rules.size < 24,
+                            onClick = { creation = RoutineCreation(current, current) })
                     }
                 }
             }
@@ -178,8 +186,12 @@ fun PeriodSchemeManagementScreen(
                         SettingsNavigationRow(
                             title = "从其他课表复制",
                             subtitle = if (sources.isEmpty()) "暂无其他课表" else null,
-                            enabled = sources.isNotEmpty() && dialog == null && editing == null,
-                            onClick = { showDialog(RoutineDialog.Copy) },
+                            enabled = sources.isNotEmpty() && !modalOpen,
+                            onClick = {
+                                copyError = null
+                                copyPickerMounted = true
+                                copyPickerVisible = true
+                            },
                         )
                     }
                 }
@@ -187,18 +199,47 @@ fun PeriodSchemeManagementScreen(
         }
     }
 
-    editing?.let { (original, session) ->
+    creation?.let { request ->
+        PeriodSchemeCreationWizard(
+            source = request.source,
+            copying = request.copying,
+            backdrop = popupBackdrop,
+            visualConfig = config,
+            onDismiss = { creation = null },
+            onCreated = { session, rules ->
+                editedRules = rules
+                editing = RoutineEdit(request.source, request.target, session, creating = !request.copying)
+                creation = null
+            },
+        )
+    }
+
+    editing?.let { request ->
+        val original = request.source
+        val session = request.session
         val id = session.draft.activeSchemeId
         val dates = editedRules.filter { it.schemeId == id }
         PeriodSchemeEditor(
             config = config,
             request = session,
             onSaveSession = { edited ->
-                publish(repository.saveScheduleRoutine(original, edited, editedRules), "作息已保存")
+                val copiedTo = request.target.takeIf { request.copying }
+                val updated = repository.saveScheduleRoutine(original, edited, editedRules, copyTarget = copiedTo)
+                val message = when {
+                    request.copying -> "已复制全部作息"
+                    request.creating -> "已添加作息"
+                    else -> "作息已保存"
+                }
+                publish(updated, message)
             },
             onEditorFinished = { editing = null },
             exitCommitRequest = exitCommitRequest,
-            hasAdditionalChanges = editedRules != original.rules,
+            hasAdditionalChanges = request.copying || request.creating || editedRules != original.rules,
+            saveMessage = when {
+                request.copying -> "保存后会把这套节次、作息和全部日期安排复制到当前课表。"
+                request.creating -> "要添加这套日期作息吗？节次结构的调整会应用到本课表各套作息。"
+                else -> null
+            },
             canChangeStructure = original.canChangeStructure,
             metadataContent = { sheetBackdrop, enabled ->
                 SettingsGroup(backdrop = null, config = config) {
@@ -207,93 +248,70 @@ fun PeriodSchemeManagementScreen(
                         key(rule.position) {
                             if (index > 0) SettingsDivider()
                             SettingsDatePickerRow("开始日期", rule.startDate, { value ->
-                                editedRules = editedRules.map { if (it.position == rule.position) it.copy(startDate = value) else it }
+                                parseScheduleDate(value)?.toString()?.let { date ->
+                                    editedRules = editedRules.map { if (it.position == rule.position) it.copy(startDate = date) else it }
+                                }
                             }, sheetBackdrop, config, enabled)
                             SettingsDivider()
                             SettingsDatePickerRow("结束日期", rule.endDate, { value ->
-                                editedRules = editedRules.map { if (it.position == rule.position) it.copy(endDate = value) else it }
+                                parseScheduleDate(value)?.toString()?.let { date ->
+                                    editedRules = editedRules.map { if (it.position == rule.position) it.copy(endDate = date) else it }
+                                }
                             }, sheetBackdrop, config, enabled)
                         }
                     }
                 }
             },
-            onDeleteRoutine = if (id == original.regularId || id == original.gridId) null else {
+            onDeleteRoutine = if (request.copying || request.creating || id == original.regularId || id == original.gridId) null else {
                 { publish(repository.deleteScheduleRoutine(original, id), "已删除作息") }
             },
         )
     }
 
-    val popup = dialog
-    if (popup != null && current != null) {
-        val add = popup == RoutineDialog.Add
-        val today = remember(popup) { LocalDate.now().toString() }
-        var name by remember(popup) { mutableStateOf("") }
-        var start by remember(popup) { mutableStateOf(today) }
-        var end by remember(popup) { mutableStateOf(today) }
-        var sourceId by remember(popup) { mutableStateOf<Int?>(null) }
+    if (copyPickerMounted && current != null) {
+        var sourceId by remember { mutableStateOf<Int?>(null) }
         SleepDownPickerDialog(
-            show = dialogVisible,
-            title = if (add) "添加作息" else "从其他课表复制",
+            show = copyPickerVisible,
+            title = "从其他课表复制",
             onDismissRequest = ::dismissDialog,
-            onDismissFinished = { dialog = null },
+            onDismissFinished = {
+                copyPickerMounted = false
+                creation = pendingCopy
+                pendingCopy = null
+            },
             backdrop = popupBackdrop,
             config = config,
             couiContentPadding = CouiPickerFormPadding,
             contentPadding = PaddingValues(horizontal = 8.dp),
             scrollableContent = true,
-            adjustForIme = add,
             actions = listOf(
                 LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, enabled = !busy, onClick = ::dismissDialog),
                 LiquidAlertAction(
-                    if (busy) "处理中…" else if (add) "添加" else "确定复制",
+                    if (busy) "正在读取…" else "下一步",
                     LiquidAlertActionStyle.Primary,
-                    enabled = !busy && (add || sourceId != null),
+                    enabled = !busy && sourceId != null,
                     dismissOnClick = false,
                 ) {
-                    if (add) applyDialogChange {
-                        repository.addScheduleRoutine(current, name, LocalDate.parse(start), LocalDate.parse(end)) to "已添加作息"
-                    } else sourceId?.let { source ->
-                        applyDialogChange {
-                            val preview = repository.previewScheduleRoutineCopy(source, scheduleId)
-                            check(preview.target == current) { "当前课表已有变化，请重新打开作息管理后复制" }
-                            val message = if (preview.changedCourses == 0) "已复制全部作息"
-                                else "已复制全部作息，调整 ${preview.changedCourses} 门课程的节次"
-                            repository.copyScheduleRoutines(preview) to message
-                        }
-                    }
+                    sourceId?.let { prepareCopy(it, current) }
                 },
             ),
         ) {
-            if (add) {
-                SettingsGroup(backdrop = null, config = config) {
-                    SettingsTextFieldRow("作息名称", name, { name = it.take(60) },
-                        placeholder = "新作息", enabled = !busy)
-                    SettingsDivider()
-                    SettingsDatePickerRow("开始日期", start, { value ->
-                        if (end == start || end < value) end = value
-                        start = value
-                    }, popupBackdrop, config, !busy)
-                    SettingsDivider()
-                    SettingsDatePickerRow("结束日期", end, { end = it }, popupBackdrop, config, !busy)
-                }
-            } else {
-                Text("复制会替换当前课表的节次、作息和日期安排，并调整需要重新对应的课程节次。",
-                    style = MaterialTheme.typography.bodyMedium)
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    sources.forEach { source ->
-                        key(source.id) {
-                            LiquidDialogChoiceCard(
-                                title = source.name,
-                                selected = source.id == sourceId,
-                                config = config,
-                                onClick = { if (!busy) sourceId = source.id },
-                                description = routineSourceSummary(state, source.id),
-                            )
-                        }
+            Text("选择来源课表后可先调整节次和作息，保存时会替换当前课表的时间配置。",
+                style = MaterialTheme.typography.bodyMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                sources.forEach { source ->
+                    key(source.id) {
+                        LiquidDialogChoiceCard(
+                            title = source.name,
+                            selected = source.id == sourceId,
+                            config = config,
+                            onClick = { if (!busy) sourceId = source.id },
+                            description = routineSourceSummary(state, source.id),
+                        )
                     }
                 }
             }
-            dialogError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            copyError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }
