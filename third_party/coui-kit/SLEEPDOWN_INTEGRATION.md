@@ -3,13 +3,18 @@
 ## 2026-11-11 公共布局与材质边界
 
 普通按钮新增 `CapsuleButtonLayout`，集中测量、内容和点击语义；凝光和液态提供装饰，
-不能接管整套组件。普通 Dialog / Picker / 输入弹窗共用凝光底部排版与窗口生命周期，
-`DialogMaterialSkin` 提供表面和操作按钮的绘制。无背景源时仍保留同一布局及业务正文。
-液态通过父窗口已有背景源采样；退出动画结束后释放需求。Android 8 的弹窗字体使用
+不能接管整套组件。按用户后续要求，普通 Dialog / Picker / 输入弹窗统一使用凝光的
+底部排版、窗口生命周期及材质；删除 `DialogMaterialSkin` 和液态弹窗适配。
+无背景源时仍保留同一布局及业务正文。退出动画结束后释放采样需求。Android 8 的弹窗字体使用
 平台已存在的 Typeface 接口，Android 9 以上保留精确字重。
 
 分段控件开放指示器绘制修饰符和按压比例；指示器位置、尺寸、标签与提交会话仍由
 同一轨道管理。当前滑条、开关按用户要求各自保留，不纳入本次布局合并。
+课程卡的静态壁纸采样由宿主的共享纹理 renderer 提供，COUI 只维护原轮廓与焦散公式。
+`CouiCausticPrograms`、`CouiContourPrograms` 由页面持有；焦散接收通用 texture shader，
+不再单独维护位图坐标算法。其他浮动组件继续使用已有采样路径。
+Sheet 顶栏按钮由宿主显式传入正文 backdrop 与透明模糊配方，普通组件默认配方不变。
+
 以下按日期保留之前的接入记录；其中旧的双弹窗分发和 Miuix 居中弹窗说明已由本节取代。
 
 来源：https://github.com/ItosEO/COUI-Kit
@@ -56,7 +61,7 @@
 
 2026-11-10，合入 GitHub 主线的分段控件后，导入页直接使用 32dp 紧凑预设和默认即时切项。HD TabBar 继续使用仅指示器和整排起滑扩展，抬手提交页面导航。宿主自带表面的调用继续经兼容门面。
 
-`TopAppBarButton` 增加可选的显式 `backdrop`，默认仍用上游工具栏作用域。首页保留42dp尺寸／20dp图标，使用系统 TOP_BAR_BLUR（20px）及 CIRCLE_1、原工具栏反馈和完整投影；不再用普通填色 Button 替代。宿主 `glass/HomeToolbarBackdrop` 只录制局部背景条，按钮与标题在源外后绘制，不消费包含自身的 Dock 整页源。
+`TopAppBarButton` 支持显式 `backdrop`，默认用上游工具栏作用域。首页使用 42dp 尺寸、20dp 图标、TOP_BAR_BLUR（20px）及 CIRCLE_1，保留工具栏反馈和投影。宿主 `glass/HomeToolbarBackdrop` 录制局部背景条，按钮和标题在源外绘制。底栏的 `glass/HomeDockBackdrop` 直接录制可见壁纸和正文。
 
 公共浮动材质在组合存续期间保留背景源，退出释放；因此使用按需录制的窗口源时也能正确唤醒采样，不依赖源一直录制。
 

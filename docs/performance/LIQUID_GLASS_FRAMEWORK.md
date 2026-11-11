@@ -4,7 +4,7 @@
 
 ## 当前结论
 
-- 2026-11-11：`MaterialBackdrop` 将源录制与共享预过滤归给同一个 producer；课程卡片和浮动副本显式接收句柄，移除首帧逐卡回退和延迟采样刷新。源变化、过滤配方与消费者坐标分别失效。首页页面与卡片跟随共用一个动画进度，背景使用一个固定模糊终态。普通弹窗和胶囊按钮共用布局，液态保留材质按压。旧私有 ColorOS renderer、GlassGroup/GlassOcclusion/GlassViewport 退役；下文同名旧实现均为历史。当前规则与验证见[本轮报告](../reports/2026-11-11-home-render-architecture.md)。
+- 2026-11-11：静态课程卡改为页面持有的预模糊纹理，凝光和液态共用采样 shader 与坐标；冷启动只暂用源级共享 GPU 过滤。编辑浮动副本仍消费真实下层。首页单时钟保留六组错峰甩尾，背景恢复真实半径变化及凝光冻结离屏缓存。普通弹窗全部凝光，Sheet 顶栏恢复正文模糊采样；其他小组件、滑条和开关保持现行路径。旧私有 ColorOS renderer、GlassGroup/GlassOcclusion/GlassViewport 退役。当前规则及分轮证据见[本轮报告](../reports/2026-11-11-home-render-architecture.md)。
 
 - 2026-10-21：纯色板、ARGB 编解码和色差算法归 model，主题判断归 core；玻璃逐帧诊断归 `glass/GlassPerformanceDiagnostics.kt`，通用性能和壁纸读取不再依赖 glass。原算法、Trace/日志、采样与视觉保持一致；这属于维护边界整理，不是性能收益证据，见[根节点与边界续作](../reports/2026-10-21-root-and-workflow-followup.md)。
 

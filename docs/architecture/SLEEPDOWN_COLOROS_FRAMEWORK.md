@@ -12,9 +12,9 @@
 | 组件 | 布局、输入与状态 | 材质 |
 | --- | --- | --- |
 | 普通胶囊按钮 | `CapsuleButtonLayout`：尺寸、内容、点击及禁用语义 | `LocalButtonMaterial` 提供装饰；液态保留按压伸缩和高光 |
-| Alert / Picker / 输入弹窗 | `ControlDialogs` → Kit Dialog：位置、安全区、IME、退场完成 | `DialogMaterialSkin` 仅提供表面和按钮装饰 |
+| Alert / Picker / 输入弹窗 | `ControlDialogs` → Kit Dialog：位置、安全区、IME、退场完成 | 两种模式统一凝光材质，已删除液态皮肤分支 |
 | 分段标签 | `ControlSegments`：共用标签布局与选择会话 | 凝光或液态的容器、指示器；API 26–33 使用可用的普通标签输入 |
-| 课程卡片 | 业务布局与明确的 `CourseMaterialSampling` 句柄 | 凝光 / 液态共享前缀；局部轮廓、折射、焦散仍在材质侧 |
+| 课程卡片 | 业务布局与明确的 `CourseMaterialSampling` 句柄 | 凝光 / 液态共享预模糊纹理及坐标；局部轮廓、折射、焦散保留 |
 | 滑条、开关 | 按用户要求，各自保留现行实现 | 保留各自现有反馈与提交/取消语义 |
 
 普通弹窗统一沿用凝光原有底部布局。切换材质不会替换窗口、重建正文草稿或触发确认。
@@ -35,7 +35,7 @@
 
 - 课程只采样壁纸。一次源录制、一次预过滤，普通卡片和浮动副本共用；
   `CourseMaterialPreferences` 保留原凝光着色、模糊偏好键。
-- Dock、工具栏和页内按钮使用不包含自身的页面下层源。
+- 凝光底栏采样可见壁纸和正文，固定顶栏有独立采样源。工具栏和页内按钮按实际下层内容选择源，整页转场仍记录全部可见内容。
   `rememberCouiGlassBackdrop` 是已有源的适配，不额外截屏。
 - 独立弹窗使用父窗口完整源，`rememberGlassWindowBackdrop` 让液态使用同一个源。
   当前窗口另供下一层弹窗采样，不能反过来采样自己。

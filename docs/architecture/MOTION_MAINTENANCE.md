@@ -15,7 +15,7 @@
 | 横屏侧栏中的页面缩放、模糊和淡入淡出 | `core/ui/interaction/PaneTransitions.kt` 的 `LandscapePageMotion` | 同文件 `LandscapePageTransition`；功能页只传目标和内容 |
 | 设置中的竖屏详情推进与返回 | `feature/settings/SettingsNavigationMotion.kt` 的 `settingsDetailTransition` | `SettingsScreen.kt` 提供方向；导航栈与 Saver 留在 `SettingsNavigationState.kt` |
 | 课程卡片到编辑器、背景缩放、表单逐行入场 | `feature/course/editor/CourseEditorMotion.kt` 的 `CourseEditorMotion` 与 `legacyCourseEditorMorphSpec` | `CourseEditorContainerOverlay.kt` 保留时钟、预热、内容交接和卸载；app 延迟移除也引用同一关闭时长 |
-| 首页切换、卡片跟随与中断反向 | `feature/home/HomeMotionSpec.kt` 的共享弹簧、空间跟随和背景曲线 | `HomeSwitchMotion` 单一进度/速度；材料坐标由源变换处理 |
+| 首页切换、卡片跟随与中断反向 | `feature/home/HomeMotionSpec.kt` 的页面曲线、错峰弹簧和背景曲线 | `HomeSwitchMotion` 单时钟计算页面与六组跟随轨道，反向接续速度 |
 | 三点/加号菜单液滴体积和内容显隐 | `feature/home/HomeDropletMotion.kt`；附加参数在 `overlay/HomeMorphGeometry.kt` 的 `ThreeDotMenuMotion` | `overlay/HomeAnchoredMorphOverlay.kt` 与 `HomeLiquidMorphSpecs.kt` |
 | 个性化弹层、首页锚点轨迹 | `feature/home/overlay/HomeMorphGeometry.kt`；共享轨迹在 `transition/legacy/LegacySharedObjectGeometry.kt` | `HomeAnchoredMorphOverlay.kt`，材质适配在 `HomeLiquidMorphSpecs.kt` |
 | 菜单到目标表单/教务页 | `transition/legacy/LegacyMenuDestinationGeometry.kt` | 首页 `HomeMenuDestinationOverlay.kt` 与跨 Activity 的 `AnchoredDetailActivityMorph.kt` 各自播放 |
@@ -41,7 +41,9 @@
 
 彩色课程文字的软阴影在 `core/ui/text/CourseCardText.kt` 使用既有背景采样选择极性：亮背景为白色软阴影，暗背景为黑色软阴影；不增加采样次数或改变运动期冻结策略。普通单色文字仍沿用原逻辑。
 
-**课程光效有自己的绘制边界。** `platform/coloros/CouiMaterialSurface.kt` 保留课程轮廓与焦散，静态壁纸从 `CourseMaterialSampling` 提供原图像素及裁切。投光几何由 `CardLightGeometry.kt` 维护。课程编辑大表单不拥有普通课程焦散；真实卡片和浮动副本使用同一背景句柄，运动只改变坐标。
+**课程光效有自己的绘制边界。** `platform/coloros/CouiMaterialSurface.kt` 保留课程轮廓与焦散，静态壁纸从 `CourseMaterialSampling` 提供原图像素及裁切。投光几何由 `CardLightGeometry.kt` 维护。课程编辑大表单不拥有普通课程焦散；静态卡片共享预模糊纹理；编辑浮动副本消费真实下层场景，运动通过共同坐标规则补偿。
+
+**周视图用同一个容器移动卡片和自定义时间标签。** `WeekCourseLayout.kt` 的课程片段负责切周和首页切换跟随。快速编辑入场由页面共用一个弹簧，静止网格能在拖动时复用绘制结果。普通长按松手打开快捷菜单，长按移动由浮动卡接管。落位回弹由浮动卡完成，保存后交给已就位的真实卡。课程复制的邻卡波纹继续由复制路线驱动。
 
 **先区分时钟和可见进度。** Morph 的 `LinearEasing` 经常只是原始时钟，位置、尺寸、轮廓、内容交接随后分别应用曲线。要改路径节奏，应修改所属路线的纯计算；给时钟再叠一层 easing 会同时改变预热、交接和背景的时间关系。普通 `tween` / `spring` 路线则直接由 Compose 驱动。设置页的 Miuix 曲线包含原有阻尼计算，不用看起来相近的 cubic 替换。
 
