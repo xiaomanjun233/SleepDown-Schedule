@@ -153,6 +153,7 @@ internal fun <T> BoxScope.CardSelectionChrome(
         TopAppBar(
             modifier = Modifier.align(Alignment.TopCenter)
                 .then(if (material) Modifier else Modifier.background(colors.background)),
+            centerTitle = true,
             title = {
                 com.itos.coui.text.Text(
                     text = if (selected.isEmpty()) selection.selectLabel else "已选 ${selected.size} 项",
