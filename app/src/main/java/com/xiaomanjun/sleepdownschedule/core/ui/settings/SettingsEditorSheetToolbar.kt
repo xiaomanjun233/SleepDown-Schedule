@@ -29,11 +29,12 @@ internal fun SettingsEditorSheetToolbar(
     actionLabel: String,
     onAction: () -> Unit,
     actionEnabled: Boolean = true,
+    cancelLabel: String = "取消",
 ) {
     if (Build.VERSION.SDK_INT >= 34) {
         SheetToolbar(title = title, dark = dark, navigation = { style ->
             TopAppBarButton(onClick = onCancel, enabled = enabled, text = true, style = style) {
-                Text("取消", color = LocalCouiContentColor.current, style = LocalCouiTextStyle.current)
+                Text(cancelLabel, color = LocalCouiContentColor.current, style = LocalCouiTextStyle.current)
             }
         }, actions = { style ->
             TopAppBarButton(onClick = onAction, enabled = enabled && actionEnabled, text = true, style = style) {
@@ -45,7 +46,7 @@ internal fun SettingsEditorSheetToolbar(
             Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            DialogLiquidButton(backdrop, "取消", onCancel, monochromeNeutral = true, enabled = enabled)
+            DialogLiquidButton(backdrop, cancelLabel, onCancel, monochromeNeutral = true, enabled = enabled)
             Text(title, modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center)
             DialogLiquidButton(backdrop, actionLabel, onAction, role = DialogButtonRole.Confirm, enabled = enabled && actionEnabled)
         }

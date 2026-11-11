@@ -71,28 +71,7 @@ data class ColorOSCourseDiagnostics(
     val lastSystemQueryPath: String,
     val lastSystemQueryCaller: String,
     val error: String?
-) {
-    fun asText(): String = buildString {
-        appendLine("设备：${device.manufacturer} ${device.brand}")
-        appendLine("系统支持：${yesNo(device.isColorOSFamily)}${device.colorOSVersion?.let { "（$it）" }.orEmpty()}")
-        appendLine("课程组件：${when {
-            proxyIsSleepDown && proxyVersionSupported -> "已安装（$proxyVersionName）"
-            proxyIsSleepDown -> "版本过低（$proxyVersionName）"
-            proxyInstalled -> "被其他课程应用占用"
-            else -> "未安装"
-        }}")
-        appendLine("组件连接：${if (proxyProviderAccessible) "正常" else "未连接"}")
-        appendLine("课程读取：${if (exportValid) "正常（今天 $todayCourseCount 门，明天 $tomorrowCourseCount 门）" else "异常"}")
-        appendLine("最近同步：${lastRefreshAt.takeIf { it > 0 } ?: "无"}")
-        appendLine("最近系统读取：${lastSystemQueryAt.takeIf { it > 0 } ?: "无"}")
-        if (lastSystemQueryAt > 0) {
-            appendLine("读取项目：$lastSystemQueryPath")
-        }
-        error?.let { append("问题：$it") }
-    }
-
-    private fun yesNo(value: Boolean) = if (value) "是" else "否"
-}
+)
 
 object ColorOSCourseExperiment {
     private const val MINIMUM_PROXY_VERSION_CODE = 257L

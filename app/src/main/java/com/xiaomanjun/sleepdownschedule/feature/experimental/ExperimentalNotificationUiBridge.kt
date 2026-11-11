@@ -246,7 +246,7 @@ internal fun ExperimentalNotificationPreview(
     if (needsIslandPrivilege) {
         LiquidAlertDialog(
             title = "先完成超级岛授权",
-            message = "请在上方选择 Shizuku 或 root 并完成授权，再测试超级岛。",
+            message = "请先在「授权方式」里完成 Shizuku 或 root 授权。",
             actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
                 needsIslandPrivilege = false
             }),
@@ -263,7 +263,8 @@ internal fun ExperimentalNotificationPreview(
                 result.officialWakeUpConflict -> "检测到 WakeUp 课程表，实验兼容组件无法同时安装。"
                 !result.proxyIsSleepDown -> "请先在通知设置中下载并安装课程组件。"
                 !result.proxyVersionSupported -> "课程组件版本过低，请先到通知设置中更新。"
-                !result.exportValid -> "课程读取失败，请到通知设置中查看问题诊断。"
+                !result.proxyProviderAccessible -> "课程组件还未连接。打开「教程与诊断」检查组件的启动和后台权限。"
+                !result.exportValid -> "课程读取失败。打开「教程与诊断」查看检查结果。"
                 else -> "已创建一门约 21～22 分钟后开始的测试课程。请返回桌面，约 1～2 分钟后观察实验功能。"
             },
             actions = listOf(
