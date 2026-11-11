@@ -1804,7 +1804,6 @@ fun CourseScheduleAppUi(
             pickerState.reset()
         }
         homeMode = HomeMode.Week
-        sidebarPage = HomeSidebarDestination.Week
         screen = Screen.Home
         viewModel.refreshNotificationsAfterSave()
         onRequestedScheduleWeekShown(id)
