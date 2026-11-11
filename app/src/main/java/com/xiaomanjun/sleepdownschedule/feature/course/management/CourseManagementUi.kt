@@ -46,6 +46,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,6 +70,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
@@ -659,6 +662,7 @@ internal fun CourseManagementDetailPage(
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
     val colorModeEnabled = courseCardAllowsCustomOverrides(state.config)
 
     fun replacementsForSave(): List<CourseEntity> {
@@ -854,6 +858,7 @@ internal fun CourseManagementDetailPage(
             }
             itemsIndexed(displayedArrangements, key = { _, item -> item.localKey }) { index, draft ->
                 val revealed = revealedArrangement == draft.localKey
+                var cardHeightPx by remember(draft.localKey) { mutableIntStateOf(0) }
                 DisposableEffect(draft.localKey) {
                     onDispose {
                         if (revealedArrangement == draft.localKey) revealedArrangement = null
@@ -884,12 +889,12 @@ internal fun CourseManagementDetailPage(
                         },
                         swipeEnabled = !saving || departing?.draft?.localKey == draft.localKey,
                         slideContent = false,
-                        actionHeight = 48.dp,
+                        actionHeight = with(density) { (cardHeightPx.toDp() / 4f).coerceAtLeast(48.dp) },
                         expandActionOnDrag = false,
                         rowCorners = { SwipeDeleteCorners(24.dp) },
                         confirmDelete = { requestArrangementDeletion(draft.localKey) },
                     ) { slide, blocked, openOrClose ->
-                        Box(slide) {
+                        Box(slide.onSizeChanged { cardHeightPx = it.height }) {
                             CourseArrangementEditorCard(
                                 course = draft.course,
                                 periods = state.periods,
