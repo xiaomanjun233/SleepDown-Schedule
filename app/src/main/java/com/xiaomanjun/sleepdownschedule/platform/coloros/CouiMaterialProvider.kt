@@ -79,12 +79,6 @@ internal fun ProvideCouiMaterials(
         } else kit
     } else ControlMaterialRenderers.LiquidGlass
     val courseMode = if (kitEnabled) rememberCourseCardMaterialPreferences(CouiCourseBlurRadiusPx) else null
-    // A single composition boundary keeps host drafts alive when the renderer changes.
-    androidx.compose.runtime.CompositionLocalProvider(
-        com.itos.coui.dialog.LocalDialogMaterialSkin provides
-            if (kitEnabled || AppMaterialPreferences.isSuperPerformance) null
-            else com.xiaomanjun.sleepdownschedule.glass.LiquidDialogMaterial
-    ) {
-        ProvideControlMaterials(renderers, courseCardMode = courseMode, content = content)
-    }
+    // Dialogs use the common COUI host in both visual modes.
+    ProvideControlMaterials(renderers, courseCardMode = courseMode, content = content)
 }

@@ -6,6 +6,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import com.itos.coui.sheet.rememberCouiSheetSurfaceBackdrop
+import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
+import com.itos.coui.topappbar.CouiTopAppBarButtonDefaults
+import com.itos.coui.effect.CouiFloatingMaterial
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -32,12 +37,20 @@ internal fun SettingsEditorSheetToolbar(
     cancelLabel: String = "取消",
 ) {
     if (Build.VERSION.SDK_INT >= 34) {
+        val sampledMaterial: (Boolean) -> CouiFloatingMaterial = remember(dark) {
+            { capsule -> CouiTopAppBarButtonDefaults.systemMaterial(dark, capsule).copy(blurRadius = 25f) }
+        }
+        val sampledContent = if (!AppMaterialPreferences.isSuperPerformance)
+            com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop(backdrop) else null
+        val buttonBackdrop = sampledContent ?: rememberCouiSheetSurfaceBackdrop()
         SheetToolbar(title = title, dark = dark, navigation = { style ->
-            TopAppBarButton(onClick = onCancel, enabled = enabled, text = true, style = style) {
+            TopAppBarButton(onClick = onCancel, enabled = enabled, text = true, style = if (sampledContent != null) style.copy(material = sampledMaterial) else style,
+                backdrop = buttonBackdrop) {
                 Text(cancelLabel, color = LocalCouiContentColor.current, style = LocalCouiTextStyle.current)
             }
         }, actions = { style ->
-            TopAppBarButton(onClick = onAction, enabled = enabled && actionEnabled, text = true, style = style) {
+            TopAppBarButton(onClick = onAction, enabled = enabled && actionEnabled, text = true, style = if (sampledContent != null) style.copy(material = sampledMaterial) else style,
+                backdrop = buttonBackdrop) {
                 Text(actionLabel, color = LocalCouiContentColor.current, style = LocalCouiTextStyle.current)
             }
         })

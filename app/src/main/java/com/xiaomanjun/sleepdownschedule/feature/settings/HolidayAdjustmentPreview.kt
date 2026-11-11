@@ -1,13 +1,22 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import android.os.Build
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
@@ -98,35 +107,41 @@ internal fun HolidayAdjustmentPreviewSheet(
         isolateContent = false,
     ) {
         val sheetScene = rememberCenteredDialogSceneBackdrop("holiday-adjustment-preview")
-        Column(Modifier.fillMaxSize().centeredDialogSceneProducer(sheetScene)) {
-            SettingsEditorSheetToolbar(
-                title = "调休预览",
-                dark = dark,
-                backdrop = sheetScene,
-                enabled = visible && !saving,
-                onCancel = onDismiss,
-                actionLabel = "采用",
-                onAction = onApply,
-                actionEnabled = selectedCount > 0,
-            )
-            error?.let {
-                Text(it, Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
-                    color = MaterialTheme.colorScheme.error,
-                    style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-            }
+        val pageColor = settingsPageBackground(config)
+        val underlay = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "holiday-preview-content") {
+            drawRect(pageColor)
+            drawContent()
+        }
+        val density = LocalDensity.current
+        var toolbarHeight by remember { mutableIntStateOf(0) }
+        val topPadding = if (toolbarHeight > 0) with(density) { toolbarHeight.toDp() }
+            else CouiSheetDefaults.toolbarTopSpacing + CouiSheetDefaults.toolbarHeight
+        Box(Modifier.fillMaxSize().centeredDialogSceneProducer(sheetScene)) {
             CompositionLocalProvider(
                 LocalCenteredDialogSceneBackdrop provides sheetScene,
                 LocalSettingsPopupBackdrop provides sheetScene,
             ) {
                 SleepDownSecondaryPageList(
-                    modifier = Modifier.weight(1f).fillMaxWidth(),
-                    contentTopPadding = 4.dp,
+                    modifier = Modifier.fillMaxSize().glassBackdropProducer(underlay),
+                    contentTopPadding = topPadding + 4.dp,
                     contentBottomPadding = 16.dp,
                 ) {
+                    error?.let { message -> item("preview-error") {
+                        Text(message, Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                    } }
                     holidayAdjustmentPreviewItems(preview, config, sheetScene, selectedCount, replacementCount,
                         visible && !saving, coursePreview,
                         onRestSelection, onMakeupSelection, onMakeupSource)
                 }
+            }
+            Box(Modifier.fillMaxWidth().onSizeChanged { toolbarHeight = it.height }) {
+                SettingsEditorSheetToolbar(
+                    title = "调休预览", dark = dark, backdrop = underlay,
+                    enabled = visible && !saving, onCancel = onDismiss,
+                    actionLabel = "采用", onAction = onApply, actionEnabled = selectedCount > 0,
+                )
             }
         }
     }

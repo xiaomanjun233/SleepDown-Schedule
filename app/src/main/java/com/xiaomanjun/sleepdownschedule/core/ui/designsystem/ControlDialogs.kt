@@ -18,12 +18,12 @@ import com.itos.coui.backdrop.CouiBackdrop
 import com.itos.coui.dialog.*
 import com.itos.coui.menu.rememberCouiWindowBackdrop
 import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
+import android.os.Build
 
 /** Missing sampling pixels change only the decoration, never the window or its content. */
 @Composable
 private fun dialogMaterial(dark: Boolean, backdrop: CouiBackdrop?): CouiDialogMaterial? =
-    if (backdrop != null && LocalVisualEffects.current.usesGlowMaterials &&
+    if (backdrop != null && Build.VERSION.SDK_INT >= 33 &&
         !AppMaterialPreferences.isSuperPerformance) CouiDialogDefaults.material(dark) else null
 
 /** 业务只在实际退场后交接；移除一个仍显示的窗口（如模式切换）不触发确认。 */
@@ -57,7 +57,7 @@ private fun DialogCompletion(lifetime: DialogLifetime, onFinished: (() -> Unit)?
 @Composable
 private fun ControlDialogBody(hostSize: androidx.compose.ui.unit.IntSize, dark: Boolean, content: @Composable () -> Unit) {
     val window = (LocalView.current.parent as? DialogWindowProvider)?.window
-    val glowMaterial = LocalVisualEffects.current.usesGlowMaterials && !AppMaterialPreferences.isSuperPerformance
+    val glowMaterial = Build.VERSION.SDK_INT >= 33 && !AppMaterialPreferences.isSuperPerformance
     CompositionLocalProvider(LocalControlDialogSurface provides true,
         LocalControlDialogHeading provides { title -> DialogHeading(title, CouiDialogDefaults.themeColors(dark)) },
         LocalControlDialogActionBar provides { original, modifier ->

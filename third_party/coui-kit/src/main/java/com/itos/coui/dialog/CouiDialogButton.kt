@@ -76,10 +76,7 @@ internal fun DialogButton(
     val resolvedColors = colors ?: if (style == CouiDialogActionStyle.Secondary) DialogButtonDefaults.secondaryColors(dark, material)
         else error("主操作必须由宿主显式提供配色")
     val source = interactionSource ?: remember { MutableInteractionSource() }
-    val skin = LocalDialogMaterialSkin.current
-    val surfaceColor = if (enabled) resolvedColors.surface else resolvedColors.disabledSurface
-    val decoration = skin?.button(LocalDialogUnderlay.current, DialogButtonDefaults.shape,
-        dark, enabled, surfaceColor, source) ?: run {
+    val decoration = run {
         val motion = rememberCouiTouchMotion(enabled)
         val density = LocalDensity.current.density
         val press = rememberCouiPressMotion()
