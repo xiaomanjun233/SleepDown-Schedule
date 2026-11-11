@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -37,6 +38,7 @@ import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridS
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.LocationOn
+import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -61,6 +63,7 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
@@ -426,7 +429,12 @@ internal fun ManagedCourseListCardContent(
     val textColor = appPanelForegroundColor(config)
     val summaryColor = textColor.copy(alpha = 0.78f)
     val locations = remember(group.courses) {
-        group.courses.mapNotNull { it.location?.trim()?.takeIf(String::isNotEmpty) }.distinct()
+        group.courses.mapNotNull { it.location?.trim()?.takeIf(String::isNotEmpty) }
+            .distinct().joinToString(" · ")
+    }
+    val teachers = remember(group.courses) {
+        group.courses.mapNotNull { it.teacher?.trim()?.takeIf(String::isNotEmpty) }
+            .distinct().joinToString(" · ")
     }
     val daySummaries = remember(group.courses, periods, config.weekStartsOnSunday) {
         buildManagedCourseDaySummaries(group.courses, periods, config.weekStartsOnSunday)
@@ -474,14 +482,17 @@ internal fun ManagedCourseListCardContent(
                 )
             }
         }
-        if (locations.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.LocationOn, contentDescription = "地点",
-                    tint = summaryColor.copy(alpha = 0.62f), modifier = Modifier.size(15.dp))
-                Text(locations.joinToString(" · "), color = summaryColor,
-                    style = MiuixTheme.textStyles.body2.copy(platformStyle = PlatformTextStyle(includeFontPadding = false)),
-                    lineHeight = 20.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f))
+        if (locations.isNotEmpty() || teachers.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (locations.isNotEmpty()) {
+                    ManagedCourseCardMetadata(Icons.Outlined.LocationOn, "地点", locations, summaryColor)
+                }
+                if (teachers.isNotEmpty()) {
+                    ManagedCourseCardMetadata(Icons.Outlined.PersonOutline, "教师", teachers, summaryColor)
+                }
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -492,6 +503,22 @@ internal fun ManagedCourseListCardContent(
                 ManagedCourseArrangementChip(null, listOf("+${daySummaries.size - 4} 天安排"), cardColor, summaryColor)
             }
         }
+    }
+}
+
+@Composable
+private fun ManagedCourseCardMetadata(icon: ImageVector, label: String, value: String, textColor: Color) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = label, tint = textColor.copy(alpha = 0.62f), modifier = Modifier.size(15.dp))
+        Text(
+            value,
+            color = textColor,
+            style = MiuixTheme.textStyles.body2.copy(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+            lineHeight = 20.sp,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
