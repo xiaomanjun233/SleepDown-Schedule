@@ -5,6 +5,8 @@ import android.graphics.Paint
 import android.graphics.RuntimeShader
 import android.graphics.Shader
 import android.os.Build
+import androidx.compose.foundation.shape.AbsoluteRoundedCornerShape
+import androidx.compose.foundation.shape.CornerBasedShape
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
@@ -23,6 +25,7 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.unit.LayoutDirection
 import com.itos.coui.backdrop.CouiSamplingCoordinates
 import com.kyant.backdrop.effects.textureLensShaderSource
 import com.kyant.shapes.RoundedRectangularShape
@@ -51,6 +54,8 @@ internal class CourseTextureRenderer {
         coordinates: LayoutCoordinates,
         radiusPx: Float,
         sampleOffset: Offset = Offset.Zero,
+        brightness: Float = 1f,
+        vibrant: Boolean = false,
     ): Shader? {
         val pixels = source.textureFrame() ?: return null
         val prepared = source.texturePyramid.value?.takeIf { it.source === pixels.bitmap }
@@ -96,6 +101,8 @@ internal class CourseTextureRenderer {
             b.height.toFloat() / prepared.source.height)
         sampler.setFloatUniform("blend", pair.mix)
         sampler.setFloatUniform("dim", pixels.dim)
+        sampler.setFloatUniform("brightness", brightness)
+        sampler.setFloatUniform("saturation", if (vibrant) 1.5f else 1f)
         return sampler
     }
 
@@ -104,14 +111,30 @@ internal class CourseTextureRenderer {
         coordinates: LayoutCoordinates,
         shape: Shape,
         frame: GlassEffectFrame?,
+        shaderTransform: ((Shader) -> Shader)?,
+        radiusPx: Float = source.textureRadiusPx.value,
+        brightness: Float = 1f,
     ): Boolean {
-        val input = shader(source, coordinates, source.textureRadiusPx.value) ?: return false
+        val input = shader(source, coordinates, radiusPx, brightness = brightness,
+            vibrant = frame?.useVibrancy == true) ?: return false
         val height = frame?.lensHeight?.toPx() ?: 0f
         val amount = frame?.lensAmount?.toPx() ?: 0f
         val output = if (height > 0f && amount > 0f) {
             val corners = when (shape) {
                 is RoundedRectangularShape -> shape.corners(size, layoutDirection, this).let {
                     floatArrayOf(it.topLeft, it.topRight, it.bottomRight, it.bottomLeft)
+                }
+                is CornerBasedShape -> {
+                    // Generic outlines such as the resize corner still expose the same corner
+                    // geometry used by Kyant's lens. The caller retains the exact outline clip.
+                    val absolute = shape is AbsoluteRoundedCornerShape || layoutDirection == LayoutDirection.Ltr
+                    val maximum = size.minDimension / 2f
+                    val startTop = shape.topStart.toPx(size, this).coerceAtMost(maximum)
+                    val endTop = shape.topEnd.toPx(size, this).coerceAtMost(maximum)
+                    val endBottom = shape.bottomEnd.toPx(size, this).coerceAtMost(maximum)
+                    val startBottom = shape.bottomStart.toPx(size, this).coerceAtMost(maximum)
+                    if (absolute) floatArrayOf(startTop, endTop, endBottom, startBottom)
+                    else floatArrayOf(endTop, startTop, startBottom, endBottom)
                 }
                 else -> (shape.createOutline(size, layoutDirection, this) as? Outline.Rounded)?.roundRect?.let {
                     floatArrayOf(it.topLeftCornerRadius.x, it.topRightCornerRadius.x,
@@ -131,7 +154,7 @@ internal class CourseTextureRenderer {
             if (dispersion) lens.setFloatUniform("chromaticAberration", 1f)
             lens
         } else input
-        paint.shader = output
+        paint.shader = shaderTransform?.invoke(output) ?: output
         drawContext.canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
         return true
     }
@@ -146,12 +169,17 @@ uniform float2 scaleA;
 uniform float2 scaleB;
 uniform float blend;
 uniform float dim;
+uniform float brightness;
+uniform float saturation;
 half4 main(float2 position) {
     float3 p = float3(position, 1.0);
     float2 texel = float2(dot(p, rowX), dot(p, rowY));
     half4 c = mix(textureA.eval(texel * scaleA), textureB.eval(texel * scaleB), blend);
     c.rgb *= 1.0 - dim;
     c.a = mix(c.a, 1.0, dim);
+    c.rgb *= brightness;
+    float luminance = dot(c.rgb, half3(0.213, 0.715, 0.072));
+    c.rgb = clamp(mix(half3(luminance), c.rgb, saturation), 0.0, c.a);
     return c;
 }
 """
@@ -165,9 +193,11 @@ internal fun Modifier.courseTexture(
     source: CourseMaterialSampling,
     shape: () -> Shape,
     frame: GlassEffectFrame? = null,
+    shaderTransform: ((Shader) -> Shader)? = null,
     enabled: () -> Boolean = { true },
-    onTexture: (DrawScope.() -> Unit)? = null,
     onSurface: (DrawScope.() -> Unit)? = null,
+    radiusPx: Float? = null,
+    brightness: Float = 1f,
 ): Modifier {
     check(Build.VERSION.SDK_INT >= 33)
     val coordinates = remember { CouiSamplingCoordinates() }
@@ -176,8 +206,10 @@ internal fun Modifier.courseTexture(
     val latestShape = rememberUpdatedState(shape)
     val latestFrame = rememberUpdatedState(frame)
     val latestEnabled = rememberUpdatedState(enabled)
-    val latestTexture = rememberUpdatedState(onTexture)
+    val latestShaderTransform = rememberUpdatedState(shaderTransform)
     val latestSurface = rememberUpdatedState(onSurface)
+    val latestRadius = rememberUpdatedState(radiusPx)
+    val latestBrightness = rememberUpdatedState(brightness)
     return onGloballyPositioned(coordinates::update).drawWithCache {
         val outline = latestShape.value().createOutline(size, layoutDirection, this)
         val path = Path().apply { addOutline(outline) }
@@ -187,10 +219,10 @@ internal fun Modifier.courseTexture(
                 val target = coordinates.coordinates?.takeIf { it.isAttached }
                 if (target != null && viewport?.intersects(target) != false) clipPath(path) {
                     val drawn = with(source.textureRenderer) {
-                        draw(source, target, latestShape.value(), latestFrame.value)
+                        draw(source, target, latestShape.value(), latestFrame.value, latestShaderTransform.value,
+                            latestRadius.value ?: source.textureRadiusPx.value, latestBrightness.value)
                     }
-                    if (drawn) latestTexture.value?.invoke(this)
-                    else with(source.filtered) { drawBackdrop(this@onDrawWithContent, target, null) }
+                    if (!drawn) with(source.filtered) { drawBackdrop(this@onDrawWithContent, target, null) }
                     latestSurface.value?.invoke(this)
                 }
             }

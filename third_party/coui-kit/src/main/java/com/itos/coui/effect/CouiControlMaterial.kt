@@ -4,6 +4,28 @@ import android.graphics.*
 import androidx.annotation.RequiresApi
 import androidx.compose.ui.graphics.toArgb
 
+/** Apply the original two tint operations to sampled pixels within one draw. */
+@RequiresApi(29)
+class CouiControlMaterialShader(private val material: CouiFloatingMaterial) : (Shader) -> Shader {
+    private val first = material.firstColor.toArgb().let {
+        LinearGradient(0f, 0f, 1f, 0f, it, it, Shader.TileMode.CLAMP)
+    }
+    private val second = material.secondColor.toArgb().let {
+        LinearGradient(0f, 0f, 1f, 0f, it, it, Shader.TileMode.CLAMP)
+    }
+    private var input: Shader? = null
+    private var output: Shader? = null
+
+    override fun invoke(source: Shader): Shader {
+        if (input !== source) {
+            input = source
+            output = ComposeShader(ComposeShader(source, first, material.firstBlendMode),
+                second, material.secondBlendMode)
+        }
+        return checkNotNull(output)
+    }
+}
+
 /** 浮动表面和控制表面共用两层混色顺序；只作用于采样，不处理前景。 */
 @RequiresApi(31)
 fun couiControlMaterialEffect(material: CouiFloatingMaterial): RenderEffect {

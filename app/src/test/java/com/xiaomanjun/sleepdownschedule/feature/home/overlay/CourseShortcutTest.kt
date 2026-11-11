@@ -123,21 +123,6 @@ class CourseShortcutTest {
         assertTrue(sawSharedLift)
     }
 
-    @Test fun dragTakeoverCancelsPendingMenuAction() = runBlocking {
-        val clock = BroadcastFrameClock()
-        val controller = CourseShortcutController(CoroutineScope(coroutineContext + clock))
-        var actionCalled = false
-        controller.open(CourseShortcutRequest(course, 3, Rect(0f, 200f, 80f, 300f), 12f, 0.5f) {})
-        repeat(30) { clock.sendFrame(it * 16_666_667L); yield() }
-        controller.close { actionCalled = true }
-        controller.takeOverDrag()
-        assertNull(controller.request)
-        repeat(30) { clock.sendFrame((30 + it) * 16_666_667L); yield() }
-        assertFalse(actionCalled)
-        assertNull(controller.copyRequest)
-        assertEquals(0f, controller.progress.value, 0f)
-    }
-
     @Test fun nativeExitAndBackgroundExitBothFinishBeforeAction() = runBlocking {
         val clock = BroadcastFrameClock()
         val controller = CourseShortcutController(CoroutineScope(coroutineContext + clock))

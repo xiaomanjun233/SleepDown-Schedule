@@ -164,7 +164,7 @@ internal fun WeekEditOverlayHost(
                         )
                     }
                     .size(cardGlowDiameterDp)
-                    .graphicsLayer { alpha = motion.alpha * motion.revealProgress }
+                    .graphicsLayer { alpha = motion.alpha }
             )
             Box(
                 modifier = Modifier
@@ -201,7 +201,7 @@ internal fun WeekEditOverlayHost(
                         scaleY = if (req.mode == WeekEditOverlayMode.Resize) 1f else motion.scale
                         translationY = -liftPx * motion.liftProgress
                         rotationZ = motion.rotation
-                        alpha = motion.alpha * motion.revealProgress
+                        alpha = motion.alpha
                         shadowElevation = elevationPx * motion.liftProgress
                         shape = cardShape
                     }

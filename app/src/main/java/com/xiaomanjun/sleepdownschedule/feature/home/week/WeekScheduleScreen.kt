@@ -375,7 +375,7 @@ internal fun SinglePillWeekScheduleScreen(
         hasAdjustmentBadges -> 24.dp
         else -> 0.dp
     }
-    LaunchedEffect(state.config.id, displayWeek, weekEditMode) {
+    LaunchedEffect(weekEditOverlay, weekEditMode) {
         if (!weekEditMode) weekEditOverlay.clear()
     }
     LaunchedEffect(
@@ -620,7 +620,9 @@ internal fun SinglePillWeekScheduleScreen(
                             .fillMaxSize()
                             .then(
                                 if (needsStationaryCoursesBackdrop) {
-                                    Modifier.glassBackdropProducer(stationaryCoursesBackdrop)
+                                    // Keep this display list independent of the moving sibling.
+                                    // Scroll, a week change or any changed card still redraws it.
+                                    Modifier.graphicsLayer().glassBackdropProducer(stationaryCoursesBackdrop)
                                 } else {
                                     Modifier
                                 }
@@ -638,7 +640,7 @@ internal fun SinglePillWeekScheduleScreen(
                                 // top gutter to extend above it without compressing the last row.
                                 .wrapContentHeight(align = Alignment.Top, unbounded = true)
                                 .height(timeGrid.totalHeight.dp + supplementaryHeight + courseTopOverflow + editControlBottomOverflow),
-                            userScrollEnabled = !weekEditMode && programmaticPage < 0,
+                            userScrollEnabled = !needsStationaryCoursesBackdrop && programmaticPage < 0,
                             // Keep the pager topology stable while a home overlay opens/closes.
                             // Disposing the adjacent week at the exact frame Personalization
                             // starts, then rebuilding it on close, competes with the full-screen
@@ -680,9 +682,6 @@ internal fun SinglePillWeekScheduleScreen(
                                 cardHeight = cardHeight,
                                 cardColor = cardColor,
                                 backdrop = backdrop,
-                                // The lifted combined backdrop is reserved for WeekEditOverlayHost,
-                                // which is outside stationaryCoursesBackdrop.
-                                floatingBackdrop = backdrop,
                                 config = state.config,
                                 weekMotionDirection = 0,
                                 outgoing = false,

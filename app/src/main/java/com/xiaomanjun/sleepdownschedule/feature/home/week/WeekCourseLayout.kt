@@ -5,6 +5,8 @@ import com.xiaomanjun.sleepdownschedule.core.ui.text.unclippedMarquee
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,6 +29,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
@@ -146,9 +149,6 @@ internal fun weekCardVerticalBounds(
     return top to top + height
 }
 
-private const val WeekPageGlassMinimumFillRatio = 0.34f
-private const val WeekPageGlassMaximumLayerAreaFraction = 0.58f
-
 private fun weekGlassCandidateId(
     dayIndex: Int,
     segment: WeekCourseSegment,
@@ -202,7 +202,6 @@ private fun WeekDayColumn(
     emptyBackground: ComposeColor,
     timeGrid: WeekTimeSlotGrid,
     backdrop: Backdrop?,
-    floatingBackdrop: Backdrop? = backdrop,
     config: ScheduleConfigEntity,
     shortcutPivotX: Float,
     weekMotionDirection: Int = 0,
@@ -213,6 +212,7 @@ private fun WeekDayColumn(
     layerOffset: Animatable<Float, AnimationVector1D>? = null,
     layerTravel: Float = 1f,
     editMode: Boolean = false,
+    editActivation: State<Float>,
     editingAllowed: Boolean = true,
     muted: Boolean = false,
     editWeek: Int = 1,
@@ -320,6 +320,8 @@ private fun WeekDayColumn(
                         cardOrderFraction = tailCardOrder[glassCandidateId],
                         columnOrderFraction = tailColumnFraction
                     )
+                    // Keep the custom clock labels on the same moving surface as their card.
+                    .homeSwitchGroup(tailCardOrder[glassCandidateId])
                     .zIndex(if (LocalCourseRemoval.current?.matches(segment.course, editWeek) == true) 20f else groupIndex.toFloat())
             ) {
                 WeekCourseBlock(
@@ -328,7 +330,6 @@ private fun WeekDayColumn(
                     height = segmentHeight,
                     cardColor = cardColor,
                     backdrop = backdrop,
-                    floatingBackdrop = floatingBackdrop,
                     config = config,
                     weekMotionDirection = weekMotionDirection,
                     weekMotionOutgoing = weekMotionOutgoing,
@@ -354,6 +355,7 @@ private fun WeekDayColumn(
                     editingAllowed = editingAllowed,
                     muted = muted,
                     editMode = editMode,
+                    editActivation = editActivation,
                     editWeek = editWeek,
                     allWeekCourses = allWeekCourses,
                     weekdayCount = weekdayCount,
@@ -413,7 +415,6 @@ fun WeekCourseColumnsLayer(
     cardHeight: Dp,
     cardColor: ComposeColor,
     backdrop: Backdrop?,
-    floatingBackdrop: Backdrop? = backdrop,
     config: ScheduleConfigEntity,
     weekMotionDirection: Int,
     outgoing: Boolean,
@@ -440,6 +441,11 @@ fun WeekCourseColumnsLayer(
     onCourseClick: (CourseEntity, Rect?) -> Unit
 ) {
     val density = LocalDensity.current
+    val editActivation = animateFloatAsState(
+        targetValue = if (editMode) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.68f, stiffness = 420f),
+        label = "week-edit-activation"
+    )
     val flightRegistry = LocalCourseEditorFlightRegistry.current
     val courseCopy = LocalCourseCopy.current
     val copyHaptic = LocalHapticFeedback.current
@@ -719,7 +725,6 @@ fun WeekCourseColumnsLayer(
                         emptyBackground = ComposeColor.Transparent,
                         timeGrid = timeGrid,
                         backdrop = backdrop,
-                        floatingBackdrop = floatingBackdrop,
                         config = config,
                         weekMotionDirection = weekMotionDirection,
                         weekMotionOutgoing = outgoing,
@@ -730,6 +735,7 @@ fun WeekCourseColumnsLayer(
                         layerOffset = layerOffset,
                         layerTravel = travel,
                         editMode = editMode && !adjustedDay,
+                        editActivation = editActivation,
                         editingAllowed = !adjustedDay,
                         muted = cancelledDay,
                         editWeek = editWeek,
@@ -772,20 +778,22 @@ fun WeekCourseColumnsLayer(
                                         cardKey = weekSupplementaryTailKey(day, course.id, index),
                                         cardOrderFraction = tailCardOrder[weekSupplementaryTailKey(day, course.id, index)],
                                         columnOrderFraction = tailColumnOrder[day]
-                                    ),
+                                    )
+                                    .homeSwitchGroup(tailCardOrder[weekSupplementaryTailKey(day, course.id, index)]),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 WeekCourseTimeLabel(course.customStartTime.orEmpty(), fontSize = 8.sp, lineHeight = 10.sp,
                                     color = glassForegroundColor(config), modifier = Modifier.height(12.dp))
                                 WeekCourseBlock(
                                     course = course, periods = periods, height = 64.dp,
-                                    cardColor = cardColor, backdrop = backdrop, floatingBackdrop = floatingBackdrop,
+                                    cardColor = cardColor, backdrop = backdrop,
                                     config = config, dayIndex = day, gridColumnWidth = dayColumnWidth,
                                     shortcutPivotX = shortcutPivotX,
                                     stackIndex = index,
                                     cardOrderFraction = tailCardOrder[weekSupplementaryTailKey(day, course.id, index)],
                                     columnOrderFraction = tailColumnOrder[day],
                                     editMode = editMode && !adjustedDay, editWeek = editWeek,
+                                    editActivation = editActivation,
                                     editingAllowed = !adjustedDay,
                                     muted = cancelledDay,
                                     allWeekCourses = allWeekCourses, editScrollState = editScrollState,

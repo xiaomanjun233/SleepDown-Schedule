@@ -62,6 +62,9 @@ internal class CourseMaterialSampling(
     val causticPrograms by lazy { com.itos.coui.effect.CouiCausticPrograms() }
     val supportsTexture: Boolean get() = Build.VERSION.SDK_INT >= 33 && hasStaticBitmap
     val hasStaticBitmap: Boolean get() = pixels.value?.previewBlur == null
+    val textureReady: Boolean get() = supportsTexture && pixels.value?.let {
+        texturePyramid.value?.source === it.bitmap
+    } == true
     private var previous: CourseWallpaperFrame? = null
     private var previousCrop: WallpaperCropState? = null
     private var previousSize = IntSize.Zero

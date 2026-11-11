@@ -107,18 +107,6 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
         if (dispatchImmediately) afterClose?.invoke()
     }
 
-    // The source pointer owns the whole gesture. Retire the menu without waiting before
-    // handing that pointer to the existing week drag controller.
-    fun takeOverDrag() {
-        motion?.cancel()
-        request = null
-        closing = false
-        motion = scope.launch {
-            progress.animateTo(0f, tween(100))
-            cardScale.snapTo(1f)
-        }
-    }
-
     fun reset() {
         motion?.cancel()
         request = null

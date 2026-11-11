@@ -81,6 +81,10 @@ No global change forces those consumers onto the course configuration.
 null keys remain live. Callers include asynchronous image content and animation changes.
 Recording revisions are published with `Snapshot.withoutReadObservation`: producers must not
 subscribe to their own version increments and continuously dirty a retained scene during Morph.
+Plain content producers record once and display that same layer, including when a complete pixel
+key reuses its recording. Custom `onDraw` captures keep their separate visible draw because their
+sampling pixels can differ from the displayed subtree. This avoids double traversal of nested
+sources without introducing a card-specific capture mode or changing their visible content.
 `ShapeProvider` keeps equivalent callback caches and observes dynamic outlines.
 
 `BackdropDiagnostics` is optional. Layer/recording/pixel-area counters are ownership and CPU

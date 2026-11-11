@@ -17,7 +17,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -190,10 +189,11 @@ fun GlassSurface(
                 // An explicit finished tint (such as the Dock material) already owns its color.
                 if (surfaceColorOverride == null) {
                     if (lightGlass) {
-                        drawRect(Color.White.copy(alpha = 0.014f + 0.018f * pressProgress), blendMode = BlendMode.Screen)
+                        // White Screen and white SrcOver produce the same lift.
+                        drawRect(Color.White.copy(alpha = 0.014f + 0.018f * pressProgress))
                     } else {
                         drawRect(Color.Black.copy(alpha = 0.014f + 0.018f * pressProgress))
-                        drawRect(Color.White.copy(alpha = 0.006f + 0.010f * pressProgress), blendMode = BlendMode.Screen)
+                        drawRect(Color.White.copy(alpha = 0.006f + 0.010f * pressProgress))
                     }
                 }
             }
@@ -299,10 +299,10 @@ fun GlassLens(
             onDrawSurface = {
                 drawRect(surfaceColor)
                 if (lightGlass) {
-                    drawRect(Color.White.copy(alpha = 0.014f), blendMode = BlendMode.Screen)
+                    drawRect(Color.White.copy(alpha = 0.014f))
                 } else {
                     drawRect(Color.Black.copy(alpha = 0.014f))
-                    drawRect(Color.White.copy(alpha = 0.006f), blendMode = BlendMode.Screen)
+                    drawRect(Color.White.copy(alpha = 0.006f))
                 }
             }
         )

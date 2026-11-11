@@ -11,13 +11,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.addOutline
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.drawscope.clipPath
 import com.xiaomanjun.sleepdownschedule.glass.courseTexture
 import androidx.compose.ui.geometry.Rect
@@ -35,6 +31,7 @@ import com.itos.coui.effect.CouiContourStyle
 import com.itos.coui.effect.CouiSpotlightTouch
 import com.itos.coui.effect.SpotlightPreset
 import com.itos.coui.effect.couiControlMaterialEffect
+import com.itos.coui.effect.CouiControlMaterialShader
 import com.itos.coui.effect.drawCouiCaustic
 import com.itos.coui.effect.rememberCouiSpotlight
 import com.itos.coui.floatingactionbutton.CouiFabDefaults
@@ -166,6 +163,7 @@ internal fun CouiMaterialSurface(
     val causticTint = request.causticTint
     val flatBacking = request.flatBackdropColor
     val preparedBackdrop = request.preparedBackdrop
+        ?: (source as? CourseMaterialSampling)?.takeIf { it.textureReady }
     val wallpaperSampling = preparedBackdrop as? CourseMaterialSampling
     val needsLiveSample = preparedBackdrop == null ||
         (lighting && causticTint != null && flatBacking == null && wallpaperSampling?.hasStaticBitmap != true)
@@ -197,27 +195,29 @@ internal fun CouiMaterialSurface(
                 sampleScale = if (preparedBackdrop != null) 0.5f else 1f)
         } else Modifier
     } else Modifier
+    val tintScale = if (request.role == NativeMaterialSurfaceRole.Form) 0f else request.tintAlphaScale
+    val surfaceMaterial = baseMaterial.copy(
+        blurRadius = (request.blurRadius?.let { with(density) { it.toPx() } } ?: baseMaterial.blurRadius) *
+            request.blurRadiusScale,
+        firstColor = baseMaterial.firstColor.copy(alpha = baseMaterial.firstColor.alpha * tintScale),
+        secondColor = baseMaterial.secondColor.copy(alpha = baseMaterial.secondColor.alpha * tintScale),
+        sampleBrightness = if (course || indicator) request.sampleBrightness
+            else home?.sampleBrightness ?: request.sampleBrightness,
+    )
     val background = if (preparedBackdrop != null && request.renderSurface && request.materialVisible) {
-        if (wallpaperSampling?.supportsTexture == true) Modifier.courseTexture(wallpaperSampling, shape,
-            onTexture = {
-                // These native blend modes are the same two operations as the old filter chain.
-                // The wallpaper is opaque, so they need no per-card offscreen surface.
-                val canvas = drawContext.canvas.nativeCanvas
-                canvas.drawColor(baseMaterial.firstColor.toArgb(), baseMaterial.firstBlendMode)
-                canvas.drawColor(baseMaterial.secondColor.toArgb(), baseMaterial.secondBlendMode)
-            })
+        if (wallpaperSampling?.supportsTexture == true) {
+            // Filter the sampled pixels in the same draw. Canvas destination blend passes
+            // otherwise force HWUI to split and copy the framebuffer for every dense card.
+            val material = if (course) baseMaterial else surfaceMaterial
+            val colors = remember(material) { CouiControlMaterialShader(material) }
+            Modifier.courseTexture(wallpaperSampling, shape, shaderTransform = colors,
+                radiusPx = material.blurRadius.takeUnless { course },
+                brightness = material.sampleBrightness)
+        }
         else Modifier.drawPreparedCourseBackdrop(preparedBackdrop, samplingKey)
     } else if (backdrop != null && request.blurRadiusScale > 0f) {
-        val tintScale = if (request.role == NativeMaterialSurfaceRole.Form) 0f else request.tintAlphaScale
         val sampleScale = request.backdropSampleScale
-        val material = baseMaterial.copy(
-            blurRadius = (request.blurRadius?.let { with(density) { it.toPx() } } ?: baseMaterial.blurRadius) *
-                request.blurRadiusScale * sampleScale,
-            firstColor = baseMaterial.firstColor.copy(alpha = baseMaterial.firstColor.alpha * tintScale),
-            secondColor = baseMaterial.secondColor.copy(alpha = baseMaterial.secondColor.alpha * tintScale),
-            sampleBrightness = if (course || indicator) request.sampleBrightness
-                else home?.sampleBrightness ?: request.sampleBrightness,
-        )
+        val material = surfaceMaterial.copy(blurRadius = surfaceMaterial.blurRadius * sampleScale)
         val effect = remember(material) {
             if (editorEffects == null) {
                 couiControlMaterialEffect(material).asComposeRenderEffect()
@@ -274,12 +274,8 @@ internal fun CouiMaterialSurface(
     if (course && preparedBackdrop != null && motion == null) {
         // Dense cards have one drawing owner. Caustics remain outside the outline; body,
         // contour and content share the same clip without three permanent RenderNodes.
-        val viewport = com.xiaomanjun.sleepdownschedule.glass.LocalCourseBackdropViewport.current
-        val coordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
-        val card = request.modifier.onGloballyPositioned { coordinates[0] = it }
-            .drawWithContent {
-                if (coordinates[0]?.let { viewport?.intersects(it) } != false) drawContent()
-            }.then(observeTouch)
+        val card = request.modifier
+            .then(observeTouch)
             .then(request.onClick?.let { Modifier.clickable(role = Role.Button, onClick = it) } ?: Modifier)
             .then(caustic)
             .drawWithCache {

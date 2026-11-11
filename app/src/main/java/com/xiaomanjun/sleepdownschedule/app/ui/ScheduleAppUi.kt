@@ -360,9 +360,9 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassSamplingLink
 import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNode
 import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNodeRole
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
-import com.xiaomanjun.sleepdownschedule.glass.dockPageSource
+import com.xiaomanjun.sleepdownschedule.glass.dockUnderlaySource
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
-import com.xiaomanjun.sleepdownschedule.glass.rememberDockPageBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.rememberDockUnderlay
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSceneState
@@ -2614,10 +2614,10 @@ fun CourseScheduleAppUi(
                 drawContent()
             }
     ) {
-        val dockPageBackdrop = rememberDockPageBackdrop()
         val dockVisible = !homeAdaptiveMetrics.isLargeScreen && (screen is Screen.Home || screen is Screen.Config)
         val couiDockEnabled =
             com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiDock && dockVisible
+        val dockUnderlay = if (couiDockEnabled) rememberDockUnderlay() else null
         val dockSelectedIndex = if (screen is Screen.Config) 2 else if (homeMode == HomeMode.Day) 0 else 1
         val dockConfig = if (screen is Screen.Home) visualState.config else state.config
         val dockDark = if (screen is Screen.Home) homeChromeDark else appUsesDarkTheme(state.config)
@@ -2687,11 +2687,6 @@ fun CourseScheduleAppUi(
             modifier = Modifier.fillMaxSize()
         ) {
         Box(Modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier.fillMaxSize().then(
-                if (couiDockEnabled) Modifier.dockPageSource(dockPageBackdrop) else Modifier
-            )
-        ) {
         CompositionLocalProvider(
             LocalHomeAdaptiveMetrics provides sidebarContentMetrics,
             LocalHomePagerStartOverflow provides homeSidebarState.targetContentInset,
@@ -2860,8 +2855,9 @@ fun CourseScheduleAppUi(
         ) { padding ->
             val transitionBackground = settingsPageBackground(settingsVisualConfig(state.config))
             Box(
-                modifier = Modifier
-                    .fillMaxSize()
+                modifier = Modifier.fillMaxSize().then(
+                    if (dockUnderlay != null) Modifier.dockUnderlaySource(dockUnderlay) else Modifier
+                )
             ) {
                 Box(
                     modifier = Modifier
@@ -3125,7 +3121,6 @@ fun CourseScheduleAppUi(
         }
 
     } // end course/frozen locals
-        } // end dock page source
 
     // Capture the complete page, including its native Dock, at full size before the outer
     // shortcut blur downsamples it. Native material corners must not first render into the
@@ -3146,7 +3141,7 @@ fun CourseScheduleAppUi(
         dockSampleBrightness = dockSampleBrightness,
         buttonHidden = dockButtonHidden,
         config = dockConfig,
-        couiBackdrop = dockPageBackdrop.takeIf { couiDockEnabled },
+        couiBackdrop = dockUnderlay,
         onSelect = dockSelect,
         onOpenMenu = dockOpenImport,
         phase = startupPhase,
