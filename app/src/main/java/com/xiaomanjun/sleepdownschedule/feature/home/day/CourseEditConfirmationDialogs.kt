@@ -46,7 +46,6 @@ fun ApplyCourseEditDialog(
             add(LiquidAlertAction("应用全部", LiquidAlertActionStyle.Secondary, onClick = onAll))
             add(LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onCancel))
         },
-        backdrop = backdrop,
         config = config,
         onDismissRequest = onCancel
     )
@@ -72,7 +71,6 @@ fun CourseConflictRetentionDialog(
             LiquidAlertAction("暂时保留", LiquidAlertActionStyle.Primary, onClick = onKeepTemporarily),
             LiquidAlertAction("返回修改", LiquidAlertActionStyle.Cancel, onClick = onReturn)
         ),
-        backdrop = backdrop,
         config = config,
         onDismissRequest = onReturn
     )
@@ -105,7 +103,6 @@ fun ApplyCourseDeleteDialog(
             add(LiquidAlertAction("删除全部", LiquidAlertActionStyle.Destructive, onClick = onAll))
             add(LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onCancel))
         },
-        backdrop = backdrop,
         config = config,
         onDismissRequest = onCancel
     )

@@ -53,7 +53,7 @@ import com.xiaomanjun.sleepdownschedule.core.web.openSleepDownCustomTab
 import com.xiaomanjun.sleepdownschedule.core.web.resolveSleepDownCustomTabsPackage
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.feature.update.*
-import com.xiaomanjun.sleepdownschedule.platform.coloros.GlowOverflowMenuButton
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.GlowOverflowMenuButton
 
 /** 独立全屏软件更新页，沿用既有检查、下载、安装及底部权限窗口。 */
 @Composable

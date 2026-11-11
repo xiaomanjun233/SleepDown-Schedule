@@ -106,7 +106,6 @@ fun CrossActivityTransitionHost(
                     ?: profile?.sourceCornerRadiusDp
                     ?: 0f).dp,
                 backgroundSnapshot = payload?.backgroundBitmap,
-                backgroundDialog = payload?.backgroundDialog,
                 sourceSnapshot = openingAnchor?.bitmap,
                 collapseSnapshot = returnAnchor?.bitmap,
                 motionStyle = profile?.profileId.toMotionStyle(),

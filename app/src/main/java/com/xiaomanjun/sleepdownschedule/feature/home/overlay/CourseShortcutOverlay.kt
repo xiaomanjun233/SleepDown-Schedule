@@ -314,8 +314,7 @@ internal fun CourseShortcutOverlay(
                 },
                 LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { controller.copyRequest = null }
             ),
-            onDismissRequest = { controller.copyRequest = null },
-            backdrop = backdrop, config = config
+            onDismissRequest = { controller.copyRequest = null }, config = config
         )
     }
 }

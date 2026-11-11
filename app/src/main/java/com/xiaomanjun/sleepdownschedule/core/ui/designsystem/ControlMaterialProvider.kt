@@ -1,6 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.designsystem
 
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Immutable
@@ -11,18 +10,16 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialContro
 @Immutable
 internal data class ControlMaterialRenderers(
     val home: HomeMaterialControls = object : HomeMaterialControls {},
-    val alert: (@Composable (NativeAlertRequest) -> Boolean)? = null,
-    val pickerDialog: (@Composable (PickerDialogRequest) -> Boolean)? = null,
-    val button: (@Composable (NativeCapsuleButtonRequest, @Composable RowScope.() -> Unit) -> Boolean)? = null,
+    val button: (@Composable (ButtonMaterialRequest, androidx.compose.foundation.interaction.MutableInteractionSource) -> androidx.compose.ui.Modifier?)? = null,
     val followLight: (@Composable (NativeFollowLightRequest) -> Boolean)? = null,
     val courseCard: (@Composable (NativeCourseCardRequest, @Composable () -> Unit) -> Boolean)? = null,
+    val courseBackdropFilter: ((Boolean, Float) -> androidx.compose.ui.graphics.RenderEffect)? = null,
     val surface: (@Composable (NativeMaterialSurfaceRequest, @Composable () -> Unit) -> Boolean)? = null,
     val strokeOverlay: (@Composable (NativeStrokeOverlayRequest) -> Boolean)? = null,
     val cardLight: (@Composable (NativeCardLightRequest) -> Boolean)? = null,
     val pageIndicator: (@Composable (NativePagerIndicatorRequest) -> Boolean)? = null,
     val slider: (@Composable (NativeSliderRequest) -> Boolean)? = null,
     val switch: (@Composable (NativeSwitchRequest) -> Boolean)? = null,
-    val segments: (@Composable (NativeSegmentRequest) -> Boolean)? = null,
     val menuRow: (@Composable (NativeMenuRowRequest) -> Boolean)? = null,
     val menuList: (@Composable (NativeMenuListRequest) -> Boolean)? = null,
     val menuSurface: (@Composable (NativeMenuSurfaceRequest, @Composable () -> Unit) -> Boolean)? = null
@@ -46,12 +43,11 @@ internal fun ProvideControlMaterials(
 ) {
     CompositionLocalProvider(
         LocalHomeMaterialControls provides renderers.home,
-        LocalNativeAlertRenderer provides renderers.alert,
-        LocalPickerDialogRenderer provides renderers.pickerDialog,
-        LocalNativeCapsuleButtonRenderer provides renderers.button,
+        LocalButtonMaterial provides renderers.button,
         LocalNativeFollowLightRenderer provides renderers.followLight,
         LocalNativeCourseCardMode provides courseCardMode,
         LocalNativeCourseCardRenderer provides renderers.courseCard,
+        LocalCourseBackdropFilter provides renderers.courseBackdropFilter,
         LocalNativeMaterialSurfaceRenderer provides renderers.surface,
         LocalNativeStrokeOverlayRenderer provides renderers.strokeOverlay,
         LocalNativeCardLightRenderer provides renderers.cardLight,
@@ -59,7 +55,6 @@ internal fun ProvideControlMaterials(
         LocalNativeProgressiveBlur provides progressiveBlur,
         LocalNativeSliderRenderer provides renderers.slider,
         LocalNativeSwitchRenderer provides renderers.switch,
-        LocalNativeSegmentRenderer provides renderers.segments,
         LocalNativeMenuRowRenderer provides renderers.menuRow,
         LocalNativeMenuListRenderer provides renderers.menuList,
         LocalNativeMenuSurfaceRenderer provides renderers.menuSurface,

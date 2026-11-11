@@ -6,7 +6,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionSt
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -28,7 +27,6 @@ import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsMinutePickerContent
@@ -142,7 +140,6 @@ internal fun CourseLessonClockPicker(
         show = showPicker,
         title = lessonIndex?.let { "第 ${it + 1} 节 · ${field.title}" } ?: field.title,
         onDismissRequest = { showPicker = false },
-        backdrop = backdrop,
         config = config,
         actions = listOfNotNull(
             if (field == LessonClockField.START && lessonIndex != null)
@@ -174,9 +171,7 @@ internal fun CourseLessonClockPicker(
                 onChange(updated)
                 showPicker = false
             }
-        ),
-        renderInRootScaffold = renderInRootScaffold
-    ) {
+        )) {
         when (field) {
             LessonClockField.START -> {
                 val firstMinute = minimumStartTime?.let { it.hour * 60 + it.minute } ?: 0

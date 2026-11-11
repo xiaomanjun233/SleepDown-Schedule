@@ -64,7 +64,6 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleRoutines
 import com.xiaomanjun.sleepdownschedule.domain.schedule.parseScheduleDate
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 import com.xiaomanjun.sleepdownschedule.model.AppState
-import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.model.TimetableDateRuleEntity
 import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
@@ -298,14 +297,12 @@ fun PeriodSchemeManagementScreen(
                 creation = pendingCopy
                 pendingCopy = null
             },
-            backdrop = popupBackdrop,
             config = config,
-            couiContentPadding = PaddingValues(
+            contentPadding = PaddingValues(
                 start = CouiDialogDefaults.contentPadding,
                 end = CouiDialogDefaults.contentPadding,
                 bottom = CouiDialogDefaults.messageBottom,
             ),
-            contentPadding = PaddingValues(horizontal = 8.dp),
             scrollableContent = true,
             message = "选择来源课表。保存后将替换当前课表的作息。",
             actions = listOf(

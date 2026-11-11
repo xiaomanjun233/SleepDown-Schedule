@@ -66,7 +66,10 @@ internal fun rememberDialogTextStyle(kind: DialogTextKind): TextStyle {
     val typeface = if (family != null) {
         // 订阅异步字体结果，使操作布局测量与实际文字绘制同时更新。
         LocalFontFamilyResolver.current.resolve(family, FontWeight(kind.weight), fontSynthesis = FontSynthesis.None).value as Typeface
-    } else remember(kind) { Typeface.create(Typeface.create(kind.family, Typeface.NORMAL), kind.weight, false) }
+    } else remember(kind) {
+        val base = Typeface.create(kind.family, Typeface.NORMAL)
+        if (Build.VERSION.SDK_INT >= 28) Typeface.create(base, kind.weight, false) else base
+    }
     return remember(kind, configuration, density, typeface) {
         val pixels = couiTextSize(kind, configuration) { with(density) { it.sp.toPx() } }
         couiTextStyle(typeface, kind.weight, pixels, couiLineSpacing(kind, configuration),

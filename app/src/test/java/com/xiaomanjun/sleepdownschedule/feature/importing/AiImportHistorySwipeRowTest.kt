@@ -35,8 +35,10 @@ class AiImportHistorySwipeRowTest {
         compose.setContent {
             MaterialTheme {
                 var revealed by remember { mutableStateOf(false) }
-                AiImportHistorySwipeRow(entry, Color.Black, revealed, { revealed = it },
-                    onDelete = { deleted++ }, onOpen = {}, onBoundsChanged = {})
+                AiImportHistorySwipeRow(entry, Color.Black,
+                    selection = remember { com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardDeletionSelection() },
+                    onStartSelection = {}, revealed = revealed, onRevealChange = { revealed = it },
+                    onDelete = { deleted++ }, onDeleteFailed = { error(it) }, onOpen = {}, onBoundsChanged = {})
             }
         }
         val row = compose.onNodeWithText(entry.title).assertIsDisplayed()

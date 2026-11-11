@@ -184,14 +184,12 @@ internal fun PeriodSchemeCreationWizard(
     }
     SleepDownPickerDialog(
         visible, page.title,
-        onDismissRequest = ::back,
-        backdrop = backdrop, config = visualConfig,
+        onDismissRequest = ::back, config = visualConfig,
         onDismissFinished = { created?.let { (session, rules) -> onCreated(session, rules) } ?: onDismiss() },
         scrollableContent = true,
         // Retain the input window's layout policy while the wizard changes pages.
         adjustForIme = true,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
-        couiContentPadding = if (page == CreationPickerPage.DURATION || page == CreationPickerPage.BREAK)
+        contentPadding = if (page == CreationPickerPage.DURATION || page == CreationPickerPage.BREAK)
             PaddingValues(0.dp) else CouiPickerFormPadding,
         bottomActions = {
             val shownPage = page
@@ -346,10 +344,8 @@ internal fun PeriodSchemeCreationWizard(
             title = "时段起点",
             onDismissRequest = { startsPickerVisible = false },
             onDismissFinished = { startsPickerMounted = false },
-            backdrop = backdrop,
             config = visualConfig,
-            contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
-            couiContentPadding = CouiPickerFormPadding,
+            contentPadding = CouiPickerFormPadding,
             actions = listOf(
                 LiquidAlertAction("返回", LiquidAlertActionStyle.Cancel) { startsPickerVisible = false },
                 LiquidAlertAction("确定", LiquidAlertActionStyle.Primary) {

@@ -10,6 +10,8 @@ import androidx.compose.ui.unit.Dp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.GlowCourseShortcutMenu
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.GlowOverflowMenuButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ControlMaterialRenderers
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ProvideControlMaterials
 import com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialControls
@@ -41,11 +43,6 @@ private object CouiHomeControls : HomeMaterialControls {
     }
 
     @Composable
-    override fun NameDialog(title: String, initialName: String, dark: Boolean, maxLength: Int?,
-        onDismiss: () -> Unit, onConfirm: (String) -> Unit, onDraftChange: (String) -> Unit): Boolean =
-        CouiNameDialog(title, initialName, dark, maxLength, onDismiss, onConfirm, onDraftChange)
-
-    @Composable
     override fun SearchField(value: String, onValueChange: (String) -> Unit, dark: Boolean,
         bottomOffset: Dp, entranceProgress: Float, largeScreen: Boolean, modifier: Modifier, backdrop: Backdrop?): Boolean {
         if (backdrop == null) return false
@@ -57,17 +54,15 @@ private object CouiHomeControls : HomeMaterialControls {
 @RequiresApi(34)
 private fun couiRenderers() = ControlMaterialRenderers(
     home = CouiHomeControls,
-    alert = { CouiAlertDialog(it) },
-    pickerDialog = { CouiPickerDialog(it) },
-    button = { request, content -> CouiCapsuleButtonRenderer(request, content) },
+    button = { request, interaction -> rememberGlowButtonMaterial(request, interaction) },
     followLight = { CouiFollowLight(it) },
     courseCard = { request, content -> CouiCourseCard(request, content) },
+    courseBackdropFilter = ::couiCourseBackdropEffect,
     surface = { request, content -> CouiMaterialSurface(request, content = content) },
     cardLight = { CouiCardProjection(it) },
     pageIndicator = { CouiPagerIndicator(it) },
     slider = { CouiValueSlider(it) },
     switch = { CouiValueSwitch(it) },
-    segments = { CouiSegments(it) },
     menuSurface = { request, content -> CouiHomeMenuSurface(request, content) },
 )
 
@@ -85,5 +80,11 @@ internal fun ProvideCouiMaterials(
     } else ControlMaterialRenderers.LiquidGlass
     val courseMode = if (kitEnabled) rememberCourseCardMaterialPreferences(CouiCourseBlurRadiusPx) else null
     // A single composition boundary keeps host drafts alive when the renderer changes.
-    ProvideControlMaterials(renderers, courseCardMode = courseMode, content = content)
+    androidx.compose.runtime.CompositionLocalProvider(
+        com.itos.coui.dialog.LocalDialogMaterialSkin provides
+            if (kitEnabled || AppMaterialPreferences.isSuperPerformance) null
+            else com.xiaomanjun.sleepdownschedule.glass.LiquidDialogMaterial
+    ) {
+        ProvideControlMaterials(renderers, courseCardMode = courseMode, content = content)
+    }
 }

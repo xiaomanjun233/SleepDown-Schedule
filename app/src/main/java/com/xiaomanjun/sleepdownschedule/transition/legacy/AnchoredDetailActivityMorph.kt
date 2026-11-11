@@ -209,7 +209,6 @@ internal fun AnchoredDetailActivityMorph(
     onSourceHandoff: () -> Unit = {},
     sourceContent: @Composable BoxScope.() -> Unit,
     backgroundSnapshot: Bitmap? = null,
-    backgroundDialog: com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot? = null,
     sourceSnapshot: Bitmap? = null,
     collapseSnapshot: Bitmap? = null,
     motionStyle: AnchoredDetailMotionStyle = AnchoredDetailMotionStyle.Liquid,
@@ -365,7 +364,6 @@ internal fun AnchoredDetailActivityMorph(
                     bitmap = bitmap,
                     backgroundScaleProvider = { backgroundScale.value },
                     nativeRoundClip = nativeRoundClip,
-                    dialog = backgroundDialog,
                     modifier = Modifier.fillMaxSize()
                 )
             }

@@ -5,7 +5,6 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -24,7 +23,6 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsPopupBackdrop
@@ -233,7 +231,6 @@ fun ScheduleConfigScreen(
                     onExitCommitFinished(false)
                 }
             ),
-            backdrop = popupBackdrop,
             config = visualConfig,
             onDismissRequest = {
                 askToSave = false
@@ -263,7 +260,6 @@ fun ScheduleConfigScreen(
                     saveSchedule(shorteningConfirmed = true)
                 },
             ),
-            backdrop = popupBackdrop,
             config = visualConfig,
             onDismissRequest = ::cancel,
         )
@@ -301,9 +297,7 @@ private fun NewTermDateDialog(
             onDismiss()
             createdId?.let(onCreated)
         },
-        backdrop = backdrop,
         config = config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
         actions = listOf(
             LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, enabled = !creating, onClick = ::dismiss),
             LiquidAlertAction(

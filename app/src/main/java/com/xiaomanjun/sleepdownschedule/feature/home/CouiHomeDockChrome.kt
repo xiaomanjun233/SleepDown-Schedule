@@ -46,10 +46,10 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
 import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
-import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.findActivity
 import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionSourceView
 import com.xiaomanjun.sleepdownschedule.transition.captureTransitionPress
-import com.xiaomanjun.sleepdownschedule.platform.coloros.rememberCouiDockAccent
+import com.xiaomanjun.sleepdownschedule.core.ui.material.rememberGlowDockAccent
 
 /**
  * 独立的 COUI 导航胶囊 + FAB。两个主体共享采样、材质、阴影和融球链路；
@@ -91,7 +91,7 @@ internal fun CouiHomeDock(
     val effectiveDark = style?.dark ?: dockDark
     val density = LocalDensity.current
     val contour = LocalCouiContourGlowEnabled.current
-    val accent = LocalHomeDockAccent.current ?: rememberCouiDockAccent(config, dark, effectiveDark)
+    val accent = LocalHomeDockAccent.current ?: rememberGlowDockAccent(config, dark, effectiveDark)
     val foreground = (style?.foreground ?: dockForeground)?.let(::Color)
         ?: if (effectiveDark) Color.White else Color.Black
     val selectedColor = Color(accent)
@@ -141,7 +141,7 @@ internal fun CouiHomeDock(
     val bottomInset = with(density) { systemBottom.toDp() }
     val imeCompensation = dockImeCompensationPx(WindowInsets.ime.getBottom(density), systemBottom)
 
-    val activity = LocalContext.current.findActivityOrNull()
+    val activity = LocalContext.current.findActivity()
     val layoutDirection = LocalLayoutDirection.current
     val haptic = LocalHapticFeedback.current
     val liveLayer = rememberGraphicsLayer()

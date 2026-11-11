@@ -17,7 +17,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -29,7 +28,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -51,7 +49,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -84,8 +81,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
@@ -99,7 +94,6 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.feature.schedule.ScheduleScreenViewModel
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
@@ -537,7 +531,6 @@ fun ScheduleManagerScreen(
                     deleteReveal = 0f
                 }
             ),
-            backdrop = sceneBackdrop,
             config = settingsVisualConfig(state.config),
             onDismissRequest = { deleteCandidate = null }
         )
@@ -561,14 +554,10 @@ fun ScheduleManagerScreen(
         show = showShareOptions,
         title = "分享课表",
         onDismissRequest = { showShareOptions = false },
-        backdrop = sceneBackdrop,
         config = shareConfig,
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-        couiContentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
+        contentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
         scrollableContent = true,
-        contentSpacing = 12.dp,
-        blurRadius = 10.dp
-    ) {
+        contentSpacing = 12.dp) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             QuickSheetLiquidAction(
                 label = "分享短口令",
@@ -1221,37 +1210,10 @@ fun ScheduleRenameDialog(
     onCancel: () -> Unit,
     onSave: (String) -> Unit
 ) {
-    var name by remember(profile.id) { mutableStateOf(profile.name) }
-    if (LocalHomeMaterialControls.current.NameDialog(
-            "重命名课表", name, appUsesDarkTheme(config), 24, onCancel,
-            { onSave(it.ifBlank { "未命名课表" }) }, onDraftChange = { name = it })) return
-    Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        CenterLiquidDialog(backdrop = backdrop, config = config) {
-            LiquidDialogHeader(
-                title = "重命名课表",
-                onDismiss = onCancel,
-                backdrop = backdrop,
-                config = config,
-                onConfirm = { onSave(name.trim().ifBlank { "未命名课表" }) }
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedRectangle(18.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.70f))
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
-            ) {
-                BasicTextField(
-                    value = name,
-                    onValueChange = { name = it.take(24) },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-    }
+    com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ControlNameDialog(
+        "重命名课表", profile.name, appUsesDarkTheme(config), 24, onCancel,
+        { onSave(it.ifBlank { "未命名课表" }) }, {}
+    )
 }
 
 private fun snapshotCourseStartsAt(course: CourseEntity, periodIndex: Int): Boolean =

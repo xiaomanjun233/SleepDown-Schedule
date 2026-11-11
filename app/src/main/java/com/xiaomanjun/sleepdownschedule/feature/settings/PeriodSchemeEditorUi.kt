@@ -457,13 +457,11 @@ internal fun PeriodSchemeEditor(
             CompositionLocalProvider(LocalCenteredDialogSceneBackdrop provides sheetScene) {
                 additionError?.let { message ->
                     LiquidAlertDialog("无法添加节次", message,
-                        listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { additionError = null })),
-                        sheetScene, config, { additionError = null })
+                        listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { additionError = null })), config, { additionError = null })
                 }
                 localError?.let { message ->
                     LiquidAlertDialog("无法调整作息", message,
-                        listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) { localError = null }),
-                        sheetScene, config, { localError = null })
+                        listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) { localError = null }), config, { localError = null })
                 }
                 if (showExitConfirmation) LiquidAlertDialog(
                     "保存作息调整",
@@ -473,7 +471,7 @@ internal fun PeriodSchemeEditor(
                         LiquidAlertAction("保存", LiquidAlertActionStyle.Primary) { showExitConfirmation = false; leave(true) },
                         LiquidAlertAction("不保存", LiquidAlertActionStyle.Destructive) { showExitConfirmation = false; leave(false) },
                         LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Cancel) { showExitConfirmation = false }
-                    ), sheetScene, config, { showExitConfirmation = false })
+                    ), config, { showExitConfirmation = false })
                 if (showDeleteConfirmation && onDeleteRoutine != null) {
                     LiquidAlertDialog("删除作息", "删除“${initialSession.active.scheme.name}”及其日期安排？这些日期将使用下一条适用的作息。",
                         listOf(
@@ -493,7 +491,7 @@ internal fun PeriodSchemeEditor(
                                     }
                                 }
                             }
-                        ), sheetScene, config, { showDeleteConfirmation = false })
+                        ), config, { showDeleteConfirmation = false })
                 }
                 deletingBlock?.let { block ->
                     LiquidAlertDialog("移除${block.title}", if (block.isBreak) "后续课程将在当前时段内提前 ${block.minutes} 分钟，节次编号不变。"
@@ -533,7 +531,7 @@ internal fun PeriodSchemeEditor(
                                     }
                                 }
                                 deletingBlock = null
-                            })), sheetScene, config, { deletingBlock = null })
+                            })), config, { deletingBlock = null })
                 }
                 pickingBlock?.let { block ->
                     TimelineBlockPicker(block, session, sheetScene, config,
@@ -674,7 +672,7 @@ private fun TimelinePartStartPicker(
     var selected by remember { mutableIntStateOf(original.coerceIn(bounds)) }
     var visible by remember { mutableStateOf(true) }
     var pending by remember { mutableStateOf<PeriodTimelineSession?>(null) }
-    SleepDownPickerDialog(visible, "${part.timelineLabel()}分段起点", { visible = false }, backdrop, visualConfig,
+    SleepDownPickerDialog(visible, "${part.timelineLabel()}分段起点", { visible = false }, visualConfig,
         onDismissFinished = { pending?.let(onChange) ?: onDismiss() },
         bottomActions = {
             PeriodPickerActions(backdrop, visualConfig, onCancel = { visible = false }, onConfirm = {
@@ -682,7 +680,6 @@ private fun TimelinePartStartPicker(
                     visible = false
             })
         },
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
         scrollableContent = true) {
         Column(verticalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.QuickSheet.PickerContentSpacing)) {
             SettingsTimePickerContent(selected, bounds) { selected = it }
@@ -745,12 +742,11 @@ private fun TimelineBlockPicker(
         TimelinePickerPage.DURATION -> if (block.isBreak) "${block.title}时长" else "课时时长"
     }
     SleepDownPickerDialog(visible, title,
-        couiContentPadding = if (page == TimelinePickerPage.DETAILS) CouiPickerFormPadding else PaddingValues(0.dp),
+        contentPadding = if (page == TimelinePickerPage.DETAILS) CouiPickerFormPadding else PaddingValues(0.dp),
         onDismissRequest = {
             if (page == TimelinePickerPage.DETAILS || block.isBreak) visible = false else page = TimelinePickerPage.DETAILS
-        }, backdrop = backdrop, config = visualConfig,
+        }, config = visualConfig,
         onDismissFinished = { pending?.let(onChange) ?: onDismiss() },
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
         scrollableContent = true,
         bottomActions = {
             val shown = page

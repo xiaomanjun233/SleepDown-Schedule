@@ -211,8 +211,7 @@ internal fun <T> BoxScope.CardSelectionChrome(
     }
     pending?.let { originals ->
         LiquidAlertDialog(
-            title = confirmationTitle, message = confirmationMessage(originals.size),
-            backdrop = backdrop, config = config, onDismissRequest = { pending = null },
+            title = confirmationTitle, message = confirmationMessage(originals.size), config = config, onDismissRequest = { pending = null },
             actions = listOf(
                 LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { pending = null },
                 LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive) {

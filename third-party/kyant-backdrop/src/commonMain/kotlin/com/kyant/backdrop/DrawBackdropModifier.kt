@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.backdrops.SharedBlurBackdrop
+import com.kyant.backdrop.backdrops.MaterialBackdrop
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.highlight.HighlightElement
 import com.kyant.backdrop.internal.ShapeProvider
@@ -335,7 +335,7 @@ private class DrawBackdropNode(
             } finally {
                 canvas.restore()
             }
-            if (backdrop is SharedBlurBackdrop) BackdropDiagnostics.event("Sample.SharedBlit")
+            if (backdrop is MaterialBackdrop) BackdropDiagnostics.event("Sample.SharedBlit")
             return@drawBackdropLayer
         }
 
@@ -348,7 +348,7 @@ private class DrawBackdropNode(
         )
         // Only retained, frozen scenes need a completed local recording. Ordinary course cards
         // follow the reference path: one local Lens layer sampling the shared wallpaper node.
-        val shared = backdrop as? SharedBlurBackdrop
+        val shared = backdrop as? MaterialBackdrop
         val frozen = shapeProvider.options.coordinatesFrozen()
         val key = if (frozen) shapeProvider.options.sampleRecordKey()?.let {
             if (shared != null) it to shared.contentRevision else it
@@ -401,7 +401,7 @@ private class DrawBackdropNode(
         // observer. Observe the shared wallpaper origin here so its first placement refreshes
         // cards that drew before the producer reported coordinates. Also observe rerecordings:
         // the producer reuses one GraphicsLayer, so its content can change without its identity.
-        (backdrop as? SharedBlurBackdrop)?.let { shared ->
+        (backdrop as? MaterialBackdrop)?.let { shared ->
             shared.source.layerCoordinates
             shared.contentRevision
         }

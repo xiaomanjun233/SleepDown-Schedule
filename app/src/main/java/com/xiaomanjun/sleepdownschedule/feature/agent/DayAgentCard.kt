@@ -64,9 +64,6 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceActive
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeStrokeOverlayRenderer
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeStrokeOverlayRequest
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentActionHandler
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlan
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
@@ -226,19 +223,13 @@ fun TodayAgentCard(
     }
 
     val cardShape = RoundedRectangle(if (collapsed) 26.dp else 28.dp)
-    val effects = LocalVisualEffects.current
-    val nativeStrokeRenderer = LocalNativeStrokeOverlayRenderer.current
-    val useNativeLiquidStroke = !effects.usesNativeControls &&
-        effects.colorOsAvailable && nativeStrokeRenderer != null
     val cardTokens = GlassTokens.dialog(intensity = 1.12f).copy(
         blur = if (cardIsDark) 5.dp else 6.dp,
         lensHeight = 20.dp,
         lensAmount = 40.dp,
         surfaceAlpha = if (cardIsDark) 0.46f else 0.50f,
         borderAlpha = 0.34f,
-        // Liquid mode reuses COUI's outer stroke on capable devices; otherwise the Kyant
-        // highlight is its fallback. The shared vertical accent border stays in both modes.
-        highlightAlpha = if (useNativeLiquidStroke) 0f else 0.075f,
+        highlightAlpha = 0.075f,
         depthEffect = true,
         chromaticAberration = false
     )
@@ -343,15 +334,6 @@ fun TodayAgentCard(
                             Color.Black.copy(alpha = 0.13f),
                             cardShape
                         )
-                )
-            }
-            if (useNativeLiquidStroke && !sourceCardHidden) {
-                nativeStrokeRenderer(
-                    NativeStrokeOverlayRequest(
-                        modifier = Modifier.matchParentSize(),
-                        shape = cardShape,
-                        dark = cardIsDark
-                    )
                 )
             }
         }

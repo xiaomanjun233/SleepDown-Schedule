@@ -375,8 +375,7 @@ internal fun ScheduleAdjustmentsScreen(
         if (duplicateNotice) LiquidAlertDialog(
             title = "调休安排已是最新",
             message = "已有安排与本次获取的安排一致。",
-            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) { duplicateNotice = false }),
-            backdrop = backdrop, config = config, onDismissRequest = { duplicateNotice = false },
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) { duplicateNotice = false }), config = config, onDismissRequest = { duplicateNotice = false },
         )
         deleteConfirmation?.let { confirmation ->
             LiquidAlertDialog(
@@ -385,8 +384,7 @@ internal fun ScheduleAdjustmentsScreen(
                 actions = listOf(
                     LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { confirmation.answer.complete(false) },
                     LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive) { confirmation.answer.complete(true) },
-                ),
-                backdrop = backdrop, config = config, onDismissRequest = { confirmation.answer.complete(false) },
+                ), config = config, onDismissRequest = { confirmation.answer.complete(false) },
             )
         }
         draft?.let { current ->

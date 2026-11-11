@@ -62,14 +62,10 @@ internal fun CourseColorPicker(
         title = "课程颜色",
         onDismissRequest = onDismissRequest,
         onDismissFinished = onDismissFinished,
-        backdrop = backdrop,
         config = config,
-        renderInRootScaffold = renderInRootScaffold,
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
         contentSpacing = 14.dp,
         scrollableContent = true,
-        couiContentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
-        blurRadius = 10.dp,
+        contentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
         actions = listOf(
             LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismissRequest),
             LiquidAlertAction("确定", LiquidAlertActionStyle.Primary) {

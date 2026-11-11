@@ -123,7 +123,6 @@ import androidx.core.net.toUri
 import androidx.core.os.trace
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.kyant.backdrop.backdrops.SharedBlurBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.BuildConfig
@@ -134,11 +133,8 @@ import com.xiaomanjun.sleepdownschedule.DefaultWallpaperStyle
 import com.xiaomanjun.sleepdownschedule.EduImportActivity
 import com.xiaomanjun.sleepdownschedule.EduSchoolSelectActivity
 import com.xiaomanjun.sleepdownschedule.HomeStartMode
-import com.xiaomanjun.sleepdownschedule.ImportDraftSource
 import com.xiaomanjun.sleepdownschedule.QuickSheetSettingsDetailActivity
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.SettingsDetailActivity
 import com.xiaomanjun.sleepdownschedule.WeekParity
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
@@ -166,8 +162,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionSt
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidDialogSize
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogSceneBackdrop
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSurface
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalControlDialogSurface
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalToolbarBackdropBlurred
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.MaterialFormDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.centeredDialogSceneProducer
@@ -249,7 +244,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePagerStartOverflow
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.NativeHomeDockChrome
-import com.xiaomanjun.sleepdownschedule.core.ui.material.PersonalizationPreviewState
 import com.xiaomanjun.sleepdownschedule.feature.home.RetainedHomeValue
 import com.xiaomanjun.sleepdownschedule.feature.home.ScheduleManagerEntryPill
 import com.xiaomanjun.sleepdownschedule.feature.home.WallpaperEditorOverlay
@@ -268,7 +262,6 @@ import com.xiaomanjun.sleepdownschedule.feature.home.day.WallpaperGlassSamplingT
 import com.xiaomanjun.sleepdownschedule.feature.home.day.WallpaperToneOverlay
 import com.xiaomanjun.sleepdownschedule.feature.home.day.wallpaperGlassSamplingDim
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPixels
-import com.xiaomanjun.sleepdownschedule.feature.home.day.courseWeeksChanged
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeStatusBarWallpaperLuminance
@@ -330,7 +323,6 @@ import com.xiaomanjun.sleepdownschedule.feature.home.withSidebarInsets
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiEduImportProgressSession
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportHistoryBackgroundCapture
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettingsStore
-import com.xiaomanjun.sleepdownschedule.feature.importing.ConfirmScheduleScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.ImportPreviewPage
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchoolPickerScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.IcsScheduleCodec
@@ -361,29 +353,25 @@ import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateDialogHost
 import com.xiaomanjun.sleepdownschedule.feature.update.AutomaticAppUpdateCheck
 import com.xiaomanjun.sleepdownschedule.feature.update.rememberAppUpdateSession
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
-import com.xiaomanjun.sleepdownschedule.glass.CourseWallpaperSampling
+import com.xiaomanjun.sleepdownschedule.glass.rememberCourseMaterialSampling
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackendPolicy
 import com.xiaomanjun.sleepdownschedule.glass.GlassRenderPhase
 import com.xiaomanjun.sleepdownschedule.glass.GlassSamplingLink
 import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNode
 import com.xiaomanjun.sleepdownschedule.glass.GlassTopologyNodeRole
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSceneState
-import com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.dockPageSource
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberDockPageBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSceneState
-import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalCourseCardColorAssignments
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalCourseCardPalette
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.buildCourseCardColorAssignments
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardColorKey
-import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardGlassEffectFrame
-import com.xiaomanjun.sleepdownschedule.platform.coloros.couiCourseBackdropEffect
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberFallbackAdaptiveGlassState
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberScreenScaledBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.resolvedCourseCardPalette
@@ -410,13 +398,11 @@ import com.xiaomanjun.sleepdownschedule.transition.legacy.DetailMorphState
 import com.xiaomanjun.sleepdownschedule.transition.legacy.DetailScheduleMorphOverlay
 import com.xiaomanjun.sleepdownschedule.transition.legacy.ScheduleCustomizeIdExtra
 import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
-import java.io.File
 import java.time.LocalDate
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
-import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -527,12 +513,10 @@ fun CourseScheduleAppUi(
     }
     var dayRenderedCardCount by remember(state.config.id) { mutableIntStateOf(0) }
     var weekRenderedCardCount by remember(state.config.id) { mutableIntStateOf(0) }
-    val rootPageMotion = rememberHomeSwitchMotion(screen is Screen.Config, "home-settings",
-        renderedCardCount = { if (homeMode == HomeMode.Week) weekRenderedCardCount else dayRenderedCardCount })
+    val rootPageMotion = rememberHomeSwitchMotion(screen is Screen.Config, "home-settings")
     val homeModeMotion = key(state.loaded) {
         rememberHomeSwitchMotion(homeMode == HomeMode.Week, "day-week",
-            animate = !rootPageMotion.landscape || !rootPageMotion.moving,
-            renderedCardCount = { maxOf(dayRenderedCardCount, weekRenderedCardCount) })
+            animate = !rootPageMotion.landscape || !rootPageMotion.moving)
     }
     val rootPageStateHolder = rememberSaveableStateHolder()
     var homeDialog by remember { mutableStateOf<HomeDialog?>(null) }
@@ -1090,11 +1074,11 @@ fun CourseScheduleAppUi(
     val homeChromeHasWallpaper = visualState.config.hasAnyWallpaper()
     val homeChromeForeground = adaptiveGlassState.contentColor.toArgb().takeIf { homeChromeHasWallpaper }
     val homeChromeDark = if (homeChromeHasWallpaper) !adaptiveGlassState.lightGlass else appDarkTheme
-    val colorOsHomeAccents = com.xiaomanjun.sleepdownschedule.platform.coloros
-        .rememberColorOsHomeAccents(visualState.config, wallpaperDark = appDarkTheme, dockDark = homeChromeDark)
+    val colorOsHomeAccents = com.xiaomanjun.sleepdownschedule.core.ui.material
+        .rememberGlowHomeAccents(visualState.config, wallpaperDark = appDarkTheme, dockDark = homeChromeDark)
     val colorOsActiveDockAccent = if (screen is Screen.Home) colorOsHomeAccents?.dock
         else colorOsHomeAccents?.button?.let {
-            com.xiaomanjun.sleepdownschedule.platform.coloros.colorOsContrastingAccent(
+            com.xiaomanjun.sleepdownschedule.core.ui.material.contrastingAccent(
                 it, MaterialTheme.colorScheme.background.toArgb())
         }
     val homeChromeStyle = remember(glowVisuals, homeChromeDark, homeChromeHasWallpaper, homeChromeForeground) {
@@ -1500,8 +1484,6 @@ fun CourseScheduleAppUi(
             homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle
     val substantialCourseEditorCoverage =
         courseEditorSessions.any { it.visible }
-    val homeBackgroundBlurClosing =
-        homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing
     val legacyHomeOverlayBackgroundBlurProgress: () -> Float = {
         val legacyDepth = homeOverlayDepthProgress(homeOverlayBackgroundZoom(), CourseEditorMotion.BackgroundZoomOpenScale)
         val previewActive = personalizationSession.sliderKey != null ||
@@ -1515,7 +1497,6 @@ fun CourseScheduleAppUi(
                 stagedHomeOverlayBlurProgress(
                     legacyDepthProgress = legacyDepth,
                     morphProgress = session.motion.progress.value,
-                    closing = false
                 )
             }
             substantialMenuDestinationCoverage &&
@@ -1523,14 +1504,12 @@ fun CourseScheduleAppUi(
                 stagedHomeOverlayBlurProgress(
                     legacyDepthProgress = legacyDepth,
                     morphProgress = homeMenuDestinationMotionState.progress.value,
-                    closing = homeMenuDestinationMotionState.phase == HomeAnchoredOverlayPhase.Closing
                 )
             substantialHomeAnchoredCoverage &&
                 homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ->
                 stagedHomeOverlayBlurProgress(
                     legacyDepthProgress = legacyDepth,
                     morphProgress = homeAnchoredMorphState.progress.value,
-                    closing = false
                 )
             else -> legacyDepth
         }
@@ -1991,46 +1970,17 @@ fun CourseScheduleAppUi(
     val sharedTransitionScope = this
     val activeSharedTransitionScope = if (startupPhase == StartupPhase.FullQuality) sharedTransitionScope else null
     val courseBackdropViewport = remember { com.kyant.backdrop.BackdropViewport() }
-    val sharedCourseFrame = courseCardGlassEffectFrame(
-        tokens = GlassTokens.courseCard(visualState.config.courseCardBlur),
-        liveBlur = personalizationPreviewState.cardBlur ?: visualState.config.courseCardBlur,
-        quality = glassQuality,
-        hasWallpaper = visualState.config.hasAnyWallpaper()
-    )
-    val sharedCourseRadiusPx = with(LocalDensity.current) { (sharedCourseFrame.blur ?: 0.dp).toPx() }
     val courseMaterialsEnabled = AppMaterialPreferences.policy.courseSamples(
         visualState.config.courseCardGlassEnabled, visualState.config.courseCardGaussianBlurEnabled,
         visualState.config.hasAnyWallpaper())
     val kitCourseMaterials = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls &&
         AppMaterialPreferences.policy.denseMaterials
-    val couiCourseMode = LocalNativeCourseCardMode.current
-    val glowCourseRadius = couiCourseMode?.takeIf { kitCourseMaterials && it.enabled }?.blurRadiusPx
-    val wallpaperReady = visualState.config.hasAnyWallpaper() && wallpaperImages.source != null
-    val glowCourseFilter = if (Build.VERSION.SDK_INT >= 34 && wallpaperReady && glowCourseRadius != null) {
-        remember(glowCourseRadius, appDarkTheme) { couiCourseBackdropEffect(appDarkTheme, glowCourseRadius) }
-    } else null
-    val liquidCourseFilter = !kitCourseMaterials && courseMaterialsEnabled && visualState.config.courseCardGlassEnabled
-    // Retained timetable cards must retain their material source as well. Removing this on
-    // Settings used to replace every card's sampler and allocate it again on the return frame.
-    val sharedCourseBackdrop = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-        wallpaperReady &&
-        (glowCourseFilter != null || liquidCourseFilter)
-    ) {
-        val radius = glowCourseRadius ?: sharedCourseRadiusPx
-        val vibrant = liquidCourseFilter && sharedCourseFrame.useVibrancy
-        remember(courseWallpaperBackdrop) { SharedBlurBackdrop(courseWallpaperBackdrop, radius, vibrant) }.apply {
-            radiusPx = radius
-            this.vibrant = vibrant
-            filter = glowCourseFilter
-        }
-    } else null
     val wallpaperBrightness = rememberUpdatedState(visualState.config.wallpaperBrightness)
-    val courseWallpaperSampling = remember(sharedCourseBackdrop, personalizationPreviewState) {
-        sharedCourseBackdrop?.let { filtered ->
-            CourseWallpaperSampling(filtered, homeWallpaperRecordKey) {
-                wallpaperGlassSamplingDim(personalizationPreviewState.wallpaperBrightness ?: wallpaperBrightness.value)
-            }
-        }
+    val courseWallpaperSampling = rememberCourseMaterialSampling(
+        source = courseWallpaperBackdrop, config = visualState.config, quality = glassQuality,
+        pixels = homeWallpaperRecordKey, dark = appDarkTheme, preview = personalizationPreviewState,
+    ) {
+        wallpaperGlassSamplingDim(personalizationPreviewState.wallpaperBrightness ?: wallpaperBrightness.value)
     }
     val courseWallpaperRecordKey = remember(personalizationPreviewState) {
         {
@@ -2234,7 +2184,6 @@ fun CourseScheduleAppUi(
         LocalCourseShortcuts provides courseShortcuts,
         LocalCourseCopy provides courseCopy,
         LocalCourseRemoval provides courseRemoval,
-        LocalSharedCourseBackdrop provides courseWallpaperSampling,
         com.xiaomanjun.sleepdownschedule.glass.LocalCourseBackdropViewport provides courseBackdropViewport,
         LocalSharedTransitionScope provides activeSharedTransitionScope,
         LocalEditingCourseId provides editingCourseId,
@@ -2484,15 +2433,13 @@ fun CourseScheduleAppUi(
                                         val snapshotOriginInWindow = windowSnapshot?.originInWindow
                                             ?: homeRootPositionInWindow
                                         val sourceBoundsInSnapshot = sourceBoundsInWindow.translate(-snapshotOriginInWindow)
-                                        val buttonSnapshot = windowSnapshot?.dialog?.let { layer ->
-                                            layer.foreground.cropToAnchoredBounds(sourceBoundsInSnapshot.translate(-layer.windowBounds.topLeft))
-                                        } ?: fullSnapshot?.cropToAnchoredBounds(sourceBoundsInSnapshot)
+                                        val buttonSnapshot = fullSnapshot?.cropToAnchoredBounds(sourceBoundsInSnapshot)
                                         com.xiaomanjun.sleepdownschedule.glass.GlassBackendTrace.durationSince(
                                             "Detail.InputThroughCapture", detailInputNanos
                                         )
                                         val captured = anchor.copy(bitmap = buttonSnapshot)
                                         return pending.copy(openingAnchor = captured, returnAnchorProvider = returnAnchor(captured),
-                                            backgroundBitmap = fullSnapshot, backgroundDialog = windowSnapshot?.dialog)
+                                            backgroundBitmap = fullSnapshot)
                                     }
                                     // The destination must not race the draft write. Keeping the real button in
                                     // place while saving gives the translucent destination an unchanged live
@@ -2710,7 +2657,6 @@ fun CourseScheduleAppUi(
         HomeBackgroundBlurLayer(
             blurProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.progress.value) },
             useFrozenHomeScene = useFrozenHomeMorphBlur,
-            closing = { homeBackgroundBlurClosing || courseShortcuts.closing },
             retainedScene = screenGraphicsLayer,
             prepareScene = prepareScene@ { freeze ->
                 val frameSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
@@ -2935,8 +2881,8 @@ fun CourseScheduleAppUi(
                         Box(Modifier.fillMaxSize()
                             .drawWithContent { if (rootPageMotion.retains(false)) drawContent() }
                             .homeSwitchLayer(rootPageMotion, secondary = false, pageClip = HomeSwitchClip.Page)
-                            .glassBackdropProducer(courseWallpaperBackdrop, recordKey = courseWallpaperRecordKey,
-                                enabled = courseMaterialsEnabled || kitCourseMaterials)) {
+                            .then(if (courseMaterialsEnabled || kitCourseMaterials)
+                                courseWallpaperSampling.filtered.sourceModifier(courseWallpaperRecordKey) else Modifier)) {
                         if (!visualState.loaded) {
                             HomeBackdropFallback(
                                 noWallpaper = !visualState.config.hasAnyWallpaper()
@@ -2986,12 +2932,6 @@ fun CourseScheduleAppUi(
                         WallpaperToneOverlay(visualState.config, personalizationPreviewState)
                     }
                 }
-                if (sharedCourseBackdrop != null) {
-                    Box(Modifier.fillMaxSize()
-                        .drawWithContent { if (rootPageMotion.retains(false)) drawContent() }
-                        // Pixel content is independent of the page transform. Cards read their live offset.
-                        .then(sharedCourseBackdrop.preRenderModifier(courseWallpaperRecordKey)))
-                }
                 Box(Modifier.fillMaxSize()
                     .onGloballyPositioned { courseBackdropViewport.update(it.boundsInWindow()) }
                     .glassBackdropProducer(contentBackdrop)) {
@@ -3025,11 +2965,11 @@ fun CourseScheduleAppUi(
                                     displayWeek = homeDisplayWeek,
                                     returnToCurrentWeekRequest = returnHomeWeekRequest,
                                     displayDate = homeDisplayDate,
-                                    backdrop = courseWallpaperBackdrop,
+                                    backdrop = courseWallpaperSampling,
                                     dayAgentBackdrop = dayAgentBackdrop,
                                     // Dragged week cards must not sample contentBackdrop/chromeBackdrop:
                                     // they live inside contentBackdrop, so sampling it can recursively include themselves.
-                                    floatingCourseBackdrop = backgroundBackdrop,
+                                    floatingCourseBackdrop = courseWallpaperSampling,
                                      weekHeaderBackdrop = backgroundBackdrop,
                                     onSwipeWeek = { delta -> homeDisplayWeek = (homeDisplayWeek + delta).coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1)) },
                                     onWeekHeaderPreview = { homeWeekHeaderPreview.value = it },
@@ -4123,7 +4063,6 @@ fun CourseScheduleAppUi(
                     showManagedFreeAiOffer = false
                 }
             ),
-            backdrop = chromeBackdrop,
             config = state.config,
             onDismissRequest = {
                 AiImportSettingsStore.declineManagedFreeAi(context)
@@ -4150,7 +4089,6 @@ fun CourseScheduleAppUi(
                     SleepDownRemoteConfig.acceptAgreement(context, agreement)
                 }
             ),
-            backdrop = chromeBackdrop,
             config = state.config,
             onDismissRequest = {}
         )
@@ -4163,7 +4101,6 @@ fun CourseScheduleAppUi(
                     SleepDownRemoteConfig.markNoticeShown(context, notice)
                 }
             ),
-            backdrop = chromeBackdrop,
             config = state.config,
             onDismissRequest = {
                 SleepDownRemoteConfig.markNoticeShown(context, notice)
@@ -4199,7 +4136,6 @@ fun CourseScheduleAppUi(
                         )
                     }
                 ),
-                backdrop = chromeBackdrop,
                 config = state.config,
                 onDismissRequest = { upcomingHoliday = null }
             )
@@ -4482,7 +4418,7 @@ fun CourseScheduleAppUi(
             }
             val animatedDialogContent: @Composable () -> Unit = {
                 AnimatedVisibility(
-                    visible = homeDialogVisible || com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSurface.current,
+                    visible = homeDialogVisible || com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalControlDialogSurface.current,
                     enter = popEnterTransition(),
                     exit = popExitTransition()
                 ) {

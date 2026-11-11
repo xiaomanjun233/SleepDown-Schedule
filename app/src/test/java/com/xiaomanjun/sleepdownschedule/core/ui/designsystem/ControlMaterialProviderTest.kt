@@ -24,7 +24,7 @@ class ControlMaterialProviderTest {
         val native = mutableStateOf(true)
         var mounted = 0
         var disposed = 0
-        val renderers = ControlMaterialRenderers(alert = {
+        val renderers = ControlMaterialRenderers(courseCard = { _, _ ->
             DisposableEffect(Unit) {
                 mounted++
                 onDispose { disposed++ }
@@ -33,10 +33,10 @@ class ControlMaterialProviderTest {
         })
         compose.setContent {
             ProvideControlMaterials(if (native.value) renderers else ControlMaterialRenderers.LiquidGlass) {
-                val renderer = LocalNativeAlertRenderer.current
+                val renderer = LocalNativeCourseCardRenderer.current
                 val courseMode = LocalNativeCourseCardMode.current
-                renderer?.invoke(NativeAlertRequest("", "", emptyList(), false, {},
-                    androidx.compose.ui.unit.Dp(200f), false, null))
+                renderer?.invoke(NativeMaterialSurfaceRequest(androidx.compose.ui.Modifier,
+                    com.kyant.shapes.Capsule(), false)) {}
                 SideEffect {
                     if (!native.value) {
                         assertNull(renderer)

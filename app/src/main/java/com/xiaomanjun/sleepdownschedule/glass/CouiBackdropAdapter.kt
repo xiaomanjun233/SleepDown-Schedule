@@ -20,3 +20,21 @@ internal fun rememberCouiGlassBackdrop(backdrop: Backdrop): CouiBackdrop {
         release = { GlassSourceDemand.release(sources) },
         draw = { scope, target -> with(drawable) { scope.drawBackdrop(scope, target) } })
 }
+
+/** A shared window can feed either material without creating another source or snapshot. */
+@Composable
+internal fun rememberGlassWindowBackdrop(source: CouiBackdrop): Backdrop {
+    source.RetainWhileComposed()
+    return remember(source) {
+        object : Backdrop {
+            override val isCoordinatesDependent = true
+            override fun androidx.compose.ui.graphics.drawscope.DrawScope.drawBackdrop(
+                density: androidx.compose.ui.unit.Density,
+                coordinates: androidx.compose.ui.layout.LayoutCoordinates?,
+                layerBlock: (androidx.compose.ui.graphics.GraphicsLayerScope.() -> Unit)?,
+            ) {
+                coordinates?.takeIf { it.isAttached }?.let { source.draw(this, it) }
+            }
+        }
+    }
+}

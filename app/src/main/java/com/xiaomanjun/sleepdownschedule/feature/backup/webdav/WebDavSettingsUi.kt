@@ -5,7 +5,6 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardActions
@@ -315,8 +314,7 @@ internal fun WebDavSettingsScreen(state: AppState, backdrop: Backdrop?, onOpenPr
     overwrite?.let { entry ->
         LiquidAlertDialog(title = "覆盖远端备份？", message = "将用当前数据替换「${entry.name}」。该远端文件原有内容将被覆盖，本机数据不会改变。",
             actions = listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { overwrite = null },
-                LiquidAlertAction("覆盖", LiquidAlertActionStyle.Destructive) { overwrite = null; upload(entry) }),
-            backdrop = backdrop, config = state.config, onDismissRequest = { overwrite = null })
+                LiquidAlertAction("覆盖", LiquidAlertActionStyle.Destructive) { overwrite = null; upload(entry) }), config = state.config, onDismissRequest = { overwrite = null })
     }
 }
 

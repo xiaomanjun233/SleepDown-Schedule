@@ -49,7 +49,6 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.onClick
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -72,13 +71,11 @@ import com.xiaomanjun.sleepdownschedule.domain.course.WeekCourseSegment
 import com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseWeekDisplayFragments
 import com.xiaomanjun.sleepdownschedule.domain.schedule.customTimeRangeOrNull
-import com.xiaomanjun.sleepdownschedule.domain.schedule.courseNeedsSupplementaryWeekRow
 import com.xiaomanjun.sleepdownschedule.exactTimeWeekPlacement
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorWeekGrid
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.LocalCourseEditorFlightRegistry
 import com.xiaomanjun.sleepdownschedule.feature.home.adaptiveWeekCardCornerRadius
 import com.xiaomanjun.sleepdownschedule.feature.home.currentWindowSizeDp
-import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeReadableText
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.occurrenceOverrideKey
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSwitchGroup
@@ -89,12 +86,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseCopy
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseRemoval
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.courseCopyGridTap
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.courseShortcutPivot
-import com.xiaomanjun.sleepdownschedule.glass.CourseGlassRestoreGroup
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
-import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
-import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassRestorePlan
-import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassRestoreRegistry
-import com.xiaomanjun.sleepdownschedule.glass.courseGlassRestoreGroupKey
 import com.xiaomanjun.sleepdownschedule.glass.ui.CourseGlassCard
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassSurface
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
@@ -235,7 +227,6 @@ private fun WeekDayColumn(
     onDeleteSingleWeekCourse: (CourseEntity) -> Unit = {},
     onCourseClick: (CourseEntity, Rect?) -> Unit,
     onDragStateChanged: (dayIndex: Int?, courseId: Long?) -> Unit = { _, _ -> },
-    occlusionMaterialMounted: Boolean = true,
     draggingCourseId: Long? = null,
     activeOverlayCourseId: Long? = null,
     activeOverlayTargetKey: String? = null,
@@ -248,7 +239,6 @@ private fun WeekDayColumn(
 ) {
     val density = LocalDensity.current
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
-    val courseGlassRestorePlan = LocalCourseGlassRestorePlan.current
     val timeLabelStyle = weekCourseTimeLabelStyle()
     val timeLabelMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
     val timeLabelHeight = with(density) {
@@ -380,9 +370,7 @@ private fun WeekDayColumn(
                     onDragWeekEditOverlay = onDragWeekEditOverlay,
                     onFinishMoveOverlay = onFinishMoveOverlay,
                     onFinishResizeOverlay = onFinishResizeOverlay,
-                    onCancelWeekEditOverlay = onCancelWeekEditOverlay,
-                    occlusionMaterialMounted = occlusionMaterialMounted &&
-                        courseGlassRestorePlan.mountsGroup(courseGlassRestoreGroupKey(editWeek, listOf(glassCandidateId)))
+                    onCancelWeekEditOverlay = onCancelWeekEditOverlay
                 )
                 segment.course.customTimeRangeOrNull()?.let { (start, end) ->
                     val labelColor = glassForegroundColor(config)
@@ -610,30 +598,8 @@ fun WeekCourseColumnsLayer(
             day to if (occupied.size > 1) index.toFloat() / (occupied.size - 1) else 0.5f
         }.toMap()
     }
-    val courseGlassRestoreRegistry = LocalCourseGlassRestoreRegistry.current
-    val courseGlassOcclusionPhase = LocalCourseGlassOcclusionPhase.current
     var draggingDayIndex by remember { mutableStateOf<Int?>(null) }
     var draggingCourseId by remember { mutableStateOf<Long?>(null) }
-    // The restore coordinator now owns one material unit per card, never a sampled group.
-    val restoreCards = remember(renderedSegmentsByDay, weekdays, editWeek) {
-        weekdays.flatMapIndexed { column, day ->
-            renderedSegmentsByDay[day].orEmpty().map { rendered ->
-                CourseGlassRestoreGroup(
-                    key = courseGlassRestoreGroupKey(editWeek, listOf(
-                        weekGlassCandidateId(day, rendered.segment, rendered.groupIndex)
-                    )),
-                    pageWeek = editWeek,
-                    normalizedCenterX = (column + 0.5f) / weekdays.size.coerceAtLeast(1)
-                )
-            }
-        }
-    }
-    SideEffect {
-        courseGlassRestoreRegistry?.replacePage(editWeek, restoreCards, courseGlassOcclusionPhase.usesFrozenGroupPlan)
-    }
-    DisposableEffect(courseGlassRestoreRegistry, editWeek) {
-        onDispose { courseGlassRestoreRegistry?.removePage(editWeek) }
-    }
     // The pager path supplies a zero offset. Keeping a full-grid layer at rest clips the
     // outermost columns' glass differently from the cards in the middle.
     val gridMoving = layerOffset.isRunning || layerOffset.value != 0f || gestureOffset() != 0f
@@ -781,7 +747,6 @@ fun WeekCourseColumnsLayer(
                             draggingDayIndex = dayIndex
                             draggingCourseId = courseId
                         },
-                        occlusionMaterialMounted = true,
                         draggingCourseId = draggingCourseId,
                         activeOverlayCourseId = activeOverlayCourseId,
                         activeOverlayTargetKey = activeOverlayTargetKey,

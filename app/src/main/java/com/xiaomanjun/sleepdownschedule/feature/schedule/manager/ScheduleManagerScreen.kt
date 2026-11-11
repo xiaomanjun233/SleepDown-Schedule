@@ -6,13 +6,11 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -27,8 +25,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
@@ -36,13 +32,9 @@ import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.SettingsDetailActivity
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsDetailPageExtra
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CenterLiquidDialog
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogCapsuleField
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidDialogHeader
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionButton
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
@@ -50,7 +42,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
-import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.legacy.ScheduleCustomizeIdExtra
 import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
@@ -199,7 +190,6 @@ fun ScheduleManagerScreen(
                     onDeleteSchedule(targetId)
                 }
             ),
-            backdrop = backdrop,
             config = state.config,
             onDismissRequest = { deleteTarget = null }
         )
@@ -215,15 +205,7 @@ fun ScheduleNameDialog(
     onConfirm: (String) -> Unit,
     onDismiss: () -> Unit
 ) {
-    var name by remember { mutableStateOf(initialName) }
-    if (LocalHomeMaterialControls.current.NameDialog(
-            title, name, appUsesDarkTheme(config), null, onDismiss, onConfirm,
-            onDraftChange = { name = it })) return
-    val textColor = glassForegroundColor(config)
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        CenterLiquidDialog(backdrop = backdrop, config = config) {
-            LiquidDialogHeader(title, onDismiss, backdrop, config, onConfirm = { onConfirm(name.trim()) })
-            DialogCapsuleField(name, { name = it }, "课表名称", config, Modifier.fillMaxWidth().padding(horizontal = 16.dp))
-        }
-    }
+    com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ControlNameDialog(
+        title, initialName, appUsesDarkTheme(config), null, onDismiss, onConfirm, {}
+    )
 }

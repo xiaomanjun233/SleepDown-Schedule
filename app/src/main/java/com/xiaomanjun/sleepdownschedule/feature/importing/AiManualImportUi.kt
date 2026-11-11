@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -921,7 +920,6 @@ fun NormalizedAiManualImportScreen(
                     }
                 )
             ),
-            backdrop = backdrop,
             config = state.config,
             onDismissRequest = { showAiTokenRepairPrompt = false }
         )
@@ -958,9 +956,9 @@ private fun AiManualImportDialogContent(
     onOpenHistoryEntry: (AiImportHistoryEntry, Rect) -> Unit,
     onPrimaryAction: () -> Unit
 ) {
-    val nativeHeading = LocalNativeDialogHeading.current
+    val nativeHeading = LocalControlDialogHeading.current
     val nativeChrome = nativeHeading != null
-    val nativeSurface = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSurface.current
+    val nativeSurface = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalControlDialogSurface.current
     val materialForeground = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialForeground.current
         .takeUnless { it == ComposeColor.Unspecified }
     // A home morph owns wallpaper contrast; standalone native dialogs follow the app theme.

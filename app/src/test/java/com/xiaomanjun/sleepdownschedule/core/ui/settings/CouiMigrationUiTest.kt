@@ -25,8 +25,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.platform.coloros.CouiCapsuleButtonRenderer
-import com.xiaomanjun.sleepdownschedule.platform.coloros.CouiPickerDialog
+import com.xiaomanjun.sleepdownschedule.platform.coloros.rememberGlowButtonMaterial
 import com.xiaomanjun.sleepdownschedule.platform.coloros.ProvideCouiMaterials
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.ScheduleNameDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
@@ -111,9 +110,9 @@ class CouiMigrationUiTest {
             MaterialTheme(colorScheme = darkColorScheme(primary = accent)) {
                 ProvideControlMaterials(ControlMaterialRenderers(button = { request, content ->
                     primary = request.primaryColor
-                    CouiCapsuleButtonRenderer(request, content)
+                    rememberGlowButtonMaterial(request, content)
                 })) {
-                    CompositionLocalProvider(LocalNativeDialogSurface provides dialogSurface.value) {
+                    CompositionLocalProvider(LocalControlDialogSurface provides dialogSurface.value) {
                     Box(Modifier.fillMaxSize().testTag("page")) {
                         SettingsActionButton("测试实时活动", backdrop, {}, glowing = true, badgeText = "实验功能",
                             modifier = Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp, vertical = 18.dp).fillMaxWidth())
@@ -173,10 +172,10 @@ class CouiMigrationUiTest {
                 MaterialTheme {
                     ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
                         Box(Modifier.fillMaxSize().testTag("idle-page").then(source)) {
-                            CouiPickerDialog(PickerDialogRequest(show.value, "选择", false,
-                                { show.value = false }, null, null, null, null, false) {
+                            ControlPickerDialog(PickerDialogRequest(show.value, "选择", false,
+                                { show.value = false }, null, null, null, null, false, content = {
                                 androidx.compose.material3.Text("内容")
-                            })
+                            }))
                         }
                     }
                 }
@@ -217,10 +216,10 @@ class CouiMigrationUiTest {
                 MaterialTheme {
                     ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false) { source ->
                         Box(Modifier.fillMaxSize().then(source)) {
-                            CouiPickerDialog(PickerDialogRequest(show.value, "选择", false,
-                                { show.value = false }, null, null, null, null, false) {
+                            ControlPickerDialog(PickerDialogRequest(show.value, "选择", false,
+                                { show.value = false }, null, null, null, null, false, content = {
                                 androidx.compose.material3.Text("动画中的内容")
-                            })
+                            }))
                         }
                     }
                 }
@@ -262,11 +261,11 @@ class CouiMigrationUiTest {
                     effectiveMode = VisualEffectMode.ColorOsGlow, couiKitAvailable = true)) {
                     ProvideCouiMenuBackdrop { source ->
                         Box(Modifier.fillMaxSize().then(source)) {
-                            CouiPickerDialog(PickerDialogRequest(true, "选择时间", false, {}, null, null,
+                            ControlPickerDialog(PickerDialogRequest(true, "选择时间", false, {}, null, null,
                                 listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) {},
-                                    LiquidAlertAction("确定", LiquidAlertActionStyle.Primary) {}), null, false) {
+                                    LiquidAlertAction("确定", LiquidAlertActionStyle.Primary) {}), null, false, content = {
                                 SettingsTimePickerContent(450, 0..1439) { }
-                            })
+                            }))
                         }
                     }
                 }
@@ -302,7 +301,7 @@ class CouiMigrationUiTest {
                                 com.xiaomanjun.sleepdownschedule.feature.schedule.picker.QuickScheduleSettingsSheets(
                                     draft.value, defaultConfig(), backdrop, { draft.value = it }, { draft.value = null }, {},
                                     { _, done -> saves++; done() }, suppressDetailedButton = false,
-                                    onDetailedSettings = { _, _, _, _ -> })
+                                    onDetailedSettings = { _, _, _, _, _ -> })
                             }
                         }
                     }
@@ -450,13 +449,13 @@ class CouiMigrationUiTest {
             MaterialTheme {
                 ProvideCouiMenuBackdrop { source ->
                     Box(Modifier.fillMaxSize().then(source)) {
-                        CouiPickerDialog(PickerDialogRequest(show.value, "时间", false,
-                            { show.value = false }, { completions++ }, null, null, null, false) {
+                        ControlPickerDialog(PickerDialogRequest(show.value, "时间", false,
+                            { show.value = false }, { completions++ }, null, null, null, false, content = {
                             val window = rememberCouiWindowBackdrop()
-                            val nativeSurface = LocalNativeDialogSurface.current
+                            val nativeSurface = LocalControlDialogSurface.current
                             SideEffect { assertNotNull(window); assertTrue(nativeSurface) }
                             androidx.compose.material3.Text("选择草稿")
-                        })
+                        }))
                     }
                 }
             }

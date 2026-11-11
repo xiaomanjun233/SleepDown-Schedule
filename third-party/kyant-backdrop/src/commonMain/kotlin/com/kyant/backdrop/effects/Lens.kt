@@ -61,7 +61,7 @@ fun BackdropEffectScope.lens(
 }
 
 private val BackdropEffectScope.cornerRadii: FloatArray?
-    get() = when (val shape = shape) {
+    get() = when (val shape = (shape as? RefractionShape)?.geometry ?: shape) {
         is RoundedRectangularShape -> {
             val corners = shape.corners(size, layoutDirection, this)
             floatArrayOf(

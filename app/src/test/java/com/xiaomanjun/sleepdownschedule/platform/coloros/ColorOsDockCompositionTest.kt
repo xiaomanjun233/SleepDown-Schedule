@@ -27,10 +27,10 @@ import com.xiaomanjun.sleepdownschedule.core.ui.material.VisualEffectsState
 import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
 import com.itos.coui.backdrop.rememberCouiBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
-import com.xiaomanjun.sleepdownschedule.glass.CourseWallpaperSampling
-import com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.CourseMaterialSampling
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
-import com.kyant.backdrop.backdrops.SharedBlurBackdrop
+import com.kyant.backdrop.backdrops.MaterialBackdrop
+import com.kyant.backdrop.backdrops.MaterialBackdropFilter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -101,7 +101,6 @@ class ColorOsDockCompositionTest {
             }
             CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
                 effectiveMode = VisualEffectMode.ColorOsGlow,
-                colorOsAvailable = false,
                 couiKitAvailable = true,
             )) {
                 NativeHomeDockChrome(
@@ -167,11 +166,11 @@ class ColorOsDockCompositionTest {
                 mutableStateOf<com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPixels?>(null)
             }
             val shared = remember(source, pixels) {
-                CourseWallpaperSampling(SharedBlurBackdrop(source, pixels, false), wallpaper) { 1f }
+                CourseMaterialSampling(MaterialBackdrop(source).apply { filter = MaterialBackdropFilter(pixels) }, wallpaper) { 1f }
             }
             val fallback = rememberUpdatedState<@Composable () -> Unit> { Box(Modifier.size(64.dp)) }
-            CompositionLocalProvider(LocalSharedCourseBackdrop provides shared) {
-                CourseSamplerConsumer(receive)
+            androidx.compose.foundation.layout.Box {
+                CourseSamplerConsumer(shared, receive)
                 NativeHomeDockChrome(
                     visible = true, selectedIndex = 1, dark = false,
                     dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
@@ -203,7 +202,7 @@ private fun NativeCoursePreviewConsumer(receive: (Pair<Float, Float>) -> Unit) {
 }
 
 @Composable
-private fun CourseSamplerConsumer(receive: (Float) -> Unit) {
-    val sampler = LocalSharedCourseBackdrop.current
-    SideEffect { receive(requireNotNull(sampler).filtered.radiusPx) }
+private fun CourseSamplerConsumer(sampler: CourseMaterialSampling, receive: (Float) -> Unit) {
+    val radius = requireNotNull(sampler.filtered.filter).radiusPx
+    SideEffect { receive(radius) }
 }

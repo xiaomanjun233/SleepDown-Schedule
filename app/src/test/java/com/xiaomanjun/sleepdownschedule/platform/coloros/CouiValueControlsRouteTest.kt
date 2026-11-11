@@ -3,7 +3,7 @@ package com.xiaomanjun.sleepdownschedule.platform.coloros
 import android.app.Application
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.test.junit4.createComposeRule
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCapsuleButtonRenderer
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalButtonMaterial
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeSliderRenderer
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeSwitchRenderer
 import org.junit.Assert.assertTrue
@@ -25,7 +25,7 @@ class CouiValueControlsRouteTest {
         var switch = false
         compose.setContent {
             ProvideCouiMaterials(couiControlsEnabled = true) {
-                val buttonRenderer = LocalNativeCapsuleButtonRenderer.current
+                val buttonRenderer = LocalButtonMaterial.current
                 val sliderRenderer = LocalNativeSliderRenderer.current
                 val switchRenderer = LocalNativeSwitchRenderer.current
                 SideEffect {

@@ -16,7 +16,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSelectedAcc
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColor
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlpha
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassPill
 
 /** Both phone modes use the same Dock cells and material; parallel mode adds one cell. */
@@ -34,8 +33,6 @@ internal fun HomeDockTabs(
     val tabs = if (parallel) listOf(
         R.drawable.ic_day_view to "今日", R.drawable.ic_week_view to "课程表", R.drawable.ic_settings to "设置"
     ) else listOf(R.drawable.ic_week_view to "课程", R.drawable.ic_settings to "设置")
-    if (LocalHomeMaterialControls.current.Dock(tabs, selectedIndex, dark = !lightGlass,
-            modifier = modifier, onSelect = onSelect)) return
     if (backdrop == null) {
         GlassPill(backdrop = null, config = config, modifier = modifier) {
             Row(Modifier.height(54.dp).padding(4.dp), verticalAlignment = Alignment.CenterVertically) {

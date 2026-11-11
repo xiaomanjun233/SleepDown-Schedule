@@ -214,7 +214,6 @@ fun WeekCourseBlock(
     onFinishMoveOverlay: (Velocity) -> Unit = {},
     onFinishResizeOverlay: (Velocity) -> Unit = {},
     onCancelWeekEditOverlay: () -> Unit = {},
-    occlusionMaterialMounted: Boolean = true
 ) {
     val personalizationPreview = LocalPersonalizationPreview.current
     val locationText = course.location.orEmpty()
@@ -784,7 +783,6 @@ fun WeekCourseBlock(
                     .fillMaxWidth()
                     .height(displayedHeight),
                 shape = cardShape,
-                mountMaterial = occlusionMaterialMounted,
                 // Pager owns lifetime; scrolling never toggles a card's material nodes.
                 viewportMaterialVisible = !hiddenByOverlay &&
                     ((activeOverlayCourseId != course.id && !isOverlayTarget) ||

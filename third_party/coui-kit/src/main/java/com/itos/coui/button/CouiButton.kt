@@ -4,12 +4,9 @@ import android.graphics.Paint
 import android.os.Build
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
@@ -167,6 +164,27 @@ fun CouiCapsuleButton(
     content: @Composable RowScope.() -> Unit,
 ) {
     val source = interactionSource ?: remember { MutableInteractionSource() }
+    val surface = rememberCouiCapsuleMaterial(dark, enabled, style, colors, shape,
+        preserveMaterialWhenDisabled, surfaceSheen, backgroundModifier, source, underlayModifier, pressFeedback)
+    CapsuleButtonLayout(modifier, surface, height, contentPadding, source, enabled,
+        onClick = onClick, content = content)
+}
+
+/** A skin only: no content, size, clickable or business callback. */
+@Composable
+fun rememberCouiCapsuleMaterial(
+    dark: Boolean,
+    enabled: Boolean,
+    style: CouiButtonStyle,
+    colors: CouiButtonColors,
+    shape: Shape,
+    preserveMaterialWhenDisabled: Boolean = false,
+    surfaceSheen: (() -> Brush?)? = null,
+    backgroundModifier: Modifier = Modifier,
+    source: MutableInteractionSource,
+    underlayModifier: Modifier = Modifier,
+    pressFeedback: Boolean = Build.VERSION.SDK_INT < 33,
+): Modifier {
     val motion = rememberCouiTouchMotion(enabled)
     val press = rememberCouiPressMotion()
     val (lightInput, drawLight) = rememberCouiSpotlight(
@@ -175,9 +193,7 @@ fun CouiCapsuleButton(
         preset = if (style == CouiButtonStyle.Primary) SpotlightPreset.OpaqueMedium1 else SpotlightPreset.OpaqueMedium2,
         cancelOnConsumedMove = true,
     )
-    Box(
-        modifier = modifier.then(if (height != Dp.Unspecified) Modifier.height(height)
-            else Modifier.heightIn(min = CouiButtonDefaults.minHeight)).graphicsLayer {
+    return Modifier.graphicsLayer {
             scaleX = motion.scaleX.value + press.scale.value - 1f
             scaleY = motion.scaleY.value + press.scale.value - 1f
             translationX = motion.translationX.value
@@ -202,17 +218,6 @@ fun CouiCapsuleButton(
                 style = style,
                 surfaceSheen = surfaceSheen,
             ).couiButtonFeedback(dark, source, enabled, pressFeedback = pressFeedback)
-            .clickable(source, indication = null, enabled = enabled, role = Role.Button, onClick = onClick),
-        contentAlignment = Alignment.Center,
-        propagateMinConstraints = true,
-    ) {
-        Row(
-            (if (height != Dp.Unspecified) Modifier.fillMaxHeight() else Modifier).padding(contentPadding),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically,
-            content = content,
-        )
-    }
 }
 
 /** 同一填色/轮廓装配亦供既有弹窗装饰 API 使用；不复制描边算法。 */

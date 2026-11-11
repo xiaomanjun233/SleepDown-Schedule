@@ -57,25 +57,16 @@ class ScheduleDetailPageUiTest {
         var changes = 0
         compose.setContent {
             CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
-                effectiveMode = VisualEffectMode.ColorOsGlow, colorOsAvailable = true)) {
+                effectiveMode = VisualEffectMode.ColorOsGlow)) {
                 CouiSettingsPageScaffold(title = "通知设置", config = config, showBack = true) { _, source ->
-                    ScheduleSettingsContent(section = SettingsSection.Notifications,
+                    ScheduleNotificationSettingsContent(
                         state = AppState(config = config), backdrop = source,
-                        totalWeeks = "20", onTotalWeeksChange = {}, currentWeek = "1", onCurrentWeekChange = {},
                         leadMinutes = "10", onLeadMinutesChange = {}, notificationsEnabled = reminders,
                         onNotificationsEnabledChange = { reminders = it; changes++ },
                         notificationMode = config.notificationMode, onNotificationModeChange = {},
                         liveUpdateChipTextMode = config.liveUpdateChipTextMode, onLiveUpdateChipTextModeChange = {},
                         liveUpdateActionsEnabled = true, onLiveUpdateActionsEnabledChange = {},
-                        autoCurrentWeek = true, hideEmptyWeekends = false, showNonCurrentWeekCourses = true,
-                        onHideEmptyWeekendsChange = {}, onShowNonCurrentWeekCoursesChange = {},
-                        termStartDate = "2026.09.01", onTermStartDateChange = {},
-                        classDurationMinutes = "45", onClassDurationMinutesChange = {},
-                        breakDurationMinutes = "15", onBreakDurationMinutesChange = {},
-                        morningPeriodCount = 2, noonPeriodCount = 0, afternoonPeriodCount = 0, eveningPeriodCount = 0,
-                        onPeriodCountsChange = { _, _, _, _ -> }, schemeDraft = null, onSchemeDraftChange = {},
-                        onAutoMatchPeriodEnds = {}, periods = emptyList(), onPeriodsChange = {},
-                        detectedWeek = 1, detectedWeekDescription = "第1周", error = null, onPreviewLiveUpdate = {})
+                        onPreviewLiveUpdate = {})
                 }
             }
         }
@@ -98,34 +89,20 @@ class ScheduleDetailPageUiTest {
             afternoonPeriodCount = 0, eveningPeriodCount = 0,
             darkMode = native, followSystemDarkMode = false)
         val periods = listOf(PeriodEntity(1, "08:00", "08:45"), PeriodEntity(2, "09:00", "09:45"))
-        val scheme = PeriodSchemeEntity(id = 7, scheduleId = config.id, name = "测试作息", isActive = true,
-            morningPeriodCount = 2, noonPeriodCount = 0, afternoonPeriodCount = 0, eveningPeriodCount = 0)
-        val draft = SchedulePeriodSchemesDraft(listOf(PeriodSchemeDraft(scheme,
-            periods.map { PeriodSchemeTimeEntity(7, it.periodIndex, it.startTime, it.endTime) })), 7)
         val state = AppState(config = config, periods = periods)
-        val saved = SavedPeriodScheme("test-timetable", "另一套作息", 2, 0, 0, 0,
-            45, 15, "08:00", "12:00", "14:00", "19:00",
-            periods.map { SavedPeriodTime(it.periodIndex, it.startTime, it.endTime) })
         var selections = 0
         var dateCommits = 0
         compose.setContent {
             CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
-                effectiveMode = if (native) VisualEffectMode.ColorOsGlow else VisualEffectMode.LiquidGlass,
-                colorOsAvailable = native)) {
+                effectiveMode = if (native) VisualEffectMode.ColorOsGlow else VisualEffectMode.LiquidGlass)) {
             CouiSettingsPageScaffold(title = "当前课表详细设置", config = config, showBack = true) { _, pageBackdrop ->
-                ScheduleSettingsContentFixed(
+                ScheduleSettingsContent(
                     state = state, backdrop = pageBackdrop.takeIf { Build.VERSION.SDK_INT >= 31 },
-                    totalWeeks = "20", onTotalWeeksChange = {}, currentWeek = "1", onCurrentWeekChange = {},
-                    autoCurrentWeek = true, hideEmptyWeekends = false, showNonCurrentWeekCourses = true,
-                    onHideEmptyWeekendsChange = {}, onShowNonCurrentWeekCoursesChange = {},
-                    termStartDate = "2026.09.01", onTermStartDateChange = { dateCommits++ },
-                    classDurationMinutes = "45", onClassDurationMinutesChange = {},
-                    breakDurationMinutes = "15", onBreakDurationMinutesChange = {},
-                    morningPeriodCount = 2, noonPeriodCount = 0, afternoonPeriodCount = 0, eveningPeriodCount = 0,
-                    onPeriodCountsChange = { _, _, _, _ -> }, schemeDraft = draft, onSchemeDraftChange = {},
-                    onAutoMatchPeriodEnds = {}, periods = periods, onPeriodsChange = {},
-                    detectedWeek = 1, detectedWeekDescription = "第1周", error = null,
-                    periodSchemeLibrary = listOf(saved), onSelectPeriodScheme = { selections++ },
+                    draftConfig = config, totalWeeks = "20", onTotalWeeksChange = {}, currentWeek = "1",
+                    onWeekStartsOnSundayChange = {}, onHideEmptyWeekendsChange = {},
+                    onShowNonCurrentWeekCoursesChange = {}, onTermStartDateChange = { dateCommits++ },
+                    onStartNewTerm = {}, scheduleAdjustmentsJson = "", onScheduleAdjustmentsChange = {},
+                    onOpenPeriodSchemes = { selections++ }, onOpenSpecialCourses = {}, error = null,
                 )
             }
             }
@@ -135,10 +112,7 @@ class ScheduleDetailPageUiTest {
         val autoLabel = compose.onNodeWithText("当前周（自动）", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         org.junit.Assert.assertEquals(weeksLabel.height, autoLabel.height, 1f)
         if (native) writeSettingsVisualArtifact("schedule-detail-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
-        compose.onNodeWithText("本课表作息").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithText("当前作息").performScrollTo().performClick()
-        if (native) writeSettingsVisualArtifact("schedule-miuix-popup-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
-        compose.onNodeWithText("另一套作息").assertIsDisplayed().performClick()
+        compose.onNodeWithText("作息").performScrollTo().performClick()
         compose.runOnIdle { org.junit.Assert.assertEquals(1, selections) }
         compose.onNodeWithText("学期开始日期").performScrollTo().performClick()
         compose.onNodeWithText("选择日期").assertIsDisplayed()

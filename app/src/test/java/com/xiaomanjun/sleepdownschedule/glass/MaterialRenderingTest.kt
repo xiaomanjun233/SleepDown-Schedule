@@ -72,33 +72,20 @@ class MaterialRenderingTest {
                 }
     }
 
-    @Test fun weekDedicatedRefreshStopsInSuperAndWhenBothCourseMaterialsAreOff() {
+    @Test fun weekMotionNeverSchedulesMaterialWarmupFrames() {
         AppMaterialPreferences.setLevel(context, AppMaterialLevel.SUPER_PERFORMANCE)
         MaterialSamplingDiagnostics.reset()
         MaterialSamplingDiagnostics.enabled = true
-        val switches = mutableStateOf(true)
         compose.setContent {
-            val enabled = AppMaterialPreferences.policy.courseSamples(switches.value, switches.value, true)
             val pager = androidx.compose.foundation.pager.rememberPagerState { 1 }
-            val motion = com.xiaomanjun.sleepdownschedule.feature.home.week.rememberWeekPageTailMotion(pager, enabled)
+            val motion = com.xiaomanjun.sleepdownschedule.feature.home.week.rememberWeekPageTailMotion(pager)
             com.xiaomanjun.sleepdownschedule.feature.home.week.WeekPageSamplingScope(
                 motion, 0, androidx.compose.runtime.remember { mutableStateOf(false) }) { Box(Modifier.size(50.dp)) }
         }
         compose.waitForIdle()
-        assertEquals(0L, MaterialSamplingDiagnostics.dedicatedRefreshes)
-        compose.runOnIdle { AppMaterialPreferences.setLevel(context, AppMaterialLevel.QUALITY) }
-        compose.waitForIdle()
-        assertTrue(MaterialSamplingDiagnostics.dedicatedRefreshes > 0)
-        compose.runOnIdle { switches.value = false }
-        compose.waitForIdle()
-        compose.runOnIdle { MaterialSamplingDiagnostics.reset(); AppMaterialPreferences.setLevel(context, AppMaterialLevel.SUPER_PERFORMANCE) }
-        compose.waitForIdle()
         compose.runOnIdle { AppMaterialPreferences.setLevel(context, AppMaterialLevel.QUALITY) }
         compose.waitForIdle()
         assertEquals(0L, MaterialSamplingDiagnostics.dedicatedRefreshes)
-        compose.runOnIdle { switches.value = true }
-        compose.waitForIdle()
-        assertTrue(MaterialSamplingDiagnostics.dedicatedRefreshes > 0)
     }
 
     @Test fun superStopsDenseAndProducerDrawsSceneExceptionReleasesThenQualityRecovers() {

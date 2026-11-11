@@ -10,7 +10,6 @@ import android.view.WindowManager
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -18,8 +17,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.unit.IntSize
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshotRegistry
 import kotlin.coroutines.resume
 import kotlin.math.roundToInt
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -39,8 +36,7 @@ internal fun composeDetailMorphSnapshot(underlay: Bitmap, popup: Bitmap): Bitmap
 
 internal data class DetailMorphWindowSnapshot(
     val bitmap: Bitmap,
-    val originInWindow: Offset,
-    val dialog: com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot? = null
+    val originInWindow: Offset
 )
 
 /**
@@ -87,15 +83,6 @@ internal suspend fun captureDetailMorphWindowSnapshot(
         }
         val offset = Offset((overlayScreen[0] - ownerScreen[0] + ownerWindow[0] - left).toFloat(),
             (overlayScreen[1] - ownerScreen[1] + ownerWindow[1] - top).toFloat())
-        val material = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshotRegistry.capture(overlayWindow)
-        if (material != null) {
-            // Keep the copied foreground and the COUI backdrop separate. PixelCopy reads only
-            // the window buffer; flattening it here silently drops BackgroundBlurDrawable.
-            return DetailMorphWindowSnapshot(bitmap, Offset(left.toFloat(), top.toFloat()),
-                com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot(
-                    overlay, Rect(offset, androidx.compose.ui.geometry.Size(overlay.width.toFloat(), overlay.height.toFloat())),
-                    material.bounds.translate(offset), material.cornerRadiusPx, material.dark))
-        }
         canvas.drawBitmap(overlay,
             (overlayScreen[0] - ownerScreen[0] + ownerWindow[0] - left).toFloat(),
             (overlayScreen[1] - ownerScreen[1] + ownerWindow[1] - top).toFloat(), null)

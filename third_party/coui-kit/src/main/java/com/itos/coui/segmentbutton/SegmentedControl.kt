@@ -59,6 +59,8 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
@@ -135,6 +137,9 @@ fun SegmentedControl(
     surfaceModifier: Modifier? = null,
     renderer: CouiFloatingRenderer? = if (backdrop != null && containerSurfaceEnabled)
         remember { CouiFloatingRenderer.standalone() } else null,
+    // Custom material owns only drawing; the rail still owns geometry, input and selection.
+    indicatorModifier: Modifier? = null,
+    indicatorPressScale: (Float) -> Float = { it },
     flingOnRelease: Boolean = false,
     containerMaterial: com.itos.coui.effect.CouiFloatingMaterial? = null,
 ) {
@@ -218,7 +223,7 @@ fun SegmentedControl(
                             touch.scaleY.value + press.scale.value - 1f, center)
                     }) {
                         clipPath(clip) {
-                            drawSegmentIndicator(motion.rect(geometry, indicatorPress.scale.value), geometry.height,
+                            drawSegmentIndicator(motion.rect(geometry, indicatorPressScale(indicatorPress.scale.value)), geometry.height,
                                 indicatorShape, indicatorDrawing, contour, edgePaint, dark, indicatorColor)
                             // 直接混合已绘制材质，不能先写进透明内容层。
                             light?.invoke(this)
@@ -250,7 +255,8 @@ fun SegmentedControl(
                         // 原厂 Path 分支的容器裁剪持续覆盖指示器及其径向投影。
                         clipPath(background) {
                             if (containerSurfaceEnabled && surfaceModifier == null) drawRect(containerColor)
-                            drawSegmentIndicator(motion.rect(geometry, indicatorPress.scale.value), geometry.height,
+                            if (indicatorModifier == null) drawSegmentIndicator(
+                                motion.rect(geometry, indicatorPressScale(indicatorPress.scale.value)), geometry.height,
                                 indicatorShape, indicatorDrawing, null, edgePaint, dark, indicatorColor)
                             light?.invoke(this)
                         }
@@ -266,6 +272,16 @@ fun SegmentedControl(
                 }
             }.onGloballyPositioned { lightCoordinates = it }
                 .then(content).clip(if (floating) CouiCapsuleShape else indicatorShape)) {
+                if (indicatorModifier != null) {
+                    Box(Modifier.layout { measurable, constraints ->
+                        val rect = motion.rect(geometry, indicatorPressScale(indicatorPress.scale.value))
+                        val child = measurable.measure(Constraints.fixed(
+                            rect.width.roundToInt().coerceAtLeast(0), rect.height.roundToInt().coerceAtLeast(0)))
+                        layout(constraints.maxWidth, constraints.maxHeight) {
+                            child.place(rect.left.roundToInt(), rect.top.roundToInt())
+                        }
+                    }.then(indicatorModifier))
+                }
                 Row(Modifier.fillMaxSize().padding(horizontal = with(density) { padding.toDp() })
                     .onGloballyPositioned { inputCoordinates = it }
                     .pointerInput(geometry, labels, enabled, commitOnRelease, containerSurfaceEnabled, flingDecay) {
@@ -281,7 +297,7 @@ fun SegmentedControl(
                             }
                             session.begin(current.value)
                             val downPosition = down.position + Offset(padding.toFloat(), 0f)
-                            val indicator = motion.rect(geometry, indicatorPress.scale.value).inflate(10f)
+                            val indicator = motion.rect(geometry, indicatorPressScale(indicatorPress.scale.value)).inflate(10f)
                             val startTab = geometry.hit(downPosition.x)
                             var dragging = startTab == current.value || indicator.contains(downPosition)
                             val indicatorSize = IntSize(motion.indicatorWidth.roundToInt(), geometry.indicatorHeight.roundToInt())

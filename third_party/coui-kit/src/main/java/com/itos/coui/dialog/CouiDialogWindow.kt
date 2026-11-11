@@ -182,11 +182,12 @@ internal fun CouiDialogWindow(
         else if (motionStarted) translation.value else null }
     val frameAlpha: () -> Float = { if (visible == null || placement == CouiDialogPlacement.Bottom) 1f else opacity.value }
     val windowBackdrop = backdrop ?: LocalCouiMenuBackdrop.current
+    val skin = LocalDialogMaterialSkin.current
     if (material != null) {
         check(Build.VERSION.SDK_INT >= 33) { "弹窗项目材质要求 Android 13 或更高版本" }
         checkNotNull(windowBackdrop) { "弹窗项目材质需要宿主提供不包含弹窗自身的窗口背景源" }
-        windowBackdrop.RetainWhileComposed()
     }
+    if (material != null || skin != null) windowBackdrop?.RetainWhileComposed()
     val context = LocalContext.current
     // 原厂读取 Activity 的导航 inset；在进入 Dialog 窗口前读取，避免重复消费后的零值。
     val density = LocalDensity.current
@@ -350,16 +351,19 @@ private fun DialogCard(
     onCardPositioned: (LayoutCoordinates) -> Unit,
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val blur = if (material != null) rememberCouiKawaseBlur(checkNotNull(backdrop), colors.surface, material.blurRadius) else null
-    val materialEffect = if (Build.VERSION.SDK_INT >= 33 && material != null)
+    val skin = LocalDialogMaterialSkin.current
+    val customSurface = skin?.surface(backdrop, shape, dark) { frameScale(); frameTranslationY() }
+    val blur = if (customSurface == null && material != null) rememberCouiKawaseBlur(checkNotNull(backdrop), colors.surface, material.blurRadius) else null
+    val materialEffect = if (customSurface == null && Build.VERSION.SDK_INT >= 33 && material != null)
         rememberCouiMaterialEffect(material.mix, material.blend, material.blendMode) else null
     val composeMaterialEffect = remember(materialEffect) { materialEffect?.asComposeRenderEffect() }
-    val layer = rememberGraphicsLayer()
+    val layer = if (customSurface == null) rememberGraphicsLayer() else null
     val recordingDensity = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val edgePaint = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
     val samplingCoordinates = remember { CouiSamplingCoordinates() }
     // 外层只记录到位后的锚点；动画仅作用于内层，采样显式应用同一变换的逆矩阵。
+    androidx.compose.runtime.CompositionLocalProvider(LocalDialogUnderlay provides backdrop) {
     Box(modifier.onGloballyPositioned(samplingCoordinates::update)) {
     Box(Modifier.fillMaxWidth().graphicsLayer {
         val scale = frameScale()
@@ -369,12 +373,12 @@ private fun DialogCard(
         translationX = size.width * (1f - scale) / 2f
         translationY = size.height * (1f - scale) / 2f + (frameTranslationY() ?: (size.height + bottomPaddingPx))
         alpha = frameAlpha()
-    }.onGloballyPositioned(onCardPositioned).clip(shape).drawBehind {
+    }.onGloballyPositioned(onCardPositioned).clip(shape).then(customSurface ?: Modifier.drawBehind {
         val scale = frameScale()
         val sampleTranslation = Offset(size.width * (1f - scale) / 2f,
             size.height * (1f - scale) / 2f + (frameTranslationY() ?: (size.height + bottomPaddingPx)))
         val target = samplingCoordinates.coordinates
-        if (Build.VERSION.SDK_INT >= 33 && blur != null && materialEffect != null &&
+        if (Build.VERSION.SDK_INT >= 33 && blur != null && materialEffect != null && layer != null &&
             target != null && target.isAttached && size.width > 0f && size.height > 0f) {
             layer.renderEffect = composeMaterialEffect
             layer.record(recordingDensity, layoutDirection,
@@ -395,6 +399,7 @@ private fun DialogCard(
                         (if (dark) 2f else 4f) * density) })
             }
         }
-    }, content = content)
+    }), content = content)
+    }
     }
 }

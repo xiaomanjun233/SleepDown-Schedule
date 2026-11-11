@@ -56,7 +56,7 @@ class AboutSettingsUiTest {
         compose.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
-                    effectiveMode = VisualEffectMode.ColorOsGlow, colorOsAvailable = true)) {
+                    effectiveMode = VisualEffectMode.ColorOsGlow)) {
                     var page by remember { mutableStateOf(SettingsPage.About) }
                     var showingNotes by remember { mutableStateOf(false) }
                     val back: () -> Unit = {

@@ -24,7 +24,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceSection
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsPopupBackdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
@@ -249,7 +248,6 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
                 },
                 LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showAuthorization = false },
             ),
-            backdrop = LocalSettingsPopupBackdrop.current ?: backdrop,
             config = config,
             onDismissRequest = { showAuthorization = false },
         )

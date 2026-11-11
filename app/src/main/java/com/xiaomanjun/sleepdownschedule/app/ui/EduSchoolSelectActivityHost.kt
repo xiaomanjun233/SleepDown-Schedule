@@ -31,7 +31,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.asAndroidBitmap
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.boundsInWindow
@@ -356,7 +355,6 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                         onClick = { warehouseManualRefreshing = false }
                                     )
                                 ),
-                                backdrop = backdrop,
                                 config = state.config,
                                 onDismissRequest = { warehouseManualRefreshing = false }
                             )
@@ -368,7 +366,6 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                 actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
                                     warehouseRefreshResultMessage = null
                                 }),
-                                backdrop = backdrop,
                                 config = state.config,
                                 onDismissRequest = { warehouseRefreshResultMessage = null }
                             )

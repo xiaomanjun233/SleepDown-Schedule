@@ -1,7 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
@@ -63,9 +61,7 @@ internal fun HomeJumpWeekDialog(
         onDismissFinished = {
             latestDismissFinished(confirmedWeek)
         },
-        backdrop = backdrop,
         config = config,
-        enableWindowDim = true,
 
         actions = listOf(
             LiquidAlertAction("取消",

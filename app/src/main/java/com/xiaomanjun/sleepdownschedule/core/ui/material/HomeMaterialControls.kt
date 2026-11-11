@@ -8,7 +8,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
 
 internal data class DockImportSource(
@@ -22,30 +21,14 @@ internal data class DockImportSource(
 @Stable
 internal interface HomeMaterialControls {
     @Composable
-    fun Dock(tabs: List<Pair<Int, String>>, selectedIndex: Int, dark: Boolean,
-        modifier: Modifier, onSelect: (Int) -> Unit): Boolean = false
-
-    @Composable
     fun IconButton(iconRes: Int, contentDescription: String, dark: Boolean, interactive: Boolean,
         selected: Boolean, modifier: Modifier, onClick: () -> Unit,
         toolbarNavigation: Boolean = false, enabled: Boolean = true): Boolean = false
 
     @Composable
-    fun ParallelDock(selectedIndex: Int, dark: Boolean, buttonHidden: Boolean, modifier: Modifier,
-        onSelect: (Int) -> Unit, onOpenMenu: (DockImportSource) -> Unit): Boolean = false
-
-    @Composable
-    fun FloatingButtonVisual(dark: Boolean, modifier: Modifier): Boolean = false
-
-    @Composable
     fun SearchField(value: String, onValueChange: (String) -> Unit, dark: Boolean,
         bottomOffset: Dp, entranceProgress: Float, largeScreen: Boolean, modifier: Modifier,
         backdrop: com.kyant.backdrop.Backdrop? = null): Boolean = false
-
-    @Composable
-    fun NameDialog(title: String, initialName: String, dark: Boolean, maxLength: Int?,
-        onDismiss: () -> Unit, onConfirm: (String) -> Unit,
-        onDraftChange: (String) -> Unit = {}): Boolean = false
 
     @Composable
     fun ShortcutMenu(session: Any, bounds: Rect, dark: Boolean, actions: List<AddMenuAction>,

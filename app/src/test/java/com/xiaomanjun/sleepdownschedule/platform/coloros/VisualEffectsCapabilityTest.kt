@@ -11,36 +11,33 @@ class VisualEffectsCapabilityTest {
     fun glowCanUseCouiDockWithoutPrivateColorOsControls() {
         val state = VisualEffectsState(
             effectiveMode = VisualEffectMode.ColorOsGlow,
-            colorOsAvailable = false,
             couiKitAvailable = true,
         )
         assertTrue(state.glowEnabled)
         assertTrue(state.usesCouiControls)
         assertTrue(state.usesCouiDock)
-        assertFalse(state.usesNativeControls)
     }
 
     @Test
-    fun oldSystemKeepsPreferenceAndUsesExistingNativePresentation() {
+    fun unavailableKitDoesNotEnableGlowMaterials() {
         val state = VisualEffectsState(
             effectiveMode = VisualEffectMode.ColorOsGlow,
-            colorOsAvailable = true,
+
             couiKitAvailable = false,
         )
         assertTrue(state.glowEnabled)
         assertFalse(state.usesCouiDock)
-        assertTrue(state.usesNativeControls)
+        assertFalse(state.usesCouiControls)
     }
 
     @Test
     fun liquidModeDoesNotUseEitherGlowRenderer() {
         val state = VisualEffectsState(
             effectiveMode = VisualEffectMode.LiquidGlass,
-            colorOsAvailable = true,
             couiKitAvailable = true,
         )
         assertFalse(state.glowEnabled)
         assertFalse(state.usesCouiDock)
-        assertFalse(state.usesNativeControls)
+        assertFalse(state.usesCouiControls)
     }
 }

@@ -20,7 +20,6 @@ import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LiquidOptionTabs
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDatePickerContent
@@ -61,9 +60,7 @@ internal fun HolidayYearDialog(
         message = "选择要获取的年份。",
         onDismissRequest = onDismiss,
         onDismissFinished = onDismissFinished,
-        backdrop = backdrop,
         config = config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
         actions = listOf(
             LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismiss),
             LiquidAlertAction("获取", LiquidAlertActionStyle.Primary) { onFetch(year) },
@@ -108,10 +105,8 @@ internal fun AdjustmentEditorDialog(
         },
         onDismissRequest = { if (!saving) { if (form) onCancel() else backToForm() } },
         onDismissFinished = onDismissFinished,
-        backdrop = backdrop,
         config = config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
-        couiContentPadding = if (form) CouiPickerFormPadding else PaddingValues(0.dp),
+        contentPadding = if (form) CouiPickerFormPadding else PaddingValues(0.dp),
         contentTransitionKey = page,
         scrollableContent = true,
         smoothContentResize = true,

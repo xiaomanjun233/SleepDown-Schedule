@@ -93,7 +93,6 @@ data class TransitionPayload(
      * Solid underlay color of the source Activity. The moving surface has its own anchor color.
      */
     val backgroundColor: Int? = null,
-    val backgroundDialog: com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot? = null,
     val parentSessionId: TransitionSessionId? = null,
     /**
      * Keeps a source-owned visual handoff alive until a renderer has actually taken ownership.

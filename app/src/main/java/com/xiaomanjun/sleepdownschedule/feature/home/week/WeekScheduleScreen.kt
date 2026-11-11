@@ -59,18 +59,14 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseEntity
-import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.WeekDockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 import com.xiaomanjun.sleepdownschedule.currentTimelinePeriod
-import com.xiaomanjun.sleepdownschedule.domain.schedule.courseWeekDisplayFragments
-import com.xiaomanjun.sleepdownschedule.domain.schedule.courseNeedsSupplementaryWeekRow
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePagerStartOverflow
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeReadableText
 import com.xiaomanjun.sleepdownschedule.feature.home.day.WeekCourseBuckets
-import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.home.day.weekCourseBuckets
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSidebarOverflowClip
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSidebarOverflowViewport
@@ -81,8 +77,6 @@ import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.scheduleWeekStartDate
-import java.time.LocalDate
-import java.time.LocalTime
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -221,10 +215,7 @@ internal fun SinglePillWeekScheduleScreen(
     val latestSwipeWeek by rememberUpdatedState(onSwipeWeek)
     val latestWeekHeaderPreview by rememberUpdatedState(onWeekHeaderPreview)
     val latestWeekJumpSettled by rememberUpdatedState(onWeekJumpSettled)
-    val weekTail = rememberWeekPageTailMotion(pagerState,
-        com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.policy.courseSamples(
-            state.config.courseCardGlassEnabled, state.config.courseCardGaussianBlurEnabled, state.config.hasAnyWallpaper()),
-        tailEnabled = true)
+    val weekTail = rememberWeekPageTailMotion(pagerState)
     val homeSwitching = LocalHomeTextContrastFrozen.current
     LaunchedEffect(pagerState, boundless) {
         try {

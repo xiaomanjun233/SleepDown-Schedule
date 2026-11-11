@@ -23,6 +23,8 @@ fun CouiSegmentedControl(
     height: Dp = CouiSegmentedControlDefaults.height,
     containerSurfaceEnabled: Boolean = true,
     commitOnRelease: Boolean = false,
+    indicatorModifier: Modifier? = null,
+    indicatorPressScale: (Float) -> Float = { it },
     surfaceModifier: Modifier = Modifier.background(
         Color(if (dark) 0xFF292929 else 0xFFEBEBEB), CouiCapsuleShape),
 ) {
@@ -37,5 +39,7 @@ fun CouiSegmentedControl(
         commitOnRelease = commitOnRelease,
         containerSurfaceEnabled = containerSurfaceEnabled,
         surfaceModifier = surfaceModifier,
+        indicatorModifier = indicatorModifier,
+        indicatorPressScale = indicatorPressScale,
     )
 }

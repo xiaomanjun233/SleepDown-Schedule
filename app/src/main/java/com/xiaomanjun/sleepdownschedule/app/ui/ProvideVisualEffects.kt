@@ -38,7 +38,7 @@ internal fun ProvideVisualEffects(content: @Composable () -> Unit) {
             content = {
                 // Keep screen state mounted when switching the window source on or off.
                 ProvideCouiMenuBackdrop(isolateContent = false, recordWhenIdle = false,
-                    enabled = state.usesCouiControls) { source ->
+                    enabled = true) { source ->
                     Box(Modifier.fillMaxSize().then(source)) { content() }
                 }
             },

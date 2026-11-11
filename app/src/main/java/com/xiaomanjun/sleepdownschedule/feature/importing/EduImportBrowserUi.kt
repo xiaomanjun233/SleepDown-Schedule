@@ -66,7 +66,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -113,12 +112,9 @@ import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
 import java.util.Locale
 import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -1549,8 +1545,7 @@ private fun EduImportBrowserScreen(
             title = "使用本机适配",
             message = "发现 ${choices.size} 个适配，无需发送给 AI。请选择当前使用的教务入口。",
             actions = listOf(LiquidAlertAction(label = "取消", style = LiquidAlertActionStyle.Cancel,
-                onClick = { localAdapterChoices = null })),
-            backdrop = buttonBackdrop, config = state.config,
+                onClick = { localAdapterChoices = null })), config = state.config,
             onDismissRequest = { localAdapterChoices = null },
             messageContent = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1560,8 +1555,7 @@ private fun EduImportBrowserScreen(
                             onClick = { localAdapterChoices = null; runLocalAdapter(selected) })
                     }
                 }
-            }, scrollableMessageContent = true, isSelector = true
-        )
+            }, scrollableMessageContent = true)
     }
 }
 

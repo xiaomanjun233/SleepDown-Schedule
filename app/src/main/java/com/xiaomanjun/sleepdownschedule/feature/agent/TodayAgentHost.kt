@@ -85,7 +85,6 @@ fun TodayAgentHost(
                     hasDecision = true
                 }
             ),
-            backdrop = backdrop,
             config = state.config,
             onDismissRequest = {
                 DayAgentPreferences.setEnabled(context, false)

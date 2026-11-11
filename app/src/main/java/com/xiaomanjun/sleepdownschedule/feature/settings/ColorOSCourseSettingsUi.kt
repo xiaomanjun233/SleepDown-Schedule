@@ -302,7 +302,6 @@ internal fun ColorOSCourseSettingsSection(
                     componentError = null
                 }
             ),
-            backdrop = backdrop,
             config = state.config,
             onDismissRequest = { componentError = null }
         )

@@ -52,8 +52,6 @@ import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.CourseCardColorMode
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.glass.ui.CoursePaletteGrid
 import com.xiaomanjun.sleepdownschedule.core.ui.material.controlAccentColor
@@ -270,13 +268,10 @@ internal fun CourseColorEditorDialog(
         show = show,
         title = if (stage == CourseColorDialogStage.Picker) "选择颜色" else "从壁纸取色",
         onDismissRequest = if (stage == CourseColorDialogStage.Wallpaper) returnToPicker else onDismiss,
-        backdrop = backdrop,
         config = config,
         contentSpacing = 14.dp,
         scrollableContent = true,
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-        couiContentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
-        blurRadius = 10.dp,
+        contentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
         actions = if (stage == CourseColorDialogStage.Picker) listOf(
             LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismiss),
             LiquidAlertAction("确认", LiquidAlertActionStyle.Primary, enabled = colors.isNotEmpty(), onClick = onConfirm)

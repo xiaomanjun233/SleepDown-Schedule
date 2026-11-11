@@ -35,7 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.LiquidHomeDockHeight
 import androidx.compose.ui.viewinterop.AndroidView
 import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
-import com.xiaomanjun.sleepdownschedule.platform.coloros.findActivityOrNull
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.findActivity
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
@@ -45,7 +45,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlp
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownFloatingAddButton
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.dockImeCompensationPx
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.excludeParentPullGesture
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
@@ -80,10 +79,6 @@ internal fun ParallelHomeDock(
     val homeSelected = selectedIndex < 2
     val adaptiveGlass = LocalAdaptiveGlass.current
     val light = if (homeSelected) adaptiveGlass.lightGlass else !appUsesDarkTheme(config)
-    if (LocalHomeMaterialControls.current.ParallelDock(
-            selectedIndex = selectedIndex, dark = !light, buttonHidden = buttonHidden,
-            modifier = modifier, onSelect = onSelect, onOpenMenu = onOpenMenu
-        )) return
     val ink by animateColorAsState(
         if (homeSelected) adaptiveGlass.contentColor else if (light) Color.Black else Color.White,
         tween(220), label = "ParallelDockInk")
@@ -103,7 +98,7 @@ internal fun ParallelHomeDock(
     val density = LocalDensity.current
     val recordingDensity = density
     val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
-    val activity = androidx.compose.ui.platform.LocalContext.current.findActivityOrNull()
+    val activity = androidx.compose.ui.platform.LocalContext.current.findActivity()
     val plusView = remember(activity, returnButtonLayer) {
         activity?.let { LiveTransitionSourceView(it, returnButtonLayer, density, direction) }
     }

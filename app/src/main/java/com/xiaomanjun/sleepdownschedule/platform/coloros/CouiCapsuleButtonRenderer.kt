@@ -1,6 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.platform.coloros
 
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.isSpecified
 import androidx.compose.ui.Modifier
@@ -10,11 +9,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSurface
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalControlDialogSurface
 import com.itos.coui.button.CouiButtonDefaults
 import com.itos.coui.button.CouiButtonStyle
-import com.itos.coui.button.CouiCapsuleButton
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCapsuleButtonRequest
+import com.itos.coui.button.rememberCouiCapsuleMaterial
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ButtonMaterialRequest
 import com.xiaomanjun.sleepdownschedule.glass.couiIlluminatedCapsuleMaterial
 
 /**
@@ -22,23 +22,22 @@ import com.xiaomanjun.sleepdownschedule.glass.couiIlluminatedCapsuleMaterial
  * 受光按钮在相同下层源上采样，输入复合区仍由自身的手势 owner 处理。
  */
 @Composable
-internal fun CouiCapsuleButtonRenderer(
-    request: NativeCapsuleButtonRequest,
-    content: @Composable RowScope.() -> Unit,
-): Boolean {
+internal fun rememberGlowButtonMaterial(
+    request: ButtonMaterialRequest,
+    interactionSource: MutableInteractionSource,
+): Modifier? {
     // 输入框复合按钮有自定义命中区域；Kit 普通 clickable 不能接管其整块输入区。
-    if (request.customGestureRegion) return false
+    if (request.customGestureRegion) return null
     val primary = request.primaryColor.isSpecified
     val accent = if (primary) request.primaryColor.copy(alpha = 1f) else Color.Unspecified
     val shape = request.shape ?: CouiButtonDefaults.shape
     val sampled = (!primary || request.translucentAccent || request.lightBackdrop) &&
-        (request.backdrop != null && !LocalNativeDialogSurface.current) &&
+        (request.backdrop != null && !LocalControlDialogSurface.current) &&
         !com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
     val colors = if (primary) CouiButtonDefaults.primaryColors(accent)
         else CouiButtonDefaults.secondaryColors(request.dark, material = true)
-    CouiCapsuleButton(
-        modifier = request.modifier,
-        onClick = request.onClick,
+    return rememberCouiCapsuleMaterial(
+        source = interactionSource,
         dark = request.dark,
         enabled = request.enabled,
         style = if (primary) CouiButtonStyle.Primary else CouiButtonStyle.Secondary,
@@ -49,14 +48,10 @@ internal fun CouiCapsuleButtonRenderer(
             else com.xiaomanjun.sleepdownschedule.glass.couiCapsuleMaterial(
                 request.backdrop, shape, request.dark, accent)
             else Modifier,
-        height = request.height,
-        contentPadding = request.contentPadding,
         preserveMaterialWhenDisabled = request.preserveMaterialWhenDisabled,
         surfaceSheen = request.surfaceSheen,
         underlayModifier = if (request.cardLightShadow) illuminatedButtonShadow() else Modifier,
-        content = content,
     )
-    return true
 }
 
 /** AllThemeButton 的独立底影按 208×44dp 原比例拟合，不依赖系统图片。 */

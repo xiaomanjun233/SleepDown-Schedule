@@ -101,8 +101,6 @@ import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.core.ui.interaction.deviceScreenCornerRadiusPx
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsPickerValueRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsValueRow
@@ -117,7 +115,6 @@ import kotlin.math.abs
 import kotlin.math.ceil
 import kotlin.math.max
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.launch
 
 /** One state machine owns every gesture lock and transition in the picker chain. */
 sealed interface CustomizeUiState {
@@ -299,12 +296,6 @@ private fun QuickScheduleSettingsSheetSession(
     val sheetDiagnostics = remember { android.util.Log.isLoggable("SleepDownSheet", android.util.Log.DEBUG) }
     val sheetDraws = remember { intArrayOf(0) }
     val density = LocalDensity.current
-    val nativeSheet = LocalNativeAlertRenderer.current != null
-    val panelGap = 12.dp
-    val panelBottom = WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding().coerceAtLeast(panelGap)
-    // A floating panel nests inside the physical screen corner, sharing its arc centre.
-    val panelRadius = (with(density) { deviceScreenCornerRadiusPx().toDp() } - panelGap).coerceAtLeast(16.dp)
-    val panelShape = RoundedRectangle(panelRadius)
 
     fun latestDraft(): QuickScheduleDraft? = retainedDraft
 
@@ -359,8 +350,6 @@ private fun QuickScheduleSettingsSheetSession(
         show = draft != null,
         title = "课表设置",
         config = config,
-        renderInPlace = true,
-        cornerRadius = if (nativeSheet) panelRadius else top.yukonga.miuix.kmp.layout.BottomSheetDefaults.cornerRadius,
         startAction = {
             QuickSheetLiquidAction(
                 label = "取消",
@@ -385,9 +374,6 @@ private fun QuickScheduleSettingsSheetSession(
         onDismissRequest = { if (!saving) saveAndDismiss() },
         onDismissFinished = onDismissFinished,
         allowDismiss = !saving,
-        backgroundColor = Color.Transparent,
-        modifier = if (nativeSheet) Modifier.padding(start = panelGap, end = panelGap, bottom = panelBottom) else Modifier,
-        surfaceModifier = Modifier.quickSheetBackdropModifier(backdrop, config, blurRadius = 28.dp),
         contentModifier = Modifier.heightIn(max = 590.dp).semantics { testTag = "quick_schedule_sheet" }
             .then(if (sheetDiagnostics) Modifier.onGloballyPositioned { coords ->
                 android.util.Log.i("SleepDownSheet", "layout size=${coords.size} root=${coords.boundsInRoot()} window=${coords.positionInWindow()}")
@@ -398,23 +384,15 @@ private fun QuickScheduleSettingsSheetSession(
                     android.util.Log.i("SleepDownSheet", "draw size=$size matrix=$matrix")
                 }
                 drawContent()
-            } else Modifier),
-        surfaceContent = if (!nativeSheet) null else { surface ->
-            com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetDialogMaterial(surface, panelShape, backdrop, config)
-        }
-    ) {
-        val sourceWindow = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogWindow.current
+            } else Modifier)) {
+        val sourceWindow = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalControlDialogWindow.current
         val contentView = androidx.compose.ui.platform.LocalView.current
         retainedDraft.let { value ->
             Column(
-                Modifier
-                    .fillMaxWidth()
-                    // The Miuix handle and title's top inset reserve 30dp above the controls.
-                    .then(if (LocalNativeDialogSurface.current) Modifier else Modifier.padding(bottom = 30.dp)),
-                verticalArrangement = Arrangement.spacedBy(if (LocalNativeDialogSurface.current) 10.dp else 14.dp)
+                Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(Modifier.fillMaxWidth().then(if (LocalNativeDialogSurface.current)
-                    Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()) else Modifier)) {
+                Column(Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState())) {
                     QuickScheduleSettingsGroup(backdrop, config) {
                         SettingsTextFieldRow(
                             title = "总周数",
@@ -491,7 +469,7 @@ private fun QuickScheduleSettingsSheetSession(
                         )
                     }
                 }
-                if (!suppressDetailedButton) LiveTransitionButton(Modifier.fillMaxWidth().then(if (LocalNativeDialogSurface.current)
+                if (!suppressDetailedButton) LiveTransitionButton(Modifier.fillMaxWidth().then(if (LocalControlDialogSurface.current)
                     Modifier.padding(horizontal = com.itos.coui.dialog.CouiDialogDefaults.buttonEdgePadding) else Modifier)) { sourceView ->
                     if (backdrop != null) LiquidButton(
                         onClick = {
@@ -577,8 +555,6 @@ private fun QuickScheduleSettingsSheetSession(
         show = showDatePicker && draft != null,
         title = if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) "" else "选择日期",
         config = config,
-        renderInPlace = true,
-        cornerRadius = if (nativeSheet) panelRadius else top.yukonga.miuix.kmp.layout.BottomSheetDefaults.cornerRadius,
         actions = listOf(
             LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showDatePicker = false },
             LiquidAlertAction("确定", LiquidAlertActionStyle.Primary, onClick = ::confirmDateSelection)
@@ -603,14 +579,7 @@ private fun QuickScheduleSettingsSheetSession(
             )
         },
         onDismissRequest = { showDatePicker = false },
-        backgroundColor = Color.Transparent,
-        modifier = if (nativeSheet) Modifier.padding(start = panelGap, end = panelGap, bottom = panelBottom) else Modifier,
-        surfaceModifier = Modifier.quickSheetBackdropModifier(backdrop, config, blurRadius = 28.dp),
-        contentModifier = Modifier.heightIn(max = 330.dp),
-        surfaceContent = if (!nativeSheet) null else { surface ->
-            com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetDialogMaterial(surface, panelShape, backdrop, config)
-        }
-    ) {
+        contentModifier = Modifier.heightIn(max = 330.dp)) {
         val maxDay = daysInMonth(dateYear, dateMonth)
         LaunchedEffect(maxDay) {
             if (dateDay > maxDay) dateDay = maxDay
@@ -628,8 +597,7 @@ private fun QuickScheduleSettingsSheetSession(
                 range = 2000..2100,
                 visibleItemCount = 3,
                 label = { "${it}年" },
-                textStyle = if (LocalNativeDialogSurface.current) top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title2
-                    else top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1,
+                textStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title2,
                 modifier = Modifier.weight(1.25f)
             )
             com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker(
@@ -638,8 +606,7 @@ private fun QuickScheduleSettingsSheetSession(
                 range = 1..12,
                 visibleItemCount = 3,
                 label = { "${it}月" },
-                textStyle = if (LocalNativeDialogSurface.current) top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title2
-                    else top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1,
+                textStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title2,
                 modifier = Modifier.weight(1f)
             )
             com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker(
@@ -648,8 +615,7 @@ private fun QuickScheduleSettingsSheetSession(
                 range = 1..maxDay,
                 visibleItemCount = 3,
                 label = { "${it}日" },
-                textStyle = if (LocalNativeDialogSurface.current) top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title2
-                    else top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1,
+                textStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title2,
                 modifier = Modifier.weight(1f)
             )
         }
@@ -662,25 +628,14 @@ private fun QuickScheduleSettingsGroup(
     config: ScheduleConfigEntity,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
-    if (LocalNativeDialogSurface.current) {
-        if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
-            com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsTheme(config) {
-                androidx.compose.runtime.CompositionLocalProvider(
-                    com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsRowShape provides com.itos.coui.shape.CouiCapsuleShape) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), content = content)
-                }
+    if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
+        com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsTheme(config) {
+            androidx.compose.runtime.CompositionLocalProvider(
+                com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsRowShape provides com.itos.coui.shape.CouiCapsuleShape) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), content = content)
             }
-        } else Column(Modifier.fillMaxWidth(), content = content)
-    } else {
-        SettingsGroup(
-            backdrop = backdrop,
-            config = config,
-            modifier = Modifier.fillMaxWidth(),
-            surfaceModifier = Modifier.quickSheetBackdropModifier(backdrop, config, 16.dp, inner = true),
-            surfaceColorOverride = Color.Transparent,
-            content = { Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), content = content) }
-        )
-    }
+        }
+    } else Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp), content = content)
 }
 
 @Composable
@@ -1245,7 +1200,6 @@ fun SchedulePickerOverlay(
                     onDeleteRequest(profile.id)
                 }
             ),
-            backdrop = dialogBackdrop,
             config = allState.allConfigs.firstOrNull { it.id == profile.id } ?: defaultConfig(profile.id),
             onDismissRequest = { deleteConfirmTarget = null }
         )
@@ -1255,14 +1209,10 @@ fun SchedulePickerOverlay(
         show = showShareOptions,
         title = "分享课表",
         onDismissRequest = { showShareOptions = false },
-        backdrop = dialogBackdrop,
         config = shareConfig,
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-        couiContentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
+        contentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
         scrollableContent = true,
-        contentSpacing = 12.dp,
-        blurRadius = 10.dp
-    ) {
+        contentSpacing = 12.dp) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             QuickSheetLiquidAction(
                 label = "分享短口令",

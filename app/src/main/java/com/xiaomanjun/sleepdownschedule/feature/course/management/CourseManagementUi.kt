@@ -984,7 +984,6 @@ internal fun CourseManagementDetailPage(
                         onClick = ::saveAndReturn
                     )
                 ),
-                backdrop = pickerBackdrop,
                 config = state.config,
                 onDismissRequest = {
                     validationMessage = null
@@ -1009,7 +1008,6 @@ internal fun CourseManagementDetailPage(
                         onClick = { confirmArrangementDeletion(pending) }
                     )
                 ),
-                backdrop = pickerBackdrop,
                 config = state.config,
                 onDismissRequest = { pending.answer.complete(false) }
             )
@@ -1021,7 +1019,6 @@ internal fun CourseManagementDetailPage(
                 actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
                     validationMessage = null
                 }),
-                backdrop = pickerBackdrop,
                 config = state.config,
                 onDismissRequest = { validationMessage = null },
             )

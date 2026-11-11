@@ -6,17 +6,13 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Icon
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,29 +34,25 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import com.kyant.backdrop.Backdrop
-import com.kyant.backdrop.catalog.components.LiquidBottomTab
-import com.kyant.backdrop.catalog.components.LiquidBottomTabs
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSelectedAccentColor
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColor
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlpha
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeFollowLightRenderer
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceActive
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeSegmentRenderer
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ControlSegments
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeFollowLightRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSegmentRequest
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SegmentControlRequest
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Sidebar
 
@@ -82,11 +74,10 @@ internal fun HomeSidebarTabBar(
     onNavigate: (HomeSidebarDestination) -> Unit,
     onExpand: () -> Unit
 ) {
-    val segmentRenderer = LocalNativeSegmentRenderer.current
     val tabContent: @Composable () -> Unit = {
         Box(Modifier.fillMaxWidth().height(48.dp)) {
-            val nativeTabs = segmentRenderer?.invoke(
-                NativeSegmentRequest(
+            ControlSegments(
+                SegmentControlRequest(
                     labels = tabs.map { it.second },
                     selected = tabs.indexOfFirst { it.first == selected }.coerceAtLeast(0),
                     onSelected = { onNavigate(tabs[it].first) },
@@ -98,44 +89,7 @@ internal fun HomeSidebarTabBar(
                     commitOnRelease = true,
                     backdrop = backdrop
                 )
-            ) == true
-            if (!nativeTabs) {
-                CompositionLocalProvider(LocalContentColor provides ink) {
-                    LiquidBottomTabs(
-                        selectedTabIndex = { tabs.indexOfFirst { it.first == selected }.coerceAtLeast(0) },
-                        onTabSelected = { index -> onNavigate(tabs[index].first) },
-                        backdrop = backdrop, tabsCount = tabs.size,
-                        modifier = Modifier.fillMaxWidth(),
-                        containerHeight = 48.dp, indicatorHeight = 40.dp,
-                        blurRadius = homeChromeBlur(1.3.dp, config),
-                        containerAlpha = homeChromeGlassSurfaceAlpha(lightGlass),
-                        lensHeight = 10.dp, lensAmount = 40.dp,
-                        indicatorWidthOverflow = 8.dp, indicatorHeightOverflow = 4.dp,
-                        indicatorLensHeight = 12.dp, indicatorLensAmount = 17.dp,
-                        officialHighlightAlpha = 0.07f, officialShadowAlpha = 0.05f,
-                        officialInnerShadowAlpha = 0.08f, chromaticAberrationEnabled = true,
-                        isLightThemeOverride = lightGlass,
-                        lightContainerColor = HomeLightGlassSurfaceColor,
-                        lightAccentColor = HomeLightGlassSelectedAccentColor,
-                        useOfficialGlassParameters = true,
-                        containerSurfaceEnabled = !moving && !LocalNativeMaterialSurfaceActive.current,
-                        containerShadowEnabled = false,
-                        swipeFromAnyTab = true,
-                        tabInteractionEnabled = enabled,
-                        leadingWidth = 52.dp,
-                        leadingContent = {
-                            // Reserve space only. The toggle owns a later, independent input layer.
-                            Spacer(Modifier.width(52.dp).fillMaxHeight())
-                        }
-                    ) {
-                        tabs.forEach { (destination, label) ->
-                            LiquidBottomTab(onClick = { onNavigate(destination) }) {
-                                Text(label, fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 1)
-                            }
-                        }
-                    }
-                }
-            }
+            )
             // A 36 dp target expanded into the first tab's hit area. Use a full 48 dp target
             // above the indicator so its pressed overflow cannot steal the toggle's DOWN.
             HomeSidebarIconButton(
@@ -165,14 +119,30 @@ internal fun HomeSidebarTabBar(
                     .dropShadow(HomeSidebarTabShape, HomeSidebarTabShadow)
             )
         }
-        val nativeSurface = segmentRenderer != null && LocalNativeMaterialSurfaceRenderer.current?.invoke(
+        val nativeSurface = LocalNativeMaterialSurfaceRenderer.current?.invoke(
             NativeMaterialSurfaceRequest(
                 modifier = Modifier.fillMaxWidth().height(48.dp), shape = HomeSidebarTabShape,
                 dark = !lightGlass, role = NativeMaterialSurfaceRole.HomeNavigation,
                 renderSurface = !moving, elasticTouchFeedback = true, backdrop = backdrop
             ), tabContent
         ) == true
-        if (!nativeSurface) tabContent()
+        if (!nativeSurface) {
+            val material = com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec(
+                role = com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole.Control,
+                blur = homeChromeBlur(1.3.dp, config), lensHeight = 10.dp, lensAmount = 40.dp,
+                surfaceAlpha = homeChromeGlassSurfaceAlpha(lightGlass), borderAlpha = 0f,
+                highlightAlpha = .07f, shadowAlpha = 0f, innerShadowAlpha = 0f,
+                chromaticAberration = true, depthEffect = false)
+            val descriptor = com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor(
+                "HomeNavigation", com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain.ChromeCombined,
+                material.role)
+            val tint = if (lightGlass) HomeLightGlassSurfaceColor else Color(0xFF26272D)
+            Box(Modifier.fillMaxWidth().height(48.dp).then(if (moving) Modifier else
+                Modifier.sleepDownGlassSurface(backdrop, descriptor, material, { HomeSidebarTabShape },
+                    com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame(material.blur,
+                        material.lensHeight, material.lensAmount, useVibrancy = true, chromaticAberration = true),
+                    onDrawSurface = { drawRect(tint.copy(alpha = material.surfaceAlpha)) }))) { tabContent() }
+        }
     }
 }
 

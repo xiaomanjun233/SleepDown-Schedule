@@ -6,19 +6,15 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
@@ -45,8 +41,11 @@ import com.kyant.backdrop.effects.vibrancy
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCapsuleButtonRenderer
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCapsuleButtonRequest
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalButtonMaterial
+import com.itos.coui.button.CapsuleButtonLayout
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ButtonMaterialRequest
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
@@ -71,7 +70,7 @@ private val AcceptAllButtonGestures: (Size, Offset) -> Boolean = { _, _ -> true 
 @Composable
 fun LiquidButton(
     onClick: () -> Unit,
-    backdrop: Backdrop,
+    backdrop: Backdrop?,
     modifier: Modifier = Modifier,
     isInteractive: Boolean = true,
     tint: Color = Color.Unspecified,
@@ -115,7 +114,9 @@ fun LiquidButton(
 ) {
     // Compatibility entry for existing feature buttons. Surface-only hosts (menus, fields,
     // shared gesture shells) retain their own geometry and do not become native click targets.
-    val nativeRenderer = LocalNativeCapsuleButtonRenderer.current
+    val clickInteractionSource = remember { MutableInteractionSource() }
+    val nativeRenderer = LocalButtonMaterial.current
+    var nativeMaterial: Modifier? = null
     if (surfaceEnabled && (clickTargetEnabled || !enabled) && nativeRenderer != null) {
         val inferredAccent = listOf(tint, surfaceColor).firstOrNull { color ->
             color.isSpecified && color.alpha > 0f &&
@@ -124,187 +125,171 @@ fun LiquidButton(
         val accent = nativePrimaryColor?.let { if (it.isSpecified) it.copy(alpha = 1f) else it } ?: inferredAccent
         val dark = nativeDarkOverride ?: if (!accent.isSpecified && surfaceColor.isSpecified && surfaceColor.alpha > 0f)
             surfaceColor.luminance() < 0.5f else MaterialTheme.colorScheme.background.luminance() < 0.5f
-        if (nativeRenderer(NativeCapsuleButtonRequest(onClick, modifier, height, contentPadding, dark,
+        nativeMaterial = nativeRenderer(ButtonMaterialRequest(dark,
                 enabled = enabled, primaryColor = accent, acceptsGesture = interactionEnabledAt,
                 preserveMaterialWhenDisabled = preserveMaterialWhenDisabled,
                 lightBackdrop = nativeLightBackdrop,
                 cardLightShadow = nativeLightShadow,
                 surfaceSheen = surfaceSheen, backdrop = backdrop, shape = shape,
                 customGestureRegion = interactionEnabledAt !== AcceptAllButtonGestures,
-                translucentAccent = nativeTranslucentAccent), content)) {
-            pressSnapshot?.progress = 0f
-            return
+                translucentAccent = nativeTranslucentAccent), clickInteractionSource)
+        if (nativeMaterial != null) pressSnapshot?.progress = 0f
+    }
+    val skin = nativeMaterial ?: run {
+        val interactive = isInteractive && enabled
+        val animationScope = rememberCoroutineScope()
+        val pressed by clickInteractionSource.collectIsPressedAsState()
+        val latestInteractionEnabledAt = rememberUpdatedState(interactionEnabledAt)
+
+        val interactiveHighlight = remember(
+            animationScope,
+            highlightRadiusMultiplier,
+            sharedInteractiveHighlight
+        ) {
+            sharedInteractiveHighlight ?: InteractiveHighlight(
+                animationScope = animationScope,
+                radius = { size -> size.minDimension * highlightRadiusMultiplier },
+                acceptsGesture = { size, offset ->
+                    latestInteractionEnabledAt.value(size, offset)
+                }
+            )
         }
-    }
-    val animationScope = rememberCoroutineScope()
-    val clickInteractionSource = remember { MutableInteractionSource() }
-    val pressed by clickInteractionSource.collectIsPressedAsState()
-    val latestInteractionEnabledAt = rememberUpdatedState(interactionEnabledAt)
-
-    val interactiveHighlight = remember(
-        animationScope,
-        highlightRadiusMultiplier,
-        sharedInteractiveHighlight
-    ) {
-        sharedInteractiveHighlight ?: InteractiveHighlight(
-            animationScope = animationScope,
-            radius = { size -> size.minDimension * highlightRadiusMultiplier },
-            acceptsGesture = { size, offset ->
-                latestInteractionEnabledAt.value(size, offset)
-            }
-        )
-    }
-    val material = remember(
-        blurRadius,
-        lensHeight,
-        lensAmount,
-        chromaticAberration,
-        tint,
-        surfaceColor,
-        shadowEnabled,
-        highlightEnabled
-    ) {
-        GlassMaterialSpec(
-            role = GlassMaterialRole.Control,
-            blur = blurRadius,
-            lensHeight = lensHeight,
-            lensAmount = lensAmount,
-            surfaceAlpha = when {
-                surfaceColor.isSpecified -> surfaceColor.alpha
-                tint.isSpecified -> 0.22f
-                else -> 0f
-            },
-            borderAlpha = 0f,
-            highlightAlpha = if (highlightEnabled) 1f else 0f,
-            shadowAlpha = if (shadowEnabled) 1f else 0f,
-            innerShadowAlpha = 0f,
-            chromaticAberration = chromaticAberration,
-            depthEffect = false
-        )
-    }
-    val descriptor = rememberGlassSurfaceDescriptor(
-        debugLabel = "LiquidButton",
-        domain = GlassBackdropDomain.ChromeCombined,
-        materialRole = GlassMaterialRole.Control,
-        sceneKey = "liquid-button"
-    )
-
-    val buttonShapeBlock: () -> Shape = remember(shape) { { shape } }
-    val buttonEffects: BackdropEffectScope.() -> Unit = remember(
-        blurRadius, lensHeight, lensAmount, chromaticAberration
-    ) {
-        {
-            vibrancy()
-            blur(blurRadius.toPx())
-            lens(lensHeight.toPx(), lensAmount.toPx(), chromaticAberration = chromaticAberration)
-        }
-    }
-    val buttonOnDrawSurface: DrawScope.() -> Unit = remember(tint, surfaceColor, surfaceSheen) {
-        {
-            if (tint.isSpecified) {
-                drawRect(tint.copy(alpha = 0.18f), blendMode = BlendMode.Hue)
-                drawRect(tint.copy(alpha = 0.22f))
-            }
-            if (surfaceColor.isSpecified) drawRect(surfaceColor)
-            surfaceSheen?.invoke()?.let { drawRect(it) }
-        }
-    }
-    Row(
-        modifier
-            .sleepDownGlassSurface(
-                backdrop = backdrop,
-                descriptor = descriptor,
-                material = material,
-                shape = buttonShapeBlock,
-                effectFrame = GlassEffectFrame(blur = null),
-                effectsOverride = buttonEffects,
-                highlightOverride = if (highlightEnabled) ({ Highlight.Default }) else null,
-                shadowOverride = if (shadowEnabled) ({ shadowStyle }) else null,
-                additionalLayerBlock = if (isInteractive) {
-                    {
-                        val width = size.width
-                        val height = size.height
-
-                        val progress = interactiveHighlight.pressProgress
-                        pressSnapshot?.progress = progress
-                        val expansionPx = pressExpansion.toPx()
-                        val scale = lerp(1f, 1f + expansionPx / size.height, progress)
-
-                        val maxOffset = size.minDimension
-                        val initialDerivative = 0.05f
-                        val offset = interactiveHighlight.offset
-                        translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
-                        translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
-
-                        val maxDragScale = expansionPx / size.height
-                        val offsetAngle = atan2(offset.y, offset.x)
-                        scaleX =
-                            scale +
-                                    maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension) *
-                                    (width / height).fastCoerceAtMost(1f)
-                        scaleY =
-                            scale +
-                                    maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension) *
-                                    (height / width).fastCoerceAtMost(1f)
-                    }
-                } else {
-                    null
+        val material = remember(
+            blurRadius,
+            lensHeight,
+            lensAmount,
+            chromaticAberration,
+            tint,
+            surfaceColor,
+            shadowEnabled,
+            highlightEnabled
+        ) {
+            GlassMaterialSpec(
+                role = GlassMaterialRole.Control,
+                blur = blurRadius,
+                lensHeight = lensHeight,
+                lensAmount = lensAmount,
+                surfaceAlpha = when {
+                    surfaceColor.isSpecified -> surfaceColor.alpha
+                    tint.isSpecified -> 0.22f
+                    else -> 0f
                 },
-                onDrawSurface = buttonOnDrawSurface,
-                fallbackColor = surfaceColor.takeIf { it.isSpecified } ?: tint.takeIf { it.isSpecified },
-                fallbackOpacity = flatOpacity,
-                clipToBounds = clipToBounds,
-                renderEnabled = { surfaceEnabled }
+                borderAlpha = 0f,
+                highlightAlpha = if (highlightEnabled) 1f else 0f,
+                shadowAlpha = if (shadowEnabled) 1f else 0f,
+                innerShadowAlpha = 0f,
+                chromaticAberration = chromaticAberration,
+                depthEffect = false
             )
-            .then(
-                if (!isInteractive && staticPressDimAlpha > 0f) {
-                    Modifier.drawWithContent {
-                        drawContent()
-                        if (pressed) {
-                            drawRect(Color.Black.copy(alpha = staticPressDimAlpha.coerceIn(0f, 1f)))
+        }
+        val descriptor = rememberGlassSurfaceDescriptor(
+            debugLabel = "LiquidButton",
+            domain = GlassBackdropDomain.ChromeCombined,
+            materialRole = GlassMaterialRole.Control,
+            sceneKey = "liquid-button"
+        )
+
+        val buttonShapeBlock: () -> Shape = remember(shape) { { shape } }
+        val buttonEffects: BackdropEffectScope.() -> Unit = remember(
+            blurRadius, lensHeight, lensAmount, chromaticAberration
+        ) {
+            {
+                vibrancy()
+                blur(blurRadius.toPx())
+                lens(lensHeight.toPx(), lensAmount.toPx(), chromaticAberration = chromaticAberration)
+            }
+        }
+        val buttonOnDrawSurface: DrawScope.() -> Unit = remember(tint, surfaceColor, surfaceSheen) {
+            {
+                if (tint.isSpecified) {
+                    drawRect(tint.copy(alpha = 0.18f), blendMode = BlendMode.Hue)
+                    drawRect(tint.copy(alpha = 0.22f))
+                }
+                if (surfaceColor.isSpecified) drawRect(surfaceColor)
+                surfaceSheen?.invoke()?.let { drawRect(it) }
+            }
+        }
+        val surface = if (backdrop == null) Modifier.clip(shape).background(
+            surfaceColor.takeIf { it.isSpecified } ?: Color.Transparent
+        ) else Modifier.sleepDownGlassSurface(
+                    backdrop = backdrop,
+                    descriptor = descriptor,
+                    material = material,
+                    shape = buttonShapeBlock,
+                    effectFrame = GlassEffectFrame(blur = null),
+                    effectsOverride = buttonEffects,
+                    highlightOverride = if (highlightEnabled) ({ Highlight.Default }) else null,
+                    shadowOverride = if (shadowEnabled) ({ shadowStyle }) else null,
+                    additionalLayerBlock = if (interactive) {
+                        {
+                            val width = size.width
+                            val height = size.height
+
+                            val progress = interactiveHighlight.pressProgress
+                            pressSnapshot?.progress = progress
+                            val expansionPx = pressExpansion.toPx()
+                            val scale = lerp(1f, 1f + expansionPx / size.height, progress)
+
+                            val maxOffset = size.minDimension
+                            val initialDerivative = 0.05f
+                            val offset = interactiveHighlight.offset
+                            translationX = maxOffset * tanh(initialDerivative * offset.x / maxOffset)
+                            translationY = maxOffset * tanh(initialDerivative * offset.y / maxOffset)
+
+                            val maxDragScale = expansionPx / size.height
+                            val offsetAngle = atan2(offset.y, offset.x)
+                            scaleX =
+                                scale +
+                                        maxDragScale * abs(cos(offsetAngle) * offset.x / size.maxDimension) *
+                                        (width / height).fastCoerceAtMost(1f)
+                            scaleY =
+                                scale +
+                                        maxDragScale * abs(sin(offsetAngle) * offset.y / size.maxDimension) *
+                                        (height / width).fastCoerceAtMost(1f)
                         }
-                    }
-                } else {
-                    Modifier
-                }
-            )
-            .then(
-                if (clickTargetEnabled) {
-                    Modifier.clickable(
-                        interactionSource = clickInteractionSource,
-                        indication = when {
-                            isInteractive -> null
-                            staticPressDimAlpha > 0f -> null
-                            else -> LocalIndication.current
-                        },
-                        role = Role.Button,
-                        enabled = enabled,
-                        onClick = onClick
-                    )
-                } else {
-                    Modifier
-                }
-            )
-            .then(
-                if (isInteractive) {
-                    Modifier
-                        .then(interactiveHighlight.modifier)
-                        .then(
-                            if (sharedInteractiveHighlight == null) {
-                                interactiveHighlight.gestureModifier
-                            } else {
-                                Modifier
+                    } else {
+                        null
+                    },
+                    onDrawSurface = buttonOnDrawSurface,
+                    fallbackColor = surfaceColor.takeIf { it.isSpecified } ?: tint.takeIf { it.isSpecified },
+                    fallbackOpacity = flatOpacity,
+                    clipToBounds = clipToBounds,
+                    renderEnabled = { surfaceEnabled }
+                )
+        surface
+                .then(
+                    if (!interactive && staticPressDimAlpha > 0f) {
+                        Modifier.drawWithContent {
+                            drawContent()
+                            if (pressed) {
+                                drawRect(Color.Black.copy(alpha = staticPressDimAlpha.coerceIn(0f, 1f)))
                             }
-                        )
-                } else {
-                    Modifier
-                }
-            )
-            .height(height)
-            .padding(contentPadding),
-        horizontalArrangement = Arrangement.spacedBy(8f.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically,
-        content = content
+                        }
+                    } else {
+                        Modifier
+                    }
+                )
+                .then(
+                    if (interactive) {
+                        Modifier
+                            .then(interactiveHighlight.modifier)
+                            .then(
+                                if (sharedInteractiveHighlight == null) {
+                                    interactiveHighlight.gestureModifier
+                                } else {
+                                    Modifier
+                                }
+                            )
+                    } else {
+                        Modifier
+                    }
+                )
+    }
+    CapsuleButtonLayout(
+        modifier = modifier, material = skin, height = height, contentPadding = contentPadding,
+        interactionSource = clickInteractionSource, enabled = enabled, clickTargetEnabled = clickTargetEnabled,
+        indication = if (nativeMaterial != null || isInteractive || staticPressDimAlpha > 0f) null else LocalIndication.current,
+        onClick = onClick, content = content,
     )
 }
 

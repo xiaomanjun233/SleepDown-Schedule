@@ -41,7 +41,7 @@ import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.CourseCardColorMode
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogHostSize
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalControlDialogHostSize
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.FocusCroppedWallpaper
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperCropState
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPreviewOrientation
@@ -65,7 +65,7 @@ internal fun WallpaperPaletteSampler(
     val context = LocalContext.current
     val density = LocalDensity.current
     val windowHeight = with(density) {
-        (LocalNativeDialogHostSize.current ?: LocalWindowInfo.current.containerSize).height.toDp()
+        (LocalControlDialogHostSize.current ?: LocalWindowInfo.current.containerSize).height.toDp()
     }
     // Use the host height rather than the animated dialog height. The fixed footer stays visible
     // when the body needs to scroll on a short window.

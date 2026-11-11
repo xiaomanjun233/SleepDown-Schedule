@@ -45,8 +45,7 @@ class SettingsHomeVisualTest {
         compose.setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
-                    effectiveMode = if (native) VisualEffectMode.ColorOsGlow else VisualEffectMode.LiquidGlass,
-                    colorOsAvailable = native)) {
+                    effectiveMode = if (native) VisualEffectMode.ColorOsGlow else VisualEffectMode.LiquidGlass)) {
                     SettingsRootScreen(AppState(config = config), backdrop = null, onPageChange = {})
                 }
             }
@@ -86,7 +85,7 @@ class SettingsHomeVisualTest {
         compose.setContent {
             MaterialTheme(colorScheme = androidx.compose.material3.lightColorScheme()) {
                 CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
-                    effectiveMode = VisualEffectMode.ColorOsGlow, colorOsAvailable = true)) {
+                    effectiveMode = VisualEffectMode.ColorOsGlow)) {
                     com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsPageScaffold(
                         title = "通用设置", config = config, showBack = true) { _, source ->
                         GeneralSettingsScreen(AppState(config = config), source, onUpdateConfig = { updated = it })

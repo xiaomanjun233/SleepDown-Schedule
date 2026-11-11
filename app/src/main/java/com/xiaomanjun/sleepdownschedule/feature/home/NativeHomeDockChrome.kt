@@ -9,7 +9,6 @@ import com.itos.coui.backdrop.CouiBackdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.performance.DockEntranceContainer
 import com.xiaomanjun.sleepdownschedule.core.performance.StartupPhase
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
@@ -52,11 +51,7 @@ internal fun NativeHomeDockChrome(
                 onOpenMenu = onOpenMenu,
             )
         ) return@DockEntranceContainer
-        if (!LocalHomeMaterialControls.current.ParallelDock(
-                selectedIndex, dark, buttonHidden, Modifier, onSelect, onOpenMenu
-            )) {
-            NativeDockFallback(fallback)
-        }
+        NativeDockFallback(fallback)
     }
 }
 

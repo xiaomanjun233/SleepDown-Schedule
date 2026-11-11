@@ -112,7 +112,7 @@ class CouiBackdrop internal constructor(
 
     /** 材质组合在退出动画期间仍须存在, 源及父链随该组合成对保留和释放。 */
     @Composable
-    internal fun RetainWhileComposed() {
+    fun RetainWhileComposed() {
         DisposableEffect(this) {
             retain()
             onDispose { release() }

@@ -38,5 +38,7 @@ internal fun nativeCardBlurPercent(scale: Float): Float = scale.coerceIn(0.2f, 2
 }
 
 internal val LocalNativeCourseCardMode = compositionLocalOf<NativeCourseCardMode?> { null }
+/** The common scene owns sampling; the material backend supplies only its filter recipe. */
+internal val LocalCourseBackdropFilter = compositionLocalOf<((Boolean, Float) -> androidx.compose.ui.graphics.RenderEffect)?> { null }
 internal val LocalNativeCourseCardRenderer =
     compositionLocalOf<(@Composable (NativeCourseCardRequest, @Composable () -> Unit) -> Boolean)?> { null }

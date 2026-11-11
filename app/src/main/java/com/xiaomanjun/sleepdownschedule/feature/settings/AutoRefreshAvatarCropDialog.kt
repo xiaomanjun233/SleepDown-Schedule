@@ -20,10 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogLiquidButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperCropState
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.calculateFocusCropRect
@@ -57,7 +55,7 @@ internal fun AutoRefreshAvatarCropDialog(
         if (bitmap == null) error = "图片读取失败，请重新选择"
     }
     SleepDownPickerDialog(
-        show = show, title = "裁切头像", backdrop = backdrop, config = config,
+        show = show, title = "裁切头像", config = config,
         onDismissRequest = { if (!saving) onDismiss() },
         onDismissFinished = onDismissFinished,
         scrollableContent = true,

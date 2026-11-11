@@ -4,9 +4,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.rememberPageMotionBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.pager.PagerState
@@ -24,10 +21,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.runtime.structuralEqualityPolicy
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.RectangleShape
@@ -47,134 +42,56 @@ import com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey
 import kotlin.math.abs
 import kotlin.math.min
-import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
-private const val SwitchGroupCount = 6
-private const val SwitchGroupDelayMillis = 18
-private val SwitchContentSpring = spring<Float>(dampingRatio = 0.74f, stiffness = 260f, visibilityThreshold = 0.0015f)
-// Only the content tracks overshoot. The wallpaper/page settles monotonically underneath them.
-private val SwitchPageMotion = tween<Float>(360, easing = CubicBezierEasing(0.22f, 0.72f, 0.20f, 1f))
-// Nexio's main-tab motion: one non-bouncy page translation, without per-card tracks.
-private val SwitchPlainSlide = spring<Float>(dampingRatio = 1f, stiffness = 320f, visibilityThreshold = 0.0015f)
+private const val SwitchGroupCount = HomeMotionSpec.FollowGroups
 
 internal enum class HomeSwitchClip { None, Page, TopBar }
 
-/** Every portrait page retains the same six shared follow tracks, independent of card count. */
+/** One progress/velocity owner for both page and card transforms, independent of material. */
 @Stable
 internal class HomeSwitchMotion(
     initialSecondary: Boolean,
     private val target: State<Boolean>,
     val landscape: Boolean = false,
-    private val fullMotion: Boolean = false,
-    private val renderedCardCount: () -> Int = { 0 }
 ) {
     private val page = Animatable(if (initialSecondary) 1f else 0f)
-    private val tracks = List(SwitchGroupCount) { Animatable(if (initialSecondary) 1f else 0f) }
-    // Animatable resets velocity on cancellation. Keep the last frame for a continuous reversal.
     private var pageVelocity = 0f
-    private val velocities = FloatArray(SwitchGroupCount)
     private var settledSecondary by mutableStateOf(initialSecondary)
     private var running by mutableStateOf(false)
-    // Latch once per switch (including reversals), so a count update cannot jump live cards.
-    private var latchedPlainSlide by mutableStateOf(false)
-    // Decide while idle as data loads, before the first moving frame mounts card layers.
-    // Cards subscribe to the chosen style, not the start/end flags themselves. Both branches
-    // remain true for a dense page; forwarding running would recompose every unchanged card.
-    val plainSlide: Boolean by derivedStateOf(structuralEqualityPolicy()) {
-        if (running) latchedPlainSlide else shouldUsePlainSlide()
-    }
-    private fun shouldUsePlainSlide() = false
     val progress: State<Float> = page.asState()
     val moving: Boolean get() = running || settledSecondary != target.value
-
-    // Keep sampling throughout the stagger and the spring's overshoot/settling frames.
-    // All glass consumers share one immutable key per frame instead of rebuilding the same
-    // lists for every card's sample pass. State reads remain in drawing, outside composition.
-    val sampleKey: List<Float> by derivedStateOf {
-        if (plainSlide) listOf(page.value) else listOf(page.value) + tracks.map { it.value }
-    }
+    val sampleKey: Float get() = page.value
     val pageSampleKey: Any by derivedStateOf { Triple(page.value, cornerFraction, moving) }
-
     val cornerFraction: Float by derivedStateOf {
-            // Follow the whole motion envelope. Clamping progress to 0..1 erased the corners
-            // at the first endpoint crossing, exactly when the spring started rebounding.
-            fun edgeDistance(value: Float) = min(abs(value), abs(1f - value))
-            val distance = if (plainSlide) edgeDistance(page.value)
-                else maxOf(edgeDistance(page.value), tracks.maxOf { edgeDistance(it.value) })
-            val fraction = (distance / 0.06f).coerceIn(0f, 1f)
-            fraction * fraction * (3f - 2f * fraction)
-        }
+        val distance = min(abs(page.value), abs(1f - page.value))
+        HomeMotionSpec.backdropProgress((distance / 0.06f).coerceIn(0f, 1f))
+    }
 
     fun retains(secondary: Boolean): Boolean = moving || settledSecondary == secondary
-    fun groupProgress(group: Int): Float = if (plainSlide) page.value
-        else tracks[group.coerceIn(0, SwitchGroupCount - 1)].value
+    fun groupProgress(group: Int): Float = if (landscape) page.value
+        else HomeMotionSpec.followProgress(page.value, group)
 
     suspend fun settleAt(secondary: Boolean) {
-        latchedPlainSlide = shouldUsePlainSlide()
-        val destination = if (secondary) 1f else 0f
-        page.snapTo(destination)
-        tracks.forEach { it.snapTo(destination) }
+        page.snapTo(if (secondary) 1f else 0f)
         pageVelocity = 0f
-        velocities.fill(0f)
         settledSecondary = secondary
         running = false
     }
 
     suspend fun animateTo(secondary: Boolean) {
-        if (!running) latchedPlainSlide = shouldUsePlainSlide()
         val destination = if (secondary) 1f else 0f
-        if (page.value == destination && pageVelocity == 0f &&
-            tracks.all { it.value == destination } && velocities.all { it == 0f }) {
-            settledSecondary = secondary
-            running = false
-            return
-        }
-        // On reversal keep every group's current position, without another initial pause.
-        val settledPosition = if (settledSecondary) 1f else 0f
-        val interrupted = page.value != settledPosition || pageVelocity != 0f ||
-            tracks.any { it.value != settledPosition } || velocities.any { it != 0f }
-        val durationScale = currentCoroutineContext()[MotionDurationScale]?.scaleFactor ?: 1f
         running = true
         var completed = false
         try {
-            if (plainSlide || landscape) {
-                page.animateTo(destination,
-                    animationSpec = if (plainSlide) SwitchPlainSlide else SwitchPageMotion,
-                    initialVelocity = pageVelocity) { pageVelocity = velocity }
-                pageVelocity = 0f
-                tracks.forEach { it.snapTo(destination) }
-                velocities.fill(0f)
-                settledSecondary = secondary
-                completed = true
-                return
+            page.animateTo(destination, HomeMotionSpec.pageSpring, initialVelocity = pageVelocity) {
+                pageVelocity = velocity
             }
-            coroutineScope {
-                launch {
-                    page.animateTo(destination, animationSpec = SwitchPageMotion) {
-                        pageVelocity = velocity
-                    }
-                    pageVelocity = 0f
-                }
-                tracks.forEachIndexed { group, track ->
-                    launch {
-                        if (!interrupted) delay((group * SwitchGroupDelayMillis * durationScale).toLong())
-                        track.animateTo(destination, animationSpec = SwitchContentSpring,
-                            initialVelocity = velocities[group]) {
-                            velocities[group] = velocity
-                        }
-                        velocities[group] = 0f
-                    }
-                }
-            }
+            pageVelocity = 0f
             settledSecondary = secondary
             completed = true
         } finally {
-            // An interrupted LaunchedEffect is replaced with a new target. Clearing this flag
-            // between cancellation and restart would unmount the outgoing pane and its groups
-            // while their Animatables still hold an in-flight position.
+            // Keep both panes mounted between cancellation and the reverse animation.
             if (completed) running = false
         }
     }
@@ -185,16 +102,11 @@ internal fun rememberHomeSwitchMotion(
     secondary: Boolean,
     label: String,
     animate: Boolean = true,
-    renderedCardCount: () -> Int = { 0 }
 ): HomeSwitchMotion {
     val target = rememberUpdatedState(secondary)
-    val latestCardCount = rememberUpdatedState(renderedCardCount)
     val configuration = LocalConfiguration.current
     val landscape = configuration.screenWidthDp > configuration.screenHeightDp
-    val fullMotion = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode.current != null
-    val motion = remember(label, landscape, fullMotion) {
-        HomeSwitchMotion(secondary, target, landscape, fullMotion) { latestCardCount.value() }
-    }
+    val motion = remember(label, landscape) { HomeSwitchMotion(secondary, target, landscape) }
     LaunchedEffect(motion, secondary, animate) {
         if (animate) motion.animateTo(secondary) else motion.settleAt(secondary)
     }
@@ -210,7 +122,7 @@ internal fun Modifier.homeSwitchLayer(
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) -1f else 1f
     val motionBlur = rememberPageMotionBlur()
     return graphicsLayer {
-        if (motion.landscape && !motion.plainSlide) {
+        if (motion.landscape) {
             translationX = 0f
             val visibility = (if (secondary) motion.progress.value else 1f - motion.progress.value).coerceIn(0f, 1f)
             alpha = visibility
@@ -243,7 +155,7 @@ private val LocalSwitchPages = staticCompositionLocalOf<List<SwitchPageScope>> {
 @Composable
 internal fun Modifier.homeSwitchGroup(cardOrderFraction: Float? = null): Modifier {
     val pages = LocalSwitchPages.current
-    if (pages.isEmpty() || pages.all { it.motion.landscape || it.motion.plainSlide }) return this
+    if (pages.isEmpty() || pages.all { it.motion.landscape }) return this
     val group = remember { mutableIntStateOf(-1) }
     val tracked = onGloballyPositioned { coordinates ->
         if (group.intValue < 0 || pages.none { it.motion.moving }) {
@@ -258,12 +170,11 @@ internal fun Modifier.homeSwitchGroup(cardOrderFraction: Float? = null): Modifie
             group.intValue = (fraction * SwitchGroupCount).toInt().coerceIn(0, SwitchGroupCount - 1)
         }
     }
-    // Sparse pages retain their stagger layer. Dense pages returned above: one page transform
-    // moves all cards, without retaining a redundant transform RenderNode on every card.
+    // The local layer applies only the spatial offset derived from the shared page clock.
     return tracked.graphicsLayer {
         translationX = pages.sumOf { page ->
-            // A plain slide never observes per-frame page progress in each card's layer.
-            if (!page.motion.moving || page.motion.plainSlide || page.motion.landscape) 0.0
+            // A settled page has no follower transform.
+            if (!page.motion.moving || page.motion.landscape) 0.0
             else (page.direction * page.width.value *
                 (page.motion.progress.value - page.motion.groupProgress(group.intValue))).toDouble()
         }.toFloat()

@@ -37,7 +37,6 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
@@ -148,8 +147,7 @@ fun WidgetCustomizationScreen(
         LiquidAlertDialog(
             title = "手动添加方法",
             message = "返回桌面，长按空白处，打开“小组件”或“添加小部件”，找到 SleepDown，再选择“今日课程 2×2”等组件。小米桌面可能需要继续进入“安卓小部件”。不同桌面版本的入口名称可能不同；普通桌面小组件无需安装额外的 ColorOS 课程组件。",
-            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { showManualWidgetHelp = false })),
-            backdrop = backdrop, config = state.config,
+            actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = { showManualWidgetHelp = false })), config = state.config,
             onDismissRequest = { showManualWidgetHelp = false }
         )
     }

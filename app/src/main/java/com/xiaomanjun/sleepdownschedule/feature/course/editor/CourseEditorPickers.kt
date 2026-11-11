@@ -58,7 +58,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
@@ -66,7 +65,6 @@ import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CenteredDialogContentTransition
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
@@ -500,13 +498,9 @@ internal fun CourseEditorPickerOverlay(
         title = request.title,
         onDismissRequest = onDismiss,
         onDismissFinished = onDismissFinished,
-        backdrop = backdrop,
         config = config,
-        renderInRootScaffold = renderInRootScaffold,
-        contentPadding = PaddingValues(horizontal = 2.dp, vertical = 2.dp),
-        couiContentPadding = if (request is CourseEditorPickerRequest.Wheel) PaddingValues(0.dp)
+        contentPadding = if (request is CourseEditorPickerRequest.Wheel) PaddingValues(0.dp)
             else com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
-        blurRadius = 14.dp,
         actions = listOf(
             LiquidAlertAction("取消",
                 LiquidAlertActionStyle.Cancel, enabled = true,

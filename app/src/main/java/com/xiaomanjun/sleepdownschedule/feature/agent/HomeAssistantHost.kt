@@ -191,8 +191,7 @@ internal fun HomeAssistantHost(
                     DayAgentPreferences.setEnabled(context, false); controller.reset()
                 },
                 LiquidAlertAction("启用", LiquidAlertActionStyle.Primary) { DayAgentPreferences.setEnabled(context, true) }
-            ),
-            backdrop = backdrop, config = state.config,
+            ), config = state.config,
             onDismissRequest = { controller.reset() }
         )
     }

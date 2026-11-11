@@ -166,7 +166,6 @@ fun AutoRefreshScheduleSettingsScreen(
                 showRefreshingDialog = false
             }
         ),
-        backdrop = backdrop,
         config = state.config,
         onDismissRequest = { showRefreshingDialog = false }
     )
@@ -177,7 +176,6 @@ fun AutoRefreshScheduleSettingsScreen(
             actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
                 adapterRefreshMessage = null
             }),
-            backdrop = backdrop,
             config = state.config,
             onDismissRequest = { adapterRefreshMessage = null }
         )
@@ -408,8 +406,7 @@ private fun AutoRefreshDashboardContent(
                     showLogout = false
                 }
             }
-        ),
-        backdrop = backdrop, config = state.config,
+        ), config = state.config,
         onDismissRequest = { showLogout = false }
     )
     AutoRefreshReviewHost(state.config, backdrop, state.schedules, enabled = !showLogout && !cropVisible && !refreshing,
@@ -421,7 +418,6 @@ private fun AutoRefreshDashboardContent(
             actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
                 refreshResultMessage = null
             }),
-            backdrop = backdrop,
             config = state.config,
             onDismissRequest = { refreshResultMessage = null }
         )

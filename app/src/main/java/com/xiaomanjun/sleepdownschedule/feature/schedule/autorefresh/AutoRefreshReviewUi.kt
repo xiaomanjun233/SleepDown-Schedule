@@ -51,8 +51,7 @@ internal fun AutoRefreshReviewHost(config: ScheduleConfigEntity, backdrop: Backd
         SleepDownPickerDialog(
             show = enabled && lifecycle == Lifecycle.State.RESUMED && deferredId != review.id,
             title = "课表有 ${review.count} 处不同",
-            onDismissRequest = { if (!saving) deferredId = review.id },
-            backdrop = backdrop, config = config,
+            onDismissRequest = { if (!saving) deferredId = review.id }, config = config,
             actions = listOf(
                 LiquidAlertAction("稍后",
                     LiquidAlertActionStyle.Secondary, enabled = !saving,

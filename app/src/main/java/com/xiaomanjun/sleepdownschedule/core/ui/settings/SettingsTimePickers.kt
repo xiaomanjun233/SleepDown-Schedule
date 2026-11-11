@@ -10,10 +10,8 @@ import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -42,7 +40,6 @@ import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.LastMinuteOfDay
 import com.xiaomanjun.sleepdownschedule.PeriodTimePickerBounds
@@ -50,8 +47,6 @@ import com.xiaomanjun.sleepdownschedule.PeriodTimeSelection
 import com.xiaomanjun.sleepdownschedule.PeriodTimeSelectionAnchor
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.constrainPeriodTimeSelection
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.domain.schedule.constrainPeriodTimeSelection
 import com.xiaomanjun.sleepdownschedule.domain.schedule.parseScheduleTime
@@ -116,9 +111,7 @@ fun SettingsDatePickerRow(
         show = showPicker,
         title = if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) "" else "选择日期",
         onDismissRequest = { showPicker = false },
-        backdrop = popupBackdrop,
         config = config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
         actions = listOf(
             LiquidAlertAction("取消",
                 LiquidAlertActionStyle.Cancel, enabled = true,
@@ -267,9 +260,7 @@ fun SettingsTimePickerRow(
         show = showPicker,
         title = "选择时间",
         onDismissRequest = { showPicker = false },
-        backdrop = popupBackdrop,
         config = config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
         actions = listOf(
             LiquidAlertAction("取消",
                 LiquidAlertActionStyle.Cancel, enabled = true,
@@ -317,9 +308,7 @@ internal fun SettingsMinutePickerRow(
         show = showPicker,
         title = pickerTitle,
         onDismissRequest = { showPicker = false },
-        backdrop = popupBackdrop,
         config = config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
         actions = listOf(
             LiquidAlertAction("取消",
                 LiquidAlertActionStyle.Cancel, enabled = true,

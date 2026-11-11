@@ -17,7 +17,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.BackdropDiagnostics
-import com.kyant.backdrop.backdrops.SharedBlurBackdrop
+import com.kyant.backdrop.backdrops.MaterialBackdrop
+import com.kyant.backdrop.backdrops.MaterialBackdropFilter
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -46,11 +47,10 @@ class SharedCourseMotionTest {
         compose.setContent {
             MaterialTheme {
                 val source = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "motion-wallpaper")
-                val shared = remember(source) { SharedBlurBackdrop(source, 8f, false) }
+                val shared = remember(source) { MaterialBackdrop(source).apply { filter = MaterialBackdropFilter(8f) } }
                 Box(Modifier.size(320.dp, 480.dp)) {
                     Box(Modifier.size(320.dp, 480.dp).graphicsLayer { translationX = pageX.floatValue }
-                        .glassBackdropProducer(source, recordKey = { "wallpaper" }).background(Color.Blue))
-                    Box(Modifier.size(320.dp, 480.dp).then(shared.preRenderModifier { "wallpaper" }))
+                        .then(shared.sourceModifier { "wallpaper" }).background(Color.Blue))
                     Box(Modifier.size(320.dp, 480.dp).graphicsLayer { translationX = pageX.floatValue }) {
                         repeat(if (mounted.value) 20 else 0) { index ->
                             val spec = GlassMaterialSpec.courseCard(8f)
@@ -84,8 +84,8 @@ class SharedCourseMotionTest {
             compose.runOnIdle { pageX.floatValue = x }
             draw()
         }
-        assertEquals("Page translation must retain the shared wallpaper: $counts", 0L, counts["SharedWallpaper.Recorded"] ?: 0L)
-        assertEquals("Page translation must retain the wallpaper producer: $counts", 0L, counts["ProducerRecord.Recorded"] ?: 0L)
+        assertEquals("Page translation must retain the shared wallpaper: $counts", 0L, counts["MaterialFilter.Recorded"] ?: 0L)
+        assertEquals("Page translation must retain the wallpaper producer: $counts", 0L, counts["MaterialSource.Recorded"] ?: 0L)
         counts.clear()
         compose.runOnIdle { cardX.floatValue = 24f }
         draw()

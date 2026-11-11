@@ -40,7 +40,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCa
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
-import com.xiaomanjun.sleepdownschedule.glass.CourseWallpaperSampling
+import com.xiaomanjun.sleepdownschedule.glass.CourseMaterialSampling
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey
 import com.xiaomanjun.sleepdownschedule.glass.drawPreparedCourseBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
@@ -155,18 +155,20 @@ internal fun CouiMaterialSurface(
         )
     } else Modifier to null
     val motion = if (request.elasticTouchFeedback) rememberCouiTouchMotion(expanded = true) else null
-    val backdrop = if (source != null && request.renderSurface && request.materialVisible) {
-        rememberCouiGlassBackdrop(source)
-    } else null
     val causticTint = request.causticTint
     val flatBacking = request.flatBackdropColor
     val preparedBackdrop = request.preparedBackdrop
-    val wallpaperSampling = preparedBackdrop as? CourseWallpaperSampling
+    val wallpaperSampling = preparedBackdrop as? CourseMaterialSampling
+    val needsLiveSample = preparedBackdrop == null ||
+        (lighting && causticTint != null && flatBacking == null && wallpaperSampling?.hasStaticBitmap != true)
+    val backdrop = if (needsLiveSample && source != null && request.renderSurface && request.materialVisible) {
+        rememberCouiGlassBackdrop(source)
+    } else null
     val samplingKey = LocalGlassSampleRecordKey.current
     val editorEffects = if (course && request.blurRadius != null) remember {
         linkedMapOf<com.itos.coui.effect.CouiFloatingMaterial, androidx.compose.ui.graphics.RenderEffect>()
     } else null
-    val caustic = if (course && lighting && backdrop != null && causticTint != null) {
+    val caustic = if (course && lighting && source != null && causticTint != null) {
         val projection = remember(causticTint, density.density) {
             val fabShadow = CouiFabDefaults.shadow(causticTint, density.density, contourGlowEnabled = true)
             val side = with(density) { 2.dp.toPx() }
@@ -178,10 +180,10 @@ internal fun CouiMaterialSurface(
             Modifier.drawCouiCaustic(flatBacking, cornerRadius, projection)
         } else if (wallpaperSampling?.hasStaticBitmap == true) {
             Modifier.drawCouiCaustic(wallpaperSampling::bitmapSource, samplingKey, cornerRadius, projection)
-        } else {
+        } else if (backdrop != null) {
             Modifier.drawCouiCaustic(backdrop, cornerRadius, projection,
                 sampleScale = if (preparedBackdrop != null) 0.5f else 1f)
-        }
+        } else Modifier
     } else Modifier
     val background = if (preparedBackdrop != null && request.renderSurface && request.materialVisible) {
         Modifier.drawPreparedCourseBackdrop(preparedBackdrop, samplingKey)

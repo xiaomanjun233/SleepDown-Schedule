@@ -202,11 +202,14 @@
  import androidx.compose.runtime.remember
  import androidx.compose.runtime.setValue
  import androidx.compose.ui.graphics.GraphicsLayerScope
-@@ -41,9 +42,18 @@
+@@ -41,9 +42,21 @@
  
      internal var layerCoordinates: LayoutCoordinates? by mutableStateOf(null)
  
 +    internal var contentVersion: Int by mutableIntStateOf(0)
++
++    /** The coordinates of the recorded pixels, before the consumer's local transform. */
++    val sourceCoordinates: LayoutCoordinates? get() = layerCoordinates?.takeIf { it.isAttached }
 +
      private var inverseLayerScope: InverseLayerScope? = null
  
@@ -221,7 +224,7 @@
          density: Density,
          coordinates: LayoutCoordinates?,
          layerBlock: (GraphicsLayerScope.() -> Unit)?
-@@ -63,7 +73,7 @@
+@@ -63,7 +76,7 @@
                  }
              translate(-offset.x, -offset.y)
          }) {
@@ -230,7 +233,7 @@
          }
      }
  
-@@ -72,3 +82,4 @@
+@@ -72,3 +85,4 @@
              ?: InverseLayerScope().also { inverseLayerScope = it }
      }
  }
@@ -338,14 +341,13 @@
      }
  }
 --- /dev/null
-+++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/SharedBlurBackdrop.kt
-@@ -0,0 +1,145 @@
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/MaterialBackdrop.kt
+@@ -0,0 +1,180 @@
 +// SleepDown implementation on the Apache-2.0 Kyant 2.0.0 API; see README.md.
 +package com.kyant.backdrop.backdrops
 +
 +import androidx.compose.runtime.Stable
 +import androidx.compose.runtime.getValue
-+import androidx.compose.runtime.mutableFloatStateOf
 +import androidx.compose.runtime.mutableIntStateOf
 +import androidx.compose.runtime.mutableStateOf
 +import androidx.compose.runtime.setValue
@@ -353,13 +355,15 @@
 +import androidx.compose.ui.Modifier
 +import androidx.compose.ui.graphics.GraphicsLayerScope
 +import androidx.compose.ui.graphics.RectangleShape
++import androidx.compose.ui.graphics.RenderEffect
 +import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 +import androidx.compose.ui.graphics.drawscope.DrawScope
-+import androidx.compose.ui.graphics.layer.GraphicsLayer
 +import androidx.compose.ui.graphics.layer.CompositingStrategy
++import androidx.compose.ui.graphics.layer.GraphicsLayer
 +import androidx.compose.ui.graphics.layer.drawLayer
 +import androidx.compose.ui.layout.LayoutCoordinates
 +import androidx.compose.ui.node.DrawModifierNode
++import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 +import androidx.compose.ui.node.ModifierNodeElement
 +import androidx.compose.ui.node.requireGraphicsContext
 +import androidx.compose.ui.platform.InspectorInfo
@@ -371,123 +375,157 @@
 +import com.kyant.backdrop.effects.blur
 +import com.kyant.backdrop.effects.vibrancy
 +import com.kyant.backdrop.internal.BackdropRecordingCache
++import com.kyant.backdrop.internal.recordLayer
++
++/** A scene-wide prefix. The card renderer owns only its local lens, rim and foreground. */
++data class MaterialBackdropFilter(
++    val radiusPx: Float,
++    val vibrant: Boolean = false,
++    val effect: RenderEffect? = null,
++)
 +
 +/**
-+ * Full-resolution wallpaper prefix shared by course lenses. The filtering node is separate
-+ * from the published node, which has no RenderEffect of its own. Both retain display lists:
-+ * record { drawLayer(blurLayer) } alone is NOT a pixel snapshot. The published node explicitly
-+ * uses Offscreen so HWUI rasterizes its unchanged display list into one retained shared surface,
-+ * instead of replaying the inner filter with each card's different clip. GPU work still occurs
-+ * when that surface is dirty; there is no CPU readback or per-card fullscreen blur request.
++ * One source owner, one optional filtered raster, any number of consumers.
++ *
++ * The source node records content once, prepares its material, then presents the raw scene.
++ * Consumers always receive this same handle, including the first frame. There is no readiness
++ * switch to a temporary per-card filter and no delayed warm-up/re-record coroutine.
++ * Raw and filtered images share the source coordinates; moving a card never dirties the source.
 + */
 +@Stable
-+class SharedBlurBackdrop(val source: LayerBackdrop, radiusPx: Float, vibrant: Boolean) : Backdrop {
-+    var radiusPx: Float by mutableFloatStateOf(radiusPx)
-+    var vibrant: Boolean by mutableStateOf(vibrant)
-+    internal var layer: GraphicsLayer? by mutableStateOf(null)
-+    internal var contentRevision: Int by mutableIntStateOf(0)
-+    val ready: Boolean get() = layer != null && source.layerCoordinates?.isAttached == true
++class MaterialBackdrop(val source: LayerBackdrop) : Backdrop {
++    var filter: MaterialBackdropFilter? by mutableStateOf(null)
++    internal var published: GraphicsLayer? = null
++    internal var contentRevision by mutableIntStateOf(0)
 +    override val isCoordinatesDependent = true
++    private val mapping = BackdropCoordinateMapping()
 +
-+    fun preRenderModifier(sourceKey: () -> Any?): Modifier = RecorderElement(this, sourceKey)
++    fun sourceModifier(sourceKey: () -> Any?): Modifier = MaterialSourceElement(this, sourceKey)
 +
 +    override fun DrawScope.drawBackdrop(
 +        density: Density,
 +        coordinates: LayoutCoordinates?,
 +        layerBlock: (GraphicsLayerScope.() -> Unit)?
 +    ) {
-+        // Raw and filtered wallpaper use the same full-resolution coordinate transform.
-+        with(source) { drawLayerAtSource(layer ?: graphicsLayer, density, coordinates, layerBlock) }
++        // Reading the revision also invalidates direct (effect-free) consumers.
++        contentRevision
++        val image = published ?: return
++        mapping.draw(this, image, source.layerCoordinates, coordinates)
 +    }
 +}
 +
-+private data class RecorderElement(val backdrop: SharedBlurBackdrop, val sourceKey: () -> Any?) : ModifierNodeElement<RecorderNode>() {
-+    override fun create() = RecorderNode(backdrop, sourceKey)
-+    override fun update(node: RecorderNode) {
++private data class MaterialSourceElement(
++    val backdrop: MaterialBackdrop,
++    val sourceKey: () -> Any?,
++) : ModifierNodeElement<MaterialSourceNode>() {
++    override fun create() = MaterialSourceNode(backdrop, sourceKey)
++    override fun update(node: MaterialSourceNode) {
 +        if (node.backdrop !== backdrop) {
-+            node.backdrop.layer = null
-+            node.cache.clear()
-+            node.resetEffectTracking()
++            node.detachSource()
 +            node.backdrop = backdrop
 +        }
 +        node.sourceKey = sourceKey
 +    }
-+    override fun InspectorInfo.inspectableProperties() { name = "sharedWallpaperBlur" }
++    override fun InspectorInfo.inspectableProperties() { name = "materialBackdropSource" }
 +}
 +
-+private class RecorderNode(var backdrop: SharedBlurBackdrop, var sourceKey: () -> Any?) : Modifier.Node(), DrawModifierNode {
-+    val cache = BackdropRecordingCache()
-+    private var blurLayer: GraphicsLayer? = null
-+    private var bakedLayer: GraphicsLayer? = null
-+    private val diagnostics = BackdropLayerDiagnostics("SharedWallpaper")
++private class MaterialSourceNode(
++    var backdrop: MaterialBackdrop,
++    var sourceKey: () -> Any?,
++) : Modifier.Node(), DrawModifierNode, GlobalPositionAwareModifierNode {
++    private val cache = BackdropRecordingCache()
++    private val sourceDiagnostics = BackdropLayerDiagnostics("MaterialSource")
++    private val filterDiagnostics = BackdropLayerDiagnostics("MaterialFilter")
++    private var filtered: GraphicsLayer? = null
++    private var raster: GraphicsLayer? = null
++    private var lastFilter: MaterialBackdropFilter? = null
 +    private val effects = object : BackdropEffectScopeImpl() { override val shape = RectangleShape }
-+    private var lastRadius = Float.NaN
-+    private var lastVibrant: Boolean? = null
-+
-+    fun resetEffectTracking() {
-+        lastRadius = Float.NaN
-+        lastVibrant = null
-+        effects.reset()
-+    }
++    private var coordinates: LayoutCoordinates? = null
 +
 +    override fun ContentDrawScope.draw() {
-+        drawContent()
-+        val filtered = blurLayer ?: return
-+        val published = bakedLayer ?: return
++        val source = backdrop.source
++        if (source.layerCoordinates == null) source.layerCoordinates = coordinates
 +        val dimensions = size.toIntSize()
-+        if (dimensions.width <= 0 || dimensions.height <= 0 ||
-+            backdrop.source.layerCoordinates?.isAttached != true) return
-+        val key = sourceKey()?.let { it to backdrop.source.contentVersion }
++        if (dimensions.width <= 0 || dimensions.height <= 0) return
++        val key = sourceKey()
 +        val sourceDirty = cache.needsRecord(key, dimensions, density, fontScale, layoutDirection)
-+        val geometryDirty = effects.update(this)
-+        val effectDirty = geometryDirty || lastRadius != backdrop.radiusPx || lastVibrant != backdrop.vibrant
-+        if (effectDirty) {
-+            effects.apply {
-+                if (backdrop.vibrant) vibrancy()
-+                blur(backdrop.radiusPx)
-+            }
-+            filtered.renderEffect = effects.renderEffect
-+            lastRadius = backdrop.radiusPx
-+            lastVibrant = backdrop.vibrant
-+        }
 +        if (sourceDirty) {
-+            filtered.record(dimensions) { drawLayer(backdrop.source.graphicsLayer) }
++            recordLayer(source.graphicsLayer, dimensions) { source.onDraw(this@draw) }
 +            cache.recorded(key, dimensions, density, fontScale, layoutDirection)
-+            diagnostics.recorded(dimensions)
++            sourceDiagnostics.recorded(dimensions)
++            Snapshot.withoutReadObservation { source.contentVersion++ }
 +        }
-+        if (sourceDirty || effectDirty) {
-+            published.record(dimensions) { drawLayer(filtered) }
-+            diagnostics.recorded(dimensions)
-+            backdrop.layer = published
++
++        val recipe = backdrop.filter
++        val geometryDirty = effects.update(this)
++        if (recipe == null) {
++            releaseFilter()
++            backdrop.published = source.graphicsLayer
++        } else {
++            val context = requireGraphicsContext()
++            val input = filtered ?: context.createGraphicsLayer().also {
++                filtered = it
++                filterDiagnostics.created()
++            }
++            val output = raster ?: context.createGraphicsLayer().also {
++                it.compositingStrategy = CompositingStrategy.Offscreen
++                raster = it
++                filterDiagnostics.created()
++            }
++            val recipeDirty = geometryDirty || recipe != lastFilter
++            if (recipeDirty) {
++                effects.apply {
++                    if (recipe.vibrant) vibrancy()
++                    blur(recipe.radiusPx)
++                }
++                input.renderEffect = recipe.effect ?: effects.renderEffect
++            }
++            if (sourceDirty || recipeDirty || backdrop.published !== output) {
++                input.record(dimensions) { drawLayer(source.graphicsLayer) }
++                output.record(dimensions) { drawLayer(input) }
++                filterDiagnostics.recorded(dimensions)
++            }
++            backdrop.published = output
++        }
++        if (sourceDirty || recipe != lastFilter || geometryDirty) {
 +            Snapshot.withoutReadObservation { backdrop.contentRevision++ }
 +        }
++        lastFilter = recipe
++        // This replaces the old visible traversal followed by a second producer traversal.
++        drawLayer(source.graphicsLayer)
 +    }
 +
-+    override fun onAttach() {
++    override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
++        this.coordinates = coordinates
++        backdrop.source.layerCoordinates = coordinates
++    }
++
++    private fun releaseFilter() {
 +        val context = requireGraphicsContext()
-+        blurLayer = context.createGraphicsLayer()
-+        bakedLayer = context.createGraphicsLayer().apply {
-+            // A null effect with Auto only forwards a display list. This single shared raster
-+            // boundary is essential: the filtered node must not inherit every card's clip.
-+            compositingStrategy = CompositingStrategy.Offscreen
-+        }
-+        repeat(2) { diagnostics.created() }
++        filtered?.let { context.releaseGraphicsLayer(it); filterDiagnostics.released() }
++        raster?.let { context.releaseGraphicsLayer(it); filterDiagnostics.released() }
++        filtered = null
++        raster = null
++    }
++
++    fun detachSource() {
++        backdrop.published = null
++        backdrop.source.layerCoordinates = null
++        releaseFilter()
++        cache.clear()
++        lastFilter = null
++        effects.reset()
++        Snapshot.withoutReadObservation { backdrop.contentRevision++ }
 +    }
 +
 +    override fun onDetach() {
-+        backdrop.layer = null
-+        val context = requireGraphicsContext()
-+        blurLayer?.let { context.releaseGraphicsLayer(it); diagnostics.released() }
-+        bakedLayer?.let { context.releaseGraphicsLayer(it); diagnostics.released() }
-+        blurLayer = null
-+        bakedLayer = null
-+        cache.clear()
-+        resetEffectTracking()
++        detachSource()
++        coordinates = null
 +    }
 +}
 --- /dev/null
 +++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/backdrops/TransformAwareLayerBackdrop.kt
-@@ -0,0 +1,51 @@
+@@ -0,0 +1,65 @@
 +// SleepDown extension to Kyant Backdrop, Apache-2.0.
 +package com.kyant.backdrop.backdrops
 +
@@ -507,15 +545,29 @@
 +
 +private class TransformAwareLayerBackdrop(private val source: LayerBackdrop) : Backdrop {
 +    override val isCoordinatesDependent = true
-+    private val sourceToConsumer = Matrix()
++    private val mapping = BackdropCoordinateMapping()
 +
 +    override fun DrawScope.drawBackdrop(
 +        density: Density,
 +        coordinates: LayoutCoordinates?,
 +        layerBlock: (GraphicsLayerScope.() -> Unit)?
 +    ) {
-+        val consumer = coordinates?.takeIf { it.isAttached } ?: return
-+        val producer = source.layerCoordinates?.takeIf { it.isAttached } ?: return
++        mapping.draw(this, source.graphicsLayer, source.layerCoordinates, coordinates)
++    }
++}
++
++/** Same mapping for raw, prefiltered and animated consumers; no card-specific offsets. */
++internal class BackdropCoordinateMapping {
++    private val sourceToConsumer = Matrix()
++
++    fun draw(
++        scope: DrawScope,
++        image: androidx.compose.ui.graphics.layer.GraphicsLayer,
++        source: LayoutCoordinates?,
++        coordinates: LayoutCoordinates?,
++    ) = with(scope) {
++        val consumer = coordinates?.takeIf { it.isAttached } ?: return@with
++        val producer = source?.takeIf { it.isAttached } ?: return@with
 +        sourceToConsumer.reset()
 +        try {
 +            consumer.transformFrom(producer, sourceToConsumer)
@@ -526,7 +578,7 @@
 +            val origin = consumer.screenToLocal(producer.localToScreen(Offset.Zero))
 +            val x = consumer.screenToLocal(producer.localToScreen(Offset(1f, 0f)))
 +            val y = consumer.screenToLocal(producer.localToScreen(Offset(0f, 1f)))
-+            if (!origin.isSpecified || !x.isSpecified || !y.isSpecified) return
++            if (!origin.isSpecified || !x.isSpecified || !y.isSpecified) return@with
 +            sourceToConsumer[0, 0] = x.x - origin.x
 +            sourceToConsumer[0, 1] = x.y - origin.y
 +            sourceToConsumer[1, 0] = y.x - origin.x
@@ -536,7 +588,7 @@
 +        }
 +        // LayoutCoordinates already includes the popup's graphics layers. Applying Kyant's
 +        // explicit layerBlock inverse as well would compensate the same transform twice.
-+        withTransform({ transform(sourceToConsumer) }) { drawLayer(source.graphicsLayer) }
++        withTransform({ transform(sourceToConsumer) }) { drawLayer(image) }
 +    }
 +}
 --- /dev/null
@@ -601,7 +653,7 @@
  import androidx.compose.ui.unit.IntOffset
  import androidx.compose.ui.unit.IntSize
  import com.kyant.backdrop.backdrops.LayerBackdrop
-+import com.kyant.backdrop.backdrops.SharedBlurBackdrop
++import com.kyant.backdrop.backdrops.MaterialBackdrop
  import com.kyant.backdrop.highlight.Highlight
  import com.kyant.backdrop.highlight.HighlightElement
  import com.kyant.backdrop.internal.ShapeProvider
@@ -758,7 +810,7 @@
 +            } finally {
 +                canvas.restore()
 +            }
-+            if (backdrop is SharedBlurBackdrop) BackdropDiagnostics.event("Sample.SharedBlit")
++            if (backdrop is MaterialBackdrop) BackdropDiagnostics.event("Sample.SharedBlit")
 +            return@drawBackdropLayer
 +        }
 +
@@ -771,7 +823,7 @@
 +        )
 +        // Only retained, frozen scenes need a completed local recording. Ordinary course cards
 +        // follow the reference path: one local Lens layer sampling the shared wallpaper node.
-+        val shared = backdrop as? SharedBlurBackdrop
++        val shared = backdrop as? MaterialBackdrop
 +        val frozen = shapeProvider.options.coordinatesFrozen()
 +        val key = if (frozen) shapeProvider.options.sampleRecordKey()?.let {
 +            if (shared != null) it to shared.contentRevision else it
@@ -852,7 +904,7 @@
 +        // observer. Observe the shared wallpaper origin here so its first placement refreshes
 +        // cards that drew before the producer reported coordinates. Also observe rerecordings:
 +        // the producer reuses one GraphicsLayer, so its content can change without its identity.
-+        (backdrop as? SharedBlurBackdrop)?.let { shared ->
++        (backdrop as? MaterialBackdrop)?.let { shared ->
 +            shared.source.layerCoordinates
 +            shared.contentRevision
 +        }
@@ -1044,6 +1096,26 @@
                  setFloatUniform("cornerRadii", cornerRadii)
                  setFloatUniform("refractionHeight", refractionHeight)
                  setFloatUniform("refractionAmount", -refractionAmount)
+@@ -60,7 +61,7 @@
+ }
+ 
+ private val BackdropEffectScope.cornerRadii: FloatArray?
+-    get() = when (val shape = shape) {
++    get() = when (val shape = (shape as? RefractionShape)?.geometry ?: shape) {
+         is RoundedRectangularShape -> {
+             val corners = shape.corners(size, layoutDirection, this)
+             floatArrayOf(
+--- /dev/null
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/RefractionShape.kt
+@@ -0,0 +1,8 @@
++// SleepDown extension to Kyant Backdrop, Apache-2.0.
++package com.kyant.backdrop.effects
++
++import androidx.compose.foundation.shape.CornerBasedShape
++import androidx.compose.ui.graphics.Shape
++
++/** Exact host outline for clipping, explicit corner geometry for the rounded refraction SDF. */
++class RefractionShape(val outline: Shape, val geometry: CornerBasedShape) : Shape by outline
 --- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/RenderEffect.kt
 +++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/effects/RenderEffect.kt
 @@ -32,3 +32,4 @@
@@ -1051,6 +1123,21 @@
      renderEffect = renderEffect.chain(effect)
  }
 +
+--- /dev/null
++++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/highlight/DrawHighlightModifier.kt
+@@ -0,0 +1,12 @@
++// SleepDown extension: reuse upstream highlight drawing without a sampled backdrop.
++package com.kyant.backdrop.highlight
++
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Shape
++import com.kyant.backdrop.internal.ShapeProvider
++
++/** Draws only the normal Kyant edge; it never records or samples scene content. */
++fun Modifier.drawHighlight(
++    shape: () -> Shape,
++    highlight: () -> Highlight? = { Highlight.Default }
++): Modifier = then(HighlightElement(ShapeProvider(shape), highlight))
 --- a/backdrop/src/commonMain/kotlin/com/kyant/backdrop/highlight/Highlight.kt
 +++ b/backdrop/src/commonMain/kotlin/com/kyant/backdrop/highlight/Highlight.kt
 @@ -26,3 +26,4 @@

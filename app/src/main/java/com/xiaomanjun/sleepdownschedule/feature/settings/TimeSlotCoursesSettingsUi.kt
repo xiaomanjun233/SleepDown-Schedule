@@ -64,7 +64,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorPickerOverlay
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorPickerRequest
-import com.xiaomanjun.sleepdownschedule.feature.home.homeSwitchGroup
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
@@ -534,12 +533,12 @@ private fun TimeSlotCourseEditor(
             LiquidAlertAction("保存", LiquidAlertActionStyle.Primary, enabled = !saving && positions.isNotEmpty()) { submit() },
             LiquidAlertAction("放弃修改", LiquidAlertActionStyle.Destructive, enabled = !saving) { onClose() },
             LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Cancel) { showExit = false }
-        ), popupBackdrop, config, onDismissRequest = { showExit = false })
+        ), config, onDismissRequest = { showExit = false })
     if (showDelete) LiquidAlertDialog("删除特殊课程？", "“${original?.name}”的占位将被移除。",
         listOf(
             LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showDelete = false },
             LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive, enabled = !saving) { showDelete = false; onSave(null) }
-        ), popupBackdrop, config, onDismissRequest = { showDelete = false })
+        ), config, onDismissRequest = { showDelete = false })
 }
 
 private val WeekdayLabels = listOf("一", "二", "三", "四", "五", "六", "日")

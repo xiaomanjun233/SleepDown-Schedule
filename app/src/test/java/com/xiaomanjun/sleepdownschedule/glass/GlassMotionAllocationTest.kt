@@ -13,64 +13,6 @@ class GlassMotionAllocationTest {
         assertNotEquals(frame.materialEffectsOnly(), frame.copy(chromaticAberration = true).materialEffectsOnly())
     }
 
-    @Test fun restoringOneCardDoesNotMountItsSameColumnNeighbours() {
-        val first = courseGlassRestoreGroupKey(3, listOf("monday-first"))
-        val next = courseGlassRestoreGroupKey(3, listOf("monday-next"))
-        val adjacentPage = courseGlassRestoreGroupKey(4, listOf("monday-first"))
-        val registry = CourseGlassRestoreRegistry()
-        registry.replacePage(3, listOf(
-            CourseGlassRestoreGroup(first, 3, 0.1f),
-            CourseGlassRestoreGroup(next, 3, 0.1f)
-        ), false)
-        registry.replacePage(4, listOf(CourseGlassRestoreGroup(adjacentPage, 4, 0.1f)), false)
-        val ordered = registry.orderedGroupKeys(3)
-        assertEquals(setOf(first, next), ordered.take(2).toSet())
-        assertEquals(adjacentPage, ordered.last())
-        assertEquals(setOf(first, next), registry.pageKeys(3))
-        val revealing = CourseGlassRestorePlan(CourseGlassOcclusionPhase.Revealing, setOf(first, next))
-        assertTrue(revealing.mountsGroup(first))
-        assertFalse(revealing.mountsGroup(adjacentPage))
-        val restoring = CourseGlassRestorePlan(CourseGlassOcclusionPhase.PostCloseRestore, setOf(first))
-        assertTrue(restoring.mountsGroup(first))
-        assertFalse(restoring.mountsGroup(next))
-        assertFalse(restoring.mountsGroup(adjacentPage))
-        registry.removePage(4)
-        assertEquals(setOf(first, next), registry.orderedGroupKeys(3).toSet())
-    }
-
-    @Test fun reversingAtViewportEdgeKeepsMountedMaterialUntilExitBand() {
-        val viewport = Rect(0f, 0f, 1000f, 2000f)
-        fun decide(distance: Float, mounted: Boolean, previous: Float) = decideCourseGlassViewportMaterial(
-            true, mounted, previous, Rect(1000f + distance, 100f, 1100f + distance, 300f),
-            viewport, 100f
-        )
-        assertTrue(decide(0f, true, 0f).mountMaterial)
-        assertTrue(decide(180f, true, 150f).mountMaterial)
-        assertFalse(decide(201f, true, 180f).mountMaterial)
-        assertFalse(decide(150f, false, 201f).mountMaterial)
-        assertTrue(decide(99f, false, 150f).mountMaterial)
-        assertTrue(decide(150f, true, 99f).mountMaterial)
-    }
-
-    @Test fun visibilityNeverRepacksAGroupOrChangesItsTextureBounds() {
-        val candidates = (0..11).map { i ->
-            GlassGroupCandidate("c$i", GlassBackdropDomain.Content, "same",
-                Rect((i % 4) * 120f, (i / 4) * 180f, (i % 4) * 120f + 110f, (i / 4) * 180f + 170f), 12f)
-        }
-        val plans = GlassGroupPlanner.planSpatialChunks(Rect(0f, 0f, 500f, 600f), candidates,
-            maxMembersPerPlan = 8, minimumFillRatio = 0.34f, maximumLayerAreaFraction = 0.58f)
-        for (plan in plans) {
-            for (member in plan.members) {
-                val visible = visibleGlassGroupPlans(plans, setOf(member.id))
-                assertEquals(1, visible.size)
-                assertSame(plan, visible.single())
-                assertEquals(plan.toTightLayerPlan(), visible.single().toTightLayerPlan())
-            }
-        }
-        assertTrue(visibleGlassGroupPlans(plans, emptySet()).isEmpty())
-        assertSame(plans, visibleGlassGroupPlans(plans, null))
-    }
-
     @Test fun insetGeometryUsesLegacyRoundedPixelGridAndFixedAllocation() {
         var current = GlassTransitionGeometry(Rect(30.4f, 50.6f, 150.8f, 240.2f), 24f)
         val envelope = GlassTransitionEnvelope(Rect(10f, 20f, 710f, 920f))

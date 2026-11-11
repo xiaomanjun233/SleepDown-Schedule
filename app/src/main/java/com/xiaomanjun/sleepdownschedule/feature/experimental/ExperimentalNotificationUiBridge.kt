@@ -250,7 +250,6 @@ internal fun ExperimentalNotificationPreview(
             actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
                 needsIslandPrivilege = false
             }),
-            backdrop = dialogBackdrop,
             config = config,
             onDismissRequest = { needsIslandPrivilege = false }
         )
@@ -270,7 +269,6 @@ internal fun ExperimentalNotificationPreview(
             actions = listOf(
                 LiquidAlertAction("完成", LiquidAlertActionStyle.Primary) { state.testResult = null }
             ),
-            backdrop = dialogBackdrop,
             config = config,
             onDismissRequest = { state.testResult = null }
         )

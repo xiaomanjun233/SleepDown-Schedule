@@ -5,7 +5,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import android.view.WindowManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.LocalActivity
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloat
@@ -14,7 +13,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -50,7 +48,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
@@ -73,7 +70,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -90,14 +86,12 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.itos.coui.layout.CouiPageDefaults
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
@@ -210,12 +204,10 @@ fun EduSchoolPickerScreen(
                     }
                 )
             ),
-            backdrop = backdrop,
             config = state.config,
             onDismissRequest = { adapterChoices = null },
             messageMaxHeight = SleepDownDesignTokens.CenteredDialog.SelectionContentMaxHeight,
             scrollableMessageContent = true,
-            isSelector = true,
             messageContent = {
                 Column(modifier = Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     choices.forEach { adapter ->
@@ -237,7 +229,7 @@ fun EduSchoolPickerScreen(
             message = localError ?: if (confirmLocalDelete) "删除此本地适配？不会影响已经导入的课程。"
                 else if (editSource != null) "按拾光 Bridge 规范编辑，保存后打开教务页重新测试。"
                 else "本地 · 自用适配",
-            config = state.config, backdrop = backdrop,
+            config = state.config,
             onDismissRequest = { localSelection = null; editSource = null; confirmLocalDelete = false },
             messageMaxHeight = 420.dp,
             scrollableMessageContent = true,
@@ -1053,7 +1045,6 @@ internal fun EduBridgeInteractionDialog(
                         onFinished()
                     }
                 ),
-                backdrop = backdrop,
                 config = config,
                 onDismissRequest = {
                     resolveInteraction(request.requestId, "false")
@@ -1096,7 +1087,6 @@ internal fun EduBridgeInteractionDialog(
                         onClick = ::submit
                     )
                 ),
-                backdrop = backdrop,
                 config = config,
                 onDismissRequest = ::cancel,
                 messageContent = {
@@ -1152,7 +1142,6 @@ internal fun EduBridgeInteractionDialog(
                             onClick = ::cancel
                         )
                     ),
-                    backdrop = backdrop,
                     config = config,
                     onDismissRequest = ::cancel
                 )
@@ -1193,9 +1182,7 @@ internal fun EduBridgeInteractionDialog(
                     completion = null
                     action?.invoke()
                 },
-                backdrop = backdrop,
                 config = config,
-                contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
                 actions = listOf(
                     LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, dismissOnClick = false) {
                         closeThen(::cancel)
