@@ -1,6 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -13,8 +12,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
-import com.itos.coui.picker.CouiPickerDefaults
-import com.itos.coui.shape.CouiShape
+import com.itos.coui.picker.couiPickerSelectionLines
+import com.itos.coui.theme.CouiTheme
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
@@ -72,24 +71,24 @@ internal fun allocateQuickPickerCounts(parts: List<PeriodDayPart>, counts: Map<P
 }
 
 @Composable
-private fun PeriodWheelSelectionBand(modifier: Modifier = Modifier) {
-    if (!LocalVisualEffects.current.usesCouiControls) return
-    val ink = LocalContentColor.current
-    Box(modifier.height(CouiPickerDefaults.height / 3).background(ink.copy(alpha = 0.075f), CouiShape(14.dp, 2.5f)))
-}
+private fun Modifier.periodSelectionLines(): Modifier =
+    if (LocalVisualEffects.current.usesCouiControls) couiPickerSelectionLines(CouiTheme.colorScheme.outlineVariant)
+    else this
 
 @Composable
 internal fun PeriodQuickSingleWheel(
     value: Int, onChange: (Int) -> Unit, range: IntRange, label: (Int) -> String,
 ) {
-    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        PeriodWheelSelectionBand(Modifier.width(120.dp))
+    Box(Modifier.fillMaxWidth().periodSelectionLines(), contentAlignment = Alignment.Center) {
         PeriodQuickNumberPicker(value, onChange, range, label, Modifier.fillMaxWidth())
     }
 }
 
 @Composable
-private fun PeriodWheelColumns(parts: List<PeriodDayPart>, content: @Composable (PeriodDayPart) -> Unit) {
+private fun PeriodWheelColumns(
+    parts: List<PeriodDayPart>,
+    content: @Composable (PeriodDayPart) -> Unit,
+) {
     Column {
         Row(Modifier.fillMaxWidth()) {
             parts.forEach { part ->
@@ -97,12 +96,9 @@ private fun PeriodWheelColumns(parts: List<PeriodDayPart>, content: @Composable 
                     color = LocalContentColor.current.copy(alpha = 0.66f), textAlign = TextAlign.Center)
             }
         }
-        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            PeriodWheelSelectionBand(Modifier.fillMaxWidth())
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                parts.forEach { part ->
-                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { content(part) }
-                }
+        Row(Modifier.fillMaxWidth().periodSelectionLines(), verticalAlignment = Alignment.CenterVertically) {
+            parts.forEach { part ->
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { content(part) }
             }
         }
     }

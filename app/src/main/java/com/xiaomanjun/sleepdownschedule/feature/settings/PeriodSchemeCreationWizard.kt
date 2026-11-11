@@ -7,8 +7,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.itos.coui.shape.CouiCapsuleShape
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsRowShape
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDatePickerRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
@@ -25,7 +27,6 @@ private enum class CreationPickerPage(val title: String, val step: Int? = null) 
     STRUCTURE("节次与分段", 2),
     TIMING("上课时间", 3),
     COUNTS("节数分配"),
-    STARTS("时段起点"),
     DURATION("每节课时长"),
     BREAK("课间时长"),
 }
@@ -40,6 +41,13 @@ private fun creationStarts(session: PeriodTimelineSession): Map<PeriodDayPart, I
             PeriodDayPart.AFTERNOON -> scheme.afternoonStartTime
             PeriodDayPart.EVENING -> scheme.eveningStartTime
         }) ?: 0
+    }
+}
+
+@Composable
+private fun PeriodCreationGroup(config: ScheduleConfigEntity, content: @Composable ColumnScope.() -> Unit) {
+    CompositionLocalProvider(LocalCouiSettingsRowShape provides CouiCapsuleShape) {
+        SettingsGroup(backdrop = null, config = config, topSpacing = 0.dp, content = content)
     }
 }
 
@@ -77,6 +85,8 @@ internal fun PeriodSchemeCreationWizard(
     var page by remember { mutableStateOf(CreationPickerPage.DETAILS) }
     var pendingCounts by remember { mutableStateOf(counts) }
     var pendingStarts by remember { mutableStateOf(starts) }
+    var startsPickerMounted by remember { mutableStateOf(false) }
+    var startsPickerVisible by remember { mutableStateOf(false) }
     var pendingMinutes by remember { mutableIntStateOf(duration) }
     var error by remember { mutableStateOf<String?>(null) }
     var visible by remember { mutableStateOf(true) }
@@ -187,7 +197,8 @@ internal fun PeriodSchemeCreationWizard(
         backdrop = backdrop, config = visualConfig,
         onDismissFinished = { created?.let { (session, rules) -> onCreated(session, rules) } ?: onDismiss() },
         scrollableContent = true,
-        adjustForIme = page == CreationPickerPage.DETAILS,
+        // Retain the input window's layout policy while the wizard changes pages.
+        adjustForIme = true,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
         couiContentPadding = if (page == CreationPickerPage.DURATION || page == CreationPickerPage.BREAK)
             PaddingValues(0.dp) else CouiPickerFormPadding,
@@ -216,10 +227,6 @@ internal fun PeriodSchemeCreationWizard(
                             allocation = allocation.withCounts(pendingCounts)
                             page = CreationPickerPage.STRUCTURE
                         }
-                        CreationPickerPage.STARTS -> {
-                            starts = starts + constrainAutomaticPartStarts(prepared.config, template, pendingStarts)
-                            page = CreationPickerPage.TIMING
-                        }
                         CreationPickerPage.DURATION -> {
                             duration = pendingMinutes
                             page = CreationPickerPage.TIMING
@@ -247,7 +254,7 @@ internal fun PeriodSchemeCreationWizard(
                     )
                 }
                 when (shownPage) {
-                    CreationPickerPage.DETAILS -> SettingsGroup(backdrop = null, config = visualConfig, topSpacing = 0.dp) {
+                    CreationPickerPage.DETAILS -> PeriodCreationGroup(visualConfig) {
                         if (copying && sourceName != null) {
                             SettingsInfoRow("来源课表", sourceName)
                             SettingsDivider()
@@ -271,7 +278,7 @@ internal fun PeriodSchemeCreationWizard(
                     CreationPickerPage.STRUCTURE -> {
                         val split = PeriodDayPart.AFTERNOON in enabledParts
                         val canChange = source.canChangeStructure
-                        SettingsGroup(backdrop = null, config = visualConfig, topSpacing = 0.dp) {
+                        PeriodCreationGroup(visualConfig) {
                             SettingsToggleRow("上午 / 下午分段", "", split, backdrop, enabled = canChange) {
                                 changeParts(allocation.withSplitEnabled(it))
                             }
@@ -303,27 +310,53 @@ internal fun PeriodSchemeCreationWizard(
                             )
                         }
                     }
-                    CreationPickerPage.TIMING -> SettingsGroup(backdrop = null, config = visualConfig, topSpacing = 0.dp) {
-                        SettingsPickerValueRow(
-                            "时段起点", parts.joinToString(" · ") { timelineMinuteText(starts.getValue(it)) },
-                            valueBelowTitle = parts.size > 2,
-                            onClick = { pendingStarts = starts; page = CreationPickerPage.STARTS },
-                        )
-                        SettingsDivider()
-                        SettingsPickerValueRow("每节课时长", "$duration 分钟", onClick = {
-                            pendingMinutes = duration
-                            page = CreationPickerPage.DURATION
-                        })
-                        SettingsDivider()
-                        SettingsPickerValueRow("课间时长", "$gap 分钟", onClick = {
-                            pendingMinutes = gap
-                            page = CreationPickerPage.BREAK
-                        })
+                    CreationPickerPage.TIMING -> {
+                        PeriodCreationGroup(visualConfig) {
+                            SettingsPickerValueRow(
+                                "时段起点", parts.joinToString(" · ") { timelineMinuteText(starts.getValue(it)) },
+                                valueBelowTitle = parts.size > 2,
+                                onClick = {
+                                    pendingStarts = starts
+                                    startsPickerMounted = true
+                                    startsPickerVisible = true
+                                },
+                            )
+                            SettingsDivider()
+                            SettingsPickerValueRow("每节课时长", "$duration 分钟", onClick = {
+                                pendingMinutes = duration
+                                page = CreationPickerPage.DURATION
+                            })
+                            SettingsDivider()
+                            SettingsPickerValueRow("课间时长", "$gap 分钟", onClick = {
+                                pendingMinutes = gap
+                                page = CreationPickerPage.BREAK
+                            })
+                        }
+                        if (startsPickerMounted) {
+                            SleepDownPickerDialog(
+                                show = startsPickerVisible,
+                                title = "时段起点",
+                                onDismissRequest = { startsPickerVisible = false },
+                                onDismissFinished = { startsPickerMounted = false },
+                                backdrop = backdrop,
+                                config = visualConfig,
+                                contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
+                                couiContentPadding = CouiPickerFormPadding,
+                                actions = listOf(
+                                    LiquidAlertAction("返回", LiquidAlertActionStyle.Cancel) { startsPickerVisible = false },
+                                    LiquidAlertAction("确定", LiquidAlertActionStyle.Primary) {
+                                        starts = starts + constrainAutomaticPartStarts(prepared.config, template, pendingStarts)
+                                        startsPickerVisible = false
+                                    },
+                                ),
+                            ) {
+                                PeriodQuickStartsContent(prepared.config, template, pendingStarts) {
+                                    pendingStarts = pendingStarts + it
+                                }
+                            }
+                        }
                     }
                     CreationPickerPage.COUNTS -> PeriodQuickCountContent(parts, pendingCounts) { pendingCounts = it }
-                    CreationPickerPage.STARTS -> PeriodQuickStartsContent(prepared.config, template, pendingStarts) {
-                        pendingStarts = pendingStarts + it
-                    }
                     CreationPickerPage.DURATION -> PeriodQuickSingleWheel(
                         pendingMinutes, { pendingMinutes = it }, gap.coerceAtLeast(1)..300, { "${it} 分钟" }
                     )
