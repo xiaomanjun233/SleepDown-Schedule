@@ -9,6 +9,7 @@ import com.xiaomanjun.sleepdownschedule.model.agent.AgentActionScope
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedAction
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedActionType
 import com.xiaomanjun.sleepdownschedule.model.*
+import com.xiaomanjun.sleepdownschedule.model.ScheduleAdjustment
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangImportSession
 import com.xiaomanjun.sleepdownschedule.feature.importing.CanonicalScheduleJson
 import com.xiaomanjun.sleepdownschedule.feature.importing.buildCanonicalScheduleJson
