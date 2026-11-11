@@ -45,9 +45,13 @@ class CouiMetaballRenderer {
         secondAlpha: Float = 1f,
         blendMode: BlendMode = BlendMode.SrcOver,
         size: Size = scope.size,
+        firstBottomCornerRadius: Float = first.cornerRadius,
     ) {
         require(blendRangePx.isFinite() && blendRangePx >= 0f) { "融合范围必须是有限的非负值" }
         require(secondAlpha in 0f..1f) { "第二主体透明度必须在 0 到 1 之间" }
+        require(firstBottomCornerRadius.isFinite() && firstBottomCornerRadius >= 0f) {
+            "第一主体底部圆角必须是有限的非负值"
+        }
         require(size.width.isFinite() && size.height.isFinite() && size.width >= 0f && size.height >= 0f) {
             "融合输出尺寸必须是有限的非负值"
         }
@@ -57,6 +61,10 @@ class CouiMetaballRenderer {
             "corners",
             minOf(first.cornerRadius, first.size.width * 0.5f, first.size.height * 0.5f) * 1.5f,
             minOf(second.cornerRadius, second.size.width * 0.5f, second.size.height * 0.5f) * 1.5f,
+        )
+        shader.setFloatUniform(
+            "cardBottomCorner",
+            minOf(firstBottomCornerRadius, first.size.width * 0.5f, first.size.height * 0.5f) * 1.5f,
         )
         shader.setFloatUniform("blendRange", blendRangePx)
         shader.setFloatUniform("fusionEnabled", if (fusionEnabled) 1f else 0f)
@@ -76,6 +84,7 @@ private const val CouiMetaballShaderSource = """
 uniform float4 cardRect;
 uniform float4 actionRect;
 uniform float2 corners;
+uniform float cardBottomCorner;
 uniform float blendRange;
 uniform float fusionEnabled;
 uniform float actionAlpha;
@@ -281,7 +290,8 @@ float shape_d = RBox(coords - pr.rect_c.center, pr.rect_c.halfSize, min(coner1.c
     }
 
 half4 main(float2 coords) {
-    RectCorner card = RectCorner(cardRect.xy, cardRect.zw * 0.5, corners.x, 8.8 / 6.3);
+    float cardCorner = coords.y < cardRect.y ? corners.x : cardBottomCorner;
+    RectCorner card = RectCorner(cardRect.xy, cardRect.zw * 0.5, cardCorner, 8.8 / 6.3);
     RectCorner action = RectCorner(actionRect.xy, actionRect.zw * 0.5, corners.y, 8.8 / 6.3);
     float2 p0 = coords - card.center;
     float2 p1 = coords - action.center;
