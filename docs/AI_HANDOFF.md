@@ -1,5 +1,9 @@
 # 当前工作交接
 
+## 2026-11-11 Nexio 作息编辑交互调查
+
+用户将调查范围收口到编辑和保存的界面操作。GitHub 与 Gitee 的公开基线为 `d6744fbb`。[Nexio 作息编辑与保存交互](reports/2026-11-11-nexio-routine-edit-interaction.md) 按中文界面记录单套与多套显示、添加、弹窗确定、批量应用、保存与退出、删除和跨表复制。结论来自固定提交源码与文案核对。
+
 ## 2026-11-11 多选删除胶囊与作息归属方案
 
 在 `codex/restore-activity-navigation` 从 `acf1046d` 续作，签名源码为 `b15c945b`。对照 ColorOS 17 便签的 `COUIBottomFloatingEditToolbar` 竖排单项宽度和图标间距。导入历史、课程管理及特殊课程共用的删除胶囊改为上方 24dp 图标、下方文字，宽度 148dp，高度跟随对应材质的 Dock。整颗胶囊保留原有点击和确认操作。
