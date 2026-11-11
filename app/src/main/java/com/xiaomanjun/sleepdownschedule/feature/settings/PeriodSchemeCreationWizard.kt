@@ -332,29 +332,6 @@ internal fun PeriodSchemeCreationWizard(
                                 page = CreationPickerPage.BREAK
                             })
                         }
-                        if (startsPickerMounted) {
-                            SleepDownPickerDialog(
-                                show = startsPickerVisible,
-                                title = "时段起点",
-                                onDismissRequest = { startsPickerVisible = false },
-                                onDismissFinished = { startsPickerMounted = false },
-                                backdrop = backdrop,
-                                config = visualConfig,
-                                contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
-                                couiContentPadding = CouiPickerFormPadding,
-                                actions = listOf(
-                                    LiquidAlertAction("返回", LiquidAlertActionStyle.Cancel) { startsPickerVisible = false },
-                                    LiquidAlertAction("确定", LiquidAlertActionStyle.Primary) {
-                                        starts = starts + constrainAutomaticPartStarts(prepared.config, template, pendingStarts)
-                                        startsPickerVisible = false
-                                    },
-                                ),
-                            ) {
-                                PeriodQuickStartsContent(prepared.config, template, pendingStarts) {
-                                    pendingStarts = pendingStarts + it
-                                }
-                            }
-                        }
                     }
                     CreationPickerPage.COUNTS -> PeriodQuickCountContent(parts, pendingCounts) { pendingCounts = it }
                     CreationPickerPage.DURATION -> PeriodQuickSingleWheel(
@@ -371,4 +348,28 @@ internal fun PeriodSchemeCreationWizard(
             }
         },
     ) {}
+    // This picker owns an ordinary COUI window, independent of the wizard's input window.
+    if (startsPickerMounted) {
+        SleepDownPickerDialog(
+            show = startsPickerVisible,
+            title = "时段起点",
+            onDismissRequest = { startsPickerVisible = false },
+            onDismissFinished = { startsPickerMounted = false },
+            backdrop = backdrop,
+            config = visualConfig,
+            contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
+            couiContentPadding = CouiPickerFormPadding,
+            actions = listOf(
+                LiquidAlertAction("返回", LiquidAlertActionStyle.Cancel) { startsPickerVisible = false },
+                LiquidAlertAction("确定", LiquidAlertActionStyle.Primary) {
+                    starts = starts + constrainAutomaticPartStarts(prepared.config, template, pendingStarts)
+                    startsPickerVisible = false
+                },
+            ),
+        ) {
+            PeriodQuickStartsContent(prepared.config, template, pendingStarts) {
+                pendingStarts = pendingStarts + it
+            }
+        }
+    }
 }
