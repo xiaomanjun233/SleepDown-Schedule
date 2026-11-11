@@ -1,5 +1,15 @@
 # 当前工作交接
 
+## 2026-11-11 厂商通知教程 Sheet 与滑删拉伸
+
+课程安排整卡滑动接回公共删除按钮的拉伸。按钮露出后，继续拖动会增加宽度，图标跟随按钮居中。流体云、YOYO 建议与超级岛复用「教程与诊断」COUI Sheet，分为使用教程和当前诊断，顶栏支持关闭、刷新。流体云页保留组件和重新同步，超级岛页通过一行选择 Shizuku 或 root，并提供焦点通知与显示设置。超级岛的教程说明即时发送预览，流体云的教程说明临时课程和观察时间。
+
+签名包源码为 `1b385aae`。GitHub 2.0、版本代码 36，`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 9 分 24 秒。归档包 `tmp/review-apks/SleepDown-2.0-GitHub-1b385aae.apk` 为 8,074,898 字节，SHA-256 为 `DB921DF631A0FC8262A7FD3081F24F0790C5A5DB64665B8385FD95E594E51A3D`。构建日志为 `tmp/sleepdown-notification-sheet-1b385aae-build.log`。
+
+19:20 经 SDK ADB 37.0.1 的 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读一致。点验整卡滑动、深拖后取消回位及通知设置入口。删除按钮高 72.5dp，截图中的底色宽度随拖动从 116px 增至 191px。Pixel 使用普通通知设置，厂商 Sheet 和系统授权流程待对应机型点验。日志及截图在主工作区 `tmp/nav3-qa/sleepdown-1b385aae-avd-*`。
+
+18:57 先按用户要求将 `38f56444` 整卡滑动包覆盖到 USB OPPO PLJ110。19:22 同一手机覆盖 `1b385aae`，Android 17 / API 37，`3B15AE023YL00000`，用户 0。客户端和 5038 服务均来自 `D:/Android studio/AndroidSDK/platform-tools/adb.exe`，版本 37.0.1。两次回读的版本均为 GitHub 2.0、版本代码 36，base APK 哈希分别与对应归档一致。日志在主工作区 `tmp/nav3-qa/sleepdown-38f56444-phone-install.log` 和 `tmp/nav3-qa/sleepdown-1b385aae-phone-install.log`。
+
 ## 2026-11-11 课程安排整卡滑删与厂商通知设置梳理
 
 课程安排的底色轮廓、分割线和表单一起横移。删除按钮随手势露出，高度为安排卡片的四分之一。共享滑删组件按入口选择卡片运动。用户确认采用当前效果。
