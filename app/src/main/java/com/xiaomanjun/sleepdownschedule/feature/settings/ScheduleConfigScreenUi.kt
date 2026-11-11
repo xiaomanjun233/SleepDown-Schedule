@@ -5,10 +5,14 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.provider.Settings
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -20,12 +24,17 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsPopupBackdrop
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDatePickerContent
 import com.xiaomanjun.sleepdownschedule.domain.schedule.coursesOutsideShortenedTerm
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.compactWeekSelectionLabel
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorScopeDescription
 import com.xiaomanjun.sleepdownschedule.transition.legacy.ScheduleCustomizeIdExtra
+import java.time.LocalDate
+import java.time.YearMonth
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
@@ -55,6 +64,7 @@ fun ScheduleConfigScreen(
     var saving by remember(id) { mutableStateOf(false) }
     var askToSave by remember(id) { mutableStateOf(false) }
     var confirmShortening by remember(id) { mutableStateOf(false) }
+    var choosingNewTerm by remember { mutableStateOf(false) }
 
     val dirty = draft != original || (section == SettingsSection.Schedule && totalWeeks != original.totalWeeks.toString())
     LaunchedEffect(state.config) {
@@ -65,8 +75,8 @@ fun ScheduleConfigScreen(
         }
     }
     LaunchedEffect(state.config.scheduleAdjustmentsJson) { adjustments = state.config.scheduleAdjustmentsJson }
-    LaunchedEffect(section, dirty, saving) {
-        onExitInterceptionChange(shouldInterceptSettingsBack(section, dirty, saving))
+    LaunchedEffect(section, dirty, saving, choosingNewTerm) {
+        onExitInterceptionChange(choosingNewTerm || shouldInterceptSettingsBack(section, dirty, saving))
     }
     DisposableEffect(Unit) { onDispose { onExitInterceptionChange(false) } }
 
@@ -118,7 +128,7 @@ fun ScheduleConfigScreen(
     }
 
     LaunchedEffect(exitCommitRequest) {
-        if (exitCommitRequest <= 0 || saving) return@LaunchedEffect
+        if (exitCommitRequest <= 0 || saving || choosingNewTerm) return@LaunchedEffect
         if (section == SettingsSection.Notifications) {
             if (dirty) saveNotifications()
             onExitCommitFinished(true)
@@ -178,12 +188,32 @@ fun ScheduleConfigScreen(
         onHideEmptyWeekendsChange = { draft = draft.copy(hideEmptyWeekends = it) },
         onShowNonCurrentWeekCoursesChange = { draft = draft.copy(showNonCurrentWeekCourses = it) },
         onTermStartDateChange = { draft = draft.copy(termStartDate = it.ifBlank { null }) },
+        onStartNewTerm = { if (!saving) choosingNewTerm = true },
         scheduleAdjustmentsJson = adjustments,
         onScheduleAdjustmentsChange = { adjustments = it },
         onOpenPeriodSchemes = { openSchedulePage(SettingsPage.PeriodSchemes) },
         onOpenSpecialCourses = { openSchedulePage(SettingsPage.SpecialCourses) },
         error = error,
     )
+
+    if (choosingNewTerm) {
+        NewTermDateDialog(
+            backdrop = popupBackdrop,
+            config = visualConfig,
+            onDismiss = { choosingNewTerm = false },
+            onCreate = { date ->
+                val weeks = requireNotNull(totalWeeks.toIntOrNull()?.takeIf { it in 1..60 }) {
+                    "总周数必须在 1 到 60 之间"
+                }
+                repository.createNewTerm(original, draft.copy(totalWeeks = weeks), date)
+            },
+            onCreated = { scheduleId ->
+                context.startActivity(Intent(context, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(OpenScheduleWeekExtra, scheduleId))
+            },
+        )
+    }
 
     if (askToSave) {
         LiquidAlertDialog(
@@ -237,6 +267,76 @@ fun ScheduleConfigScreen(
             config = visualConfig,
             onDismissRequest = ::cancel,
         )
+    }
+}
+
+@Composable
+private fun NewTermDateDialog(
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onDismiss: () -> Unit,
+    onCreate: suspend (LocalDate) -> Int,
+    onCreated: (Int) -> Unit,
+) {
+    val today = remember { LocalDate.now() }
+    var year by remember { mutableIntStateOf(today.year) }
+    var month by remember { mutableIntStateOf(today.monthValue) }
+    var day by remember { mutableIntStateOf(today.dayOfMonth) }
+    var visible by remember { mutableStateOf(true) }
+    var creating by remember { mutableStateOf(false) }
+    var failureMessage by remember { mutableStateOf<String?>(null) }
+    var createdId by remember { mutableStateOf<Int?>(null) }
+    val scope = rememberCoroutineScope()
+
+    fun dismiss() {
+        if (!creating) visible = false
+    }
+
+    SleepDownPickerDialog(
+        show = visible,
+        title = "开启新学期",
+        message = "选择新学期的开学日期。",
+        onDismissRequest = ::dismiss,
+        onDismissFinished = {
+            onDismiss()
+            createdId?.let(onCreated)
+        },
+        backdrop = backdrop,
+        config = config,
+        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
+        actions = listOf(
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, enabled = !creating, onClick = ::dismiss),
+            LiquidAlertAction(
+                if (creating) "正在创建…" else "创建并切换",
+                LiquidAlertActionStyle.Primary,
+                enabled = !creating,
+                dismissOnClick = false,
+            ) {
+                if (!creating) {
+                    val selectedMonth = YearMonth.of(year, month)
+                    val selected = selectedMonth.atDay(day.coerceAtMost(selectedMonth.lengthOfMonth()))
+                    creating = true
+                    failureMessage = null
+                    scope.launch {
+                        try {
+                            createdId = onCreate(selected)
+                            visible = false
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            failureMessage = failure.message ?: "创建新学期失败，请重试"
+                            creating = false
+                        }
+                    }
+                }
+            },
+        ),
+    ) {
+        SettingsDatePickerContent(
+            year = year, month = month, day = day,
+            onYearChange = { year = it }, onMonthChange = { month = it }, onDayChange = { day = it },
+        )
+        failureMessage?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
     }
 }
 

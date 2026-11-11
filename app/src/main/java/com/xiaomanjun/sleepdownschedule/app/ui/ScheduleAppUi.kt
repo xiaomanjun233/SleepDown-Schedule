@@ -447,7 +447,9 @@ fun CourseScheduleAppUi(
     viewModel: ScheduleViewModel,
     externalIcsUri: Uri? = null,
     onExternalIcsConsumed: (Uri) -> Unit = {},
-    onStartupContentReady: () -> Unit = {}
+    onStartupContentReady: () -> Unit = {},
+    requestedScheduleWeekId: Int? = null,
+    onRequestedScheduleWeekShown: (Int) -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val allSchedulesState by viewModel.allSchedulesState.collectAsStateWithLifecycle()
@@ -1780,6 +1782,32 @@ fun CourseScheduleAppUi(
         destinationCollapseHandedOff = false
         homeAnchoredOverlayRequest = null
         homeMenuDestinationRequest = null
+    }
+
+    LaunchedEffect(requestedScheduleWeekId, state.loaded, state.config.id) {
+        val id = requestedScheduleWeekId ?: return@LaunchedEffect
+        if (!state.loaded || state.config.id != id) return@LaunchedEffect
+        dismissHomeDialog()
+        closeHomeMenuDestination()
+        quickScheduleReturnToManager = false
+        quickScheduleDraft = null
+        detailMorphRequest = null
+        detailMorphState = DetailMorphState.Idle
+        detailCaptureCoverBitmap = null
+        detailCaptureRecordCleanFrame = false
+        detailPopupCaptureActive = false
+        pendingPickerEditorScheduleId = null
+        previewScheduleId = null
+        if (pickerState.overlayVisible) {
+            snapshotJob?.cancel()
+            ++snapshotGeneration
+            pickerState.reset()
+        }
+        homeMode = HomeMode.Week
+        sidebarPage = HomeSidebarDestination.Week
+        screen = Screen.Home
+        viewModel.refreshNotificationsAfterSave()
+        onRequestedScheduleWeekShown(id)
     }
 
     LaunchedEffect(pendingImportedSetupId) {

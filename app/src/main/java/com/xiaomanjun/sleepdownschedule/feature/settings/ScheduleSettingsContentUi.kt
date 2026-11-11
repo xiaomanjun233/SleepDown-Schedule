@@ -301,6 +301,7 @@ internal fun ScheduleSettingsContent(
     onHideEmptyWeekendsChange: (Boolean) -> Unit,
     onShowNonCurrentWeekCoursesChange: (Boolean) -> Unit,
     onTermStartDateChange: (String) -> Unit,
+    onStartNewTerm: () -> Unit,
     scheduleAdjustmentsJson: String,
     onScheduleAdjustmentsChange: (String) -> Unit,
     onOpenPeriodSchemes: () -> Unit,
@@ -336,6 +337,8 @@ internal fun ScheduleSettingsContent(
                         draftConfig.showNonCurrentWeekCourses, backdrop, onCheckedChange = onShowNonCurrentWeekCoursesChange)
                     SettingsDivider()
                     SettingsDatePickerRow("学期开始日期", draftConfig.termStartDate.orEmpty(), onTermStartDateChange, backdrop, config)
+                    SettingsDivider()
+                    SettingsNavigationRow("开启新学期", "沿用当前课表设置，创建空课表", onClick = onStartNewTerm)
                 }
             }
         }

@@ -639,6 +639,43 @@ class SharedPeriodSchemeRepositoryTest {
         assertEquals(target, repository.loadScheduleRoutines(2))
     }
 
+    @Test
+    fun newTermCopiesScheduleSettingsAndRoutinesThenActivatesAnEmptyCourseList() = runBlocking {
+        val sourceConfig = requireNotNull(database.configDao().getConfig(1))
+        val specials = encodeTimeSlotCourses(listOf(TimeSlotCourse("early", "早读", "07:15", "07:40")))
+        val adjustments = encodeScheduleAdjustments(listOf(ScheduleAdjustment("2026-09-18", label = "停课")))
+        database.configDao().upsertConfig(sourceConfig.copy(
+            termStartDate = "2026-09-07", currentWeek = 8, weekStartsOnSunday = true,
+            wallpaperUri = "file:///test-wallpaper.jpg", showNonCurrentWeekCourses = true,
+            timeSlotCoursesJson = specials, scheduleAdjustmentsJson = adjustments,
+        ))
+        database.courseDao().insertCourses(listOf(course(1, listOf(2)).copy(name = "原学期课程")))
+        val source = saveTestDateRoutine(repository.loadScheduleRoutines(1), "日期作息", LocalDate.of(2026, 9, 22))
+        val startDate = LocalDate.of(2036, 3, 2)
+        val before = state()
+        rejected { repository.createNewTerm(source.config, source.config.copy(totalWeeks = 0), startDate) }
+        assertEquals(before, state())
+
+        val id = repository.createNewTerm(source.config, source.config.copy(totalWeeks = 17), startDate)
+        val active = repository.activeSnapshot()
+        val created = repository.loadScheduleRoutines(id)
+        assertEquals(id, active.config.id)
+        assertEquals("课表1 · 新学期", database.scheduleProfileDao().getProfiles().single { it.isActive }.name)
+        assertEquals(startDate.toString(), created.config.termStartDate)
+        assertEquals(1, created.config.currentWeek)
+        assertEquals(17, created.config.totalWeeks)
+        assertTrue(created.config.weekStartsOnSunday)
+        assertTrue(created.config.showNonCurrentWeekCourses)
+        assertTrue(created.config.timeSlotCoursesJson.isEmpty())
+        assertEquals(adjustments, created.config.scheduleAdjustmentsJson)
+        assertEquals(source.config.wallpaperUri, created.config.wallpaperUri)
+        assertEquals(source.rules.map { it.startDate to it.endDate }, created.rules.map { it.startDate to it.endDate })
+        assertEquals(source.schemes.map { it.scheme.name }, created.schemes.map { it.scheme.name })
+        assertTrue(created.schemes.none { copy -> source.schemes.any { it.scheme.id == copy.scheme.id } })
+        assertTrue(created.courses.isEmpty())
+        assertEquals(source, repository.loadScheduleRoutines(1))
+    }
+
     private suspend fun saveTestDateRoutine(source: ScheduleRoutines, name: String, date: LocalDate): ScheduleRoutines {
         val session = source.timeline(source.regularId)
         val id = -1L

@@ -35,15 +35,18 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
+internal const val OpenScheduleWeekExtra = "com.xiaomanjun.sleepdownschedule.extra.OPEN_SCHEDULE_WEEK"
+
 class MainActivity : ComponentActivity() {
     private val pendingExternalIcsUri = MutableStateFlow<Uri?>(null)
     private val pendingExternalIcsUriFlow = pendingExternalIcsUri.asStateFlow()
+    private val pendingScheduleWeek = MutableStateFlow<Int?>(null)
     private val startupContentReady = AtomicBoolean(false)
     private var startupPreDrawListener: ViewTreeObserver.OnPreDrawListener? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        acceptExternalIcsIntent(intent)
+        acceptEntryIntent(intent)
         WindowCompat.setDecorFitsSystemWindows(window, true)
         val contentRoot = findViewById<View>(android.R.id.content)
         startupPreDrawListener = ViewTreeObserver.OnPreDrawListener {
@@ -66,12 +69,20 @@ class MainActivity : ComponentActivity() {
             )
             val config by viewModel.themeConfig.collectAsStateWithLifecycle()
             val externalIcsUri by pendingExternalIcsUriFlow.collectAsStateWithLifecycle()
+            val requestedScheduleWeek by pendingScheduleWeek.collectAsStateWithLifecycle()
             CourseScheduleTheme(config = config) {
                 CourseScheduleAppUi(
                     viewModel = viewModel,
                     externalIcsUri = externalIcsUri,
                     onExternalIcsConsumed = { consumed ->
                         pendingExternalIcsUri.compareAndSet(consumed, null)
+                    },
+                    requestedScheduleWeekId = requestedScheduleWeek,
+                    onRequestedScheduleWeekShown = { id ->
+                        if (pendingScheduleWeek.compareAndSet(id, null) &&
+                            intent.getIntExtra(OpenScheduleWeekExtra, 0) == id) {
+                            intent.removeExtra(OpenScheduleWeekExtra)
+                        }
                     },
                     onStartupContentReady = {
                         if (startupContentReady.compareAndSet(false, true)) {
@@ -97,6 +108,12 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        acceptEntryIntent(intent)
+    }
+
+    private fun acceptEntryIntent(intent: Intent?) {
+        val scheduleId = intent?.getIntExtra(OpenScheduleWeekExtra, 0) ?: 0
+        if (scheduleId > 0) pendingScheduleWeek.value = scheduleId
         acceptExternalIcsIntent(intent)
     }
 

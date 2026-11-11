@@ -229,7 +229,7 @@ class ScheduleRepository(private val database: AppDatabase) {
         val regular = replacements.getValue(source.regularId)
         val updatedRules = rules.map { rule -> rule.copy(schemeId = replacements.getValue(rule.schemeId).scheme.id) }
         if (mapped != target.courses) courseDao.insertCourses(mapped)
-        saveRoutineBindings(target, grid, regular.scheme.id, updatedRules, source.combo?.name)
+        saveRoutineBindings(target.config, grid, regular.scheme.id, updatedRules, source.combo?.name)
     }
 
     private fun PeriodSchemeDraft.withValidatedName(): PeriodSchemeDraft {
@@ -251,7 +251,7 @@ class ScheduleRepository(private val database: AppDatabase) {
             val current = checkScheduleRoutines(original)
             require(schemeId != current.regularId && schemeId != current.gridId) { "请保留课表的常规作息" }
             require(current.rules.any { it.schemeId == schemeId }) { "这套作息已从课表移除" }
-            saveRoutineBindings(current, current.grid, current.regularId,
+            saveRoutineBindings(current.config, current.grid, current.regularId,
                 current.rules.filterNot { it.schemeId == schemeId }, current.combo?.name)
         }
 
@@ -293,20 +293,19 @@ class ScheduleRepository(private val database: AppDatabase) {
     }
 
     private suspend fun saveRoutineBindings(
-        current: ScheduleRoutines,
+        config: ScheduleConfigEntity,
         grid: PeriodSchemeDraft,
         regularId: Long,
         rules: List<TimetableDateRuleEntity>,
         comboName: String?,
     ): ScheduleRoutines {
-        val config = current.config
         val comboId = if (rules.isEmpty() && regularId == grid.scheme.id) null else {
             val id = timetableDao.putCombo(TimetableComboEntity(name = comboName ?: "日期作息", baseSchemeId = regularId))
             timetableDao.putRules(rules.mapIndexed { index, rule -> rule.copy(comboId = id, position = index) })
             id
         }
         bindPublicScheme(config.id, grid.scheme, grid.times, config.copy(activeTimetableComboId = comboId))
-        retireUnusedCombo(current.combo?.id)
+        retireUnusedCombo(config.activeTimetableComboId)
         return readScheduleRoutines(config.id)
     }
 
@@ -1190,6 +1189,45 @@ class ScheduleRepository(private val database: AppDatabase) {
             }
             id
         }
+    }
+
+    internal suspend fun createNewTerm(
+        original: ScheduleConfigEntity,
+        draft: ScheduleConfigEntity,
+        startDate: LocalDate,
+    ): Int = database.withTransaction {
+        require(original.id == draft.id) { "课表设置已变化，请重新打开" }
+        require(draft.totalWeeks in 1..60) { "总周数必须在 1 到 60 之间" }
+        val profiles = profileDao.getProfiles()
+        val origin = profiles.firstOrNull { it.id == original.id } ?: error("来源课表已不存在")
+        ensureScheduleData(origin.id)
+        val source = readScheduleRoutines(origin.id)
+        validateRoutineBindings(source.grid, source.regular, source.rules, source.schemes)
+
+        val usedNames = profiles.mapTo(hashSetOf()) { it.name }
+        val stem = "${origin.name} · 新学期"
+        val name = (1..(usedNames.size + 1)).asSequence()
+            .map { number -> if (number == 1) stem else "$stem $number" }
+            .first { it !in usedNames }
+        val id = profileDao.upsertProfile(ScheduleProfileEntity(name = name)).toInt()
+        val copiedConfig = source.config.withChangesFrom(original, draft).copy(
+            id = id,
+            currentWeek = 1,
+            autoCurrentWeek = true,
+            termStartDate = startDate.toString(),
+            timeSlotCoursesJson = "",
+            activePeriodSchemeId = null,
+            activeTimetableComboId = null,
+        )
+        val config = normalizeConfigForSchedule(copiedConfig, id)
+        configDao.upsertConfig(config)
+        val copies = source.schemes.associate { it.scheme.id to insertRoutineCopy(it) }
+        val grid = copies.getValue(source.gridId)
+        val regularId = copies.getValue(source.regularId).scheme.id
+        val rules = source.rules.map { it.copy(schemeId = copies.getValue(it.schemeId).scheme.id) }
+        saveRoutineBindings(config, grid, regularId, rules, source.combo?.name)
+        activateSchedule(id)
+        id
     }
 
     suspend fun activateSchedule(scheduleId: Int) {
