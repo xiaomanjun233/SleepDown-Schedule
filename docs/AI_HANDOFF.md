@@ -1,5 +1,40 @@
 # 当前工作交接
 
+## 2026-11-11 首页采样、公共材质与动效重构
+
+用户要求先保留最新开发修改，再从两种材质的公共渲染机制出发重写首页采样、动效与公共组件，
+尽量保持视觉，保留液态按压。普通弹窗以凝光布局为共同基准；滑条和开关各自保留。
+“清除缓存”明确指系统设置 → 应用 → 清除缓存。本轮未清理设备数据或缓存。
+
+从实际最新开发工作树 `tmp/nav3-baseline-37212b91` 的 `b779dd55` 派生
+`codex/home-render-architecture`，工作树为 `tmp/home-render-architecture`；
+保留分支 `codex/perf-baseline-20261111` 指向 `b779dd55`。
+原开发分支 `codex/restore-activity-navigation` 及主工作区 `codex/couikit-dialog` 的原有未提交修改未动。
+源码提交为 `24c887b2`。本轮只进行本地提交，没有推送、PR、安装或启动应用。
+
+课程壁纸改为单一 `MaterialBackdrop` producer，卡片和浮动副本显式共用
+`CourseMaterialSampling`；预过滤由源拥有，动画通过公共坐标变换取样，不再依赖逐卡就绪回退。
+首页切页使用单一进度/速度和空间跟随；整页模糊使用固定终态与混合比例。
+普通按钮、弹窗和分段标签分离共同布局与材质装饰。退役的私有 ColorOS 反射后端、
+无调用的 GlassGroup / Occlusion / Viewport 及重复弹层外壳已移除；
+当前滑条、开关、真实锚点 Morph、Dock 融合与 Popup 路线保留。
+
+常规 Gradle 入口的 66 项定向测试通过，含共享录制、动画像素对齐、资源释放、
+模式切换草稿、异步保存、退出和 API 26 弹窗。架构检查通过（662 个生产文件，
+0 项违规文件依赖，既有 41 条循环边保留），未放宽基线。Kyant 原始 34 文件哈希匹配，
+完整差异通过独立应用及 43 个运行时文件比较。
+
+最终 `assembleGithubRelease` 通过（6 分 33 秒），包括 Kotlin、R8、资源压缩、lintVital
+及 V2 签名校验。GitHub 2.0 / code 36，APK 为本工作树
+`app/build/outputs/apk/github/release/app-github-release.apk`，8,008,902 字节，
+SHA-256 `AD439C9BD3D5CF86E776346D8F98936B937EEB59AB04DE8634083EBE6463959E`。
+补充的强调色 4 项、菜单 6 项回归全部通过，两轮共 76 项，无失败或跳过。
+日志在主工作区 `tmp/home-render-tests-final.log`、`tmp/home-menu-tests-final.log`、
+`tmp/home-render-release-final.log`。首次将 Debug 回归与 Release 合并运行时，2 GB 构建堆不足；
+后续拆开，Release 使用单 worker、临时 4 GB 堆，不修改项目默认配置。
+目前没有清系统缓存前后同设备 trace 或实机视觉对比；测试计数不等于帧率收益。
+详细职责、其他组件的采样来源及证据边界见[本轮报告](reports/2026-11-11-home-render-architecture.md)。
+
 ## 2026-11-11 通知教程 Sheet 顶栏渐变模糊
 
 OPPO 19:44 的截图确认 `f99b7dea` 的诊断列表已延伸到小白条下。教程 Sheet 的滚动列表复用作息编辑的渐变模糊做法，顶栏独立绘制，列表按实测顶栏高度留出初始间距。渐变只覆盖顶栏，末项继续按实际手势区高度加 16dp 留白。

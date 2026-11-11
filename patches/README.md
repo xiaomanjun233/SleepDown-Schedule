@@ -16,4 +16,8 @@
 
 `kyant-backdrop-2.0.0-sleepdown.patch` 记录已纳入 `third-party/kyant-backdrop` 的差异，不要重复应用到该目录。来源与变更说明见该目录的说明文件和 `THIRD_PARTY_NOTICES.md`。
 
+2026-11-11 对照 `UPSTREAM.json` 校验 34 个原始文件的 Git blob 哈希，从相同上游重新导出
+MaterialBackdrop、公共坐标变换及 RefractionShape 在内的完整差异。独立临时副本通过
+`git apply --check`、实际应用及全部运行时源码逐文件比较；未修改 Miuix 补丁。
+
 2026-10-07 从确切的 `bebb11a` 上游文件重新导出该补丁，补齐此前已纳入源码的录制、密度和轮廓缓存差异，以及本次 Popup 坐标补偿和共享壁纸采样复用。源码目录仍是构建事实来源。
