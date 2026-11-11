@@ -12,6 +12,8 @@
 
 12:19 使用 SDK ADB 37.0.1 客户端及同来源的 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读 APK SHA-256 一致。此前用户要求同步的 `187f2c4a` 已覆盖同一 AVD 和 USB OPPO PLJ110（Android 17，`3B15AE023YL00000`，用户 0）。最新包的后续点验使用模拟器。安装日志分别在主工作区 `tmp/nav3-qa/sleepdown-68b3d148-avd-install.log` 与 `tmp/nav3-qa/sleepdown-187f2c4a-install.log`。
 
+12:31 按用户要求将同一 `68b3d148` 签名包覆盖到 USB OPPO PLJ110（Android 17 / API 37，`3B15AE023YL00000`，用户 0）。SDK ADB 37.0.1 客户端与服务端均来自 `D:/Android studio/AndroidSDK/platform-tools/adb.exe`，使用 5038。实机回读为 2.0、版本代码 36，base APK SHA-256 与签名包一致。安装日志在主工作区 `tmp/nav3-qa/sleepdown-68b3d148-phone-install.log`，实机界面留给用户试用。
+
 签名包实测英文系统环境下月份、七个星期标题、月份切换按钮和日期读屏文本均为中文。取消后再次选择 2026-11-18 并确认，自动回到「凝光阅读验收 · 新学期」的第一周。新表保留 4 套作息和壁纸，课程管理显示空态，特殊课程为零。切回原表仍可见高等数学、3 条特殊课程和原开学日期 2026-11-09。
 
 同包点验第三步三个设置行及其选择器。列表按压覆盖整行且放开后恢复。864×1856 截图里时段起点与复制弹窗底边同为 1737px，第三步打开子选择器前后同为 1697px。过程日志在 `tmp/nav3-qa/sleepdown-68b3d148-avd-new-term.log`，截图使用同名的 `new-term-*` 与 `placement-*` 后缀。前一份 `b42959d6` 签名包已跑过创建到时间轴保存、跨表复制、原表作息独立及周首日切换，日志在 `tmp/nav3-qa/sleepdown-b42959d6-avd-routines.log`。
