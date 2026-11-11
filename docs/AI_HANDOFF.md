@@ -6,6 +6,8 @@
 
 签名包源码为 `f99b7dea`。GitHub 2.0、版本代码 36，`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 10 分 42 秒。归档包 `tmp/review-apks/SleepDown-2.0-GitHub-f99b7dea.apk` 为 8,074,898 字节，SHA-256 为 `9DDAC698516AA923CDDD4F0B3476C0E157C9B1B56AF3932A126F347E10D14E3A`。19:41 经同来源 ADB 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读一致。Pixel 仅提供普通通知与实时活动入口，修复后的厂商 Sheet 待 OPPO 复看。构建日志和安装日志分别为 `tmp/sleepdown-notification-sheet-edge-f99b7dea-build.log` 与 `tmp/nav3-qa/sleepdown-f99b7dea-avd-install.log`。
 
+19:43 按用户要求覆盖同一 `f99b7dea` 签名包到 USB OPPO PLJ110（Android 17 / API 37，`3B15AE023YL00000`，用户 0）。客户端与 5038 服务均为 `D:/Android studio/AndroidSDK/platform-tools/adb.exe` 37.0.1。实机回读 GitHub 2.0、版本代码 36，APK 哈希与归档一致。日志为 `tmp/nav3-qa/sleepdown-f99b7dea-phone-install.log`。
+
 ## 2026-11-11 厂商通知教程 Sheet 与滑删拉伸
 
 课程安排整卡滑动接回公共删除按钮的拉伸。按钮露出后，继续拖动会增加宽度，图标跟随按钮居中。流体云、YOYO 建议与超级岛复用「教程与诊断」COUI Sheet，分为使用教程和当前诊断，顶栏支持关闭、刷新。流体云页保留组件和重新同步，超级岛页通过一行选择 Shizuku 或 root，并提供焦点通知与显示设置。超级岛的教程说明即时发送预览，流体云的教程说明临时课程和观察时间。
