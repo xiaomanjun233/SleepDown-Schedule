@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import com.itos.coui.theme.CouiTheme
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SwipeDeleteCardMotion
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SwipeDeleteCorners
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SwipeDeleteRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceCategory
@@ -103,7 +104,7 @@ internal fun LazyListScope.scheduleAdjustmentItems(
                 revealed = swipes.revealedDate == entry.date,
                 onRevealChange = { swipes.reveal(entry.date, it) },
                 swipeEnabled = enabled || entry.date == departingDate,
-                slideContent = false,
+                cardMotion = SwipeDeleteCardMotion.Resize,
                 confirmDelete = { confirmDelete(entry) },
                 onDelete = { onDelete(entry) },
                 onDeleteFailed = onDeleteFailed,

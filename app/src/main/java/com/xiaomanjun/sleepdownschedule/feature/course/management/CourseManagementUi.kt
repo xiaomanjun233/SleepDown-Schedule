@@ -888,7 +888,7 @@ internal fun CourseManagementDetailPage(
                             validationMessage = "无法删除安排，请重试"
                         },
                         swipeEnabled = !saving || departing?.draft?.localKey == draft.localKey,
-                        slideContent = false,
+                        cardMotion = SwipeDeleteCardMotion.Slide,
                         actionHeight = with(density) { (cardHeightPx.toDp() / 4f).coerceAtLeast(48.dp) },
                         expandActionOnDrag = false,
                         rowCorners = { SwipeDeleteCorners(24.dp) },

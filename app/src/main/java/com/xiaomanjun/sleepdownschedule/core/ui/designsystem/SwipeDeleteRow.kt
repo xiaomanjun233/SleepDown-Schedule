@@ -79,6 +79,8 @@ internal data class SwipeDeleteCorners(val top: Dp, val bottom: Dp = top) {
         else RoundedCornerShape(topStart = top, topEnd = top, bottomEnd = bottom, bottomStart = bottom)
 }
 
+internal enum class SwipeDeleteCardMotion { Slide, SlideContent, Resize }
+
 /** Shares the notification-style reveal, fusion and dismiss animation across lists. */
 @Composable
 internal fun SwipeDeleteRow(
@@ -90,7 +92,7 @@ internal fun SwipeDeleteRow(
     onDeleteFailed: (Exception) -> Unit,
     modifier: Modifier = Modifier,
     swipeEnabled: Boolean = true,
-    slideContent: Boolean = true,
+    cardMotion: SwipeDeleteCardMotion = SwipeDeleteCardMotion.SlideContent,
     actionHeight: Dp = SwipeActionHeight,
     expandActionOnDrag: Boolean = true,
     confirmDelete: (suspend () -> Boolean)? = null,
@@ -102,6 +104,8 @@ internal fun SwipeDeleteRow(
     val density = LocalDensity.current
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val direction = if (rtl) -1f else 1f
+    val slideCard = cardMotion == SwipeDeleteCardMotion.Slide
+    val slideContent = cardMotion == SwipeDeleteCardMotion.SlideContent
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val defaults = CouiSwipeRevealDefaults
@@ -233,7 +237,9 @@ internal fun SwipeDeleteRow(
 
         val active = !atRest && (swipeEnabled || deleting)
         val renderer = remember(active) { if (active && Build.VERSION.SDK_INT >= 33) CouiMetaballRenderer() else null }
-        val mask = remember(active) { if (active && Build.VERSION.SDK_INT >= 33) CouiMetaballRenderer() else null }
+        val mask = remember(active, slideCard) {
+            if (active && !slideCard && Build.VERSION.SDK_INT >= 33) CouiMetaballRenderer() else null
+        }
         val actionShape = RoundedRectangle(SwipeRowRadius)
         Box(Modifier.pointerInput(rowKey, widthPx, restPx, rtl, swipeEnabled) {
             if (!swipeEnabled) return@pointerInput
@@ -294,7 +300,7 @@ internal fun SwipeDeleteRow(
             if (active) Canvas(Modifier.matchParentSize()) {
                 drawSwipeSurface(renderer, distance, Size(revealedActionWidth(size.width), actionSize.height),
                     following, restPx, deleting, rtl,
-                    surfaceColor, rowCorners(swipeProgress()))
+                    surfaceColor, rowCorners(swipeProgress()), slideCard = slideCard)
             }
             val cardContentClip = Modifier.drawWithContent {
                 clipRect(left = if (rtl) distance.coerceAtMost(size.width) else 0f,
@@ -303,10 +309,11 @@ internal fun SwipeDeleteRow(
                 }
             }
             val cardSurface = when {
-                !active -> Modifier.graphicsLayer {
-                    shape = rowCorners(0f).shape()
+                !active || slideCard -> Modifier.graphicsLayer {
+                    translationX = if (active) -direction * distance else 0f
+                    shape = rowCorners(if (active) swipeProgress() else 0f).shape()
                     clip = true
-                }.background(surfaceColor)
+                }.then(if (active) Modifier else Modifier.background(surfaceColor))
                 mask != null -> Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                     .drawWithContent {
                         drawContent()
@@ -388,20 +395,23 @@ private fun DrawScope.drawSwipeSurface(
     renderer: CouiMetaballRenderer?, distance: Float, actionSize: Size, following: Float,
     rest: Float, deleting: Boolean, rtl: Boolean, color: Color, corners: SwipeDeleteCorners,
     blend: BlendMode = BlendMode.SrcOver,
+    slideCard: Boolean = false,
 ) {
-    val cardWidth = (size.width - distance).coerceAtLeast(0f)
+    val visibleCardWidth = (size.width - distance).coerceAtLeast(0f)
+    val cardWidth = if (slideCard) size.width else visibleCardWidth
+    val cardLeft = if (slideCard) -distance else 0f
     val actionWidth = actionSize.width
     val actionHeight = actionSize.height.coerceAtMost(size.height)
     val radius = SwipeRowRadius.toPx()
     val topRadius = corners.top.toPx()
     val bottomRadius = corners.bottom.toPx()
-    val actionAlpha = if (deleting) (cardWidth / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) else 1f
+    val actionAlpha = if (deleting) (visibleCardWidth / size.width.coerceAtLeast(1f)).coerceIn(0f, 1f) else 1f
     scale(if (rtl) -1f else 1f, 1f, pivot = center) {
         val actionX = size.width - actionWidth + following
         if (Build.VERSION.SDK_INT >= 33 && renderer != null) {
             renderer.draw(
                 scope = this,
-                first = CouiMetaballBody(Offset(cardWidth / 2f, size.height / 2f), Size(cardWidth, size.height), topRadius),
+                first = CouiMetaballBody(Offset(cardLeft + cardWidth / 2f, size.height / 2f), Size(cardWidth, size.height), topRadius),
                 second = CouiMetaballBody(Offset(actionX + actionWidth / 2f, size.height / 2f),
                     Size(actionWidth, actionHeight), radius),
                 color = color, blendRangePx = CouiSwipeRevealDefaults.metaballBlendRange.toPx(),
@@ -411,13 +421,14 @@ private fun DrawScope.drawSwipeSurface(
             )
         } else {
             if (topRadius == bottomRadius) {
-                drawRoundRect(color, size = Size(cardWidth, size.height), cornerRadius = CornerRadius(topRadius))
+                drawRoundRect(color, topLeft = Offset(cardLeft, 0f), size = Size(cardWidth, size.height),
+                    cornerRadius = CornerRadius(topRadius))
             } else {
                 val limit = minOf(cardWidth, size.height) / 2f
                 val top = CornerRadius(topRadius.coerceAtMost(limit))
                 val bottom = CornerRadius(bottomRadius.coerceAtMost(limit))
                 val card = Path().apply {
-                    addRoundRect(RoundRect(Rect(0f, 0f, cardWidth, size.height), top, top, bottom, bottom))
+                    addRoundRect(RoundRect(Rect(cardLeft, 0f, cardLeft + cardWidth, size.height), top, top, bottom, bottom))
                 }
                 drawPath(card, color)
             }
