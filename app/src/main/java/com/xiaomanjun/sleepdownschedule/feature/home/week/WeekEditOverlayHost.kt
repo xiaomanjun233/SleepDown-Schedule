@@ -15,6 +15,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.layout.layout
+import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -48,23 +53,13 @@ import kotlin.math.roundToInt
 
 @Composable
 internal fun WeekEditOverlayHost(
-    request: WeekEditOverlayRequest?,
+    motion: WeekEditOverlayController,
     hostBounds: androidx.compose.runtime.State<Rect?>,
-    offsetX: Float,
-    offsetY: Float,
-    overlayScale: Float,
-    overlayAlpha: Float,
-    liftProgress: Float,
-    rotation: Float,
-    gestureActive: Boolean,
-    pointerPosition: Offset,
-    gridOffsetY: Float,
-    gridScrollCompensationY: Float,
-    heightPx: Float,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity
 ) {
-    val req = request ?: return
+    val req = motion.request ?: return
+    val heightPx = motion.height
     // Read coordinates only in the active overlay, never in the whole timetable during a slide.
     val host = hostBounds.value ?: return
     if (heightPx <= 1f || req.sourceBounds.width <= 1f) return
@@ -82,8 +77,8 @@ internal fun WeekEditOverlayHost(
         progress = cornerProgress
     )
     val cardShape = remember(cardCorner) { RoundedRectangle(cardCorner) }
-    val left = req.sourceBounds.left - host.left + offsetX
-    val top = req.sourceBounds.top - host.top + offsetY
+    val originLeft = req.sourceBounds.left - host.left
+    val originTop = req.sourceBounds.top - host.top
     val cardGlowRadiusPx = with(density) { (widthDp * 1.65f).coerceIn(72.dp, 120.dp).toPx() }
     val liftPx = with(density) { 8.dp.toPx() }
     val touchTransformOrigin = remember(req.initialPointerPosition, req.sourceBounds) {
@@ -98,19 +93,15 @@ internal fun WeekEditOverlayHost(
                 ).coerceIn(0f, 1f)
         )
     }
-    val localCardCenter = Offset(
-        x = left + req.sourceBounds.width / 2f,
-        y = top + heightPx / 2f - liftPx * liftProgress
-    )
-    val cardGlowPressed = gestureActive
+    val cardGlowPressed = motion.gestureActive
     val nativeCourse = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode.current?.enabled == true
     val cardCoordinates = remember(req) { arrayOfNulls<androidx.compose.ui.layout.LayoutCoordinates>(1) }
     val cardGlowDiameterDp = with(density) { (cardGlowRadiusPx * 2f).toDp() }
-    val target = when (req.mode) {
+    val target by remember(req, motion) { derivedStateOf { when (req.mode) {
         WeekEditOverlayMode.Move -> weekCourseEditTarget(
             periodIndexes = req.periodIndexes,
-            weekday = req.weekdayAfterMove(offsetX),
-            startPeriod = req.startPeriodAfterMove(gridOffsetY),
+            weekday = req.weekdayAfterMove(motion.offsetX),
+            startPeriod = req.startPeriodAfterMove(motion.gridOffsetY),
             span = req.currentSpan,
             weekdayCount = req.weekdayCount
         )
@@ -118,10 +109,10 @@ internal fun WeekEditOverlayHost(
             periodIndexes = req.periodIndexes,
             weekday = req.dayIndex,
             startPeriod = req.periodIndex,
-            span = req.spanForHeight(heightPx),
+            span = req.spanForHeight(motion.height),
             weekdayCount = req.weekdayCount
         )
-    }
+    } } }
     val previewCourse = when (req.mode) {
         WeekEditOverlayMode.Move -> req.course.copy(weekday = target.weekday, periods = target.periods)
         WeekEditOverlayMode.Resize -> req.course.copy(periods = target.periods)
@@ -130,112 +121,124 @@ internal fun WeekEditOverlayHost(
         hasWeekCourseEditConflict(if (req.destinationWeek != req.editWeek) req.course.copy(id = -1) else req.course,
             previewCourse, req.weekCourses, req.destinationWeek)
     val previewLeft = req.sourceBounds.left - host.left + req.columnDeltaTo(target.weekday) * req.gridColumnWidthPx
-    val previewTop = req.sourceBounds.top - host.top - gridScrollCompensationY +
+    val previewTop = req.sourceBounds.top - host.top +
         req.rowTopFor(target.periods.firstOrNull() ?: req.periodIndex) - req.rowTopFor(req.periodIndex)
     val previewHeight = (req.heightForSpan(target.periods.size.coerceAtLeast(1), target.periods.firstOrNull() ?: req.periodIndex, with(density) { 4.dp.toPx() })).coerceAtLeast(with(density) { 18.dp.toPx() })
-    val animatedPreviewLeft by animateFloatAsState(
+    val animatedPreviewLeft = animateFloatAsState(
         targetValue = previewLeft,
         animationSpec = spring(dampingRatio = 0.78f, stiffness = 620f),
         label = "week-edit-preview-left"
     )
-    val animatedPreviewTop by animateFloatAsState(
+    val animatedPreviewTop = animateFloatAsState(
         targetValue = previewTop,
         animationSpec = spring(dampingRatio = 0.78f, stiffness = 620f),
         label = "week-edit-preview-top"
     )
-    val animatedPreviewHeight by animateFloatAsState(
+    val animatedPreviewHeight = animateFloatAsState(
         targetValue = previewHeight,
         animationSpec = spring(dampingRatio = 0.74f, stiffness = 560f),
         label = "week-edit-preview-height"
     )
     val elevationPx = with(density) { 18.dp.toPx() }
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .zIndex(90f)
-    ) {
-        if (!nativeCourse) WeekEditCardGlow(
-            config = config,
-            pressed = cardGlowPressed, radiusPx = cardGlowRadiusPx,
-            spotAlpha = 0.068f, fallbackAlpha = 0.046f,
-            modifier = Modifier
-                .offset {
-                    IntOffset(
-                        (localCardCenter.x - cardGlowRadiusPx).roundToInt(),
-                        (localCardCenter.y - cardGlowRadiusPx).roundToInt()
-                    )
-                }
-                .size(cardGlowDiameterDp)
-                .graphicsLayer { alpha = overlayAlpha }
-        )
+    val parentRedraw = rememberUpdatedState(LocalGlassSampleRecordKey.current)
+    val redraw = remember(motion) { {
+        parentRedraw.value()
+        // Placement and transforms do not invalidate a retained drawing on their own.
+        motion.offsetX; motion.offsetY; motion.height; motion.scale; motion.rotation; motion.liftProgress
+    } }
+    CompositionLocalProvider(LocalGlassSampleRecordKey provides redraw) {
         Box(
             modifier = Modifier
-                .offset { IntOffset(animatedPreviewLeft.roundToInt(), animatedPreviewTop.roundToInt()) }
-                .width(widthDp)
-                .height(with(density) { animatedPreviewHeight.toDp() })
-                .graphicsLayer { alpha = 0.18f + liftProgress * 0.72f }
-                .clip(cardShape)
-                .background(
-                    if (conflict) MaterialTheme.colorScheme.error.copy(alpha = 0.32f)
-                    else ComposeColor.Gray.copy(alpha = 0.24f)
-                )
-        )
-        Box(
-            modifier = Modifier
-                .offset { IntOffset(left.roundToInt(), top.roundToInt()) }
-                .width(widthDp)
-                .height(heightDp)
-                .onGloballyPositioned { cardCoordinates[0] = it }
-                .graphicsLayer {
-                    // A resize handle owns only the lower edge: keep the top edge and width fixed
-                    // instead of applying the move gesture's two-axis lifted scale around the
-                    // fingertip. The card can therefore grow/shrink in exactly one direction.
-                    transformOrigin = if (req.mode == WeekEditOverlayMode.Resize) {
-                        TransformOrigin(0.5f, 0f)
-                    } else {
-                        touchTransformOrigin
-                    }
-                    scaleX = if (req.mode == WeekEditOverlayMode.Resize) 1f else overlayScale
-                    scaleY = if (req.mode == WeekEditOverlayMode.Resize) 1f else overlayScale
-                    translationY = -liftPx * liftProgress
-                    rotationZ = rotation
-                    alpha = overlayAlpha
-                    shadowElevation = elevationPx * liftProgress
-                    shape = cardShape
-                }
+                .fillMaxSize()
+                .zIndex(90f)
         ) {
-            CourseGlassCard(
-                backdrop = backdrop,
+            if (!nativeCourse) WeekEditCardGlow(
                 config = config,
-                course = req.course,
-                modifier = Modifier.fillMaxSize(),
-                shape = cardShape,
-                followTouch = true,
-                externalTouch = {
-                    val coordinates = cardCoordinates[0]?.takeIf { it.isAttached }
-                    com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSurfaceTouch(
-                        coordinates?.localPositionOf(coordinates.findRootCoordinates(), pointerPosition)
-                            ?: Offset(req.sourceBounds.width / 2f, heightPx / 2f),
-                        gestureActive
+                pressed = cardGlowPressed, radiusPx = cardGlowRadiusPx,
+                spotAlpha = 0.068f, fallbackAlpha = 0.046f,
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            (originLeft + motion.offsetX + req.sourceBounds.width / 2f - cardGlowRadiusPx).roundToInt(),
+                            (originTop + motion.offsetY + motion.height / 2f - liftPx * motion.liftProgress - cardGlowRadiusPx).roundToInt()
+                        )
+                    }
+                    .size(cardGlowDiameterDp)
+                    .graphicsLayer { alpha = motion.alpha * motion.revealProgress }
+            )
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(animatedPreviewLeft.value.roundToInt(), (animatedPreviewTop.value - motion.gridScrollCompensationY).roundToInt()) }
+                    .width(widthDp)
+                    .layout { measurable, constraints ->
+                        val h = animatedPreviewHeight.value.roundToInt().coerceAtLeast(1)
+                        val child = measurable.measure(constraints.copy(minHeight = h, maxHeight = h))
+                        layout(child.width, child.height) { child.place(0, 0) }
+                    }
+                    .graphicsLayer { alpha = 0.18f + motion.liftProgress * 0.72f }
+                    .clip(cardShape)
+                    .background(
+                        if (conflict) MaterialTheme.colorScheme.error.copy(alpha = 0.32f)
+                        else ComposeColor.Gray.copy(alpha = 0.24f)
                     )
-                },
-                onClick = null
+            )
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset((originLeft + motion.offsetX).roundToInt(), (originTop + motion.offsetY).roundToInt()) }
+                    .width(widthDp)
+                    .height(heightDp)
+                    .onGloballyPositioned { cardCoordinates[0] = it }
+                    .graphicsLayer {
+                        // A resize handle owns only the lower edge: keep the top edge and width fixed
+                        // instead of applying the move gesture's two-axis lifted scale around the
+                        // fingertip. The card can therefore grow/shrink in exactly one direction.
+                        transformOrigin = if (req.mode == WeekEditOverlayMode.Resize) {
+                            TransformOrigin(0.5f, 0f)
+                        } else {
+                            touchTransformOrigin
+                        }
+                        scaleX = if (req.mode == WeekEditOverlayMode.Resize) 1f else motion.scale
+                        scaleY = if (req.mode == WeekEditOverlayMode.Resize) 1f else motion.scale
+                        translationY = -liftPx * motion.liftProgress
+                        rotationZ = motion.rotation
+                        alpha = motion.alpha * motion.revealProgress
+                        shadowElevation = elevationPx * motion.liftProgress
+                        shape = cardShape
+                    }
             ) {
-                WeekCourseOverlayCardContent(req.course, config)
-            }
-            if (req.mode == WeekEditOverlayMode.Resize) {
-                WeekResizeCornerHandle(
-                    config = config,
+                CourseGlassCard(
                     backdrop = backdrop,
-                    cardSize = androidx.compose.ui.unit.DpSize(widthDp, heightDp),
-                    cardCorner = cardCorner,
-                    selected = true,
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .offset(x = 4.dp, y = 4.dp)
-                        .size(44.dp)
-                        .zIndex(2f)
-                )
+                    config = config,
+                    course = req.course,
+                    modifier = Modifier.fillMaxSize(),
+                    shape = cardShape,
+                    followTouch = true,
+                    externalTouch = {
+                        val coordinates = cardCoordinates[0]?.takeIf { it.isAttached }
+                        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSurfaceTouch(
+                            coordinates?.localPositionOf(coordinates.findRootCoordinates(), motion.pointerPosition)
+                                ?: Offset(req.sourceBounds.width / 2f, heightPx / 2f),
+                            motion.gestureActive
+                        )
+                    },
+                    onClick = null
+                ) {
+                    WeekCourseOverlayCardContent(req.course, config)
+                }
+                if (req.mode == WeekEditOverlayMode.Resize) {
+                    WeekResizeCornerHandle(
+                        config = config,
+                        backdrop = backdrop,
+                        cardSize = androidx.compose.ui.unit.DpSize(widthDp, heightDp),
+                        cardCorner = cardCorner,
+                        selected = true,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .offset(x = 4.dp, y = 4.dp)
+                            .size(44.dp)
+                            .zIndex(2f)
+                    )
+                }
             }
         }
     }

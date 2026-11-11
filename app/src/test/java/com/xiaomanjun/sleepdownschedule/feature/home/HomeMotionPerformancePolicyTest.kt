@@ -59,8 +59,10 @@ class HomeMotionPerformancePolicyTest {
         assertEquals(opening, closing.reversed())
         assertEquals(0f, opening.first(), 0f)
         assertEquals(1f, opening.last(), 0f)
-        assertTrue(opening.zipWithNext().all { (a, b) -> b >= a && b - a < 0.02f })
-        assertEquals(HomeMotionSpec.backdropProgress(0.4f), stagedHomeOverlayBlurProgress(0.4f, null), 0f)
+        assertTrue(opening.zipWithNext().all { (a, b) -> b >= a && b - a < 0.04f })
+        assertEquals(0.4f, stagedHomeOverlayBlurProgress(0.4f, null), 0f)
+        assertEquals(1f, stagedHomeOverlayBlurProgress(0f, 0.38f), 0f)
+        assertEquals(0.8f, stagedHomeOverlayBlurProgress(0.8f, 0.05f), 0f)
     }
 
     @Test

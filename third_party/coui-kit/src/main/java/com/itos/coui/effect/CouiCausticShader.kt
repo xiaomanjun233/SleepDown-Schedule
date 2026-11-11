@@ -83,9 +83,3 @@ private const val CouiCausticComposite = """
 
 internal const val CouiCausticShader = CouiCausticGeometry + """half4 main(float2 position) {
     half4 destination = u_originShader.eval(position);""" + CouiCausticComposite
-
-internal const val CouiBitmapCausticShader = CouiCausticGeometry + """uniform float u_originDim;
-half4 main(float2 position) {
-    half4 destination = u_originShader.eval(position);
-    destination.rgb *= 1.0 - u_originDim;
-    destination.a = mix(destination.a, 1.0, u_originDim);""" + CouiCausticComposite

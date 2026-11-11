@@ -27,11 +27,19 @@ class HomeSwitchMotionTest {
         val motion = HomeSwitchMotion(false, target)
         val job = launch(frames.clock, start = CoroutineStart.UNDISPATCHED) { motion.animateTo(true) }
         var sawStagger = false
+        var sawTailAfterPage = false
+        var sawRebound = false
         repeat(120) {
             frames.next()
+            sawTailAfterPage = sawTailAfterPage ||
+                (motion.progress.value == 1f && motion.moving && motion.retains(false) &&
+                    (0 until 6).any { motion.groupProgress(it) != 1f })
+            sawRebound = sawRebound || (0 until 6).any { motion.groupProgress(it) > 1.005f }
             sawStagger = sawStagger || (1 until 6).any { motion.groupProgress(it) != motion.progress.value }
         }
         assertTrue(sawStagger)
+        assertTrue("Followers retain the outgoing pane after page arrival", sawTailAfterPage)
+        assertTrue("The original spring rebound must remain visible", sawRebound)
         assertTrue(job.isCompleted)
         assertFalse(motion.moving)
         assertFalse(motion.retains(false))

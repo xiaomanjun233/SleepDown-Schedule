@@ -3,7 +3,8 @@ package com.xiaomanjun.sleepdownschedule.feature.home
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.rememberPageMotionBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.TargetBasedAnimation
+import androidx.compose.animation.core.VectorConverter
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.pager.PagerState
@@ -15,12 +16,15 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.MotionDurationScale
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
@@ -42,58 +46,97 @@ import com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey
 import kotlin.math.abs
 import kotlin.math.min
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 
 private const val SwitchGroupCount = HomeMotionSpec.FollowGroups
 
 internal enum class HomeSwitchClip { None, Page, TopBar }
 
-/** One progress/velocity owner for both page and card transforms, independent of material. */
+/**
+ * One frame clock evaluates the page and six delayed springs. Content can overshoot after
+ * the page has arrived; cancellation preserves each track's position and velocity.
+ */
 @Stable
 internal class HomeSwitchMotion(
     initialSecondary: Boolean,
     private val target: State<Boolean>,
     val landscape: Boolean = false,
 ) {
-    private val page = Animatable(if (initialSecondary) 1f else 0f)
-    private var pageVelocity = 0f
+    private val page = mutableFloatStateOf(if (initialSecondary) 1f else 0f)
+    private val tracks = List(SwitchGroupCount) { mutableFloatStateOf(page.floatValue) }
+    private val velocities = FloatArray(SwitchGroupCount)
     private var settledSecondary by mutableStateOf(initialSecondary)
     private var running by mutableStateOf(false)
-    val progress: State<Float> = page.asState()
+    private var frame by mutableIntStateOf(0)
+    val progress: State<Float> = page
     val moving: Boolean get() = running || settledSecondary != target.value
-    val sampleKey: Float get() = page.value
-    val pageSampleKey: Any by derivedStateOf { Triple(page.value, cornerFraction, moving) }
+    val sampleKey: Int get() = frame
+    val pageSampleKey: Any by derivedStateOf { Triple(page.floatValue, cornerFraction, moving) }
     val cornerFraction: Float by derivedStateOf {
-        val distance = min(abs(page.value), abs(1f - page.value))
-        HomeMotionSpec.backdropProgress((distance / 0.06f).coerceIn(0f, 1f))
+        fun distance(value: Float) = min(abs(value), abs(1f - value))
+        val envelope = maxOf(distance(page.floatValue), tracks.maxOf { distance(it.floatValue) })
+        HomeMotionSpec.backdropProgress((envelope / 0.06f).coerceIn(0f, 1f))
     }
 
     fun retains(secondary: Boolean): Boolean = moving || settledSecondary == secondary
-    fun groupProgress(group: Int): Float = if (landscape) page.value
-        else HomeMotionSpec.followProgress(page.value, group)
+    fun groupProgress(group: Int): Float = if (landscape) page.floatValue
+        else tracks[group.coerceIn(0, SwitchGroupCount - 1)].floatValue
 
     suspend fun settleAt(secondary: Boolean) {
-        page.snapTo(if (secondary) 1f else 0f)
-        pageVelocity = 0f
+        val end = if (secondary) 1f else 0f
+        page.floatValue = end
+        tracks.forEach { it.floatValue = end }
+        velocities.fill(0f)
+        frame++
         settledSecondary = secondary
         running = false
     }
 
     suspend fun animateTo(secondary: Boolean) {
-        val destination = if (secondary) 1f else 0f
-        running = true
-        var completed = false
-        try {
-            page.animateTo(destination, HomeMotionSpec.pageSpring, initialVelocity = pageVelocity) {
-                pageVelocity = velocity
-            }
-            pageVelocity = 0f
-            settledSecondary = secondary
-            completed = true
-        } finally {
-            // Keep both panes mounted between cancellation and the reverse animation.
-            if (completed) running = false
+        val end = if (secondary) 1f else 0f
+        if (page.floatValue == end && tracks.all { it.floatValue == end } &&
+            velocities.all { it == 0f }) {
+            settleAt(secondary)
+            return
         }
+        val interrupted = running
+        val context = currentCoroutineContext()
+        if ((context[MotionDurationScale]?.scaleFactor ?: 1f) <= 0f) {
+            settleAt(secondary)
+            return
+        }
+        val pageAnimation = TargetBasedAnimation(HomeMotionSpec.page, Float.VectorConverter,
+            page.floatValue, end)
+        val followers = tracks.mapIndexed { index, track ->
+            TargetBasedAnimation(HomeMotionSpec.follower, Float.VectorConverter,
+                track.floatValue, end, velocities[index])
+        }
+        running = true
+        var playTime = 0L
+        var previousTime = withFrameNanos { it }
+        while (true) {
+            val durationScale = context[MotionDurationScale]?.scaleFactor ?: 1f
+            if (durationScale <= 0f) break
+            var complete = pageAnimation.isFinishedFromNanos(playTime)
+            page.floatValue = pageAnimation.getValueFromNanos(playTime)
+            followers.forEachIndexed { group, animation ->
+                val delay = if (interrupted || landscape) 0L
+                    else group * HomeMotionSpec.FollowDelayMillis * 1_000_000L
+                val time = (playTime - delay).coerceAtLeast(0L)
+                val done = landscape || (playTime >= delay && animation.isFinishedFromNanos(time))
+                tracks[group].floatValue = if (landscape) page.floatValue else animation.getValueFromNanos(time)
+                velocities[group] = if (done) 0f else animation.getVelocityVectorFromNanos(time).value
+                complete = complete && done
+            }
+            frame++
+            if (complete) break
+            val now = withFrameNanos { it }
+            playTime += ((now - previousTime) / durationScale).toLong()
+            previousTime = now
+        }
+        // Cancellation never reaches this handoff: both panes remain mounted for reversal.
+        settleAt(secondary)
     }
 }
 

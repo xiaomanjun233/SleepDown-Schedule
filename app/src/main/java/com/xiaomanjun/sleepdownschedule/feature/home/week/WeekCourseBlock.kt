@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -733,11 +734,16 @@ fun WeekCourseBlock(
                 }
             }
             val showConflictBadge = conflictWarning && !editMode && !customTimeLocked
-            val cardTransformActive =
-                bodyDragging || handleDragging || pressScale != 1f ||
-                    editActivationProgress != 0f || editJitterMotion.value != 0f ||
-                    conflictActionResolving || isOverlayTarget ||
-                    activeOverlayCourseId == course.id
+            // Subscribe to activity, not each spring/jiggle value, in composition.
+            val cardTransformActive by remember(bodyDragging, handleDragging, conflictActionResolving,
+                isOverlayTarget, activeOverlayCourseId, course.id) {
+                derivedStateOf {
+                    bodyDragging || handleDragging || pressScale != 1f ||
+                        editActivationProgress != 0f || editJitterMotion.value != 0f ||
+                        conflictActionResolving || isOverlayTarget ||
+                        activeOverlayCourseId == course.id
+                }
+            }
             val cardTransformModifier = if (cardTransformActive) Modifier.graphicsLayer {
                 val activeScale = if (bodyDragging) {
                     WeekEditLiftedScale

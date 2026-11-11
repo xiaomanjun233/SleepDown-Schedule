@@ -244,6 +244,7 @@ internal fun rememberWeekEditOverlayController(
     }
 }
 
+@androidx.compose.runtime.Stable
 internal class WeekEditOverlayController(
     private val scope: CoroutineScope,
     private val scrollState: ScrollState

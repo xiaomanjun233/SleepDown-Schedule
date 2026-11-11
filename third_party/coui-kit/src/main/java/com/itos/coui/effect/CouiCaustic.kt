@@ -1,9 +1,6 @@
 package com.itos.coui.effect
 
-import android.graphics.Bitmap
-import android.graphics.BitmapShader
 import android.graphics.LinearGradient
-import android.graphics.Matrix as AndroidMatrix
 import android.graphics.RenderEffect
 import android.graphics.RuntimeShader
 import android.graphics.Shader
@@ -13,10 +10,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.RenderEffect as ComposeRenderEffect
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.asComposeRenderEffect
@@ -73,71 +68,53 @@ fun Modifier.drawCouiCaustic(
     }
 }
 
-/** A bitmap already used by the page, with its measured crop in producer coordinates. */
-data class CouiCausticBitmapSource(
-    val bitmap: Bitmap,
-    val coordinates: LayoutCoordinates,
-    val crop: Rect,
-    val dim: Float,
-)
-
+/**
+ * A prepared texture supplied by the scene. Padding is part of the sample coordinates;
+ * projection and material body therefore share one mapping and one set of source pixels.
+ */
 @RequiresApi(34)
 @Composable
 fun Modifier.drawCouiCaustic(
-    sample: () -> CouiCausticBitmapSource?,
+    sample: (LayoutCoordinates, Float) -> Shader?,
     redraw: () -> Any?,
     cornerRadius: (Size) -> Float?,
     shadow: CouiFloatingShadow,
+    programs: CouiCausticPrograms,
 ): Modifier {
     val coordinates = remember { CouiSamplingCoordinates() }
     val latestSample = rememberUpdatedState(sample)
     val latestRedraw = rememberUpdatedState(redraw)
-    val effect = remember(shadow) { CouiCausticEffect(shadow, 1f, CouiBitmapCausticShader) }
     return onGloballyPositioned(coordinates::update).drawWithCache {
         val radius = cornerRadius(size) ?: return@drawWithCache onDrawBehind {}
+        val effect = programs.forBounds(shadow, size, radius)
         val shader = effect.shaderForBounds(size, radius)
         val brush = ShaderBrush(shader)
         val padding = effect.padding
         val bounds = Size(size.width + 2 * padding, size.height + 2 * padding)
-        val sourceToCard = Matrix()
-        val textureToDraw = AndroidMatrix()
-        val values = FloatArray(9)
-        var bitmap: Bitmap? = null
-        var input: BitmapShader? = null
         onDrawBehind {
             latestRedraw.value()
             val target = coordinates.coordinates?.takeIf { it.isAttached } ?: return@onDrawBehind
-            val source = latestSample.value() ?: return@onDrawBehind
-            if (bitmap !== source.bitmap) {
-                bitmap = source.bitmap
-                input = BitmapShader(source.bitmap, Shader.TileMode.DECAL, Shader.TileMode.DECAL).apply {
-                    setFilterMode(BitmapShader.FILTER_MODE_LINEAR)
-                }
-            }
-            val wallpaper = checkNotNull(input)
-            sourceToCard.reset()
-            target.transformFrom(source.coordinates, sourceToCard)
-            val origin = sourceToCard.map(source.crop.topLeft)
-            val scaleX = source.crop.width / source.bitmap.width
-            val scaleY = source.crop.height / source.bitmap.height
-            values[0] = sourceToCard[0, 0] * scaleX
-            values[1] = sourceToCard[1, 0] * scaleY
-            values[2] = origin.x + padding
-            values[3] = sourceToCard[0, 1] * scaleX
-            values[4] = sourceToCard[1, 1] * scaleY
-            values[5] = origin.y + padding
-            values[8] = 1f
-            textureToDraw.setValues(values)
-            wallpaper.setLocalMatrix(textureToDraw)
-            shader.setInputShader("u_originShader", wallpaper)
-            shader.setFloatUniform("u_originDim", source.dim)
+            val texture = latestSample.value(target, padding) ?: return@onDrawBehind
+            shader.setInputShader("u_originShader", texture)
             translate(-padding, -padding) { drawRect(brush, size = bounds) }
         }
     }
 }
 
+/** The owner is the sampled scene, not each card; the existing optical formula is unchanged. */
 @RequiresApi(34)
-private class CouiCausticEffect(
+class CouiCausticPrograms {
+    private data class Key(val shadow: CouiFloatingShadow, val size: Size, val radius: Float)
+    private val programs = linkedMapOf<Key, CouiCausticEffect>()
+    internal fun forBounds(shadow: CouiFloatingShadow, size: Size, radius: Float): CouiCausticEffect =
+        programs.getOrPut(Key(shadow, size, radius)) {
+            if (programs.size == 64) programs.remove(programs.keys.first())
+            CouiCausticEffect(shadow, 1f)
+        }
+}
+
+@RequiresApi(34)
+internal class CouiCausticEffect(
     shadow: CouiFloatingShadow,
     private val scale: Float,
     private val program: String = CouiCausticShader,

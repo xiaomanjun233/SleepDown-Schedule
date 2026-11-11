@@ -308,6 +308,9 @@ internal fun SinglePillWeekScheduleScreen(
         providerId = "week-stationary-courses"
     )
     val needsStationaryCoursesBackdrop = weekEditMode || weekEditOverlay.request != null
+    stationaryCoursesBackdrop.graphicsLayer.compositingStrategy =
+        if (needsStationaryCoursesBackdrop) androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
+        else androidx.compose.ui.graphics.layer.CompositingStrategy.Auto
     val floatingSamplingBase = floatingCourseBackdrop ?: backdrop
     val liftedCourseBackdrop = if (floatingSamplingBase != null) {
         rememberGlassCombinedBackdrop(floatingSamplingBase, stationaryCoursesBackdrop)
@@ -739,19 +742,8 @@ internal fun SinglePillWeekScheduleScreen(
         }
     }
         WeekEditOverlayHost(
-            request = weekEditOverlay.request,
+            motion = weekEditOverlay,
             hostBounds = overlayHostBounds,
-            offsetX = weekEditOverlay.offsetX,
-            offsetY = weekEditOverlay.offsetY,
-            overlayScale = weekEditOverlay.scale,
-            overlayAlpha = weekEditOverlay.alpha * weekEditOverlay.revealProgress,
-            liftProgress = weekEditOverlay.liftProgress,
-            rotation = weekEditOverlay.rotation,
-            gestureActive = weekEditOverlay.gestureActive,
-            pointerPosition = weekEditOverlay.pointerPosition,
-            gridOffsetY = weekEditOverlay.gridOffsetY,
-            gridScrollCompensationY = weekEditOverlay.gridScrollCompensationY,
-            heightPx = weekEditOverlay.height,
             backdrop = liftedCourseBackdrop ?: floatingSamplingBase,
             config = state.config
         )

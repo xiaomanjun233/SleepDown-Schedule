@@ -61,8 +61,8 @@ internal fun HomeBackgroundZoomLayer(
 }
 
 /**
- * A clear scene and one fixed blur endpoint. Animation changes only their blend, never a
- * sequence of RenderEffects. The blur resources exist only while an overlay needs them.
+ * The source is recorded independently of the animation. A retained blur surface changes
+ * radius in the layer phase; only the near-zero radius blends with the clear scene.
  */
 @Composable
 internal fun HomeBackgroundBlurLayer(
@@ -77,13 +77,26 @@ internal fun HomeBackgroundBlurLayer(
     val active by remember { derivedStateOf { latestProgress.value() > 0f } }
     val sampling = if (active) {
         val liveScene = rememberGraphicsLayer()
+        val clear = rememberGraphicsLayer()
         val blurred = rememberGraphicsLayer()
         val sampleScale = HomeFrozenBlurSampleScale
         val radius = with(LocalDensity.current) { 22.dp.toPx() } * sampleScale
-        val effect = remember(radius) { BlurEffect(radius, radius, TileMode.Clamp) }
+        val effects = remember(radius) {
+            List(HomeSceneBlurSteps + 1) { step ->
+                val r = radius * step.coerceAtLeast(HomeSceneMinimumBlurStep) / HomeSceneBlurSteps
+                BlurEffect(r, r, TileMode.Clamp)
+            }
+        }
         val recordedSize = remember { AtomicReference(IntSize.Zero) }
         val recordedSource = remember { AtomicReference<GraphicsLayer?>(null) }
-        Modifier.drawWithContent {
+        Modifier.graphicsLayer {
+            val progress = latestProgress.value().coerceIn(0f, 1f)
+            val step = (progress * HomeSceneBlurSteps).roundToInt().coerceIn(0, HomeSceneBlurSteps)
+            val blend = (progress * HomeSceneBlurSteps / HomeSceneMinimumBlurStep).coerceIn(0f, 1f)
+            clear.alpha = if (blend < 1f) 1f else 0f
+            blurred.alpha = blend
+            blurred.renderEffect = effects[step]
+        }.drawWithContent {
             val scene = if (prepareScene(useFrozenHomeScene())) retainedScene else {
                 liveScene.record { this@drawWithContent.drawContent() }
                 liveScene
@@ -97,19 +110,18 @@ internal fun HomeBackgroundBlurLayer(
                 )
                 val sx = reduced.width.toFloat() / fullSize.width
                 val sy = reduced.height.toFloat() / fullSize.height
+                clear.record(size = fullSize) { drawLayer(scene) }
                 blurred.record(size = reduced) {
                     withTransform({ scale(sx, sy, Offset.Zero) }) { drawLayer(scene) }
                 }
-                blurred.renderEffect = effect
                 blurred.pivotOffset = Offset.Zero
                 blurred.scaleX = 1f / sx
                 blurred.scaleY = 1f / sy
                 recordedSize.set(fullSize)
                 recordedSource.set(scene)
             }
-            val alpha = latestProgress.value().coerceIn(0f, 1f)
-            blurred.alpha = alpha
-            if (alpha < 1f) drawLayer(scene)
+            // Do not read the animation here: a radius update must not re-record the source.
+            drawLayer(clear)
             drawLayer(blurred)
         }
     } else Modifier.drawWithContent {

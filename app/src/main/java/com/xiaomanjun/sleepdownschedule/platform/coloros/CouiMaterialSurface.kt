@@ -11,7 +11,15 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.drawscope.clipPath
+import com.xiaomanjun.sleepdownschedule.glass.courseTexture
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -179,14 +187,26 @@ internal fun CouiMaterialSurface(
         if (flatBacking != null) {
             Modifier.drawCouiCaustic(flatBacking, cornerRadius, projection)
         } else if (wallpaperSampling?.hasStaticBitmap == true) {
-            Modifier.drawCouiCaustic(wallpaperSampling::bitmapSource, samplingKey, cornerRadius, projection)
+            Modifier.drawCouiCaustic(
+                sample = { coordinates, padding -> wallpaperSampling.textureRenderer.shader(
+                    wallpaperSampling, coordinates, 0f, androidx.compose.ui.geometry.Offset(-padding, -padding)) },
+                redraw = samplingKey, cornerRadius = cornerRadius, shadow = projection,
+                programs = wallpaperSampling.causticPrograms)
         } else if (backdrop != null) {
             Modifier.drawCouiCaustic(backdrop, cornerRadius, projection,
                 sampleScale = if (preparedBackdrop != null) 0.5f else 1f)
         } else Modifier
     } else Modifier
     val background = if (preparedBackdrop != null && request.renderSurface && request.materialVisible) {
-        Modifier.drawPreparedCourseBackdrop(preparedBackdrop, samplingKey)
+        if (wallpaperSampling?.supportsTexture == true) Modifier.courseTexture(wallpaperSampling, shape,
+            onTexture = {
+                // These native blend modes are the same two operations as the old filter chain.
+                // The wallpaper is opaque, so they need no per-card offscreen surface.
+                val canvas = drawContext.canvas.nativeCanvas
+                canvas.drawColor(baseMaterial.firstColor.toArgb(), baseMaterial.firstBlendMode)
+                canvas.drawColor(baseMaterial.secondColor.toArgb(), baseMaterial.secondBlendMode)
+            })
+        else Modifier.drawPreparedCourseBackdrop(preparedBackdrop, samplingKey)
     } else if (backdrop != null && request.blurRadiusScale > 0f) {
         val tintScale = if (request.role == NativeMaterialSurfaceRole.Form) 0f else request.tintAlphaScale
         val sampleScale = request.backdropSampleScale
@@ -214,7 +234,8 @@ internal fun CouiMaterialSurface(
             this.sampleScale = sampleScale
         })
     } else Modifier
-    val contour = if (lighting) remember(course, menu, dialog) {
+    val sharedContour = course && preparedBackdrop is CourseMaterialSampling
+    val contour = if (lighting && !sharedContour) remember(course, menu, dialog) {
         when {
             course -> CouiContour(style = CouiContourStyle.LauncherFolder)
             menu -> CouiContour()
@@ -224,6 +245,54 @@ internal fun CouiMaterialSurface(
     } else null
     val paint = if (lighting) remember { Paint(Paint.ANTI_ALIAS_FLAG) } else null
     val draw = rememberUpdatedState(drawLight)
+    val decoration = Modifier.drawWithCache {
+        val corners = if (lighting) colorOsMaterialCorners(shape(), size, this, layoutDirection) else null
+        val painter = if (sharedContour && corners != null)
+            wallpaperSampling!!.contourPrograms.forGeometry(size, this.density, corners.radius, corners.weight) else contour
+        if (corners != null && paint != null && painter != null) {
+            paint.shader = painter.shader(size, this.density, corners.radius,
+                if (menu) corners.weight.coerceAtLeast(2f) else corners.weight,
+                Color.Transparent, when {
+                    course -> 0.1f
+                    !menu && !dialog -> 0.3f
+                    else -> baseMaterial.innerGlowAlpha
+                }, when {
+                    course -> 0.35f
+                    !menu && !dialog -> 0.25f
+                    else -> baseMaterial.edgeAlpha
+                }, 1f, lineWidthPx = 2.5f * this.density)
+        }
+        onDrawBehind {
+            latest.value.onDrawTint?.invoke(this)
+            if (corners != null && paint != null && drawContext.canvas.nativeCanvas.isHardwareAccelerated) {
+                drawContext.canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
+            }
+            draw.value?.invoke(this)
+        }
+    }
+
+    if (course && preparedBackdrop != null && motion == null) {
+        // Dense cards have one drawing owner. Caustics remain outside the outline; body,
+        // contour and content share the same clip without three permanent RenderNodes.
+        val viewport = com.xiaomanjun.sleepdownschedule.glass.LocalCourseBackdropViewport.current
+        val coordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
+        val card = request.modifier.onGloballyPositioned { coordinates[0] = it }
+            .drawWithContent {
+                if (coordinates[0]?.let { viewport?.intersects(it) } != false) drawContent()
+            }.then(observeTouch)
+            .then(request.onClick?.let { Modifier.clickable(role = Role.Button, onClick = it) } ?: Modifier)
+            .then(caustic)
+            .drawWithCache {
+                val path = Path().apply { addOutline(shape().createOutline(size, layoutDirection, this@drawWithCache)) }
+                onDrawWithContent { clipPath(path) { this@onDrawWithContent.drawContent() } }
+            }
+            .then(background)
+            .then(if (request.renderSurface) decoration else Modifier)
+        Box(card) {
+            CompositionLocalProvider(LocalNativeMaterialSurfaceActive provides true) { content() }
+        }
+        return true
+    }
     Box(
         request.modifier
             .then(observeTouch)
@@ -260,29 +329,7 @@ internal fun CouiMaterialSurface(
                     }
                 }
                 .then(background)
-                .drawWithCache {
-                    val corners = contour?.let { colorOsMaterialCorners(shape(), size, this, layoutDirection) }
-                    if (corners != null && paint != null && contour != null) {
-                        paint.shader = contour.shader(size, this.density, corners.radius,
-                            if (menu) corners.weight.coerceAtLeast(2f) else corners.weight,
-                            Color.Transparent, when {
-                                course -> 0.1f
-                                !menu && !dialog -> 0.3f
-                                else -> baseMaterial.innerGlowAlpha
-                            }, when {
-                                course -> 0.35f
-                                !menu && !dialog -> 0.25f
-                                else -> baseMaterial.edgeAlpha
-                            }, 1f, lineWidthPx = 2.5f * this.density)
-                    }
-                    onDrawBehind {
-                        latest.value.onDrawTint?.invoke(this)
-                        if (corners != null && paint != null && drawContext.canvas.nativeCanvas.isHardwareAccelerated) {
-                            drawContext.canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, paint)
-                        }
-                        draw.value?.invoke(this)
-                    }
-                })
+                .then(decoration))
         }
         CompositionLocalProvider(LocalNativeMaterialSurfaceActive provides true) {
             if (course) Box(Modifier.graphicsLayer { this.shape = shape(); clip = true },

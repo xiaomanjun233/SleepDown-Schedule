@@ -13,7 +13,7 @@ import androidx.compose.ui.unit.IntSize
  * LayoutCoordinates 本身会原地变化。保存实际采样变换，只有几何变化才通知绘制；
  * 相邻控件重新布局也会派发 onGloballyPositioned，不能因此重建所有材质的 Shader 图。
  */
-internal class CouiSamplingCoordinates {
+class CouiSamplingCoordinates {
     var coordinates: LayoutCoordinates? by mutableStateOf(null, neverEqualPolicy())
         private set
     private var size = IntSize.Zero

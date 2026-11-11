@@ -344,13 +344,13 @@ fun createBlurredWallpaperBitmap(source: Bitmap?, blurRadius: Int): Bitmap? {
     val working = createBitmap(width, height)
     Canvas(working).drawBitmap(source, null, android.graphics.Rect(0, 0, width, height), null)
     return runCatching {
-        boxBlurBitmap(working, (blurRadius * scale).roundToInt().coerceIn(2, 18))
+        blurWallpaperBitmapInPlace(working, (blurRadius * scale).roundToInt().coerceIn(2, 18))
     }.getOrElse {
         working
     }
 }
 
-private fun boxBlurBitmap(bitmap: Bitmap, radius: Int): Bitmap {
+internal fun blurWallpaperBitmapInPlace(bitmap: Bitmap, radius: Int): Bitmap {
     val width = bitmap.width
     val height = bitmap.height
     if (width <= 1 || height <= 1 || radius <= 0) return bitmap

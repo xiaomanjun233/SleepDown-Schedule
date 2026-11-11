@@ -1,5 +1,14 @@
 package com.xiaomanjun.sleepdownschedule.glass
 
+import android.os.Build
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.withContext
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperTexturePyramid
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.buildWallpaperTexturePyramid
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
@@ -10,7 +19,8 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.unit.IntSize
-import com.itos.coui.effect.CouiCausticBitmapSource
+import android.graphics.Bitmap
+import androidx.compose.ui.layout.LayoutCoordinates
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.BackdropRenderOptions
 import com.kyant.backdrop.BackdropViewport
@@ -33,20 +43,30 @@ import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.model.SimpleCourseCardBlurMax
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 
+internal data class CourseWallpaperFrame(
+    val bitmap: Bitmap, val coordinates: LayoutCoordinates, val crop: Rect, val dim: Float,
+)
+
 internal val LocalCourseBackdropViewport = compositionLocalOf<BackdropViewport?> { null }
 
 /** One wallpaper source for both course materials, with a shared filtered surface for the bodies. */
 internal class CourseMaterialSampling(
     val filtered: MaterialBackdrop,
     private val pixels: State<WallpaperPixels?>,
+    val texturePyramid: State<WallpaperTexturePyramid?> = mutableStateOf(null),
+    val textureRadiusPx: State<Float> = mutableStateOf(filtered.filter?.radiusPx ?: 0f),
     private val samplingDim: () -> Float,
 ) : Backdrop by filtered {
+    val textureRenderer by lazy { CourseTextureRenderer() }
+    val contourPrograms by lazy { com.itos.coui.effect.CouiContourPrograms(com.itos.coui.effect.CouiContourStyle.LauncherFolder) }
+    val causticPrograms by lazy { com.itos.coui.effect.CouiCausticPrograms() }
+    val supportsTexture: Boolean get() = Build.VERSION.SDK_INT >= 33 && hasStaticBitmap
     val hasStaticBitmap: Boolean get() = pixels.value?.previewBlur == null
-    private var previous: CouiCausticBitmapSource? = null
+    private var previous: CourseWallpaperFrame? = null
     private var previousCrop: WallpaperCropState? = null
     private var previousSize = IntSize.Zero
 
-    fun bitmapSource(): CouiCausticBitmapSource? {
+    fun textureFrame(): CourseWallpaperFrame? {
         val frame = pixels.value?.takeIf { it.previewBlur == null } ?: return null
         val coordinates = filtered.source.sourceCoordinates ?: return null
         val size = coordinates.size
@@ -63,7 +83,7 @@ internal class CourseMaterialSampling(
             androidx.compose.ui.geometry.Size(crop.width.roundToInt().toFloat(), crop.height.roundToInt().toFloat()))
         previousCrop = frame.crop
         previousSize = size
-        return CouiCausticBitmapSource(frame.bitmap, coordinates, pixelRect, dim).also { previous = it }
+        return CourseWallpaperFrame(frame.bitmap, coordinates, pixelRect, dim).also { previous = it }
     }
 }
 
@@ -97,10 +117,21 @@ internal fun rememberCourseMaterialSampling(
         else -> null
     }
     val filtered = remember(source) { MaterialBackdrop(source) }
-    filtered.filter = recipe
+    val pyramid = remember(source) { mutableStateOf<WallpaperTexturePyramid?>(null) }
+    LaunchedEffect(pixels) {
+        snapshotFlow { pixels.value?.bitmap }.collectLatest { bitmap ->
+            pyramid.value = if (bitmap == null || Build.VERSION.SDK_INT < 33) null
+                else withContext(Dispatchers.Default) { buildWallpaperTexturePyramid(bitmap) }
+        }
+    }
+    val currentPixels = pixels.value
+    val ready = currentPixels != null && currentPixels.previewBlur == null &&
+        pyramid.value?.source === currentPixels.bitmap
+    filtered.filter = recipe.takeUnless { ready && Build.VERSION.SDK_INT >= 33 }
+    val radius = rememberUpdatedState(recipe?.radiusPx ?: 0f)
     val dim = rememberUpdatedState(samplingDim)
     return remember(filtered, pixels) {
-        CourseMaterialSampling(filtered, pixels) { dim.value() }
+        CourseMaterialSampling(filtered, pixels, pyramid, radius) { dim.value() }
     }
 }
 

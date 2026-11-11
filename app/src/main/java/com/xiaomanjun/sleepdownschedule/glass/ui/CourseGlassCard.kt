@@ -60,6 +60,7 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassHighlightStyle
 import com.xiaomanjun.sleepdownschedule.glass.GlassInnerShadowFrame
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
+import com.xiaomanjun.sleepdownschedule.glass.courseTexture
 import com.xiaomanjun.sleepdownschedule.glass.CourseMaterialSampling
 import com.xiaomanjun.sleepdownschedule.glass.decorationOnly
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -475,6 +476,15 @@ fun CourseGlassCard(
             }
             val surfaceModifier = if (!renderSurface) {
                 Modifier
+            } else if (useGlass && preparedWallpaper?.supportsTexture == true &&
+                morphAllocation == null && surfaceBackdrop == null) {
+                Modifier.matchParentSize().courseTexture(
+                    source = preparedWallpaper,
+                    shape = stableCardShape,
+                    frame = unifiedLiquidEffectFrame,
+                    enabled = stableMaterialEnabled,
+                    onSurface = liquidSurfaceDraw,
+                )
             } else if (useGlass) {
                 Modifier
                     .matchParentSize()
@@ -494,6 +504,11 @@ fun CourseGlassCard(
                             allocationPaddingPx = morphAllocation?.paddingPx,
                             onDrawSurface = if (unifiedLiquidSurface) liquidSurfaceDraw else null
                     )
+            } else if (simpleBlurBackdrop != null && preparedWallpaper?.supportsTexture == true &&
+                morphAllocation == null && surfaceBackdrop == null) {
+                Modifier.matchParentSize().courseTexture(
+                    source = preparedWallpaper, shape = stableCardShape, enabled = stableMaterialEnabled,
+                )
             } else if (simpleBlurBackdrop != null) {
                 // Non-liquid mode still samples the content behind the course card, but
                 // deliberately omits lens/refraction/vibrancy.  This is a cheap Gaussian

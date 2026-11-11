@@ -2676,9 +2676,9 @@ fun CourseScheduleAppUi(
                     lastRecordedHomeFrameKey.set(homeCaptureFrameKey)
                 }
                 val replayFrozen = freeze && (ready || needsCapture)
-                // The Kit editor samples the same neutral display list into its local texture.
-                val flatten = replayFrozen && (!glowVisuals || courseEditorSessions.none { it.visible })
-                screenGraphicsLayer.compositingStrategy = if (flatten)
+                // Every consumer samples the same flattened frozen scene. Replaying a display
+                // list here re-runs every card's optical effects in each blur/editor pass.
+                screenGraphicsLayer.compositingStrategy = if (replayFrozen)
                     androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
                 else androidx.compose.ui.graphics.layer.CompositingStrategy.Auto
                 homeSceneReplaying.set(replayFrozen)

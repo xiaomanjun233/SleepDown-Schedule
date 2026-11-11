@@ -14,6 +14,8 @@ import kotlin.math.roundToInt
  * endpoint is drawn from the original full-resolution scene.
  */
 internal const val HomeFrozenBlurSampleScale = 1f / 3f
+internal const val HomeSceneBlurSteps = 32
+internal const val HomeSceneMinimumBlurStep = 3
 
 /**
  * The personalization shell and its large-screen aura use the same bounded blur progression as
@@ -31,7 +33,10 @@ internal fun quantizeHomeProgressiveBackdropBlurProgress(progress: Float): Float
 internal fun stagedHomeOverlayBlurProgress(
     legacyDepthProgress: Float,
     morphProgress: Float?,
-): Float = HomeMotionSpec.backdropProgress(morphProgress ?: legacyDepthProgress)
+): Float = maxOf(
+    legacyDepthProgress.coerceIn(0f, 1f),
+    morphProgress?.let { HomeMotionSpec.backdropProgress(it / 0.38f) } ?: 0f
+)
 
 /**
  * Decides whether the already-recorded home GPU layer can safely stand in for the live week tree.
