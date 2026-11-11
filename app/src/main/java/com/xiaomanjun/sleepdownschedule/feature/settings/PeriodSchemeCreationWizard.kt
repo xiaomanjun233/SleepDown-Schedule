@@ -7,10 +7,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.itos.coui.shape.CouiCapsuleShape
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsRowShape
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDatePickerRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
@@ -41,13 +39,6 @@ private fun creationStarts(session: PeriodTimelineSession): Map<PeriodDayPart, I
             PeriodDayPart.AFTERNOON -> scheme.afternoonStartTime
             PeriodDayPart.EVENING -> scheme.eveningStartTime
         }) ?: 0
-    }
-}
-
-@Composable
-private fun PeriodCreationGroup(config: ScheduleConfigEntity, content: @Composable ColumnScope.() -> Unit) {
-    CompositionLocalProvider(LocalCouiSettingsRowShape provides CouiCapsuleShape) {
-        SettingsGroup(backdrop = null, config = config, topSpacing = 0.dp, content = content)
     }
 }
 
@@ -254,7 +245,7 @@ internal fun PeriodSchemeCreationWizard(
                     )
                 }
                 when (shownPage) {
-                    CreationPickerPage.DETAILS -> PeriodCreationGroup(visualConfig) {
+                    CreationPickerPage.DETAILS -> SettingsGroup(backdrop = null, config = visualConfig, topSpacing = 0.dp) {
                         if (copying && sourceName != null) {
                             SettingsInfoRow("来源课表", sourceName)
                             SettingsDivider()
@@ -278,7 +269,7 @@ internal fun PeriodSchemeCreationWizard(
                     CreationPickerPage.STRUCTURE -> {
                         val split = PeriodDayPart.AFTERNOON in enabledParts
                         val canChange = source.canChangeStructure
-                        PeriodCreationGroup(visualConfig) {
+                        SettingsGroup(backdrop = null, config = visualConfig, topSpacing = 0.dp) {
                             SettingsToggleRow("上午 / 下午分段", "", split, backdrop, enabled = canChange) {
                                 changeParts(allocation.withSplitEnabled(it))
                             }
@@ -311,7 +302,7 @@ internal fun PeriodSchemeCreationWizard(
                         }
                     }
                     CreationPickerPage.TIMING -> {
-                        PeriodCreationGroup(visualConfig) {
+                        SettingsGroup(backdrop = null, config = visualConfig, topSpacing = 0.dp) {
                             SettingsPickerValueRow(
                                 "时段起点", parts.joinToString(" · ") { timelineMinuteText(starts.getValue(it)) },
                                 valueBelowTitle = parts.size > 2,
