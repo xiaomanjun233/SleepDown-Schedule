@@ -95,14 +95,17 @@ fun SettingsDatePickerRow(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     enabled: Boolean = true,
-    yearRange: IntRange = 2000..2100
+    yearRange: IntRange = 2000..2100,
+    initialDate: LocalDate? = null,
 ) {
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     var showPicker by remember { mutableStateOf(false) }
-    val initialDate = remember(value, showPicker) { parseScheduleDate(value) ?: LocalDate.now() }
-    var pickerYear by remember(initialDate, showPicker) { mutableIntStateOf(initialDate.year) }
-    var pickerMonth by remember(initialDate, showPicker) { mutableIntStateOf(initialDate.monthValue) }
-    var pickerDay by remember(initialDate, showPicker) { mutableIntStateOf(initialDate.dayOfMonth) }
+    val pickerDate = remember(value, showPicker, initialDate) {
+        initialDate ?: parseScheduleDate(value) ?: LocalDate.now()
+    }
+    var pickerYear by remember(pickerDate, showPicker) { mutableIntStateOf(pickerDate.year) }
+    var pickerMonth by remember(pickerDate, showPicker) { mutableIntStateOf(pickerDate.monthValue) }
+    var pickerDay by remember(pickerDate, showPicker) { mutableIntStateOf(pickerDate.dayOfMonth) }
     SettingsPickerValueRow(
         title = title,
         value = value,

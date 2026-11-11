@@ -1,12 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.settings
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -15,12 +11,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -34,49 +28,35 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
-import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.LiveUpdateChipTextMode
 import com.xiaomanjun.sleepdownschedule.NotificationMode
-import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidControlToggle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogButtonRole
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogLiquidButton
-import kotlin.math.abs
 import kotlin.math.min
-import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.ArrowRight
 import com.itos.coui.effect.couiButtonFeedback
@@ -662,118 +642,5 @@ private fun SettingsPreferenceText(title: String, summary: String?, badge: Strin
     if (summary != null) {
         top.yukonga.miuix.kmp.basic.Text(summary, fontSize = theme.textStyles.body2.fontSize,
             color = if (enabled) theme.colorScheme.onSurfaceVariantSummary else theme.colorScheme.disabledOnSecondaryVariant)
-    }
-}
-
-/**
- * Swipe a settings row left to reveal a delete action. The gesture, threshold haptics, elastic
- * action growth and spring settle follow the AI import history row; deleting is only requested so
- * the caller can confirm it first, and the row springs back while the dialog is up.
- */
-@Composable
-internal fun SettingsSwipeDeleteRow(
-    rowKey: Any?,
-    onRequestDelete: () -> Unit,
-    modifier: Modifier = Modifier,
-    softAppearance: Boolean = false,
-    content: @Composable () -> Unit
-) {
-    val density = LocalDensity.current
-    val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
-    val offset = remember(rowKey) { Animatable(0f) }
-    var revealCrossed by remember(rowKey) { mutableStateOf(false) }
-    var deleteCrossed by remember(rowKey) { mutableStateOf(false) }
-    var widthPx by remember { mutableStateOf(1f) }
-    val actionWidthPx = with(density) { 60.dp.toPx() }
-    val actionGapPx = with(density) { 12.dp.toPx() }
-    val revealPx = actionWidthPx + actionGapPx
-    val deleteTriggerPx = maxOf(revealPx + with(density) { 132.dp.toPx() }, widthPx * 0.72f)
-        .coerceAtMost(widthPx * 0.86f)
-    val maximumDragPx = (widthPx - with(density) { 16.dp.toPx() }).coerceAtLeast(revealPx)
-    val settleSpring = spring<Float>(dampingRatio = 0.52f, stiffness = 420f)
-    fun requestDelete() {
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        revealCrossed = false
-        deleteCrossed = false
-        scope.launch { offset.animateTo(0f, settleSpring) }
-        onRequestDelete()
-    }
-    val dragDistance = (-offset.value).coerceAtLeast(0f)
-    val revealProgress = (dragDistance / revealPx).coerceIn(0f, 1f)
-    val stretch = ((dragDistance - revealPx) / (deleteTriggerPx - revealPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
-    val actionWidth = actionWidthPx +
-        (widthPx - with(density) { 32.dp.toPx() } - actionWidthPx).coerceAtLeast(0f) * stretch
-    val visibleActionWidth = minOf(actionWidth, (dragDistance - actionGapPx).coerceAtLeast(actionWidthPx))
-    Box(modifier.fillMaxWidth().onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }) {
-        Box(Modifier.matchParentSize(), contentAlignment = Alignment.CenterEnd) {
-            Box(
-                Modifier
-                    .fillMaxHeight()
-                    .width(with(density) { visibleActionWidth.toDp() })
-                    .padding(end = if (softAppearance) 12.dp else 16.dp, top = if (softAppearance) 8.dp else 0.dp,
-                        bottom = if (softAppearance) 8.dp else 0.dp)
-                    .graphicsLayer {
-                        alpha = revealProgress
-                        transformOrigin = TransformOrigin(1f, 0.5f)
-                    }
-                    .clip(RoundedRectangle(15.dp))
-                    .then(if (softAppearance) Modifier
-                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(
-                            ComposeColor(0xFFFF6B61).copy(alpha = 0.22f), ComposeColor(0xFFFF453A).copy(alpha = 0.10f))))
-                        .border(0.7.dp, ComposeColor(0xFFFF665B).copy(alpha = 0.22f), RoundedRectangle(15.dp))
-                        else Modifier.background(ComposeColor(0xFFFF3B30)))
-                    .clickable(onClick = ::requestDelete),
-                contentAlignment = Alignment.Center
-            ) {
-                if (softAppearance) Column(horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Icon(painter = painterResource(R.drawable.ic_delete_history), contentDescription = null,
-                        tint = ComposeColor(0xFFFF453A), modifier = Modifier.size(18.dp))
-                    Text("删除", color = ComposeColor(0xFFFF453A), fontSize = 10.sp, lineHeight = 12.sp,
-                        fontWeight = FontWeight.Medium)
-                } else Image(
-                    painter = painterResource(R.drawable.ic_delete_history),
-                    contentDescription = "删除",
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        }
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .offset { IntOffset(offset.value.roundToInt(), 0) }
-                .pointerInput(rowKey, widthPx) {
-                    detectHorizontalDragGestures(
-                        onHorizontalDrag = drag@{ change, dragAmount ->
-                            change.consume()
-                            val next = (offset.value + dragAmount).coerceIn(-maximumDragPx, 0f)
-                            val revealNow = abs(next) >= revealPx * 0.48f
-                            if (revealNow != revealCrossed) {
-                                revealCrossed = revealNow
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                            scope.launch { offset.snapTo(next) }
-                            if (abs(next) >= deleteTriggerPx && !deleteCrossed) {
-                                deleteCrossed = true
-                                requestDelete()
-                            }
-                        },
-                        onDragEnd = {
-                            scope.launch {
-                                val target = if (abs(offset.value) >= revealPx * 0.48f) -revealPx else 0f
-                                revealCrossed = target < 0f
-                                deleteCrossed = false
-                                offset.animateTo(target, settleSpring)
-                            }
-                        },
-                        onDragCancel = {
-                            revealCrossed = false
-                            deleteCrossed = false
-                            scope.launch { offset.animateTo(0f, settleSpring) }
-                        }
-                    )
-                }
-        ) { content() }
     }
 }
