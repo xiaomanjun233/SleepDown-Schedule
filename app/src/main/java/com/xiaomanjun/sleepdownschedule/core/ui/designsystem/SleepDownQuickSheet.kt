@@ -159,6 +159,7 @@ fun SleepDownPickerDialog(
     actions: List<LiquidAlertAction>? = null,
     adjustForIme: Boolean = false,
     couiContentPadding: PaddingValues = PaddingValues(0.dp),
+    message: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val body: @Composable (Boolean) -> Unit = { includeChrome ->
@@ -212,6 +213,9 @@ fun SleepDownPickerDialog(
                         titleAction?.invoke()
                     }
                 }
+                if (includeChrome && !message.isNullOrBlank()) {
+                    Text(message, modifier = Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium)
+                }
                 val bodyModifier = if (scrollableContent && includeChrome) {
                     Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
                 } else Modifier
@@ -238,7 +242,7 @@ fun SleepDownPickerDialog(
     }
     if (LocalPickerDialogRenderer.current?.invoke(PickerDialogRequest(
             show, title, appUsesDarkTheme(config), onDismissRequest, onDismissFinished,
-            titleAction, actions, bottomActions, scrollableContent, adjustForIme, { body(false) })) == true) return
+            titleAction, actions, bottomActions, scrollableContent, adjustForIme, { body(false) }, message)) == true) return
     if (NativePickerDialog(show, config, onDismissRequest, onDismissFinished, { body(true) })) return
     val visuals = rememberCenteredDialogVisuals(
         backdrop = backdrop,

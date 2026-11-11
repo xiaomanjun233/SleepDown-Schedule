@@ -20,7 +20,8 @@ internal data class PickerDialogRequest(
     val bottomActions: (@Composable () -> Unit)?,
     val scrollable: Boolean,
     val adjustForIme: Boolean = false,
-    val content: @Composable () -> Unit
+    val content: @Composable () -> Unit,
+    val message: String? = null,
 )
 
 internal val LocalPickerDialogRenderer = compositionLocalOf<(@Composable (PickerDialogRequest) -> Boolean)?> { null }

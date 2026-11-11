@@ -1,11 +1,19 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import android.widget.Toast
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -19,15 +27,24 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
+import com.itos.coui.dialog.CouiDialogDefaults
+import com.itos.coui.effect.couiButtonFeedback
+import com.itos.coui.radiobutton.CouiRadioButtonDefaults
+import com.itos.coui.radiobutton.RadioButton
+import com.itos.coui.shape.CouiShape
+import com.itos.coui.text.CouiTextKind
+import com.itos.coui.text.Text as CouiText
+import com.itos.coui.theme.CouiTheme
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidDialogChoiceCard
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
@@ -41,6 +58,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTimelineSession
 import com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleRoutines
 import com.xiaomanjun.sleepdownschedule.domain.schedule.parseScheduleDate
@@ -203,6 +221,7 @@ fun PeriodSchemeManagementScreen(
         PeriodSchemeCreationWizard(
             source = request.source,
             copying = request.copying,
+            sourceName = sources.firstOrNull { it.id == request.source.config.id }?.name,
             backdrop = popupBackdrop,
             visualConfig = config,
             onDismiss = { creation = null },
@@ -281,9 +300,14 @@ fun PeriodSchemeManagementScreen(
             },
             backdrop = popupBackdrop,
             config = config,
-            couiContentPadding = CouiPickerFormPadding,
+            couiContentPadding = PaddingValues(
+                start = CouiDialogDefaults.contentPadding,
+                end = CouiDialogDefaults.contentPadding,
+                bottom = CouiDialogDefaults.messageBottom,
+            ),
             contentPadding = PaddingValues(horizontal = 8.dp),
             scrollableContent = true,
+            message = "选择来源课表。保存后将替换当前课表的作息。",
             actions = listOf(
                 LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, enabled = !busy, onClick = ::dismissDialog),
                 LiquidAlertAction(
@@ -296,23 +320,66 @@ fun PeriodSchemeManagementScreen(
                 },
             ),
         ) {
-            Text("选择来源课表后可先调整节次和作息，保存时会替换当前课表的时间配置。",
-                style = MaterialTheme.typography.bodyMedium)
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            val nameCounts = sources.groupingBy { it.name }.eachCount()
+            Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 sources.forEach { source ->
                     key(source.id) {
-                        LiquidDialogChoiceCard(
+                        val description = routineSourceSummary(state, source.id)
+                        val example = if ((nameCounts[source.name] ?: 0) > 1)
+                            state.allCourses.firstOrNull { it.scheduleId == source.id }?.name else null
+                        RoutineCopySourceOption(
                             title = source.name,
                             selected = source.id == sourceId,
-                            config = config,
-                            onClick = { if (!busy) sourceId = source.id },
-                            description = routineSourceSummary(state, source.id),
+                            enabled = !busy,
+                            dark = appUsesDarkTheme(config),
+                            description = description,
+                            example = example,
+                            onClick = { sourceId = source.id },
                         )
                     }
                 }
             }
             copyError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         }
+    }
+}
+
+@Composable
+private fun RoutineCopySourceOption(
+    title: String,
+    selected: Boolean,
+    enabled: Boolean,
+    dark: Boolean,
+    description: String,
+    example: String?,
+    onClick: () -> Unit,
+) {
+    val colors = CouiTheme.colorScheme
+    val accent = MaterialTheme.colorScheme.primary
+    val shape = CouiShape(18.dp, 2.5f)
+    val interaction = remember { MutableInteractionSource() }
+    Row(
+        modifier = Modifier.fillMaxWidth().heightIn(min = 68.dp)
+            .clip(shape)
+            .background(if (selected) accent.copy(alpha = if (dark) 0.22f else 0.10f)
+                else colors.onSurface.copy(alpha = if (dark) 0.08f else 0.045f))
+            .border(1.dp, if (selected) accent.copy(alpha = 0.60f) else colors.onSurface.copy(alpha = 0.10f), shape)
+            .couiButtonFeedback(dark, interaction, enabled)
+            .selectable(selected, interaction, null, enabled, Role.RadioButton, onClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            CouiText(text = title, kind = CouiTextKind.PreferenceTitle, color = colors.onSurface, maxLines = 1)
+            if (description.isNotEmpty()) {
+                CouiText(text = description, kind = CouiTextKind.PreferenceSummary, color = colors.onSurfaceVariant, maxLines = 2)
+            }
+            if (example != null) {
+                CouiText(text = example, kind = CouiTextKind.PreferenceSummary, color = colors.onSurfaceVariant, maxLines = 1)
+            }
+        }
+        RadioButton(selected = selected, enabled = enabled, colors = CouiRadioButtonDefaults.colors(accent, dark))
     }
 }
 

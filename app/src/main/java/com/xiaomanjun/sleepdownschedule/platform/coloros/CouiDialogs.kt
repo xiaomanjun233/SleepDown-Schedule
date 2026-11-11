@@ -169,7 +169,8 @@ internal fun CouiPickerDialog(request: PickerDialogRequest): Boolean {
     // 与 DemoPickerDialog 一致：直接使用 Dialog 的标题、正文槽与固定操作区。
     if (slots[0] != null && request.titleAction == null && request.bottomActions == null && !request.adjustForIme) {
         com.itos.coui.dialog.Dialog(onDismissRequest = request.onDismiss, visible = request.show,
-            title = request.title, confirmAction = checkNotNull(slots[0]), dismissAction = slots[1], neutralAction = slots[2],
+            title = request.title, message = request.message, confirmAction = checkNotNull(slots[0]),
+            dismissAction = slots[1], neutralAction = slots[2],
             dark = request.dark, material = material, backdrop = backdrop,
             colors = CouiDialogDefaults.themeColors(request.dark),
             onDismissFinished = { lifetime.finished = true }) {
@@ -189,7 +190,18 @@ internal fun CouiPickerDialog(request: PickerDialogRequest): Boolean {
                 footer()
             }
         } }) {
-        CouiDialogBody(hostSize, request.dark, request.content)
+        CouiDialogBody(hostSize, request.dark) {
+            if (request.message.isNullOrBlank()) request.content()
+            else Column {
+                androidx.compose.material3.Text(
+                    request.message,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = CouiDialogDefaults.contentPadding)
+                        .padding(bottom = CouiDialogDefaults.messageBottom),
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                request.content()
+            }
+        }
     }
     return true
 }

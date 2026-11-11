@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -8,18 +9,18 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.itos.coui.picker.CouiPickerDefaults
+import com.itos.coui.shape.CouiShape
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker as NumberPicker
 import top.yukonga.miuix.kmp.basic.NumberPickerDefaults
-import top.yukonga.miuix.kmp.theme.MiuixTheme
 
 /** The same fixed action row for every period picker and wizard step. */
 @Composable
@@ -39,20 +40,20 @@ internal fun PeriodPickerActions(
 }
 
 @Composable
-internal fun PeriodQuickNumberPicker(
+private fun PeriodQuickNumberPicker(
     value: Int, onValueChange: (Int) -> Unit, range: IntRange,
-    label: (Int) -> String, modifier: Modifier = Modifier, style: TextStyle? = null
+    label: (Int) -> String, modifier: Modifier = Modifier, enabled: Boolean = true
 ) {
     val foreground = LocalContentColor.current
     BoxWithConstraints(modifier) {
         val fontScale = LocalDensity.current.fontScale
-        val textStyle = style ?: MaterialTheme.typography.headlineSmall.copy(fontSize = when {
+        val textStyle = MaterialTheme.typography.headlineSmall.copy(fontSize = when {
             maxWidth < 90.dp || fontScale > 1.3f -> 17.sp
             maxWidth < 140.dp || fontScale > 1.1f -> 20.sp
             else -> 25.sp
         })
         NumberPicker(value.coerceIn(range), onValueChange, modifier = Modifier.fillMaxWidth(), range = range,
-            visibleItemCount = 3, label = label, textStyle = textStyle.copy(color = foreground),
+            enabled = enabled, visibleItemCount = 3, label = label, textStyle = textStyle.copy(color = foreground),
             colors = NumberPickerDefaults.colors(selectedTextColor = foreground,
                 unselectedTextColor = foreground.copy(alpha = 0.34f),
                 disabledSelectedTextColor = foreground.copy(alpha = 0.55f),
@@ -70,46 +71,71 @@ internal fun allocateQuickPickerCounts(parts: List<PeriodDayPart>, counts: Map<P
     }.toMap()
 }
 
-/** Original quick allocation: total wheel above, parallel part wheels, last part gets the remainder. */
 @Composable
-internal fun PeriodQuickCountContent(
-    parts: List<PeriodDayPart>, counts: Map<PeriodDayPart, Int>, onChange: (Map<PeriodDayPart, Int>) -> Unit
+private fun PeriodWheelSelectionBand(modifier: Modifier = Modifier) {
+    if (!LocalVisualEffects.current.usesCouiControls) return
+    val ink = LocalContentColor.current
+    Box(modifier.height(CouiPickerDefaults.height / 3).background(ink.copy(alpha = 0.075f), CouiShape(14.dp, 2.5f)))
+}
+
+@Composable
+internal fun PeriodQuickSingleWheel(
+    value: Int, onChange: (Int) -> Unit, range: IntRange, label: (Int) -> String,
 ) {
-    val total = parts.sumOf { counts.getValue(it) }
-    val foreground = LocalContentColor.current
-    val couiControls = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
-    val wheelHeight = CouiPickerDefaults.height + CouiPickerDefaults.padding * 2
-    Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text("总节次", style = MaterialTheme.typography.labelMedium, color = foreground.copy(alpha = 0.66f))
-        PeriodQuickNumberPicker(total, { onChange(allocateQuickPickerCounts(parts, counts, it)) },
-            parts.size..maxOf(40, total), { "${it}节" }, Modifier.fillMaxWidth().height(
-                if (couiControls) wheelHeight else 112.dp))
-        Text("时段分配", style = MaterialTheme.typography.labelMedium, color = foreground.copy(alpha = 0.66f))
+    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+        PeriodWheelSelectionBand(Modifier.width(120.dp))
+        PeriodQuickNumberPicker(value, onChange, range, label, Modifier.fillMaxWidth())
+    }
+}
+
+@Composable
+private fun PeriodWheelColumns(parts: List<PeriodDayPart>, content: @Composable (PeriodDayPart) -> Unit) {
+    Column {
         Row(Modifier.fillMaxWidth()) {
             parts.forEach { part ->
-                Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(part.timelineLabel(), style = MaterialTheme.typography.labelMedium, color = foreground.copy(alpha = 0.66f))
-                    if (part == parts.last()) {
-                        Box(Modifier.fillMaxWidth().height(
-                            if (couiControls) wheelHeight else 140.dp), contentAlignment = Alignment.Center) {
-                            Text("${counts.getValue(part)}节", fontSize = if (parts.size > 2) 17.sp else 20.sp,
-                                color = foreground, fontWeight = FontWeight.SemiBold)
-                        }
-                    } else {
-                        val others = parts.dropLast(1).filterNot { it == part }.sumOf { counts.getValue(it) }
-                        val maximum = (total - others - 1).coerceAtLeast(1)
-                        PeriodQuickNumberPicker(counts.getValue(part), { value ->
-                            val next = counts + (part to value)
-                            onChange(next + (parts.last() to (total - parts.dropLast(1).sumOf { next.getValue(it) })))
-                        }, 1..maximum, { "${it}节" }, Modifier.fillMaxWidth())
-                    }
+                Text(part.timelineLabel(), Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                    color = LocalContentColor.current.copy(alpha = 0.66f), textAlign = TextAlign.Center)
+            }
+        }
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            PeriodWheelSelectionBand(Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                parts.forEach { part ->
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { content(part) }
                 }
             }
         }
     }
 }
 
-/** Original parallel HH:mm wheels, with earlier parts reserving space for later parts. */
+@Composable
+internal fun PeriodQuickCountContent(
+    parts: List<PeriodDayPart>, counts: Map<PeriodDayPart, Int>, onChange: (Map<PeriodDayPart, Int>) -> Unit
+) {
+    val total = parts.sumOf { counts.getValue(it) }
+    val foreground = LocalContentColor.current
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("总节次", Modifier.fillMaxWidth(), style = MaterialTheme.typography.labelMedium,
+            color = foreground.copy(alpha = 0.66f), textAlign = TextAlign.Center)
+        PeriodQuickSingleWheel(total, { onChange(allocateQuickPickerCounts(parts, counts, it)) },
+            parts.size..maxOf(40, total), { "${it}节" })
+        if (parts.size > 1) {
+            Text("时段分配", Modifier.fillMaxWidth(), style = MaterialTheme.typography.labelMedium,
+                color = foreground.copy(alpha = 0.66f), textAlign = TextAlign.Center)
+            PeriodWheelColumns(parts) { part ->
+                val value = counts.getValue(part)
+                val last = part == parts.last()
+                val others = parts.dropLast(1).filterNot { it == part }.sumOf { counts.getValue(it) }
+                val range = if (last) value..value else 1..(total - others - 1).coerceAtLeast(1)
+                PeriodQuickNumberPicker(value, { nextValue ->
+                    val next = counts + (part to nextValue)
+                    onChange(next + (parts.last() to (total - parts.dropLast(1).sumOf { next.getValue(it) })))
+                }, range, { "${it}节" }, Modifier.fillMaxWidth(), enabled = !last)
+            }
+        }
+    }
+}
+
 @Composable
 internal fun PeriodQuickStartsContent(
     config: ScheduleConfigEntity, draft: PeriodSchemeDraft, starts: Map<PeriodDayPart, Int>,
@@ -122,16 +148,12 @@ internal fun PeriodQuickStartsContent(
         return
     }
     val constrained = constrainAutomaticPartStarts(config, draft, starts)
-    Row(Modifier.fillMaxWidth()) {
-        parts.forEachIndexed { position, part ->
-            val minimum = parts.getOrNull(position - 1)?.let { constrained.getValue(it) + spans.getValue(it) } ?: 0
-            val maximum = LastMinuteOfDay - parts.drop(position).sumOf { spans.getValue(it) }
-            Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(part.timelineLabel(), style = MaterialTheme.typography.labelMedium, color = LocalContentColor.current.copy(alpha = 0.66f))
-                PeriodQuickNumberPicker(constrained.getValue(part), { value ->
-                    onChange(constrainAutomaticPartStarts(config, draft, constrained + (part to value)))
-                }, minimum..maxOf(minimum, maximum), ::timelineMinuteText, Modifier.fillMaxWidth())
-            }
-        }
+    PeriodWheelColumns(parts) { part ->
+        val position = parts.indexOf(part)
+        val minimum = parts.getOrNull(position - 1)?.let { constrained.getValue(it) + spans.getValue(it) } ?: 0
+        val maximum = LastMinuteOfDay - parts.drop(position).sumOf { spans.getValue(it) }
+        PeriodQuickNumberPicker(constrained.getValue(part), { value ->
+            onChange(constrainAutomaticPartStarts(config, draft, constrained + (part to value)))
+        }, minimum..maxOf(minimum, maximum), ::timelineMinuteText, Modifier.fillMaxWidth())
     }
 }
