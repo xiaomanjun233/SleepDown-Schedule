@@ -14,7 +14,6 @@ import android.graphics.drawable.BitmapDrawable
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
@@ -26,31 +25,28 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
@@ -61,6 +57,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.rounded.ExpandMore
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -78,6 +75,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
@@ -98,20 +96,28 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.itos.coui.effect.couiButtonFeedback
+import com.itos.coui.icons.CouiIcons
+import com.itos.coui.shape.CouiCapsuleShape
+import com.itos.coui.shape.CouiShape
+import com.itos.coui.text.CouiTextKind
+import com.itos.coui.text.rememberCouiTextStyle
+import com.itos.coui.theme.CouiTheme
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.performance.*
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.LightTopBarButtonShadow
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.animateScrollToTop
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
@@ -141,10 +147,7 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
-import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.overScrollVertical
 
 @Composable
 internal fun CourseManagementColorProvider(
@@ -759,13 +762,9 @@ internal fun CourseManagementDetailPage(
         title = name.ifBlank { "课程详情" },
         config = state.config,
         onBack = ::requestBack,
-        compactTopBar = true,
-        centerCompactTitle = true,
-        compactTitleMatchesSettings = true,
         topBarActions = { topBackdrop ->
-            DialogLiquidButton(
+            CouiSettingsToolbarButton(
                 backdrop = topBackdrop,
-                label = "添加安排",
                 onClick = {
                     val template = arrangements.lastOrNull()?.course ?: group.representative
                     val added = newManagedCourseArrangement(template, state.config, state.periods).copy(
@@ -775,45 +774,18 @@ internal fun CourseManagementDetailPage(
                     arrangements = arrangements + ManagedArrangementDraft(nextLocalKey--, added)
                     scope.launch { listState.animateScrollToItem(arrangements.lastIndex + 1) }
                 },
-                role = DialogButtonRole.Confirm,
-                iconRes = R.drawable.ic_add_course,
-                roundIcon = true,
-                blurRadius = 10.dp,
-                shadowEnabled = !appUsesDarkTheme(state.config),
-                shadowStyle = LightTopBarButtonShadow
-            )
+            ) {
+                Icon(CouiIcons.Add, "添加安排", Modifier.size(24.dp), tint = CouiTheme.colorScheme.onSurface)
+            }
         }
     ) { cardBackdrop ->
-        // DetailActivityScaffold records its scrolling content into
-        // LocalSettingsPopupBackdrop. A card inside that recorder must never sample that same
-        // producer: doing so creates a RenderNode cycle and crashes RenderThread with an
-        // unbounded prepareTreeImpl recursion. This is the same one-way arrangement used by the
-        // AI import history detail page: in-page controls sample the scaffold's plain background
-        // producer, while only the root-hosted picker samples the completed content producer.
+        // Only the root-hosted pickers sample the completed page.
         val pickerBackdrop = LocalSettingsPopupBackdrop.current ?: cardBackdrop
-        // Centered dialogs and their action capsules resolve LocalCenteredDialogSceneBackdrop.
-        // The Miuix scaffold hosts them as a sibling of the complete page producer, so every layer
-        // can be sampled without allowing the dialog subtree to feed itself back into RenderThread.
-        SleepDownLazyColumn(
+        SleepDownSecondaryPageList(
             state = listState,
-            // The explicit modifier is the only Miuix path that still responds when a single
-            // arrangement fits entirely in the viewport; disable the theme factory to avoid a
-            // second spring once longer content becomes normally scrollable.
-            overscrollEffect = null,
-            modifier = Modifier
-                .fillMaxSize()
-                .imePadding()
-                .overScrollVertical(),
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                // The centered compact title is wider/taller than the history-page title. Give
-                // the first card a real clear band below it instead of letting the top-gradient
-                // overlay visually crop the color heading.
-                top = detailContentTopPadding() + 24.dp,
-                end = 16.dp,
-                bottom = 30.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier.fillMaxSize(),
+            contentTopPadding = detailContentTopPadding(),
+            contentBottomPadding = detailContentBottomPadding(),
         ) {
             item(key = "course-identity") {
                 CourseIdentityCard(
@@ -838,7 +810,7 @@ internal fun CourseManagementDetailPage(
                             cancel = cancel
                         )
                     }
-                ) {
+                ) { onDeleteRequest ->
                     CourseArrangementEditorCard(
                         localKey = draft.localKey,
                         index = index,
@@ -848,6 +820,7 @@ internal fun CourseManagementDetailPage(
                         config = state.config,
                         backdrop = cardBackdrop,
                         onCourseChange = { changed -> updateArrangement(draft.localKey) { changed } },
+                        onDeleteRequest = onDeleteRequest,
                         onOpenPicker = {
                             pickerRequest = it
                             pickerVisible = true
@@ -857,22 +830,9 @@ internal fun CourseManagementDetailPage(
             }
             if (arrangements.isEmpty()) {
                 item(key = "empty-arrangements") {
-                    CourseManagementSettingsSection(title = "上课安排") {
-                        Text(
-                            "已移除全部安排，返回时可确认删除这门课程。",
-                            color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.66f),
-                            style = MiuixTheme.textStyles.body2,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                        )
+                    CourseManagementSettingsSection("上课安排", state.config, cardBackdrop) {
+                        SettingsInfoRow("已移除全部安排", "保存修改后会删除这门课程。")
                     }
-                }
-            }
-            if (arrangements.size <= 1) {
-                item(key = "elastic-scroll-tail") {
-                    // Preserve a small physical scroll range on short detail pages. Combined with
-                    // Miuix overscroll this keeps the page responsive to a swipe even when there
-                    // is only one arrangement, without changing any visible business content.
-                    Spacer(Modifier.height(72.dp))
                 }
             }
         }
@@ -996,23 +956,12 @@ internal fun CourseManagementDetailPage(
 @Composable
 private fun CourseManagementSettingsSection(
     title: String,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
+    config: ScheduleConfigEntity,
+    backdrop: Backdrop?,
+    content: @Composable ColumnScope.() -> Unit
 ) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh, CourseManagementCardShape)
-            .padding(vertical = 6.dp)
-    ) {
-        Text(
-            title,
-            color = MiuixTheme.colorScheme.onSurface,
-            style = MiuixTheme.textStyles.title3,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
-        )
-        content()
+    GlassPreferenceSection(title) {
+        SettingsGroup(backdrop, config, content = content)
     }
 }
 
@@ -1026,7 +975,7 @@ private fun CourseIdentityCard(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity
 ) {
-    CourseManagementSettingsSection(title = "课程信息") {
+    CourseManagementSettingsSection("课程信息", config, backdrop) {
         SettingsTextFieldRow(
             title = "课程名称",
             value = name,
@@ -1034,50 +983,33 @@ private fun CourseIdentityCard(
             placeholder = "输入课程名称"
         )
         if (courseCardAllowsCustomOverrides(config)) {
-            MiuixBasicComponent(
-                title = "课程颜色",
-                summary = "应用到全部安排",
-                modifier = Modifier.fillMaxWidth(),
-                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-            )
+            SettingsDivider()
+            SettingsInfoRow("课程颜色", "应用到全部安排")
             val palette = LocalCourseCardPalette.current.ifEmpty { DefaultCourseCardPalette }
             val visiblePalette = palette.take(4)
             Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
+                modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                visiblePalette.forEach { argb ->
+                visiblePalette.forEachIndexed { index, argb ->
                     val selected = selectedColor == argb
+                    val interaction = remember { MutableInteractionSource() }
+                    val color = Color(argb.toInt())
+                    val indicator = if (color.luminance() > 0.55f) Color.Black else Color.White
                     Box(
                         Modifier
-                            .size(34.dp)
-                            .graphicsLayer {
-                                scaleX = if (selected) 1.12f else 1f
-                                scaleY = if (selected) 1.12f else 1f
-                            }
-                            .clip(Capsule())
-                            .background(Color(argb.toInt()))
-                            .then(
-                                if (selected) {
-                                    Modifier.border(
-                                        2.dp,
-                                        if (Color(argb.toInt()).luminance() > 0.55f) Color.Black else Color.White,
-                                        Capsule()
-                                    )
-                                } else {
-                                    Modifier
-                                }
-                            )
-                            .clickable { onColorSelected(argb) }
+                            .weight(1f).height(48.dp)
+                            .clip(CouiCapsuleShape)
+                            .couiButtonFeedback(CouiTheme.isDark, interaction, true)
+                            .selectable(selected, interaction, null, role = Role.RadioButton) { onColorSelected(argb) }
+                            .semantics { contentDescription = "课程颜色 ${index + 1}" },
+                        contentAlignment = Alignment.Center,
                     ) {
-                        if (selected) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_check),
-                                contentDescription = "已选择课程颜色",
-                                tint = if (Color(argb.toInt()).luminance() > 0.55f) Color.Black else Color.White,
-                                modifier = Modifier.align(Alignment.Center).size(17.dp)
-                            )
+                        Box(Modifier.size(34.dp).clip(CouiCapsuleShape).background(color),
+                            contentAlignment = Alignment.Center) {
+                            if (selected) Icon(painterResource(R.drawable.ic_check), null,
+                                tint = indicator, modifier = Modifier.size(17.dp))
                         }
                     }
                 }
@@ -1102,6 +1034,7 @@ private fun CourseArrangementEditorCard(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     onCourseChange: (CourseEntity) -> Unit,
+    onDeleteRequest: () -> Unit,
     onOpenPicker: (CourseEditorPickerRequest) -> Unit
 ) {
     val effective = projectCourseArrangement(captureOriginalPeriodTimes(course, periods), config, periods)
@@ -1109,16 +1042,17 @@ private fun CourseArrangementEditorCard(
         !effective.hasCustomTime() && !effective.isHiddenByPeriodAlignment()
     val displayedPeriodIndices = effective.periods.ifEmpty { course.periods }
     val hidden = effective.arrangementProjection?.hiddenPeriods.orEmpty()
-    CourseManagementSettingsSection(title = "上课安排 ${index + 1}") {
+    CourseManagementSettingsSection("上课安排 ${index + 1}", config, backdrop) {
         if (hidden.isNotEmpty()) {
             val originalTimes = course.originalTimeSegments().joinToString("；") { "${it.start}–${it.end}" }
-            Text(buildString {
-                append("原始安排：${course.periods.joinToString("、")} 节")
+            SettingsInfoRow("原始安排", buildString {
+                append("${course.periods.joinToString("、")} 节")
                 if (originalTimes.isNotBlank()) append(" · $originalTimes")
                 append("\n${hidden.joinToString("、")} 节当前未显示。")
-            }, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.body2)
+            })
+            SettingsDivider()
         }
-        CourseManagementArrowRow(
+        SettingsPickerValueRow(
             title = "上课星期",
             value = "周${weekdayLabel(course.weekday)}",
             onClick = {
@@ -1137,10 +1071,12 @@ private fun CourseArrangementEditorCard(
                 )
             }
         )
-        CourseManagementArrowRow(
+        SettingsDivider()
+        SettingsPickerValueRow(
             title = "上课节次",
             value = if (effective.hasCustomTime()) courseTimeLabel(effective, periods)
             else "第${displayedPeriodIndices.minOrNull() ?: 1}-${displayedPeriodIndices.maxOrNull() ?: 1}节",
+            valueBelowTitle = effective.hasCustomTime(),
             onClick = {
                 val values = periods.map(PeriodEntity::periodIndex).distinct().sorted().ifEmpty { listOf(1) }
                 val displayedPeriods = if (matchingCustomClock) effective.periods else course.periods
@@ -1200,57 +1136,43 @@ private fun CourseArrangementEditorCard(
                 )
             }
         )
-        SettingsTextFieldRow(
-            title = "地点",
-            value = course.location.orEmpty(),
-            onValueChange = { onCourseChange(course.copy(location = it.ifBlank { null })) },
-            placeholder = "未填写"
-        )
-        SettingsTextFieldRow(
-            title = "教师",
-            value = course.teacher.orEmpty(),
-            onValueChange = { onCourseChange(course.copy(teacher = it.ifBlank { null })) },
-            placeholder = "未填写"
-        )
+        SettingsDivider()
         CourseManagementWeekFold(
             localKey = localKey,
             course = course,
             totalWeeks = totalWeeks,
             onCourseChange = onCourseChange
         )
+        SettingsDivider()
+        SettingsTextFieldRow(
+            title = "地点",
+            value = course.location.orEmpty(),
+            onValueChange = { onCourseChange(course.copy(location = it.ifBlank { null })) },
+            placeholder = "未填写"
+        )
+        SettingsDivider()
+        SettingsTextFieldRow(
+            title = "教师",
+            value = course.teacher.orEmpty(),
+            onValueChange = { onCourseChange(course.copy(teacher = it.ifBlank { null })) },
+            placeholder = "未填写"
+        )
+        SettingsDivider()
         SettingsTextFieldRow(
             title = "备注",
             value = course.note.orEmpty(),
             onValueChange = { onCourseChange(course.copy(note = it.ifBlank { null })) },
             placeholder = "未填写"
         )
+        SettingsDivider()
+        SettingsBasicComponent(
+            title = "删除安排",
+            startAction = { Icon(CouiIcons.Delete, null, tint = MaterialTheme.colorScheme.error) },
+            onClick = onDeleteRequest,
+        )
     }
 }
 
-@Composable
-private fun CourseManagementArrowRow(
-    title: String,
-    value: String,
-    onClick: () -> Unit
-) {
-    MiuixBasicComponent(
-        title = title,
-        summary = value,
-        modifier = Modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-        endActions = {
-            Icon(
-                painter = painterResource(R.drawable.ic_arrow_back),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 180f }
-            )
-        },
-        onClick = onClick
-    )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun CourseManagementWeekFold(
     localKey: Long,
@@ -1261,7 +1183,7 @@ private fun CourseManagementWeekFold(
     var expanded by remember(localKey, totalWeeks) { mutableStateOf(false) }
     val expansionEasing = remember { CubicBezierEasing(0.20f, 0f, 0f, 1f) }
     val arrowRotation by animateFloatAsState(
-        targetValue = if (expanded) -90f else 180f,
+        targetValue = if (expanded) 180f else 0f,
         animationSpec = tween(280, easing = expansionEasing),
         label = "course-management-week-arrow-$localKey"
     )
@@ -1279,21 +1201,17 @@ private fun CourseManagementWeekFold(
             )
         )
     }
-    // Miuix's BasicComponent only measures its preference row. The expanding body must be a
-    // sibling in this Column, otherwise the grid looks present but is clipped and cannot receive
-    // touch events on certain devices.
     Column(Modifier.fillMaxWidth()) {
-        MiuixBasicComponent(
+        SettingsBasicComponent(
             title = "上课周次",
             summary = compactWeekSelectionLabel(course.weeks),
             modifier = Modifier.fillMaxWidth(),
-             insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
             endActions = {
                 Icon(
-                    painter = painterResource(R.drawable.ic_arrow_back),
+                    imageVector = Icons.Rounded.ExpandMore,
                     contentDescription = if (expanded) "收起周次" else "展开周次",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = arrowRotation }
+                    tint = CouiTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(24.dp).graphicsLayer { rotationZ = arrowRotation }
                 )
             },
             onClick = { expanded = !expanded }
@@ -1310,7 +1228,7 @@ private fun CourseManagementWeekFold(
             ) + fadeOut(tween(150))
         ) {
             Column(
-                Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 12.dp),
+                Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Row(
@@ -1326,7 +1244,7 @@ private fun CourseManagementWeekFold(
                         CourseManagementWeekChoice(
                             label = label,
                             selected = selected,
-                            modifier = Modifier.weight(1f).height(34.dp)
+                            modifier = Modifier.weight(1f).height(40.dp)
                         ) {
                             val weeks = weeksForCourseWeekSelectionMode(
                                 mode = mode,
@@ -1365,7 +1283,7 @@ private fun CourseManagementWeekSelectionGrid(
     val density = LocalDensity.current
     val columns = 6
     val gap = 8.dp
-    val cellHeight = 38.dp
+    val cellHeight = 40.dp
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         val rowCount = (totalWeeks + columns - 1) / columns
         val gridHeight = cellHeight * rowCount + gap * (rowCount - 1).coerceAtLeast(0)
@@ -1455,39 +1373,27 @@ private fun CourseManagementWeekChoice(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val baseColor = if (selected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
-    }
-    val pressedColor = baseColor.copy(
-        red = baseColor.red * 0.82f,
-        green = baseColor.green * 0.82f,
-        blue = baseColor.blue * 0.82f
-    )
-    val surfaceColor by animateColorAsState(
-        targetValue = if (pressed) pressedColor else baseColor,
-        animationSpec = tween(durationMillis = if (pressed) 70 else 150),
-        label = "course-management-week-choice-press"
-    )
+    val interaction = remember { MutableInteractionSource() }
+    val colors = CouiTheme.colorScheme
+    val fill = if (selected) colors.accent else colors.onSurface.copy(alpha = 0.06f).compositeOver(colors.container)
     Box(
         modifier = modifier
-            .squircleSurface(color = surfaceColor, cornerRadius = 12.dp)
-            .clickable(
-                interactionSource = interactionSource,
+            .clip(CouiShape(12.dp, 2.5f))
+            .background(fill)
+            .couiButtonFeedback(CouiTheme.isDark, interaction, true)
+            .selectable(
+                selected = selected,
+                interactionSource = interaction,
                 indication = null,
+                role = Role.Checkbox,
                 onClick = onClick
             ),
         contentAlignment = Alignment.Center
     ) {
         Text(
             label,
-            color = if (selected) MaterialTheme.colorScheme.onPrimary
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MiuixTheme.textStyles.body2,
-            fontWeight = FontWeight.SemiBold
+            color = if (selected) colors.onAccent else colors.onSurface,
+            style = rememberCouiTextStyle(CouiTextKind.Button)
         )
     }
 }
@@ -1497,7 +1403,7 @@ private fun SwipeDeleteArrangementCard(
     key: Long,
     onDeleteRequest: (confirm: () -> Unit, cancel: () -> Unit) -> Unit,
     onDelete: () -> Unit,
-    content: @Composable BoxScope.() -> Unit
+    content: @Composable (onDeleteClick: () -> Unit) -> Unit
 ) {
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
@@ -1542,10 +1448,14 @@ private fun SwipeDeleteArrangementCard(
         scope.launch { offset.animateTo(0f, settleSpring) }
     }
 
-    fun requestDelete(performHaptic: Boolean = true) {
+    fun requestDelete(performHaptic: Boolean = true, revealFirst: Boolean = true) {
         if (deletionStarted || deleteRequested) return
         deleteRequested = true
         if (performHaptic) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        if (!revealFirst) {
+            onDeleteRequest(::confirmDelete, ::cancelDelete)
+            return
+        }
         scope.launch {
             if (abs(offset.value) < deleteTriggerPx) {
                 offset.animateTo(-deleteTriggerPx, tween(180, easing = DetailExitEasing))
@@ -1571,10 +1481,11 @@ private fun SwipeDeleteArrangementCard(
     Box(
         Modifier.fillMaxWidth()
             .then(outerHeightModifier)
+            .clipToBounds()
             .onSizeChanged { size ->
                 widthPx = size.width.toFloat().coerceAtLeast(1f)
                 if (removal.value <= 0.01f && size.height > 1) {
-                    measuredHeightPx = max(measuredHeightPx, size.height.toFloat())
+                    measuredHeightPx = size.height.toFloat()
                 }
             }
     ) {
@@ -1657,8 +1568,7 @@ private fun SwipeDeleteArrangementCard(
                             scope.launch { offset.animateTo(0f, settleSpring) }
                         }
                     )
-                },
-            content = content
-        )
+                }
+        ) { content { requestDelete(performHaptic = false, revealFirst = false) } }
     }
 }
