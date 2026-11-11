@@ -6,6 +6,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionSt
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
+import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -24,6 +25,7 @@ import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -33,7 +35,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -54,6 +59,7 @@ import com.xiaomanjun.sleepdownschedule.formatScheduleDate
 import com.xiaomanjun.sleepdownschedule.parseScheduleDate
 import java.time.LocalDate
 import java.time.LocalTime
+import java.util.Locale
 
 fun showNativeDatePicker(context: Context, currentValue: String, onPicked: (String) -> Unit) {
     val date = parseScheduleDate(currentValue) ?: LocalDate.now()
@@ -135,8 +141,7 @@ fun SettingsDatePickerRow(
 }
 
 /**
- * Shared year/month/day wheels. Kept separate from the row so a centered dialog can host the same
- * control as one of its pages instead of stacking a second dialog on top of itself.
+ * Shared date selection content for settings rows and dialogs.
  */
 @Composable
 internal fun SettingsDatePickerContent(
@@ -151,14 +156,31 @@ internal fun SettingsDatePickerContent(
 ) {
     val maxDay = java.time.YearMonth.of(year, month).lengthOfMonth()
     if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
-        com.itos.coui.picker.CalendarPicker(modifier = modifier.fillMaxWidth(),
-            value = LocalDate.of(year, month, day.coerceIn(1, maxDay)),
-            minDate = LocalDate.of(yearRange.first, 1, 1), maxDate = LocalDate.of(yearRange.last, 12, 31),
-            dark = MaterialTheme.colorScheme.background.luminance() < 0.5f,
-            accent = MaterialTheme.colorScheme.primary,
-            onValueChange = { date ->
-                onYearChange(date.year); onMonthChange(date.monthValue); onDayChange(date.dayOfMonth)
-            })
+        val context = LocalContext.current
+        val configuration = LocalConfiguration.current
+        val calendarResources = remember(context, configuration) {
+            val chinese = Configuration(configuration).apply { setLocale(Locale.SIMPLIFIED_CHINESE) }
+            context.createConfigurationContext(chinese).resources
+        }
+        // The calendar reads its date formats and accessibility labels from separate locals.
+        CompositionLocalProvider(
+            LocalConfiguration provides calendarResources.configuration,
+            LocalResources provides calendarResources,
+        ) {
+            com.itos.coui.picker.CalendarPicker(
+                modifier = modifier.fillMaxWidth(),
+                value = LocalDate.of(year, month, day.coerceIn(1, maxDay)),
+                minDate = LocalDate.of(yearRange.first, 1, 1),
+                maxDate = LocalDate.of(yearRange.last, 12, 31),
+                dark = MaterialTheme.colorScheme.background.luminance() < 0.5f,
+                accent = MaterialTheme.colorScheme.primary,
+                onValueChange = { date ->
+                    onYearChange(date.year)
+                    onMonthChange(date.monthValue)
+                    onDayChange(date.dayOfMonth)
+                },
+            )
+        }
         return
     }
     LaunchedEffect(maxDay) {
