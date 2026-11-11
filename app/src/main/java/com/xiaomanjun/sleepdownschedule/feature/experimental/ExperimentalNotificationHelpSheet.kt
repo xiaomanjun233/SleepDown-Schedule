@@ -2,8 +2,11 @@ package com.xiaomanjun.sleepdownschedule.feature.experimental
 
 import android.os.Build
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -48,11 +51,13 @@ internal fun ExperimentalNotificationHelpSheet(
         dark = dark,
         sheetHeight = LocalConfiguration.current.screenHeightDp.dp,
         showDragHandle = false,
+        contentDrawsBehindNavigationBar = true,
         colors = CouiSheetDefaults.colors(dark).copy(surface = settingsPageBackground(config)),
         material = material,
         backdrop = windowBackdrop,
         isolateContent = false,
     ) {
+        val navigationBarPadding = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         val sheetScene = rememberCenteredDialogSceneBackdrop("experimental-notification-help")
         Column(Modifier.fillMaxSize().centeredDialogSceneProducer(sheetScene)) {
             SettingsEditorSheetToolbar(
@@ -73,7 +78,7 @@ internal fun ExperimentalNotificationHelpSheet(
                 SleepDownSecondaryPageList(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     contentTopPadding = 4.dp,
-                    contentBottomPadding = 16.dp,
+                    contentBottomPadding = 16.dp + navigationBarPadding,
                 ) { content(sheetScene) }
             }
         }
