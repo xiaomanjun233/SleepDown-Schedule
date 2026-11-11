@@ -737,32 +737,34 @@ internal fun CourseEditorPickerOverlay(
                     )
                 }
             } else if (gridRequest != null) {
-                if (gridRequest.presets.isNotEmpty()) {
-                    val selectedPreset = gridRequest.presets.firstOrNull { it.indices == selectedIndices }
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        gridRequest.presets.forEach { preset ->
-                            CourseEditorSelectionCell(
-                                label = preset.label,
-                                selected = selectedPreset == preset,
-                                contentColor = pickerContentColor,
-                                dark = dark,
-                                modifier = Modifier.weight(1f).height(40.dp),
-                                onClick = { selectedIndices = preset.indices },
-                            )
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (gridRequest.presets.isNotEmpty()) {
+                        val selectedPreset = gridRequest.presets.firstOrNull { it.indices == selectedIndices }
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            gridRequest.presets.forEach { preset ->
+                                CourseEditorSelectionCell(
+                                    label = preset.label,
+                                    selected = selectedPreset == preset,
+                                    contentColor = pickerContentColor,
+                                    dark = dark,
+                                    modifier = Modifier.weight(1f).height(40.dp),
+                                    onClick = { selectedIndices = preset.indices },
+                                )
+                            }
                         }
                     }
+                    CourseEditorSelectionGrid(
+                        labels = gridRequest.labels,
+                        selectedIndices = selectedIndices,
+                        preferredColumns = gridRequest.preferredColumns,
+                        contentColor = pickerContentColor,
+                        dark = dark,
+                        onSelectionChange = { selectedIndices = it }
+                    )
                 }
-                CourseEditorSelectionGrid(
-                    labels = gridRequest.labels,
-                    selectedIndices = selectedIndices,
-                    preferredColumns = gridRequest.preferredColumns,
-                    contentColor = pickerContentColor,
-                    dark = dark,
-                    onSelectionChange = { selectedIndices = it }
-                )
             }
             }
 
