@@ -40,7 +40,6 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBackdropBlur
-import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBlurDirection
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 
 @Composable
@@ -111,20 +110,6 @@ internal fun ExperimentalNotificationHelpSheet(
                     1f to Color.Transparent,
                 ),
             )
-            if (navigationBarPadding > 0.dp) {
-                ProgressiveBackdropBlur(
-                    backdrop = scrollBackdrop,
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                    tintColor = pageColor,
-                    height = navigationBarPadding + 36.dp,
-                    direction = ProgressiveBlurDirection.BottomToTop,
-                    fallbackTintStops = listOf(
-                        0f to pageColor,
-                        .45f to pageColor.copy(alpha = .65f),
-                        1f to Color.Transparent,
-                    ),
-                )
-            }
             Box(Modifier.fillMaxWidth().onSizeChanged { toolbarHeightPx = it.height }) {
                 SettingsEditorSheetToolbar(
                     title = "教程与诊断",
