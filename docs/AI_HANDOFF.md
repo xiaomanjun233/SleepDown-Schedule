@@ -10,6 +10,8 @@
 
 18:19 经 SDK ADB 37.0.1 同来源的 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读 APK 哈希一致。最终包用完整合成课表核对教师和地点同排、无「原始安排」行，582px 安排卡片的删除按钮高 145px，点击取消保留安排。`5427edf7` 验证周次快捷项位于网格上方，确定更新草稿，放弃后保留原周次。`f1c8ef9b` 的合成课表验证滑删取消、一次确认后手势返回、放弃周次修改仍提交删除，以及删除最后一条安排只移除对应课程。截图及日志在主工作区 `tmp/nav3-qa/sleepdown-be1d23e4-avd-*`、`tmp/nav3-qa/sleepdown-5427edf7-avd-*` 和 `tmp/nav3-qa/sleepdown-f1c8ef9b-avd-*`。本轮以模拟器流程验证为主。
 
+18:33 按用户要求将同一 `be1d23e4` 签名包覆盖到 USB OPPO PLJ110（Android 17 / API 37，`3B15AE023YL00000`，用户 0）。客户端和 5038 服务均来自 `D:/Android studio/AndroidSDK/platform-tools/adb.exe`，版本 37.0.1。实机回读 GitHub 2.0、版本代码 36，base APK 的 SHA-256 与归档包一致。日志在主工作区 `tmp/nav3-qa/sleepdown-be1d23e4-phone-install.log`。
+
 ## 2026-11-11 调休即时保存与课程管理详情
 
 在独立工作树 `codex/restore-activity-navigation` 从 `1c84678a` 续作。调休新增、编辑和确认删除直接提交当前课表的调休字段，预览 Sheet 点「采用」成功后自动关闭。首页顶栏保留返回与标题，取消 Sheet 或删除确认时保留原安排。写入由 Activity ViewModel 持有，并沿用原事务的并发检查。保存失败时保留对应编辑或预览，删除行回拢。课表设置中作息副标题为「编辑课表作息和上课时间」。
