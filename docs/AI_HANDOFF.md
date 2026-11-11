@@ -1,5 +1,19 @@
 # 当前工作交接
 
+## 2026-11-11 调休即时保存与课程管理详情
+
+在独立工作树 `codex/restore-activity-navigation` 从 `1c84678a` 续作。调休新增、编辑和确认删除直接提交当前课表的调休字段，预览 Sheet 点「采用」成功后自动关闭。首页顶栏保留返回与标题，取消 Sheet 或删除确认时保留原安排。写入由 Activity ViewModel 持有，并沿用原事务的并发检查。保存失败时保留对应编辑或预览，删除行回拢。课表设置中作息副标题为「编辑课表作息和上课时间」。
+
+获取调休使用 COUI 标准弹窗副标题及按钮槽。调休表单与日历切换时，正文留白计入同一尺寸插值，外部窗口保持固定底边。Pixel 10 Pro AVD 两段 432×928 录屏各操作两次展开和收起。旧版上沿采样一度越出稳定端点，新版 46 个可读采样均在 404–555px 的稳定范围内，录像和采样记录在主工作区 `tmp/nav3-qa/`。
+
+课程管理内页采用 COUI 标准顶栏、分组、字段及周次选择反馈。用完整合成课表点验课程名称和颜色显示、星期及节次选择器、周次展开、新增安排和「删除安排」弹窗取消。删除操作纳入课程编辑的既有提交路径。截图为 `tmp/nav3-qa/sleepdown-8c6a88dd-avd-course-*.png`。
+
+签名包源码为 `8c6a88dd`。GitHub 2.0，版本代码 36，`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 9 分 55 秒。主工作区归档包 `tmp/review-apks/SleepDown-2.0-GitHub-8c6a88dd.apk` 为 8,074,898 字节，SHA-256 为 `00C040571F90FF62049638032AE442D3A4E3F904DC6BCBAF92ED2BDE519E689C`。日志为 `tmp/sleepdown-instant-adjustments-course-detail-build.log`。
+
+15:23 通过 SDK ADB 37.0.1 的 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读 SHA-256 一致。调休新增和编辑后关闭重进仍可见，取消删除保留原条目，确认删除后重新进入已移除。实际获取 2026 年中秋、国庆，预览取消保留原 12 天，采用后直接退出重进可见 13 天。日志和截图在 `tmp/nav3-qa/sleepdown-8c6a88dd-avd-*`，本轮以设备流程验证为主。
+
+按用户要求将 AVD 保持为全面屏手势。模拟器系统服务恢复后回到隔离用户 10，重新确认手势覆盖启用。此用户的系统初始化标记原为 0，导致系统强制显示返回键并拒绝边缘手势。补齐初始化标记后，调休页从左侧滑动可以返回课表设置，系统记录手势获准。桌面和应用底部均只显示手势条。[Android 手势设置实现](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/com/android/internal/policy/GestureNavigationSettingsObserver.java)
+
 ## 2026-11-11 调休表单、预览和侧滑删除
 
 在独立工作树 `codex/restore-activity-navigation` 从 `8fc2db8d` 续作，签名包源码为 `379b9ecb`。新增和编辑调休沿用 COUI 弹窗、停课／补课分段和中文日期选择器。调休日期与原课程日期同组排列，补课与对应的原课程日期之间去掉分割线。获取节假日后以节日分组预览，可勾选停课、补课并修改原课程日期，摘要显示选中及覆盖的天数。预览和作息编辑复用同一 COUI Sheet 顶栏，左侧「取消」、居中标题、右侧「采用」。采用先写入草稿，主页面顶栏「保存」应用到当前课表。
