@@ -94,7 +94,6 @@ internal fun SwipeDeleteRow(
     swipeEnabled: Boolean = true,
     cardMotion: SwipeDeleteCardMotion = SwipeDeleteCardMotion.SlideContent,
     actionHeight: Dp = SwipeActionHeight,
-    expandActionOnDrag: Boolean = true,
     confirmDelete: (suspend () -> Boolean)? = null,
     onSlideProgress: ((Float) -> Unit)? = null,
     rowCorners: (Float) -> SwipeDeleteCorners = { SwipeDeleteCorners(SwipeRowRadius) },
@@ -147,10 +146,8 @@ internal fun SwipeDeleteRow(
 
     fun swipeProgress(): Float = (distance / restPx).coerceIn(0f, 1f)
 
-    fun revealedActionWidth(viewport: Float): Float {
-        val expansion = if (expandActionOnDrag) (distance - restPx).coerceAtLeast(0f) else 0f
-        return (actionWidth + expansion).coerceAtMost(viewport)
-    }
+    fun revealedActionWidth(viewport: Float): Float =
+        (actionWidth + (distance - restPx).coerceAtLeast(0f)).coerceAtMost(viewport)
 
     fun moveTo(position: Float) {
         distance = position.coerceAtLeast(0f)

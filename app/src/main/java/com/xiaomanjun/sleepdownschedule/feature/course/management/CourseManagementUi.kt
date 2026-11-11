@@ -890,7 +890,6 @@ internal fun CourseManagementDetailPage(
                         swipeEnabled = !saving || departing?.draft?.localKey == draft.localKey,
                         cardMotion = SwipeDeleteCardMotion.Slide,
                         actionHeight = with(density) { (cardHeightPx.toDp() / 4f).coerceAtLeast(48.dp) },
-                        expandActionOnDrag = false,
                         rowCorners = { SwipeDeleteCorners(24.dp) },
                         confirmDelete = { requestArrangementDeletion(draft.localKey) },
                     ) { slide, blocked, openOrClose ->
