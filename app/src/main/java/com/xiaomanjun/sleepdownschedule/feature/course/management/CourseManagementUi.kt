@@ -95,7 +95,6 @@ import com.xiaomanjun.sleepdownschedule.domain.course.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
 import com.xiaomanjun.sleepdownschedule.domain.schedule.isHiddenByPeriodAlignment
 import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
-import com.xiaomanjun.sleepdownschedule.domain.schedule.originalTimeSegments
 import com.xiaomanjun.sleepdownschedule.domain.schedule.previewCourseEdits
 import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
@@ -1082,17 +1081,7 @@ private fun CourseArrangementEditorCard(
     val matchingCustomClock = course.hasCustomTime() && course.customPeriodTimes.isNullOrBlank() &&
         !effective.hasCustomTime() && !effective.isHiddenByPeriodAlignment()
     val displayedPeriodIndices = effective.periods.ifEmpty { course.periods }
-    val hidden = effective.arrangementProjection?.hiddenPeriods.orEmpty()
     SettingsGroup(backdrop, config, surfaceColorOverride = Color.Transparent) {
-        if (hidden.isNotEmpty()) {
-            val originalTimes = course.originalTimeSegments().joinToString("；") { "${it.start}–${it.end}" }
-            SettingsInfoRow("原始安排", buildString {
-                append("${course.periods.joinToString("、")} 节")
-                if (originalTimes.isNotBlank()) append(" · $originalTimes")
-                append("\n${hidden.joinToString("、")} 节当前未显示。")
-            })
-            SettingsDivider()
-        }
         SettingsPickerValueRow(
             title = "上课星期",
             value = "周${weekdayLabel(course.weekday)}",
