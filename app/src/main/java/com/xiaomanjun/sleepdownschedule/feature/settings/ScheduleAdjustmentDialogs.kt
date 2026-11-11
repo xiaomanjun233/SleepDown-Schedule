@@ -18,6 +18,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LiquidOptionTabs
@@ -62,10 +64,10 @@ internal fun HolidayYearDialog(
         backdrop = backdrop,
         config = config,
         contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
-        bottomActions = {
-            PeriodPickerActions(backdrop, config, onCancel = onDismiss, onConfirm = { onFetch(year) },
-                confirmText = "获取")
-        },
+        actions = listOf(
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismiss),
+            LiquidAlertAction("获取", LiquidAlertActionStyle.Primary) { onFetch(year) },
+        ),
     ) {
         PeriodQuickSingleWheel(year, { year = it }, 2000..2100, { "${it} 年" })
     }
@@ -74,6 +76,7 @@ internal fun HolidayYearDialog(
 @Composable
 internal fun AdjustmentEditorDialog(
     show: Boolean,
+    saving: Boolean,
     draft: AdjustmentDraft,
     error: String?,
     backdrop: Backdrop?,
@@ -103,7 +106,7 @@ internal fun AdjustmentEditorDialog(
             AdjustmentPickerPage.TargetDate -> "调休日期"
             AdjustmentPickerPage.SourceDate -> "原课程日期"
         },
-        onDismissRequest = { if (form) onCancel() else backToForm() },
+        onDismissRequest = { if (!saving) { if (form) onCancel() else backToForm() } },
         onDismissFinished = onDismissFinished,
         backdrop = backdrop,
         config = config,
@@ -112,18 +115,19 @@ internal fun AdjustmentEditorDialog(
         contentTransitionKey = page,
         scrollableContent = true,
         smoothContentResize = true,
-        bottomActions = {
-            if (form) {
-                PeriodPickerActions(backdrop, config, onCancel = onCancel, onConfirm = onSave, confirmText = "确定")
-            } else {
-                PeriodPickerActions(backdrop, config, onCancel = ::backToForm, cancelText = "返回", onConfirm = {
+        actions = listOf(
+            LiquidAlertAction(if (form) "取消" else "返回", LiquidAlertActionStyle.Cancel, enabled = !saving) {
+                if (form) onCancel() else backToForm()
+            },
+            LiquidAlertAction(if (form) "确定" else "选用日期", LiquidAlertActionStyle.Primary, enabled = !saving) {
+                if (form) onSave() else {
                     val date = selectedDate.toString()
                     onDraftChange(if (page == AdjustmentPickerPage.TargetDate) draft.copy(date = date)
                         else draft.copy(source = date))
                     backToForm()
-                }, confirmText = "选用日期")
-            }
-        },
+                }
+            },
+        ),
         contentForState = { visiblePage ->
             if (visiblePage == AdjustmentPickerPage.Details) {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -135,19 +139,21 @@ internal fun AdjustmentEditorDialog(
                             config = config,
                             width = maxWidth,
                             followAppTheme = true,
-                            onSelected = { onDraftChange(draft.copy(rest = it == 0)) },
+                            onSelected = { if (!saving) onDraftChange(draft.copy(rest = it == 0)) },
                         )
                     }
                     SettingsGroup(backdrop = null, config = config, topSpacing = 0.dp) {
                         SettingsPickerValueRow("调休日期", adjustmentDateLabel(targetDate),
-                            onClick = { openDate(AdjustmentPickerPage.TargetDate) })
+                            onClick = { openDate(AdjustmentPickerPage.TargetDate) }, enabled = !saving)
                         if (draft.rest) {
                             SettingsToggleRow("全天占位", "无课也显示全天假期卡",
-                                draft.allDayPlaceholder, backdrop) { onDraftChange(draft.copy(allDayPlaceholder = it)) }
+                                draft.allDayPlaceholder, backdrop, enabled = !saving) {
+                                onDraftChange(draft.copy(allDayPlaceholder = it))
+                            }
                         } else {
                             val source = parseScheduleDate(draft.source)
                             SettingsPickerValueRow("原课程日期", source?.let(::adjustmentDateLabel) ?: "请选择",
-                                onClick = { openDate(AdjustmentPickerPage.SourceDate) })
+                                onClick = { openDate(AdjustmentPickerPage.SourceDate) }, enabled = !saving)
                             if (source != null) {
                                 SettingsDivider()
                                 SettingsInfoRow("补课预览", coursePreview(draft.source))

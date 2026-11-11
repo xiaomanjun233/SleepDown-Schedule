@@ -10,10 +10,9 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -34,57 +33,51 @@ class ScheduleAdjustmentsActivity : ComponentActivity() {
         enableEdgeToEdge()
         val scheduleId = intent.getIntExtra(ScheduleIdExtra, -1)
         if (scheduleId <= 0) { finish(); return }
-        val initial = decodeScheduleAdjustments(intent.getStringExtra(ArrangementsExtra).orEmpty())
         setContent {
             val app = application as CourseScheduleApp
             val viewModel: ScheduleScreenViewModel = androidx.lifecycle.viewmodel.compose.viewModel(
                 factory = ScheduleScreenViewModel.Factory(app, app.repository, app.applicationScope)
             )
             val state by viewModel.allSchedulesState.collectAsStateWithLifecycle()
+            val commit by viewModel.adjustmentCommit.collectAsStateWithLifecycle()
             val storedConfig = state.allConfigs.firstOrNull { it.id == scheduleId }
             CourseScheduleTheme(config = state.config) {
                 if (storedConfig == null || !state.loaded) {
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 } else {
-                    val originalStored = remember(scheduleId) { storedConfig.scheduleAdjustmentsJson }
-                    var saving by remember { mutableStateOf(false) }
-                    var saveError by remember { mutableStateOf<String?>(null) }
-                    val draftState = remember(state, storedConfig) {
+                    val initialStored = remember(scheduleId) { storedConfig.scheduleAdjustmentsJson }
+                    val original = intent.getStringExtra(ArrangementsExtra) ?: initialStored
+                    val saved = commit.savedJson ?: initialStored
+                    val entries = remember(saved) { decodeScheduleAdjustments(saved) }
+                    val draftState = remember(state, storedConfig, saved) {
                         state.copy(
                             config = storedConfig.copy(
                                 totalWeeks = intent.getIntExtra(TotalWeeksExtra, storedConfig.totalWeeks),
                                 currentWeek = intent.getIntExtra(CurrentWeekExtra, storedConfig.currentWeek),
                                 autoCurrentWeek = intent.getBooleanExtra(AutoWeekExtra, storedConfig.autoCurrentWeek),
-                                termStartDate = intent.getStringExtra(TermStartExtra)?.ifBlank { null },
-                                scheduleAdjustmentsJson = encodeScheduleAdjustments(initial)
+                                termStartDate = if (intent.hasExtra(TermStartExtra))
+                                    intent.getStringExtra(TermStartExtra)?.ifBlank { null }
+                                else storedConfig.termStartDate,
+                                scheduleAdjustmentsJson = saved,
                             ),
                             courses = state.allCourses.filter { it.scheduleId == scheduleId },
                             periods = state.allPeriods.filter { it.scheduleId == scheduleId }
                         )
                     }
-                    ScheduleAdjustmentsScreen(draftState, initial, saving = saving, saveError = saveError,
-                        onDismiss = { if (!saving) finish() },
-                        onConfirm = { arrangements ->
-                            if (!saving) {
-                                saving = true
-                                saveError = null
-                                val value = encodeScheduleAdjustments(arrangements)
-                                viewModel.actions.saveScheduleAdjustments(scheduleId, originalStored, value,
-                                    onSuccess = {
-                                        viewModel.refreshNotificationsAfterSave()
-                                        setResult(Activity.RESULT_OK, Intent()
-                                            .putExtra(ScheduleIdExtra, scheduleId)
-                                            .putExtra(OriginalArrangementsExtra, encodeScheduleAdjustments(initial))
-                                            .putExtra(SavedExtra, true)
-                                            .putExtra(ArrangementsExtra, value))
-                                        finish()
-                                    }, onFailure = {
-                                        saving = false
-                                        saveError = "保存失败，草稿已保留。请确认安排没有被其他入口修改后重试。"
-                                    })
-                            }
+                    SideEffect {
+                        if (commit.savedJson != null) {
+                            setResult(Activity.RESULT_OK, Intent()
+                                .putExtra(ScheduleIdExtra, scheduleId)
+                                .putExtra(OriginalArrangementsExtra, original)
+                                .putExtra(SavedExtra, true)
+                                .putExtra(ArrangementsExtra, saved))
                         }
-                    )
+                    }
+                    ScheduleAdjustmentsScreen(draftState, entries, saving = commit.saving, onDismiss = ::finish,
+                        onSave = { expected, updated ->
+                            viewModel.commitAdjustments(scheduleId, encodeScheduleAdjustments(expected),
+                                encodeScheduleAdjustments(updated))
+                        })
                 }
             }
         }

@@ -7,7 +7,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.*
-import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -20,7 +19,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryP
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsToolbarTextButton
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
@@ -71,17 +69,12 @@ private data class AdjustmentDeleteConfirmation(
 @Composable
 internal fun ScheduleAdjustmentsScreen(
     state: AppState,
-    initial: List<ScheduleAdjustment>,
-    saving: Boolean = false,
-    saveError: String? = null,
+    entries: List<ScheduleAdjustment>,
+    saving: Boolean,
     onDismiss: () -> Unit,
-    onConfirm: (List<ScheduleAdjustment>) -> Unit,
+    onSave: suspend (previous: List<ScheduleAdjustment>, updated: List<ScheduleAdjustment>) -> Unit,
 ) {
-    val original = remember(initial) { initial.sortedBy { it.date } }
-    var entries by rememberSaveable(stateSaver = Saver<List<ScheduleAdjustment>, String>(
-        save = { encodeScheduleAdjustments(it) },
-        restore = { decodeScheduleAdjustments(it) },
-    )) { mutableStateOf(original) }
+    val latestEntries by rememberUpdatedState(entries)
     val config = state.config
     var year by rememberSaveable {
         mutableIntStateOf((parseScheduleDate(config.termStartDate)?.year ?: LocalDate.now().year).coerceIn(2000, 2100))
@@ -95,19 +88,20 @@ internal fun ScheduleAdjustmentsScreen(
     var previewVisible by remember { mutableStateOf(false) }
     var duplicateAfterPreview by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var showExitConfirm by remember { mutableStateOf(false) }
     var draft by remember { mutableStateOf<AdjustmentDraft?>(null) }
     var draftVisible by remember { mutableStateOf(false) }
     var draftError by remember { mutableStateOf<String?>(null) }
     var deleteConfirmation by remember { mutableStateOf<AdjustmentDeleteConfirmation?>(null) }
     var departing by remember { mutableStateOf<ScheduleAdjustment?>(null) }
     val displayedEntries = remember(entries, departing) {
-        departing?.let { (entries + it).sortedBy(ScheduleAdjustment::date) } ?: entries
+        val outgoing = departing
+        if (outgoing != null && entries.none { it.date == outgoing.date })
+            (entries + outgoing).sortedBy(ScheduleAdjustment::date)
+        else entries
     }
     val scope = rememberCoroutineScope()
     val swipes = remember { AdjustmentListSwipeState() }
     val listState = rememberLazyListState()
-    val changed = entries != original
     // Make-up days refer to the original teaching date, including days that are now days off.
     val teachingState = remember(state) { state.copy(config = state.config.copy(scheduleAdjustmentsJson = "")) }
 
@@ -132,6 +126,7 @@ internal fun ScheduleAdjustmentsScreen(
     }
 
     fun beginEdit(entry: ScheduleAdjustment?) {
+        if (saving) return
         draft = if (entry == null) AdjustmentDraft(LocalDate.now().toString(), rest = true, source = "")
         else AdjustmentDraft(entry.date, entry.sourceDate == null, entry.sourceDate.orEmpty(),
             originalDate = entry.date, label = entry.label, allDayPlaceholder = entry.allDayPlaceholder)
@@ -144,15 +139,23 @@ internal fun ScheduleAdjustmentsScreen(
     }
 
     fun commitDraft() {
+        if (saving || !draftVisible) return
         val current = draft ?: return
-        runCatching {
-            val next = validEntry(current.date, current.source.takeUnless { current.rest }, current.label)
-                .copy(allDayPlaceholder = current.rest && current.allDayPlaceholder)
-            replaceScheduleAdjustment(entries, current.originalDate, next)
-        }.onSuccess {
-            entries = it
-            closeEditor()
-        }.onFailure { draftError = it.message ?: "调休安排无效" }
+        scope.launch {
+            try {
+                val previous = latestEntries
+                val entry = validEntry(current.date, current.source.takeUnless { current.rest }, current.label)
+                    .copy(allDayPlaceholder = current.rest && current.allDayPlaceholder)
+                val updated = replaceScheduleAdjustment(previous, current.originalDate, entry)
+                if (updated != previous) onSave(previous, updated)
+                error = null
+                closeEditor()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                draftError = adjustmentFailureMessage(failure)
+            }
+        }
     }
 
     suspend fun confirmRemoval(entry: ScheduleAdjustment): Boolean {
@@ -161,9 +164,17 @@ internal fun ScheduleAdjustmentsScreen(
         deleteConfirmation = AdjustmentDeleteConfirmation(entry, answer)
         try {
             if (!answer.await()) return false
-            // Commit the draft first, retaining the visual row until the shared exit animation ends.
+            val previous = latestEntries
+            val updated = previous.filterNot { it.date == entry.date }
+            if (updated == previous) return false
             departing = entry
-            entries = entries.filterNot { it.date == entry.date }
+            try {
+                onSave(previous, updated)
+                error = null
+            } catch (failure: Exception) {
+                departing = null
+                throw failure
+            }
             return true
         } finally {
             if (deleteConfirmation?.answer === answer) deleteConfirmation = null
@@ -176,11 +187,7 @@ internal fun ScheduleAdjustmentsScreen(
 
     fun requestBack() {
         if (saving) return
-        when {
-            preview != null -> previewVisible = false
-            changed -> showExitConfirm = true
-            else -> onDismiss()
-        }
+        if (preview != null) previewVisible = false else onDismiss()
     }
 
     fun fetchHoliday(year: Int) {
@@ -198,12 +205,13 @@ internal fun ScheduleAdjustmentsScreen(
                     error = "$year 年没有学期内的节假日"
                     return@launch
                 }
-                val (added, pending) = plans.partition { it.isAlreadyAdded(entries) }
+                val current = latestEntries
+                val (added, pending) = plans.partition { it.isAlreadyAdded(current) }
                 if (pending.isEmpty()) {
                     duplicateNotice = true
                     return@launch
                 }
-                val saved = entries.associateBy { it.date }
+                val saved = current.associateBy { it.date }
                 preview = HolidayAdjustmentPreview(year, pending.map { plan ->
                     HolidayReview(plan, restSelected = true, makeups = plan.makeups.map { makeup ->
                         val existing = saved[makeup.date.toString()]?.sourceDate?.let(LocalDate::parse)
@@ -242,40 +250,42 @@ internal fun ScheduleAdjustmentsScreen(
     }
 
     fun applySelected() {
-        if (!previewVisible) return
+        if (saving || !previewVisible) return
         val pending = preview ?: return
-        runCatching {
-            val imported = buildList {
-                pending.reviews.forEach { review ->
-                    if (review.restSelected) review.plan.restDates.forEach {
-                        add(validEntry(it.toString(), null, review.plan.name))
-                    }
-                    review.makeups.filter { it.selected }.forEach {
-                        add(validEntry(it.date.toString(), it.source, review.plan.name))
+        scope.launch {
+            try {
+                val imported = buildList {
+                    pending.reviews.forEach { review ->
+                        if (review.restSelected) review.plan.restDates.forEach {
+                            add(validEntry(it.toString(), null, review.plan.name))
+                        }
+                        review.makeups.filter { it.selected }.forEach {
+                            add(validEntry(it.date.toString(), it.source, review.plan.name))
+                        }
                     }
                 }
+                require(imported.isNotEmpty()) { "请至少选择一个日期" }
+                val previous = latestEntries
+                val dates = imported.mapTo(hashSetOf()) { it.date }
+                val updated = (previous.filterNot { it.date in dates } + imported).sortedBy { it.date }
+                validateScheduleAdjustments(updated)
+                duplicateAfterPreview = updated == previous
+                if (!duplicateAfterPreview) onSave(previous, updated)
+                previewVisible = false
+                error = null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                error = adjustmentFailureMessage(failure)
             }
-            require(imported.isNotEmpty()) { "请至少选择一个日期" }
-            val dates = imported.mapTo(hashSetOf()) { it.date }
-            (entries.filterNot { it.date in dates } + imported).sortedBy { it.date }.also(::validateScheduleAdjustments)
-        }.onSuccess { next ->
-            duplicateAfterPreview = next == entries
-            entries = next
-            previewVisible = false
-            error = null
-        }.onFailure { error = it.message ?: "调休安排无效" }
+        }
     }
 
-    BackHandler(enabled = saving || preview != null || changed, onBack = ::requestBack)
+    BackHandler(enabled = saving || preview != null, onBack = ::requestBack)
     DetailActivityScaffold(
         title = "调休课表",
         config = config,
         onBack = ::requestBack,
-        topBarActions = {
-            CouiSettingsToolbarTextButton(if (saving) "保存中" else "保存", enabled = changed && !saving) {
-                onConfirm(entries)
-            }
-        },
     ) { backdrop ->
         SleepDownSecondaryPageList(
             modifier = Modifier.fillMaxSize(),
@@ -297,7 +307,7 @@ internal fun ScheduleAdjustmentsScreen(
                             yearDialogVisible = true
                         },
                     )
-                    (error.takeIf { preview == null } ?: saveError)?.let {
+                    error.takeIf { preview == null }?.let {
                         SettingsDivider()
                         SettingsInfoRow(it, "")
                     }
@@ -308,13 +318,14 @@ internal fun ScheduleAdjustmentsScreen(
                 config = config,
                 swipes = swipes,
                 enabled = !saving,
+                departingDate = departing?.date,
                 onEdit = ::beginEdit,
                 confirmDelete = ::confirmRemoval,
                 onDelete = { finishRemoval(it.date) },
                 onRowDisposed = ::finishRemoval,
                 onDeleteFailed = {
                     departing = null
-                    error = it.message ?: "无法删除调休安排，请重试"
+                    error = adjustmentFailureMessage(it)
                 },
             )
         }
@@ -324,6 +335,7 @@ internal fun ScheduleAdjustmentsScreen(
             val replacements = remember(pending) { selectedDates.count { it in pending.existingDates } }
             HolidayAdjustmentPreviewSheet(
                 visible = previewVisible,
+                saving = saving,
                 preview = pending,
                 config = config,
                 selectedCount = selectedDates.size,
@@ -336,7 +348,7 @@ internal fun ScheduleAdjustmentsScreen(
                     it.copy(source = parseScheduleDate(value)?.toString().orEmpty())
                 } },
                 onApply = ::applySelected,
-                onDismiss = { previewVisible = false },
+                onDismiss = { if (!saving) previewVisible = false },
                 onDismissFinished = {
                     preview = null
                     error = null
@@ -366,22 +378,10 @@ internal fun ScheduleAdjustmentsScreen(
             actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) { duplicateNotice = false }),
             backdrop = backdrop, config = config, onDismissRequest = { duplicateNotice = false },
         )
-        if (showExitConfirm) LiquidAlertDialog(
-            title = "保存调休安排？", message = "保存后应用到当前课表。",
-            actions = listOf(
-                LiquidAlertAction("保存", LiquidAlertActionStyle.Primary) {
-                    showExitConfirm = false
-                    onConfirm(entries)
-                },
-                LiquidAlertAction("放弃修改", LiquidAlertActionStyle.Destructive, onClick = onDismiss),
-                LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Cancel) { showExitConfirm = false },
-            ),
-            backdrop = backdrop, config = config, onDismissRequest = { showExitConfirm = false },
-        )
         deleteConfirmation?.let { confirmation ->
             LiquidAlertDialog(
                 title = "删除这条调休安排？",
-                message = "${adjustmentDateLabel(LocalDate.parse(confirmation.entry.date))}的安排将在保存后移除。",
+                message = "${adjustmentDateLabel(LocalDate.parse(confirmation.entry.date))}的调休将从当前课表移除。",
                 actions = listOf(
                     LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { confirmation.answer.complete(false) },
                     LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive) { confirmation.answer.complete(true) },
@@ -392,11 +392,12 @@ internal fun ScheduleAdjustmentsScreen(
         draft?.let { current ->
             AdjustmentEditorDialog(
                 show = draftVisible,
+                saving = saving,
                 draft = current,
                 error = draftError,
                 backdrop = backdrop,
                 config = config,
-                onDraftChange = { draft = it; draftError = null },
+                onDraftChange = { if (!saving) { draft = it; draftError = null } },
                 coursePreview = ::coursePreview,
                 onSave = ::commitDraft,
                 onCancel = ::closeEditor,
@@ -405,3 +406,8 @@ internal fun ScheduleAdjustmentsScreen(
         }
     }
 }
+
+private fun adjustmentFailureMessage(failure: Exception): String =
+    if (failure is IllegalArgumentException || failure is IllegalStateException)
+        failure.message ?: "无法保存调休安排，请重试"
+    else "无法保存调休安排，请重试"

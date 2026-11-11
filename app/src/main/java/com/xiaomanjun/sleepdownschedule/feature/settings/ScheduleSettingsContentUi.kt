@@ -309,12 +309,6 @@ internal fun ScheduleSettingsContent(
     error: String?,
 ) {
     val config = state.config
-    val combo = config.activeTimetableComboId?.let { id ->
-        state.timetableCatalog.combos.firstOrNull { it.id == id }
-    }
-    val routineCount = (listOfNotNull(config.activePeriodSchemeId, combo?.baseSchemeId) +
-        state.timetableCatalog.rules.filter { it.comboId == combo?.id }.map { it.schemeId })
-        .distinct().size.coerceAtLeast(1)
 
     SleepDownSecondaryPageList(
         contentTopPadding = detailContentTopPadding(),
@@ -349,7 +343,7 @@ internal fun ScheduleSettingsContent(
                     SettingsDivider()
                     ScheduleAdjustmentsSettingsRow(draftConfig, scheduleAdjustmentsJson, onScheduleAdjustmentsChange)
                     SettingsDivider()
-                    SettingsNavigationRow("作息", "$routineCount 套作息 · 上课时间与跨表复制", onClick = onOpenPeriodSchemes)
+                    SettingsNavigationRow("作息", "编辑课表作息和上课时间", onClick = onOpenPeriodSchemes)
                 }
             }
         }

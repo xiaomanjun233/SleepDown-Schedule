@@ -163,6 +163,7 @@ fun SleepDownPickerDialog(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val body: @Composable (Boolean) -> Unit = { includeChrome ->
+        val animateCouiPadding = !includeChrome && smoothContentResize && contentTransitionKey != null
         val foreground = if (includeChrome) sleepDownPanelForegroundColor(config)
             else androidx.compose.material3.LocalContentColor.current
         val nativeStyle = LocalNativePickerStyle.current.takeIf { LocalNativeDialogSurface.current }
@@ -178,7 +179,7 @@ fun SleepDownPickerDialog(
                     .padding(
                         top = SleepDownDesignTokens.QuickSheet.PickerVerticalInset -
                             SleepDownDesignTokens.CenteredDialog.AlertVerticalPadding
-                    ) else Modifier.padding(couiContentPadding),
+                    ) else if (animateCouiPadding) Modifier else Modifier.padding(couiContentPadding),
                 verticalArrangement = Arrangement.spacedBy(contentSpacing)
             ) {
                 if (includeChrome) Row(
@@ -224,11 +225,14 @@ fun SleepDownPickerDialog(
                 } else {
                     CenteredDialogContentTransition(
                         targetState = contentTransitionKey,
-                        modifier = bodyModifier,
+                        modifier = if (animateCouiPadding) bodyModifier.fillMaxWidth() else bodyModifier,
                         smoothResize = smoothContentResize,
                         label = "picker-dialog-content"
                     ) { displayedState ->
-                        Column(verticalArrangement = Arrangement.spacedBy(contentSpacing)) {
+                        Column(
+                            modifier = if (animateCouiPadding) Modifier.padding(couiContentPadding) else Modifier,
+                            verticalArrangement = Arrangement.spacedBy(contentSpacing),
+                        ) {
                             if (contentForState != null) contentForState(displayedState) else content()
                         }
                     }

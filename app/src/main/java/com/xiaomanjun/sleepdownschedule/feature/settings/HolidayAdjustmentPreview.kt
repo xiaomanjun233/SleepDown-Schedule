@@ -63,6 +63,7 @@ internal data class MakeupReview(val date: LocalDate, val source: String, val se
 @Composable
 internal fun HolidayAdjustmentPreviewSheet(
     visible: Boolean,
+    saving: Boolean,
     preview: HolidayAdjustmentPreview,
     config: ScheduleConfigEntity,
     selectedCount: Int,
@@ -89,6 +90,7 @@ internal fun HolidayAdjustmentPreviewSheet(
         dismissDescription = "关闭调休预览",
         dark = dark,
         sheetHeight = LocalConfiguration.current.screenHeightDp.dp,
+        draggable = !saving,
         showDragHandle = false,
         colors = CouiSheetDefaults.colors(dark).copy(surface = settingsPageBackground(config)),
         material = material,
@@ -101,7 +103,7 @@ internal fun HolidayAdjustmentPreviewSheet(
                 title = "调休预览",
                 dark = dark,
                 backdrop = sheetScene,
-                enabled = visible,
+                enabled = visible && !saving,
                 onCancel = onDismiss,
                 actionLabel = "采用",
                 onAction = onApply,
@@ -121,7 +123,8 @@ internal fun HolidayAdjustmentPreviewSheet(
                     contentTopPadding = 4.dp,
                     contentBottomPadding = 16.dp,
                 ) {
-                    holidayAdjustmentPreviewItems(preview, config, sheetScene, selectedCount, replacementCount, coursePreview,
+                    holidayAdjustmentPreviewItems(preview, config, sheetScene, selectedCount, replacementCount,
+                        visible && !saving, coursePreview,
                         onRestSelection, onMakeupSelection, onMakeupSource)
                 }
             }
@@ -135,6 +138,7 @@ private fun LazyListScope.holidayAdjustmentPreviewItems(
     backdrop: Backdrop?,
     selectedCount: Int,
     replacementCount: Int,
+    enabled: Boolean,
     coursePreview: (String) -> String,
     onRestSelection: (Int, Boolean) -> Unit,
     onMakeupSelection: (Int, Int, Boolean) -> Unit,
@@ -161,6 +165,7 @@ private fun LazyListScope.holidayAdjustmentPreviewItems(
                             subtitle = adjustmentDateRange(rests),
                             checked = review.restSelected,
                             backdrop = backdrop,
+                            enabled = enabled,
                             onCheckedChange = { onRestSelection(planIndex, it) },
                         )
                     }
@@ -176,6 +181,7 @@ private fun LazyListScope.holidayAdjustmentPreviewItems(
                             },
                             checked = makeup.selected,
                             backdrop = backdrop,
+                            enabled = enabled,
                             onCheckedChange = { onMakeupSelection(planIndex, makeupIndex, it) },
                         )
                         if (makeup.selected) {
@@ -185,6 +191,7 @@ private fun LazyListScope.holidayAdjustmentPreviewItems(
                                 onValueChange = { onMakeupSource(planIndex, makeupIndex, it) },
                                 backdrop = backdrop,
                                 config = config,
+                                enabled = enabled,
                                 initialDate = source ?: makeup.date,
                             )
                         }
