@@ -39,11 +39,7 @@ import androidx.compose.ui.unit.sp
 import com.itos.coui.menu.rememberCouiWindowBackdrop
 import com.itos.coui.sheet.CouiSheetDefaults
 import com.itos.coui.sheet.ModalBottomSheet
-import com.itos.coui.sheet.SheetToolbar
-import com.itos.coui.theme.LocalCouiContentColor
 import com.itos.coui.theme.LocalCouiMaterialEnabled
-import com.itos.coui.theme.LocalCouiTextStyle
-import com.itos.coui.topappbar.TopAppBarButton
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
@@ -51,6 +47,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiLiquidMaterial
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsPopupBackdrop
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsEditorSheetToolbar
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsMinutePickerContent
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsPickerValueRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
@@ -447,7 +444,15 @@ internal fun PeriodSchemeEditor(
                     tintColor = pageColor, height = 72.dp, blurRadius = 12.dp,
                     fallbackTintStops = listOf(0f to pageColor.copy(alpha = 0.42f),
                         0.68f to pageColor.copy(alpha = 0.18f), 1f to Color.Transparent))
-                PeriodEditorToolbar(dark, editorBackdrop, interactive, onExit = ::requestExit)
+                SettingsEditorSheetToolbar(
+                    title = "编辑作息",
+                    dark = dark,
+                    backdrop = editorBackdrop,
+                    enabled = interactive,
+                    onCancel = ::requestExit,
+                    actionLabel = "完成",
+                    onAction = ::requestExit,
+                )
             }
             CompositionLocalProvider(LocalCenteredDialogSceneBackdrop provides sheetScene) {
                 additionError?.let { message ->
@@ -539,29 +544,6 @@ internal fun PeriodSchemeEditor(
                         onDismiss = { pickingPart = null }, onChange = { session = it; pickingPart = null })
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun PeriodEditorToolbar(dark: Boolean, backdrop: Backdrop, enabled: Boolean, onExit: () -> Unit) {
-    if (Build.VERSION.SDK_INT >= 34) {
-        SheetToolbar(title = "编辑作息", dark = dark, navigation = { style ->
-            TopAppBarButton(onClick = onExit, enabled = enabled, text = true, style = style) {
-                Text("取消", color = LocalCouiContentColor.current, style = LocalCouiTextStyle.current)
-            }
-        }, actions = { style ->
-            TopAppBarButton(onClick = onExit, enabled = enabled, text = true, style = style) {
-                Text("完成", color = LocalCouiContentColor.current, style = LocalCouiTextStyle.current)
-            }
-        })
-    } else {
-        Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            DialogLiquidButton(backdrop, "取消", onExit, monochromeNeutral = true, enabled = enabled)
-            Text("编辑作息", modifier = Modifier.weight(1f), fontWeight = FontWeight.SemiBold,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            DialogLiquidButton(backdrop, "完成", onExit, role = DialogButtonRole.Confirm, enabled = enabled)
         }
     }
 }

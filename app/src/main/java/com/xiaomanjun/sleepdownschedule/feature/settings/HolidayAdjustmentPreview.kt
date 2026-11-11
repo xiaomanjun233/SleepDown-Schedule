@@ -14,14 +14,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.itos.coui.dialog.CouiDialogAction
-import com.itos.coui.dialog.CouiDialogActionStyle
-import com.itos.coui.dialog.CouiDialogDefaults
-import com.itos.coui.dialog.DialogActionBar
 import com.itos.coui.menu.rememberCouiWindowBackdrop
 import com.itos.coui.sheet.CouiSheetDefaults
 import com.itos.coui.sheet.ModalBottomSheet
-import com.itos.coui.sheet.SheetToolbar
 import com.itos.coui.theme.LocalCouiMaterialEnabled
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalCenteredDialogSceneBackdrop
@@ -34,6 +29,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiLiquidMaterial
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsPopupBackdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDatePickerRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsEditorSheetToolbar
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsToggleRow
@@ -93,6 +89,7 @@ internal fun HolidayAdjustmentPreviewSheet(
         dismissDescription = "关闭调休预览",
         dark = dark,
         sheetHeight = LocalConfiguration.current.screenHeightDp.dp,
+        showDragHandle = false,
         colors = CouiSheetDefaults.colors(dark).copy(surface = settingsPageBackground(config)),
         material = material,
         backdrop = backdrop,
@@ -100,11 +97,20 @@ internal fun HolidayAdjustmentPreviewSheet(
     ) {
         val sheetScene = rememberCenteredDialogSceneBackdrop("holiday-adjustment-preview")
         Column(Modifier.fillMaxSize().centeredDialogSceneProducer(sheetScene)) {
-            if (Build.VERSION.SDK_INT >= 34) {
-                SheetToolbar(title = "调休预览", dark = dark)
-            } else {
-                Text("调休预览", Modifier.fillMaxWidth().padding(16.dp),
-                    style = MaterialTheme.typography.titleLarge, textAlign = TextAlign.Center)
+            SettingsEditorSheetToolbar(
+                title = "调休预览",
+                dark = dark,
+                backdrop = sheetScene,
+                enabled = visible,
+                onCancel = onDismiss,
+                actionLabel = "采用",
+                onAction = onApply,
+                actionEnabled = selectedCount > 0,
+            )
+            error?.let {
+                Text(it, Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
             }
             CompositionLocalProvider(
                 LocalCenteredDialogSceneBackdrop provides sheetScene,
@@ -115,29 +121,10 @@ internal fun HolidayAdjustmentPreviewSheet(
                     contentTopPadding = 4.dp,
                     contentBottomPadding = 16.dp,
                 ) {
-                    holidayAdjustmentPreviewItems(preview, config, sheetScene, coursePreview,
+                    holidayAdjustmentPreviewItems(preview, config, sheetScene, selectedCount, replacementCount, coursePreview,
                         onRestSelection, onMakeupSelection, onMakeupSource)
                 }
             }
-            val notice = error ?: "将替换 $replacementCount 天已有安排".takeIf { replacementCount > 0 }
-            notice?.let {
-                Text(it, Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 4.dp),
-                    color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                    style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
-            }
-            DialogActionBar(
-                confirmAction = CouiDialogAction(
-                    "采用 $selectedCount 天",
-                    onApply,
-                    enabled = visible && selectedCount > 0,
-                    style = CouiDialogActionStyle.Primary,
-                    colors = CouiDialogDefaults.primaryActionColors(MaterialTheme.colorScheme.primary),
-                ),
-                dismissAction = CouiDialogAction("取消", onDismiss, enabled = visible),
-                dark = dark,
-                material = material != null,
-                modifier = Modifier.fillMaxWidth(),
-            )
         }
     }
 }
@@ -146,6 +133,8 @@ private fun LazyListScope.holidayAdjustmentPreviewItems(
     preview: HolidayAdjustmentPreview,
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
+    selectedCount: Int,
+    replacementCount: Int,
     coursePreview: (String) -> String,
     onRestSelection: (Int, Boolean) -> Unit,
     onMakeupSelection: (Int, Int, Boolean) -> Unit,
@@ -153,7 +142,12 @@ private fun LazyListScope.holidayAdjustmentPreviewItems(
 ) {
     item("preview-summary") {
         SettingsGroup(backdrop, config) {
-            SettingsInfoRow("${preview.year} 年节假日", "请按学校安排核对补课对应的原课程日期。")
+            val summary = buildString {
+                append("已选 $selectedCount 天")
+                if (replacementCount > 0) append(" · 将替换 $replacementCount 天已有安排")
+                append("\n请按学校安排核对补课对应的原课程日期。")
+            }
+            SettingsInfoRow("${preview.year} 年节假日", summary)
         }
     }
     preview.reviews.forEachIndexed { planIndex, review ->
@@ -185,7 +179,6 @@ private fun LazyListScope.holidayAdjustmentPreviewItems(
                             onCheckedChange = { onMakeupSelection(planIndex, makeupIndex, it) },
                         )
                         if (makeup.selected) {
-                            SettingsDivider()
                             SettingsDatePickerRow(
                                 title = "原课程日期",
                                 value = source?.let(::adjustmentDateLabel).orEmpty(),

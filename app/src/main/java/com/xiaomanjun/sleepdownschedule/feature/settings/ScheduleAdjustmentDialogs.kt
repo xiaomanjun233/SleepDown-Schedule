@@ -141,7 +141,6 @@ internal fun AdjustmentEditorDialog(
                     SettingsGroup(backdrop = null, config = config, topSpacing = 0.dp) {
                         SettingsPickerValueRow("调休日期", adjustmentDateLabel(targetDate),
                             onClick = { openDate(AdjustmentPickerPage.TargetDate) })
-                        SettingsDivider()
                         if (draft.rest) {
                             SettingsToggleRow("全天占位", "无课也显示全天假期卡",
                                 draft.allDayPlaceholder, backdrop) { onDraftChange(draft.copy(allDayPlaceholder = it)) }
