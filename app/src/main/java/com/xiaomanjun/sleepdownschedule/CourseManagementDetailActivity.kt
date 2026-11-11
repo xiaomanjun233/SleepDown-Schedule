@@ -90,17 +90,9 @@ open class CourseManagementDetailActivity : ComponentActivity() {
                                         group = group,
                                         state = state,
                                         onBack = requestClose,
-                                        onSave = { replacements ->
-                                            if (replacements.isEmpty()) {
-                                                viewModel.deleteCoursesAndThen(group.courses, requestClose)
-                                            } else {
-                                                viewModel.replaceCourseGroupAndThen(
-                                                    group.courses,
-                                                    replacements,
-                                                    requestClose
-                                                )
-                                            }
-                                        }
+                                        onSave = { originals, replacements, done ->
+                                            viewModel.saveManagedCourseGroup(originals, replacements, done)
+                                        },
                                     )
                                 }
                             }

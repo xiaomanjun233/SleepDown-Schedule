@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.app.state
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -147,7 +149,14 @@ class ScheduleViewModel(
         successMessage = if (replacements.isEmpty()) "课程已删除" else "课程已更新",
         onSuccess = { onFinished(true) }, onFailure = { onFinished(false) }
     ) {
-        if (replacements.isEmpty()) repository.deleteCourses(originals)
+        val originalById = originals.associateBy(CourseEntity::id)
+        val deletionOnly = replacements.size < originals.size &&
+            replacements.all { originalById[it.id]?.originalArrangement() == it }
+        if (deletionOnly) {
+            repository.deleteManagedCourses(
+                originals.first().scheduleId, originals, replacements.mapTo(hashSetOf(), CourseEntity::id),
+            )
+        } else if (replacements.isEmpty()) repository.deleteCourses(originals)
         else repository.replaceCourseGroup(originals, replacements)
     }
 

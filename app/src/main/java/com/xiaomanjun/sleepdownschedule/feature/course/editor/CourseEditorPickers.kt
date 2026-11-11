@@ -96,8 +96,12 @@ internal sealed interface CourseEditorPickerRequest {
         val labels: List<String>,
         val selectedIndices: Set<Int>,
         val preferredColumns: Int,
+        val presets: List<GridPreset> = emptyList(),
+        val requireSelection: Boolean = false,
         val onConfirm: (Set<Int>) -> Unit
     ) : CourseEditorPickerRequest
+
+    data class GridPreset(val label: String, val indices: Set<Int>)
 
     data class Period(
         override val title: String,
@@ -510,7 +514,8 @@ internal fun CourseEditorPickerOverlay(
                     onDismiss()
                 }),
             LiquidAlertAction("确定",
-                LiquidAlertActionStyle.Primary, enabled = true,
+                LiquidAlertActionStyle.Primary,
+                enabled = gridRequest?.requireSelection != true || selectedIndices.isNotEmpty(),
                 dismissOnClick = false, onClick = action@{
                     when (request) {
                         is CourseEditorPickerRequest.Wheel -> request.onConfirm(
@@ -732,6 +737,24 @@ internal fun CourseEditorPickerOverlay(
                     )
                 }
             } else if (gridRequest != null) {
+                if (gridRequest.presets.isNotEmpty()) {
+                    val selectedPreset = gridRequest.presets.firstOrNull { it.indices == selectedIndices }
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        gridRequest.presets.forEach { preset ->
+                            CourseEditorSelectionCell(
+                                label = preset.label,
+                                selected = selectedPreset == preset,
+                                contentColor = pickerContentColor,
+                                dark = dark,
+                                modifier = Modifier.weight(1f).height(40.dp),
+                                onClick = { selectedIndices = preset.indices },
+                            )
+                        }
+                    }
+                }
                 CourseEditorSelectionGrid(
                     labels = gridRequest.labels,
                     selectedIndices = selectedIndices,

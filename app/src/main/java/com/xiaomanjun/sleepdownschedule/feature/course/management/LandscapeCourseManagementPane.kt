@@ -140,8 +140,7 @@ internal fun LandscapeCourseManagementPane(
                     }
                 } else key(state.config.id, group.key) {
                     CourseManagementDetailPage(group = group, state = state,
-                        onBack = { selectGroup(null) }, onSave = {},
-                        onSaveAndThen = { edited, done -> onSave(group.courses, edited, done) },
+                        onBack = { selectGroup(null) }, onSave = onSave,
                         onExitHandlerChange = { handler ->
                             if (selected?.key == group.key) exitHandler = handler
                         })

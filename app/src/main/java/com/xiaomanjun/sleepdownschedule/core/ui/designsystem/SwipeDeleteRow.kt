@@ -91,6 +91,8 @@ internal fun SwipeDeleteRow(
     modifier: Modifier = Modifier,
     swipeEnabled: Boolean = true,
     slideContent: Boolean = true,
+    actionHeight: Dp = SwipeActionHeight,
+    expandActionOnDrag: Boolean = true,
     confirmDelete: (suspend () -> Boolean)? = null,
     onSlideProgress: ((Float) -> Unit)? = null,
     rowCorners: (Float) -> SwipeDeleteCorners = { SwipeDeleteCorners(SwipeRowRadius) },
@@ -103,7 +105,7 @@ internal fun SwipeDeleteRow(
     val haptic = LocalHapticFeedback.current
     val scope = rememberCoroutineScope()
     val defaults = CouiSwipeRevealDefaults
-    val actionSize = with(density) { Size(SwipeActionWidth.toPx(), SwipeActionHeight.toPx()) }
+    val actionSize = with(density) { Size(SwipeActionWidth.toPx(), actionHeight.toPx()) }
     val actionWidth = actionSize.width
     val followingPx = with(density) { defaults.menuFollowingDistance.toPx() }
     val restPx = actionWidth + with(density) { defaults.menuMinimumGap.toPx() }
@@ -140,6 +142,11 @@ internal fun SwipeDeleteRow(
     val following by rememberCouiMetaballFollowingTranslation({ distance }, actionWidth, followingPx)
 
     fun swipeProgress(): Float = (distance / restPx).coerceIn(0f, 1f)
+
+    fun revealedActionWidth(viewport: Float): Float {
+        val expansion = if (expandActionOnDrag) (distance - restPx).coerceAtLeast(0f) else 0f
+        return (actionWidth + expansion).coerceAtMost(viewport)
+    }
 
     fun moveTo(position: Float) {
         distance = position.coerceAtLeast(0f)
@@ -285,7 +292,8 @@ internal fun SwipeDeleteRow(
             )
         }) {
             if (active) Canvas(Modifier.matchParentSize()) {
-                drawSwipeSurface(renderer, distance, actionSize, following, restPx, deleting, rtl,
+                drawSwipeSurface(renderer, distance, Size(revealedActionWidth(size.width), actionSize.height),
+                    following, restPx, deleting, rtl,
                     surfaceColor, rowCorners(swipeProgress()))
             }
             val cardContentClip = Modifier.drawWithContent {
@@ -302,7 +310,8 @@ internal fun SwipeDeleteRow(
                 mask != null -> Modifier.graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
                     .drawWithContent {
                         drawContent()
-                        drawSwipeSurface(mask, distance, actionSize, following, restPx, deleting, rtl,
+                        drawSwipeSurface(mask, distance, Size(revealedActionWidth(size.width), actionSize.height),
+                            following, restPx, deleting, rtl,
                             Color.White, rowCorners(swipeProgress()), BlendMode.DstIn)
                     }
                     // When content stays anchored, the delete surface must not reveal the row's trailing icon.
@@ -336,7 +345,7 @@ internal fun SwipeDeleteRow(
             if (actionVisible && swipeEnabled) {
                 val interaction = remember { MutableInteractionSource() }
                 Box(Modifier.align(Alignment.CenterEnd).layout { measurable, constraints ->
-                    val width = swipeActionWidth(actionWidth, distance, restPx, widthPx).roundToInt()
+                    val width = revealedActionWidth(widthPx).roundToInt()
                         .coerceAtMost(constraints.maxWidth)
                     val height = actionSize.height.roundToInt().coerceAtMost(constraints.maxHeight)
                     val action = measurable.measure(Constraints.fixed(width, height))
@@ -375,16 +384,13 @@ private fun SwipeDeleteIcon(openProgress: () -> Float) {
     )
 }
 
-private fun swipeActionWidth(base: Float, distance: Float, rest: Float, viewport: Float): Float =
-    (base + (distance - rest).coerceAtLeast(0f)).coerceAtMost(viewport)
-
 private fun DrawScope.drawSwipeSurface(
     renderer: CouiMetaballRenderer?, distance: Float, actionSize: Size, following: Float,
     rest: Float, deleting: Boolean, rtl: Boolean, color: Color, corners: SwipeDeleteCorners,
     blend: BlendMode = BlendMode.SrcOver,
 ) {
     val cardWidth = (size.width - distance).coerceAtLeast(0f)
-    val actionWidth = swipeActionWidth(actionSize.width, distance, rest, size.width)
+    val actionWidth = actionSize.width
     val actionHeight = actionSize.height.coerceAtMost(size.height)
     val radius = SwipeRowRadius.toPx()
     val topRadius = corners.top.toPx()

@@ -761,7 +761,11 @@ class ScheduleRepository(private val database: AppDatabase) {
         }
     }
 
-    suspend fun deleteManagedCourses(scheduleId: Int, courses: List<CourseEntity>) {
+    suspend fun deleteManagedCourses(
+        scheduleId: Int,
+        courses: List<CourseEntity>,
+        retainedIds: Set<Long> = emptySet(),
+    ) {
         if (courses.isEmpty()) return
         database.withTransaction {
             require(activeScheduleId() == scheduleId) { "当前课表已变化，请重新选择课程" }
@@ -769,7 +773,7 @@ class ScheduleRepository(private val database: AppDatabase) {
             val keys = expected.map(::courseNameGroupKey).toSet()
             val current = courseDao.getCourses(scheduleId).filter { courseNameGroupKey(it) in keys }
             require(current.toSet() == expected) { "所选课程的安排已变化，请重新确认" }
-            current.forEach { courseDao.deleteCourse(it.id) }
+            current.filterNot { it.id in retainedIds }.forEach { courseDao.deleteCourse(it.id) }
         }
     }
 
