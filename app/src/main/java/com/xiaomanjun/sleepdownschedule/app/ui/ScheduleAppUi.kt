@@ -86,7 +86,6 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -185,8 +184,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.DetailActivityFloatingOverlayHost
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassMiuixSettingsTheme
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsSharedGradient
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsSharedGradient
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.settingsCouiPageBackground
 import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.defaultPeriods
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentActionHandler
@@ -794,14 +792,6 @@ fun CourseScheduleAppUi(
     val parallelPhoneNavigation = !homeAdaptiveMetrics.isLargeScreen &&
         homeAdaptiveMetrics.screenHeight >= homeAdaptiveMetrics.screenWidth
     val glowSystemMenus = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
-    var tabletAboutGradientColors by remember { mutableStateOf<List<ComposeColor>?>(null) }
-    val tabletAboutGradient = remember(tabletAboutGradientColors, windowContainerSize) {
-        tabletAboutGradientColors?.let { colors ->
-            SettingsSharedGradient(colors).apply {
-                boundsInRoot = Rect(0f, 0f, windowContainerSize.width.toFloat(), windowContainerSize.height.toFloat())
-            }
-        }
-    }
     val sidebarContentMetrics = remember(
         homeAdaptiveMetrics, homeSidebarState.targetContentInset, homeSidebarState.endInset,
         homeSidebarState.expanded
@@ -1445,8 +1435,7 @@ fun CourseScheduleAppUi(
         rootPageMotion.moving,
         homeModeMotion.moving,
         sidebarContentMetrics.contentWidth,
-        parallelPhoneNavigation,
-        tabletAboutGradientColors
+        parallelPhoneNavigation
     ) {
         buildString {
             append(System.identityHashCode(homeBackgroundSession)).append('|')
@@ -1454,7 +1443,6 @@ fun CourseScheduleAppUi(
                 .append(density.fontScale).append('|')
             append(sidebarContentMetrics.contentWidth).append('|')
             append(parallelPhoneNavigation).append('|')
-            append(tabletAboutGradientColors).append('|')
             append(captureRenderToken).append('|')
             append(visualState.config.hashCode()).append('|')
             append(visualState.courses.hashCode()).append('|')
@@ -2771,7 +2759,6 @@ fun CourseScheduleAppUi(
         CompositionLocalProvider(
             LocalHomeAdaptiveMetrics provides sidebarContentMetrics,
             LocalHomePagerStartOverflow provides homeSidebarState.targetContentInset,
-            LocalSettingsSharedGradient provides tabletAboutGradient,
             LocalFloatingChromeBounds provides homeTabBarBounds,
             LocalHomeBackgroundFrozen provides rememberUpdatedState(homeBackgroundFreezeActive),
             LocalHomeTextContrastFrozen provides rememberUpdatedState(rootPageMotion.moving || homeModeMotion.moving || homeSidebarState.moving),
@@ -2983,12 +2970,12 @@ fun CourseScheduleAppUi(
                         }
                     }
                     if (rootPageMotion.retains(true)) {
+                        val pageBackground = if (homeAdaptiveMetrics.isLargeScreen &&
+                            sidebarPage == HomeSidebarDestination.Settings
+                        ) settingsCouiPageBackground(appUsesDarkTheme(state.config)) else transitionBackground
                         Box(Modifier.fillMaxSize()
                             .homeSwitchLayer(rootPageMotion, secondary = true, pageClip = HomeSwitchClip.Page)
-                            .background(tabletAboutGradientColors?.takeIf {
-                                homeAdaptiveMetrics.isLargeScreen && sidebarPage == HomeSidebarDestination.Settings
-                            }?.let { Brush.linearGradient(it) }
-                                ?: SolidColor(settingsPageBackground(settingsVisualConfig(state.config)))))
+                            .background(pageBackground))
                     }
                 }
                 /*
@@ -3177,8 +3164,7 @@ fun CourseScheduleAppUi(
                                         },
                                         onExitInterceptionChange = {
                                             settingsExitInterceptionRequired = it
-                                        },
-                                        onTabletAboutBackgroundChanged = { tabletAboutGradientColors = it }
+                                        }
                                     )
                             }
                                 }
@@ -3661,7 +3647,6 @@ fun CourseScheduleAppUi(
         config = if (screen is Screen.Config) settingsVisualConfig(state.config) else visualState.config,
         backdrop = if (pickerState.overlayVisible) pickerSceneBackdrop else chromeBackdrop,
         followHomeGlass = screen is Screen.Home,
-        hasGradientBackground = screen is Screen.Config && tabletAboutGradientColors != null,
         tabSelection = if (screen is Screen.Config) HomeSidebarDestination.Settings
             else if (homeMode == HomeMode.Day) HomeSidebarDestination.Day else HomeSidebarDestination.Week,
         navigationEnabled = !rootPageMotion.moving && !homeModeMotion.moving && !sidebarPageMoving &&

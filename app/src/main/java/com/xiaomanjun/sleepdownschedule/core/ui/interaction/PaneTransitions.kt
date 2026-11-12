@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.core.ui.interaction
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
+import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.ContentTransform
 import androidx.compose.animation.EnterExitState
 import androidx.compose.animation.fadeIn
@@ -38,6 +39,32 @@ private object LandscapePageMotion {
     const val HiddenBlurDp = 10f
 }
 
+internal fun Modifier.blockPaneInputWhile(moving: Boolean): Modifier {
+    if (!moving) return this
+    return clearAndSetSemantics {}.pointerInput(Unit) {
+        awaitPointerEventScope {
+            while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
+        }
+    }
+}
+
+internal fun AnimatedContentTransitionScope<*>.landscapePageTransform(): ContentTransform =
+    (fadeIn(LandscapePageMotion.EnterFade) +
+        scaleIn(LandscapePageMotion.EnterScale, initialScale = LandscapePageMotion.HiddenScale))
+        .togetherWith(fadeOut(LandscapePageMotion.ExitFade) +
+            scaleOut(LandscapePageMotion.ExitScale, targetScale = LandscapePageMotion.HiddenScale))
+        .using(null)
+
+@Composable
+internal fun AnimatedVisibilityScope.landscapePageBlur(enabled: Boolean = true): Modifier {
+    if (!enabled) return Modifier
+    val motionBlur = rememberPageMotionBlur()
+    val blur = transition.animateFloat(label = "landscape-page-blur", transitionSpec = { LandscapePageMotion.Blur }) {
+        if (it == EnterExitState.Visible) 0f else LandscapePageMotion.HiddenBlurDp
+    }
+    return Modifier.graphicsLayer { renderEffect = motionBlur(blur.value) }
+}
+
 /** The sidebar lives outside this host. Only outgoing/incoming page pixels receive the effect. */
 @Composable
 internal fun <T> LandscapePageTransition(
@@ -47,41 +74,14 @@ internal fun <T> LandscapePageTransition(
     content: @Composable (T) -> Unit
 ) {
     val pageTransition = updateTransition(target, label = "landscape-page")
-    val motionBlur = rememberPageMotionBlur()
     val moving = pageTransition.isRunning || pageTransition.currentState != pageTransition.targetState
     val latestMovingCallback by rememberUpdatedState(onMovingChange)
     LaunchedEffect(moving) { latestMovingCallback(moving) }
     DisposableEffect(Unit) { onDispose { latestMovingCallback(false) } }
-    val inputGuard = if (moving) Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
-        awaitPointerEventScope {
-            while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
-        }
-    } else Modifier
-    pageTransition.AnimatedContent(modifier = modifier.then(inputGuard),
-        transitionSpec = {
-            (fadeIn(LandscapePageMotion.EnterFade) +
-                scaleIn(LandscapePageMotion.EnterScale, initialScale = LandscapePageMotion.HiddenScale))
-                .togetherWith(fadeOut(LandscapePageMotion.ExitFade) +
-                    scaleOut(LandscapePageMotion.ExitScale, targetScale = LandscapePageMotion.HiddenScale))
-                .using(null)
-        }) { page ->
-        val blur = transition.animateFloat(label = "landscape-page-blur", transitionSpec = { LandscapePageMotion.Blur }) {
-            if (it == EnterExitState.Visible) 0f else LandscapePageMotion.HiddenBlurDp
-        }
-        Box(Modifier.fillMaxSize().graphicsLayer {
-            renderEffect = motionBlur(blur.value)
-        }) { content(page) }
+    pageTransition.AnimatedContent(
+        modifier = modifier.blockPaneInputWhile(moving),
+        transitionSpec = { landscapePageTransform() },
+    ) { page ->
+        Box(Modifier.fillMaxSize().then(landscapePageBlur())) { content(page) }
     }
-}
-
-@Composable
-internal fun <T> AdaptivePaneTransition(
-    target: T,
-    landscape: Boolean,
-    portraitTransitionSpec: AnimatedContentTransitionScope<T>.() -> ContentTransform,
-    label: String,
-    content: @Composable (T) -> Unit
-) {
-    if (landscape) LandscapePageTransition(target, content = content)
-    else AnimatedContent(targetState = target, transitionSpec = portraitTransitionSpec, label = label) { content(it) }
 }

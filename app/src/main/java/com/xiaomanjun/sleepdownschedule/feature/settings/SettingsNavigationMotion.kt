@@ -1,14 +1,14 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.ContentTransform
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.unit.IntOffset
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.landscapePageTransform
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
@@ -42,11 +42,16 @@ private class MiuixSettingsNavigationEasing(
 
 private val SettingsDetailSlide = tween<IntOffset>(500, easing = MiuixSettingsNavigationEasing())
 
-/** Positive enters a detail, negative returns; selecting a root does not slide. */
-internal fun settingsDetailTransition(direction: Int): ContentTransform = when {
-    direction > 0 -> slideInHorizontally(SettingsDetailSlide) { width -> width } togetherWith
-        slideOutHorizontally(SettingsDetailSlide) { width -> -width / 4 }
-    direction < 0 -> slideInHorizontally(SettingsDetailSlide) { width -> -width / 4 } togetherWith
-        slideOutHorizontally(SettingsDetailSlide) { width -> width }
-    else -> EnterTransition.None togetherWith ExitTransition.None
+internal fun AnimatedContentTransitionScope<TabletSettingsNavigationState>.settingsDetailTransition(): ContentTransform {
+    if (initialState.rootPage != targetState.rootPage) return landscapePageTransform()
+    val returning = initialState.detailPages.size > targetState.detailPages.size
+    return if (returning) {
+        (slideInHorizontally(SettingsDetailSlide) { width -> -width / 4 } togetherWith
+            slideOutHorizontally(SettingsDetailSlide) { width -> width }).using(null).apply {
+            targetContentZIndex = -1f
+        }
+    } else {
+        (slideInHorizontally(SettingsDetailSlide) { width -> width } togetherWith
+            slideOutHorizontally(SettingsDetailSlide) { width -> -width / 4 }).using(null)
+    }
 }

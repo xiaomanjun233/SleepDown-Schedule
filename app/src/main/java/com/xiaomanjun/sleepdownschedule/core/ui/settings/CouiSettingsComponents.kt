@@ -34,9 +34,13 @@ internal val LocalCouiLiquidMaterial = staticCompositionLocalOf { false }
 internal val LocalCouiSettingsListLayout = staticCompositionLocalOf { false }
 internal val LocalCouiSettingsGroupHasHeader = staticCompositionLocalOf { false }
 
+private fun settingsCouiPreset(dark: Boolean) = if (dark) CouiPresets.Dark else CouiPresets.Light
+
+internal fun settingsCouiPageBackground(dark: Boolean): Color = settingsCouiPreset(dark).background
+
 /** E 盘 Demo 的 Settings 配色；通用组件的 container 并不是设置卡片底色。 */
 internal fun settingsCouiColorScheme(dark: Boolean, accent: Color, onAccent: Color) =
-    (if (dark) CouiPresets.Dark else CouiPresets.Light).copy(
+    settingsCouiPreset(dark).copy(
         container = if (dark) Color.White.copy(alpha = 26f / 255f) else Color.White,
         accent = accent, onAccent = onAccent, accentOnSurface = accent,
         checkboxAccent = accent, menuCheckboxAccent = accent)

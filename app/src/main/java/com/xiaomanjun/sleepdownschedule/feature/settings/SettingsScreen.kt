@@ -2,6 +2,9 @@ package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -14,7 +17,6 @@ import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,15 +24,11 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
@@ -47,12 +45,10 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassMiuixSettingsTheme
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsTabletDetailPaneScaffold
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsSharedGradient
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsSharedGradient
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.rememberSettingsPaneBackground
 import com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestorePreviewScreen
 import com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestoreSettingsScreen
-import com.xiaomanjun.sleepdownschedule.core.ui.interaction.AdaptivePaneTransition
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.blockPaneInputWhile
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.landscapePageBlur
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.importing.DonateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
@@ -62,9 +58,7 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettings
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateMenu
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateSettingsScreen
-import com.xiaomanjun.sleepdownschedule.feature.settings.about.aboutPageGradientColors
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCustomizationScreen
-import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
 @Composable
 fun SettingsScreen(
@@ -83,17 +77,12 @@ fun SettingsScreen(
     onDeleteSchedule: (Int) -> Unit = {},
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
-    onExitInterceptionChange: (Boolean) -> Unit = {},
-    onTabletAboutBackgroundChanged: (List<ComposeColor>?) -> Unit = {}
+    onExitInterceptionChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val pageConfig = settingsVisualConfig(state.config)
     val pageState = state.copy(config = pageConfig)
     val adaptiveMetrics = rememberHomeAdaptiveMetrics()
-    val latestAboutBackgroundChanged by rememberUpdatedState(onTabletAboutBackgroundChanged)
-    DisposableEffect(Unit) {
-        onDispose { latestAboutBackgroundChanged(null) }
-    }
     var backupPreviewUriString by rememberSaveable { mutableStateOf<String?>(null) }
     var showingUpdateNotes by rememberSaveable { mutableStateOf(false) }
     var autoRefreshWarehouseRequest by remember { mutableIntStateOf(0) }
@@ -105,7 +94,6 @@ fun SettingsScreen(
             ) {
                 mutableStateOf(TabletSettingsNavigationState())
             }
-            var detailNavigationDirection by remember { mutableIntStateOf(0) }
             var periodSchemeReturnRequest by remember { mutableIntStateOf(0) }
             var tabletWidgetEditorVisible by remember { mutableStateOf(false) }
             var pendingPageName by remember { mutableStateOf<String?>(null) }
@@ -136,7 +124,6 @@ fun SettingsScreen(
                 onDispose { onExitInterceptionChange(false) }
             }
             fun applyTabletRootPage(nextPage: SettingsPage) {
-                detailNavigationDirection = 0
                 tabletNavigation = tabletNavigation.selectRoot(nextPage)
                 showingUpdateNotes = false
                 backupPreviewUriString = null
@@ -159,7 +146,6 @@ fun SettingsScreen(
             fun pushTabletDetailPage(nextPage: SettingsPage) {
                 val nextNavigation = tabletNavigation.pushDetail(nextPage)
                 if (nextNavigation == tabletNavigation) return
-                detailNavigationDirection = 1
                 tabletNavigation = nextNavigation
             }
             fun popTabletDetailPage() {
@@ -170,7 +156,6 @@ fun SettingsScreen(
                 val nextNavigation = tabletNavigation.popDetail()
                 if (nextNavigation == tabletNavigation) return
                 if (displayedPage == SettingsPage.PeriodSchemes) periodSchemeReturnRequest++
-                detailNavigationDirection = -1
                 tabletNavigation = nextNavigation
             }
             LaunchedEffect(exitCommitRequest) {
@@ -192,23 +177,7 @@ fun SettingsScreen(
             BackHandler(enabled = tabletNavigation.detailPages.isNotEmpty()) {
                 popTabletDetailPage()
             }
-            val aboutColors = aboutPageGradientColors(appUsesDarkTheme(pageConfig))
-            val aboutBackground = remember(aboutColors) { SettingsSharedGradient(aboutColors) }
-            val showAboutBackground = displayedPage == SettingsPage.About || displayedPage == SettingsPage.Changelog
-            LaunchedEffect(showAboutBackground, aboutColors) {
-                latestAboutBackgroundChanged(aboutColors.takeIf { showAboutBackground })
-            }
-            val inheritedBackground = LocalSettingsSharedGradient.current
-            val sharedBackground = (inheritedBackground ?: aboutBackground).takeIf { showAboutBackground }
-            CompositionLocalProvider(LocalSettingsSharedGradient provides sharedBackground) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .onGloballyPositioned {
-                        if (inheritedBackground == null) aboutBackground.boundsInRoot = it.boundsInRoot()
-                    }
-                    .then(rememberSettingsPaneBackground(settingsPageBackground(pageConfig)).modifier)
-            ) {
+            Row(Modifier.fillMaxSize().background(settingsPageBackground(pageConfig))) {
                 Box(Modifier.width(navigationWidth).fillMaxHeight()) {
                     SettingsRootScreen(
                         state = pageState,
@@ -223,16 +192,20 @@ fun SettingsScreen(
                         .fillMaxHeight()
                         .clipToBounds()
                 ) {
-                    AdaptivePaneTransition(
-                        target = displayedPage, landscape = adaptiveMetrics.isTabletLandscape,
-                        portraitTransitionSpec = { settingsDetailTransition(detailNavigationDirection) },
-                        label = "TabletSettingsDetailNavigation"
-                    ) { targetPage ->
+                    val detailTransition = updateTransition(tabletNavigation, label = "TabletSettingsDetailNavigation")
+                    val moving = detailTransition.isRunning || detailTransition.currentState != detailTransition.targetState
+                    val switchingCategory = detailTransition.segment.run { initialState.rootPage != targetState.rootPage }
+                    detailTransition.AnimatedContent(
+                        modifier = Modifier.fillMaxSize().blockPaneInputWhile(moving),
+                        contentKey = { it.displayedPage },
+                        transitionSpec = { settingsDetailTransition() }
+                    ) { navigation ->
+                        val targetPage = navigation.displayedPage
                         CouiSettingsTabletDetailPaneScaffold(
                             title = if (targetPage == SettingsPage.SoftwareUpdate && showingUpdateNotes) "更新说明" else targetPage.title(),
                             config = pageConfig,
                             topBarVisible = !(targetPage == SettingsPage.Widgets && tabletWidgetEditorVisible),
-                            showBackButton = targetPage != selectedPage,
+                            showBackButton = navigation.detailPages.isNotEmpty(),
                             onBack = ::popTabletDetailPage,
                             topBarActions = { topBackdrop ->
                                 if (targetPage == SettingsPage.AutoRefreshSchedule && autoRefreshProfile == null) {
@@ -249,7 +222,7 @@ fun SettingsScreen(
                                     SoftwareUpdateMenu(topBackdrop, onOpenPage = ::pushTabletDetailPage)
                                 }
                             },
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize().then(landscapePageBlur(switchingCategory))
                         ) { paneBackdrop ->
                             SettingsPageContent(
                                 page = targetPage,
@@ -304,7 +277,6 @@ fun SettingsScreen(
                         }
                     }
                 }
-            }
             }
         } else {
             BackHandler(enabled = page == SettingsPage.SoftwareUpdate && showingUpdateNotes) { showingUpdateNotes = false }

@@ -509,9 +509,3 @@ internal fun AboutCreditLinkRow(
         }
     }
 }
-
-internal fun aboutPageGradientColors(darkTheme: Boolean): List<ComposeColor> = if (darkTheme) {
-    listOf(ComposeColor.Black, ComposeColor.Black)
-} else {
-    listOf(ComposeColor(0xFFF0F1F2), ComposeColor(0xFFF0F1F2))
-}

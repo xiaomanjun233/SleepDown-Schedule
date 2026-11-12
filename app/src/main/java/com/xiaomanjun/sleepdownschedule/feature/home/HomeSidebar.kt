@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
 import androidx.activity.compose.BackHandler
+import com.itos.coui.theme.CouiPresets
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -216,7 +217,6 @@ internal fun HomeSidebar(
     navigationEnabled: Boolean,
     visible: Boolean,
     followHomeGlass: Boolean,
-    hasGradientBackground: Boolean = false,
     tabSelection: HomeSidebarDestination = selected,
     actions: List<AddMenuAction> = emptyList(),
     onTabBarBoundsChanged: (Rect?) -> Unit = {},
@@ -229,12 +229,14 @@ internal fun HomeSidebar(
     if (!state.enabled || !visible) return
     val adaptiveGlass = LocalAdaptiveGlass.current
     val lightGlass = if (followHomeGlass) adaptiveGlass.lightGlass else !appUsesDarkTheme(config)
+    val wallpaperChrome = followHomeGlass && config.hasAnyWallpaper()
+    val lightSettingsRail = lightGlass && !followHomeGlass && selected == HomeSidebarDestination.Settings
     val ink by animateColorAsState(
         targetValue = if (followHomeGlass) adaptiveGlass.contentColor else if (lightGlass) Color.Black else Color.White,
         animationSpec = tween(220), label = "HomeSidebarContentTheme"
     )
     val surfaceColor by animateColorAsState(
-        targetValue = if (!lightGlass && !config.hasAnyWallpaper() && !hasGradientBackground) {
+        targetValue = if (!lightGlass && !config.hasAnyWallpaper()) {
             Color(0xFF2C2C2E).copy(alpha = 0.88f)
         } else {
             (if (lightGlass) HomeLightGlassSurfaceColor else Color(0xFF121212))
@@ -242,7 +244,7 @@ internal fun HomeSidebar(
         },
         animationSpec = tween(220), label = "HomeSidebarSurfaceTheme"
     )
-    val shape = RoundedRectangle(24.dp)
+    val shape = RoundedRectangle(32.dp)
     val enabled = navigationEnabled && !state.moving
     val currentEnabled by rememberUpdatedState(enabled)
     val currentOnNavigate by rememberUpdatedState(onNavigate)
@@ -284,7 +286,7 @@ internal fun HomeSidebar(
                         (metrics.safeTop + metrics.safeBottom + 14.dp).roundToPx()).coerceAtLeast(1)
                     val width = lerp(tabWidth.toFloat(), sidebarWidth.toFloat(), progress).roundToInt()
                         .coerceIn(1, constraints.maxWidth)
-                    val height = lerp(48.dp.toPx(), sidebarHeight.toFloat(), progress).roundToInt()
+                    val height = lerp(HomeSidebarTabHeight.toPx(), sidebarHeight.toFloat(), progress).roundToInt()
                         .coerceIn(1, constraints.maxHeight)
                     val start = lerp((constraints.maxWidth - tabWidth) / 2f, state.startEdge.toPx(), progress)
                     val top = (metrics.safeTop + 2.dp).toPx() + sin(progress * PI).toFloat() * 12.dp.toPx()
@@ -311,9 +313,12 @@ internal fun HomeSidebar(
         ) {
             // Glass clips its own drawContent to the material outline. Keep the slider a sibling
             // so its pressed lens can grow beyond the shell instead of being cut at both ends.
-            if (state.expanded || state.moving) SidebarMorphSurface(
+            if ((state.expanded || state.moving) && lightSettingsRail) {
+                Box(Modifier.matchParentSize().background(CouiPresets.Light.surface, shape))
+            } else if (state.expanded || state.moving) SidebarMorphSurface(
                 state = state, lightGlass = lightGlass,
                 backdrop = backdrop, config = config,
+                wallpaperChrome = wallpaperChrome,
                 surfaceColorOverride = surfaceColor, shape = shape,
                 domain = if (selected == HomeSidebarDestination.Schedules) GlassBackdropDomain.PickerScene
                     else GlassBackdropDomain.ChromeCombined,
@@ -391,8 +396,8 @@ internal fun HomeSidebar(
             }
             if (!state.expanded || state.moving) {
                 Row(
-                    Modifier.fillMaxWidth().height(48.dp)
-                        .fixedFloatingChromeContent(minOf(300.dp, metrics.screenWidth - 24.dp), 48.dp)
+                    Modifier.fillMaxWidth().height(HomeSidebarTabHeight)
+                        .fixedFloatingChromeContent(minOf(300.dp, metrics.screenWidth - 24.dp), HomeSidebarTabHeight)
                         .graphicsLayer {
                             alpha = (1f - state.expansionProgress() * 2.5f).coerceIn(0f, 1f)
                             compositingStrategy = CompositingStrategy.ModulateAlpha
@@ -414,6 +419,7 @@ internal fun HomeSidebar(
                         ink = ink,
                         config = config,
                         backdrop = backdrop,
+                        wallpaperChrome = wallpaperChrome,
                         modifier = Modifier.weight(1f),
                         onNavigate = ::navigate,
                         onExpand = { state.expanded = true }
@@ -434,19 +440,22 @@ internal fun Modifier.fixedFloatingChromeContent(width: Dp, height: Dp): Modifie
 @Composable
 private fun SidebarMorphSurface(
     state: HomeSidebarState, lightGlass: Boolean, backdrop: Backdrop, config: ScheduleConfigEntity,
+    wallpaperChrome: Boolean,
     surfaceColorOverride: Color, shape: androidx.compose.ui.graphics.Shape, domain: GlassBackdropDomain,
     debugLabel: String, nativeMaterial: Boolean, nativeDark: Boolean, restShadowAlpha: Float, modifier: Modifier
 ) {
     // Keep the frame-dependent material read out of the sidebar list's composition scope.
     val expansion = state.expansionProgress().coerceIn(0f, 1f)
     val tokens = GlassTokens.pill().copy(
-        blur = homeChromeBlur(lerp(1.3f, 16f, expansion).dp, config),
+        blur = homeChromeBlur(
+            (if (wallpaperChrome) lerp(16f, 28f, expansion) else lerp(1.3f, 16f, expansion)).dp, config),
         lensHeight = lerp(10f, 6f, expansion).dp, lensAmount = lerp(40f, 12f, expansion).dp,
         surfaceAlpha = homeChromeGlassSurfaceAlpha(lightGlass) * 0.86f, highlightAlpha = 0.035f
     )
     GlassSurface(backdrop = backdrop, config = config, tokens = tokens, surfaceColorOverride = surfaceColorOverride,
         shape = shape, domain = domain, debugLabel = debugLabel, nativeMaterial = nativeMaterial,
-        nativeDark = nativeDark, restShadowAlpha = restShadowAlpha, modifier = modifier) {}
+        nativeDark = nativeDark, nativeBlurRadius = if (wallpaperChrome) homeChromeBlur(28.dp, config) else null,
+        restShadowAlpha = restShadowAlpha, modifier = modifier) {}
 }
 
 @Composable

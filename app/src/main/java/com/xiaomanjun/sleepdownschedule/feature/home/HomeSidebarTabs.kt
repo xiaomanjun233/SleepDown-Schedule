@@ -56,10 +56,11 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SegmentControlReque
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Sidebar
 
-private val HomeSidebarTabShape = RoundedRectangle(24.dp)
+internal val HomeSidebarTabHeight = 52.dp
+private val HomeSidebarTabShape = RoundedRectangle(26.dp)
 private val HomeSidebarTabShadow = Shadow(radius = 9.dp, color = Color(0x33000000), offset = DpOffset(0.dp, 3.dp))
 
-/** Compact HD navigation shares the sidebar's destinations and keeps its 48 dp frame. */
+/** Compact HD navigation shares the sidebar's destinations. */
 @Composable
 internal fun HomeSidebarTabBar(
     tabs: List<Pair<HomeSidebarDestination, String>>,
@@ -70,18 +71,20 @@ internal fun HomeSidebarTabBar(
     ink: Color,
     config: ScheduleConfigEntity,
     backdrop: Backdrop,
+    wallpaperChrome: Boolean,
     modifier: Modifier,
     onNavigate: (HomeSidebarDestination) -> Unit,
     onExpand: () -> Unit
 ) {
+    val blur = homeChromeBlur(if (wallpaperChrome) 16.dp else 1.3.dp, config)
     val tabContent: @Composable () -> Unit = {
-        Box(Modifier.fillMaxWidth().height(48.dp)) {
+        Box(Modifier.fillMaxWidth().height(HomeSidebarTabHeight)) {
             ControlSegments(
                 SegmentControlRequest(
                     labels = tabs.map { it.second },
                     selected = tabs.indexOfFirst { it.first == selected }.coerceAtLeast(0),
                     onSelected = { onNavigate(tabs[it].first) },
-                    modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
                     dark = !lightGlass,
                     height = 40.dp,
                     enabled = enabled,
@@ -104,7 +107,7 @@ internal fun HomeSidebarTabBar(
     }
     // One full capsule owns the light and touch transform, including the leading button.
     // The inset native rail retains its selection springs without drawing a second shell.
-    Box(modifier.height(48.dp)) {
+    Box(modifier.height(HomeSidebarTabHeight)) {
         if (lightGlass && !moving) {
             Spacer(
                 Modifier.matchParentSize()
@@ -121,15 +124,16 @@ internal fun HomeSidebarTabBar(
         }
         val nativeSurface = LocalNativeMaterialSurfaceRenderer.current?.invoke(
             NativeMaterialSurfaceRequest(
-                modifier = Modifier.fillMaxWidth().height(48.dp), shape = HomeSidebarTabShape,
+                modifier = Modifier.fillMaxWidth().height(HomeSidebarTabHeight), shape = HomeSidebarTabShape,
                 dark = !lightGlass, role = NativeMaterialSurfaceRole.HomeNavigation,
-                renderSurface = !moving, elasticTouchFeedback = true, backdrop = backdrop
+                renderSurface = !moving, elasticTouchFeedback = true, backdrop = backdrop,
+                blurRadius = if (wallpaperChrome) blur else null,
             ), tabContent
         ) == true
         if (!nativeSurface) {
             val material = com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec(
                 role = com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole.Control,
-                blur = homeChromeBlur(1.3.dp, config), lensHeight = 10.dp, lensAmount = 40.dp,
+                blur = blur, lensHeight = 10.dp, lensAmount = 40.dp,
                 surfaceAlpha = homeChromeGlassSurfaceAlpha(lightGlass), borderAlpha = 0f,
                 highlightAlpha = .07f, shadowAlpha = 0f, innerShadowAlpha = 0f,
                 chromaticAberration = true, depthEffect = false)
@@ -137,7 +141,7 @@ internal fun HomeSidebarTabBar(
                 "HomeNavigation", com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain.ChromeCombined,
                 material.role)
             val tint = if (lightGlass) HomeLightGlassSurfaceColor else Color(0xFF26272D)
-            Box(Modifier.fillMaxWidth().height(48.dp).then(if (moving) Modifier else
+            Box(Modifier.fillMaxWidth().height(HomeSidebarTabHeight).then(if (moving) Modifier else
                 Modifier.sleepDownGlassSurface(backdrop, descriptor, material, { HomeSidebarTabShape },
                     com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame(material.blur,
                         material.lensHeight, material.lensAmount, useVibrancy = true, chromaticAberration = true),

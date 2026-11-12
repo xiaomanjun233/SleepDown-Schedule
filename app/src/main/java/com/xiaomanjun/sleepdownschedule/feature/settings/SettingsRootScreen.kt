@@ -51,7 +51,6 @@ import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
 import com.xiaomanjun.sleepdownschedule.core.identity.currentIconResId
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsRootScaffold
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsSharedGradient
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
@@ -110,7 +109,7 @@ fun SettingsRootScreen(
         })
     ) { innerPadding, pageBackdrop, list, scrollEnabled, scrollToTop ->
         val backdrop = if (BuildConfig.SLEEPDOWN_COUI_SETTINGS && android.os.Build.VERSION.SDK_INT < 31) null
-            else if (BuildConfig.SLEEPDOWN_COUI_SETTINGS || LocalSettingsSharedGradient.current != null) pageBackdrop else inheritedBackdrop
+            else if (BuildConfig.SLEEPDOWN_COUI_SETTINGS) pageBackdrop else inheritedBackdrop
         CompositionLocalProvider(LocalCouiSettingsListLayout provides BuildConfig.SLEEPDOWN_COUI_SETTINGS) {
         SleepDownLazyColumn(
             state = list,

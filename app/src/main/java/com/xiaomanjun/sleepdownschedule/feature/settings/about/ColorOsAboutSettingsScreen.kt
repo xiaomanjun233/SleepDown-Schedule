@@ -197,15 +197,12 @@ private fun AboutVersionHeader(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Column(
-                modifier = Modifier.padding(bottom = 8.dp),
+                modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).heightIn(min = 60.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy((-10).dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterVertically),
             ) {
-                Box(Modifier.widthIn(max = 220.dp).fillMaxWidth().heightIn(min = 60.dp),
-                    contentAlignment = Alignment.Center) {
-                    Text(SleepDownFullName, color = foreground, textAlign = TextAlign.Center,
-                        style = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = 26.sp, lineHeight = 32.sp))
-                }
+                Text(SleepDownFullName, color = foreground, textAlign = TextAlign.Center,
+                    style = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = 26.sp, lineHeight = 32.sp))
                 Text(version, color = foreground.copy(alpha = .85f), textAlign = TextAlign.Center,
                     style = rememberCouiTextStyle(CouiTextKind.PreferenceTitle).copy(
                         fontSize = with(density) { 16.dp.toSp() }, lineHeight = with(density) { 22.dp.toSp() }))

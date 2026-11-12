@@ -190,7 +190,6 @@ internal fun CouiSettingsPageScaffold(
     CouiSettingsTheme(pageConfig) {
         val colors = CouiTheme.colorScheme
         val sampling = Build.VERSION.SDK_INT >= 31 && !isolateContentFromBackdrop
-        val paneBackground = rememberSettingsPaneBackground(colors.background)
         val material = LocalCouiMaterialEnabled.current && showTopGradientBlur && !isolateContentFromBackdrop
         val webToolbarMaterial = LocalCouiMaterialEnabled.current && topBarBackdropOverride != null
         CompositionLocalProvider(
@@ -206,7 +205,7 @@ internal fun CouiSettingsPageScaffold(
             Box(modifier.fillMaxSize()) {
                 Box(Modifier.fillMaxSize()
                     .then(if (sampling) Modifier.glassBackdropProducer(backgroundSource) else Modifier)
-                    .then(paneBackground.modifier))
+                    .background(colors.background))
                 // 与 DemoApp 一致：弹窗持有输入时，下层页面不跟随键盘重新布局。
                 val imeAvoidance = if (avoidIme && LocalWindowInfo.current.isWindowFocused) Modifier.imePadding() else Modifier
                 // Keep the searching toolbar's viewport and backdrop source at their window size.
@@ -300,7 +299,7 @@ internal fun CouiSettingsPageScaffold(
                         Box(Modifier.fillMaxSize()
                             // COUI 顶栏已从 Scaffold 的正文源采样；液态才需要第二份 Kyant 正文源。
                             .then(if (sampling && LocalCouiLiquidMaterial.current) Modifier.glassBackdropProducer(source) else Modifier)
-                            .then(paneBackground.modifier)
+                            .background(colors.background)
                             .then(if (rootSearch != null) imeAvoidance else Modifier)) { content(padding, backgroundSource) }
                     }
                 }
