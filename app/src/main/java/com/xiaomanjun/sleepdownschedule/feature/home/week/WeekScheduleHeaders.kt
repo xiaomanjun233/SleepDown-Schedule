@@ -2,7 +2,6 @@ package com.xiaomanjun.sleepdownschedule.feature.home.week
 
 import androidx.compose.foundation.layout.Spacer
 
-import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -62,7 +61,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlp
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeHeaderGlassTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.excludeParentPullGesture
-import com.xiaomanjun.sleepdownschedule.core.ui.interaction.rememberPageMotionBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.text.AutoFitSingleLineText
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeReadableText
 import com.xiaomanjun.sleepdownschedule.feature.home.day.LocalHomeTextShadowScale
@@ -285,18 +283,6 @@ private fun WeekdayHeaderStrip(
     val endPaddingPx = with(LocalDensity.current) { endPadding.toPx() }
     val lastTargetDay = targetDays.lastOrNull()
     val lastFromDay = from.weekdays.lastOrNull()
-    // The first version's blur envelope, applied once around the whole row: the labels soften
-    // while the columns travel and are sharp again at both endpoints.
-    val motionBlur = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) rememberPageMotionBlur() else null
-    val rowBlur = if (from == to || motionBlur == null) {
-        Modifier
-    } else {
-        Modifier.graphicsLayer {
-            val fraction = progress().coerceIn(0f, 1f)
-            renderEffect = motionBlur(4f * (1f - abs(2f * fraction - 1f)))
-        }
-    }
-
     Layout(
         content = {
             targetDays.forEachIndexed { index, day ->
@@ -354,7 +340,7 @@ private fun WeekdayHeaderStrip(
                 }
             }
         },
-        modifier = (if (clipEdges) modifier.clipToBounds() else modifier).then(rowBlur)
+        modifier = if (clipEdges) modifier.clipToBounds() else modifier
     ) { measurables, constraints ->
         val width = constraints.maxWidth
         // Cumulative rounding keeps the last column exactly on the course-grid boundary instead
@@ -515,7 +501,7 @@ private fun WeekdayHeaderCell(
                         state = outgoing,
                         weekdayCount = toCount,
                         lastWeekday = lastFromDay,
-                        textScale = { 1f - 0.02f * motion.fraction() },
+                        textScale = { androidx.compose.ui.util.lerp(1f, HomeHeaderTextMinimumScale, motion.fraction()) },
                         textColor = textColor,
                         todayStyle = todayStyle,
                         backdrop = backdrop,
@@ -533,7 +519,7 @@ private fun WeekdayHeaderCell(
                         state = incoming,
                         weekdayCount = toCount,
                         lastWeekday = lastTargetDay,
-                        textScale = { 0.98f + 0.02f * motion.fraction() },
+                        textScale = { androidx.compose.ui.util.lerp(HomeHeaderTextMinimumScale, 1f, motion.fraction()) },
                         textColor = textColor,
                         todayStyle = todayStyle,
                         backdrop = backdrop,

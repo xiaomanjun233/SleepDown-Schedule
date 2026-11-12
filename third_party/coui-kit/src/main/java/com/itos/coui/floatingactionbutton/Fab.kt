@@ -67,6 +67,10 @@ fun Fab(
     shadow: CouiFloatingShadow? = null,
     foregroundComposition: Boolean = false,
     contentColor: Color = CouiFabDefaults.contentColor,
+    enabled: Boolean = true,
+    spotlightPreset: SpotlightPreset = SpotlightPreset.OpaqueSmall1,
+    spotlightColor: Color = Color.White,
+    appearanceScale: () -> Float = { 1f },
     content: @Composable () -> Unit,
 ) {
     val contour = LocalCouiContourGlowEnabled.current
@@ -76,13 +80,14 @@ fun Fab(
     val resolvedMaterial = material ?: CouiFabDefaults.material(colors.accent, dark)
     val resolvedShadow = shadow ?: CouiFabDefaults.shadow(resolvedMaterial.firstColor, density, contour)
     val contentLayer = rememberGraphicsLayer()
-    val motion = rememberCouiTouchMotion(true)
+    val motion = rememberCouiTouchMotion(enabled)
     val press = rememberCouiPressMotion()
     val interactionSource = remember { MutableInteractionSource() }
     val (lightInput, drawLight) = rememberCouiSpotlight(
-        interactive = true,
-        preset = SpotlightPreset.OpaqueSmall1,
+        interactive = enabled,
+        preset = spotlightPreset,
         dark = dark,
+        color = spotlightColor,
     )
     var boundsSize by remember { mutableStateOf(IntSize.Zero) }
     Box(
@@ -92,7 +97,8 @@ fun Fab(
                 CouiFloatingSurface(
                     Rect(Offset(motion.translationX.value, motion.translationY.value),
                         Size(boundsSize.width.toFloat(), boundsSize.height.toFloat())),
-                    motion.scaleX.value + press.scale.value - 1f, motion.scaleY.value + press.scale.value - 1f,
+                    (motion.scaleX.value + press.scale.value - 1f) * appearanceScale(),
+                    (motion.scaleY.value + press.scale.value - 1f) * appearanceScale(),
                     cornerWeight = couiShape?.cornerWeight ?: 2f,
                     cornerRadius = couiShape?.radius?.value?.times(density),
                 )
@@ -102,16 +108,15 @@ fun Fab(
             Modifier.fillMaxSize().graphicsLayer {
                 translationX = motion.translationX.value
                 translationY = motion.translationY.value
-                scaleX = motion.scaleX.value + press.scale.value - 1f
-                scaleY = motion.scaleY.value + press.scale.value - 1f
-            }.couiTouchMotion(motion, true, cancelOnConsumedMove = false, consumeDrag = true)
-                .couiPressMotion(press).then(lightInput)
+                scaleX = (motion.scaleX.value + press.scale.value - 1f) * appearanceScale()
+                scaleY = (motion.scaleY.value + press.scale.value - 1f) * appearanceScale()
+            }.couiTouchMotion(motion, enabled, cancelOnConsumedMove = false, consumeDrag = true)
+                .couiPressMotion(press, enabled).then(lightInput)
                 .drawWithContent { contentLayer.record { this@drawWithContent.drawContent() } }
                 .clip(shape).drawBehind { drawLight?.invoke(this) }
-                .couiFabFeedback(dark, interactionSource)
-                .clickable(
+                .then(if (enabled) Modifier.couiFabFeedback(dark, interactionSource).clickable(
                     interactionSource = interactionSource, indication = null, role = Role.Button, onClick = onClick,
-                ),
+                ) else Modifier),
             contentAlignment = Alignment.Center,
         ) {
             ProvideCouiContent(color = contentColor, content = content)

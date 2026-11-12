@@ -1,13 +1,17 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
+import android.os.Build
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -18,7 +22,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -29,7 +35,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.lerp as lerpColor
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -38,24 +44,30 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
+import com.itos.coui.effect.CouiFloatingRenderer
+import com.itos.coui.effect.SpotlightPreset
+import com.itos.coui.floatingactionbutton.Fab
+import com.itos.coui.navigation.CouiDockStyle
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.excludeParentPullGesture
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.glass.GlassDropletGeometry
+import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownDropletGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import kotlin.math.roundToInt
 
 // Calendar 17.3.70, phone with gesture navigation: 100dp - (8dp + (88dp + 56dp) / 2).
 private val HomeReturnWeekGap = 20.dp
+private val HomeReturnWeekAppear = tween<Float>(560, easing = CubicBezierEasing(0.32f, 0.14f, 0.26f, 1f))
+private val HomeReturnWeekDisappear = tween<Float>(400, easing = HomeDropletEasing)
 
-/** A separate action in the bottom corner; only its transition borrows the import FAB. */
 @Composable
 internal fun HomeReturnWeekButton(
     visible: Boolean,
@@ -66,23 +78,29 @@ internal fun HomeReturnWeekButton(
     onReturn: () -> Unit
 ) {
     val progress = remember { Animatable(0f) }
-    LaunchedEffect(visible) {
-        progress.animateTo(if (visible) 1f else 0f, tween(280, easing = HomeDropletEasing))
-    }
     val mounted by remember { derivedStateOf { progress.value > 0.001f } }
-    if (!visible && !mounted) return
-    val moving by remember { derivedStateOf { progress.value < 0.999f } }
+    val settled by remember { derivedStateOf { progress.value >= 0.999f && !progress.isRunning } }
+    val bridgeVisible by remember { derivedStateOf { progress.value in 0.06f..0.92f } }
     val density = LocalDensity.current
     val haptic = LocalHapticFeedback.current
     val palette = LocalAdaptiveGlass.current
+    val dark = LocalHomeMaterialStyle.current?.dark ?: !palette.lightGlass
     val accent = LocalHomeDockAccent.current?.let(::Color)
         ?: homeDockImportButtonGlassColor(palette.lightGlass)
-    val neutral = if (palette.lightGlass) Color.White.copy(alpha = 0.55f) else Color(0xFF141418).copy(alpha = 0.52f)
+    // ColorOS Calendar's Theme.COUI.Blue and couiColorBar in both theme resources.
+    val ink = if (dark) Color(0xFF5C9DFF) else Color(0xFF0080FF)
+    val neutral = if (dark) Color(0xFF1E1E1E) else Color(0xFFFAFAFA)
     var root by remember { mutableStateOf(Rect.Zero) }
     BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { root = it.boundsInRoot() }) {
-        if (root.isEmpty) return@BoxWithConstraints
         val source = plusBounds().takeUnless { !hasPhoneDock || it.isEmpty }?.translate(-root.topLeft)
-        if (hasPhoneDock && source == null) return@BoxWithConstraints
+        val ready = !root.isEmpty && (!hasPhoneDock || source != null)
+        LaunchedEffect(visible, ready) {
+            val target = if (visible && ready) 1f else 0f
+            if (progress.value != target) {
+                progress.animateTo(target, if (target == 1f) HomeReturnWeekAppear else HomeReturnWeekDisappear)
+            }
+        }
+        if (!ready || (!visible && !mounted)) return@BoxWithConstraints
         val diameter = source?.width ?: with(density) { 44.dp.toPx() }
         val radius = diameter / 2f
         val buttonSize = with(density) { diameter.toDp() }
@@ -92,72 +110,127 @@ internal fun HomeReturnWeekButton(
                 ?: (maxHeight - safeBottom - 14.dp).toPx()
             Rect(centerX - radius, bottom - diameter, centerX + radius, bottom)
         }
-        val morphPadding = with(density) { 10.dp.toPx() }
-        val envelope = if (moving && source != null) Rect(
-            minOf(target.left, source.left) - morphPadding, minOf(target.top, source.top) - morphPadding,
-            maxOf(target.right, source.right) + morphPadding, maxOf(target.bottom, source.bottom) + morphPadding
-        ) else target
-        val localTarget = target.translate(-envelope.topLeft)
-        val localSource = source?.translate(-envelope.topLeft)
-        val geometry: () -> GlassDropletGeometry = {
-            val p = progress.value.coerceIn(0f, 1f)
-            val start = localSource?.center ?: localTarget.center
-            val center = Offset(lerp(start.x, localTarget.center.x, p), lerp(start.y, localTarget.center.y, p))
-            val dropRadius = radius * lerp(0.48f, 1f, p)
-            GlassDropletGeometry(
-                body = if (moving) localSource ?: Rect.Zero else Rect.Zero,
-                bodyRadius = if (moving) (source?.width ?: 0f) / 2f else 0f,
-                drop = Rect(center - Offset(dropRadius, dropRadius), center + Offset(dropRadius, dropRadius)),
-                dropRadius = dropRadius,
-                joinRadius = if (moving && source != null) morphPadding * (1f - dropletReveal(0.46f, 0.86f, p)) else 0f
+        fun scale() = lerp(0.50f, 1f, progress.value)
+        fun movingButton() = target.translate(Offset(0f,
+            (source?.center?.y?.minus(target.center.y) ?: 0f) * (1f - progress.value)))
+
+        if (bridgeVisible && source != null) {
+            val padding = with(density) { 14.dp.toPx() }
+            val neck = with(density) { 24.dp.toPx() }
+            val envelope = Rect(target.left, target.top, source.right, source.bottom).inflate(padding)
+            val localSource = source.translate(-envelope.topLeft)
+            val geometry: () -> GlassDropletGeometry = {
+                val p = progress.value
+                val center = movingButton().center - envelope.topLeft
+                val dropRadius = radius * scale()
+                GlassDropletGeometry(
+                    body = localSource, bodyRadius = radius,
+                    drop = Rect(center - Offset(dropRadius, dropRadius), center + Offset(dropRadius, dropRadius)),
+                    dropRadius = dropRadius,
+                    joinRadius = neck * dropletReveal(0.06f, 0.34f, p) * (1f - dropletReveal(0.72f, 0.92f, p))
+                )
+            }
+            Box(
+                Modifier.absoluteOffset { IntOffset(envelope.left.roundToInt(), envelope.top.roundToInt()) }
+                    .size(with(density) { envelope.width.toDp() }, with(density) { envelope.height.toDp() })
+                    .drawWithCache {
+                        val frame = geometry()
+                        val circles = Path().apply {
+                            addRoundRect(RoundRect(localSource, CornerRadius(radius)))
+                            addRoundRect(RoundRect(frame.drop, CornerRadius(frame.dropRadius)))
+                        }
+                        onDrawWithContent { clipPath(circles, ClipOp.Difference) { this@onDrawWithContent.drawContent() } }
+                    }
+                    .sleepDownDropletGlass(
+                        backdrop = backdrop, geometry = geometry, surfaceColor = accent,
+                        dropColor = { lerpColor(accent, neutral.copy(alpha = 0.60f), dropletReveal(0.28f, 0.78f, progress.value)) },
+                        blurRadius = 12.dp, lensHeight = 7.dp, lensAmount = 9.dp,
+                        debugLabel = "HomeReturnWeekDroplet"
+                    )
             )
         }
-        Box(
-            Modifier.absoluteOffset { IntOffset(envelope.left.roundToInt(), envelope.top.roundToInt()) }
-                .size(with(density) { envelope.width.toDp() }, with(density) { envelope.height.toDp() })
-                .drawWithCache {
-                    val circle = if (moving && localSource != null) Path().apply {
-                        addRoundRect(RoundRect(localSource, CornerRadius(localSource.width / 2f)))
-                    } else null
-                    // The actual FAB owns the center and its plus glyph during the merge.
-                    onDrawWithContent {
-                        if (circle != null) clipPath(circle, ClipOp.Difference) { this@onDrawWithContent.drawContent() }
-                        else drawContent()
+        val enabled = visible && settled
+        val button = Modifier.absoluteOffset {
+            val rect = movingButton()
+            IntOffset(rect.left.roundToInt(), rect.top.roundToInt())
+        }.size(buttonSize).then(
+            when {
+                source == null -> Modifier.graphicsLayer { alpha = progress.value }
+                !settled -> Modifier.drawWithContent {
+                    val frame = movingButton()
+                    if (frame.center.y - radius * scale() < source.top) {
+                        val plusMask = Path().apply {
+                            addRoundRect(RoundRect(source.translate(-frame.topLeft), CornerRadius(radius)))
+                        }
+                        clipPath(plusMask, ClipOp.Difference) { this@drawWithContent.drawContent() }
                     }
                 }
-                .sleepDownDropletGlass(
-                    backdrop = backdrop, geometry = geometry, surfaceColor = accent,
-                    dropColor = { lerp(accent, neutral, dropletReveal(0.35f, 0.92f, progress.value)) },
-                    blurRadius = 8.dp, lensHeight = 7.dp, lensAmount = 9.dp,
-                    debugLabel = "HomeReturnWeekDroplet"
-                )
-        ) {
-            Box(
-                Modifier.absoluteOffset {
-                    val center = geometry().drop.center
-                    val half = 16.dp.toPx()
-                    IntOffset((center.x - half).roundToInt(), (center.y - half).roundToInt())
-                }.size(32.dp).graphicsLayer {
-                    alpha = dropletReveal(0.36f, 0.87f, progress.value)
-                    compositingStrategy = CompositingStrategy.ModulateAlpha
-                }.clearAndSetSemantics {},
-                contentAlignment = Alignment.Center
-            ) {
-                Text("今", color = palette.contentColor, fontSize = with(density) { 22.dp.toSp() },
-                    fontWeight = FontWeight.SemiBold, maxLines = 1)
+                else -> Modifier
             }
-        }
-        if (visible && !moving) {
-            Box(
-                Modifier.absoluteOffset { IntOffset(target.left.roundToInt(), target.top.roundToInt()) }
-                    .size(buttonSize)
-                    .excludeParentPullGesture()
-                    .semantics { contentDescription = "回到本周" }
-                    .clickable(role = Role.Button) {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        onReturn()
-                    }
+        ).then(if (enabled) Modifier.excludeParentPullGesture() else Modifier)
+
+        ReturnWeekFab(button, backdrop, dark, neutral, ink, enabled, ::scale, onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onReturn()
+        }) {
+            Text(
+                "今", color = ink, fontSize = with(density) { 22.dp.toSp() },
+                fontWeight = FontWeight.SemiBold, maxLines = 1,
+                modifier = Modifier.clearAndSetSemantics {
+                    if (enabled) contentDescription = "回到本周"
+                }.graphicsLayer {
+                    alpha = dropletReveal(0.46f, 0.84f, progress.value)
+                    compositingStrategy = CompositingStrategy.ModulateAlpha
+                }
             )
         }
     }
+}
+
+@Composable
+private fun ReturnWeekFab(
+    modifier: Modifier,
+    backdrop: Backdrop,
+    dark: Boolean,
+    neutral: Color,
+    ink: Color,
+    enabled: Boolean,
+    scale: () -> Float,
+    onClick: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    if (Build.VERSION.SDK_INT >= 34) {
+        val renderer = remember {
+            try {
+                CouiFloatingRenderer.standalone()
+            } catch (failure: IllegalArgumentException) {
+                android.util.Log.w("SleepDownCOUI", "Cannot compile return-week FAB", failure)
+                null
+            }
+        }
+        if (renderer != null) {
+            val density = LocalDensity.current.density
+            // Calendar NaviSearchView uses FRAMEWORK_BOTTOM_BAR, CAPSULE_3 and level-3b elevation.
+            val style = remember(dark, density, ink) {
+                CouiDockStyle.reference(dark, ink, ink, density, contourGlowEnabled = false)
+            }
+            Fab(
+                modifier = modifier, backdrop = rememberCouiGlassBackdrop(backdrop), renderer = renderer,
+                onClick = onClick, dark = dark, material = style.material,
+                shadow = style.shadow.copy(causticColor = Color.Transparent),
+                foregroundComposition = true, contentColor = ink, enabled = enabled,
+                spotlightPreset = SpotlightPreset.OpaqueMedium2,
+                spotlightColor = if (dark) Color.White else Color.Black,
+                appearanceScale = scale, content = content
+            )
+            return
+        }
+    }
+    Box(
+        modifier.graphicsLayer {
+            scaleX = scale()
+            scaleY = scaleX
+        }.clip(CircleShape).background(neutral).clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) { content() }
 }

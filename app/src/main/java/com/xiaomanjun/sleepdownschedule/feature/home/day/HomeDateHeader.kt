@@ -2,20 +2,11 @@ package com.xiaomanjun.sleepdownschedule.feature.home.day
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterExitState
-import androidx.compose.animation.SizeTransform
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Transition
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -39,10 +30,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -67,25 +55,21 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlpha
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.excludeParentPullGesture
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekHeaderWeather
+import com.xiaomanjun.sleepdownschedule.feature.home.week.HomeHeaderMotionMillis
+import com.xiaomanjun.sleepdownschedule.feature.home.week.homeHeaderTextTransform
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassLens
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassPill
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
-import com.xiaomanjun.sleepdownschedule.glass.ui.platformMotionBlurRenderEffect
 import com.xiaomanjun.sleepdownschedule.model.HomeMode
 import com.xiaomanjun.sleepdownschedule.toChineseWeekday
 import com.xiaomanjun.sleepdownschedule.weekdayLabel
 import java.time.LocalDate
-import kotlin.math.roundToInt
 
 private data class HomeTitleFrame(
     val mode: HomeMode,
-    val week: Int,
-    val date: LocalDate,
     val caption: String,
     val dateLabel: String
 )
-
-private const val HomeTitleMotionMillis = 280
 
 @Composable
 internal fun HomeDateTitle(
@@ -110,7 +94,7 @@ internal fun HomeDateTitle(
         val endMonth = if (dateRangeEnd.month != displayDate.month) "${dateRangeEnd.monthValue}月" else ""
         "${displayDate.monthValue}月${displayDate.dayOfMonth}日–$endMonth${dateRangeEnd.dayOfMonth}日"
     }
-    val title = updateTransition(HomeTitleFrame(mode, displayWeek, displayDate, caption, dateLabel), label = "home-title")
+    val title = updateTransition(HomeTitleFrame(mode, caption, dateLabel), label = "home-title")
     val interaction = remember { MutableInteractionSource() }
     Column(
         modifier = if (mode == HomeMode.Day) Modifier.excludeParentPullGesture()
@@ -127,8 +111,8 @@ internal fun HomeDateTitle(
             }
             title.AnimatedVisibility(
                 visible = { it.mode == HomeMode.Week },
-                enter = fadeIn(tween(HomeTitleMotionMillis)),
-                exit = fadeOut(tween(HomeTitleMotionMillis))
+                enter = fadeIn(tween(HomeHeaderMotionMillis)),
+                exit = fadeOut(tween(HomeHeaderMotionMillis))
             ) {
                 WeekHeaderWeather(color.copy(alpha = 0.68f))
             }
@@ -157,40 +141,13 @@ private fun Transition<HomeTitleFrame>.HomeTitleLine(
     modifier: Modifier = Modifier,
     content: @Composable (String) -> Unit
 ) {
-    val density = LocalDensity.current
-    val blur = remember(density) {
-        List(6) { index -> platformMotionBlurRenderEffect(with(density) { (index * 0.55f).dp.toPx() }) }
-    }
     AnimatedContent(
         modifier = modifier,
         contentKey = label,
         contentAlignment = Alignment.CenterStart,
-        transitionSpec = {
-            val direction = when {
-                initialState.mode != targetState.mode -> targetState.mode.ordinal.compareTo(initialState.mode.ordinal)
-                initialState.week != targetState.week -> targetState.week.compareTo(initialState.week)
-                else -> targetState.date.compareTo(initialState.date).coerceIn(-1, 1)
-            }.takeUnless { it == 0 } ?: 1
-            val origin = TransformOrigin(0f, 0.5f)
-            val easing = FastOutSlowInEasing
-            val enter = fadeIn(tween(HomeTitleMotionMillis, easing = easing)) +
-                slideInVertically(tween(HomeTitleMotionMillis, easing = easing)) { direction * it / 2 } +
-                scaleIn(tween(HomeTitleMotionMillis, easing = easing), initialScale = 0.91f, transformOrigin = origin)
-            val exit = fadeOut(tween(HomeTitleMotionMillis, easing = easing)) +
-                slideOutVertically(tween(HomeTitleMotionMillis, easing = easing)) { -direction * it / 2 } +
-                scaleOut(tween(HomeTitleMotionMillis, easing = easing), targetScale = 0.94f, transformOrigin = origin)
-            (enter togetherWith exit).using(SizeTransform(clip = false))
-        }
+        transitionSpec = { homeHeaderTextTransform(TransformOrigin(0f, 0.5f)) }
     ) { frame ->
-        val softness = transition.animateFloat(
-            transitionSpec = { tween(HomeTitleMotionMillis, easing = FastOutSlowInEasing) },
-            label = "home-title-blur"
-        ) { if (it == EnterExitState.Visible) 0f else 1f }
-        Box(Modifier.graphicsLayer {
-            renderEffect = blur[(softness.value * blur.lastIndex).roundToInt().coerceIn(blur.indices)]
-            compositingStrategy = if (renderEffect != null) CompositingStrategy.Offscreen
-                else CompositingStrategy.ModulateAlpha
-        }.padding(vertical = 2.dp)) { content(label(frame)) }
+        Box(Modifier.padding(vertical = 2.dp)) { content(label(frame)) }
     }
 }
 

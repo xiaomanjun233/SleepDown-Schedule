@@ -219,12 +219,12 @@ internal fun SinglePillWeekScheduleScreen(
     val latestWeekJumpSettled by rememberUpdatedState(onWeekJumpSettled)
     val weekTail = rememberWeekPageTailMotion(pagerState)
     val homeSwitching = LocalHomeTextContrastFrozen.current
-    LaunchedEffect(pagerState, boundless) {
+    LaunchedEffect(pagerState) {
         try {
             snapshotFlow {
                 // currentPage changes at the halfway point in either direction. This is only
                 // chrome preview; changing displayWeek here would cancel the active gesture.
-                if (boundless && programmaticPage < 0) {
+                if (programmaticPage < 0) {
                     pagerState.currentPage.coerceIn(0, pagerState.pageCount - 1) + 1
                 } else null
             }.distinctUntilChanged().collect { latestWeekHeaderPreview(it) }

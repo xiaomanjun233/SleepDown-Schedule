@@ -1389,7 +1389,8 @@ fun CourseScheduleAppUi(
         todayDate
     }
     val homeReturnTargetWeek = if (beforeScheduleTerm) 1 else homeCurrentWeek
-    val homeShowingAnotherWeek = homeMode == HomeMode.Week && homeDisplayWeek != homeReturnTargetWeek
+    val homeShowingAnotherWeek = homeMode == HomeMode.Week &&
+        (homeWeekHeaderPreview.value ?: homeDisplayWeek) != homeReturnTargetWeek
     val canSelectWeekAddSlot = screen is Screen.Home && homeMode == HomeMode.Week && state.loaded &&
         !rootPageMotion.moving && !homeModeMotion.moving && !homeBackgroundOverlayActive &&
         !homeAssistant.visible && !courseCopy.active && homeDialog == null && renderedHomeDialog == null &&
@@ -1950,6 +1951,7 @@ fun CourseScheduleAppUi(
     }
     var returnHomeWeekRequest by remember { mutableIntStateOf(0) }
     val returnHomeToCurrentDateAndWeek = {
+        homeWeekHeaderPreview.value = null
         returnHomeWeekRequest++
         if (beforeScheduleTerm) {
             homeDisplayDate = parseScheduleDate(visualState.config.termStartDate) ?: LocalDate.now()
