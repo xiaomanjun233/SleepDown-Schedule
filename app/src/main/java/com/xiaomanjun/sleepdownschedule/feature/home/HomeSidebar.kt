@@ -92,7 +92,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeTodayIcon
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeActionIcon
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlpha
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMenuRowRenderer
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMenuItem
@@ -114,6 +113,8 @@ import top.yukonga.miuix.kmp.icon.extended.Notes
 import top.yukonga.miuix.kmp.icon.extended.Weeks
 
 internal enum class HomeSidebarDestination { Day, Week, Settings, Courses, Schedules, EduImport }
+
+private val HomeSidebarPanelShape = RoundedRectangle(32.dp)
 
 @Stable
 internal class HomeSidebarState(
@@ -218,9 +219,8 @@ internal fun HomeSidebar(
     visible: Boolean,
     followHomeGlass: Boolean,
     tabSelection: HomeSidebarDestination = selected,
-    actions: List<AddMenuAction> = emptyList(),
     onTabBarBoundsChanged: (Rect?) -> Unit = {},
-    onAction: (AddMenuAction) -> Unit = { it.onClick() },
+    onJumpWeek: () -> Unit,
     onNavigate: (HomeSidebarDestination) -> Unit
 ) {
     val currentBoundsCallback by rememberUpdatedState(onTabBarBoundsChanged)
@@ -230,7 +230,7 @@ internal fun HomeSidebar(
     val adaptiveGlass = LocalAdaptiveGlass.current
     val lightGlass = if (followHomeGlass) adaptiveGlass.lightGlass else !appUsesDarkTheme(config)
     val wallpaperChrome = followHomeGlass && config.hasAnyWallpaper()
-    val lightSettingsRail = lightGlass && !followHomeGlass && selected == HomeSidebarDestination.Settings
+    val lightSettingsRail = lightGlass && !followHomeGlass
     val ink by animateColorAsState(
         targetValue = if (followHomeGlass) adaptiveGlass.contentColor else if (lightGlass) Color.Black else Color.White,
         animationSpec = tween(220), label = "HomeSidebarContentTheme"
@@ -244,11 +244,11 @@ internal fun HomeSidebar(
         },
         animationSpec = tween(220), label = "HomeSidebarSurfaceTheme"
     )
-    val shape = RoundedRectangle(32.dp)
+    val shape = HomeSidebarPanelShape
     val enabled = navigationEnabled && !state.moving
     val currentEnabled by rememberUpdatedState(enabled)
     val currentOnNavigate by rememberUpdatedState(onNavigate)
-    val currentOnAction by rememberUpdatedState(onAction)
+    val currentOnJumpWeek by rememberUpdatedState(onJumpWeek)
     val scrimInteraction = remember { MutableInteractionSource() }
     BackHandler(enabled = state.overlaysContent && state.expanded && navigationEnabled) {
         state.expanded = false
@@ -258,10 +258,10 @@ internal fun HomeSidebar(
         state.collapseOverlay()
         currentOnNavigate(destination)
     }
-    fun action(action: AddMenuAction) {
+    fun jumpWeek() {
         if (!currentEnabled) return
         state.collapseOverlay()
-        currentOnAction(action)
+        currentOnJumpWeek()
     }
     Box(Modifier.fillMaxSize()) {
         if (state.overlaysContent && state.expanded) {
@@ -373,23 +373,19 @@ internal fun HomeSidebar(
                             selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Week) }
                         SidebarDestinationRow(HomeSidebarDestination.Settings, "设置", requireNotNull(homeActionIcon(R.drawable.ic_settings)),
                             selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Settings) }
-                        if (actions.isNotEmpty()) {
-                            SidebarSectionHeading("课表操作", ink)
-                            SidebarDestinationRow(HomeSidebarDestination.Courses, "课程管理", MiuixIcons.Notes,
-                                selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Courses) }
-                            actions.firstOrNull { it.iconRes == R.drawable.ic_material_event }?.let { item ->
-                                SidebarActionRow(item, ink, enabled, !lightGlass) { action(item) }
-                            }
-                            SidebarDestinationRow(HomeSidebarDestination.Schedules, "多课表管理", MiuixIcons.Layers,
-                                selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Schedules) }
-                            val imports = actions.filter {
-                                it.iconRes != R.drawable.ic_material_event &&
-                                    it.iconRes != R.drawable.ic_settings && it.iconRes != R.drawable.ic_courses
-                            }
-                            if (imports.isNotEmpty()) {
-                                SidebarSectionHeading("导入", ink)
-                                imports.forEach { item -> SidebarActionRow(item, ink, enabled, !lightGlass) { action(item) } }
-                            }
+                        SidebarSectionHeading("课表操作", ink)
+                        SidebarDestinationRow(HomeSidebarDestination.Courses, "课程管理", MiuixIcons.Notes,
+                            selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Courses) }
+                        SidebarRow("跳转周数", ink, false, enabled, !lightGlass, ::jumpWeek, Role.Button) {
+                            Icon(requireNotNull(homeActionIcon(R.drawable.ic_material_event)), null,
+                                tint = ink, modifier = Modifier.size(22.dp))
+                        }
+                        SidebarDestinationRow(HomeSidebarDestination.Schedules, "多课表管理", MiuixIcons.Layers,
+                            selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Schedules) }
+                        SidebarSectionHeading("导入", ink)
+                        SidebarDestinationRow(HomeSidebarDestination.EduImport, "导入课表",
+                            requireNotNull(homeActionIcon(R.drawable.ic_ai_import)), selected, ink, enabled, !lightGlass) {
+                            navigate(HomeSidebarDestination.EduImport)
                         }
                     }
                 }
@@ -484,14 +480,6 @@ private fun SidebarDestinationRow(
 }
 
 @Composable
-private fun SidebarActionRow(action: AddMenuAction, ink: Color, enabled: Boolean, dark: Boolean, onClick: () -> Unit) {
-    SidebarRow(action.label, ink, false, enabled, dark, onClick, Role.Button) {
-        Icon(action.imageVector ?: homeActionIcon(action.iconRes) ?: MiuixIcons.Notes,
-            null, Modifier.size(22.dp), tint = ink)
-    }
-}
-
-@Composable
 private fun SidebarRow(
     label: String,
     ink: Color,
@@ -505,7 +493,7 @@ private fun SidebarRow(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     Box(
-        Modifier.fillMaxWidth().height(42.dp).clip(RoundedRectangle(16.dp))
+        Modifier.fillMaxWidth().height(42.dp).clip(HomeSidebarPanelShape)
             .background(if (selected) ink.copy(alpha = 0.09f) else Color.Transparent)
     ) {
         val nativeFeedback = LocalNativeMenuRowRenderer.current?.invoke(

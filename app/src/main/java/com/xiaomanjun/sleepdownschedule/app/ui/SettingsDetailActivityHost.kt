@@ -146,7 +146,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
             } else {
                 SettingsPage.valueOf(
                     intent.getStringExtra(SettingsDetailPageExtra) ?: SettingsPage.General.name
-                )
+                ).let { if (it == SettingsPage.ScheduleAdjustments) SettingsPage.Schedule else it }
             }
             val backupPreviewSource = externalBackupPreviewSource
                 ?: intent.getStringExtra(BackupPreviewUriExtra)?.toUri()
@@ -324,7 +324,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                             backdrop = backdrop
                         )
                         SettingsPage.DayAgent -> DayAgentSettingsScreen(state, backdrop)
-                        SettingsPage.Schedule -> if (!scheduleEditReady) {
+                        SettingsPage.Schedule, SettingsPage.ScheduleAdjustments -> if (!scheduleEditReady) {
                             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 androidx.compose.material3.CircularProgressIndicator()
                             }

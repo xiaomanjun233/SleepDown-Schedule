@@ -26,7 +26,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CourseManagementCar
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.cardSelectionInteraction
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.LandscapePageTransition
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.animateScrollToTop
-import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.settingsCouiPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsTheme
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
@@ -67,14 +67,14 @@ internal fun LandscapeCourseManagementPane(
     }
     val ink = appPanelForegroundColor(state.config)
     val pageConfig = settingsVisualConfig(state.config)
-    val pageColor = settingsPageBackground(pageConfig)
     val dark = appUsesDarkTheme(pageConfig)
+    val pageColor = settingsCouiPageBackground(dark)
     val listState = rememberLazyStaggeredGridState()
     val listBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "landscape-course-management-list") {
         drawRect(pageColor)
         drawContent()
     }
-    BoxWithConstraints(modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier.fillMaxSize().background(pageColor)) {
         val listWidth = (maxWidth * 0.48f).coerceIn(280.dp, 520.dp).coerceAtMost(maxWidth * 0.52f)
         Row(Modifier.fillMaxSize()) {
             Box(Modifier.width(listWidth).fillMaxHeight()) {

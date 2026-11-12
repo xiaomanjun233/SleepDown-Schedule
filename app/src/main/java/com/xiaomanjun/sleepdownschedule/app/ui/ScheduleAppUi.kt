@@ -126,8 +126,6 @@ import com.xiaomanjun.sleepdownschedule.CourseCardColorMode
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.CourseManagementActivity
 import com.xiaomanjun.sleepdownschedule.DefaultWallpaperStyle
-import com.xiaomanjun.sleepdownschedule.EduImportActivity
-import com.xiaomanjun.sleepdownschedule.EduSchoolSelectActivity
 import com.xiaomanjun.sleepdownschedule.HomeStartMode
 import com.xiaomanjun.sleepdownschedule.QuickSheetSettingsDetailActivity
 import com.xiaomanjun.sleepdownschedule.R
@@ -318,13 +316,11 @@ import com.xiaomanjun.sleepdownschedule.feature.home.withSidebarInsets
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiEduImportProgressSession
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettingsStore
 import com.xiaomanjun.sleepdownschedule.feature.importing.ImportPreviewPage
-import com.xiaomanjun.sleepdownschedule.feature.importing.EduSchoolPickerScreen
 import com.xiaomanjun.sleepdownschedule.feature.importing.IcsScheduleCodec
 import com.xiaomanjun.sleepdownschedule.feature.importing.PendingImportSetupStore
 import com.xiaomanjun.sleepdownschedule.feature.importing.CloudShortCode
 import com.xiaomanjun.sleepdownschedule.feature.importing.ScheduleJsonShare
 import com.xiaomanjun.sleepdownschedule.feature.importing.loadAiImportFile
-import com.xiaomanjun.sleepdownschedule.feature.importing.toIntentKey
 import com.xiaomanjun.sleepdownschedule.feature.schedule.ScheduleSnapshotStore
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.shareScheduleIcs
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.shareScheduleJson
@@ -765,7 +761,7 @@ fun CourseScheduleAppUi(
     val homeAdaptiveMetrics = rememberHomeAdaptiveMetrics()
     val homeSidebarState = rememberHomeSidebarState(homeAdaptiveMetrics)
     val homeTabBarBounds = remember { mutableStateOf<Rect?>(null) }
-    val eduFloatingOverlayHost = remember(homeSidebarState) {
+    val importFloatingOverlayHost = remember(homeSidebarState) {
         DetailActivityFloatingOverlayHost { Modifier.homeSidebarContentInset(homeSidebarState) }
     }
     // The ordinary phone dock was retired: portrait phones always use the parallel dock. Large
@@ -853,12 +849,7 @@ fun CourseScheduleAppUi(
     }
     val weekCardHeight = adaptiveWeekCardHeight * weekCardHeightScale
     val context = LocalContext.current
-    fun openUnifiedImportPage(text: String? = null, files: List<Uri> = emptyList()): Boolean {
-        val activity = context.findActivity()?.takeUnless { it.isFinishing } ?: return false
-        return ActivityTransitionCoordinator.openImmediate(
-            activity, TransitionRouteId.HomeToUnifiedImport, unifiedImportIntent(context, text, files)
-        ) !is TransitionLaunchResult.Failed
-    }
+    val importForm: UnifiedImportFormState = androidx.lifecycle.viewmodel.compose.viewModel(key = "home-unified-import")
     val dayViewMode = remember(screen, state.config.defaultHomeMode, context) {
         DayViewPreferences.mode(
             context = context,
@@ -871,6 +862,7 @@ fun CourseScheduleAppUi(
     val remoteExperience by SleepDownRemoteConfig.experience.collectAsStateWithLifecycle()
     val remoteConfigState by SleepDownRemoteConfig.state.collectAsStateWithLifecycle()
     fun requestSettingsExit(action: () -> Unit) {
+        if (screen is Screen.Config && sidebarPage == HomeSidebarDestination.EduImport && importForm.submitting) return
         if (screen is Screen.Config && sidebarPage == HomeSidebarDestination.Courses && coursePaneExitHandler != null) {
             coursePaneExitHandler?.invoke(action)
         } else if (screen is Screen.Config && (!homeAdaptiveMetrics.isTabletLandscape || sidebarPage == HomeSidebarDestination.Settings) && settingsExitInterceptionRequired) {
@@ -880,8 +872,28 @@ fun CourseScheduleAppUi(
             action()
         }
     }
-    BackHandler(enabled = screen is Screen.Config && settingsExitInterceptionRequired) {
-        requestSettingsExit { context.findActivity()?.finish() }
+    fun openUnifiedImportPage(text: String? = null, files: List<Uri> = emptyList()): Boolean {
+        if (homeAdaptiveMetrics.isLargeScreen) {
+            if (importForm.submitting) return false
+            requestSettingsExit {
+                if (text != null || files.isNotEmpty()) importForm.openWith(text, files)
+                sidebarPage = HomeSidebarDestination.EduImport
+                screen = Screen.Config
+            }
+            return true
+        }
+        val activity = context.findActivity()?.takeUnless { it.isFinishing } ?: return false
+        return ActivityTransitionCoordinator.openImmediate(
+            activity, TransitionRouteId.HomeToUnifiedImport, unifiedImportIntent(context, text, files)
+        ) !is TransitionLaunchResult.Failed
+    }
+    BackHandler(enabled = screen is Screen.Config &&
+        (settingsExitInterceptionRequired || sidebarPage == HomeSidebarDestination.EduImport)) {
+        if (sidebarPage == HomeSidebarDestination.EduImport) {
+            requestSettingsExit { screen = Screen.Home }
+        } else {
+            requestSettingsExit { context.findActivity()?.finish() }
+        }
     }
     var showManagedFreeAiOffer by remember(context) { mutableStateOf(false) }
     LaunchedEffect(remoteExperience) {
@@ -1019,7 +1031,7 @@ fun CourseScheduleAppUi(
             source = sourceButton,
             rootSize = homeReadabilityRootSize,
             density = density.density,
-            actionCount = if (parallelPhoneNavigation) 5 else 7,
+            actionCount = if (parallelPhoneNavigation) 4 else 5,
             adaptiveMetrics = homeAdaptiveMetrics,
             showModeSwitch = !parallelPhoneNavigation
         )
@@ -2065,6 +2077,11 @@ fun CourseScheduleAppUi(
             source.release()
             return@openImport
         }
+        if (homeAdaptiveMetrics.isLargeScreen) {
+            source.release()
+            openUnifiedImportPage()
+            return@openImport
+        }
         dockImportOpening = true
         appScope.launch {
             var sessionOwnsSource = false
@@ -2876,9 +2893,7 @@ fun CourseScheduleAppUi(
                         }
                     }
                     if (rootPageMotion.retains(true)) {
-                        val pageBackground = if (homeAdaptiveMetrics.isLargeScreen &&
-                            sidebarPage == HomeSidebarDestination.Settings
-                        ) settingsCouiPageBackground(appUsesDarkTheme(state.config)) else transitionBackground
+                        val pageBackground = settingsCouiPageBackground(appUsesDarkTheme(state.config))
                         Box(Modifier.fillMaxSize()
                             .homeSwitchLayer(rootPageMotion, secondary = true, pageClip = HomeSwitchClip.Page)
                             .background(pageBackground))
@@ -3027,18 +3042,19 @@ fun CourseScheduleAppUi(
                                     onExitHandlerChange = { coursePaneExitHandler = it }
                                 )
                                 HomeSidebarDestination.EduImport -> CompositionLocalProvider(
-                                    LocalDetailActivityFloatingOverlayHost provides eduFloatingOverlayHost
-                                ) { DetailActivityScaffold(
-                                    title = "选择学校", config = state.config, onBack = { screen = Screen.Home }
-                                ) { schoolBackdrop ->
-                                    EduSchoolPickerScreen(state = state, backdrop = schoolBackdrop, onSelect = { adapter ->
-                                        context.openRegisteredActivity(
-                                            TransitionRouteId.SchoolSelectToEduImport,
-                                            Intent(context, EduImportActivity::class.java)
-                                                .putExtra(EduAdapterExtra, adapter.toIntentKey())
+                                    LocalDetailActivityFloatingOverlayHost provides importFloatingOverlayHost
+                                ) {
+                                    rootPageStateHolder.SaveableStateProvider("unified-import") {
+                                        UnifiedImportPage(
+                                            state = state,
+                                            viewModel = viewModel,
+                                            form = importForm,
+                                            embedded = true,
+                                            onBack = { requestSettingsExit { screen = Screen.Home } },
+                                            onImported = { pendingImportedSetupId = it }
                                         )
-                                    })
-                                } }
+                                    }
+                                }
                                 else -> {
                             rootPageStateHolder.SaveableStateProvider("settings") {
                                 SettingsScreen(
@@ -3057,6 +3073,7 @@ fun CourseScheduleAppUi(
                                             )
                                         },
                                         onSave = { _, _ -> viewModel.refreshNotificationsAfterSave() },
+                                        onSaveAdjustments = viewModel::commitScheduleAdjustments,
                                         onUpdateConfig = viewModel::saveNotificationSettings,
                                         onUpdateGeneralConfig = viewModel::saveGeneralSettings,
                                         onUpdateHomeChromeBlurScale = viewModel::saveHomeChromeBlurScale,
@@ -3081,7 +3098,7 @@ fun CourseScheduleAppUi(
                 // The full-window decoration is recorded below the global sidebar. Interactive
                 // controls retain their right-pane coordinates through the inherited host.
                 if (screen is Screen.Config && sidebarPage == HomeSidebarDestination.EduImport) {
-                    eduFloatingOverlayHost.content?.invoke()
+                    importFloatingOverlayHost.content?.invoke()
                 }
                 }
             if (screen !is Screen.Home) {
@@ -3310,11 +3327,7 @@ fun CourseScheduleAppUi(
                         if (!activity.isFinishing) {
                             ActivityTransitionCoordinator.openImmediate(
                                 activity,
-                                if (routeId == TransitionRouteId.HomeToCourseManagement) {
-                                    TransitionRouteId.TabletHomeToCourseManagement
-                                } else {
-                                    TransitionRouteId.TabletHomeToEduImport
-                                },
+                                TransitionRouteId.TabletHomeToCourseManagement,
                                 targetIntent
                             )
                         }
@@ -3457,17 +3470,6 @@ fun CourseScheduleAppUi(
         )
         }
     }
-    val latestOpenEduSchoolSelect = rememberUpdatedState<() -> Unit> {
-        if (homeAdaptiveMetrics.isTabletLandscape) {
-            requestSettingsExit { sidebarPage = HomeSidebarDestination.EduImport; screen = Screen.Config }
-        }
-        else {
-        latestOpenHomeActivityDestination.value(
-            TransitionRouteId.HomeToEduImport,
-            Intent(context, EduSchoolSelectActivity::class.java)
-        )
-        }
-    }
     val latestOpenJumpWeekDialog = rememberUpdatedState<() -> Unit> {
         pendingJumpWeekDialog = true
         homeAnchoredOverlayRequest = null
@@ -3480,20 +3482,17 @@ fun CourseScheduleAppUi(
         pendingOpenScheduleSettings = true
         homeAnchoredOverlayRequest = null
     }
-    val latestOpenManualImport = rememberUpdatedState<() -> Unit> {
+    val latestOpenImport = rememberUpdatedState<() -> Unit> {
         if (homeAdaptiveMetrics.isLargeScreen) {
-            requestSettingsExit { openUnifiedImportPage() }
+            openUnifiedImportPage()
         } else {
             latestOpenHomeActivityDestination.value(TransitionRouteId.HomeToEduImport, unifiedImportIntent(context))
         }
     }
     val homeAddActions = remember {
         listOf(
-            AddMenuAction(R.drawable.ic_ai_import, "口令/文件导入") {
-                latestOpenManualImport.value()
-            },
-            AddMenuAction(R.drawable.ic_school_import, "教务系统导入") {
-                latestOpenEduSchoolSelect.value()
+            AddMenuAction(R.drawable.ic_ai_import, "导入课表") {
+                latestOpenImport.value()
             },
             AddMenuAction(R.drawable.ic_courses, "课程管理") {
                 latestOpenCourseManagement.value()
@@ -3524,7 +3523,7 @@ fun CourseScheduleAppUi(
             homeAddActions.takeLast(3)
     }
     val legacyOverflowActions = remember(homeAddActions, parallelPhoneNavigation) {
-        if (parallelPhoneNavigation) homeAddActions.drop(2) else homeAddActions
+        if (parallelPhoneNavigation) homeAddActions.drop(1) else homeAddActions
     }
     androidx.compose.runtime.SideEffect {
         colorOsOverflowActions.value = if (glowSystemMenus && !parallelPhoneNavigation) homeAddActions else nativeOverflowActions
@@ -3543,7 +3542,7 @@ fun CourseScheduleAppUi(
         onTabBarBoundsChanged = { homeTabBarBounds.value = it },
         selected = when {
             pickerState.overlayVisible -> HomeSidebarDestination.Schedules
-            screen is Screen.Config -> if (homeAdaptiveMetrics.isTabletLandscape) sidebarPage else HomeSidebarDestination.Settings
+            screen is Screen.Config -> sidebarPage
             homeMode == HomeMode.Day -> HomeSidebarDestination.Day
             else -> HomeSidebarDestination.Week
         },
@@ -3553,25 +3552,20 @@ fun CourseScheduleAppUi(
         tabSelection = if (screen is Screen.Config) HomeSidebarDestination.Settings
             else if (homeMode == HomeMode.Day) HomeSidebarDestination.Day else HomeSidebarDestination.Week,
         navigationEnabled = !rootPageMotion.moving && !homeModeMotion.moving && !sidebarPageMoving &&
-            pendingSettingsExitAction == null && !homeBackgroundOverlayActive && !homeAssistant.visible &&
+            pendingSettingsExitAction == null && !importForm.submitting && !homeBackgroundOverlayActive && !homeAssistant.visible &&
             courseShortcuts.request == null && !courseCopy.active && !homeDialogVisible && quickScheduleDraft == null &&
             courseEditorRequest == null && courseEditorOverlayPhase == CourseEditorOverlayPhase.Idle &&
             (!pickerState.overlayVisible || pickerState.phase is CustomizeUiState.Picker) &&
             dayAgentBackgroundMotionState.progress.value < 0.001f,
         visible = homeAdaptiveMetrics.isTabletLandscape || pickerState.phase is CustomizeUiState.Home ||
             pickerState.phase is CustomizeUiState.ShowingEntryButton,
-        actions = if (homeAdaptiveMetrics.isTabletLandscape) homeAddActions.filter { it.iconRes != R.drawable.ic_courses } else emptyList(),
-        onAction = { action ->
+        onJumpWeek = {
             runSidebarAction {
-                if (action.iconRes == R.drawable.ic_school_import) {
-                    action.onClick()
-                } else {
-                    screen = Screen.Home
-                    appScope.launch {
-                        withFrameNanos { }
-                        snapshotFlow { rootPageMotion.moving }.first { !it }
-                        action.onClick()
-                    }
+                screen = Screen.Home
+                appScope.launch {
+                    withFrameNanos { }
+                    snapshotFlow { rootPageMotion.moving }.first { !it }
+                    latestOpenJumpWeekDialog.value()
                 }
             }
         },
@@ -3594,7 +3588,7 @@ fun CourseScheduleAppUi(
                             if (screen is Screen.Home) enterCustomizePage()
                         }
                     }
-                    HomeSidebarDestination.EduImport -> latestOpenEduSchoolSelect.value()
+                    HomeSidebarDestination.EduImport -> { sidebarPage = destination; screen = Screen.Config }
                 }
             }
         }

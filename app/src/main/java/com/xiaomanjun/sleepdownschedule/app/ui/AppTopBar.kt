@@ -198,29 +198,7 @@ internal fun AppTopBar(
                 contentAlignment = Alignment.CenterStart
             ) {
                 Text(
-                    when (settingsPage) {
-                        SettingsPage.Root -> "设置"
-                        SettingsPage.General -> "通用设置"
-                        SettingsPage.LiquidGlass -> "视效设置"
-                        SettingsPage.Widgets -> "小组件设置"
-                        SettingsPage.AiImport -> "AI 设置"
-                        SettingsPage.DayAgent -> "AI 助理"
-                        SettingsPage.Schedule -> "课表设置"
-                        SettingsPage.PeriodSchemes -> "作息管理"
-                        SettingsPage.SpecialCourses -> "特殊课程"
-                        SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
-                        SettingsPage.Notifications -> "通知设置"
-                        SettingsPage.ScheduleManager -> "课表设置"
-                        SettingsPage.BackupRestore -> "备份与恢复"
-                        SettingsPage.WebDav -> "WebDAV 备份"
-                        SettingsPage.BackupPreview -> "恢复预览"
-                        SettingsPage.About -> "关于应用"
-                        SettingsPage.Changelog -> "更新日志"
-                        SettingsPage.SoftwareUpdate -> "软件更新"
-                        SettingsPage.AutoUpdate -> "自动更新设置"
-                        SettingsPage.Donate -> "捐赠支持"
-						SettingsPage.PrivacyPolicy -> "隐私政策"
-                    },
+                    settingsPage.title(),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                     lineHeight = 28.sp

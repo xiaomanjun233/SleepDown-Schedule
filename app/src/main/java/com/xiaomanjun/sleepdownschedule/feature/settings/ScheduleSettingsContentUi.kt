@@ -304,6 +304,7 @@ internal fun ScheduleSettingsContent(
     onStartNewTerm: () -> Unit,
     scheduleAdjustmentsJson: String,
     onScheduleAdjustmentsChange: (String) -> Unit,
+    onOpenScheduleAdjustments: (() -> Unit)? = null,
     onOpenPeriodSchemes: () -> Unit,
     onOpenSpecialCourses: () -> Unit,
     error: String?,
@@ -341,7 +342,8 @@ internal fun ScheduleSettingsContent(
                 SettingsGroup(backdrop = backdrop, config = config, modifier = Modifier.fillMaxWidth()) {
                     TimeSlotCoursesSettingsRow(config, onOpenSpecialCourses)
                     SettingsDivider()
-                    ScheduleAdjustmentsSettingsRow(draftConfig, scheduleAdjustmentsJson, onScheduleAdjustmentsChange)
+                    ScheduleAdjustmentsSettingsRow(draftConfig, scheduleAdjustmentsJson,
+                        onScheduleAdjustmentsChange, onOpenScheduleAdjustments)
                     SettingsDivider()
                     SettingsNavigationRow("作息", "编辑课表作息和上课时间", onClick = onOpenPeriodSchemes)
                 }

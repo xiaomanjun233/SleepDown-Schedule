@@ -117,13 +117,10 @@ fun TimeSlotCourseManagementScreen(
     SideEffect { onExitInterceptionChange(launching != null || selection.active) }
     DisposableEffect(Unit) { onDispose { onExitInterceptionChange(false) } }
     LaunchedEffect(exitCommitRequest) {
-        if (exitCommitRequest > 0 && launching == null) {
-            if (selection.active) {
-                selection.cancel()
-                onExitCommitFinished(false)
-            } else {
-                onExitCommitFinished(true)
-            }
+        if (exitCommitRequest > 0) {
+            val canLeave = launching == null && !selection.active
+            if (launching == null && selection.active) selection.cancel()
+            onExitCommitFinished(canLeave)
         }
     }
     fun open(original: TimeSlotCourse?, sourceView: View?) {

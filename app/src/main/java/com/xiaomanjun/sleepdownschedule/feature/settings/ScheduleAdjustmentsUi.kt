@@ -11,12 +11,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsTabletDetailPaneScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
@@ -40,7 +42,12 @@ internal fun adjustmentDateLabel(date: LocalDate): String =
     "${date.monthValue}月${date.dayOfMonth}日 ${WeekdayLabels[date.dayOfWeek.value - 1]}"
 
 @Composable
-internal fun ScheduleAdjustmentsSettingsRow(config: ScheduleConfigEntity, value: String, onChange: (String) -> Unit) {
+internal fun ScheduleAdjustmentsSettingsRow(
+    config: ScheduleConfigEntity,
+    value: String,
+    onChange: (String) -> Unit,
+    onOpen: (() -> Unit)? = null,
+) {
     val context = LocalContext.current
     val currentOnChange by rememberUpdatedState(onChange)
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -54,7 +61,8 @@ internal fun ScheduleAdjustmentsSettingsRow(config: ScheduleConfigEntity, value:
         subtitle = if (entries.isEmpty()) "自定义停课与补课，或获取节假日后确认" else
             "${entries.count { it.sourceDate == null }} 天停课 · ${entries.count { it.sourceDate != null }} 天补课",
         onClick = {
-            context.openRegisteredActivity(TransitionRouteId.SettingsToScheduleAdjustments,
+            if (onOpen != null) onOpen()
+            else context.openRegisteredActivity(TransitionRouteId.SettingsToScheduleAdjustments,
                 ScheduleAdjustmentsActivity.intent(context, config, value),
                 launchActivity = { launcher.launch(it) })
         },
@@ -73,6 +81,7 @@ internal fun ScheduleAdjustmentsScreen(
     saving: Boolean,
     onDismiss: () -> Unit,
     onSave: suspend (previous: List<ScheduleAdjustment>, updated: List<ScheduleAdjustment>) -> Unit,
+    embedded: Boolean = false,
 ) {
     val latestEntries by rememberUpdatedState(entries)
     val config = state.config
@@ -282,11 +291,7 @@ internal fun ScheduleAdjustmentsScreen(
     }
 
     BackHandler(enabled = saving || preview != null, onBack = ::requestBack)
-    DetailActivityScaffold(
-        title = "调休课表",
-        config = config,
-        onBack = ::requestBack,
-    ) { backdrop ->
+    val content: @Composable (Backdrop?) -> Unit = { backdrop ->
         SleepDownSecondaryPageList(
             modifier = Modifier.fillMaxSize(),
             contentTopPadding = detailContentTopPadding() + 8.dp,
@@ -402,6 +407,13 @@ internal fun ScheduleAdjustmentsScreen(
                 onDismissFinished = { draft = null; draftError = null },
             )
         }
+    }
+    if (embedded) {
+        CouiSettingsTabletDetailPaneScaffold(
+            title = "调休课表", config = config, showBackButton = true, onBack = ::requestBack, content = content
+        )
+    } else {
+        DetailActivityScaffold(title = "调休课表", config = config, onBack = ::requestBack, content = content)
     }
 }
 

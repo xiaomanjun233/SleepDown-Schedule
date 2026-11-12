@@ -32,6 +32,8 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
+import com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
@@ -67,6 +69,7 @@ fun SettingsScreen(
     backdrop: Backdrop?,
     onPageChange: (SettingsPage) -> Unit,
     onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
+    onSaveAdjustments: suspend (Int, String, String) -> Unit,
     onUpdateConfig: (ScheduleConfigEntity) -> Unit,
     onUpdateGeneralConfig: (ScheduleConfigEntity) -> Unit = onUpdateConfig,
     onUpdateHomeChromeBlurScale: (Float) -> Unit,
@@ -96,16 +99,20 @@ fun SettingsScreen(
             }
             var periodSchemeReturnRequest by remember { mutableIntStateOf(0) }
             var tabletWidgetEditorVisible by remember { mutableStateOf(false) }
-            var pendingPageName by remember { mutableStateOf<String?>(null) }
-            var scheduleExitInFlight by remember { mutableStateOf(false) }
             var scheduleExitRequest by remember { mutableIntStateOf(0) }
-            var externalExitInFlight by remember { mutableStateOf(false) }
+            var exitRequestPage by remember { mutableStateOf<SettingsPage?>(null) }
+            var completeExitRequest by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
+            var adjustmentCalendar by remember(state.config.id) { mutableStateOf<ScheduleConfigEntity?>(null) }
+            var adjustmentsSaving by remember(state.config.id) { mutableStateOf(false) }
             var lastHandledExternalExitRequest by remember { mutableIntStateOf(exitCommitRequest) }
             var exitInterceptionByPage by remember {
                 mutableStateOf<Map<SettingsPage, Boolean>>(emptyMap())
             }
             val selectedPage = tabletNavigation.rootPage
             val displayedPage = tabletNavigation.displayedPage
+            val scheduleDraft = remember(state.config.id, selectedPage) {
+                if (selectedPage == SettingsPage.Schedule) ScheduleSettingsDraft(state.config) else null
+            }
             val portrait = adaptiveMetrics.screenHeight > adaptiveMetrics.screenWidth
             val navigationWidth = if (portrait) {
                 (adaptiveMetrics.contentWidth * 0.38f).coerceIn(280.dp, 328.dp)
@@ -115,10 +122,10 @@ fun SettingsScreen(
             LaunchedEffect(displayedPage) {
                 if (displayedPage != SettingsPage.Widgets) tabletWidgetEditorVisible = false
             }
-            val interceptRootExit = tabletNavigation.detailPages.isEmpty() &&
-                exitInterceptionByPage[selectedPage] == true
-            LaunchedEffect(interceptRootExit) {
-                onExitInterceptionChange(interceptRootExit)
+            val interceptExit = adjustmentsSaving || exitInterceptionByPage[displayedPage] == true ||
+                scheduleDraft?.dirty == true
+            LaunchedEffect(interceptExit) {
+                onExitInterceptionChange(interceptExit)
             }
             DisposableEffect(onExitInterceptionChange) {
                 onDispose { onExitInterceptionChange(false) }
@@ -127,20 +134,32 @@ fun SettingsScreen(
                 tabletNavigation = tabletNavigation.selectRoot(nextPage)
                 showingUpdateNotes = false
                 backupPreviewUriString = null
-                pendingPageName = null
+            }
+            fun requestPaneExit(checkScheduleDraft: Boolean, onFinished: (Boolean) -> Unit) {
+                val editingRoutines = displayedPage == SettingsPage.PeriodSchemes &&
+                    exitInterceptionByPage[displayedPage] == true
+                if (adjustmentsSaving || editingRoutines || completeExitRequest != null) {
+                    onFinished(false)
+                    return
+                }
+                val pageToCommit = when {
+                    exitInterceptionByPage[displayedPage] == true -> displayedPage
+                    checkScheduleDraft && scheduleDraft?.dirty == true -> SettingsPage.Schedule
+                    else -> null
+                }
+                if (pageToCommit == null) {
+                    onFinished(true)
+                    return
+                }
+                if (pageToCommit != displayedPage) applyTabletRootPage(pageToCommit)
+                completeExitRequest = onFinished
+                exitRequestPage = pageToCommit
+                scheduleExitRequest++
             }
             fun requestTabletRootPage(nextPage: SettingsPage) {
-                if (
-                    tabletNavigation.detailPages.isEmpty() &&
-                    exitInterceptionByPage[selectedPage] == true
-                ) {
-                    pendingPageName = nextPage.name
-                    if (!scheduleExitInFlight) {
-                        scheduleExitInFlight = true
-                        scheduleExitRequest++
-                    }
-                } else {
-                    applyTabletRootPage(nextPage)
+                if (displayedPage == nextPage && tabletNavigation.detailPages.isEmpty()) return
+                requestPaneExit(checkScheduleDraft = nextPage != selectedPage) { completed ->
+                    if (completed) applyTabletRootPage(nextPage)
                 }
             }
             fun pushTabletDetailPage(nextPage: SettingsPage) {
@@ -153,26 +172,17 @@ fun SettingsScreen(
                     showingUpdateNotes = false
                     return
                 }
-                val nextNavigation = tabletNavigation.popDetail()
-                if (nextNavigation == tabletNavigation) return
-                if (displayedPage == SettingsPage.PeriodSchemes) periodSchemeReturnRequest++
-                tabletNavigation = nextNavigation
+                requestPaneExit(checkScheduleDraft = false) { completed ->
+                    if (completed) {
+                        if (displayedPage == SettingsPage.PeriodSchemes) periodSchemeReturnRequest++
+                        tabletNavigation = tabletNavigation.popDetail()
+                    }
+                }
             }
             LaunchedEffect(exitCommitRequest) {
                 if (exitCommitRequest == lastHandledExternalExitRequest) return@LaunchedEffect
                 lastHandledExternalExitRequest = exitCommitRequest
-                if (
-                    tabletNavigation.detailPages.isEmpty() &&
-                    exitInterceptionByPage[selectedPage] == true
-                ) {
-                    externalExitInFlight = true
-                    if (!scheduleExitInFlight) {
-                        scheduleExitInFlight = true
-                        scheduleExitRequest++
-                    }
-                } else {
-                    onExitCommitFinished(true)
-                }
+                requestPaneExit(checkScheduleDraft = true, onFinished = onExitCommitFinished)
             }
             BackHandler(enabled = tabletNavigation.detailPages.isNotEmpty()) {
                 popTabletDetailPage()
@@ -201,6 +211,35 @@ fun SettingsScreen(
                         transitionSpec = { settingsDetailTransition() }
                     ) { navigation ->
                         val targetPage = navigation.displayedPage
+                        if (targetPage == SettingsPage.ScheduleAdjustments) {
+                            val calendar = adjustmentCalendar ?: state.config
+                            val entries = remember(state.config.scheduleAdjustmentsJson) {
+                                decodeScheduleAdjustments(state.config.scheduleAdjustmentsJson)
+                            }
+                            ScheduleAdjustmentsScreen(
+                                state = state.copy(config = state.config.copy(
+                                    totalWeeks = calendar.totalWeeks,
+                                    currentWeek = calendar.currentWeek,
+                                    autoCurrentWeek = calendar.autoCurrentWeek,
+                                    termStartDate = calendar.termStartDate
+                                )),
+                                entries = entries,
+                                saving = adjustmentsSaving,
+                                onDismiss = ::popTabletDetailPage,
+                                onSave = { previous, updated ->
+                                    check(!adjustmentsSaving) { "正在保存调休安排" }
+                                    adjustmentsSaving = true
+                                    try {
+                                        onSaveAdjustments(state.config.id, encodeScheduleAdjustments(previous),
+                                            encodeScheduleAdjustments(updated))
+                                    } finally {
+                                        adjustmentsSaving = false
+                                    }
+                                },
+                                embedded = true
+                            )
+                            return@AnimatedContent
+                        }
                         CouiSettingsTabletDetailPaneScaffold(
                             title = if (targetPage == SettingsPage.SoftwareUpdate && showingUpdateNotes) "更新说明" else targetPage.title(),
                             config = pageConfig,
@@ -247,23 +286,18 @@ fun SettingsScreen(
                                     backupPreviewUriString = source.toString()
                                     pushTabletDetailPage(SettingsPage.BackupPreview)
                                 },
-                                exitCommitRequest = scheduleExitRequest,
+                                retainedScheduleDraft = scheduleDraft,
+                                onOpenAdjustments = { config ->
+                                    adjustmentCalendar = config
+                                    pushTabletDetailPage(SettingsPage.ScheduleAdjustments)
+                                },
+                                exitCommitRequest = if (targetPage == exitRequestPage) scheduleExitRequest else 0,
                                 onExitCommitFinished = { completed ->
-                                    scheduleExitInFlight = false
-                                    scheduleExitRequest = 0
-                                    if (externalExitInFlight) {
-                                        externalExitInFlight = false
-                                        pendingPageName = null
-                                        onExitCommitFinished(completed)
-                                    } else {
-                                        val destination = pendingPageName
-                                        pendingPageName = null
-                                        if (completed && destination != null) {
-                                            applyTabletRootPage(
-                                                runCatching { SettingsPage.valueOf(destination) }
-                                                    .getOrDefault(SettingsPage.General)
-                                            )
-                                        }
+                                    if (targetPage == exitRequestPage) {
+                                        val action = completeExitRequest
+                                        completeExitRequest = null
+                                        exitRequestPage = null
+                                        action?.invoke(completed)
                                     }
                                 },
                                 onExitInterceptionChange = { needsInterception ->
@@ -331,6 +365,8 @@ private fun SettingsPageContent(
     onWidgetEditorVisibilityChange: (Boolean) -> Unit = {},
     backupPreviewUri: Uri? = null,
     onOpenBackupPreview: (Uri) -> Unit = {},
+    retainedScheduleDraft: ScheduleSettingsDraft? = null,
+    onOpenAdjustments: ((ScheduleConfigEntity) -> Unit)? = null,
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
     onExitInterceptionChange: (Boolean) -> Unit = {},
@@ -373,8 +409,11 @@ private fun SettingsPageContent(
             exitCommitRequest = exitCommitRequest,
             onExitCommitFinished = onExitCommitFinished,
             onExitInterceptionChange = onExitInterceptionChange,
-            onOpenPeriodSchemes = { onPageChange(SettingsPage.PeriodSchemes) }
+            retainedDraft = retainedScheduleDraft,
+            onOpenSchedulePage = if (retainedScheduleDraft != null) onPageChange else null,
+            onOpenAdjustments = onOpenAdjustments
         ) }
+        SettingsPage.ScheduleAdjustments -> Unit // Owns the scaffold in the tablet detail stack.
         SettingsPage.PeriodSchemes -> PeriodSchemeManagementScreen(
             state = state, backdrop = backdrop, exitCommitRequest = exitCommitRequest,
             onExitCommitFinished = onExitCommitFinished,

@@ -18,6 +18,7 @@ import com.xiaomanjun.sleepdownschedule.feature.schedule.*
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedAction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -432,6 +433,12 @@ class ScheduleViewModel(
     fun saveScheduleAdjustments(scheduleId: Int, original: String, updated: String,
         onSuccess: (() -> Unit)? = null, onFailure: (() -> Unit)? = null) =
         scheduleActions.saveScheduleAdjustments(scheduleId, original, updated, onSuccess, onFailure)
+
+    internal suspend fun commitScheduleAdjustments(scheduleId: Int, original: String, updated: String) {
+        viewModelScope.async {
+            scheduleActions.commitScheduleAdjustments(scheduleId, original, updated)
+        }.await()
+    }
 
     fun clearSnackbar() {
         mutableSnackbar.value = null

@@ -36,8 +36,22 @@ import java.time.YearMonth
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
+internal class ScheduleSettingsDraft(config: ScheduleConfigEntity) {
+    var original by mutableStateOf(config)
+    var config by mutableStateOf(config)
+    var totalWeeks by mutableStateOf(config.totalWeeks.toString())
+
+    val dirty: Boolean get() = config != original || totalWeeks != original.totalWeeks.toString()
+
+    fun reset(config: ScheduleConfigEntity) {
+        original = config
+        this.config = config
+        totalWeeks = config.totalWeeks.toString()
+    }
+}
+
 @Composable
-fun ScheduleConfigScreen(
+internal fun ScheduleConfigScreen(
     state: AppState,
     backdrop: Backdrop?,
     section: SettingsSection,
@@ -46,7 +60,9 @@ fun ScheduleConfigScreen(
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
     onExitInterceptionChange: (Boolean) -> Unit = {},
-    onOpenPeriodSchemes: (() -> Unit)? = null,
+    retainedDraft: ScheduleSettingsDraft? = null,
+    onOpenSchedulePage: ((SettingsPage) -> Unit)? = null,
+    onOpenAdjustments: ((ScheduleConfigEntity) -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val repository = remember(context) { (context.applicationContext as CourseScheduleApp).repository }
@@ -54,9 +70,10 @@ fun ScheduleConfigScreen(
     val id = state.config.id
     val visualConfig = settingsVisualConfig(state.config)
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
-    var original by remember(id, section) { mutableStateOf(state.config) }
-    var draft by remember(id, section) { mutableStateOf(state.config) }
-    var totalWeeks by remember(id) { mutableStateOf(state.config.totalWeeks.toString()) }
+    val editing = retainedDraft ?: remember(id, section) { ScheduleSettingsDraft(state.config) }
+    var original by editing::original
+    var draft by editing::config
+    var totalWeeks by editing::totalWeeks
     var adjustments by remember(id) { mutableStateOf(state.config.scheduleAdjustmentsJson) }
     var error by remember(id, section) { mutableStateOf<String?>(null) }
     var saving by remember(id) { mutableStateOf(false) }
@@ -64,13 +81,9 @@ fun ScheduleConfigScreen(
     var confirmShortening by remember(id) { mutableStateOf(false) }
     var choosingNewTerm by remember { mutableStateOf(false) }
 
-    val dirty = draft != original || (section == SettingsSection.Schedule && totalWeeks != original.totalWeeks.toString())
+    val dirty = editing.dirty
     LaunchedEffect(state.config) {
-        if (!dirty) {
-            original = state.config
-            draft = state.config
-            totalWeeks = state.config.totalWeeks.toString()
-        }
+        if (!dirty) editing.reset(state.config)
     }
     LaunchedEffect(state.config.scheduleAdjustmentsJson) { adjustments = state.config.scheduleAdjustmentsJson }
     LaunchedEffect(section, dirty, saving, choosingNewTerm) {
@@ -126,7 +139,11 @@ fun ScheduleConfigScreen(
     }
 
     LaunchedEffect(exitCommitRequest) {
-        if (exitCommitRequest <= 0 || saving || choosingNewTerm) return@LaunchedEffect
+        if (exitCommitRequest <= 0) return@LaunchedEffect
+        if (saving || choosingNewTerm) {
+            onExitCommitFinished(false)
+            return@LaunchedEffect
+        }
         if (section == SettingsSection.Notifications) {
             if (dirty) saveNotifications()
             onExitCommitFinished(true)
@@ -165,8 +182,8 @@ fun ScheduleConfigScreen(
             error = "请先保存或放弃当前课表设置修改"
             return
         }
-        if (page == SettingsPage.PeriodSchemes && onOpenPeriodSchemes != null) {
-            onOpenPeriodSchemes()
+        if (onOpenSchedulePage != null) {
+            onOpenSchedulePage(page)
         } else {
             context.startActivity(Intent(context, SettingsDetailActivity::class.java)
                 .putExtra("settings_page", page.name).putExtra(ScheduleCustomizeIdExtra, id))
@@ -189,6 +206,7 @@ fun ScheduleConfigScreen(
         onStartNewTerm = { if (!saving) choosingNewTerm = true },
         scheduleAdjustmentsJson = adjustments,
         onScheduleAdjustmentsChange = { adjustments = it },
+        onOpenScheduleAdjustments = onOpenAdjustments?.let { open -> { if (!saving) open(preview) } },
         onOpenPeriodSchemes = { openSchedulePage(SettingsPage.PeriodSchemes) },
         onOpenSpecialCourses = { openSchedulePage(SettingsPage.SpecialCourses) },
         error = error,
@@ -224,6 +242,7 @@ fun ScheduleConfigScreen(
                 },
                 LiquidAlertAction("不保存", LiquidAlertActionStyle.Destructive) {
                     askToSave = false
+                    editing.reset(state.config)
                     onExitCommitFinished(true)
                 },
                 LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Cancel) {
