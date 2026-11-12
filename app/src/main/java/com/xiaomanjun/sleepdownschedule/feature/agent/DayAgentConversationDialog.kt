@@ -210,7 +210,7 @@ internal fun DayAgentConversationDialog(
     onPrepareDismiss: () -> Unit,
     onDismiss: () -> Unit,
     homePresentation: Boolean = false,
-    homeCameraCenter: Offset? = null,
+    homeCameraDock: Rect? = null,
     homeInitiallyFullScreen: Boolean = false,
     onWeatherClick: (() -> Unit)? = null,
     onImportFile: ((List<android.net.Uri>) -> Unit)? = null
@@ -527,7 +527,7 @@ internal fun DayAgentConversationDialog(
                 with(density) { adaptiveMetrics.animationArc.toPx() })
         }
         homeReturnFrame?.let {
-            return topAssistantCameraReturnRect(it.contentBounds, homeCameraCenter ?: sourceRect.center,
+            return topAssistantCameraReturnRect(it.contentBounds, homeCameraDock ?: sourceRect,
                 homeReturnProgress.value)
         }
         if (homeFullScreenSettled) return homeFullRect
@@ -567,7 +567,7 @@ internal fun DayAgentConversationDialog(
     }
     fun homeMaterialBounds(): Rect {
         homeReturnFrame?.let {
-            return topAssistantCameraReturnRect(it.materialBounds, homeCameraCenter ?: sourceRect.center,
+            return topAssistantCameraReturnRect(it.materialBounds, homeCameraDock ?: sourceRect,
                 homeReturnProgress.value)
         }
         if (homeFullScreenSettled) return homeMaterialFullRect

@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.glass.ui
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
@@ -29,6 +30,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
@@ -65,7 +67,10 @@ internal val TopAssistantOpenEasing = CubicBezierEasing(0.18f, 0.76f, 0.20f, 1f)
 private val TopAssistantCloseEasing = CubicBezierEasing(0.34f, 0.02f, 0.30f, 1f)
 private val TopAssistantReboundEasing = CubicBezierEasing(0.22f, 0f, 0.28f, 1f)
 private val TopAssistantSettleEasing = CubicBezierEasing(0.20f, 0.72f, 0.26f, 1f)
-internal val TopAssistantCameraReturnSpec = tween<Float>(440, easing = CubicBezierEasing(0.34f, 0.06f, 0.42f, 0.86f))
+internal val TopAssistantCameraReturnSpec = tween<Float>(480, easing = LinearEasing)
+private const val TopAssistantCameraArrival = 0.68f
+private val TopAssistantCameraApproachEasing = CubicBezierEasing(0.34f, 0.06f, 0.42f, 1f)
+private val TopAssistantCameraFoldEasing = CubicBezierEasing(0.22f, 0f, 0.30f, 1f)
 
 /** Authored Bezier beats, not a platform/Compose spring simulation. */
 internal fun topAssistantBezierSpec(start: Float, target: Float, vertical: Boolean): FiniteAnimationSpec<Float> {
@@ -101,13 +106,18 @@ internal fun topAssistantMorphRect(source: Rect, target: Rect, drop: Float, spre
     return Rect(centerX - width / 2f, top, centerX + width / 2f, top + height)
 }
 
-internal fun topAssistantCameraReturnRect(start: Rect, cameraCenter: Offset, progress: Float): Rect {
-    val remaining = 1f - progress.coerceIn(0f, 1f)
-    val center = cameraCenter + (start.center - cameraCenter) * remaining
-    val halfSize = Offset(
-        0.5f + (start.width / 2f - 0.5f) * remaining,
-        0.5f + (start.height / 2f - 0.5f) * remaining
-    )
+internal fun topAssistantCameraReturnRect(start: Rect, cameraDock: Rect, progress: Float): Rect {
+    val arrival = TopAssistantCameraArrival
+    val approach = TopAssistantCameraApproachEasing.transform((progress / arrival).coerceIn(0f, 1f))
+    val center = start.center + (cameraDock.center - start.center) * approach
+    val halfSize = if (progress <= arrival) {
+        Offset(lerp(start.width, cameraDock.width, approach), lerp(start.height, cameraDock.height, approach)) / 2f
+    } else {
+        val fold = TopAssistantCameraFoldEasing.transform(((progress - arrival) / (1f - arrival)).coerceIn(0f, 1f))
+        val width = lerp(cameraDock.width, 1f, fold)
+        // Hold the height through the lateral fold, then converge to a single point.
+        Offset(width, minOf(cameraDock.height, width)) / 2f
+    }
     return Rect(center - halfSize, center + halfSize)
 }
 

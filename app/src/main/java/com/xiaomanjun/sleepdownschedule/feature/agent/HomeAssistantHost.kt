@@ -5,7 +5,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Path
+import android.graphics.RectF
 import android.net.Uri
+import android.os.Build
+import android.view.View
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -200,21 +204,24 @@ internal fun HomeAssistantHost(
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val safeTop = WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding()
-        val insets = ViewCompat.getRootWindowInsets(view)
-        val topCutout = insets?.displayCutout?.boundingRects?.filter {
-            it.top <= (insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars()).top)
-        }?.firstOrNull()
         // Capture the physical cutout before hiding system bars. Some OEMs report no cutout
         // while immersive, which otherwise moves the closing target halfway up the status bar.
-        val cameraCenter = remember(controller.visible, maxWidth, maxHeight, density.density) { with(density) {
-            Offset(topCutout?.exactCenterX() ?: maxWidth.toPx() / 2f,
-                topCutout?.exactCenterY() ?: safeTop.toPx() / 2f)
-        } }
-        val anchor = remember(cameraCenter, controller.visible, density.density) { with(density) {
-            val halfWidth = maxOf(topCutout?.width()?.toFloat() ?: 0f, 36.dp.toPx()) / 2f
-            Rect(cameraCenter.x - halfWidth, (cameraCenter.y - 12.dp.toPx()).coerceAtLeast(0f),
-                cameraCenter.x + halfWidth, cameraCenter.y + 12.dp.toPx())
-        } }
+        val cameraDock = remember(controller.visible, view, maxWidth, maxHeight, density.density) {
+            val cutout = topAssistantCutoutBounds(view)
+            with(density) {
+                val center = cutout?.center ?: Offset(maxWidth.toPx() / 2f, safeTop.toPx() / 2f)
+                val width = cutout?.let { it.width + 8.dp.toPx() } ?: 36.dp.toPx()
+                val height = cutout?.height ?: 12.dp.toPx()
+                val halfSize = Offset(width, height.coerceIn(1f, width)) / 2f
+                Rect(center - halfSize, center + halfSize)
+            }
+        }
+        val anchor = with(density) {
+            val center = cameraDock.center
+            val halfWidth = maxOf(cameraDock.width, 36.dp.toPx()) / 2f
+            Rect(center.x - halfWidth, (center.y - 12.dp.toPx()).coerceAtLeast(0f),
+                center.x + halfWidth, center.y + 12.dp.toPx())
+        }
         if (controller.stage == HomeAssistantStage.Hidden && controller.pullPixels > 0f) {
             Text(
                 if (controller.armed) "松开使用助手" else "继续下拉使用助手",
@@ -243,7 +250,7 @@ internal fun HomeAssistantHost(
         var reminderReturnFrom by remember { mutableStateOf<Rect?>(null) }
         var reminderTouched by remember { mutableStateOf(false) }
         fun reminderGeometry(): Rect {
-            reminderReturnFrom?.let { return topAssistantCameraReturnRect(it, cameraCenter, returnProgress.value) }
+            reminderReturnFrom?.let { return topAssistantCameraReturnRect(it, cameraDock, returnProgress.value) }
             val rect = topAssistantMorphRect(anchor, target, noticeMotion.drop.value, noticeMotion.spread.value)
             return rect.copy(bottom = rect.bottom + if (controller.pullingHome) 0f else controller.pullPixels)
         }
@@ -342,7 +349,7 @@ internal fun HomeAssistantHost(
                     onPrepareDismiss = { controller.closing = true },
                     onDismiss = controller::reset,
                     homePresentation = true,
-                    homeCameraCenter = cameraCenter,
+                    homeCameraDock = cameraDock,
                     homeInitiallyFullScreen = controller.conversationStartsFullScreen,
                     onWeatherClick = if (weatherEnabled && weather == null && !weatherPermissionGranted) {
                         { requestWeatherPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) }
@@ -352,4 +359,24 @@ internal fun HomeAssistantHost(
             }
         }
     }
+}
+
+private fun topAssistantCutoutBounds(view: View): Rect? {
+    val insets = ViewCompat.getRootWindowInsets(view) ?: return null
+    val statusTop = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars()).top
+    val cutout = insets.displayCutout?.boundingRects?.firstOrNull { it.top <= statusTop } ?: return null
+    val origin = IntArray(2)
+    view.getLocationInWindow(origin)
+    val bounds = RectF(cutout).apply { offset(-origin[0].toFloat(), -origin[1].toFloat()) }
+    if (Build.VERSION.SDK_INT >= 31) {
+        view.rootWindowInsets?.displayCutout?.cutoutPath?.let { displayPath ->
+            // A hole punch's safe inset can extend up to the display edge. The path gives
+            // the outline of the actual hole and keeps the last fold centered on it.
+            view.getLocationOnScreen(origin)
+            val path = Path(displayPath).apply { offset(-origin[0].toFloat(), -origin[1].toFloat()) }
+            val topRegion = Path().apply { addRect(bounds, Path.Direction.CW) }
+            if (path.op(topRegion, Path.Op.INTERSECT) && !path.isEmpty) path.computeBounds(bounds, true)
+        }
+    }
+    return Rect(bounds.left, bounds.top, bounds.right, bounds.bottom)
 }
