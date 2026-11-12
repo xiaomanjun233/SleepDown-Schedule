@@ -41,6 +41,7 @@ import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.*
@@ -78,6 +79,7 @@ private val SheetEase = CubicBezierEasing(.33f, 0f, .67f, 1f)
 object CouiSheetDefaults {
     val cornerRadius = 32.dp
     val maxWidth = 540.dp
+    internal val largeScreenMaxHeight = 800.dp
     val topSpacing = 40.dp
     val handleHeight = 16.dp
     val bottomPadding = 60.dp
@@ -161,6 +163,7 @@ fun ModalBottomSheet(
     var mounted by remember { mutableStateOf(visible) }
     if (visible && !mounted) SideEffect { mounted = true }
     if (!visible && !mounted) return
+    val largeScreen = LocalConfiguration.current.smallestScreenWidthDp >= 600
     val requestDismiss by rememberUpdatedState(onDismissRequest)
     val currentVisible by rememberUpdatedState(visible)
     val motion = remember { CouiSheetMotion() }
@@ -245,7 +248,9 @@ fun ModalBottomSheet(
                 BoxWithConstraints(Modifier.fillMaxSize().then(source).imePadding()) {
                     val viewport = constraints.maxHeight.toFloat()
                     // 原厂 coui_panel_min_padding_top 是距窗口顶边的总留白，不再叠加状态栏高度。
-                    val limit = (maxHeight - CouiSheetDefaults.topSpacing).coerceAtLeast(1.dp)
+                    val availableHeight = (maxHeight - CouiSheetDefaults.topSpacing).coerceAtLeast(1.dp)
+                    val limit = if (largeScreen) minOf(availableHeight, CouiSheetDefaults.largeScreenMaxHeight)
+                        else availableHeight
                     // 在组合阶段订阅测量结果，首轮 onSizeChanged 后必须重新发布运动目标。
                     val measuredHeight = panelHeight
                     LaunchedEffect(visible, measuredHeight, limit, density, peek) {

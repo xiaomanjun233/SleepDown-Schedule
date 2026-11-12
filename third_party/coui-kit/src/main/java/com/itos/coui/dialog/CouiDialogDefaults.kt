@@ -18,7 +18,7 @@ enum class CouiDialogPlacement { Bottom, Center }
 
 @Composable
 internal fun isWideDialogHost(): Boolean = LocalConfiguration.current.run {
-    screenWidthDp >= 600 && screenHeightDp >= 480
+    maxOf(screenWidthDp, screenHeightDp) >= 840 && minOf(screenWidthDp, screenHeightDp) >= 480
 }
 
 @Composable
