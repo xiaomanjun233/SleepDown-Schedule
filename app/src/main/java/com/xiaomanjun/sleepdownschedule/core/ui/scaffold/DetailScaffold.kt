@@ -83,12 +83,13 @@ fun DetailActivityScaffold(
     topBarActions: @Composable (Backdrop?) -> Unit = {},
     topBarNavigation: (@Composable () -> Unit)? = null,
     centerTopBarTitle: Boolean = false,
+    avoidHomeTabBar: Boolean = false,
     content: @Composable (Backdrop?) -> Unit
 ) {
     CouiSettingsPageScaffold(title, config, showBack = true, onBack = onBack,
         topBarVisible = topBarVisible, showTopGradientBlur = showTopGradientBlur,
         isolateContentFromBackdrop = isolateContentFromBackdrop,
-        preserveStatusBarSpace = preserveStatusBarSpace, avoidIme = avoidIme,
+        preserveStatusBarSpace = preserveStatusBarSpace, avoidIme = avoidIme, avoidHomeTabBar = avoidHomeTabBar,
         topBarBackdropOverride = topBarBackdropOverride,
         topBarBackgroundColor = topBarBackgroundColor, topBarActions = topBarActions,
         topBarNavigation = topBarNavigation, centerTopBarTitle = centerTopBarTitle) { _, source ->

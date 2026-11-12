@@ -24,17 +24,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -74,19 +74,12 @@ open class AiImportHistoryDetailActivityHost : ComponentActivity() {
         setContent {
             val state by app.repository.state.collectAsStateWithLifecycle(AppState())
             CourseScheduleTheme(config = state.config) {
-                var historyLoaded by remember(entryId) { mutableStateOf(false) }
-                val entry by produceState<AiImportHistoryEntry?>(null, entryId) {
-                    value = withContext(Dispatchers.IO) { AiImportHistoryStore.loadEntry(this@AiImportHistoryDetailActivityHost, entryId) }
-                    historyLoaded = true
-                }
-                val draft = remember(entry, state.config.id) {
-                    entry?.let { AiImportHistoryStore.restore(it, state.config).getOrNull() }
-                }
+                val record by rememberHistoryRecord(entryId)
                 CrossActivityTransitionHost(
                     activity = this@AiImportHistoryDetailActivityHost,
                     sourceContent = {
                         Box(Modifier.fillMaxSize().background(Color.Transparent)) {
-                            entry?.let {
+                            record?.entry?.let {
                                 AiImportHistoryRowContent(
                                     entry = it,
                                     modifier = Modifier.fillMaxSize(),
@@ -96,38 +89,71 @@ open class AiImportHistoryDetailActivityHost : ComponentActivity() {
                         }
                     }
                 ) { requestClose ->
-                    if (entry == null || draft == null) {
-                        DetailActivityScaffold(
-                            title = "导入历史",
-                            config = state.config,
-                            onBack = requestClose,
-                            compactTopBar = true,
-                            centerCompactTitle = true
-                        ) {
-                            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                Text(
-                                    if (historyLoaded) "这条导入记录已不存在" else "正在读取导入记录…",
-                                    color = glassForegroundColor(settingsVisualConfig(state.config)).copy(alpha = 0.52f)
-                                )
-                            }
-                        }
-                    } else {
-                        AiEduImportProgressPage(
-                            config = state.config,
-                            onClose = requestClose,
-                            historicalProgress = historyConversationProgress(checkNotNull(entry), draft),
-                            historicalDraft = draft,
-                            historicalEntryId = checkNotNull(entry).id,
-                            showHistoryAction = false,
-                            onImportSubmitted = { returnToScheduleHome() },
-                            onImportRequested = { restored, createNewSchedule ->
-                                AiEduImportProgressSession.requestFinalImport(restored, createNewSchedule)
-                            }
-                        )
-                    }
+                    AiImportHistoryRecordContent(state.config, record, requestClose, { returnToScheduleHome() })
                 }
             }
         }
+    }
+}
+
+private data class LoadedHistoryRecord(val entry: AiImportHistoryEntry?)
+
+@Composable
+private fun rememberHistoryRecord(entryId: String): State<LoadedHistoryRecord?> {
+    val context = LocalContext.current
+    return produceState<LoadedHistoryRecord?>(null, context, entryId) {
+        value = LoadedHistoryRecord(withContext(Dispatchers.IO) { AiImportHistoryStore.loadEntry(context, entryId) })
+    }
+}
+
+@Composable
+internal fun AiImportHistoryRecordPane(
+    config: ScheduleConfigEntity,
+    entryId: String,
+    onBack: () -> Unit,
+    onImportSubmitted: () -> Unit,
+) {
+    val record by rememberHistoryRecord(entryId)
+    AiImportHistoryRecordContent(config, record, onBack, onImportSubmitted, embedded = true)
+}
+
+@Composable
+private fun AiImportHistoryRecordContent(
+    config: ScheduleConfigEntity,
+    record: LoadedHistoryRecord?,
+    onBack: () -> Unit,
+    onImportSubmitted: () -> Unit,
+    embedded: Boolean = false,
+) {
+    val entry = record?.entry
+    val draft = remember(entry, config.id) { entry?.let { AiImportHistoryStore.restore(it, config).getOrNull() } }
+    if (entry == null || draft == null) {
+        DetailActivityScaffold(
+            title = "导入历史", config = config, onBack = onBack, compactTopBar = true,
+            centerCompactTitle = true, avoidHomeTabBar = embedded
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    if (record != null) "这条导入记录已不存在" else "正在读取导入记录…",
+                    color = glassForegroundColor(settingsVisualConfig(config)).copy(alpha = 0.52f)
+                )
+            }
+        }
+        return
+    }
+    val progress = remember(entry, draft) { historyConversationProgress(entry, draft) }
+    if (embedded) {
+        AiEduImportConversationPane(
+            config = config, onClose = onBack, onImportSubmitted = onImportSubmitted,
+            historicalProgress = progress, historicalDraft = draft, historicalEntryId = entry.id,
+            showHistoryAction = false, embedded = true
+        )
+    } else {
+        AiEduImportProgressPage(
+            config = config, onClose = onBack, onImportSubmitted = onImportSubmitted,
+            historicalProgress = progress, historicalDraft = draft, historicalEntryId = entry.id,
+            showHistoryAction = false
+        )
     }
 }
 

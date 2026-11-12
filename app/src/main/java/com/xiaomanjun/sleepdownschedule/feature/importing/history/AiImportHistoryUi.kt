@@ -21,6 +21,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateMapOf
@@ -46,6 +47,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itos.coui.scroll.couiVerticalScroll
+import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardDeleteBottomSpace
@@ -56,6 +58,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadd
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsTabletDetailPaneScaffold
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.progress.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
@@ -154,22 +157,28 @@ open class AiImportHistoryActivityHost : ComponentActivity() {
 }
 
 @Composable
-private fun AiImportHistoryPage(
+internal fun AiImportHistoryPage(
     config: ScheduleConfigEntity,
     onBack: () -> Unit,
-    onOpen: (
+    onOpenInPane: ((AiImportHistoryEntry) -> Unit)? = null,
+    onOpen: ((
         AiImportHistoryEntry,
         androidx.compose.ui.geometry.Rect,
         Bitmap?,
         Bitmap?,
         () -> androidx.compose.ui.geometry.Rect?
-    ) -> Unit
+    ) -> Unit)? = null,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val pageConfig = settingsVisualConfig(config)
     val pageColor = settingsPageBackground(pageConfig)
     val textColor = glassForegroundColor(pageConfig)
-    var entries by remember { mutableStateOf(AiImportHistoryStore.load(context)) }
+    var entries by remember { mutableStateOf<List<AiImportHistoryEntry>>(emptyList()) }
+    var loaded by remember { mutableStateOf(false) }
+    LaunchedEffect(context) {
+        entries = withContext(Dispatchers.IO) { AiImportHistoryStore.load(context) }
+        loaded = true
+    }
     var revealedEntryId by remember { mutableStateOf<String?>(null) }
     var deleteError by remember { mutableStateOf<String?>(null) }
     val selection = remember { CardDeletionSelection("选择导入记录") }
@@ -183,7 +192,7 @@ private fun AiImportHistoryPage(
         entries = entries.filterNot { it.id in ids }
     }
     val scope = rememberCoroutineScope()
-    val snapshotLayer = rememberGraphicsLayer()
+    val snapshotLayer = if (onOpen != null) rememberGraphicsLayer() else null
     val snapshotRequested = remember { AtomicBoolean(false) }
     var snapshotRequestVersion by remember { mutableStateOf(0) }
     var rootPosition by remember { mutableStateOf(Offset.Zero) }
@@ -201,24 +210,19 @@ private fun AiImportHistoryPage(
                 rootSize = it.size
             }
             .drawWithContent {
-                if (snapshotRequestVersion >= 0 && snapshotRequested.compareAndSet(true, false)) {
+                if (snapshotLayer != null && snapshotRequestVersion >= 0 &&
+                    snapshotRequested.compareAndSet(true, false)) {
                     snapshotLayer.record { this@drawWithContent.drawContent() }
                 }
                 drawContent()
             }
     ) {
-        DetailActivityScaffold(
-            title = "导入历史",
-            config = config,
-            onBack = onBack,
-            compactTopBar = true,
-            centerCompactTitle = true
-        ) { _ ->
+        val listContent: @Composable (Backdrop?) -> Unit = {
             val scrollable = Modifier.fillMaxSize().glassBackdropProducer(listBackdrop)
                 .couiVerticalScroll(rememberScrollState())
             if (entries.isEmpty()) {
                 Box(scrollable, contentAlignment = Alignment.Center) {
-                    Text("还没有导入记录", color = textColor.copy(alpha = 0.52f))
+                    if (loaded) Text("还没有导入记录", color = textColor.copy(alpha = 0.52f))
                 }
             } else {
                 Column(
@@ -251,7 +255,9 @@ private fun AiImportHistoryPage(
                                 onDelete = { deleteEntries(setOf(entry.id)) },
                                 onDeleteFailed = { deleteError = it },
                                 onOpen = { bounds ->
-                                    scope.launch {
+                                    if (onOpenInPane != null) {
+                                        onOpenInPane(entry)
+                                    } else if (snapshotLayer != null && onOpen != null) scope.launch {
                                         snapshotRequested.set(true)
                                         snapshotRequestVersion += 1
                                         withFrameNanos { }
@@ -297,6 +303,16 @@ private fun AiImportHistoryPage(
                     onDelete = { selected -> deleteEntries(selected.mapTo(mutableSetOf()) { it.id }) }
                 )
             }
+        }
+        if (onOpenInPane != null) {
+            CouiSettingsTabletDetailPaneScaffold(
+                title = "导入历史", config = config, showBackButton = true, onBack = onBack, content = listContent
+            )
+        } else {
+            DetailActivityScaffold(
+                title = "导入历史", config = config, onBack = onBack,
+                compactTopBar = true, centerCompactTitle = true, content = listContent
+            )
         }
     }
 }

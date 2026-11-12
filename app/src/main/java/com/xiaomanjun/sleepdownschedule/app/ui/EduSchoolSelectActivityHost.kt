@@ -11,6 +11,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -27,10 +29,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -76,6 +80,8 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.NormalizedAiManualImpo
 import com.xiaomanjun.sleepdownschedule.feature.importing.PendingImportSetupStore
 import com.xiaomanjun.sleepdownschedule.feature.importing.UnifiedImportTabs
 import com.xiaomanjun.sleepdownschedule.feature.importing.cropToAiHistorySource
+import com.xiaomanjun.sleepdownschedule.feature.importing.history.AiImportHistoryPage
+import com.xiaomanjun.sleepdownschedule.feature.importing.history.AiImportHistoryRecordPane
 import com.xiaomanjun.sleepdownschedule.feature.importing.ShiguangWarehouse
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.describeAdapterRefresh
@@ -193,13 +199,27 @@ internal fun UnifiedImportPage(
     }
     val recordingDensity = LocalDensity.current
     val refreshScope = rememberCoroutineScope()
+    var showHistoryPane by rememberSaveable(form.openRequestVersion) { mutableStateOf(false) }
+    var historyEntryId by rememberSaveable(form.openRequestVersion) { mutableStateOf<String?>(null) }
+    fun backFromHistory() {
+        if (historyEntryId != null) historyEntryId = null
+        else showHistoryPane = false
+    }
+    BackHandler(enabled = embedded && showHistoryPane, onBack = ::backFromHistory)
     var historyBounds by remember { mutableStateOf(Rect.Zero) }
     var historyOpening by remember { mutableStateOf(false) }
     var historyHidden by remember { mutableStateOf(false) }
-    val historyScene = rememberGraphicsLayer()
+    val historyScene = if (embedded) null else rememberGraphicsLayer()
     fun openHistory(sourceView: View?) {
+        if (form.submitting || historyOpening || showHistoryPane) return
+        if (embedded) {
+            focus.clearFocus(force = true)
+            keyboard?.hide()
+            showHistoryPane = true
+            return
+        }
+        val scene = historyScene ?: return
         val activity = context.findActivity() ?: return
-        if (historyOpening || form.submitting) return
         historyOpening = true
         refreshScope.launch {
             var removeCover: (() -> Unit)? = null
@@ -243,11 +263,9 @@ internal fun UnifiedImportPage(
                             withFrameNanos { }
                             withFrameNanos { }
                         }
-                        val background = when {
-                            !historyHidden -> fullFrame
-                            embedded -> captureGlassWindowRegion(window, windowBounds)
-                            else -> runCatching { historyScene.toImageBitmap().asAndroidBitmap() }.getOrNull()
-                        }
+                        val background = if (historyHidden) {
+                            runCatching { scene.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                        } else fullFrame
                         pending.copy(openingAnchor = captured, returnAnchorProvider = returnAnchor(captured),
                             backgroundBitmap = background)
                     }
@@ -314,17 +332,22 @@ internal fun UnifiedImportPage(
                 modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
                 buttonHeight = 42.dp
             )
-            if (unifiedImport) LiveTransitionButton(
-                modifier = Modifier.onGloballyPositioned { historyBounds = it.boundsInWindow() },
-                show = !historyHidden,
-            ) { sourceView ->
-                TopGlassIconButton(
-                    backdrop = topBackdrop,
-                    config = settingsVisualConfig(state.config),
-                    iconRes = R.drawable.ic_history,
-                    contentDescription = "导入历史",
-                    onClick = { openHistory(sourceView) },
-                    modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize)
+            if (unifiedImport) {
+                val historyButton: @Composable (View?) -> Unit = { sourceView ->
+                    TopGlassIconButton(
+                        backdrop = topBackdrop,
+                        config = settingsVisualConfig(state.config),
+                        iconRes = R.drawable.ic_history,
+                        contentDescription = "导入历史",
+                        onClick = { openHistory(sourceView) },
+                        modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize)
+                    )
+                }
+                if (embedded) historyButton(null)
+                else LiveTransitionButton(
+                    modifier = Modifier.onGloballyPositioned { historyBounds = it.boundsInWindow() },
+                    show = !historyHidden,
+                    content = historyButton
                 )
             }
         }
@@ -428,8 +451,39 @@ internal fun UnifiedImportPage(
         }
     }
     val title = if (unifiedImport) "导入课表" else "选择学校"
-    Box(Modifier.fillMaxSize().drawWithContent {
-        if (historyHidden && !embedded) {
+    if (embedded) {
+        Crossfade(
+            targetState = showHistoryPane to historyEntryId,
+            modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp).clipToBounds(),
+            animationSpec = tween(220),
+            label = "ImportPane"
+        ) { (history, entryId) ->
+            when {
+                !history -> retainedTabs.SaveableStateProvider("import-page") {
+                    CouiSettingsTabletDetailPaneScaffold(
+                        title, state.config, topBarActions = topBarActions, content = pageContent
+                    )
+                }
+                entryId == null -> retainedTabs.SaveableStateProvider("history-page") {
+                    AiImportHistoryPage(
+                        config = state.config, onBack = { if (historyEntryId == null) showHistoryPane = false },
+                        onOpenInPane = {
+                            if (showHistoryPane && historyEntryId == null) historyEntryId = it.id
+                        }
+                    )
+                }
+                else -> AiImportHistoryRecordPane(
+                    config = state.config, entryId = entryId, onBack = { historyEntryId = null },
+                    onImportSubmitted = {
+                        historyEntryId = null
+                        showHistoryPane = false
+                        onBack()
+                    }
+                )
+            }
+        }
+    } else Box(Modifier.fillMaxSize().drawWithContent {
+        if (historyHidden && historyScene != null) {
             historyScene.record {
                 withRecordingDensity(recordingDensity) { this@drawWithContent.drawContent() }
             }
@@ -438,22 +492,17 @@ internal fun UnifiedImportPage(
             drawContent()
         }
     }) {
-        if (embedded) {
-            CouiSettingsTabletDetailPaneScaffold(title, state.config, topBarActions = topBarActions, content = pageContent)
-        } else {
-            DetailActivityScaffold(
-                title = title,
-                config = state.config,
-                onBack = { if (!form.submitting) onBack() },
-                topBarActions = topBarActions,
-                content = pageContent
-            )
-        }
+        DetailActivityScaffold(
+            title = title, config = state.config, onBack = { if (!form.submitting) onBack() },
+            topBarActions = topBarActions, content = pageContent
+        )
     }
 }
 
 internal class UnifiedImportFormState(private val savedState: SavedStateHandle) : ViewModel() {
     private var initialized = false
+    var openRequestVersion by mutableIntStateOf(0)
+        private set
     var selectedTab by mutableIntStateOf(savedState.get<Int>("import_tab") ?: 0)
         private set
     var input by mutableStateOf("")
@@ -477,6 +526,7 @@ internal class UnifiedImportFormState(private val savedState: SavedStateHandle) 
         reset()
         input = text.orEmpty()
         initialFiles = files.distinct()
+        openRequestVersion++
     }
 
     fun reset() {

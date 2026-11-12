@@ -223,7 +223,8 @@ internal fun AiEduImportConversationPane(
     historicalDraft: ImportDraft? = null,
     historicalEntryId: String? = null,
     showHistoryAction: Boolean = true,
-    onImportRequested: ((ImportDraft, Boolean) -> Unit)? = null
+    onImportRequested: ((ImportDraft, Boolean) -> Unit)? = null,
+    embedded: Boolean = false,
 ) {
     AiImportConversationTheme(config) {
     val context = LocalContext.current
@@ -427,6 +428,7 @@ internal fun AiEduImportConversationPane(
             compactTopBar = true,
             centerCompactTitle = true,
             avoidIme = false,
+            avoidHomeTabBar = embedded,
             topBarActions = { topBarBackdrop ->
                 if (showHistoryAction) {
                     AiEduHistoryButton(
