@@ -66,7 +66,11 @@ APK v2 签名验证通过。SDK ADB 5038 在 API 36 模拟器用户 10 覆盖安
 凝光和液态周视图助手的小窗关闭通过，液态另测了小窗进入全屏和退回。常速半分辨率录屏
 中，凝光外壳抵达开孔后的深色跨度约为 41、18、5 像素，液态约为 40、37、5 像素，
 中心保持在录屏横坐标 208 像素附近。录屏为 `home-motion-camera-fold-*-verified-assistant-camera-return.mp4`。
-两种材质的换周、加号对齐及按压返回通过。OPPO PLJ110 的安装记录仍对应下节包。
+两种材质的换周、加号对齐及按压返回通过。
+
+18:34:22 经 SDK ADB 37.0.1、5038 覆盖安装到 USB OPPO PLJ110，Android 17 / API 37、
+用户 0，回读 APK 哈希与归档一致。安装记录为
+`tmp/material-device-qa/home-motion-camera-fold-phone-install.log`。
 
 ## 11 月 12 日空白格添加、顶栏和回到本周
 
