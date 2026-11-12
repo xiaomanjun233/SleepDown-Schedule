@@ -23,7 +23,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -31,6 +33,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
@@ -110,17 +114,18 @@ internal fun HomeNavigationSurface(
     config: ScheduleConfigEntity,
     backdrop: Backdrop,
     lightGlass: Boolean,
-    shape: Shape,
+    shape: () -> Shape,
     modifier: Modifier,
     domain: GlassBackdropDomain = GlassBackdropDomain.ChromeCombined,
     followTouch: Boolean = true,
     content: @Composable () -> Unit = {},
 ) {
+    val outline = remember(shape) { HomeNavigationOutline(shape) }
     val rendered = LocalNativeMaterialSurfaceRenderer.current?.invoke(
         NativeMaterialSurfaceRequest(
-            modifier = modifier.then(if (lightGlass) Modifier.shadow(9.dp, shape, clip = false)
+            modifier = modifier.then(if (lightGlass) Modifier.shadow(9.dp, outline, clip = false)
                 else Modifier),
-            shape = shape, dark = !lightGlass,
+            shape = outline, shapeProvider = shape, dark = !lightGlass,
             role = NativeMaterialSurfaceRole.HomeNavigation, backdrop = backdrop,
             followTouch = followTouch,
         ), content
@@ -140,7 +145,7 @@ internal fun HomeNavigationSurface(
     )
     val descriptor = rememberGlassSurfaceDescriptor("HomeNavigation", domain, material.role)
     Box(modifier.sleepDownGlassSurface(
-        backdrop = backdrop, descriptor = descriptor, material = material, shape = { shape },
+        backdrop = backdrop, descriptor = descriptor, material = material, shape = shape,
         fallbackColor = flatControlColor(!lightGlass),
         effectFrame = GlassEffectFrame(blur, material.lensHeight, material.lensAmount,
             useVibrancy = true, chromaticAberration = true),
@@ -148,6 +153,11 @@ internal fun HomeNavigationSurface(
         shadowOverride = { Shadow.Default },
         onDrawSurface = { drawRect(tint) }
     )) { content() }
+}
+
+private class HomeNavigationOutline(private val shape: () -> Shape) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline =
+        shape().createOutline(size, layoutDirection, density)
 }
 
 @Composable

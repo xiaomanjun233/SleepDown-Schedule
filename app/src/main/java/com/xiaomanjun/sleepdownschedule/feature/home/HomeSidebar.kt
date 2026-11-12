@@ -56,10 +56,10 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
@@ -79,7 +79,6 @@ import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -88,9 +87,7 @@ import androidx.compose.ui.util.lerp
 import com.itos.coui.motion.couiTouchMotion
 import com.itos.coui.motion.rememberCouiTouchMotion
 import com.kyant.backdrop.Backdrop
-import com.kyant.shapes.RoundedCornerStyle
 import com.kyant.shapes.RoundedRectangle
-import com.kyant.shapes.RoundedRectangularShape
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.identity.currentIconResId
@@ -119,24 +116,6 @@ private val HomeSidebarTabs = listOf(
     HomeSidebarDestination.Week to "课程表",
     HomeSidebarDestination.Settings to "设置"
 )
-
-private class HomeSidebarMorphShape(
-    private val state: HomeSidebarState,
-    override val style: RoundedCornerStyle = HomeSidebarPanelShape.style,
-) : RoundedRectangularShape {
-    private fun outlineShape() = RoundedRectangle(
-        lerp(HomeSidebarTabCorner.value, HomeSidebarPanelCorner.value, state.shellExpansion()).dp,
-        style,
-    )
-
-    override fun corners(size: Size, layoutDirection: LayoutDirection, density: Density) =
-        outlineShape().corners(size, layoutDirection, density)
-
-    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
-        outlineShape().createOutline(size, layoutDirection, density)
-
-    override fun copy(style: RoundedCornerStyle): RoundedRectangularShape = HomeSidebarMorphShape(state, style)
-}
 
 @Stable
 internal class HomeSidebarState(
@@ -288,7 +267,12 @@ internal fun HomeSidebar(
         animationSpec = tween(220), label = "HomeSidebarContentTheme"
     )
     val moving = state.moving
-    val shape = remember(state) { HomeSidebarMorphShape(state) }
+    val shape: () -> Shape = remember(state) {
+        {
+            RoundedRectangle(lerp(HomeSidebarTabCorner.value, HomeSidebarPanelCorner.value,
+                state.shellExpansion()).dp)
+        }
+    }
     val tabWidth = minOf(300.dp, metrics.screenWidth - 24.dp)
     val sidebarScroll = rememberScrollState()
     val enabled = navigationEnabled && !moving
