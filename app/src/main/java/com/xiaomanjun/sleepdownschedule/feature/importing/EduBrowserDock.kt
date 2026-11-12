@@ -34,8 +34,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Lock
+import com.itos.coui.icons.CouiIcons
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -618,7 +617,7 @@ internal fun EduBrowserDock(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Lock,
+                    imageVector = CouiIcons.Filled.Lock,
                     contentDescription = if (onPrimaryAction != null) "学校登录" else "安全连接",
                     tint = foreground.copy(alpha = 0.72f),
                     modifier = Modifier.size(17.dp)

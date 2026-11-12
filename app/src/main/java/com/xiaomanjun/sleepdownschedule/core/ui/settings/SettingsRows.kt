@@ -95,8 +95,11 @@ fun SettingsNavigationRow(
     onClick: () -> Unit
 ) {
     val neutralSelection = MaterialTheme.colorScheme.onSurface
-    val iconTint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f)
-        androidx.compose.ui.graphics.lerp(leadingIconTint, ComposeColor.White, 0.18f) else leadingIconTint
+    val iconTint = if (leadingIconTint != ComposeColor.Unspecified &&
+        MaterialTheme.colorScheme.background.luminance() < 0.5f
+    ) {
+        androidx.compose.ui.graphics.lerp(leadingIconTint, ComposeColor.White, 0.18f)
+    } else leadingIconTint
     if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
         SettingsArrowPreference(
             title = title,

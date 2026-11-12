@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android" xmlns:aapt="http://schemas.android.com/aapt" android:name="Grid" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <path android:pathData="M14.8,21H19.2C20.194,21 21,20.194 21,19.2V14.8C21,13.806 20.194,13 19.2,13H14.8C13.806,13 13,13.806 13,14.8V19.2C13,20.194 13.806,21 14.8,21Z" android:fillColor="#FF000000" />
+    <path android:pathData="M4.8,21H9.2C10.194,21 11,20.194 11,19.2V14.8C11,13.806 10.194,13 9.2,13H4.8C3.806,13 3,13.806 3,14.8L3,19.2C3,20.194 3.806,21 4.8,21Z" android:fillColor="#FF000000" />
+    <path android:pathData="M14.8,11H20.2C21.194,11 22,10.194 22,9.2V3.8C22,2.806 21.194,2 20.2,2H14.8C13.806,2 13,2.806 13,3.8V9.2C13,10.194 13.806,11 14.8,11Z" android:fillColor="#FF000000" android:fillAlpha="0.4" android:strokeAlpha="0.4" />
+    <path android:pathData="M4.8,11H9.2C10.194,11 11,10.194 11,9.2V4.8C11,3.806 10.194,3 9.2,3H4.8C3.806,3 3,3.806 3,4.8L3,9.2C3,10.194 3.806,11 4.8,11Z" android:fillColor="#FF000000" />
+</vector>

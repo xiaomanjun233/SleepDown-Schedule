@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- These names also identify existing actions and are used by drawable-based consumers. -->
+    <item type="drawable" name="ic_arrow_back">@drawable/coui_back_filled</item>
+    <item type="drawable" name="ic_close">@drawable/coui_close_filled</item>
+    <item type="drawable" name="ic_agent_search">@drawable/coui_search_outlined</item>
+    <item type="drawable" name="ic_agent_settings">@drawable/coui_setting_filled</item>
+    <item type="drawable" name="ic_courses">@drawable/coui_book_open_filled</item>
+    <item type="drawable" name="ic_settings">@drawable/coui_setting_filled</item>
+    <item type="drawable" name="ic_image_attachment">@drawable/coui_photo_outlined</item>
+    <item type="drawable" name="ic_material_photo_library">@drawable/coui_album_outlined</item>
+    <item type="drawable" name="ic_day_view">@drawable/coui_certificate_filled</item>
+    <item type="drawable" name="ic_week_view">@drawable/coui_calendar</item>
+</resources>

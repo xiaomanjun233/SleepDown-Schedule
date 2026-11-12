@@ -91,7 +91,6 @@ import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.identity.currentIconResId
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeTodayIcon
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeActionIcon
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMenuRowRenderer
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMenuItem
@@ -104,8 +103,6 @@ import kotlin.math.PI
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Layers
-import top.yukonga.miuix.kmp.icon.extended.Notes
-import top.yukonga.miuix.kmp.icon.extended.Weeks
 
 internal enum class HomeSidebarDestination { Day, Week, Settings, Courses, Schedules, EduImport }
 
@@ -410,17 +407,19 @@ internal fun HomeSidebar(
                     Column(Modifier.weight(1f).pageVerticalScroll(sidebarScroll),
                         verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         HomeSidebarTabs.forEach { (destination, label) ->
-                            val icon = when (destination) {
-                                HomeSidebarDestination.Day -> HomeTodayIcon
-                                HomeSidebarDestination.Week -> MiuixIcons.Weeks
-                                else -> requireNotNull(homeActionIcon(R.drawable.ic_settings))
+                            val iconRes = when (destination) {
+                                HomeSidebarDestination.Day -> R.drawable.ic_day_view
+                                HomeSidebarDestination.Week -> R.drawable.ic_week_view
+                                else -> R.drawable.ic_settings
                             }
-                            SidebarDestinationRow(destination, label, icon, selected, ink, enabled, !lightGlass) {
+                            SidebarDestinationRow(destination, label, requireNotNull(homeActionIcon(iconRes)),
+                                selected, ink, enabled, !lightGlass) {
                                 navigate(destination)
                             }
                         }
                         SidebarSectionHeading("课表操作", ink)
-                        SidebarDestinationRow(HomeSidebarDestination.Courses, "课程管理", MiuixIcons.Notes,
+                        SidebarDestinationRow(HomeSidebarDestination.Courses, "课程管理",
+                            requireNotNull(homeActionIcon(R.drawable.ic_courses)),
                             selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Courses) }
                         SidebarRow("跳转周数", ink, false, enabled, !lightGlass, ::jumpWeek, Role.Button) {
                             Icon(requireNotNull(homeActionIcon(R.drawable.ic_material_event)), null,

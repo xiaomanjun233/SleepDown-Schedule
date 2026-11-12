@@ -37,8 +37,6 @@ import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.LocationOn
-import androidx.compose.material.icons.outlined.PersonOutline
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -491,10 +489,10 @@ internal fun ManagedCourseListCardContent(
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 if (locations.isNotEmpty()) {
-                    ManagedCourseCardMetadata(Icons.Outlined.LocationOn, "地点", locations, summaryColor)
+                    ManagedCourseCardMetadata(CouiIcons.Filled.Location, "地点", locations, summaryColor)
                 }
                 if (teachers.isNotEmpty()) {
-                    ManagedCourseCardMetadata(Icons.Outlined.PersonOutline, "教师", teachers, summaryColor)
+                    ManagedCourseCardMetadata(CouiIcons.Filled.UserCircle, "教师", teachers, summaryColor)
                 }
             }
         }

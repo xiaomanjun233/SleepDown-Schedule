@@ -80,7 +80,11 @@ import com.itos.coui.theme.CouiIcon as Icon
 import com.itos.coui.theme.CouiText as Text
 
 /** 导航胶囊只消费图标与标题；选中态、强调色和触觉策略由 [CouiDockStyle] 提供。 */
-data class CouiDockItem(val title: String, val icon: ImageVector)
+data class CouiDockItem(
+    val title: String,
+    val icon: ImageVector,
+    val selectedIcon: ImageVector = icon,
+)
 
 /**
  * 独立导航胶囊的外观参数。附件、窗口安全区、宿主布局和导航提交不在库内决定。
@@ -368,7 +372,7 @@ internal fun CouiDockMenuContent(
                     ) {
                         Icon(
                             modifier = Modifier.size(style.iconSize),
-                            imageVector = item.icon,
+                            imageVector = if (isSelected) item.selectedIcon else item.icon,
                             contentDescription = null,
                             tint = if (isSelected) style.selectedColor else style.unselectedColor,
                         )

@@ -9,8 +9,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
+import com.itos.coui.icons.CouiIcons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -285,7 +285,7 @@ private fun CourseCopyNotice(
                     ),
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(Icons.Rounded.Close, contentDescription = if (busy) null else "取消复制",
+                    Icon(CouiIcons.Close, contentDescription = if (busy) null else "取消复制",
                         tint = foreground, modifier = Modifier.size(18.dp))
                 }
             }

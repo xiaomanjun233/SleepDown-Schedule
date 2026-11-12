@@ -22,7 +22,6 @@ import androidx.compose.foundation.lazy.staggeredgrid.items
 import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CalendarToday
-import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.ViewAgenda
 import androidx.compose.material.icons.rounded.Add
@@ -44,6 +43,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.itos.coui.floatingactionbutton.CouiFabDefaults
 import com.itos.coui.floatingactionbutton.Fab
+import com.itos.coui.icons.CouiIcons
 import com.itos.coui.scroll.rememberCouiOverscrollEffect
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
@@ -240,7 +240,7 @@ private fun TimeSlotCourseCard(
         val placement = if (slot.displayMode == TimeSlotDisplayMode.INDEPENDENT)
             timeSlotAnchorLabel(slot.afterPeriod) else "智能显示"
         TimeSlotCourseCardInfo(Icons.Outlined.ViewAgenda, placement, foreground)
-        if (slot.location.isNotBlank()) TimeSlotCourseCardInfo(Icons.Outlined.LocationOn, slot.location, foreground)
+        if (slot.location.isNotBlank()) TimeSlotCourseCardInfo(CouiIcons.Filled.Location, slot.location, foreground)
     }
 }
 

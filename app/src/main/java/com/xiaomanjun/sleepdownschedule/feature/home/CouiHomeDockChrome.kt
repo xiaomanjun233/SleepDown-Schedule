@@ -119,13 +119,14 @@ internal fun CouiHomeDock(
             spotLightColor = selectedColor,
         )
     }
-    val plusStyle = remember(effectiveDark, selectedColor, density, contour) {
+    val plusIcon = requireNotNull(homeActionIcon(R.drawable.ic_add_course))
+    val plusStyle = remember(effectiveDark, selectedColor, density, contour, plusIcon) {
         CouiDockPlusStyle.reference(
             accent = selectedColor,
             dark = effectiveDark,
             density = density.density,
             contourGlowEnabled = contour,
-            icon = requireNotNull(homeActionIcon(R.drawable.ic_add_course)),
+            icon = plusIcon,
             iconDescription = "导入课表",
             // OpaqueSmall1 preset light end is 0.6; native 2× is 1.2.
             lightFollowLightIntensity = 1.2f,
@@ -134,11 +135,15 @@ internal fun CouiHomeDock(
         ).let { base -> base.copy(material = com.itos.coui.floatingactionbutton.CouiFabDefaults.translucentMaterial(
             selectedColor, effectiveDark, base.material.extension)) }
     }
-    val items = remember {
+    val dayIcon = requireNotNull(homeActionIcon(R.drawable.ic_day_view))
+    val weekIcon = requireNotNull(homeActionIcon(R.drawable.ic_week_view))
+    val settingsIcon = requireNotNull(homeActionIcon(R.drawable.ic_settings, filledSetting = false))
+    val selectedSettingsIcon = requireNotNull(homeActionIcon(R.drawable.ic_settings))
+    val items = remember(dayIcon, weekIcon, settingsIcon, selectedSettingsIcon) {
         listOf(
-            CouiDockItem("今日", requireNotNull(homeActionIcon(R.drawable.ic_day_view))),
-            CouiDockItem("课程表", requireNotNull(homeActionIcon(R.drawable.ic_week_view))),
-            CouiDockItem("设置", requireNotNull(homeActionIcon(R.drawable.ic_settings))),
+            CouiDockItem("今日", dayIcon),
+            CouiDockItem("课程表", weekIcon),
+            CouiDockItem("设置", settingsIcon, selectedIcon = selectedSettingsIcon),
         )
     }
     val plusVisible = selectedIndex < 2

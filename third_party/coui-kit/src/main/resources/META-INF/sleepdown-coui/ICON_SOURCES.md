@@ -41,3 +41,28 @@ APK SHA-256：
 - com.oplus.tips：556917e2079696cd13fd82c3636949a4a2f5d78e473c3e79c829f9724aea83f9
 
 原厂及 Android 上游权利保留。未检出这些提取资源附带的独立许可；本项目不将其改标为 MPL-2.0，也不授予额外第三方权利。
+
+## 官网图库接入
+
+下列 VectorDrawable 取自 [COUI-Kit 的 coui-icons 模块](https://github.com/ItosEO/COUI-Kit/tree/main/coui-icons/src/main/res/drawable)。保留原图的路径、渐变、透明度、视口和 RTL 设置。单色图标移除上游预设 tint，由 SleepDown 的现有控件决定着色。`coui_calendar.xml` 与上表的 `Calendar` 共用同一几何。
+
+| 矢量资源 | 上游 XML Git blob |
+| --- | --- |
+| `coui_back_filled.xml` | `6c5687f3ac9c4a02d8444945769b3485bc926e9b` |
+| `coui_close_filled.xml` | `bc42100a5d3a491e1bb27488475a8a89f9cf78b7` |
+| `coui_search_outlined.xml` | `fbf28b7a931bb958c0c16a1b85ba7a01d071d9a8` |
+| `coui_setting_filled.xml` | `b3605222b453c290438fc8c9bf5d9f5161f96a0d` |
+| `coui_setting_outlined.xml` | `c4d11f358914f0150be7ad2d3ae57a6a9e98cb08` |
+| `coui_bell_filled.xml` | `ed8ded4fc320c5acabd1099e841b2b8f2ce08b7c` |
+| `coui_grid_filled.xml` | `0ac5b2c2e37ed1e192390c734e5d3670cee651a8` |
+| `coui_slider_custom_outlined.xml` | `d97aff05a358ddf10d774e76e5209b0a8b3b3d88` |
+| `coui_book_open_filled.xml` | `5144ca52924ef39ee696904b93fd8736fb7aebcd` |
+| `coui_location_filled.xml` | `d5340e25de3aed9cd915449cb4f8572b29dc9d11` |
+| `coui_user_circle_filled.xml` | `80c95046a7af3b71ec68ef99efdf60e001fce0da` |
+| `coui_photo_outlined.xml` | `d31c953d320da72ecfc7845b52cb30cae4a3f24c` |
+| `coui_album_outlined.xml` | `b7833de41ca80b9cb844a043be66d7914a4cfe35` |
+| `coui_lock_filled.xml` | `9cf1d6a474ecd0b96644680943dce64b61382114` |
+| `coui_ai_filled.xml` | `84bf1e84b955ab8a32f520eab8f48504e77aaf76` |
+| `coui_certificate_filled.xml` | `d6b90159ce274e2cb24aef0c1be095887341a158` |
+
+上游 [NOTICE](https://github.com/ItosEO/COUI-Kit/blob/main/NOTICE) 中关于第三方图标的来源和权利说明继续适用。

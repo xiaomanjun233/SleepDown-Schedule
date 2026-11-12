@@ -11,16 +11,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.Favorite
-import androidx.compose.material.icons.rounded.Notifications
-import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SettingsBackupRestore
 import androidx.compose.material.icons.rounded.Sync
-import androidx.compose.material.icons.rounded.SystemUpdate
-import androidx.compose.material.icons.rounded.Tune
-import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -66,6 +60,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import java.io.File
 import top.yukonga.miuix.kmp.utils.overScrollVertical
 import com.itos.coui.scroll.rememberCouiOverscrollEffect
+import com.itos.coui.icons.CouiIcons
 import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsSearch
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsListLayout
@@ -166,7 +161,7 @@ fun SettingsRootScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth().homeSwitchGroup()) {
                     SettingsNavigationRow(
                         "通用设置",
-                        leadingIcon = Icons.Rounded.Settings,
+                        leadingIcon = CouiIcons.Filled.Setting,
                         leadingIconTint = ComposeColor(0xFF0A84FF),
                         selected = selectedPage == SettingsPage.General,
                         minHeight = 52.dp, onClick = { onPageChange(SettingsPage.General) }
@@ -174,7 +169,7 @@ fun SettingsRootScreen(
                     SettingsDivider(startIndent = 56.dp)
                     SettingsNavigationRow(
                         "小组件设置",
-                        leadingIcon = Icons.Rounded.Widgets,
+                        leadingIcon = CouiIcons.Filled.Grid,
                         leadingIconTint = ComposeColor(0xFFFF9500),
                         selected = selectedPage == SettingsPage.Widgets,
                         minHeight = 52.dp, onClick = { onPageChange(SettingsPage.Widgets) }
@@ -182,7 +177,7 @@ fun SettingsRootScreen(
                     SettingsDivider(startIndent = 56.dp)
                     SettingsNavigationRow(
                         "当前课表设置",
-                        leadingIcon = Icons.Rounded.Tune,
+                        leadingIcon = CouiIcons.Outlined.SliderCustom,
                         leadingIconTint = ComposeColor(0xFF5856D6),
                         selected = selectedPage == SettingsPage.Schedule,
                         minHeight = 52.dp, onClick = { onPageChange(SettingsPage.Schedule) }
@@ -199,7 +194,7 @@ fun SettingsRootScreen(
                     SettingsDivider(startIndent = 56.dp)
                     SettingsNavigationRow(
                         "通知设置",
-                        leadingIcon = Icons.Rounded.Notifications,
+                        leadingIcon = CouiIcons.Filled.Bell,
                         leadingIconTint = ComposeColor(0xFF0A84FF),
                         selected = selectedPage == SettingsPage.Notifications,
                         minHeight = 52.dp, onClick = { onPageChange(SettingsPage.Notifications) }
@@ -210,8 +205,8 @@ fun SettingsRootScreen(
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth().homeSwitchGroup()) {
                     SettingsNavigationRow(
                         "AI 设置",
-                        leadingIcon = Icons.Rounded.AutoAwesome,
-                        leadingIconTint = ComposeColor(0xFFAF52DE),
+                        leadingIcon = CouiIcons.Filled.AI,
+                        leadingIconTint = ComposeColor.Unspecified,
                         selected = selectedPage == SettingsPage.AiImport,
                         minHeight = 52.dp, onClick = { onPageChange(SettingsPage.AiImport) }
                     )

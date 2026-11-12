@@ -653,7 +653,7 @@ fun DialogLiquidButton(
         ?: darkTheme
     val useRoundIcon = roundIcon && role != DialogButtonRole.Neutral
     val resolvedIconRes = iconRes ?: when {
-        useRoundIcon && role == DialogButtonRole.Cancel -> R.drawable.ic_close_light
+        useRoundIcon && role == DialogButtonRole.Cancel -> R.drawable.ic_close
         useRoundIcon && role == DialogButtonRole.Confirm -> R.drawable.ic_check
         else -> null
     }

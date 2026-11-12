@@ -184,7 +184,7 @@ fun DockBackdropContinuityPatch(config: ScheduleConfigEntity, modifier: Modifier
 }
 
 @Composable
-internal fun DockTabContent(iconRes: Int, label: String, iconSize: Dp) {
+internal fun DockTabContent(iconRes: Int, label: String, iconSize: Dp, selected: Boolean) {
     Column(
         modifier = Modifier
             .fillMaxHeight()
@@ -192,7 +192,8 @@ internal fun DockTabContent(iconRes: Int, label: String, iconSize: Dp) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
     ) {
-        Icon(homeActionIconPainter(iconRes), contentDescription = null, modifier = Modifier.size(iconSize))
+        Icon(homeActionIconPainter(iconRes, filledSetting = selected), contentDescription = null,
+            modifier = Modifier.size(iconSize))
         Text(label, style = MaterialTheme.typography.labelSmall)
     }
 }
@@ -222,7 +223,8 @@ fun DockItem(selected: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntit
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)
         ) {
-            Icon(homeActionIconPainter(iconRes), contentDescription = null, modifier = Modifier.size(22.dp))
+            Icon(homeActionIconPainter(iconRes, filledSetting = selected), contentDescription = null,
+                modifier = Modifier.size(22.dp))
             Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
         }
     }

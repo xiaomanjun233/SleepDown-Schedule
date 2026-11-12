@@ -62,7 +62,8 @@ internal fun HomeDockTabs(
     ) {
         tabs.forEachIndexed { index, (icon, label) ->
             LiquidBottomTab(onClick = { onSelect(index) }) {
-                DockTabContent(icon, label, if (icon == R.drawable.ic_settings) 24.dp else 23.dp)
+                DockTabContent(icon, label, if (icon == R.drawable.ic_settings) 24.dp else 23.dp,
+                    selected = selectedIndex == index)
             }
         }
     }

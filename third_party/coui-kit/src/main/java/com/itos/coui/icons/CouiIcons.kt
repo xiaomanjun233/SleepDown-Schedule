@@ -1,5 +1,6 @@
 package com.itos.coui.icons
 
+import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.SolidColor
@@ -7,10 +8,52 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.unit.dp
+import com.itos.coui.R
 
 /** 系统实际消费者使用的不可变矢量子集；来源、哈希与调用链见 ICON_SOURCES.md。 */
 object CouiIcons {
+
+    object Filled {
+        val Setting: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_setting_filled)
+
+        val Bell: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_bell_filled)
+
+        val Grid: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_grid_filled)
+
+        val BookOpen: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_book_open_filled)
+
+        val Location: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_location_filled)
+
+        val UserCircle: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_user_circle_filled)
+
+        val Lock: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_lock_filled)
+
+        val AI: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_ai_filled)
+
+        val Certificate: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_certificate_filled)
+    }
+
+    object Outlined {
+        val Setting: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_setting_outlined)
+
+        val Search: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_search_outlined)
+
+        val SliderCustom: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_slider_custom_outlined)
+    }
 
     /** com.oplus.tips:drawable/ic_all_category_unselected。 */
     val Components: ImageVector by lazy {
