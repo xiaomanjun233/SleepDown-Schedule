@@ -64,14 +64,13 @@ internal class HomeAnchoredMorphState {
             if (currentPhase == value) return
             when (value) {
                 HomeAnchoredOverlayPhase.Preparing, HomeAnchoredOverlayPhase.Idle -> curveContinuity.reset()
-                HomeAnchoredOverlayPhase.Opening, HomeAnchoredOverlayPhase.Closing ->
-                    curveContinuity.redirect(progress.value, value == HomeAnchoredOverlayPhase.Closing,
-                        when (renderedKind) {
-                            HomeAnchoredOverlayKind.Personalize -> if (value == HomeAnchoredOverlayPhase.Closing)
-                                HomePersonalizeMorphCloseDurationMillis else HomePersonalizeMorphOpenDurationMillis
-                            else -> if (value == HomeAnchoredOverlayPhase.Closing)
-                                HomeAddMenuMorphCloseDurationMillis else HomeAddMenuMorphOpenDurationMillis
-                        })
+                HomeAnchoredOverlayPhase.Opening, HomeAnchoredOverlayPhase.Closing -> {
+                    if (renderedKind == HomeAnchoredOverlayKind.Add) {
+                        val closing = value == HomeAnchoredOverlayPhase.Closing
+                        curveContinuity.redirect(progress.value, closing,
+                            if (closing) HomeAddMenuMorphCloseDurationMillis else HomeAddMenuMorphOpenDurationMillis)
+                    }
+                }
                 else -> Unit
             }
             currentPhase = value

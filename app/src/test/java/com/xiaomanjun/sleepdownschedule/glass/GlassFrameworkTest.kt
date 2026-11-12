@@ -27,8 +27,7 @@ class GlassFrameworkTest {
             { early, opening -> legacyCourseEditorMorphSpec(source, target, 24f, 32f, 180f,
                 6f, 5f, hasSourceTransform = true, preloadedContent = true,
                 earlyContentHandoff = early, earlyOpeningContentHandoff = opening) },
-            { early, opening -> legacyPersonalizationMorphSpec(source, target, 18f, 36f, 72f,
-                90f, 28f, 1f, 12f, 6f, 14f, preloadedContent = true,
+            { early, opening -> legacyPersonalizationMorphSpec(source, target, 28f, 1f, preloadedContent = true,
                 earlyContentHandoff = early, earlyOpeningContentHandoff = opening) }
         )
         routes.forEach { route ->
@@ -57,8 +56,8 @@ class GlassFrameworkTest {
         val routes: List<(Boolean) -> LiquidMorphSpec> = listOf(
             { early -> legacyCourseEditorMorphSpec(source, target, 24f, 32f, 180f,
                 6f, 5f, hasSourceTransform = true, preloadedContent = true, earlyContentHandoff = early) },
-            { early -> legacyPersonalizationMorphSpec(source, target, 18f, 36f, 72f,
-                90f, 28f, 1f, 12f, 6f, 14f, preloadedContent = true, earlyContentHandoff = early) }
+            { early -> legacyPersonalizationMorphSpec(source, target, 28f, 1f,
+                preloadedContent = true, earlyContentHandoff = early) }
         )
         routes.forEach { route ->
             for (direction in LiquidMorphDirection.entries) {
@@ -84,8 +83,7 @@ class GlassFrameworkTest {
         val routes: List<(Boolean) -> LiquidMorphSpec> = listOf(
             { preload -> legacyCourseEditorMorphSpec(source, target, 24f, 32f, 180f,
                 6f, 5f, hasSourceTransform = true, preloadedContent = preload) },
-            { preload -> legacyPersonalizationMorphSpec(source, target, 18f, 36f, 72f,
-                90f, 28f, 1f, 12f, 6f, 14f, preloadedContent = preload) }
+            { preload -> legacyPersonalizationMorphSpec(source, target, 28f, 1f, preloadedContent = preload) }
         )
         routes.forEach { route ->
             val legacy = route(false)
@@ -510,15 +508,8 @@ class GlassFrameworkTest {
         val personalizationSpec = legacyPersonalizationMorphSpec(
             source = source,
             target = target,
-            pinchDiameterPx = 18f,
-            minimumDropPx = 36f,
-            maximumDropPx = 72f,
-            maximumArcPx = 90f,
             targetCornerRadiusPx = 28f,
-            sourcePressedScale = 1.05f,
-            verticalReboundAmplitudePx = 12f,
-            closingSinkOffsetPx = 6f,
-            closingControlDropPx = 14f
+            sourcePressedScale = 1.05f
         )
         val destinationSpec = legacyHomeMenuDestinationMorphSpec(
             sourceBoundsInRoot = target,
@@ -559,16 +550,8 @@ class GlassFrameworkTest {
                         source = source,
                         target = target,
                         rawProgress = progress,
-                        pinchDiameterPx = 18f,
-                        minimumDropPx = 36f,
-                        maximumDropPx = 72f,
-                        maximumArcPx = 90f,
                         targetCornerRadiusPx = 28f,
-                        sourcePressedScale = 1.05f,
-                        closing = closing,
-                        verticalReboundAmplitudePx = 12f,
-                        closingSinkOffsetPx = 6f,
-                        closingControlDropPx = 14f
+                        sourcePressedScale = 1.05f
                     ),
                     personalizationSpec.homeGeometry(source, target, progress, closing)
                 )

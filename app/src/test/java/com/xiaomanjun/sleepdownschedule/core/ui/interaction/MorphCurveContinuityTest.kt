@@ -20,8 +20,8 @@ class MorphCurveContinuityTest {
             earlyOpeningContentHandoff = true).let { spec ->
             { p, closing -> spec.frame(input(from, to, p, closing)).curveValues(0f) }
         }
-        1, 4 -> legacyPersonalizationMorphSpec(from, to, 18f, 36f, 72f, 90f, endCorner, 1f, 12f,
-            6f, 14f, preloadedContent = true, earlyContentHandoff = kind != 4,
+        1, 4 -> legacyPersonalizationMorphSpec(from, to, endCorner, 1f,
+            preloadedContent = true, earlyContentHandoff = kind != 4,
             earlyOpeningContentHandoff = true).let { spec ->
             { p, closing -> spec.frame(input(from, to, p, closing)).curveValues(0f) }
         }
