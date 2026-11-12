@@ -188,6 +188,7 @@ internal fun CouiDialogWindow(
     }
     if (material != null) windowBackdrop?.RetainWhileComposed()
     val context = LocalContext.current
+    val wideHost = isWideDialogHost()
     // 原厂读取 Activity 的导航 inset；在进入 Dialog 窗口前读取，避免重复消费后的零值。
     val density = LocalDensity.current
     val navigationBarHeight = WindowInsets.navigationBars.getBottom(density)
@@ -257,8 +258,11 @@ internal fun CouiDialogWindow(
             configureWindow(window)
         }
         val configuration = LocalConfiguration.current
-        val maxHeight = if (configuration.orientation == Configuration.ORIENTATION_LANDSCAPE)
-            CouiDialogDefaults.landscapeMaxHeight else CouiDialogDefaults.maxHeight
+        val maxHeight = when {
+            wideHost && placement == CouiDialogPlacement.Center -> CouiDialogDefaults.wideCenterMaxHeight
+            configuration.orientation == Configuration.ORIENTATION_LANDSCAPE -> CouiDialogDefaults.landscapeMaxHeight
+            else -> CouiDialogDefaults.maxHeight
+        }
         // 原厂 maxHeight 包含基础底部 InsetDrawable 留白；调整导航留白不改变卡片本身的上限。
         val maxCardHeight = if (placement == CouiDialogPlacement.Bottom)
             (maxHeight - CouiDialogDefaults.bottomMargin).coerceAtLeast(0.dp) else maxHeight
@@ -308,9 +312,8 @@ internal fun CouiDialogWindow(
                     else if (ownsImePosition) with(density) {
                         CouiDialogDefaults.inputBottomPaddingPx(navigationBarHeight, imeOffset, density).toDp()
                     } else bottomPadding
-                val availableHeight = if (ownsImePosition)
+                val availableHeight =
                     (this.maxHeight - with(density) { imeOffset.toDp() } - padding).coerceAtLeast(0.dp)
-                else maxCardHeight
                 val imeTranslation = if (placement == CouiDialogPlacement.Bottom) imeOffset else imeOffset / 2f
                 // maxWidth 包含左右留白；入场距离只取卡片外框高度，不取全屏窗口高度。
                 Box(Modifier.widthIn(max = CouiDialogDefaults.maxWidth).fillMaxWidth()

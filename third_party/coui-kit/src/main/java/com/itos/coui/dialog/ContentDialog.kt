@@ -22,7 +22,7 @@ import com.itos.coui.theme.CouiTheme
 fun ContentDialog(
     onDismissRequest: () -> Unit,
     modifier: Modifier = Modifier,
-    placement: CouiDialogPlacement = CouiDialogPlacement.Bottom,
+    placement: CouiDialogPlacement = adaptiveDialogPlacement(),
     properties: DialogProperties = DialogProperties(usePlatformDefaultWidth = false),
     dark: Boolean = CouiTheme.isDark,
     colors: CouiDialogColors = CouiDialogDefaults.themeColors(dark),

@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.Density
@@ -12,8 +13,17 @@ import com.itos.coui.shape.CouiShape
 import com.itos.coui.effect.CouiMaterialBlendMode
 import com.itos.coui.theme.CouiTheme
 
-/** 普通警告窗口的位置；大屏策略由宿主决定，不探测厂商私有设备特征。 */
+/** 普通警告窗口的位置。 */
 enum class CouiDialogPlacement { Bottom, Center }
+
+@Composable
+internal fun isWideDialogHost(): Boolean = LocalConfiguration.current.run {
+    screenWidthDp >= 600 && screenHeightDp >= 480
+}
+
+@Composable
+internal fun adaptiveDialogPlacement(): CouiDialogPlacement =
+    if (isWideDialogHost()) CouiDialogPlacement.Center else CouiDialogPlacement.Bottom
 
 @Immutable
 data class CouiDialogColors(
@@ -57,6 +67,7 @@ object CouiDialogDefaults {
     val maxWidth = 392.dp
     val maxHeight = 632.dp
     val landscapeMaxHeight = 306.dp
+    internal val wideCenterMaxHeight = 470.dp
     val horizontalMargin = 16.dp
     val bottomMargin = 32.dp
     internal val bottomMarginWithNavigationBar = 60.dp

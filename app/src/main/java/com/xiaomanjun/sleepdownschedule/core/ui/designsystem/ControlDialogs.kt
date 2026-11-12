@@ -144,7 +144,7 @@ internal fun ControlAlertDialog(request: AlertDialogRequest) {
         return
     }
     ContentDialog(onDismissRequest = dismiss, dark = request.dark,
-        colors = CouiDialogDefaults.themeColors(request.dark), placement = CouiDialogPlacement.Bottom,
+        colors = CouiDialogDefaults.themeColors(request.dark),
         material = material,
         backdrop = backdrop, visible = visible,
         onDismissFinished = { lifetime.finished = true },
@@ -189,7 +189,7 @@ internal fun ControlPickerDialog(request: PickerDialogRequest, materialScene: Ba
     }
     ContentDialog(onDismissRequest = request.onDismiss, dark = request.dark,
         colors = CouiDialogDefaults.themeColors(request.dark), material = material,
-        backdrop = backdrop, visible = request.show, placement = CouiDialogPlacement.Bottom,
+        backdrop = backdrop, visible = request.show,
         onDismissFinished = { lifetime.finished = true },
         title = request.title, titleAction = request.titleAction,
         confirmAction = slots[0], dismissAction = slots[1], neutralAction = slots[2],

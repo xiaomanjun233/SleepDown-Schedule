@@ -60,7 +60,7 @@ fun Dialog(
     message: String? = null,
     dismissAction: CouiDialogAction? = null,
     neutralAction: CouiDialogAction? = null,
-    placement: CouiDialogPlacement = CouiDialogPlacement.Bottom,
+    placement: CouiDialogPlacement = adaptiveDialogPlacement(),
     colors: CouiDialogColors = CouiDialogDefaults.themeColors(dark),
     shape: Shape = CouiDialogDefaults.shape,
     cornerRadius: Dp = Dp.Unspecified,
