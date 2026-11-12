@@ -307,7 +307,8 @@ internal fun SinglePillWeekScheduleScreen(
         domain = GlassBackdropDomain.Content,
         providerId = "week-stationary-courses"
     )
-    val needsStationaryCoursesBackdrop = weekEditMode || weekEditOverlay.request != null
+    val weekEditOwnsPager = weekEditMode || weekEditOverlay.request != null
+    val needsStationaryCoursesBackdrop = weekEditOwnsPager && weekEditOverlay.landingRipple == null
     stationaryCoursesBackdrop.graphicsLayer.compositingStrategy =
         if (needsStationaryCoursesBackdrop) androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
         else androidx.compose.ui.graphics.layer.CompositingStrategy.Auto
@@ -641,7 +642,7 @@ internal fun SinglePillWeekScheduleScreen(
                                 // top gutter to extend above it without compressing the last row.
                                 .wrapContentHeight(align = Alignment.Top, unbounded = true)
                                 .height(timeGrid.totalHeight.dp + supplementaryHeight + courseTopOverflow + editControlBottomOverflow),
-                            userScrollEnabled = !needsStationaryCoursesBackdrop && programmaticPage < 0,
+                            userScrollEnabled = !weekEditOwnsPager && programmaticPage < 0,
                             // Keep the pager topology stable while a home overlay opens/closes.
                             // Disposing the adjacent week at the exact frame Personalization
                             // starts, then rebuilding it on close, competes with the full-screen

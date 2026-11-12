@@ -116,7 +116,6 @@ import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
-import kotlin.math.sqrt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
@@ -318,7 +317,7 @@ fun WeekCourseBlock(
         }
         copyMotion?.reportTarget(course, editWeek)
         if (isOverlayTarget) {
-            weekEditMotionState?.onRealCardPositioned()
+            weekEditMotionState?.onRealCardPositioned(bounds.center)
         }
         return bounds
     }
@@ -500,8 +499,10 @@ fun WeekCourseBlock(
     val baseModifier = Modifier
         .fillMaxWidth()
         .height(height)
+    val landingRipple = weekEditMotionState?.landingRipple?.takeIf { it.week == editWeek }
     val tailTransformActive =
         layerOffset?.isRunning == true || (layerOffset?.value ?: 0f) != 0f ||
+            landingRipple != null ||
             copyMotion?.active == true || copyMotion?.rippleCenter != null ||
             copyMotion?.landed == true
     val tailTransformModifier = if (tailTransformActive) Modifier.graphicsLayer {
@@ -528,35 +529,34 @@ fun WeekCourseBlock(
                 }
                 tailBase * delayedProgress * tailDirection
             } ?: 0f
-            val rippleCenter = copyMotion?.rippleCenter?.takeIf { copyMotion.target?.week == editWeek }
+            val copyRippleCenter = copyMotion?.rippleCenter?.takeIf { copyMotion.target?.week == editWeek }
+            val rippleRadius = if (copyRippleCenter != null) copyMotion.rippleRadius else landingRipple?.radiusPx ?: 0f
             val bounds = ownBoundsRef[0]
-            val ripple = if (
-                copyMotion != null && rippleCenter != null &&
-                bounds != null &&
+            val rippleScale = if (
+                rippleRadius > 0f && bounds != null && !bounds.isEmpty &&
                 copyMotion?.isTarget(course, editWeek) != true &&
                 !isOverlayTarget &&
                 activeOverlayCourseId != course.id
             ) {
-                val deltaX = bounds.center.x - rippleCenter.x
-                val deltaY = bounds.center.y - rippleCenter.y
-                weekEditNeighborRippleTransform(
-                    distancePx = sqrt(deltaX * deltaX + deltaY * deltaY),
-                    radiusPx = copyMotion.rippleRadius,
-                    progress = copyMotion.ripple.value,
-                    horizontalDirection = deltaX / copyMotion.rippleRadius.coerceAtLeast(1f)
-                )
-            } else {
-                WeekEditNeighborRippleTransform(0f, 1f, 0f)
-            }
+                val distance = if (copyRippleCenter != null) (bounds.center - copyRippleCenter).getDistance()
+                    else weekEditMotionState?.landingRippleDistance(bounds.center) ?: Float.POSITIVE_INFINITY
+                if (distance < rippleRadius) {
+                    weekEditNeighborRippleTransform(
+                        distancePx = distance,
+                        radiusPx = rippleRadius,
+                        progress = if (copyRippleCenter != null) copyMotion.ripple.value
+                            else weekEditMotionState?.landingRippleProgress ?: 1f
+                    ).scale
+                } else 1f
+            } else 1f
             val landingImpact = if (copyMotion?.isTarget(course, editWeek) == true && copyMotion.landed) {
                 weekEditLandingImpactTransform(copyMotion.impact.value)
             } else {
                 WeekEditLandingImpactTransform(translationFactor = 0f, scaleX = 1f, scaleY = 1f)
             }
             translationX = tailX
-            scaleX = ripple.scale * landingImpact.scaleX
-            scaleY = ripple.scale * landingImpact.scaleY
-            rotationZ = ripple.rotationFactor
+            scaleX = rippleScale * landingImpact.scaleX
+            scaleY = rippleScale * landingImpact.scaleY
         } else Modifier
     val tailModifier = tailTransformModifier.onGloballyPositioned { coordinates ->
             ownCoordinatesRef[0] = coordinates
