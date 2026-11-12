@@ -108,6 +108,7 @@ internal data class WeekRenderedSegment(
 )
 
 internal const val WeekCustomTimeLabelGap = 1f
+private val WeekCourseCardInset = 2.dp
 private val LightTimeSlotShadow = Shadow(
     radius = 8.dp,
     color = ComposeColor.Black.copy(alpha = 0.16f),
@@ -145,9 +146,20 @@ internal fun weekCardVerticalBounds(
     val exact = exactTimeWeekPlacement(segment.course, periods)
     val startRow = exact?.topRows ?: segment.startPosition.toFloat()
     val endRow = startRow + (exact?.heightRows ?: segment.span.toFloat())
-    val top = (timeGrid?.top(startRow) ?: cardHeight.value * startRow) + if (exact == null) 2f else 0f
-    val bottom = (timeGrid?.bottom(endRow) ?: cardHeight.value * endRow) - if (exact == null) 2f else 0f
-    val height = (bottom - top).coerceAtLeast(if (exact == null) 18f else 1f)
+    return weekGridCardBounds(startRow, endRow, cardHeight, timeGrid, insetPeriod = exact == null)
+}
+
+private fun weekGridCardBounds(
+    startRow: Float,
+    endRow: Float,
+    cardHeight: Dp,
+    timeGrid: WeekTimeSlotGrid?,
+    insetPeriod: Boolean = true
+): Pair<Float, Float> {
+    val inset = if (insetPeriod) WeekCourseCardInset.value else 0f
+    val top = (timeGrid?.top(startRow) ?: cardHeight.value * startRow) + inset
+    val bottom = (timeGrid?.bottom(endRow) ?: cardHeight.value * endRow) - inset
+    val height = (bottom - top).coerceAtLeast(if (insetPeriod) 18f else 1f)
     return top to top + height
 }
 
@@ -282,7 +294,7 @@ private fun WeekDayColumn(
                 CourseGlassCard(backdrop = backdrop, config = config, course = card.course,
                     muted = true, shape = RoundedRectangle(corner), onClick = null,
                     modifier = Modifier.offset(y = card.top.dp).fillMaxWidth()
-                        .padding(horizontal = 2.dp).height(height)
+                        .padding(horizontal = WeekCourseCardInset).height(height)
                         .weekPageTail(tailKey, tailCardOrder[tailKey], tailColumnFraction)
                         .homeSwitchGroup(tailCardOrder[tailKey])) {
                     WeekCourseOverlayCardContent(card.course, config, muted = true)
@@ -314,7 +326,7 @@ private fun WeekDayColumn(
                 modifier = Modifier
                     .offset(y = segmentTop)
                     .fillMaxWidth()
-                    .padding(horizontal = 2.dp)
+                    .padding(horizontal = WeekCourseCardInset)
                     .height(segmentHeight)
                     .weekPageTail(
                         cardKey = glassCandidateId,
@@ -571,15 +583,15 @@ internal fun WeekCourseColumnsLayer(
                 }
             if (occupied) return@let null
 
-            val cell = Rect(
-                grid.localToRoot(Offset(physicalColumn * columnWidth, with(density) { top.dp.toPx() })),
-                grid.localToRoot(Offset((physicalColumn + 1) * columnWidth, with(density) { bottom.dp.toPx() }))
+            val (cardTop, cardBottom) = weekGridCardBounds(row.toFloat(), row + 1f, cardHeight, timeGrid)
+            val inset = with(density) { WeekCourseCardInset.toPx() }
+            if (columnWidth <= inset * 2) return@let null
+            val bounds = Rect(
+                grid.localToRoot(Offset(physicalColumn * columnWidth + inset, with(density) { cardTop.dp.toPx() })),
+                grid.localToRoot(Offset((physicalColumn + 1) * columnWidth - inset, with(density) { cardBottom.dp.toPx() }))
             ).intersect(grid.boundsInRoot())
-            val side = minOf(cell.width - with(density) { 4.dp.toPx() },
-                cell.height - with(density) { 4.dp.toPx() }, with(density) { 52.dp.toPx() })
-            if (side < with(density) { 24.dp.toPx() }) return@let null
-            val half = Offset(side / 2f, side / 2f)
-            WeekCourseAddTarget(config.id, editWeek, day, period, Rect(cell.center - half, cell.center + half))
+            if (bounds.isEmpty) return@let null
+            WeekCourseAddTarget(config.id, editWeek, day, period, bounds)
         }
         if (target != null && addition?.target != target) {
             copyHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)

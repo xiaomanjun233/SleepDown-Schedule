@@ -674,9 +674,9 @@ fun CourseScheduleAppUi(
     var pendingHomeAnchoredSourceScale by remember { mutableFloatStateOf(1f) }
     var showScheduleEntryPill by remember { mutableStateOf(false) }
     val landingCourse = courseEditorMotionState.closingCourseOverride
-    val editingCourseIds = if (isLandscapeMenuWindow()) emptySet() else courseEditorSessions
+    val editingCourseIds = courseEditorSessions
         .filter { it.visible }.mapNotNull { it.request?.course?.id ?: it.renderedCourseId }.toSet()
-    val editingCourseId: Long? = if (isLandscapeMenuWindow()) null else if (landingCourse != null) {
+    val editingCourseId: Long? = if (landingCourse != null) {
         state.courses.firstOrNull {
             it.copy(id = 0, weeks = landingCourse.weeks, weekParity = landingCourse.weekParity) == landingCourse.copy(id = 0)
         }?.id
@@ -700,7 +700,7 @@ fun CourseScheduleAppUi(
     val homeBackgroundOverlayActive = retainedHomeOverlayActive || courseShortcuts.request != null
     val preserveHomeOverlayMotion = !isLandscapeMenuWindow() ||
         activeHomeAnchoredOverlay == HomeAnchoredOverlayKind.Personalize ||
-        courseShortcuts.backgroundActive || homeAssistant.visible
+        courseShortcuts.backgroundActive || homeAssistant.visible || courseEditorSessions.any { it.visible }
     val homeBackgroundFreezeActive = preserveHomeOverlayMotion && !rootPageMotion.moving && !homeModeMotion.moving && shouldUseFrozenHomeMorphBlur(
         screenIsHome = screen is Screen.Home,
         previewActive = personalizationPreviewActive,
@@ -1321,9 +1321,13 @@ fun CourseScheduleAppUi(
         !homeAssistant.visible && !courseCopy.active && homeDialog == null && renderedHomeDialog == null &&
         !jumpWeekDialogMounted && quickScheduleDraft == null && pickerState.phase is CustomizeUiState.Home
     val canSelectWeekAddSlot = canUseHomeNavigation && homeMode == HomeMode.Week
-    LaunchedEffect(canSelectWeekAddSlot, homeDisplayWeek, state.config.id, state.periods, state.courses,
+    LaunchedEffect(homeDisplayWeek, state.config.id, state.periods, state.courses,
         homeAdaptiveMetrics.screenWidth, homeAdaptiveMetrics.screenHeight) {
-        if (courseEditorRequest?.creating != true) weekCourseAddition.clear()
+        weekCourseAddition.clear()
+    }
+    val addingWeekCourse = courseEditorSessions.any { it.visible && it.retainedRequest?.creating == true }
+    LaunchedEffect(canSelectWeekAddSlot, addingWeekCourse) {
+        if (!canSelectWeekAddSlot && !addingWeekCourse) weekCourseAddition.clear()
     }
     val homeCourseColorSignature = remember(visualState.config.id, visualState.courses) {
         visualState.courses
@@ -3841,8 +3845,12 @@ fun CourseScheduleAppUi(
             config = state.config,
             adaptiveMetrics = homeAdaptiveMetrics,
             modifier = Modifier.zIndex(if (editorSession === courseEditorSessionRegistry.active) 100f else 99f),
-            landscapeContentInsets = PaddingValues(start = homeSidebarState.targetContentInset,
-                top = homeSidebarState.targetContentTopInset, end = homeSidebarState.endInset),
+            contentInsets = PaddingValues(
+                start = homeSidebarState.targetContentInset,
+                top = homeSidebarState.targetContentTopInset,
+                end = homeSidebarState.endInset
+            ),
+            restoreCreationSource = weekCourseAddition.editorOwnsPreview,
             awaitOpeningGate = { awaitHomeBackgroundFrame(routeEligible = true) },
             onDismissRequest = { editorSession.request = null },
             onCreate = { courses, onResult ->
@@ -3857,7 +3865,10 @@ fun CourseScheduleAppUi(
                     if (conflictWeeks.isEmpty()) {
                         viewModel.addCourses(courses, source.course.scheduleId) { success ->
                             onResult(success)
-                            if (success && editorSession.request === source) editorSession.request = null
+                            if (success && editorSession.request === source) {
+                                weekCourseAddition.clear()
+                                editorSession.request = null
+                            }
                         }
                     } else {
                         pendingCourseGroupEdit = PendingCourseGroupEdit(emptyList(), courses)
@@ -3938,6 +3949,7 @@ fun CourseScheduleAppUi(
             },
             onPhaseChange = { phase ->
                 if (phase == CourseEditorOverlayPhase.Idle) {
+                    if (editorSession.retainedRequest?.creating == true) weekCourseAddition.returnFromEditor()
                     courseEditorSessionRegistry.finish(editorSession)
                     courseEditorFlightRegistry.frozen = courseEditorSessions.any { it.visible }
                 }
@@ -4184,6 +4196,7 @@ fun CourseScheduleAppUi(
                                         pendingConflictCourseId = null
                                         pendingConflictCourseKey = groupEdit.edited.first().occurrenceOverrideKey()
                                         pendingConflictWeeks = dialog.conflictWeeks
+                                        weekCourseAddition.clear()
                                         editor.request = null
                                         appScope.launch {
                                             snapshotFlow { editor.motion.phase }.first { it == CourseEditorOverlayPhase.Idle }

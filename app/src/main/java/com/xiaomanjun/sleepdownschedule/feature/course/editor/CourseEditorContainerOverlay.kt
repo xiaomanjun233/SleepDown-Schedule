@@ -9,8 +9,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Icon
 import androidx.compose.ui.res.painterResource
@@ -62,6 +62,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Constraints
@@ -122,7 +123,6 @@ enum class CourseEditorOverlayPhase {
 
 @Stable
 class CourseEditorMotionState internal constructor() {
-    internal var creating by mutableStateOf(false)
     val progress = Animatable(0f)
     internal val curveContinuity = MorphCurveContinuity()
     var hasInterrupted by mutableStateOf(false)
@@ -289,7 +289,8 @@ internal fun CourseEditorContainerOverlayHost(
     adaptiveMetrics: HomeAdaptiveMetrics,
     sourceCardBackdrop: Backdrop? = backdrop,
     modifier: Modifier = Modifier,
-    landscapeContentInsets: PaddingValues = PaddingValues(0.dp),
+    contentInsets: PaddingValues = PaddingValues(0.dp),
+    restoreCreationSource: Boolean = false,
     awaitOpeningGate: suspend () -> Unit = {},
     onDismissRequest: () -> Unit,
     onSave: (originals: List<CourseEntity>, edited: List<CourseEntity>, targetWeek: Int?) -> Unit,
@@ -304,77 +305,6 @@ internal fun CourseEditorContainerOverlayHost(
     val preloadContent = true
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
-    if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow() &&
-        (request?.creating ?: motionState.creating) == false) {
-        var dismissHandler by remember { mutableStateOf<(() -> Unit)?>(null) }
-        var copySaving by remember { mutableStateOf(false) }
-        LaunchedEffect(request) {
-            motionState.retractTo(null)
-            motionState.backgroundZoom.snapTo(1f)
-            if (request != null) copySaving = false
-            val phase = if (request != null) CourseEditorOverlayPhase.Opening else
-                if (motionState.phase != CourseEditorOverlayPhase.Idle) CourseEditorOverlayPhase.Closing else CourseEditorOverlayPhase.Idle
-            motionState.phase = phase
-            onPhaseChange(phase)
-            motionState.progress.animateTo(
-                if (request != null) 1f else 0f,
-                CourseEditorMotion.centeredSpec(opening = request != null)
-            )
-        }
-        DisposableEffect(Unit) {
-            onDispose {
-                motionState.phase = CourseEditorOverlayPhase.Idle
-                onPhaseChange(CourseEditorOverlayPhase.Idle)
-                onRenderedCourseIdChange(null)
-            }
-        }
-        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LandscapeMenuOverlay(
-            request = request, backdrop = backdrop,
-            contentInsets = landscapeContentInsets,
-            onDismissRequest = { if (!copySaving) dismissHandler?.invoke() ?: onDismissRequest() },
-            onOpenFinished = {
-                motionState.phase = CourseEditorOverlayPhase.Open
-                onPhaseChange(CourseEditorOverlayPhase.Open)
-            },
-            onDismissFinished = {
-                motionState.phase = CourseEditorOverlayPhase.Idle
-                onPhaseChange(CourseEditorOverlayPhase.Idle)
-                onRenderedCourseIdChange(null)
-            }
-        ) { shown, dialogBackdrop ->
-            val editorSurface = rememberGlassLayerBackdrop(
-                domain = GlassBackdropDomain.Content, providerId = "landscape-course-editor-shell"
-            )
-            val save: (List<CourseEntity>, List<CourseEntity>) -> Unit = { originals, edited ->
-                if (shown.copyDraft == null) onSave(originals, edited, shown.targetWeek)
-                else if (!copySaving) {
-                    copySaving = true
-                    onCopy(edited.map { it.copy(id = 0, scheduleId = shown.copyDraft.scheduleId) }) { success ->
-                        if (!success) copySaving = false
-                    }
-                }
-            }
-            CourseEditorAnimatedContainer(
-                backdrop = dialogBackdrop, config = config, course = shown.copyDraft ?: shown.course,
-                muted = shown.sourceAdjustmentLabel == "停",
-                expandedOutlineLight = shown.sourceIsDayCard,
-                shape = RoundedRectangle(32.dp), progressProvider = { 1f }, alpha = 1f,
-                surfaceBackdrop = editorSurface, modifier = Modifier.fillMaxSize()
-            ) {
-            NormalizedCourseEditorScreen(
-                formData = CourseEditorFormData(state.config, state.periods, state.courses, state.timetableCatalog),
-                initialCourse = shown.course.takeIf { shown.copyDraft == null },
-                copyDraft = shown.copyDraft, contextMessage = shown.contextMessage,
-                onCancel = { if (!copySaving) onDismissRequest() },
-                onDismissHandlerChange = { dismissHandler = it },
-                onSave = {}, onSaveCourses = { save(emptyList(), it) }, onSaveGroup = save,
-                onDelete = {}, onDeleteGroup = { onDelete(it, shown.targetWeek) },
-                backdrop = editorSurface, pickerRenderInRootScaffold = false
-            )
-            }
-        }
-        return
-    }
     var renderedRequest by remember { mutableStateOf<CourseEditorOverlayRequest?>(null) }
     var copySaving by remember(request) { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
@@ -387,13 +317,11 @@ internal fun CourseEditorContainerOverlayHost(
 
     fun updatePhase(phase: CourseEditorOverlayPhase) {
         motionState.phase = phase
-        if (phase == CourseEditorOverlayPhase.Idle) motionState.creating = false
         latestOnPhaseChange(phase)
     }
 
     LaunchedEffect(request) {
         if (request != null) {
-            motionState.creating = request.creating
             // Reuse the same form, geometry and clock when its closing session is retargeted.
             val resuming = renderedRequest?.course?.id == request.course.id &&
                 (motionState.phase == CourseEditorOverlayPhase.Closing ||
@@ -539,12 +467,18 @@ internal fun CourseEditorContainerOverlayHost(
     }
 
     val density = LocalDensity.current
-    val targetRect = remember(rootSize, density, adaptiveMetrics) {
+    val layoutDirection = LocalLayoutDirection.current
+    val targetRect = remember(rootSize, density, adaptiveMetrics, contentInsets, layoutDirection) {
         with(density) {
             if (rootSize.width <= 0 || rootSize.height <= 0) {
                 Rect.Zero
             } else if (adaptiveMetrics.isLargeScreen) {
-                val content = adaptiveMetrics.contentRectPx(rootSize, density.density)
+                val window = adaptiveMetrics.contentRectPx(rootSize, density.density)
+                val leftEdge = window.left + contentInsets.calculateLeftPadding(layoutDirection).toPx()
+                val rightEdge = (window.right - contentInsets.calculateRightPadding(layoutDirection).toPx())
+                    .coerceAtLeast(leftEdge + 1f)
+                val topEdge = maxOf(window.top, (adaptiveMetrics.safeTop + contentInsets.calculateTopPadding()).toPx())
+                val content = Rect(leftEdge, topEdge, rightEdge, window.bottom.coerceAtLeast(topEdge + 1f))
                 val minWidth = minOf(600.dp.toPx(), content.width)
                 val maxWidth = minOf(680.dp.toPx(), content.width).coerceAtLeast(minWidth)
                 val maxHeight = minOf(content.height * 0.82f, 640.dp.toPx()).coerceAtLeast(
@@ -876,7 +810,7 @@ internal fun CourseEditorContainerOverlayHost(
             surfaceBackdrop = editorFormBackdrop,
             modifier = when {
                 materialAllocation != null -> Modifier.glassMorphHost(materialAllocation)
-                shownRequest.creating && closingMorph -> animatedModifier.graphicsLayer {
+                shownRequest.creating && closingMorph && !restoreCreationSource -> animatedModifier.graphicsLayer {
                     val presence = courseEditorSmoothStep(0f, 0.34f, progress.value)
                     alpha = presence
                     scaleX = 0.80f + 0.20f * presence

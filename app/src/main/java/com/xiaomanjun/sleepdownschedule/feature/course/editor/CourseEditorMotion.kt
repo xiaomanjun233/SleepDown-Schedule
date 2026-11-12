@@ -1,7 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.course.editor
 
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.geometry.Rect
 import com.xiaomanjun.sleepdownschedule.glass.LiquidBackdropDepthFrame
 import com.xiaomanjun.sleepdownschedule.glass.LiquidContentHandoffFrame
@@ -41,9 +40,6 @@ internal object CourseEditorMotion {
     val RowRevealEasing = CubicBezierEasing(0.22f, 0f, 0.30f, 1f)
     // 需要逐行飞入的行数：固定标题栏 + 表单行（课程名称/教师/地点/星期/节次/周次/单双周/颜色/备注/删除/错误）。
     const val FormRowCount = 12
-
-    private val CenteredEasing = CubicBezierEasing(0.2f, 0.7f, 0.2f, 1f)
-    fun centeredSpec(opening: Boolean) = tween<Float>(if (opening) 280 else 240, easing = CenteredEasing)
 
     fun formRowEntrance(rowIndex: Int, progress: Float): Float {
         val delayMillis = rowIndex.coerceIn(0, FormRowCount) * 8f

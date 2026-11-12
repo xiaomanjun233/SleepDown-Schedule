@@ -59,13 +59,21 @@ internal class WeekCourseAddition {
         private set
     var preview by mutableStateOf<WeekCourseAddTarget?>(null, referentialEqualityPolicy())
         private set
+    var editorOwnsPreview by mutableStateOf(false)
+        private set
 
     fun select(value: WeekCourseAddTarget?) {
-        if (value != null) preview = value
-        target = value
+        if (value == null) clear() else {
+            preview = value
+            target = value
+        }
     }
 
-    fun clear() { target = null }
+    fun clear() {
+        target = null
+        if (editorOwnsPreview) preview = null
+        editorOwnsPreview = false
+    }
 
     fun dismiss(value: WeekCourseAddTarget) {
         if (target === value) clear()
@@ -76,11 +84,10 @@ internal class WeekCourseAddition {
     }
 
     fun handOffToEditor(value: WeekCourseAddTarget) {
-        if (preview === value) {
-            target = null
-            preview = null
-        }
+        if (target === value) editorOwnsPreview = true
     }
+
+    fun returnFromEditor() { editorOwnsPreview = false }
 }
 
 internal val LocalWeekCourseAddition = compositionLocalOf<WeekCourseAddition?> { null }
@@ -94,7 +101,8 @@ internal fun WeekCourseAddPreview(
     onConfirm: (WeekCourseAddTarget) -> Unit
 ) {
     val target = selection.preview ?: return
-    val visible = selection.target === target
+    val editorOwnsPreview = selection.editorOwnsPreview
+    val visible = selection.target === target && !editorOwnsPreview
     val enabled = interactive && visible
     BackHandler(enabled = enabled) { selection.dismiss(target) }
     LaunchedEffect(selection, target, enabled) {
@@ -105,14 +113,17 @@ internal fun WeekCourseAddPreview(
     val density = LocalDensity.current
     var hostBounds by remember { mutableStateOf(Rect.Zero) }
     val progress = remember(target) { Animatable(0f) }
-    LaunchedEffect(progress, visible) {
-        if (visible) {
-            progress.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 560f))
-        } else {
-            progress.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
-            selection.finishDismissal(target)
+    LaunchedEffect(progress, visible, editorOwnsPreview) {
+        when {
+            editorOwnsPreview -> progress.snapTo(1f)
+            visible -> progress.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 560f))
+            else -> {
+                progress.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
+                selection.finishDismissal(target)
+            }
         }
     }
+    if (editorOwnsPreview) return
     Box(Modifier.fillMaxSize().onGloballyPositioned { hostBounds = it.boundsInRoot() }) {
         if (!hostBounds.isEmpty) {
             val description = "添加周${weekdayLabel(target.weekday)}第${target.period}节课程"
