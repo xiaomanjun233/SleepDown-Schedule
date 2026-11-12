@@ -859,7 +859,7 @@ internal fun DayAgentConversationDialog(
                         visual = sourceVisual,
                         foreground = sourceForeground,
                         activityAccent = sourceActivityAccent,
-                        decorated = false,
+                        drawSurface = false,
                         modifier = Modifier
                             .fillMaxWidth()
                             .graphicsLayer {

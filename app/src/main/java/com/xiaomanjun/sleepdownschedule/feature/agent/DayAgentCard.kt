@@ -391,10 +391,12 @@ internal fun DayAgentCardVisualContent(
     modifier: Modifier = Modifier,
     onWeatherClick: (() -> Unit)? = null,
     decorated: Boolean = true,
-    animated: Boolean = false
+    animated: Boolean = false,
+    drawSurface: Boolean = true
 ) {
     if (!animated) {
-        DayAgentCardVisualCore(visual, foreground, activityAccent, modifier, onWeatherClick, decorated)
+        DayAgentCardVisualCore(visual, foreground, activityAccent, modifier, onWeatherClick, decorated,
+            drawSurface = drawSurface)
         return
     }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -439,7 +441,7 @@ internal fun DayAgentCardVisualContent(
         }
     }
     Box(modifier) {
-        if (decorated) {
+        if (decorated && drawSurface) {
             val shape = RoundedRectangle(if (displayedVisual.collapsed) 26.dp else 28.dp)
             Box(Modifier.matchParentSize().clip(shape)
                 .dayAgentCardSurface(
