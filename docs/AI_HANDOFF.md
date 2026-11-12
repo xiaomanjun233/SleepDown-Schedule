@@ -1,5 +1,21 @@
 # 当前工作交接
 
+## 2026-11-12 今日助手与个性化开合
+
+当前运行时提交为 `aa068cb4`，分支 `codex/home-render-architecture`，工作树
+`tmp/home-render-architecture`。今日助手同步交接原卡与对话外壳，原卡浅色装饰随外壳移动。
+对话从原卡模糊量起步，展开后到 24dp，外层课表的景深模糊为 12dp。
+
+个性化面板的位置沿用上半区课卡展开的贝塞尔曲线和下移弧线，尺寸采用 Material 标准曲线。
+展开 380 ms，收起 260 ms。外壳在运动中复用课卡的拉伸轮廓，模糊按屏幕坐标采样，
+前景表单等比缩放。每次展开使用本次表单放置完成的信号开始动画。
+
+签名 `assembleGithubRelease` 通过（6m48s），归档 `tmp/material-device-qa/animation-taper.apk`，
+SHA-256 `8A7B8456C52325D452642CB0289831A1D143727ABBB403CA1D86F01EF39ED1CD`。
+经 SDK ADB 5038 → `127.0.0.1:5557` 覆盖安装并回读，设备为 Pixel_10_Pro、API 36.1、隔离用户 10。
+凝光和液态均录制了个性化展开、收起和复位。今日助手在包含相同助手代码的 `animation-polish.apk`
+上完成两种材质的开合与录屏检查。详见[验收记录](reports/2026-11-11-home-render-architecture.md)。
+
 ## 2026-11-12 周视图助手统一凝光背景
 
 运行时提交 `cdba8816` 位于 `codex/home-render-architecture`。周视图下拉助手的小窗、全屏和提醒
