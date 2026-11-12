@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -65,7 +66,7 @@ import kotlin.math.roundToInt
 
 // Calendar 17.3.70, phone with gesture navigation: 100dp - (8dp + (88dp + 56dp) / 2).
 private val HomeReturnWeekGap = 20.dp
-private val HomeReturnWeekAppear = tween<Float>(560, easing = CubicBezierEasing(0.32f, 0.14f, 0.26f, 1f))
+private val HomeReturnWeekAppear = tween<Float>(620, easing = CubicBezierEasing(0.35f, 0.08f, 0.27f, 1f))
 private val HomeReturnWeekDisappear = tween<Float>(400, easing = HomeDropletEasing)
 
 @Composable
@@ -111,8 +112,8 @@ internal fun HomeReturnWeekButton(
             Rect(centerX - radius, bottom - diameter, centerX + radius, bottom)
         }
         fun scale() = lerp(0.50f, 1f, progress.value)
-        fun movingButton() = target.translate(Offset(0f,
-            (source?.center?.y?.minus(target.center.y) ?: 0f) * (1f - progress.value)))
+        val hiddenOffset = Offset(0f, source?.center?.y?.minus(target.center.y) ?: 0f)
+        fun offset() = hiddenOffset * (1f - progress.value)
 
         if (bridgeVisible && source != null) {
             val padding = with(density) { 14.dp.toPx() }
@@ -121,7 +122,7 @@ internal fun HomeReturnWeekButton(
             val localSource = source.translate(-envelope.topLeft)
             val geometry: () -> GlassDropletGeometry = {
                 val p = progress.value
-                val center = movingButton().center - envelope.topLeft
+                val center = target.center + offset() - envelope.topLeft
                 val dropRadius = radius * scale()
                 GlassDropletGeometry(
                     body = localSource, bodyRadius = radius,
@@ -151,16 +152,14 @@ internal fun HomeReturnWeekButton(
         }
         val enabled = visible && settled
         val button = Modifier.absoluteOffset {
-            val rect = movingButton()
-            IntOffset(rect.left.roundToInt(), rect.top.roundToInt())
+            IntOffset(target.left.roundToInt(), target.top.roundToInt())
         }.size(buttonSize).then(
             when {
                 source == null -> Modifier.graphicsLayer { alpha = progress.value }
                 !settled -> Modifier.drawWithContent {
-                    val frame = movingButton()
-                    if (frame.center.y - radius * scale() < source.top) {
+                    if (target.center.y + offset().y - radius * scale() < source.top) {
                         val plusMask = Path().apply {
-                            addRoundRect(RoundRect(source.translate(-frame.topLeft), CornerRadius(radius)))
+                            addRoundRect(RoundRect(source.translate(-target.topLeft), CornerRadius(radius)))
                         }
                         clipPath(plusMask, ClipOp.Difference) { this@drawWithContent.drawContent() }
                     }
@@ -169,16 +168,15 @@ internal fun HomeReturnWeekButton(
             }
         ).then(if (enabled) Modifier.excludeParentPullGesture() else Modifier)
 
-        ReturnWeekFab(button, backdrop, dark, neutral, ink, enabled, ::scale, onClick = {
+        ReturnWeekFab(button, backdrop, dark, neutral, ink, enabled, ::offset, ::scale,
+            shadowAlpha = { dropletReveal(0.73f, 0.99f, progress.value) }, onClick = {
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
             onReturn()
         }) {
             Text(
                 "今", color = ink, fontSize = with(density) { 22.dp.toSp() },
                 fontWeight = FontWeight.SemiBold, maxLines = 1,
-                modifier = Modifier.clearAndSetSemantics {
-                    if (enabled) contentDescription = "回到本周"
-                }.graphicsLayer {
+                modifier = Modifier.clearAndSetSemantics {}.graphicsLayer {
                     alpha = dropletReveal(0.46f, 0.84f, progress.value)
                     compositingStrategy = CompositingStrategy.ModulateAlpha
                 }
@@ -195,7 +193,9 @@ private fun ReturnWeekFab(
     neutral: Color,
     ink: Color,
     enabled: Boolean,
+    offset: () -> Offset,
     scale: () -> Float,
+    shadowAlpha: () -> Float,
     onClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
@@ -221,16 +221,22 @@ private fun ReturnWeekFab(
                 foregroundComposition = true, contentColor = ink, enabled = enabled,
                 spotlightPreset = SpotlightPreset.OpaqueMedium2,
                 spotlightColor = if (dark) Color.White else Color.Black,
-                appearanceScale = scale, content = content
+                appearanceOffset = offset, appearanceScale = scale,
+                appearanceShadowAlpha = shadowAlpha, contentLabel = "回到本周", content = content
             )
             return
         }
     }
     Box(
         modifier.graphicsLayer {
+            val movement = offset()
+            translationX = movement.x
+            translationY = movement.y
             scaleX = scale()
             scaleY = scaleX
-        }.clip(CircleShape).background(neutral).clickable(enabled = enabled, role = Role.Button, onClick = onClick),
+        }.clip(CircleShape).background(neutral)
+            .then(if (enabled) Modifier.semantics { contentDescription = "回到本周" }
+                .clickable(role = Role.Button, onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center
     ) { content() }
 }

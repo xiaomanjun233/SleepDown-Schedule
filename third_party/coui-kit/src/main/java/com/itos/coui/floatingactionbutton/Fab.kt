@@ -28,6 +28,8 @@ import androidx.compose.ui.platform.LocalDensity
 import com.itos.coui.theme.CouiTheme
 import com.itos.coui.theme.ProvideCouiContent
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.itos.coui.backdrop.CouiBackdrop
@@ -70,7 +72,10 @@ fun Fab(
     enabled: Boolean = true,
     spotlightPreset: SpotlightPreset = SpotlightPreset.OpaqueSmall1,
     spotlightColor: Color = Color.White,
+    appearanceOffset: () -> Offset = { Offset.Zero },
     appearanceScale: () -> Float = { 1f },
+    appearanceShadowAlpha: (() -> Float)? = null,
+    contentLabel: String? = null,
     content: @Composable () -> Unit,
 ) {
     val contour = LocalCouiContourGlowEnabled.current
@@ -93,12 +98,14 @@ fun Fab(
     Box(
         modifier.size(56.dp).onSizeChanged { boundsSize = it }
             .couiFloatingSurface(backdrop, renderer, resolvedMaterial, resolvedShadow, shape,
-                contentLayer, contour, foregroundComposition = foregroundComposition) {
+                contentLayer, contour, foregroundComposition = foregroundComposition,
+                shadowAlpha = appearanceShadowAlpha) {
+                val scale = appearanceScale()
                 CouiFloatingSurface(
-                    Rect(Offset(motion.translationX.value, motion.translationY.value),
+                    Rect(appearanceOffset() + Offset(motion.translationX.value, motion.translationY.value),
                         Size(boundsSize.width.toFloat(), boundsSize.height.toFloat())),
-                    (motion.scaleX.value + press.scale.value - 1f) * appearanceScale(),
-                    (motion.scaleY.value + press.scale.value - 1f) * appearanceScale(),
+                    (motion.scaleX.value + press.scale.value - 1f) * scale,
+                    (motion.scaleY.value + press.scale.value - 1f) * scale,
                     cornerWeight = couiShape?.cornerWeight ?: 2f,
                     cornerRadius = couiShape?.radius?.value?.times(density),
                 )
@@ -106,14 +113,19 @@ fun Fab(
     ) {
         Box(
             Modifier.fillMaxSize().graphicsLayer {
-                translationX = motion.translationX.value
-                translationY = motion.translationY.value
-                scaleX = (motion.scaleX.value + press.scale.value - 1f) * appearanceScale()
-                scaleY = (motion.scaleY.value + press.scale.value - 1f) * appearanceScale()
+                val offset = appearanceOffset()
+                val scale = appearanceScale()
+                translationX = offset.x + motion.translationX.value
+                translationY = offset.y + motion.translationY.value
+                scaleX = (motion.scaleX.value + press.scale.value - 1f) * scale
+                scaleY = (motion.scaleY.value + press.scale.value - 1f) * scale
             }.couiTouchMotion(motion, enabled, cancelOnConsumedMove = false, consumeDrag = true)
                 .couiPressMotion(press, enabled).then(lightInput)
                 .drawWithContent { contentLayer.record { this@drawWithContent.drawContent() } }
                 .clip(shape).drawBehind { drawLight?.invoke(this) }
+                .then(if (enabled && contentLabel != null) Modifier.semantics {
+                    contentDescription = contentLabel
+                } else Modifier)
                 .then(if (enabled) Modifier.couiFabFeedback(dark, interactionSource).clickable(
                     interactionSource = interactionSource, indication = null, role = Role.Button, onClick = onClick,
                 ) else Modifier),

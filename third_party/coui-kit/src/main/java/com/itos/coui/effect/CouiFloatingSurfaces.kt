@@ -214,9 +214,11 @@ fun Modifier.couiFloatingSurface(
     contourGlowEnabled: Boolean,
     foregroundComposition: Boolean = false,
     beforeContent: (DrawScope.(Path) -> Unit)? = null,
+    shadowAlpha: (() -> Float)? = null,
     surface: () -> CouiFloatingSurface,
 ): Modifier = couiFloatingSurface(backdrop, renderer, material, shadow, shape, contentLayer,
-    contourGlowEnabled, foregroundComposition, beforeContent, useMenuLightEdge = false, surface = surface)
+    contourGlowEnabled, foregroundComposition, beforeContent, useMenuLightEdge = false,
+    shadowAlpha = shadowAlpha, surface = surface)
 
 @RequiresApi(34)
 @Composable
@@ -231,12 +233,13 @@ internal fun Modifier.couiFloatingSurface(
     foregroundComposition: Boolean,
     beforeContent: (DrawScope.(Path) -> Unit)?,
     useMenuLightEdge: Boolean,
+    shadowAlpha: (() -> Float)? = null,
     surface: () -> CouiFloatingSurface,
 ): Modifier {
     require(renderer.standalone)
     return floatingSurfaces(backdrop, renderer, listOf(material), listOf(shadow), listOf(shape),
         listOf(contentLayer), contourGlowEnabled, foregroundComposition,
-        useMenuLightEdge = useMenuLightEdge,
+        useMenuLightEdge = useMenuLightEdge, shadowAlpha = shadowAlpha,
         beforeContent = beforeContent?.let { draw -> { _, path -> draw(path) } }) { listOf(surface()) }
 }
 
