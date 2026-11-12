@@ -74,6 +74,11 @@ object CouiDockDefaults {
     val plusGap = 12.dp
     val plusSlot = plusSize + plusGap
     val barHeight = 56.dp
+
+    fun <T> attachmentSpring() = spring<T>(
+        dampingRatio = CouiDockFabExpansionDamping,
+        stiffness = CouiDockFabExpansionStiffness,
+    )
 }
 
 /** 右附件 FAB 的颜色、图标和跟手光；材质/投影来自 COUI FabDefaults。 */
@@ -158,10 +163,7 @@ fun CouiDockBar(
     val plusMotion = rememberCouiTouchMotion(plusEnabled)
     val plusPress = rememberCouiPressMotion()
     var plusBounds by remember { mutableStateOf(Rect.Zero) }
-    val expansionSpec = spring<Dp>(
-        dampingRatio = CouiDockFabExpansionDamping,
-        stiffness = CouiDockFabExpansionStiffness,
-    )
+    val expansionSpec = CouiDockDefaults.attachmentSpring<Dp>()
     val targetPlusSlot = if (plusVisible) CouiDockDefaults.plusSlot else 0.dp
     val rawPlusSlot = animateDpAsState(
         targetValue = targetPlusSlot,
@@ -172,18 +174,12 @@ fun CouiDockBar(
     val targetPlusAlpha = if (plusEnabled) 1f else 0f
     val plusAlpha = animateFloatAsState(
         targetValue = targetPlusAlpha,
-        animationSpec = spring(
-            dampingRatio = CouiDockFabExpansionDamping,
-            stiffness = CouiDockFabExpansionStiffness,
-        ),
+        animationSpec = CouiDockDefaults.attachmentSpring(),
         label = "CouiDockPlusAlpha",
     )
     val plusScale = animateFloatAsState(
         targetValue = if (plusVisible) 1f else 0.5f,
-        animationSpec = spring(
-            dampingRatio = CouiDockFabExpansionDamping,
-            stiffness = CouiDockFabExpansionStiffness,
-        ),
+        animationSpec = CouiDockDefaults.attachmentSpring(),
         label = "CouiDockPlusScale",
     )
     val menuWidthPx = with(density) { menuWidth.toPx() }

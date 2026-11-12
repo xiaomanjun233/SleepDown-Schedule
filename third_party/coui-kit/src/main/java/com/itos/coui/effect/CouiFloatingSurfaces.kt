@@ -119,6 +119,7 @@ private fun floatingMaterialEffect(
     contourGlowEnabled: Boolean,
     foregroundComposition: Boolean,
     useMenuLightEdge: Boolean,
+    verticalFusion: Boolean,
 ): RenderEffect {
     val node = nodes[index]
     val height = bounds.height
@@ -142,7 +143,7 @@ private fun floatingMaterialEffect(
             shader.setFloatUniform("u_ball${slot + 1}ShapeCtxArray",
                 floatingShapeContext(linked[2], linked[3], linked[5], linked[4]))
         }
-        shader.setFloatUniform("u_preCmpArray12", floatingPair(balls[0], balls[1], 4f * density))
+        shader.setFloatUniform("u_preCmpArray12", floatingPair(balls[0], balls[1], 4f * density, verticalFusion))
         if (renderer.hasThirdBall) {
             shader.setFloatUniform("u_preCmpArray13", floatingPair(balls[0], balls[2], 4f * density))
             shader.setFloatUniform("u_preCmpArray23", floatingPair(balls[1], balls[2], 4f * density))
@@ -214,11 +215,9 @@ fun Modifier.couiFloatingSurface(
     contourGlowEnabled: Boolean,
     foregroundComposition: Boolean = false,
     beforeContent: (DrawScope.(Path) -> Unit)? = null,
-    shadowAlpha: (() -> Float)? = null,
     surface: () -> CouiFloatingSurface,
 ): Modifier = couiFloatingSurface(backdrop, renderer, material, shadow, shape, contentLayer,
-    contourGlowEnabled, foregroundComposition, beforeContent, useMenuLightEdge = false,
-    shadowAlpha = shadowAlpha, surface = surface)
+    contourGlowEnabled, foregroundComposition, beforeContent, useMenuLightEdge = false, surface = surface)
 
 @RequiresApi(34)
 @Composable
@@ -233,13 +232,12 @@ internal fun Modifier.couiFloatingSurface(
     foregroundComposition: Boolean,
     beforeContent: (DrawScope.(Path) -> Unit)?,
     useMenuLightEdge: Boolean,
-    shadowAlpha: (() -> Float)? = null,
     surface: () -> CouiFloatingSurface,
 ): Modifier {
     require(renderer.standalone)
     return floatingSurfaces(backdrop, renderer, listOf(material), listOf(shadow), listOf(shape),
         listOf(contentLayer), contourGlowEnabled, foregroundComposition,
-        useMenuLightEdge = useMenuLightEdge, shadowAlpha = shadowAlpha,
+        useMenuLightEdge = useMenuLightEdge,
         beforeContent = beforeContent?.let { draw -> { _, path -> draw(path) } }) { listOf(surface()) }
 }
 
@@ -277,6 +275,7 @@ fun Modifier.couiFloatingPair(
     drawOrder: List<Int> = listOf(0, 1),
     foregroundComposition: Boolean = false,
     shadowAlpha: (() -> Float)? = null,
+    verticalFusion: Boolean = false,
     surfaces: () -> List<CouiFloatingSurface>,
 ): Modifier {
     require(renderer.surfaceCount == 2)
@@ -286,7 +285,7 @@ fun Modifier.couiFloatingPair(
     return floatingSurfaces(backdrop, renderer, materials, shadows, shapes, contentLayers, contourGlowEnabled,
         foregroundComposition = foregroundComposition,
         beforeContent = beforeContent, drawOrder = drawOrder,
-        shadowAlpha = shadowAlpha, surfaces = surfaces)
+        shadowAlpha = shadowAlpha, verticalFusion = verticalFusion, surfaces = surfaces)
 }
 
 @RequiresApi(34)
@@ -304,6 +303,7 @@ private fun Modifier.floatingSurfaces(
     beforeContent: (DrawScope.(Int, Path) -> Unit)? = null,
     drawOrder: List<Int>? = null,
     shadowAlpha: (() -> Float)? = null,
+    verticalFusion: Boolean = false,
     surfaces: () -> List<CouiFloatingSurface>,
 ): Modifier {
     backdrop.RetainWhileComposed()
@@ -473,12 +473,12 @@ private fun Modifier.floatingSurfaces(
                 group.forEach { index ->
                     val node = nodes[index]
                     val material = materials[index]
-                    appendPatch(materialLayers[index], node.materialRect(material.extension),
+                    appendPatch(materialLayers[index], node.materialRect(material.extension, verticalFusion),
                         blendMode = if (foregroundComposition) ComposeBlendMode.SrcOver else ComposeBlendMode.Src,
                         includePrefix = !foregroundComposition) { bounds ->
                         trace("COUI floating.materialEffect") {
                             floatingMaterialEffect(renderer, material, materialInputs[index], index, materialSlots[index],
-                                nodes, bounds, density, contourGlowEnabled, foregroundComposition, useMenuLightEdge)
+                                nodes, bounds, density, contourGlowEnabled, foregroundComposition, useMenuLightEdge, verticalFusion)
                         }
                     }
                     commands.add(contentLayers[index])

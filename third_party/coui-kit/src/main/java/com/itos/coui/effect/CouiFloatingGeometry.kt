@@ -51,9 +51,11 @@ internal fun CouiFloatingSurface.mapRect(rect: Rect): Rect = Rect(
 )
 
 // forceDraw 先扩本地 rect, 再映射至 surface; extension 已是 dimensionPixelSize。
-internal fun CouiFloatingSurface.materialRect(extension: Int): Rect {
-    val x = if (extension > 0) extension + 51f else 1f
-    val y = if (extension > 0) 11f else 1f
+internal fun CouiFloatingSurface.materialRect(extension: Int, verticalFusion: Boolean = false): Rect {
+    val along = if (extension > 0) extension + 51f else 1f
+    val across = if (extension > 0) 11f else 1f
+    val x = if (verticalFusion) across else along
+    val y = if (verticalFusion) along else across
     return mapRect(Rect(-x, -y, bounds.width + x, bounds.height + y))
 }
 
@@ -88,7 +90,20 @@ internal fun floatingShadowShapeContext(ball: FloatArray, shadow: FloatArray): F
 }
 
 // BuildPreCmpArray 的水平连接分支, 与 Shader 的 12 -> 13 -> 23 顺序配套。
-internal fun floatingPair(a: FloatArray, b: FloatArray, extension: Float): FloatArray {
+internal fun floatingPair(a: FloatArray, b: FloatArray, extension: Float, vertical: Boolean = false): FloatArray {
+    if (vertical) {
+        // Evaluate the same connector along the Y axis, then return its vectors in draw coordinates.
+        fun transpose(ball: FloatArray) = floatArrayOf(
+            ball[1], ball[0], ball[3], ball[2], ball[4], ball[5], ball[7], ball[6]
+        )
+        return floatingPair(transpose(a), transpose(b), extension).apply {
+            for (x in 0..6 step 2) {
+                val previous = this[x]
+                this[x] = this[x + 1]
+                this[x + 1] = previous
+            }
+        }
+    }
     val result = FloatArray(24)
     if (a[2] < 1f || a[3] < 1f || b[2] < 1f || b[3] < 1f) return result
     val ax = a[2] / a[6]

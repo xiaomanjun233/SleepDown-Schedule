@@ -90,7 +90,7 @@ internal fun ParallelHomeDock(
     LaunchedEffect(homeSelected) {
         val target = if (homeSelected) 1f else 0f
         if (split.value == target) return@LaunchedEffect
-        split.animateTo(target, tween(460, easing = HomeDropletEasing))
+        split.animateTo(target, HomeDockSplitSpec)
     }
     var buttonBounds by remember { mutableStateOf(Rect.Zero) }
     val returnButtonLayer = rememberGraphicsLayer()

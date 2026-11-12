@@ -73,8 +73,6 @@ fun Fab(
     spotlightPreset: SpotlightPreset = SpotlightPreset.OpaqueSmall1,
     spotlightColor: Color = Color.White,
     appearanceOffset: () -> Offset = { Offset.Zero },
-    appearanceScale: () -> Float = { 1f },
-    appearanceShadowAlpha: (() -> Float)? = null,
     contentLabel: String? = null,
     content: @Composable () -> Unit,
 ) {
@@ -98,14 +96,12 @@ fun Fab(
     Box(
         modifier.size(56.dp).onSizeChanged { boundsSize = it }
             .couiFloatingSurface(backdrop, renderer, resolvedMaterial, resolvedShadow, shape,
-                contentLayer, contour, foregroundComposition = foregroundComposition,
-                shadowAlpha = appearanceShadowAlpha) {
-                val scale = appearanceScale()
+                contentLayer, contour, foregroundComposition = foregroundComposition) {
                 CouiFloatingSurface(
                     Rect(appearanceOffset() + Offset(motion.translationX.value, motion.translationY.value),
                         Size(boundsSize.width.toFloat(), boundsSize.height.toFloat())),
-                    (motion.scaleX.value + press.scale.value - 1f) * scale,
-                    (motion.scaleY.value + press.scale.value - 1f) * scale,
+                    motion.scaleX.value + press.scale.value - 1f,
+                    motion.scaleY.value + press.scale.value - 1f,
                     cornerWeight = couiShape?.cornerWeight ?: 2f,
                     cornerRadius = couiShape?.radius?.value?.times(density),
                 )
@@ -114,11 +110,10 @@ fun Fab(
         Box(
             Modifier.fillMaxSize().graphicsLayer {
                 val offset = appearanceOffset()
-                val scale = appearanceScale()
                 translationX = offset.x + motion.translationX.value
                 translationY = offset.y + motion.translationY.value
-                scaleX = (motion.scaleX.value + press.scale.value - 1f) * scale
-                scaleY = (motion.scaleY.value + press.scale.value - 1f) * scale
+                scaleX = motion.scaleX.value + press.scale.value - 1f
+                scaleY = motion.scaleY.value + press.scale.value - 1f
             }.couiTouchMotion(motion, enabled, cancelOnConsumedMove = false, consumeDrag = true)
                 .couiPressMotion(press, enabled).then(lightInput)
                 .drawWithContent { contentLayer.record { this@drawWithContent.drawContent() } }
