@@ -26,6 +26,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.addOutline
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.shadow.Shadow
@@ -38,6 +39,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
+import com.itos.coui.motion.couiTouchMotion
+import com.itos.coui.motion.rememberCouiTouchMotion
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
@@ -77,6 +80,8 @@ internal fun HomeSidebarTabBar(
     onExpand: () -> Unit
 ) {
     val blur = homeChromeBlur(if (wallpaperChrome) 16.dp else 1.3.dp, config)
+    val elasticEnabled = enabled && !moving
+    val touch = rememberCouiTouchMotion(elasticEnabled)
     val tabContent: @Composable () -> Unit = {
         Box(Modifier.fillMaxWidth().height(HomeSidebarTabHeight)) {
             ControlSegments(
@@ -84,9 +89,9 @@ internal fun HomeSidebarTabBar(
                     labels = tabs.map { it.second },
                     selected = tabs.indexOfFirst { it.first == selected }.coerceAtLeast(0),
                     onSelected = { onNavigate(tabs[it].first) },
-                    modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 4.dp, top = 6.dp, bottom = 6.dp),
+                    modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
                     dark = !lightGlass,
-                    height = 40.dp,
+                    height = 48.dp,
                     enabled = enabled,
                     containerSurfaceEnabled = false,
                     commitOnRelease = true,
@@ -105,9 +110,15 @@ internal fun HomeSidebarTabBar(
             }
         }
     }
-    // One full capsule owns the light and touch transform, including the leading button.
-    // The inset native rail retains its selection springs without drawing a second shell.
-    Box(modifier.height(HomeSidebarTabHeight)) {
+    // Both materials use the same frame and elastic touch, including the leading button.
+    Box(modifier.fillMaxWidth().height(HomeSidebarTabHeight)
+        .couiTouchMotion(touch, expanded = elasticEnabled)
+        .graphicsLayer {
+            scaleX = touch.scaleX.value
+            scaleY = touch.scaleY.value
+            translationX = touch.translationX.value
+            translationY = touch.translationY.value
+        }) {
         if (lightGlass && !moving) {
             Spacer(
                 Modifier.matchParentSize()
@@ -124,9 +135,9 @@ internal fun HomeSidebarTabBar(
         }
         val nativeSurface = LocalNativeMaterialSurfaceRenderer.current?.invoke(
             NativeMaterialSurfaceRequest(
-                modifier = Modifier.fillMaxWidth().height(HomeSidebarTabHeight), shape = HomeSidebarTabShape,
+                modifier = Modifier.matchParentSize(), shape = HomeSidebarTabShape,
                 dark = !lightGlass, role = NativeMaterialSurfaceRole.HomeNavigation,
-                renderSurface = !moving, elasticTouchFeedback = true, backdrop = backdrop,
+                renderSurface = !moving, backdrop = backdrop,
                 blurRadius = if (wallpaperChrome) blur else null,
             ), tabContent
         ) == true
@@ -141,7 +152,7 @@ internal fun HomeSidebarTabBar(
                 "HomeNavigation", com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain.ChromeCombined,
                 material.role)
             val tint = if (lightGlass) HomeLightGlassSurfaceColor else Color(0xFF26272D)
-            Box(Modifier.fillMaxWidth().height(HomeSidebarTabHeight).then(if (moving) Modifier else
+            Box(Modifier.matchParentSize().then(if (moving) Modifier else
                 Modifier.sleepDownGlassSurface(backdrop, descriptor, material, { HomeSidebarTabShape },
                     com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame(material.blur,
                         material.lensHeight, material.lensAmount, useVibrancy = true, chromaticAberration = true),
