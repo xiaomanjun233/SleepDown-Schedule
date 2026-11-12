@@ -15,7 +15,6 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.overscroll
 import androidx.compose.foundation.rememberOverscrollEffect
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -27,11 +26,10 @@ import androidx.compose.ui.unit.dp
 import com.itos.coui.scroll.couiVerticalScroll
 import kotlinx.coroutines.launch
 
-/** Keep the page's usual scrolling when it has range, and provide COUI pull feedback when it fits. */
+/** The real scroll state owns the viewport. COUI also receives drags when the content fits. */
 @Composable
 internal fun Modifier.pageVerticalScroll(state: ScrollState, enabled: Boolean = true): Modifier =
-    if (enabled && !state.canScrollForward && !state.canScrollBackward) couiVerticalScroll(state)
-    else verticalScroll(state, enabled = enabled)
+    couiVerticalScroll(state, enabled = enabled)
 
 /**
  * Keep one gesture owner as the header, insets, or content changes the scroll range.

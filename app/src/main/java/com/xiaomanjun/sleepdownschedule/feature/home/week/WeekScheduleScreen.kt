@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -60,6 +59,7 @@ import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.WeekDockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 import com.xiaomanjun.sleepdownschedule.currentTimelinePeriod
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
@@ -448,7 +448,7 @@ internal fun SinglePillWeekScheduleScreen(
         modifier = Modifier
             .fillMaxSize()
             .homeSidebarOverflowViewport()
-            .verticalScroll(
+            .pageVerticalScroll(
                 state = scrollState,
                 enabled = !(weekEditOverlay.gestureActive && weekEditOverlay.request?.mode == WeekEditOverlayMode.Resize)
             )
