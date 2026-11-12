@@ -172,6 +172,12 @@ class CourseEditorMotionState internal constructor() {
 @Composable
 fun rememberCourseEditorMotionState(): CourseEditorMotionState = remember { CourseEditorMotionState() }
 
+class CourseEditorSourceHandoff(
+    val backgroundDepth: Float,
+    internal val awaitReady: suspend () -> Unit,
+    internal val release: () -> Unit
+)
+
 data class CourseEditorOverlayRequest(
     val course: CourseEntity,
     val targetWeek: Int?,
@@ -182,7 +188,8 @@ data class CourseEditorOverlayRequest(
     val contextMessage: String? = null,
     val sourceAdjustmentLabel: String? = null,
     val sourceClipBoundsInRoot: Rect? = null,
-    val sourceDayAppearance: CourseEditorDayAppearance? = null
+    val sourceDayAppearance: CourseEditorDayAppearance? = null,
+    val sourceHandoff: CourseEditorSourceHandoff? = null
 )
 
 
@@ -409,7 +416,9 @@ internal fun CourseEditorContainerOverlayHost(
                         snapshotFlow { editorContentLaidOut }.first { it }
                         // The first layout is sufficient; the same form stays mounted through motion.
                     }
+                    request.sourceHandoff?.awaitReady?.invoke()
                 } finally {
+                    request.sourceHandoff?.release?.invoke()
                     if (Build.VERSION.SDK_INT >= 29) Trace.endAsyncSection("SleepDown Editor.prepare", cookie)
                 }
             }
@@ -745,10 +754,11 @@ internal fun CourseEditorContainerOverlayHost(
             )
         }
     }
-    // Day cards sample only wallpaper. Start from those same pixels before introducing the
-    // complete page underlay, rather than replacing a stopped card's material at the first frame.
+    // A day card or shortcut preview starts on the wallpaper before introducing the page underlay.
     val blendedMorphBackdrop = com.xiaomanjun.sleepdownschedule.glass.ui.rememberCrossfadeBackdrop(
-        source = if (shownRequest.sourceIsDayCard && hasSourceTransform) sourceCardBackdrop else backdrop,
+        source = if (hasSourceTransform && (shownRequest.sourceIsDayCard || shownRequest.sourceHandoff != null)) {
+            sourceCardBackdrop
+        } else backdrop,
         destination = backdrop,
         progress = { courseEditorSmoothStep(0.12f, 0.62f, morphFrame.shapeProgress) }
     )
@@ -757,7 +767,9 @@ internal fun CourseEditorContainerOverlayHost(
     // the screen-space scene. This also keeps stopped cards' complete material at frame 0.
     val morphBackdrop = if (shownRequest.sourceIsDayCard && morphFrame.shapeProgress <= 0.12f &&
         dayAppearance != null) dayAppearance.backdrop else blendedMorphBackdrop
-    val morphSurfaceAlpha = 1f
+    val shortcutOwnsSource = shownRequest.sourceHandoff != null &&
+        (overlayPhase == CourseEditorOverlayPhase.Idle || overlayPhase == CourseEditorOverlayPhase.Preparing)
+    val morphSurfaceAlpha = if (shortcutOwnsSource) 0f else 1f
     val sourceCoverAlpha = remember(frameState, hasSourceTransform, overlayPhase) {
         derivedStateOf {
             if (hasSourceTransform) {

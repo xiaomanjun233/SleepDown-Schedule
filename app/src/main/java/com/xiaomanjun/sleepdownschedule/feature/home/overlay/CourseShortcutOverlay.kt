@@ -34,6 +34,7 @@ import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorSourceHandoff
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseOverlayCardContent
 import com.xiaomanjun.sleepdownschedule.glass.ui.CourseGlassCard
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
@@ -43,6 +44,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
 internal data class CourseShortcutRequest(
@@ -65,8 +67,12 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
         private set
     val progress = Animatable(0f)
     val cardScale = Animatable(1f)
+    private class EditorTransfer(val backgroundDepth: Float, val menuExit: CompletableDeferred<Unit> = CompletableDeferred())
+    private var editorTransfer by mutableStateOf<EditorTransfer?>(null)
     val backgroundProgress: Float
-        get() = if (request == null) 0f else ((progress.value - 0.45f) / 0.55f).coerceIn(0f, 1f)
+        get() = editorTransfer?.backgroundDepth ?: if (request == null) 0f
+            else ((progress.value - 0.45f) / 0.55f).coerceIn(0f, 1f)
+    val dimProgress: Float get() = maxOf(progress.value, editorTransfer?.backgroundDepth ?: 0f)
     val backgroundActive by derivedStateOf { backgroundProgress > 0f }
     private var motion: Job? = null
     // Optional native window exit barrier. Background blur keeps its existing animation.
@@ -74,6 +80,7 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
 
     fun open(value: CourseShortcutRequest) {
         motion?.cancel()
+        releaseEditorTransfer()
         request = value
         closing = false
         motion = scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -100,20 +107,44 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
 
     fun close(dispatchImmediately: Boolean = false, afterClose: (() -> Unit)? = null) {
         if (request == null || closing) return
+        animateMenuExit {
+            request = null
+            closing = false
+            if (!dispatchImmediately) afterClose?.invoke()
+        }
+        if (dispatchImmediately) afterClose?.invoke()
+    }
+
+    fun edit(openEditor: (CourseShortcutRequest, CourseEditorSourceHandoff?) -> Boolean) {
+        val source = request ?: return
+        if (closing) return
+        val transfer = EditorTransfer(backgroundProgress)
+        val handoff = CourseEditorSourceHandoff(
+            backgroundDepth = transfer.backgroundDepth,
+            awaitReady = { transfer.menuExit.await() },
+            release = { if (editorTransfer === transfer) clearPresentation() }
+        )
+        if (!openEditor(source, handoff)) return
+        // Prepare the editor as the menu leaves. Keep the lifted card and the same home depth
+        // until the editor takes the source, so the page never flashes through between them.
+        editorTransfer = transfer
+        animateMenuExit { transfer.menuExit.complete(Unit) }
+    }
+
+    private fun animateMenuExit(onExit: () -> Unit) {
         closing = true
         motion?.cancel()
         val nativeExit = CompletableDeferred<Unit>()
         val dismiss = dismissNativeMenu
         if (dismiss == null) nativeExit.complete(Unit) else dismiss { nativeExit.complete(Unit) }
         motion = scope.launch {
-            launch { cardScale.animateTo(1f, tween(180, easing = FastOutSlowInEasing)) }
-            progress.animateTo(0f, tween(180, easing = FastOutSlowInEasing))
-            nativeExit.await()
-            request = null
-            closing = false
-            if (!dispatchImmediately) afterClose?.invoke()
+            coroutineScope {
+                launch { cardScale.animateTo(1f, tween(180, easing = FastOutSlowInEasing)) }
+                progress.animateTo(0f, tween(180, easing = FastOutSlowInEasing))
+                nativeExit.await()
+            }
+            onExit()
         }
-        if (dispatchImmediately) afterClose?.invoke()
     }
 
     fun reset() {
@@ -123,12 +154,18 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
 
     private fun clearPresentation() {
         motion?.cancel()
+        releaseEditorTransfer()
         request = null
         closing = false
         motion = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             progress.snapTo(0f)
             cardScale.snapTo(1f)
         }
+    }
+
+    private fun releaseEditorTransfer() {
+        editorTransfer?.menuExit?.complete(Unit)
+        editorTransfer = null
     }
 }
 
@@ -170,7 +207,7 @@ internal fun CourseShortcutOverlay(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     cardBackdrop: Backdrop?,
-    onEdit: (CourseShortcutRequest) -> Unit,
+    onEdit: (CourseShortcutRequest, CourseEditorSourceHandoff?) -> Boolean,
     onCopy: (CourseShortcutRequest, CourseEntity) -> Unit,
     onRemove: (CourseEntity, Int) -> Unit
 ) {
@@ -187,6 +224,7 @@ internal fun CourseShortcutOverlay(
     }
     val request = controller.request
     val immediateActions = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
+    val centeredEditor = isLandscapeMenuWindow()
     val acceptsInput = request != null && !(immediateActions && controller.closing)
     BackHandler(enabled = acceptsInput) { controller.close() }
     // Resolve the host before a long-press hides its source. Creating this host only after
@@ -241,7 +279,7 @@ internal fun CourseShortcutOverlay(
                     shape = RoundedRectangle(with(density) { request.cornerPx.toDp() }), onClick = null
                 ) { WeekCourseOverlayCardContent(request.course, config) }
             }
-            val actions = remember(request, controller, onEdit, onRemove, immediateActions) {
+            val actions = remember(request, controller, onEdit, onRemove, immediateActions, centeredEditor) {
                 listOf(
                     AddMenuAction(R.drawable.ic_edit, "快速编辑模式") {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -249,7 +287,8 @@ internal fun CourseShortcutOverlay(
                     },
                     AddMenuAction(R.drawable.ic_edit, "编辑单节课") {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        controller.close(immediateActions) { onEdit(request) }
+                        if (centeredEditor) controller.close(immediateActions) { onEdit(request, null) }
+                        else controller.edit(onEdit)
                     },
                     AddMenuAction(R.drawable.ic_copy, "复制课程") {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)

@@ -220,6 +220,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.interaction.observeCoursePointer
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorFlightRegistry
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorOverlayPhase
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorOverlayRequest
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorSourceHandoff
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.LocalCourseEditorFlightRegistry
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.NormalizedCourseEditorScreen
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorApplyAllScope
@@ -554,11 +555,19 @@ fun CourseScheduleAppUi(
     val courseEditorFlightRegistry = remember { CourseEditorFlightRegistry() }
     val homeMoreButtonReturnLayer = rememberGraphicsLayer()
     val courseEditorOverlayPhase = courseEditorMotionState.phase
-    fun openCourseEditor(course: CourseEntity, targetWeek: Int?, sourceBounds: Rect?, copyDraft: CourseEntity? = null, contextMessage: String? = null, sourceAdjustmentLabel: String? = null) {
-        if (!courseEditorFlightRegistry.tapGate.allowed) return
-        if (courseEditorSessionRegistry.consumeActiveTap(course.id)) return
-        val session = courseEditorSessionRegistry.select(course.id, copyDraft) ?: return
-        if (session.request != null) return
+    fun openCourseEditor(
+        course: CourseEntity,
+        targetWeek: Int?,
+        sourceBounds: Rect?,
+        copyDraft: CourseEntity? = null,
+        contextMessage: String? = null,
+        sourceAdjustmentLabel: String? = null,
+        sourceHandoff: CourseEditorSourceHandoff? = null
+    ): Boolean {
+        if (!courseEditorFlightRegistry.tapGate.allowed) return false
+        if (courseEditorSessionRegistry.consumeActiveTap(course.id)) return false
+        val session = courseEditorSessionRegistry.select(course.id, copyDraft) ?: return false
+        if (session.request != null) return false
         val clickedSource = courseEditorFlightRegistry.consumeSource(sourceBounds)
         val sourceIsDayCard = clickedSource != null || (homeMode != HomeMode.Week && sourceBounds != null)
         val sourceGrid = if (sourceIsDayCard) null else targetWeek?.let(courseEditorFlightRegistry::grid)
@@ -573,11 +582,13 @@ fun CourseScheduleAppUi(
             copyDraft = copyDraft,
             sourceGrid = sourceGrid,
             contextMessage = contextMessage,
-            sourceAdjustmentLabel = sourceAdjustmentLabel
+            sourceAdjustmentLabel = sourceAdjustmentLabel,
+            sourceHandoff = sourceHandoff
         )
         session.retainedRequest = nextRequest
         // Real-time material and content own the flight; no asynchronous PixelCopy placeholder.
         trace("SleepDown Editor.open") { session.request = nextRequest }
+        return true
     }
     fun openAdjustedCourseEditor(courseId: Long, date: LocalDate, sourceBounds: Rect?) {
         val original = state.courses.firstOrNull { it.id == courseId } ?: return
@@ -1529,12 +1540,13 @@ fun CourseScheduleAppUi(
     }
     val landscapeWindow = isLandscapeMenuWindow()
     val homeOverlayBackgroundBlurProgress: () -> Float = {
-        if (landscapeWindow && !preserveHomeOverlayMotion) {
+        val activeDepth = if (landscapeWindow && !preserveHomeOverlayMotion) {
             maxOf(
                 courseEditorSessions.maxOfOrNull { it.motion.progress.value } ?: 0f,
                 if (homeMenuDestinationMotionState.phase != HomeAnchoredOverlayPhase.Idle) homeMenuDestinationMotionState.progress.value else 0f
             )
         } else legacyHomeOverlayBackgroundBlurProgress()
+        maxOf(activeDepth, courseEditorSessions.maxOfOrNull { it.request?.sourceHandoff?.backgroundDepth ?: 0f } ?: 0f)
     }
     LaunchedEffect(screen, homeMode, visualState.config.id, homeDisplayWeek,
         homeAdaptiveMetrics.screenWidth, homeAdaptiveMetrics.screenHeight,
@@ -2275,7 +2287,9 @@ fun CourseScheduleAppUi(
                     config = visualState.config,
                     backdrop = centeredDialogSceneBackdrop,
                     cardBackdrop = backgroundBackdrop,
-                    onEdit = { source -> openCourseEditor(source.course, source.week, source.bounds) },
+                    onEdit = { source, handoff ->
+                        openCourseEditor(source.course, source.week, source.bounds, sourceHandoff = handoff)
+                    },
                     onCopy = { source, draft ->
                         courseCopy.begin(source, draft)
                     },
@@ -2665,7 +2679,7 @@ fun CourseScheduleAppUi(
         // liquid sampling coordinates aligned without blurring the foreground panel itself.
         HomeBackgroundZoomLayer(
             zoom = homeOverlayBackgroundZoom,
-            dimProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.progress.value) },
+            dimProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.dimProgress) },
             modifier = Modifier
                 .fillMaxSize()
                 .background(MaterialTheme.colorScheme.background)
