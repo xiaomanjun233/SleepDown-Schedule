@@ -35,8 +35,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColo
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorMorphCornerShape
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorOpeningTaper
+import com.xiaomanjun.sleepdownschedule.glass.DeferredGlassRoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.ui.MorphDialogSurface
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
 import kotlin.math.roundToInt
@@ -76,18 +75,8 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
                 closing = motionState.phase == HomeAnchoredOverlayPhase.Closing)
         }
     }
-    val shape = remember(geometry, density.density, motionState, sourceBounds, targetRect, targetCorner) {
-        CourseEditorMorphCornerShape(
-            radiusX = targetCorner,
-            radiusY = targetCorner,
-            sourceDensity = density.density,
-            radiusProvider = { geometry.value.cornerRadiusPx },
-            taperProvider = {
-                courseEditorOpeningTaper(
-                    motionState.progress.value, sourceBounds.center.y - targetRect.center.y, targetRect.height
-                )
-            }
-        )
+    val shape = remember(geometry, density.density) {
+        DeferredGlassRoundedRectangle({ geometry.value.cornerRadiusPx }, density.density)
     }
     val settled = motionState.phase == HomeAnchoredOverlayPhase.Open
 
@@ -109,7 +98,6 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
                 val child = measurable.measure(Constraints.fixed(width, height))
                 layout(width, height) { child.place(0, 0) }
             }
-            .clip(shape)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
@@ -186,10 +174,10 @@ private fun PersonalizationMaterial(
     val light = glassUsesLightStyle(config)
     val tint = if (light) HomeLightGlassSurfaceColor.copy(alpha = HomeLightGlassPanelTintAlpha)
         else Color(0xFF121212).copy(alpha = 0.30f)
-    // The parent supplies the animated clip. Sample in the measured window pixel grid.
+    // Round the material in the measured pixel grid. The form scales independently above it.
     if (LocalNativeMaterialSurfaceRenderer.current?.invoke(
             NativeMaterialSurfaceRequest(
-                modifier = modifier,
+                modifier = modifier.clip(shape),
                 shape = RectangleShape,
                 dark = !light,
                 surfaceAlpha = surfaceAlpha,
