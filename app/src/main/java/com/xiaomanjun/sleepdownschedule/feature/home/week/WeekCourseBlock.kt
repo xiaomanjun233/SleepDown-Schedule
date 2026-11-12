@@ -394,6 +394,7 @@ fun WeekCourseBlock(
         val request = buildWeekEditOverlayRequest(WeekEditOverlayMode.Move, position)
         if (request != null && !customTimeLocked) {
             if (shortcut != null) shortcuts?.cancel(shortcut)
+            if (!currentEditMode) onEnterEditMode()
             bodyDragging = true
             onStartWeekEditOverlay(request)
             true
