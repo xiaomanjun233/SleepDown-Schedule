@@ -1,6 +1,6 @@
 # 当前工作交接
 
-## 2026-11-12 首页材质与调课拖动的模拟器验收
+## 2026-11-12 首页材质与调课拖动的模拟器验收及真机安装
 
 用户先要求“先修性能”，随后以同一模拟器 Nexio 真实拖动调课的 P95 为对照。
 两种材质都有发黑反馈。灰阶壁纸下凝光新旧包暗部读数基本一致，本轮未复现整卡异常黑，
@@ -8,7 +8,7 @@
 
 运行时修订保存为 `d48eeb47`，分支 `codex/home-render-architecture`，工作树
 `tmp/home-render-architecture`。原开发工作树及 `codex/perf-baseline-20261111`
-仍为 `b779dd55`。未推送。真机当前是此前恢复的 `6bcbc93e`。
+仍为 `b779dd55`。未推送。
 验收在后台 Pixel_10_Pro（API 36.1、隔离用户 10、SDK ADB 5038 → `127.0.0.1:5557`）
 使用 25 门合成课程完成。本轮只做签名 Release 构建和实际界面验证。
 
@@ -20,6 +20,10 @@ Nexio 对照是用户提供的 `D:/QQ/2308530675/FileRecv/Nexio课程表.apk (5)
 签名包 `tmp/material-device-qa/aligned-drag.apk` 完整 Release 构建通过（5m47s），
 模拟器安装后回读 SHA-256
 `D22EBE7A032D7B3A306446D46CBBF183EAFC5AB895B49E5A270C1019511EEFFE`。
+用户随后要求安装，11 月 12 日 09:53:08 使用同一个签名包覆盖 OPPO PLJ110（Android 17 /
+API 37，USB `3B15AE023YL00000`，用户 0）。客户端与 5038 服务均为
+`D:/Android studio/AndroidSDK/platform-tools/adb.exe` 37.0.1。安装返回 Success，
+真机回读 SHA-256 与归档一致，系统版本为 2.0 / 36。覆盖安装保留应用数据，尚未做真机界面复测。
 最终同批三次拖动的 P95 为普通入口凝光 40.38、液态 46.89、Nexio 46.25 ms，
 快速编辑凝光 35.08、液态 37.72 ms。Nexio 跨轮 P95 在 26.27–46.25 ms，
 以相邻实测为对照。采集条件、阶段结果和撤回实验见[本轮报告](reports/2026-11-11-home-render-architecture.md)。
