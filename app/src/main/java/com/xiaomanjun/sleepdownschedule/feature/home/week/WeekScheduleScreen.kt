@@ -310,7 +310,9 @@ internal fun SinglePillWeekScheduleScreen(
         providerId = "week-stationary-courses"
     )
     val weekEditOwnsPager = weekEditMode || weekEditOverlay.request != null
-    val needsStationaryCoursesBackdrop = weekEditOwnsPager && weekEditOverlay.landingRipple == null
+    // The wave can start while the landing clone still samples the course layer.
+    val needsStationaryCoursesBackdrop = weekEditOverlay.request != null ||
+        (weekEditMode && weekEditOverlay.landingRipple == null)
     stationaryCoursesBackdrop.graphicsLayer.compositingStrategy =
         if (needsStationaryCoursesBackdrop) androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
         else androidx.compose.ui.graphics.layer.CompositingStrategy.Auto

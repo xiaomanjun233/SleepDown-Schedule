@@ -596,6 +596,12 @@ internal class WeekEditOverlayController(
         releaseVelocity: Velocity
     ) {
         if (landingFlightRunning || landingFlightComplete) return
+        val landedRequest = request ?: return
+        val projectedCenter = Offset(
+            landedRequest.sourceBounds.center.x + targetX,
+            landedRequest.sourceBounds.top + targetY + targetHeight / 2f + scrollState.value
+        )
+        val landingWeek = committedTargetWeek
         landingFlightRunning = true
         // Publish the exact release pose synchronously. Animatable.snapTo is suspendable, so
         // waiting to leave direct-manipulation mode inside the coroutine could leave one rendered
@@ -637,6 +643,17 @@ internal class WeekEditOverlayController(
                 )
             }
             val scaleJob = launch {
+                var reachedLiftPeak = false
+                var rippleStarted = false
+                fun playContactRipple() {
+                    if (rippleStarted || request !== landedRequest) return
+                    rippleStarted = true
+                    startLandingRipple(WeekEditLandingRipple(
+                        centerInScrollContent = if (realCardTargetMeasured) realCardCenterInScrollContent else projectedCenter,
+                        radiusPx = maxOf(landedRequest.gridColumnWidthPx * 3.8f, landedRequest.periodRowHeightPx * 3f),
+                        week = landingWeek
+                    ))
+                }
                 overlayScale.animateTo(
                     1f,
                     keyframes {
@@ -647,7 +664,13 @@ internal class WeekEditOverlayController(
                         0.973f at 183 using FastOutSlowInEasing
                         1.014f at 265 using FastOutSlowInEasing
                     }
-                )
+                ) {
+                    // Signal the first compression of the visible landing, even while the
+                    // repository and the real card are still preparing the handoff.
+                    if (value > 1.01f) reachedLiftPeak = true
+                    if (reachedLiftPeak && value < 0.995f) playContactRipple()
+                }
+                playContactRipple()
             }
             val rotationJob = launch {
                 overlayRotation.animateTo(
@@ -687,11 +710,6 @@ internal class WeekEditOverlayController(
     private fun handoffOverlayToRealCard() {
         if (handoffRunning || committedTargetKey == null) return
         val landedRequest = request ?: return
-        val ripple = WeekEditLandingRipple(
-            centerInScrollContent = realCardCenterInScrollContent,
-            radiusPx = maxOf(landedRequest.gridColumnWidthPx * 3.8f, landedRequest.periodRowHeightPx * 3f),
-            week = committedTargetWeek
-        )
         handoffRunning = true
         scope.launch {
             awaitingCommit = false
@@ -714,8 +732,6 @@ internal class WeekEditOverlayController(
             autoScrollDirection = 0
             handoffRunning = false
             overlayAlpha.snapTo(1f)
-            // The clone no longer needs the recorded grid. Play the wave on the real cards.
-            if (request == null && committedTargetKey != null) startLandingRipple(ripple)
         }
     }
 
