@@ -27,8 +27,10 @@ import com.xiaomanjun.sleepdownschedule.WeekCardContentLayout
 import com.xiaomanjun.sleepdownschedule.WeekCardTextAlignment
 import com.xiaomanjun.sleepdownschedule.core.ui.text.CourseCardText
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalPersonalizationPreview
+import com.xiaomanjun.sleepdownschedule.feature.home.currentWindowSizeDp
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeCourseTextColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
+import com.xiaomanjun.sleepdownschedule.feature.home.usesCompactWeekCards
 import com.xiaomanjun.sleepdownschedule.model.effectiveWeekCardTextAlignment
 import com.xiaomanjun.sleepdownschedule.domain.schedule.customTimeRangeOrNull
 import kotlin.math.ceil
@@ -49,12 +51,13 @@ internal fun WeekCourseCardTextContent(
     val widthDp = cardLayoutWidth.value
     val compact = heightDp < 78f
     val tiny = heightDp < 52f
-    val verticalPadding = when {
+    val roundedCornerInset = if (currentWindowSizeDp().usesCompactWeekCards()) 1.dp else 0.dp
+    val verticalPadding = roundedCornerInset + when {
         tiny -> 1.dp
         compact -> 2.dp
         else -> 2.5.dp
     }
-    val horizontalPadding = if (widthDp < 54f) 4.dp else 5.dp
+    val horizontalPadding = roundedCornerInset + if (widthDp < 54f) 4.dp else 5.dp
     val fontScaleCompensation = density.fontScale.coerceAtLeast(1f)
     val tabletFontBoost = if (gridColumnWidth >= 120.dp) 1.18f else 1f
     val previewFontScale = LocalPersonalizationPreview.current?.cardFontScale

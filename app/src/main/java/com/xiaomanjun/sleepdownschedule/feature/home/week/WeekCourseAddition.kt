@@ -37,13 +37,12 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.feature.home.WeekCourseAdditionCorner
 import com.xiaomanjun.sleepdownschedule.glass.ui.CourseCreationGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.weekdayLabel
 import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
-
-internal val WeekCourseAdditionCorner = 13.dp
 
 internal data class WeekCourseAddTarget(
     val scheduleId: Int,
