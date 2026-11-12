@@ -282,7 +282,7 @@ internal fun HomeAssistantHost(
             BackHandler(controller.stage == HomeAssistantStage.Reminder) { controller.closing = true }
             TopAssistantSurface(
                 backdrop, state.config, RoundedRectangle(with(density) { (screenCornerPx - edgeInset.toPx()).coerceAtLeast(16.dp.toPx()).toDp() }),
-                nativeMaterial = true,
+                useGlowMaterial = true,
                 modifier = Modifier.offset {
                     val rect = reminderGeometry()
                     IntOffset(rect.left.roundToInt(), rect.top.roundToInt())

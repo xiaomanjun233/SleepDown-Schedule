@@ -611,7 +611,7 @@ private fun EduImportGuideMorphOverlay(
                 }
         ) {
             TopAssistantSurface(backdrop, config, cardShape, solidShade = geometryProgress < 0.04f, modifier = Modifier.fillMaxSize(),
-                glow = expanded && geometryProgress >= 0.04f, nativeMaterial = true) {
+                glow = expanded && geometryProgress >= 0.04f) {
             Box(Modifier.fillMaxSize().clip(cardShape).drawBehind {
                 if (pressProgress.value > 0f) drawRect(ComposeColor.White.copy(alpha = 0.16f * pressProgress.value))
             }) {

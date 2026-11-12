@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -32,6 +33,8 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalGlowMaterialSurfaceRenderer
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer
 import com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation
 import com.xiaomanjun.sleepdownschedule.glass.insetShapeFor
 import kotlin.math.roundToInt
@@ -142,7 +145,7 @@ internal fun TopAssistantSurface(
     shapeProvider: (() -> Shape)? = null,
     surfaceFrame: (() -> Pair<Dp, Float>)? = null,
     materialEnabled: Boolean = true,
-    nativeMaterial: Boolean = false,
+    useGlowMaterial: Boolean = false,
     nativeFollowLightIntensityScale: Float = 1f,
     backdropSampleScale: Float = 1f,
     content: @Composable BoxScope.() -> Unit = {}
@@ -163,28 +166,34 @@ internal fun TopAssistantSurface(
             }
         } else Modifier)
     ) {
-        if (materialEnabled && !solidShade) GlassSurface(
-            nativeMaterial = nativeMaterial,
-            nativeFollowLightIntensityScale = nativeFollowLightIntensityScale,
-            backdropSampleScale = backdropSampleScale,
-            nativeDark = true,
-            backdrop = backdrop,
-            config = config,
-            modifier = Modifier.matchParentSize(),
-            shape = shape,
-            shapeProvider = shapeProvider,
-            morphAllocation = morphAllocation,
-            baseSurfaceColorOverride = Color.Black,
-            tokens = GlassTokens.dialog(1f).copy(
-                blur = 12.dp, surfaceAlpha = 0.12f, lensHeight = 24.dp, lensAmount = 42.dp,
-                chromaticAberration = false, highlightAlpha = 0.08f, shadowAlpha = 0f
-            ).let { tokens -> if (refractionEnabled) tokens else tokens.copy(lensHeight = 0.dp, lensAmount = 0.dp, depthEffect = false)
-            }.let { tokens -> if (edgeEffectsEnabled) tokens else tokens.copy(
-                lensHeight = 0.dp, lensAmount = 0.dp, borderAlpha = 0f, highlightAlpha = 0f,
-                innerShadowAlpha = 0f, depthEffect = false
-            ) },
-            debugLabel = "TopAssistantSurface"
-        ) {}
+        if (materialEnabled && !solidShade) {
+            val renderer = if (useGlowMaterial) LocalGlowMaterialSurfaceRenderer.current
+                else LocalNativeMaterialSurfaceRenderer.current
+            CompositionLocalProvider(LocalNativeMaterialSurfaceRenderer provides renderer) {
+                GlassSurface(
+                    nativeMaterial = renderer != null,
+                    nativeFollowLightIntensityScale = nativeFollowLightIntensityScale,
+                    backdropSampleScale = backdropSampleScale,
+                    nativeDark = true,
+                    backdrop = backdrop,
+                    config = config,
+                    modifier = Modifier.matchParentSize(),
+                    shape = shape,
+                    shapeProvider = shapeProvider,
+                    morphAllocation = morphAllocation,
+                    baseSurfaceColorOverride = Color.Black,
+                    tokens = GlassTokens.dialog(1f).copy(
+                        blur = 12.dp, surfaceAlpha = 0.12f, lensHeight = 24.dp, lensAmount = 42.dp,
+                        chromaticAberration = false, highlightAlpha = 0.08f, shadowAlpha = 0f
+                    ).let { tokens -> if (refractionEnabled) tokens else tokens.copy(lensHeight = 0.dp, lensAmount = 0.dp, depthEffect = false)
+                    }.let { tokens -> if (edgeEffectsEnabled) tokens else tokens.copy(
+                        lensHeight = 0.dp, lensAmount = 0.dp, borderAlpha = 0f, highlightAlpha = 0f,
+                        innerShadowAlpha = 0f, depthEffect = false
+                    ) },
+                    debugLabel = "TopAssistantSurface"
+                ) {}
+            }
+        }
         Box(
             Modifier.fillMaxSize().then(if (morphAllocation == null) Modifier.clip(shape) else Modifier.graphicsLayer {
                 this.shape = morphAllocation.envelope.insetShapeFor(morphAllocation.geometry())

@@ -14,7 +14,7 @@ internal data class ControlMaterialRenderers(
     val followLight: (@Composable (NativeFollowLightRequest) -> Boolean)? = null,
     val courseCard: (@Composable (NativeCourseCardRequest, @Composable () -> Unit) -> Boolean)? = null,
     val courseBackdropFilter: ((Boolean, Float) -> androidx.compose.ui.graphics.RenderEffect)? = null,
-    val surface: (@Composable (NativeMaterialSurfaceRequest, @Composable () -> Unit) -> Boolean)? = null,
+    val surface: NativeMaterialSurfaceRenderer? = null,
     val strokeOverlay: (@Composable (NativeStrokeOverlayRequest) -> Boolean)? = null,
     val cardLight: (@Composable (NativeCardLightRequest) -> Boolean)? = null,
     val pageIndicator: (@Composable (NativePagerIndicatorRequest) -> Boolean)? = null,

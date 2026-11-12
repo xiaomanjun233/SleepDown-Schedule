@@ -3,6 +3,7 @@ package com.xiaomanjun.sleepdownschedule.platform.coloros
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
@@ -13,6 +14,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.GlowCourseShortcutMenu
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.GlowOverflowMenuButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ControlMaterialRenderers
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalGlowMaterialSurfaceRenderer
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ProvideControlMaterials
 import com.xiaomanjun.sleepdownschedule.core.ui.material.HomeMaterialControls
 
@@ -71,14 +73,18 @@ internal fun ProvideCouiMaterials(
     couiControlsEnabled: Boolean,
     content: @Composable () -> Unit,
 ) {
-    val kitEnabled = couiControlsEnabled && Build.VERSION.SDK_INT >= 34
-    val renderers = if (couiControlsEnabled && Build.VERSION.SDK_INT >= 34) {
-        val kit = remember { couiRenderers() }
-        if (AppMaterialPreferences.isSuperPerformance) {
+    val kit = if (Build.VERSION.SDK_INT >= 34) remember { couiRenderers() } else null
+    val superPerformance = AppMaterialPreferences.isSuperPerformance
+    val renderers = if (couiControlsEnabled && kit != null) {
+        if (superPerformance) {
             kit.copy(surface = null, menuSurface = null, cardLight = null, followLight = null)
         } else kit
     } else ControlMaterialRenderers.LiquidGlass
-    val courseMode = if (kitEnabled) rememberCourseCardMaterialPreferences(CouiCourseBlurRadiusPx) else null
-    // Dialogs use the common COUI host in both visual modes.
-    ProvideControlMaterials(renderers, courseCardMode = courseMode, content = content)
+    val courseMode = if (couiControlsEnabled && kit != null) {
+        rememberCourseCardMaterialPreferences(CouiCourseBlurRadiusPx)
+    } else null
+    val glowSurface = kit?.surface?.takeUnless { superPerformance }
+    CompositionLocalProvider(LocalGlowMaterialSurfaceRenderer provides glowSurface) {
+        ProvideControlMaterials(renderers, courseCardMode = courseMode, content = content)
+    }
 }

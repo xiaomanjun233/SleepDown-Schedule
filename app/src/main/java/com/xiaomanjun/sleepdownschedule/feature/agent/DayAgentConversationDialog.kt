@@ -795,7 +795,7 @@ internal fun DayAgentConversationDialog(
             ) {
                 TopAssistantSurface(
                     backdrop, state.config, androidx.compose.ui.graphics.RectangleShape,
-                    nativeMaterial = true,
+                    useGlowMaterial = true,
                     nativeFollowLightIntensityScale = if (homeResponseVisible && !homeFullScreen) 0.45f else 1f,
                     // The window-sized shell is already blurred. Keep its full-screen
                     // capture at half resolution, with the radius in screen pixels.

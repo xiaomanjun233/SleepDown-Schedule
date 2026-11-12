@@ -48,8 +48,12 @@ internal data class NativeStrokeOverlayRequest(
     val dark: Boolean
 )
 
-internal val LocalNativeMaterialSurfaceRenderer =
-    compositionLocalOf<(@Composable (NativeMaterialSurfaceRequest, @Composable () -> Unit) -> Boolean)?> { null }
+internal typealias NativeMaterialSurfaceRenderer = @Composable (NativeMaterialSurfaceRequest, @Composable () -> Unit) -> Boolean
+
+internal val LocalNativeMaterialSurfaceRenderer = compositionLocalOf<NativeMaterialSurfaceRenderer?> { null }
+
+/** Available to surfaces that use the same glow material in both visual modes. */
+internal val LocalGlowMaterialSurfaceRenderer = compositionLocalOf<NativeMaterialSurfaceRenderer?> { null }
 
 /** Available independently of native glass so liquid mode can reuse the native outer stroke. */
 internal val LocalNativeStrokeOverlayRenderer =
