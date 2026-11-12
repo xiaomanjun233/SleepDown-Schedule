@@ -431,14 +431,16 @@ class HomeAnchoredMorphGeometryTest {
     }
 
     @Test
-    fun personalizationExpandsDirectlyFromItsPressedAnchor() {
+    fun personalizationDescendsFromItsPressedAnchorBeforeFinishingExpansion() {
         val start = homePersonalizationTrajectoryGeometry(source, destination, 0f, 28f, 1.04f)
         val middle = homePersonalizationTrajectoryGeometry(source, destination, 0.5f, 28f, 1.04f)
         val end = homePersonalizationTrajectoryGeometry(source, destination, 1f, 28f, 1.04f)
 
         assertEquals(source.width * 1.04f, start.rect.width, Tolerance)
-        assertEquals((start.rect.width + end.rect.width) / 2f, middle.rect.width, Tolerance)
-        assertEquals((start.rect.center.y + end.rect.center.y) / 2f, middle.rect.center.y, Tolerance)
+        assertEquals(start.rect.width + (end.rect.width - start.rect.width) * middle.expansionProgress,
+            middle.rect.width, Tolerance)
+        assertTrue(middle.rect.center.y > start.rect.center.y +
+            (end.rect.center.y - start.rect.center.y) * middle.expansionProgress)
         assertRectEquals(destination, end.rect)
     }
 

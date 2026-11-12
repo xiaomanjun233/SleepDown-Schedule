@@ -132,14 +132,16 @@ internal fun legacyPersonalizationMorphSpec(
     sourcePressedScale: Float,
     preloadedContent: Boolean = false,
     earlyContentHandoff: Boolean = false,
-    earlyOpeningContentHandoff: Boolean = earlyContentHandoff
+    earlyOpeningContentHandoff: Boolean = earlyContentHandoff,
+    maximumArcPx: Float = Float.MAX_VALUE
 ): LegacyHomeLiquidMorphSpec = LegacyHomeLiquidMorphSpec("home-personalization") { input ->
     val geometry = homePersonalizationTrajectoryGeometry(
         source = source,
         target = target,
         rawProgress = input.rawProgress,
         targetCornerRadiusPx = targetCornerRadiusPx,
-        sourcePressedScale = sourcePressedScale
+        sourcePressedScale = sourcePressedScale,
+        maximumArcPx = maximumArcPx
     )
     if (preloadedContent) {
         val alpha = com.xiaomanjun.sleepdownschedule.glass.liquidPreloadedContentAlpha(

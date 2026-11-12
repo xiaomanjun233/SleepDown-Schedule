@@ -15,10 +15,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.Outline
 import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
@@ -28,9 +26,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Constraints
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
@@ -39,9 +35,10 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColo
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorMorphCornerShape
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorOpeningTaper
 import com.xiaomanjun.sleepdownschedule.glass.ui.MorphDialogSurface
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
-import com.kyant.shapes.RoundedRectangle
 import kotlin.math.roundToInt
 
 @Composable
@@ -49,6 +46,7 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
     sourceBounds: Rect,
     sourcePressedScale: Float,
     targetRect: Rect,
+    maximumArcPx: Float,
     motionState: HomeAnchoredMorphState,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
@@ -61,14 +59,15 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
     val density = LocalDensity.current
     val latestPreview = rememberUpdatedState(previewProgress)
     val targetCorner = with(density) { 28.dp.toPx() }
-    val morphSpec = remember(sourceBounds, targetRect, targetCorner, sourcePressedScale) {
+    val morphSpec = remember(sourceBounds, targetRect, targetCorner, sourcePressedScale, maximumArcPx) {
         legacyPersonalizationMorphSpec(
             source = sourceBounds,
             target = targetRect,
             targetCornerRadiusPx = targetCorner,
             sourcePressedScale = sourcePressedScale,
             preloadedContent = true,
-            earlyContentHandoff = true
+            earlyContentHandoff = true,
+            maximumArcPx = maximumArcPx
         )
     }
     val geometry = remember(morphSpec, motionState) {
@@ -77,13 +76,18 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
                 closing = motionState.phase == HomeAnchoredOverlayPhase.Closing)
         }
     }
-    val shape = remember(geometry) {
-        object : Shape {
-            override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
-                val corner = with(density) { geometry.value.cornerRadiusPx.toDp() }
-                return RoundedRectangle(corner).createOutline(size, layoutDirection, density)
+    val shape = remember(geometry, density.density, motionState, sourceBounds, targetRect, targetCorner) {
+        CourseEditorMorphCornerShape(
+            radiusX = targetCorner,
+            radiusY = targetCorner,
+            sourceDensity = density.density,
+            radiusProvider = { geometry.value.cornerRadiusPx },
+            taperProvider = {
+                courseEditorOpeningTaper(
+                    motionState.progress.value, sourceBounds.center.y - targetRect.center.y, targetRect.height
+                )
             }
-        }
+        )
     }
     val settled = motionState.phase == HomeAnchoredOverlayPhase.Open
 

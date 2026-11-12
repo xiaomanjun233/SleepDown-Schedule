@@ -9,6 +9,7 @@ import com.xiaomanjun.sleepdownschedule.transition.legacy.lerpHomeMorph
 import com.xiaomanjun.sleepdownschedule.transition.legacy.homeMorphSmoothStep
 
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -21,6 +22,8 @@ import androidx.compose.ui.unit.IntSize
 import com.kyant.backdrop.effects.blur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeInitialTopInset
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.HomeAddMenuSelectionCornerDp
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorMotion
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.curvedCourseEditorRect
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeDropletCloseDurationMillis
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeDropletOpenDurationMillis
@@ -164,30 +167,37 @@ internal fun homePersonalizationTrajectoryGeometry(
     target: Rect,
     rawProgress: Float,
     targetCornerRadiusPx: Float,
-    sourcePressedScale: Float = 1f
+    sourcePressedScale: Float = 1f,
+    maximumArcPx: Float = Float.MAX_VALUE
 ): HomeAnchoredMorphGeometry {
-    val progress = rawProgress.coerceIn(0f, 1f)
+    val raw = rawProgress.coerceIn(0f, 1f)
+    val position = CourseEditorMotion.OpenPositionEasing.transform(raw)
+    val size = FastOutSlowInEasing.transform(raw)
     val pressedScale = sourcePressedScale.coerceIn(1f, 1.16f)
     val insetX = source.width * (pressedScale - 1f) / 2f
     val insetY = source.height * (pressedScale - 1f) / 2f
-    val rect = Rect(
-        left = lerpHomeMorph(source.left - insetX, target.left, progress),
-        top = lerpHomeMorph(source.top - insetY, target.top, progress),
-        right = lerpHomeMorph(source.right + insetX, target.right, progress),
-        bottom = lerpHomeMorph(source.bottom + insetY, target.bottom, progress)
+    val pressedSource = Rect(source.left - insetX, source.top - insetY,
+        source.right + insetX, source.bottom + insetY)
+    val rect = curvedCourseEditorRect(
+        source = pressedSource,
+        target = target,
+        positionProgress = position,
+        sizeProgress = size,
+        pulseScale = 1f,
+        maxArcPx = maximumArcPx
     )
-    val surfaceAlpha = homeMorphSmoothStep(0f, 0.32f, progress)
+    val surfaceAlpha = homeMorphSmoothStep(0f, 0.32f, size)
     return HomeAnchoredMorphGeometry(
         rect = rect,
         cornerRadiusPx = lerpHomeMorph(
-            min(source.width, source.height) * pressedScale / 2f, targetCornerRadiusPx, progress
+            min(source.width, source.height) * pressedScale / 2f, targetCornerRadiusPx, size
         ),
-        sourceScale = lerpHomeMorph(pressedScale, 1f, progress),
+        sourceScale = lerpHomeMorph(pressedScale, 1f, size),
         sourceAlpha = 1f - surfaceAlpha,
         surfaceAlpha = surfaceAlpha,
-        contentAlpha = homeMorphSmoothStep(0.72f, 1f, progress),
-        pathProgress = progress,
-        expansionProgress = progress
+        contentAlpha = homeMorphSmoothStep(0.72f, 1f, size),
+        pathProgress = position,
+        expansionProgress = size
     )
 }
 

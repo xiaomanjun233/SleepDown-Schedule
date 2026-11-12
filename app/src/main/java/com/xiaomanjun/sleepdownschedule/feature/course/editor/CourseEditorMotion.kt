@@ -113,7 +113,7 @@ private fun courseEditorSettleScale(
     }
 }
 
-private fun curvedCourseEditorRect(
+internal fun curvedCourseEditorRect(
     source: Rect,
     target: Rect,
     positionProgress: Float,

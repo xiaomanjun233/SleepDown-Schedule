@@ -160,7 +160,6 @@ internal fun HomeAnchoredMorphOverlayHost(
                 launch {
                     motionState.retarget.animate(motionState.progress, 1f,
                         if (personalizing) HomePersonalizeMorphOpenDurationMillis else HomeAddMenuMorphOpenDurationMillis,
-                        easing = if (personalizing) FastOutSlowInEasing else LinearEasing,
                         continuation = motionState.curveContinuity.takeUnless { personalizing })
                 }
                 if (personalizing && !adaptiveMetrics.isLargeScreen) {
@@ -281,6 +280,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                     sourceBounds = shown.sourceBoundsInRoot,
                     sourcePressedScale = shown.sourcePressedScale,
                     targetRect = targetRect,
+                    maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() },
                     motionState = motionState,
                     backdrop = backdrop,
                     config = config,
