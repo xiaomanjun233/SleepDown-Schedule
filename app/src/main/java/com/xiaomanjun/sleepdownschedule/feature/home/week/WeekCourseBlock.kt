@@ -921,71 +921,17 @@ fun WeekCourseBlock(
                     )
                 }
             }
-            val resizeHandleModifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (resizeHandleInputEnabled) {
-                        Modifier.pointerInput(course.id, editWeek, currentSpan) {
-                            val velocityTracker = VelocityTracker()
-                            detectDragGestures(
-                                onDragStart = {
-                                    velocityTracker.resetTracking()
-                                    buildWeekEditOverlayRequest(
-                                        WeekEditOverlayMode.Resize,
-                                        Offset(measuredCardWidthPx, baseHeightPx)
-                                    )?.let { request ->
-                                        handleDragging = true
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onStartWeekEditOverlay(request)
-                                    }
-                                },
-                                onDrag = { change, dragAmount ->
-                                    if (handleDragging) {
-                                        change.consume()
-                                        velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                        onDragWeekEditOverlay(dragAmount)
-                                    }
-                                },
-                                onDragEnd = {
-                                    if (handleDragging) {
-                                        onFinishResizeOverlay(velocityTracker.calculateVelocity())
-                                        handleDragging = false
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    }
-                                },
-                                onDragCancel = {
-                                    if (handleDragging) {
-                                        handleDragging = false
-                                        onCancelWeekEditOverlay()
-                                    }
-                                }
-                            )
-                        }
-                    } else {
-                        Modifier
-                    }
-                )
-            @Composable
-            fun renderResizeHandle(modifier: Modifier) {
-                WeekResizeCornerHandle(
-                    config = config,
-                    backdrop = activeCardBackdrop,
-                    cardSize = androidx.compose.ui.unit.DpSize(cardLayoutWidth, displayedHeight),
-                    cardCorner = cardCorner,
-                    selected = handleDragging,
-                    modifier = modifier.then(resizeHandleModifier)
-                )
-            }
+            val resizeHandleBounds = Modifier
+                .align(Alignment.BottomEnd)
+                .offset(x = 4.dp, y = 4.dp)
+                .size(44.dp)
+                .zIndex(6f)
             // Keep every resize control in the week grid's own layer. The edit-mode gutter above
             // already provides the four drawing pixels used by this handle; promoting only the
             // final-row handle to a window Popup made it render above the app's bottom dock.
             AnimatedVisibility(
                 visible = showEditControls && !customTimeLocked,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .offset(x = 4.dp, y = 4.dp)
-                    .size(44.dp)
-                    .zIndex(6f),
+                modifier = resizeHandleBounds,
                 enter = fadeIn(tween(135, delayMillis = 45 + (editControlOrder % 7) * 8)) +
                     scaleIn(
                         animationSpec = spring(dampingRatio = 0.52f, stiffness = 470f),
@@ -995,7 +941,54 @@ fun WeekCourseBlock(
                 exit = fadeOut(tween(90)) +
                     scaleOut(tween(125), targetScale = 0.55f, transformOrigin = TransformOrigin(0f, 0f))
             ) {
-                renderResizeHandle(Modifier.fillMaxSize())
+                WeekResizeCornerHandle(
+                    config = config,
+                    backdrop = activeCardBackdrop,
+                    cardSize = androidx.compose.ui.unit.DpSize(cardLayoutWidth, displayedHeight),
+                    cardCorner = cardCorner,
+                    selected = false,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            // The floating card takes over drawing the handle. Keep the hit target in the grid
+            // until the same finger releases, even after the original handle has faded out.
+            if (resizeHandleInputEnabled) {
+                Box(resizeHandleBounds.pointerInput(course.id, editWeek, currentSpan) {
+                    val velocityTracker = VelocityTracker()
+                    detectDragGestures(
+                        onDragStart = {
+                            velocityTracker.resetTracking()
+                            buildWeekEditOverlayRequest(
+                                WeekEditOverlayMode.Resize,
+                                Offset(measuredCardWidthPx, baseHeightPx)
+                            )?.let { request ->
+                                handleDragging = true
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onStartWeekEditOverlay(request)
+                            }
+                        },
+                        onDrag = { change, dragAmount ->
+                            if (handleDragging) {
+                                change.consume()
+                                velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                onDragWeekEditOverlay(dragAmount)
+                            }
+                        },
+                        onDragEnd = {
+                            if (handleDragging) {
+                                onFinishResizeOverlay(velocityTracker.calculateVelocity())
+                                handleDragging = false
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                        },
+                        onDragCancel = {
+                            if (handleDragging) {
+                                handleDragging = false
+                                onCancelWeekEditOverlay()
+                            }
+                        }
+                    )
+                })
             }
             }
         }

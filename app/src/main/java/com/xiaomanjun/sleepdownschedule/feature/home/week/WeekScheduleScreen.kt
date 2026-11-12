@@ -439,7 +439,10 @@ internal fun SinglePillWeekScheduleScreen(
         modifier = Modifier
             .fillMaxSize()
             .homeSidebarOverflowViewport()
-            .verticalScroll(scrollState)
+            .verticalScroll(
+                state = scrollState,
+                enabled = !(weekEditOverlay.gestureActive && weekEditOverlay.request?.mode == WeekEditOverlayMode.Resize)
+            )
     ) {
         Column(
             modifier = Modifier.padding(
