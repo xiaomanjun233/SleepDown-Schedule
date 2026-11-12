@@ -71,7 +71,6 @@ enum class GlassRendererKind {
 /** Stable identifiers shared by renderer policy, diagnostics and business-route adapters. */
 object GlassSceneKeys {
     const val HomeThreeDotMenuMotion = "home-three-dot-menu"
-    const val HomeMenuDestinationAddCourse = "home-menu-destination:add-course"
     const val HomeMenuDestinationManualImport = "home-menu-destination:manual-import"
     const val HomeMenuDestinationEduImport = "home-menu-destination:edu-import"
     const val HomePersonalizationProgressiveSurface = "home-personalization:progressive-surface"
@@ -79,7 +78,6 @@ object GlassSceneKeys {
     const val WeekCourseCards = "week-course-cards"
 
     val Phase2LargeSurfaceEnvelopeRoutes: Set<String> = setOf(
-        HomeMenuDestinationAddCourse,
         HomeMenuDestinationManualImport,
         HomeMenuDestinationEduImport,
         HomePersonalizationProgressiveSurface,

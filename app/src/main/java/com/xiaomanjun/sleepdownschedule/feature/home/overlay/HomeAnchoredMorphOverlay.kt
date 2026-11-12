@@ -389,7 +389,7 @@ internal fun HomeAnchoredMorphOverlayHost(
             val innerY = targetPosition.y - menuContentTopPaddingPx
             // The divider/section spacing is visual only. Fold its hit area into the
             // nearest action so sliding through them never drops gesture ownership. In particular,
-            // the full strip below the mode switch belongs to the first "添加单节课" action.
+            // the full strip below the mode switch belongs to the first action.
             return homeAddMenuHitIndex(
                 y = innerY,
                 modeHeight = menuModeHeightPx,

@@ -115,8 +115,10 @@ class ScheduleViewModel(
         repository.addCourse(course)
     }
 
-    fun addCourses(courses: List<CourseEntity>) = launchCourseMutation {
-        repository.addCourses(courses)
+    fun addCourses(courses: List<CourseEntity>, expectedScheduleId: Int, onResult: (Boolean) -> Unit) = launchCourseMutation(
+        onSuccess = { onResult(true) }, onFailure = { onResult(false) }
+    ) {
+        repository.addCourses(courses, expectedScheduleId)
     }
 
     fun copyCourses(courses: List<CourseEntity>, onResult: (Boolean) -> Unit) =

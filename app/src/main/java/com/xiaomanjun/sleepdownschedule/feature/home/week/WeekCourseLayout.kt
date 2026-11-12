@@ -48,6 +48,8 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -403,7 +405,7 @@ private fun WeekDayColumn(
 }
 
 @Composable
-fun WeekCourseColumnsLayer(
+internal fun WeekCourseColumnsLayer(
     modifier: Modifier = Modifier,
     courses: List<CourseEntity>,
     referenceCourses: List<CourseEntity> = emptyList(),
@@ -437,6 +439,8 @@ fun WeekCourseColumnsLayer(
     onFinishMoveOverlay: (Velocity) -> Unit = {},
     onFinishResizeOverlay: (Velocity) -> Unit = {},
     onCancelWeekEditOverlay: () -> Unit = {},
+    canSelectAddSlot: Boolean = false,
+    onBlankLongPress: () -> Unit = {},
     onCourseClick: (CourseEntity, Rect?) -> Unit
 ) {
     val density = LocalDensity.current
@@ -447,6 +451,8 @@ fun WeekCourseColumnsLayer(
     )
     val flightRegistry = LocalCourseEditorFlightRegistry.current
     val courseCopy = LocalCourseCopy.current
+    val addition = LocalWeekCourseAddition.current
+    val additionEnabled = canSelectAddSlot && addition != null && courseCopy?.active != true
     val copyHaptic = LocalHapticFeedback.current
     val copyPicking = courseCopy?.phase == CourseCopyPhase.Selecting && !outgoing
     val selectCopyPosition: (Offset) -> Unit = { point ->
@@ -534,6 +540,53 @@ fun WeekCourseColumnsLayer(
             else emptyList()
         }
     }
+    val gridCoordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
+    val selectAddSlot by rememberUpdatedState<(Offset) -> Unit> { point ->
+        val coordinates = gridCoordinates[0]?.takeIf { it.isAttached }
+        val target = coordinates?.let { grid ->
+            val width = grid.size.width.toFloat()
+            if (width <= 0f || weekdays.isEmpty() || point.x < 0f || point.x >= width) return@let null
+            val columnWidth = width / weekdays.size
+            val physicalColumn = (point.x / columnWidth).toInt().coerceAtMost(weekdays.lastIndex)
+            val column = if (flightLayoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl)
+                weekdays.lastIndex - physicalColumn else physicalColumn
+            val day = weekdays[column]
+            if (adjustmentsByDay[day] != null) return@let null
+
+            val y = with(density) { point.y.toDp().value }
+            val row = timeGrid.rowTops.indices.firstOrNull {
+                it !in timeGrid.collapsedRows && y >= timeGrid.rowTops[it] &&
+                    y < timeGrid.rowTops[it] + timeGrid.rowHeights[it]
+            } ?: return@let null
+            val period = periods.getOrNull(row)?.periodIndex ?: return@let null
+            val top = timeGrid.rowTops[row]
+            val bottom = top + timeGrid.rowHeights[row]
+            fun intersects(start: Float, end: Float) = start < bottom && end > top
+            val occupied = renderedSegmentsByDay[day].orEmpty().any {
+                val (start, end) = weekCardVerticalBounds(it.segment, periods, cardHeight, timeGrid)
+                intersects(start, end)
+            } || referencesByDay[day].orEmpty().any { intersects(it.top, it.bottom) } ||
+                bandRuns.any { (band, runs) ->
+                    intersects(band.top, band.top + band.height) && runs.any { column in it }
+                }
+            if (occupied) return@let null
+
+            val cell = Rect(
+                grid.localToRoot(Offset(physicalColumn * columnWidth, with(density) { top.dp.toPx() })),
+                grid.localToRoot(Offset((physicalColumn + 1) * columnWidth, with(density) { bottom.dp.toPx() }))
+            ).intersect(grid.boundsInRoot())
+            val side = minOf(cell.width - with(density) { 4.dp.toPx() },
+                cell.height - with(density) { 4.dp.toPx() }, with(density) { 52.dp.toPx() })
+            if (side < with(density) { 24.dp.toPx() }) return@let null
+            val half = Offset(side / 2f, side / 2f)
+            WeekCourseAddTarget(config.id, editWeek, day, period, Rect(cell.center - half, cell.center + half))
+        }
+        if (target != null && addition?.target != target) {
+            copyHaptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+        addition?.select(target)
+    }
+    val latestBlankLongPress by rememberUpdatedState(onBlankLongPress)
     val supplementaryReferencesByDay = remember(referenceCourses, courses, config.showNonCurrentWeekCourses,
         editWeek, weekdays, adjustmentsByDay, periods) {
         weekdays.associateWith { day ->
@@ -615,10 +668,15 @@ fun WeekCourseColumnsLayer(
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .pointerInput(copyPicking) {
+            .pointerInput(copyPicking, additionEnabled) {
                 if (copyPicking) detectTapGestures { latestSelectCopyPosition(it) }
+                else if (additionEnabled) detectTapGestures(
+                    onLongPress = { latestBlankLongPress() },
+                    onTap = { selectAddSlot(it) }
+                )
             }
             .onGloballyPositioned { coordinates ->
+                gridCoordinates[0] = coordinates
                 if (!outgoing && flightRegistry?.frozen == false) {
                     flightRegistry.record(editWeek, CourseEditorWeekGrid(
                         coordinates.localToRoot(Offset.Zero), coordinates.size.width.toFloat(),

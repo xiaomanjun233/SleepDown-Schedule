@@ -615,10 +615,11 @@ class ScheduleRepository(private val database: AppDatabase) {
         courseDao.insertCourse(normalizeCoursesForSchedule(listOf(course.copy(id = 0)), scheduleId).single())
     }
 
-    suspend fun addCourses(courses: List<CourseEntity>) {
+    suspend fun addCourses(courses: List<CourseEntity>, expectedScheduleId: Int? = null) {
         if (courses.isEmpty()) return
         database.withTransaction {
             val scheduleId = activeScheduleId()
+            require(expectedScheduleId == null || expectedScheduleId == scheduleId) { "课表已切换，请重新选择添加位置" }
             courseDao.insertCourses(
                 normalizeCoursesForSchedule(courses.map { it.copy(id = 0) }, scheduleId)
             )

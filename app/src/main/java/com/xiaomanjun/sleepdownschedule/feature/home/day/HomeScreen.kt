@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -114,6 +115,12 @@ internal fun HomeScreen(
     // Recomputing it here on tablets discarded live slider updates and made personalization look
     // broken even though the config was saved correctly.
     val effectiveWeekCardHeight = weekCardHeight
+    val weekAddition = com.xiaomanjun.sleepdownschedule.feature.home.week.LocalWeekCourseAddition.current
+    val latestScheduleLongPress by rememberUpdatedState<() -> Unit> {
+        weekAddition?.clear()
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        onScheduleLongPress()
+    }
     val reportModeContentUnderTopBar = rememberHomeTopBarScrollReporter(mode, state.config.id, onContentUnderTopBarChange)
 
     LaunchedEffect(state.config.id, weekEditInteractionEnabled) {
@@ -140,17 +147,17 @@ internal fun HomeScreen(
             .pointerInput(
                 state.config.id,
                 weekEditMode,
-                onScheduleLongPress,
+                weekAddition,
                 weekEditInteractionEnabled
             ) {
                 if (!weekEditInteractionEnabled) return@pointerInput
                 if (weekEditMode) {
                     detectTapGestures(onTap = { weekEditMode = false })
                 } else {
-                    detectTapGestures(onLongPress = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onScheduleLongPress()
-                    })
+                    detectTapGestures(
+                        onTap = { weekAddition?.clear() },
+                        onLongPress = { latestScheduleLongPress() }
+                    )
                 }
             }
     ) {
@@ -229,6 +236,7 @@ internal fun HomeScreen(
                             conflictFocusCourseKey = conflictFocusCourseKey,
                             onResolveCourseConflict = onResolveCourseConflict,
                             onDeleteCourseSingleWeek = onDeleteCourseSingleWeek,
+                            onBlankLongPress = latestScheduleLongPress,
                             onCourseClick = { course, week, sourceBounds ->
                                 onCourseClick(course, week, sourceBounds)
                             }

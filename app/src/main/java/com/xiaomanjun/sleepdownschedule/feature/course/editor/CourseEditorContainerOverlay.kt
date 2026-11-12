@@ -12,6 +12,10 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.material3.Icon
+import androidx.compose.ui.res.painterResource
+import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseAdditionCorner
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
@@ -118,6 +122,7 @@ enum class CourseEditorOverlayPhase {
 
 @Stable
 class CourseEditorMotionState internal constructor() {
+    internal var creating by mutableStateOf(false)
     val progress = Animatable(0f)
     internal val curveContinuity = MorphCurveContinuity()
     var hasInterrupted by mutableStateOf(false)
@@ -189,7 +194,8 @@ data class CourseEditorOverlayRequest(
     val sourceAdjustmentLabel: String? = null,
     val sourceClipBoundsInRoot: Rect? = null,
     val sourceDayAppearance: CourseEditorDayAppearance? = null,
-    val sourceHandoff: CourseEditorSourceHandoff? = null
+    val sourceHandoff: CourseEditorSourceHandoff? = null,
+    val creating: Boolean = false
 )
 
 
@@ -287,6 +293,7 @@ internal fun CourseEditorContainerOverlayHost(
     awaitOpeningGate: suspend () -> Unit = {},
     onDismissRequest: () -> Unit,
     onSave: (originals: List<CourseEntity>, edited: List<CourseEntity>, targetWeek: Int?) -> Unit,
+    onCreate: (List<CourseEntity>, (Boolean) -> Unit) -> Unit,
     onCopy: (List<CourseEntity>, (Boolean) -> Unit) -> Unit,
     onDelete: (courses: List<CourseEntity>, targetWeek: Int?) -> Unit,
     motionState: CourseEditorMotionState,
@@ -297,7 +304,8 @@ internal fun CourseEditorContainerOverlayHost(
     val preloadContent = true
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
-    if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()) {
+    if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow() &&
+        (request?.creating ?: motionState.creating) == false) {
         var dismissHandler by remember { mutableStateOf<(() -> Unit)?>(null) }
         var copySaving by remember { mutableStateOf(false) }
         LaunchedEffect(request) {
@@ -379,11 +387,13 @@ internal fun CourseEditorContainerOverlayHost(
 
     fun updatePhase(phase: CourseEditorOverlayPhase) {
         motionState.phase = phase
+        if (phase == CourseEditorOverlayPhase.Idle) motionState.creating = false
         latestOnPhaseChange(phase)
     }
 
     LaunchedEffect(request) {
         if (request != null) {
+            motionState.creating = request.creating
             // Reuse the same form, geometry and clock when its closing session is retargeted.
             val resuming = renderedRequest?.course?.id == request.course.id &&
                 (motionState.phase == CourseEditorOverlayPhase.Closing ||
@@ -500,9 +510,16 @@ internal fun CourseEditorContainerOverlayHost(
     val dismissEditor = {
         if (!copySaving) contentDismissHandler?.invoke() ?: onDismissRequest()
     }
-    val saveEditedCourse = remember(shownRequest, onSave, onCopy) {
+    val saveEditedCourse = remember(shownRequest, onSave, onCopy, onCreate) {
         { originals: List<CourseEntity>, edited: List<CourseEntity> ->
-            if (shownRequest.copyDraft != null) {
+            if (shownRequest.creating) {
+                if (!copySaving) {
+                    copySaving = true
+                    onCreate(edited.map { it.copy(id = 0, scheduleId = shownRequest.course.scheduleId) }) {
+                        success -> if (!success) copySaving = false
+                    }
+                }
+            } else if (shownRequest.copyDraft != null) {
                 if (!copySaving) {
                     copySaving = true
                     onCopy(edited.map { it.copy(id = 0, scheduleId = shownRequest.copyDraft.scheduleId) }) {
@@ -576,11 +593,14 @@ internal fun CourseEditorContainerOverlayHost(
         density,
         adaptiveMetrics,
         sourceIsWeekCard,
+        shownRequest.creating,
         dayAppearance?.cornerRadius,
         previewCornerProgress
     ) {
         with(density) {
-            if (sourceIsWeekCard) {
+            if (shownRequest.creating) {
+                WeekCourseAdditionCorner.toPx()
+            } else if (sourceIsWeekCard) {
                 adaptiveWeekCardCornerRadius(
                     cardWidth = sourceRect.width.toDp(),
                     cardHeight = sourceRect.height.toDp(),
@@ -695,7 +715,8 @@ internal fun CourseEditorContainerOverlayHost(
             )
         }
     }
-    val fixedMaterialEligible = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion() &&
+    val fixedMaterialEligible = !shownRequest.creating &&
+        com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion() &&
         com.xiaomanjun.sleepdownschedule.core.performance.effectiveAppMaterialPolicy().denseMaterials &&
         config.courseCardGlassEnabled && config.hasAnyWallpaper() &&
         backdrop != null && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
@@ -756,7 +777,8 @@ internal fun CourseEditorContainerOverlayHost(
     }
     // A day card or shortcut preview starts on the wallpaper before introducing the page underlay.
     val blendedMorphBackdrop = com.xiaomanjun.sleepdownschedule.glass.ui.rememberCrossfadeBackdrop(
-        source = if (hasSourceTransform && (shownRequest.sourceIsDayCard || shownRequest.sourceHandoff != null)) {
+        source = if (!shownRequest.creating && hasSourceTransform &&
+            (shownRequest.sourceIsDayCard || shownRequest.sourceHandoff != null)) {
             sourceCardBackdrop
         } else backdrop,
         destination = backdrop,
@@ -765,8 +787,12 @@ internal fun CourseEditorContainerOverlayHost(
     // A wrapper around the wallpaper breaks CourseGlassCard's shared-blur identity check.
     // Start with the clicked day card's actual input and sampling path, then hand off to
     // the screen-space scene. This also keeps stopped cards' complete material at frame 0.
-    val morphBackdrop = if (shownRequest.sourceIsDayCard && morphFrame.shapeProgress <= 0.12f &&
-        dayAppearance != null) dayAppearance.backdrop else blendedMorphBackdrop
+    val morphBackdrop = when {
+        shownRequest.creating -> sourceCardBackdrop ?: backdrop
+        shownRequest.sourceIsDayCard && morphFrame.shapeProgress <= 0.12f && dayAppearance != null ->
+            dayAppearance.backdrop
+        else -> blendedMorphBackdrop
+    }
     val shortcutOwnsSource = shownRequest.sourceHandoff != null &&
         (overlayPhase == CourseEditorOverlayPhase.Idle || overlayPhase == CourseEditorOverlayPhase.Preparing)
     val morphSurfaceAlpha = if (shortcutOwnsSource) 0f else 1f
@@ -841,6 +867,7 @@ internal fun CourseEditorContainerOverlayHost(
             backdrop = morphBackdrop,
             config = config,
             course = shellCourse,
+            creating = shownRequest.creating,
             muted = sourceMuted,
             expandedOutlineLight = shownRequest.sourceIsDayCard,
             shape = shellShape,
@@ -859,7 +886,7 @@ internal fun CourseEditorContainerOverlayHost(
             ) {
                 if (editorContentMounted && (preloadContent ||
                         request != null && overlayPhase == CourseEditorOverlayPhase.Open)) {
-                    key(shownRequest.course.id, shownRequest.copyDraft) {
+                    key(shownRequest.course.id, shownRequest.copyDraft, shownRequest.creating) {
                         CourseEditorFormLayer(
                             targetRect = targetRect,
                             cornerProvider = remember(corner) { { corner.value } },
@@ -867,6 +894,7 @@ internal fun CourseEditorContainerOverlayHost(
                             formData = formData,
                             course = shownRequest.course,
                             copyDraft = shownRequest.copyDraft,
+                            newCourseDraft = shownRequest.course.takeIf { shownRequest.creating },
                             contextMessage = shownRequest.contextMessage,
                             backdrop = editorFormBackdrop,
                             onDismissRequest = { if (!copySaving) onDismissRequest() },
@@ -879,7 +907,16 @@ internal fun CourseEditorContainerOverlayHost(
                         )
                     }
                 }
-                if (showSourceCover) {
+                if (showSourceCover && shownRequest.creating) {
+                    Icon(
+                        painterResource(R.drawable.ic_add_course), contentDescription = null,
+                        tint = glassForegroundColor(config),
+                        modifier = Modifier.align(Alignment.Center).size(23.dp).graphicsLayer {
+                            alpha = sourceCoverAlpha.value
+                            compositingStrategy = CompositingStrategy.ModulateAlpha
+                        }
+                    )
+                } else if (showSourceCover) {
                     CourseEditorSourceContent(
                         course = shellCourse,
                         config = config,
@@ -961,6 +998,7 @@ private fun CourseEditorFormLayer(
     formData: CourseEditorFormData,
     course: CourseEntity,
     copyDraft: CourseEntity?,
+    newCourseDraft: CourseEntity?,
     contextMessage: String?,
     backdrop: Backdrop?,
     onDismissRequest: () -> Unit,
@@ -1042,8 +1080,9 @@ private fun CourseEditorFormLayer(
                     CompositionLocalProvider(LocalContentColor provides textColor) {
                         NormalizedCourseEditorScreen(
                             formData = formData,
-                            initialCourse = course.takeIf { copyDraft == null },
+                            initialCourse = course.takeIf { copyDraft == null && newCourseDraft == null },
                             copyDraft = copyDraft,
+                            newCourseDraft = newCourseDraft,
                             contextMessage = contextMessage,
                             onCancel = onDismissRequest,
                             onDismissHandlerChange = onDismissHandlerChange,
@@ -1086,6 +1125,7 @@ private fun CourseEditorAnimatedContainer(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     course: CourseEntity,
+    creating: Boolean = false,
     muted: Boolean,
     expandedOutlineLight: Boolean,
     shape: androidx.compose.ui.graphics.Shape,
@@ -1096,6 +1136,14 @@ private fun CourseEditorAnimatedContainer(
     morphAllocation: GlassMorphAllocation? = null,
     content: @Composable () -> Unit
 ) {
+    if (creating) {
+        CourseCreationGlass(
+            backdrop = backdrop, config = config, shape = shape,
+            modifier = modifier.graphicsLayer { this.alpha = alpha },
+            formBackdrop = surfaceBackdrop
+        ) { content() }
+        return
+    }
     if (!com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()) {
         val base = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
         val tintAlpha = courseGlassTintAlpha(config.cardAlpha, LocalGlassQuality.current, config.hasAnyWallpaper())

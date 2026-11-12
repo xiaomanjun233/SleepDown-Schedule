@@ -143,7 +143,7 @@ class HomeAdaptiveMetricsTest {
         val root = IntSize(1236, 2745)
         val bounds = metrics.contentRectPx(root, density = 3f)
         val destination = homeMenuDestinationTargetRect(
-            kind = HomeMenuDestinationKind.AddCourse,
+            kind = HomeMenuDestinationKind.ManualImport,
             rootSize = root,
             density = 3f,
             adaptiveMetrics = metrics

@@ -12,7 +12,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.requiredSize
@@ -96,7 +95,7 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 
-internal enum class HomeMenuDestinationKind { AddCourse, ManualImport, EduImport }
+internal enum class HomeMenuDestinationKind { ManualImport, EduImport }
 
 internal data class HomeMenuDestinationRequest(
     val kind: HomeMenuDestinationKind,
@@ -307,7 +306,6 @@ internal fun homeMenuDestinationTargetRect(
         minOf(content.width * 0.96f, 600f * safeDensity)
     }.coerceAtLeast(1f)
     val maximumHeight = when (kind) {
-        HomeMenuDestinationKind.AddCourse -> 548f * safeDensity
         HomeMenuDestinationKind.ManualImport -> 500f * safeDensity
         HomeMenuDestinationKind.EduImport -> content.height
     }
@@ -316,8 +314,7 @@ internal fun homeMenuDestinationTargetRect(
             minOf(content.height, 360f * safeDensity)
         )
     } else {
-        val availableRatio = if (kind == HomeMenuDestinationKind.AddCourse) 0.88f else 1f
-        minOf(content.height * availableRatio, maximumHeight)
+        minOf(content.height, maximumHeight)
     }.coerceAtLeast(1f)
     val left = content.left + (content.width - width) / 2f
     val top = content.top + (content.height - height) / 2f
@@ -340,14 +337,12 @@ internal fun HomeMenuDestinationOverlayHost(
     onSourceHandoff: () -> Unit,
     onCollapseHandoff: (HomeMenuDestinationKind) -> Unit,
     onClosed: () -> Unit,
-    onAddCourses: (List<CourseEntity>) -> Unit,
     onManualImportParsed: (ImportDraft) -> Unit,
     captureHistoryBackground: suspend () -> AiImportHistoryBackgroundCapture?,
     onEduAdapterSelected: (EduAdapter) -> Unit,
     collapseContent: @Composable androidx.compose.foundation.layout.BoxScope.(Modifier) -> Unit = {}
 ) {
     if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()) {
-        var dismissHandler by remember { mutableStateOf<(() -> Unit)?>(null) }
         LaunchedEffect(request) {
             motionState.backgroundZoom.snapTo(1f)
             if (request != null) {
@@ -369,8 +364,8 @@ internal fun HomeMenuDestinationOverlayHost(
         com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LandscapeMenuOverlay(
             request = request, backdrop = backdrop,
             contentInsets = landscapeContentInsets,
-            maximumHeight = if ((request?.kind ?: motionState.kind) == HomeMenuDestinationKind.AddCourse) 548.dp else 500.dp,
-            onDismissRequest = { dismissHandler?.invoke() ?: onDismissRequest() },
+            maximumHeight = 500.dp,
+            onDismissRequest = onDismissRequest,
             onOpenFinished = { motionState.phase = HomeAnchoredOverlayPhase.Open },
             onDismissFinished = {
                 motionState.kind = null
@@ -419,11 +414,6 @@ internal fun HomeMenuDestinationOverlayHost(
             }
             Box(Modifier.fillMaxSize().clip(shape)) {
             when (shown.kind) {
-                HomeMenuDestinationKind.AddCourse -> HomeFormMaterialContent(state.config) { NormalizedCourseEditorScreen(
-                    state = state, initialCourse = null, backdrop = surfaceBackdrop,
-                    onCancel = onDismissRequest, onSave = {}, onSaveCourses = onAddCourses, onDelete = {},
-                    onDismissHandlerChange = { dismissHandler = it }, pickerRenderInRootScaffold = false
-                ) }
                 HomeMenuDestinationKind.ManualImport -> HomeFormMaterialContent(state.config) { NormalizedAiManualImportScreen(
                     state = state, backdrop = dialogBackdrop, onCancel = onDismissRequest,
                     captureHistoryBackground = captureHistoryBackground, onParsed = onManualImportParsed
@@ -466,11 +456,7 @@ internal fun HomeMenuDestinationOverlayHost(
         }
     }
     val latestDismiss by rememberUpdatedState(onDismissRequest)
-    var courseDismissHandler by remember(request) { mutableStateOf<(() -> Unit)?>(null) }
-    val onCourseDismissHandlerChange = remember(request) {
-        { handler: (() -> Unit)? -> courseDismissHandler = handler }
-    }
-    val requestDismiss = { courseDismissHandler?.invoke() ?: latestDismiss() }
+    val requestDismiss = { latestDismiss() }
     val latestSourceHandoff by rememberUpdatedState(onSourceHandoff)
     val latestCollapseHandoff by rememberUpdatedState(onCollapseHandoff)
     val latestClosed by rememberUpdatedState(onClosed)
@@ -720,12 +706,10 @@ internal fun HomeMenuDestinationOverlayHost(
         val targetWidth = with(density) { target.width.toDp() }
         val targetHeight = with(density) { target.height.toDp() }
         val destinationTestTag = when (shown.kind) {
-            HomeMenuDestinationKind.AddCourse -> "benchmark_home_destination_add_course"
             HomeMenuDestinationKind.ManualImport -> "benchmark_home_destination_manual_import"
             HomeMenuDestinationKind.EduImport -> "benchmark_home_destination_edu_import"
         }
         val glassSceneKey = when (shown.kind) {
-            HomeMenuDestinationKind.AddCourse -> GlassSceneKeys.HomeMenuDestinationAddCourse
             HomeMenuDestinationKind.ManualImport -> GlassSceneKeys.HomeMenuDestinationManualImport
             HomeMenuDestinationKind.EduImport -> GlassSceneKeys.HomeMenuDestinationEduImport
         }
@@ -1017,28 +1001,6 @@ internal fun HomeMenuDestinationOverlayHost(
                         com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey provides { shown }
                     ) {
                         when (shown.kind) {
-                            HomeMenuDestinationKind.AddCourse -> HomeFormMaterialContent(state.config) { top.yukonga.miuix.kmp.basic.Scaffold(
-                                modifier = Modifier.fillMaxSize(),
-                                containerColor = Color.Transparent,
-                                contentWindowInsets = WindowInsets(0, 0, 0, 0)
-                            ) {
-                                NormalizedCourseEditorScreen(
-                                    state = state,
-                                    initialCourse = null,
-                                    onCancel = { latestDismiss() },
-                                    onDismissHandlerChange = onCourseDismissHandlerChange,
-                                    onSave = {},
-                                onSaveCourses = onAddCourses,
-                                onDelete = {},
-                                backdrop = destinationSurfaceBackdrop,
-                                // This destination itself lives inside the root centered-dialog
-                                    // producer. Rendering its picker in this nested Scaffold would put
-                                    // the consumer back inside the producer it samples and create a
-                                    // RenderNode cycle. The home root host is the first sibling outside
-                                    // that producer and is therefore the authoritative picker host.
-                                    pickerRenderInRootScaffold = true
-                                )
-                            } }
                             HomeMenuDestinationKind.ManualImport -> HomeFormMaterialContent(state.config) { NormalizedAiManualImportScreen(
                                 state = state,
                                 backdrop = backdrop,

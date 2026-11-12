@@ -109,6 +109,7 @@ internal fun SinglePillWeekScheduleScreen(
     conflictFocusCourseKey: String? = null,
     onResolveCourseConflict: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
+    onBlankLongPress: () -> Unit = {},
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit
 ) {
     // Keep the period rail and the weekday grid on one shared horizontal geometry. The phone
@@ -119,6 +120,7 @@ internal fun SinglePillWeekScheduleScreen(
     // clearance to the grid shrinks, and the freed width flows into every course column equally.
     val boundless = style == WeekViewStyle.BOUNDLESS
     val scrollState = rememberScrollState()
+    val weekAddition = LocalWeekCourseAddition.current
     val weekEditOverlay = rememberWeekEditOverlayController(scrollState = scrollState, scheduleId = state.config.id)
     val rowHeaderWidth = if (boundless) BoundlessWeekRowHeaderWidth else 56.dp
     val clock by produceState(initialValue = java.time.LocalDateTime.now()) {
@@ -402,6 +404,12 @@ internal fun SinglePillWeekScheduleScreen(
     }
     val courseTextFrozen = remember(homeSwitching, weekTail, scrollState) {
         derivedStateOf { homeSwitching.value || scrollState.isScrollInProgress || weekTail.moving }
+    }
+    LaunchedEffect(weekAddition, scrollState, pagerState, weekEditMode) {
+        if (weekAddition == null) return@LaunchedEffect
+        if (weekEditMode) weekAddition.clear()
+        else snapshotFlow { scrollState.isScrollInProgress || pagerState.isScrollInProgress }
+            .collect { if (it) weekAddition.clear() }
     }
     CompositionLocalProvider(
         LocalWeekTimeSlotGrid provides timeGrid,
@@ -729,6 +737,9 @@ internal fun SinglePillWeekScheduleScreen(
                                     )
                                 },
                                 onCancelWeekEditOverlay = weekEditOverlay::cancelGesture,
+                                canSelectAddSlot = isActivePage && !weekEditMode &&
+                                    !pagerState.isScrollInProgress && !scrollState.isScrollInProgress,
+                                onBlankLongPress = onBlankLongPress,
                                 onCourseClick = openPageOccurrence
                             )
                             }
