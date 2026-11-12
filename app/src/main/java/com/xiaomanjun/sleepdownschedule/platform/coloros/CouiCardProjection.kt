@@ -161,7 +161,8 @@ private const val CardProjectionShader = """
         float2 q = abs((uv - 0.5) * cardSize) - cardSize * 0.5 + corner;
         float rounded = min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - corner;
         if (corner > 0.001) alpha *= 1.0 - smoothstep(-1.0, 0.0, rounded);
-        float4 pixel = card.eval(uv * textureSize);
+        // The projection meets the card at its bottom edge, so its near row samples that edge.
+        float4 pixel = card.eval(float2(u, 1.0 - v) * textureSize);
         if (pixel.a <= 0.0 || alpha <= 0.001) return half4(0);
         float3 rgb = pixel.rgb / pixel.a;
         rgb += step(0.25, dot(rgb, float3(0.2126, 0.7152, 0.0722))) * 0.1;
