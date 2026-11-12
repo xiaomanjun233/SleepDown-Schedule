@@ -42,6 +42,12 @@ object CouiIcons {
 
         val Certificate: ImageVector
             @Composable get() = ImageVector.vectorResource(R.drawable.coui_certificate_filled)
+
+        val MultiPhone: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_multi_phone_filled)
+
+        val Headset: ImageVector
+            @Composable get() = ImageVector.vectorResource(R.drawable.coui_headset_filled)
     }
 
     object Outlined {

@@ -64,5 +64,7 @@ APK SHA-256：
 | `coui_lock_filled.xml` | `9cf1d6a474ecd0b96644680943dce64b61382114` |
 | `coui_ai_filled.xml` | `84bf1e84b955ab8a32f520eab8f48504e77aaf76` |
 | `coui_certificate_filled.xml` | `d6b90159ce274e2cb24aef0c1be095887341a158` |
+| `coui_multi_phone_filled.xml` | `b807fda855bcc40894e4a88d8707e6915234a0af` |
+| `coui_headset_filled.xml` | `f6ae77c64024aee383400a34326c8d707520c49a` |
 
 上游 [NOTICE](https://github.com/ItosEO/COUI-Kit/blob/main/NOTICE) 中关于第三方图标的来源和权利说明继续适用。

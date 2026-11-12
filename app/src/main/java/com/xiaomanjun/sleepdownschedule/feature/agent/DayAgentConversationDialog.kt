@@ -118,6 +118,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itos.coui.icons.CouiIcons
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.kyant.shapes.Capsule
@@ -1356,7 +1357,19 @@ internal fun DayAgentConversationDialog(
                   else Row(
                       Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically
                   ) {
-                      Text("✦ AI 助理", color = foreground, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                      Row(
+                          modifier = Modifier.weight(1f),
+                          horizontalArrangement = Arrangement.spacedBy(6.dp),
+                          verticalAlignment = Alignment.CenterVertically
+                      ) {
+                          Icon(
+                              imageVector = CouiIcons.Filled.AI,
+                              contentDescription = null,
+                              modifier = Modifier.size(18.dp),
+                              tint = Color.Unspecified
+                          )
+                          Text("AI 助理", color = foreground, fontWeight = FontWeight.SemiBold)
+                      }
                       Text(providerName, color = foreground.copy(alpha = 0.58f), style = MaterialTheme.typography.labelSmall)
                   }
               }

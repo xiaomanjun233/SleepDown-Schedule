@@ -49,6 +49,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
+import com.itos.coui.icons.CouiIcons
 import com.xiaomanjun.sleepdownschedule.LiveUpdateChipTextMode
 import com.xiaomanjun.sleepdownschedule.NotificationMode
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
@@ -185,8 +186,10 @@ fun SettingsNavigationRow(
 @Composable
 internal fun SettingsForwardIndicator(modifier: Modifier = Modifier) {
     if (LocalCouiSettingsEnabled.current) {
-        Icon(com.itos.coui.icons.CouiIcons.Next, null, modifier.size(width = 12.dp, height = 24.dp),
-            tint = ComposeColor(if (com.itos.coui.theme.CouiTheme.isDark) 0x4DFFFFFF else 0x42000000))
+        CouiForwardIndicator(
+            modifier = modifier,
+            tint = ComposeColor(if (com.itos.coui.theme.CouiTheme.isDark) 0x4DFFFFFF else 0x42000000)
+        )
         return
     }
     Image(
@@ -196,6 +199,20 @@ internal fun SettingsForwardIndicator(modifier: Modifier = Modifier) {
         colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(
             top.yukonga.miuix.kmp.theme.MiuixTheme.colorScheme.onSurfaceVariantActions
         )
+    )
+}
+
+@Composable
+internal fun CouiForwardIndicator(
+    tint: ComposeColor,
+    modifier: Modifier = Modifier,
+    contentDescription: String? = null
+) {
+    Icon(
+        imageVector = CouiIcons.Next,
+        contentDescription = contentDescription,
+        modifier = modifier.size(width = 12.dp, height = 24.dp),
+        tint = tint
     )
 }
 

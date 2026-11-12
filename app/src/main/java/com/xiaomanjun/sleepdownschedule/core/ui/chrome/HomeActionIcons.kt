@@ -24,6 +24,7 @@ internal fun homeActionIcon(iconRes: Int?, filledSetting: Boolean = true): Image
     R.drawable.ic_week_view -> CouiIcons.Calendar
     R.drawable.ic_material_event -> MiuixIcons.Weeks
     R.drawable.ic_courses -> CouiIcons.Filled.BookOpen
+    R.drawable.ic_schedule_layers -> CouiIcons.Filled.MultiPhone
     R.drawable.ic_settings -> if (filledSetting) CouiIcons.Filled.Setting else CouiIcons.Outlined.Setting
     R.drawable.ic_add_course -> Icons.Rounded.Add
     R.drawable.ic_ai_import -> MiuixIcons.Import

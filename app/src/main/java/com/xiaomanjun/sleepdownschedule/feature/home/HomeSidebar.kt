@@ -102,7 +102,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import kotlin.math.PI
 import kotlin.math.roundToInt
 import top.yukonga.miuix.kmp.icon.MiuixIcons
-import top.yukonga.miuix.kmp.icon.extended.Layers
 
 internal enum class HomeSidebarDestination { Day, Week, Settings, Courses, Schedules, EduImport }
 
@@ -425,7 +424,8 @@ internal fun HomeSidebar(
                             Icon(requireNotNull(homeActionIcon(R.drawable.ic_material_event)), null,
                                 tint = ink, modifier = Modifier.size(22.dp))
                         }
-                        SidebarDestinationRow(HomeSidebarDestination.Schedules, "多课表管理", MiuixIcons.Layers,
+                        SidebarDestinationRow(HomeSidebarDestination.Schedules, "多课表管理",
+                            requireNotNull(homeActionIcon(R.drawable.ic_schedule_layers)),
                             selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Schedules) }
                         SidebarSectionHeading("导入", ink)
                         SidebarDestinationRow(HomeSidebarDestination.EduImport, "导入课表",

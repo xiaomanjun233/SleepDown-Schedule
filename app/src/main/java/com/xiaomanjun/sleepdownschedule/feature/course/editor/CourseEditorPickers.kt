@@ -29,7 +29,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -47,12 +46,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -62,11 +59,11 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.PeriodEntity
-import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CenteredDialogContentTransition
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiForwardIndicator
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import java.time.LocalTime
 import com.xiaomanjun.sleepdownschedule.domain.schedule.CoursePeriodTime
@@ -365,11 +362,9 @@ internal fun CourseEditorPickerValue(
                     modifier = Modifier.widthIn(max = 132.dp)
                 )
                 Spacer(Modifier.width(8.dp))
-                Icon(
-                    painter = painterResource(R.drawable.ic_arrow_back),
+                CouiForwardIndicator(
                     contentDescription = "打开${title}选择器",
-                    tint = buttonTextColor.copy(alpha = 0.62f),
-                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 180f }
+                    tint = buttonTextColor.copy(alpha = 0.62f)
                 )
             },
             onClick = onClick
@@ -408,11 +403,9 @@ internal fun CourseEditorColorValue(
                     border = BorderStroke(1.dp, contentColor.copy(alpha = 0.28f))
                 ) {}
                 Spacer(Modifier.width(8.dp))
-                Icon(
-                    painter = painterResource(R.drawable.ic_arrow_back),
+                CouiForwardIndicator(
                     contentDescription = "打开课程颜色选择器",
-                    tint = contentColor.copy(alpha = 0.62f),
-                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 180f }
+                    tint = contentColor.copy(alpha = 0.62f)
                 )
             },
             onClick = onClick

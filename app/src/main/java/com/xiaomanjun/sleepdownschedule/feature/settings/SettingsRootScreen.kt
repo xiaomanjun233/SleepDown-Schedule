@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ChatBubble
 import androidx.compose.material.icons.rounded.Favorite
 import androidx.compose.material.icons.rounded.SettingsBackupRestore
 import androidx.compose.material.icons.rounded.Sync
@@ -213,7 +212,7 @@ fun SettingsRootScreen(
                     SettingsDivider(startIndent = 56.dp)
                     SettingsNavigationRow(
                         "AI 助理",
-                        leadingIcon = Icons.Rounded.ChatBubble,
+                        leadingIcon = CouiIcons.Filled.Headset,
                         leadingIconTint = ComposeColor(0xFF00A9C7),
                         selected = selectedPage == SettingsPage.DayAgent,
                         minHeight = 52.dp, onClick = { onPageChange(SettingsPage.DayAgent) }
