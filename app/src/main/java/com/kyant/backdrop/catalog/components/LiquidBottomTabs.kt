@@ -75,6 +75,28 @@ import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sign
 
+internal val LiquidBottomTabsDarkSurface = Color(0xFF121212)
+
+internal fun liquidBottomTabsContainerMaterial(
+    blur: Dp,
+    lensHeight: Dp,
+    lensAmount: Dp,
+    chromaticAberration: Boolean,
+    shadowEnabled: Boolean,
+): GlassMaterialSpec = GlassMaterialSpec(
+    role = GlassMaterialRole.Control,
+    blur = blur,
+    lensHeight = lensHeight,
+    lensAmount = lensAmount,
+    surfaceAlpha = 1f,
+    borderAlpha = 0f,
+    highlightAlpha = 1f,
+    shadowAlpha = if (shadowEnabled) 1f else 0f,
+    innerShadowAlpha = 0f,
+    chromaticAberration = chromaticAberration,
+    depthEffect = false
+)
+
 @Composable
 fun LiquidBottomTabs(
     selectedTabIndex: () -> Int,
@@ -134,7 +156,7 @@ fun LiquidBottomTabs(
         label = "LiquidBottomTabsAccentColor"
     )
     val lightContainerSurface = lightContainerColor.copy(alpha = animatedContainerAlpha)
-    val darkContainerSurface = Color(0xFF121212).copy(alpha = animatedContainerAlpha)
+    val darkContainerSurface = LiquidBottomTabsDarkSurface.copy(alpha = animatedContainerAlpha)
 
     val tabsBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.ChromeCombined,
@@ -147,19 +169,8 @@ fun LiquidBottomTabs(
         chromaticAberrationEnabled,
         containerShadowEnabled
     ) {
-        GlassMaterialSpec(
-            role = GlassMaterialRole.Control,
-            blur = blurRadius,
-            lensHeight = lensHeight,
-            lensAmount = lensAmount,
-            surfaceAlpha = 1f,
-            borderAlpha = 0f,
-            highlightAlpha = 1f,
-            shadowAlpha = if (containerShadowEnabled) 1f else 0f,
-            innerShadowAlpha = 0f,
-            chromaticAberration = chromaticAberrationEnabled,
-            depthEffect = false
-        )
+        liquidBottomTabsContainerMaterial(blurRadius, lensHeight, lensAmount,
+            chromaticAberrationEnabled, containerShadowEnabled)
     }
     val movingAccentMaterial = remember(
         containerMaterial,

@@ -43,6 +43,8 @@ import com.itos.coui.navigation.CouiDockPlusStyle
 import com.itos.coui.navigation.CouiDockStyle
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockDarkFollowIntensity
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockLightFollowIntensity
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeActionIcon
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.dockImeCompensationPx
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
@@ -111,9 +113,9 @@ internal fun CouiHomeDock(
             density = density.density,
             sampleBrightness = sampleBrightness,
             contourGlowEnabled = contour,
-            lightFollowLightIntensity = 2f,
+            lightFollowLightIntensity = HomeDockLightFollowIntensity,
             // Native menu dark preset is 0.15; its 2× range is 0.3, not the light 2.0.
-            darkFollowLightIntensity = 0.3f,
+            darkFollowLightIntensity = HomeDockDarkFollowIntensity,
             spotLightColor = selectedColor,
         )
     }

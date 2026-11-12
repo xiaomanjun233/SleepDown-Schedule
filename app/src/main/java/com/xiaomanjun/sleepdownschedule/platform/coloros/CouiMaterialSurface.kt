@@ -40,11 +40,14 @@ import com.itos.coui.motion.rememberCouiTouchMotion
 import com.itos.coui.navigation.CouiDockStyle
 import com.itos.coui.topappbar.CouiTopAppBarButtonDefaults
 import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockDarkFollowIntensity
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockLightFollowIntensity
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceActive
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeDockAccent
 import com.xiaomanjun.sleepdownschedule.glass.CourseMaterialSampling
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassSampleRecordKey
 import com.xiaomanjun.sleepdownschedule.glass.drawPreparedCourseBackdrop
@@ -91,16 +94,18 @@ internal fun CouiMaterialSurface(
     if (AppMaterialPreferences.isSuperPerformance) return false
     val home = LocalHomeMaterialStyle.current
     val dock = request.role == NativeMaterialSurfaceRole.HomeDock
+    val navigation = request.role == NativeMaterialSurfaceRole.HomeNavigation
+    val dockPreset = navigation || (dock && home?.weatherMaterial != true)
     val indicator = request.role == NativeMaterialSurfaceRole.PageIndicator
     val menu = request.role == NativeMaterialSurfaceRole.Menu
     val dialog = request.role == NativeMaterialSurfaceRole.Dialog
-    val dark = if (dock) home?.dark ?: request.dark else request.dark
+    val dark = if (dock || navigation) home?.dark ?: request.dark else request.dark
     val density = LocalDensity.current
     val direction = LocalLayoutDirection.current
-    val baseMaterial = remember(dark, course, dock, indicator, menu, dialog, home?.weatherMaterial, density) {
+    val baseMaterial = remember(dark, course, dockPreset, indicator, menu, dialog, density) {
         if (course) {
             couiCourseMaterial(dark)
-        } else if (dock && home?.weatherMaterial != true) {
+        } else if (dockPreset) {
             CouiDockStyle.reference(dark, Color.Unspecified, Color.Unspecified, density.density).material
         } else {
             CouiTopAppBarButtonDefaults.systemMaterial(dark, capsule = false).copy(
@@ -138,6 +143,7 @@ internal fun CouiMaterialSurface(
                 menu -> SpotlightPreset.TranslucentLarge1
                 indicator -> SpotlightPreset.TransparentSmall1
                 course -> SpotlightPreset.OpaqueMedium2
+                navigation -> SpotlightPreset.OpaqueSmall2
                 else -> SpotlightPreset.OpaqueSmall1
             },
             dark = dark,
@@ -145,8 +151,10 @@ internal fun CouiMaterialSurface(
                 course -> if (dark) 0.15f else 1f
                 menu -> if (dark) 0.65f else 0.8f
                 indicator -> 1f
+                navigation -> if (dark) HomeDockDarkFollowIntensity else HomeDockLightFollowIntensity
                 else -> if (dark) 0.35f else 0.45f
             } * request.followLightIntensityScale,
+            color = if (navigation) LocalHomeDockAccent.current?.let(::Color) else null,
             startRadius = radius?.times(0.2f),
             endRadius = radius,
             scaleRadiusToBounds = course && radius == null,
@@ -254,11 +262,11 @@ internal fun CouiMaterialSurface(
                 if (menu) corners.weight.coerceAtLeast(2f) else corners.weight,
                 Color.Transparent, when {
                     course -> 0.1f
-                    !menu && !dialog -> 0.3f
+                    !menu && !dialog && !navigation -> 0.3f
                     else -> baseMaterial.innerGlowAlpha
                 }, when {
                     course -> 0.35f
-                    !menu && !dialog -> 0.25f
+                    !menu && !dialog && !navigation -> 0.25f
                     else -> baseMaterial.edgeAlpha
                 }, 1f, lineWidthPx = 2.5f * this.density)
         }

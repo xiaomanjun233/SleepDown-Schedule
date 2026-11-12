@@ -12,6 +12,9 @@ import com.kyant.backdrop.catalog.components.LiquidBottomTab
 import com.kyant.backdrop.catalog.components.LiquidBottomTabs
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockGlassBlur
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockGlassLensAmount
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockGlassLensHeight
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSelectedAccentColor
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColor
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
@@ -47,8 +50,9 @@ internal fun HomeDockTabs(
         selectedTabIndex = { selectedIndex }, onTabSelected = onSelect,
         backdrop = backdrop, tabsCount = tabs.size, modifier = modifier,
         containerHeight = 54.dp, indicatorHeight = 46.dp,
-        blurRadius = homeChromeBlur(1.3.dp, config),
-        containerAlpha = homeChromeGlassSurfaceAlpha(lightGlass), lensHeight = 10.dp, lensAmount = 40.dp,
+        blurRadius = homeChromeBlur(HomeDockGlassBlur, config),
+        containerAlpha = homeChromeGlassSurfaceAlpha(lightGlass),
+        lensHeight = HomeDockGlassLensHeight, lensAmount = HomeDockGlassLensAmount,
         indicatorWidthOverflow = 8.dp, indicatorHeightOverflow = 4.dp,
         indicatorLensHeight = 12.dp, indicatorLensAmount = 17.dp,
         officialHighlightAlpha = 0.07f, officialShadowAlpha = 0.05f, officialInnerShadowAlpha = 0.08f,

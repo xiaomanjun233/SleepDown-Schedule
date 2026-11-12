@@ -5,7 +5,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Spacer
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -20,31 +21,32 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.dropShadow
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.addOutline
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.shadow.Shadow
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.itos.coui.motion.couiTouchMotion
 import com.itos.coui.motion.rememberCouiTouchMotion
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.catalog.components.LiquidBottomTabsDarkSurface
+import com.kyant.backdrop.catalog.components.liquidBottomTabsContainerMaterial
+import com.kyant.backdrop.highlight.Highlight
+import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockGlassBlur
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockGlassLensAmount
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockGlassLensHeight
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColor
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlpha
@@ -56,12 +58,15 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeFollowLightRe
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SegmentControlRequest
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
+import com.xiaomanjun.sleepdownschedule.glass.flatControlColor
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Sidebar
 
 internal val HomeSidebarTabHeight = 52.dp
 private val HomeSidebarTabShape = RoundedRectangle(26.dp)
-private val HomeSidebarTabShadow = Shadow(radius = 9.dp, color = Color(0x33000000), offset = DpOffset(0.dp, 3.dp))
 
 /** Compact HD navigation shares the sidebar's destinations. */
 @Composable
@@ -74,12 +79,10 @@ internal fun HomeSidebarTabBar(
     ink: Color,
     config: ScheduleConfigEntity,
     backdrop: Backdrop,
-    wallpaperChrome: Boolean,
     modifier: Modifier,
     onNavigate: (HomeSidebarDestination) -> Unit,
     onExpand: () -> Unit
 ) {
-    val blur = homeChromeBlur(if (wallpaperChrome) 16.dp else 1.3.dp, config)
     val elasticEnabled = enabled && !moving
     val touch = rememberCouiTouchMotion(elasticEnabled)
     val tabContent: @Composable () -> Unit = {
@@ -119,46 +122,60 @@ internal fun HomeSidebarTabBar(
             translationX = touch.translationX.value
             translationY = touch.translationY.value
         }) {
-        if (lightGlass && !moving) {
-            Spacer(
-                Modifier.matchParentSize()
-                    .drawWithCache {
-                        val outline = HomeSidebarTabShape.createOutline(size, layoutDirection, this)
-                        val capsule = Path().apply { addOutline(outline) }
-                        // A translucent capsule should keep its original fill inside the outline.
-                        onDrawWithContent {
-                            clipPath(capsule, ClipOp.Difference) { this@onDrawWithContent.drawContent() }
-                        }
-                    }
-                    .dropShadow(HomeSidebarTabShape, HomeSidebarTabShadow)
+        HomeNavigationSurface(
+            config = config, backdrop = backdrop, lightGlass = lightGlass, shape = HomeSidebarTabShape,
+            modifier = Modifier.matchParentSize(), renderSurface = !moving, content = tabContent
+        )
+    }
+}
+
+@Composable
+internal fun HomeNavigationSurface(
+    config: ScheduleConfigEntity,
+    backdrop: Backdrop,
+    lightGlass: Boolean,
+    shape: Shape,
+    modifier: Modifier,
+    domain: GlassBackdropDomain = GlassBackdropDomain.ChromeCombined,
+    renderSurface: Boolean = true,
+    followTouch: Boolean = true,
+    content: @Composable () -> Unit = {},
+) {
+    val rendered = LocalNativeMaterialSurfaceRenderer.current?.invoke(
+        NativeMaterialSurfaceRequest(
+            modifier = modifier.then(if (renderSurface && lightGlass) Modifier.shadow(9.dp, shape, clip = false)
+                else Modifier),
+            shape = shape, dark = !lightGlass,
+            role = NativeMaterialSurfaceRole.HomeNavigation, backdrop = backdrop,
+            renderSurface = renderSurface, followTouch = followTouch
+        ), content
+    ) == true
+    if (rendered) return
+    val surface = if (renderSurface) {
+        val blur = homeChromeBlur(HomeDockGlassBlur, config)
+        val material = remember(blur) {
+            liquidBottomTabsContainerMaterial(
+                blur, HomeDockGlassLensHeight, HomeDockGlassLensAmount,
+                chromaticAberration = true, shadowEnabled = true
             )
         }
-        val nativeSurface = LocalNativeMaterialSurfaceRenderer.current?.invoke(
-            NativeMaterialSurfaceRequest(
-                modifier = Modifier.matchParentSize(), shape = HomeSidebarTabShape,
-                dark = !lightGlass, role = NativeMaterialSurfaceRole.HomeNavigation,
-                renderSurface = !moving, backdrop = backdrop,
-                blurRadius = if (wallpaperChrome) blur else null,
-            ), tabContent
-        ) == true
-        if (!nativeSurface) {
-            val material = com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec(
-                role = com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole.Control,
-                blur = blur, lensHeight = 10.dp, lensAmount = 40.dp,
-                surfaceAlpha = homeChromeGlassSurfaceAlpha(lightGlass), borderAlpha = 0f,
-                highlightAlpha = .07f, shadowAlpha = 0f, innerShadowAlpha = 0f,
-                chromaticAberration = true, depthEffect = false)
-            val descriptor = com.xiaomanjun.sleepdownschedule.glass.rememberGlassSurfaceDescriptor(
-                "HomeNavigation", com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain.ChromeCombined,
-                material.role)
-            val tint = if (lightGlass) HomeLightGlassSurfaceColor else Color(0xFF26272D)
-            Box(Modifier.matchParentSize().then(if (moving) Modifier else
-                Modifier.sleepDownGlassSurface(backdrop, descriptor, material, { HomeSidebarTabShape },
-                    com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame(material.blur,
-                        material.lensHeight, material.lensAmount, useVibrancy = true, chromaticAberration = true),
-                    onDrawSurface = { drawRect(tint.copy(alpha = material.surfaceAlpha)) }))) { tabContent() }
-        }
-    }
+        val tint by animateColorAsState(
+            targetValue = (if (lightGlass) HomeLightGlassSurfaceColor else LiquidBottomTabsDarkSurface)
+                .copy(alpha = homeChromeGlassSurfaceAlpha(lightGlass)),
+            animationSpec = tween(220), label = "HomeNavigationTint"
+        )
+        val descriptor = rememberGlassSurfaceDescriptor("HomeNavigation", domain, material.role)
+        Modifier.sleepDownGlassSurface(
+            backdrop = backdrop, descriptor = descriptor, material = material, shape = { shape },
+            fallbackColor = flatControlColor(!lightGlass),
+            effectFrame = GlassEffectFrame(blur, material.lensHeight, material.lensAmount,
+                useVibrancy = true, chromaticAberration = true),
+            highlightOverride = { Highlight.Default },
+            shadowOverride = { Shadow.Default },
+            onDrawSurface = { drawRect(tint) }
+        )
+    } else Modifier
+    Box(modifier.then(surface)) { content() }
 }
 
 @Composable
