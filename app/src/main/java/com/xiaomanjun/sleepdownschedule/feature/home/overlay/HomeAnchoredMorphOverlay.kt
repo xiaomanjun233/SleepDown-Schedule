@@ -29,7 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -84,8 +83,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.morphDismissSwipe
 
@@ -114,7 +113,7 @@ internal fun HomeAnchoredMorphOverlayHost(
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     var renderedRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
-    var panelContentLaidOut by remember { mutableStateOf(false) }
+    var panelLayout by remember { mutableStateOf<CompletableDeferred<Unit>?>(null) }
     val addMenuSurfacePrepared = remember { AtomicBoolean(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val latestOnDismissRequest by rememberUpdatedState(onDismissRequest)
@@ -129,9 +128,12 @@ internal fun HomeAnchoredMorphOverlayHost(
             if (!resuming) {
                 motionState.retarget.reset()
                 motionState.backgroundRetarget.reset()
+                val layout = if (request.kind == HomeAnchoredOverlayKind.Personalize) {
+                    CompletableDeferred<Unit>()
+                } else null
+                panelLayout = layout
                 renderedRequest = request
                 addMenuSurfacePrepared.set(false)
-                panelContentLaidOut = false
                 motionState.renderedKind = request.kind
                 motionState.phase = HomeAnchoredOverlayPhase.Preparing
                 motionState.progress.snapTo(0f)
@@ -142,9 +144,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                     waitedFrames++
                 }
                 latestAwaitOpeningGate()
-                if (request.kind == HomeAnchoredOverlayKind.Personalize) {
-                    snapshotFlow { panelContentLaidOut }.first { it }
-                }
+                layout?.await()
                 if (request.kind == HomeAnchoredOverlayKind.Add) {
                     // Prepare the retained panel before the first visible motion frame.
                     var surfaceFrames = 0
@@ -186,6 +186,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                 motionState.backgroundZoom.snapTo(1f)
                 motionState.phase = HomeAnchoredOverlayPhase.Disposing
                 renderedRequest = null
+                panelLayout = null
                 motionState.renderedKind = null
                 motionState.phase = HomeAnchoredOverlayPhase.Idle
                 latestOnSilentDisposed()
@@ -207,6 +208,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                 }
                 motionState.phase = HomeAnchoredOverlayPhase.Disposing
                 renderedRequest = null
+                panelLayout = null
                 motionState.renderedKind = null
                 motionState.phase = HomeAnchoredOverlayPhase.Idle
             }
@@ -273,7 +275,8 @@ internal fun HomeAnchoredMorphOverlayHost(
             }
         }
         if (shown.kind == HomeAnchoredOverlayKind.Personalize) {
-            key(shown, adaptiveMetrics.profile) {
+            val layout = panelLayout ?: return@Box
+            key(shown, adaptiveMetrics.profile, layout) {
                 HomePersonalizationAnimatedOverlay(
                     sourceBounds = shown.sourceBoundsInRoot,
                     sourcePressedScale = shown.sourcePressedScale,
@@ -282,7 +285,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                     backdrop = backdrop,
                     config = config,
                     previewProgress = personalizePreviewProgress,
-                    onContentLaidOut = { panelContentLaidOut = true },
+                    onContentLaidOut = { layout.complete(Unit) },
                     onDismissRequest = { latestOnDismissRequest() },
                     sourceContent = { sourceModifier ->
                         sourceContent(HomeAnchoredOverlayKind.Personalize, sourceModifier)

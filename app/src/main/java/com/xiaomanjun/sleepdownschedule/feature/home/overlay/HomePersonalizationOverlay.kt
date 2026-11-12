@@ -25,7 +25,6 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
-import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.Constraints
@@ -142,12 +141,11 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
                             compositingStrategy = CompositingStrategy.ModulateAlpha
                         }
                     }
+                    onContentLaidOut()
                 }
             }
         ) {
-            content(Modifier.fillMaxSize().onSizeChanged {
-                if (it.width > 0 && it.height > 0) onContentLaidOut()
-            }.then(if (settled) Modifier else Modifier.clearAndSetSemantics { }))
+            content(Modifier.fillMaxSize().then(if (settled) Modifier else Modifier.clearAndSetSemantics { }))
         }
 
         if (!settled) {
