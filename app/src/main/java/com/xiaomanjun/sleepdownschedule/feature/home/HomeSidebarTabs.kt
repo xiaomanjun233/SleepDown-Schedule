@@ -25,7 +25,6 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
@@ -34,8 +33,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
-import com.itos.coui.motion.couiTouchMotion
-import com.itos.coui.motion.rememberCouiTouchMotion
 import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidBottomTabsDarkSurface
@@ -67,7 +64,6 @@ import top.yukonga.miuix.kmp.icon.extended.Sidebar
 
 internal val HomeSidebarTabHeight = 52.dp
 internal val HomeSidebarTabCorner = 26.dp
-private val HomeSidebarTabShape = RoundedRectangle(HomeSidebarTabCorner)
 
 /** Compact HD navigation shares the sidebar's destinations. */
 @Composable
@@ -75,58 +71,37 @@ internal fun HomeSidebarTabBar(
     tabs: List<Pair<HomeSidebarDestination, String>>,
     selected: HomeSidebarDestination,
     enabled: Boolean,
-    moving: Boolean,
     lightGlass: Boolean,
     ink: Color,
-    config: ScheduleConfigEntity,
     backdrop: Backdrop,
     modifier: Modifier,
     onNavigate: (HomeSidebarDestination) -> Unit,
     onExpand: () -> Unit
 ) {
-    val elasticEnabled = enabled && !moving
-    val touch = rememberCouiTouchMotion(elasticEnabled)
-    val tabContent: @Composable () -> Unit = {
-        Box(Modifier.fillMaxWidth().height(HomeSidebarTabHeight)) {
-            ControlSegments(
-                SegmentControlRequest(
-                    labels = tabs.map { it.second },
-                    selected = tabs.indexOfFirst { it.first == selected }.coerceAtLeast(0),
-                    onSelected = { onNavigate(tabs[it].first) },
-                    modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
-                    dark = !lightGlass,
-                    height = 48.dp,
-                    enabled = enabled,
-                    containerSurfaceEnabled = false,
-                    commitOnRelease = true,
-                    backdrop = backdrop
-                )
+    Box(modifier.fillMaxWidth().height(HomeSidebarTabHeight)) {
+        ControlSegments(
+            SegmentControlRequest(
+                labels = tabs.map { it.second },
+                selected = tabs.indexOfFirst { it.first == selected }.coerceAtLeast(0),
+                onSelected = { onNavigate(tabs[it].first) },
+                modifier = Modifier.fillMaxWidth().padding(start = 56.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
+                dark = !lightGlass,
+                height = 48.dp,
+                enabled = enabled,
+                containerSurfaceEnabled = false,
+                commitOnRelease = true,
+                backdrop = backdrop
             )
-            // A 36 dp target expanded into the first tab's hit area. Use a full 48 dp target
-            // above the indicator so its pressed overflow cannot steal the toggle's DOWN.
-            HomeSidebarIconButton(
-                description = "展开侧栏", dark = !lightGlass, enabled = enabled,
-                modifier = Modifier.align(Alignment.CenterStart).padding(start = 4.dp)
-                    .width(48.dp).zIndex(1f),
-                height = 48.dp, onClick = onExpand
-            ) {
-                Icon(MiuixIcons.Sidebar, null, tint = ink, modifier = Modifier.size(20.dp))
-            }
-        }
-    }
-    // Both materials use the same frame and elastic touch, including the leading button.
-    Box(modifier.fillMaxWidth().height(HomeSidebarTabHeight)
-        .couiTouchMotion(touch, expanded = elasticEnabled)
-        .graphicsLayer {
-            scaleX = touch.scaleX.value
-            scaleY = touch.scaleY.value
-            translationX = touch.translationX.value
-            translationY = touch.translationY.value
-        }) {
-        HomeNavigationSurface(
-            config = config, backdrop = backdrop, lightGlass = lightGlass, shape = HomeSidebarTabShape,
-            modifier = Modifier.matchParentSize(), renderSurface = !moving, content = tabContent
         )
+        // Keep the full toggle hit area above the indicator's pressed overflow.
+        HomeSidebarIconButton(
+            description = "展开侧栏", dark = !lightGlass, enabled = enabled,
+            modifier = Modifier.align(Alignment.CenterStart).padding(start = 4.dp)
+                .width(48.dp).zIndex(1f),
+            height = 48.dp, onClick = onExpand
+        ) {
+            Icon(MiuixIcons.Sidebar, null, tint = ink, modifier = Modifier.size(20.dp))
+        }
     }
 }
 
@@ -138,45 +113,41 @@ internal fun HomeNavigationSurface(
     shape: Shape,
     modifier: Modifier,
     domain: GlassBackdropDomain = GlassBackdropDomain.ChromeCombined,
-    renderSurface: Boolean = true,
     followTouch: Boolean = true,
     content: @Composable () -> Unit = {},
 ) {
     val rendered = LocalNativeMaterialSurfaceRenderer.current?.invoke(
         NativeMaterialSurfaceRequest(
-            modifier = modifier.then(if (renderSurface && lightGlass) Modifier.shadow(9.dp, shape, clip = false)
+            modifier = modifier.then(if (lightGlass) Modifier.shadow(9.dp, shape, clip = false)
                 else Modifier),
             shape = shape, dark = !lightGlass,
             role = NativeMaterialSurfaceRole.HomeNavigation, backdrop = backdrop,
-            renderSurface = renderSurface, followTouch = followTouch
+            followTouch = followTouch,
         ), content
     ) == true
     if (rendered) return
-    val surface = if (renderSurface) {
-        val blur = homeChromeBlur(HomeDockGlassBlur, config)
-        val material = remember(blur) {
-            liquidBottomTabsContainerMaterial(
-                blur, HomeDockGlassLensHeight, HomeDockGlassLensAmount,
-                chromaticAberration = true, shadowEnabled = true
-            )
-        }
-        val tint by animateColorAsState(
-            targetValue = (if (lightGlass) HomeLightGlassSurfaceColor else LiquidBottomTabsDarkSurface)
-                .copy(alpha = homeChromeGlassSurfaceAlpha(lightGlass)),
-            animationSpec = tween(220), label = "HomeNavigationTint"
+    val blur = homeChromeBlur(HomeDockGlassBlur, config)
+    val material = remember(blur) {
+        liquidBottomTabsContainerMaterial(
+            blur, HomeDockGlassLensHeight, HomeDockGlassLensAmount,
+            chromaticAberration = true, shadowEnabled = true
         )
-        val descriptor = rememberGlassSurfaceDescriptor("HomeNavigation", domain, material.role)
-        Modifier.sleepDownGlassSurface(
-            backdrop = backdrop, descriptor = descriptor, material = material, shape = { shape },
-            fallbackColor = flatControlColor(!lightGlass),
-            effectFrame = GlassEffectFrame(blur, material.lensHeight, material.lensAmount,
-                useVibrancy = true, chromaticAberration = true),
-            highlightOverride = { Highlight.Default },
-            shadowOverride = { Shadow.Default },
-            onDrawSurface = { drawRect(tint) }
-        )
-    } else Modifier
-    Box(modifier.then(surface)) { content() }
+    }
+    val tint by animateColorAsState(
+        targetValue = (if (lightGlass) HomeLightGlassSurfaceColor else LiquidBottomTabsDarkSurface)
+            .copy(alpha = homeChromeGlassSurfaceAlpha(lightGlass)),
+        animationSpec = tween(220), label = "HomeNavigationTint"
+    )
+    val descriptor = rememberGlassSurfaceDescriptor("HomeNavigation", domain, material.role)
+    Box(modifier.sleepDownGlassSurface(
+        backdrop = backdrop, descriptor = descriptor, material = material, shape = { shape },
+        fallbackColor = flatControlColor(!lightGlass),
+        effectFrame = GlassEffectFrame(blur, material.lensHeight, material.lensAmount,
+            useVibrancy = true, chromaticAberration = true),
+        highlightOverride = { Highlight.Default },
+        shadowOverride = { Shadow.Default },
+        onDrawSurface = { drawRect(tint) }
+    )) { content() }
 }
 
 @Composable

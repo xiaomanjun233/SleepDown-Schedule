@@ -56,7 +56,6 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Rect
@@ -86,8 +85,12 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.lerp
+import com.itos.coui.motion.couiTouchMotion
+import com.itos.coui.motion.rememberCouiTouchMotion
 import com.kyant.backdrop.Backdrop
+import com.kyant.shapes.RoundedCornerStyle
 import com.kyant.shapes.RoundedRectangle
+import com.kyant.shapes.RoundedRectangularShape
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.identity.currentIconResId
@@ -116,6 +119,24 @@ private val HomeSidebarTabs = listOf(
     HomeSidebarDestination.Week to "课程表",
     HomeSidebarDestination.Settings to "设置"
 )
+
+private class HomeSidebarMorphShape(
+    private val state: HomeSidebarState,
+    override val style: RoundedCornerStyle = HomeSidebarPanelShape.style,
+) : RoundedRectangularShape {
+    private fun outlineShape() = RoundedRectangle(
+        lerp(HomeSidebarTabCorner.value, HomeSidebarPanelCorner.value, state.shellExpansion()).dp,
+        style,
+    )
+
+    override fun corners(size: Size, layoutDirection: LayoutDirection, density: Density) =
+        outlineShape().corners(size, layoutDirection, density)
+
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
+        outlineShape().createOutline(size, layoutDirection, density)
+
+    override fun copy(style: RoundedCornerStyle): RoundedRectangularShape = HomeSidebarMorphShape(state, style)
+}
 
 @Stable
 internal class HomeSidebarState(
@@ -267,16 +288,12 @@ internal fun HomeSidebar(
         animationSpec = tween(220), label = "HomeSidebarContentTheme"
     )
     val moving = state.moving
-    val shape = remember(state) {
-        object : Shape {
-            override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
-                RoundedRectangle(lerp(HomeSidebarTabCorner.value, HomeSidebarPanelCorner.value,
-                    state.shellExpansion()).dp).createOutline(size, layoutDirection, density)
-        }
-    }
+    val shape = remember(state) { HomeSidebarMorphShape(state) }
     val tabWidth = minOf(300.dp, metrics.screenWidth - 24.dp)
     val sidebarScroll = rememberScrollState()
     val enabled = navigationEnabled && !moving
+    val elasticTabBar = enabled && !state.expanded
+    val touch = rememberCouiTouchMotion(elasticTabBar)
     val currentEnabled by rememberUpdatedState(enabled)
     val currentOnNavigate by rememberUpdatedState(onNavigate)
     val currentOnJumpWeek by rememberUpdatedState(onJumpWeek)
@@ -335,6 +352,13 @@ internal fun HomeSidebar(
                 .then(if (!state.expanded && !moving) Modifier.onGloballyPositioned {
                     currentBoundsCallback(it.boundsInRoot())
                 } else Modifier)
+                .couiTouchMotion(touch, expanded = elasticTabBar)
+                .graphicsLayer {
+                    scaleX = touch.scaleX.value
+                    scaleY = touch.scaleY.value
+                    translationX = touch.translationX.value
+                    translationY = touch.translationY.value
+                }
                 .pointerInput(enabled) {
                     if (!enabled) awaitPointerEventScope {
                         while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
@@ -343,15 +367,31 @@ internal fun HomeSidebar(
                 .pointerInput(Unit) { detectTapGestures { } }
                 .semantics { testTag = if (state.expanded) "home_sidebar" else "home_tab_bar" }
         ) {
-            // Glass clips its own drawContent to the material outline. Keep the slider a sibling
-            // so its pressed lens can grow beyond the shell instead of being cut at both ends.
-            if (state.expanded || moving) HomeNavigationSurface(
+            HomeNavigationSurface(
                 config = config, backdrop = backdrop, lightGlass = lightGlass, shape = shape,
                 domain = if (selected == HomeSidebarDestination.Schedules) GlassBackdropDomain.PickerScene
                     else GlassBackdropDomain.ChromeCombined,
                 modifier = Modifier.matchParentSize(),
-                followTouch = false
-            )
+                followTouch = elasticTabBar,
+            ) {
+                if (!state.expanded || moving) HomeSidebarTabBar(
+                    tabs = HomeSidebarTabs,
+                    selected = tabSelection,
+                    enabled = enabled,
+                    lightGlass = lightGlass,
+                    ink = ink,
+                    backdrop = backdrop,
+                    modifier = Modifier.fillMaxWidth().height(HomeSidebarTabHeight)
+                        .fixedFloatingChromeContent(tabWidth, HomeSidebarTabHeight)
+                        .graphicsLayer {
+                            alpha = state.tabBarAlpha()
+                            compositingStrategy = CompositingStrategy.ModulateAlpha
+                        }
+                        .then(if (moving) Modifier.clearAndSetSemantics { } else Modifier),
+                    onNavigate = ::navigate,
+                    onExpand = { state.expanded = true }
+                )
+            }
             if (state.expanded || moving) {
                 Column(
                     Modifier.fillMaxSize().clipToBounds()
@@ -410,32 +450,6 @@ internal fun HomeSidebar(
                             navigate(HomeSidebarDestination.EduImport)
                         }
                     }
-                }
-            }
-            if (!state.expanded || moving) {
-                Row(
-                    Modifier.fillMaxWidth().height(HomeSidebarTabHeight)
-                        .fixedFloatingChromeContent(tabWidth, HomeSidebarTabHeight)
-                        .graphicsLayer {
-                            alpha = state.tabBarAlpha()
-                            compositingStrategy = CompositingStrategy.ModulateAlpha
-                        }
-                        .then(if (moving) Modifier.clearAndSetSemantics { } else Modifier),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    HomeSidebarTabBar(
-                        tabs = HomeSidebarTabs,
-                        selected = tabSelection,
-                        enabled = enabled,
-                        moving = moving,
-                        lightGlass = lightGlass,
-                        ink = ink,
-                        config = config,
-                        backdrop = backdrop,
-                        modifier = Modifier.weight(1f),
-                        onNavigate = ::navigate,
-                        onExpand = { state.expanded = true }
-                    )
                 }
             }
             if (moving) HomeSidebarMorphLabels(state, tabWidth, sidebarScroll, ink, Modifier.matchParentSize())
