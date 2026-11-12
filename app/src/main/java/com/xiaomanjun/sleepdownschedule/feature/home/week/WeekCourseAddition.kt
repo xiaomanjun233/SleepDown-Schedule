@@ -2,7 +2,9 @@ package com.xiaomanjun.sleepdownschedule.feature.home.week
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.absoluteOffset
@@ -15,6 +17,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.referentialEqualityPolicy
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -27,6 +30,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
@@ -51,15 +55,31 @@ internal data class WeekCourseAddTarget(
 
 @Stable
 internal class WeekCourseAddition {
-    var target by mutableStateOf<WeekCourseAddTarget?>(null)
+    var target by mutableStateOf<WeekCourseAddTarget?>(null, referentialEqualityPolicy())
+        private set
+    var preview by mutableStateOf<WeekCourseAddTarget?>(null, referentialEqualityPolicy())
         private set
 
-    fun select(value: WeekCourseAddTarget?) { target = value }
+    fun select(value: WeekCourseAddTarget?) {
+        if (value != null) preview = value
+        target = value
+    }
 
     fun clear() { target = null }
 
-    fun clearIfCurrent(value: WeekCourseAddTarget) {
+    fun dismiss(value: WeekCourseAddTarget) {
         if (target === value) clear()
+    }
+
+    fun finishDismissal(value: WeekCourseAddTarget) {
+        if (target == null && preview === value) preview = null
+    }
+
+    fun handOffToEditor(value: WeekCourseAddTarget) {
+        if (preview === value) {
+            target = null
+            preview = null
+        }
     }
 }
 
@@ -73,19 +93,25 @@ internal fun WeekCourseAddPreview(
     backdrop: Backdrop?,
     onConfirm: (WeekCourseAddTarget) -> Unit
 ) {
-    val target = selection.target ?: return
-    BackHandler(enabled = interactive) { selection.clearIfCurrent(target) }
-    LaunchedEffect(selection, target, interactive) {
-        if (interactive) {
-            delay(3_000)
-            selection.clearIfCurrent(target)
-        }
+    val target = selection.preview ?: return
+    val visible = selection.target === target
+    val enabled = interactive && visible
+    BackHandler(enabled = enabled) { selection.dismiss(target) }
+    LaunchedEffect(selection, target, enabled) {
+        if (!enabled) return@LaunchedEffect
+        delay(3_000)
+        selection.dismiss(target)
     }
     val density = LocalDensity.current
     var hostBounds by remember { mutableStateOf(Rect.Zero) }
-    val entrance = remember(target) { Animatable(0f) }
-    LaunchedEffect(entrance) {
-        entrance.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 560f))
+    val progress = remember(target) { Animatable(0f) }
+    LaunchedEffect(progress, visible) {
+        if (visible) {
+            progress.animateTo(1f, spring(dampingRatio = 0.72f, stiffness = 560f))
+        } else {
+            progress.animateTo(0f, tween(160, easing = FastOutSlowInEasing))
+            selection.finishDismissal(target)
+        }
     }
     Box(Modifier.fillMaxSize().onGloballyPositioned { hostBounds = it.boundsInRoot() }) {
         if (!hostBounds.isEmpty) {
@@ -102,13 +128,14 @@ internal fun WeekCourseAddPreview(
                 }
                     .size(with(density) { target.bounds.width.toDp() }, with(density) { target.bounds.height.toDp() })
                     .graphicsLayer {
-                        val scale = 0.88f + 0.12f * entrance.value
+                        val scale = 0.80f + 0.20f * progress.value
                         scaleX = scale
                         scaleY = scale
-                        alpha = entrance.value.coerceIn(0f, 1f)
+                        alpha = progress.value.coerceIn(0f, 1f)
                         compositingStrategy = CompositingStrategy.ModulateAlpha
                     }
-                    .clickable(enabled = interactive, role = Role.Button) { onConfirm(target) }
+                    .then(if (enabled) Modifier.clickable(role = Role.Button) { onConfirm(target) }
+                        else Modifier.clearAndSetSemantics {})
             ) {
                 Icon(
                     painterResource(R.drawable.ic_add_course), contentDescription = description,

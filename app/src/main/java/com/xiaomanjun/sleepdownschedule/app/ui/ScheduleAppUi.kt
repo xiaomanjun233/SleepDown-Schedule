@@ -2296,7 +2296,7 @@ fun CourseScheduleAppUi(
                 )
                 WeekCourseAddPreview(
                     selection = weekCourseAddition,
-                    interactive = canSelectWeekAddSlot,
+                    interactive = canSelectWeekAddSlot && courseEditorRequest == null,
                     config = visualState.config,
                     backdrop = courseWallpaperBackdrop,
                     onConfirm = { target ->
@@ -2313,7 +2313,7 @@ fun CourseScheduleAppUi(
                                 sourceBounds = target.bounds,
                                 sourceHandoff = CourseEditorSourceHandoff(
                                     backgroundDepth = 0f, awaitReady = {},
-                                    release = { weekCourseAddition.clearIfCurrent(target) }
+                                    release = { weekCourseAddition.handOffToEditor(target) }
                                 ),
                                 creating = true
                             )

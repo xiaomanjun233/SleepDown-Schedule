@@ -874,7 +874,16 @@ internal fun CourseEditorContainerOverlayHost(
             progressProvider = { morphFrame.shapeProgress },
             alpha = morphSurfaceAlpha,
             surfaceBackdrop = editorFormBackdrop,
-            modifier = if (materialAllocation == null) animatedModifier else Modifier.glassMorphHost(materialAllocation),
+            modifier = when {
+                materialAllocation != null -> Modifier.glassMorphHost(materialAllocation)
+                shownRequest.creating && closingMorph -> animatedModifier.graphicsLayer {
+                    val presence = courseEditorSmoothStep(0f, 0.34f, progress.value)
+                    alpha = presence
+                    scaleX = 0.80f + 0.20f * presence
+                    scaleY = scaleX
+                }
+                else -> animatedModifier
+            },
             morphAllocation = materialAllocation
         ) {
             Box(
