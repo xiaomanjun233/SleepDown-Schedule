@@ -385,8 +385,7 @@ internal fun HomeAdaptiveMetrics.contentRectPx(rootSize: IntSize, density: Float
 }
 
 /**
- * On phones the middle setting matches the add-course card. Wide grids retain their own
- * size-dependent radius; both ranges remain normalized in saved personalization.
+ * Phone course cards use an 8dp midpoint. Wide grids scale with the card's shorter side.
  */
 internal fun adaptiveWeekCardCornerRadius(
     cardWidth: Dp,
@@ -397,16 +396,16 @@ internal fun adaptiveWeekCardCornerRadius(
 ): Dp {
     val shortWindowEdge = min(windowWidth.value, windowHeight.value)
     val shortCardEdge = min(cardWidth.value, cardHeight.value).coerceAtLeast(1f)
-    val compact = DpSize(windowWidth, windowHeight).usesCompactWeekCards()
+    val compact = shortWindowEdge < WideWeekCardWindowDp
     val baseRadius = if (compact) {
-        min(WeekCourseAdditionCorner.value, shortCardEdge * 0.5f)
+        8f
     } else {
         val resolutionScale = ((shortWindowEdge - WideWeekCardWindowDp) / WideWeekCardWindowDp).coerceIn(0f, 1f)
         val oldMaximum = 14f + 2f * resolutionScale
         (shortCardEdge * 0.18f).coerceIn(10f, oldMaximum)
     }
-    val minimumRadius = (baseRadius * 0.5f).coerceIn(min(3f, baseRadius), baseRadius)
-    val maximumRadius = min(shortCardEdge * (if (compact) 0.42f else 0.32f), baseRadius * 1.7f)
+    val minimumRadius = (baseRadius * 0.5f).coerceAtLeast(3f)
+    val maximumRadius = min(shortCardEdge * 0.32f, baseRadius * 1.7f)
         .coerceAtLeast(baseRadius)
     val safeProgress = progress.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0.5f
     val radius = if (safeProgress <= 0.5f) {
@@ -414,5 +413,6 @@ internal fun adaptiveWeekCardCornerRadius(
     } else {
         baseRadius + (maximumRadius - baseRadius) * (safeProgress - 0.5f) * 2f
     }
-    return (if (compact) radius else (radius + 3f).coerceAtMost(shortCardEdge * 0.34f)).dp
+    val wideWindowBoost = if (compact) 0f else 3f
+    return (radius + wideWindowBoost).coerceAtMost(shortCardEdge * 0.34f).dp
 }
