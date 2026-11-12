@@ -200,6 +200,7 @@ internal fun DayAgentConversationDialog(
     homePresentation: Boolean = false,
     homeAnchorBounds: Rect? = null,
     homeInitiallyFullScreen: Boolean = false,
+    onWeatherClick: (() -> Unit)? = null,
     onImportFile: ((List<android.net.Uri>) -> Unit)? = null
 ) {
     val scope = rememberCoroutineScope()
@@ -956,7 +957,7 @@ internal fun DayAgentConversationDialog(
                              item {
                                  if (homePresentation) DayAgentCardVisualContent(
                                      sourceVisual.copy(trailingStatus = sourceVisual.trailingStatus.takeIf { sourceVisual.weatherAlert }),
-                                     foreground, sourceActivityAccent, decorated = false
+                                     foreground, sourceActivityAccent, onWeatherClick = onWeatherClick, decorated = false
                                  )
                                  else AgentMarkdownText(initialText, foreground, MaterialTheme.typography.bodyMedium)
                              }

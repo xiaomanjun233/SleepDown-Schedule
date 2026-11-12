@@ -668,6 +668,39 @@ private fun DayAgentCardVisualCore(
             exit = shrinkVertically(tween(260, easing = FastOutSlowInEasing), clip = false) +
                 fadeOut(tween(140))
         ) {
+            @Composable
+            fun CourseCount(modifier: Modifier = Modifier) {
+                Text(
+                    visual.courseCountText,
+                    modifier = modifier.then(shock(-13f, 9f, 0.14f)),
+                    color = foreground,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            @Composable
+            fun Status(text: String, modifier: Modifier = Modifier) {
+                Text(
+                    text = text,
+                    modifier = modifier.then(shock(10f, 10f, 0.10f)),
+                    color = if (visual.weatherAlert) {
+                        if (visual.cardIsDark) Color(0xFFFFB86B) else Color(0xFFB84D00)
+                    } else {
+                        foreground.copy(alpha = if (decorated) 0.52f else 0.78f)
+                    },
+                    style = if (visual.weatherAlert) {
+                        MaterialTheme.typography.labelMedium
+                    } else {
+                        MaterialTheme.typography.labelSmall
+                    },
+                    fontWeight = if (visual.weatherAlert) FontWeight.SemiBold else FontWeight.Normal,
+                    textAlign = TextAlign.End,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 DayAgentProgressRow(
                     progress = visual.countdownProgress,
@@ -676,53 +709,32 @@ private fun DayAgentCardVisualCore(
                     darkSurface = visual.cardIsDark,
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text(
-                    visual.courseCountText,
-                    modifier = shock(-13f, 9f, 0.14f),
-                    color = foreground,
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.SemiBold
-                )
+                if (decorated) CourseCount()
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(if (decorated) 6.dp else 12.dp)
                 ) {
+                    if (!decorated) CourseCount(Modifier.weight(1f).alignByBaseline())
                     Text(
                         visual.weatherText,
                         modifier = Modifier
                             .weight(1f)
+                            .then(if (decorated) Modifier else Modifier.alignByBaseline())
                             .then(
                                 if (onWeatherClick != null) Modifier.clickable(onClick = onWeatherClick)
                                 else Modifier
                             )
                             .then(shock(-14f, 10f, 0.19f)),
                         color = foreground.copy(alpha = if (decorated) 0.58f else 0.82f),
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
+                        style = if (decorated) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleSmall,
+                        textAlign = if (decorated) TextAlign.Start else TextAlign.End,
+                        maxLines = if (decorated) 1 else 2,
                         overflow = TextOverflow.Ellipsis
                     )
-                    visual.trailingStatus?.let { status ->
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = status,
-                            modifier = shock(10f, 10f, 0.10f),
-                            color = if (visual.weatherAlert) {
-                                if (visual.cardIsDark) Color(0xFFFFB86B) else Color(0xFFB84D00)
-                            } else {
-                                foreground.copy(alpha = if (decorated) 0.52f else 0.78f)
-                            },
-                            style = if (visual.weatherAlert) {
-                                MaterialTheme.typography.labelMedium
-                            } else {
-                                MaterialTheme.typography.labelSmall
-                            },
-                            fontWeight = if (visual.weatherAlert) FontWeight.SemiBold else FontWeight.Normal,
-                            textAlign = TextAlign.End,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
+                    if (decorated) visual.trailingStatus?.let { Status(it) }
                 }
+                if (!decorated) visual.trailingStatus?.let { Status(it, Modifier.align(Alignment.End)) }
             }
         }
     }

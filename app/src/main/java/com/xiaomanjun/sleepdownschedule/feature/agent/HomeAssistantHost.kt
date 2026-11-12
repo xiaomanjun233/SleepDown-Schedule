@@ -1,11 +1,14 @@
 package com.xiaomanjun.sleepdownschedule.feature.agent
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -89,6 +92,10 @@ internal fun HomeAssistantHost(
     val weatherEnabled = remember(preferencesVersion) { DayAgentPreferences.isWeatherEnabled(context) }
     val repository = remember(context) { DayAgentRepository(context.applicationContext) }
     val weatherRepository = remember(context) { DayAgentWeatherRepository(context.applicationContext) }
+    var weatherPermissionGranted by remember(weatherRepository) { mutableStateOf(weatherRepository.hasLocationPermission()) }
+    val requestWeatherPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        weatherPermissionGranted = granted
+    }
     var weather by remember(weatherEnabled) { mutableStateOf(if (weatherEnabled) DayAgentWeatherStore.load(context) else null) }
     val aiVersion by AiImportSettingsStore.changes.collectAsStateWithLifecycle()
     val hasAi = remember(aiVersion) { AiImportSettingsStore.resolveAvailableSettings(context) != null ||
@@ -98,6 +105,7 @@ internal fun HomeAssistantHost(
             if (event == Lifecycle.Event.ON_RESUME) {
                 foreground = true
                 now = LocalDateTime.now()
+                weatherPermissionGranted = weatherRepository.hasLocationPermission()
                 clockVersion++
             }
             if (event == Lifecycle.Event.ON_STOP) {
@@ -147,7 +155,7 @@ internal fun HomeAssistantHost(
         DayAgentRenderCache.facts(state, date, weather, state.schedules.firstOrNull { it.id == state.config.id }?.name, context)
             .copy(now = now)
     }
-    LaunchedEffect(controller.visible, weatherEnabled, date) {
+    LaunchedEffect(controller.visible, weatherEnabled, weatherPermissionGranted, date) {
         if (controller.visible && weatherEnabled) weather = weatherRepository.getWeather()
         if (controller.visible && DayAgentRenderCache.shouldCleanup(date)) repository.cleanup(date)
     }
@@ -225,7 +233,7 @@ internal fun HomeAssistantHost(
             )
         }
         val presentation = rememberDayAgentPresentation(
-            facts, false, true, weatherEnabled, weatherRepository.hasLocationPermission(), hasAi, !hasAi,
+            facts, false, true, weatherEnabled, weatherPermissionGranted, hasAi, !hasAi,
             focusOverride = controller.reminder?.slot
         )
         val edgeInset = 8.dp
@@ -341,6 +349,9 @@ internal fun HomeAssistantHost(
                     homePresentation = true,
                     homeAnchorBounds = closingAnchor,
                     homeInitiallyFullScreen = controller.conversationStartsFullScreen,
+                    onWeatherClick = if (weatherEnabled && weather == null && !weatherPermissionGranted) {
+                        { requestWeatherPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) }
+                    } else null,
                     onImportFile = onImportFile
                 )
             }
