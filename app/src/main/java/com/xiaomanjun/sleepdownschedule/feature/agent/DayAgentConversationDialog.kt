@@ -62,6 +62,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.layout.floatingInputPadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -125,6 +126,7 @@ import com.kyant.shapes.RoundedRectangle
 import com.kyant.shapes.UnevenRoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AgentMessageEntity
 import com.xiaomanjun.sleepdownschedule.AppState
+import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.MainActivity
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
@@ -135,6 +137,7 @@ import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlanExecutionResult
 import com.xiaomanjun.sleepdownschedule.domain.agent.previewAgentPlan
 import com.xiaomanjun.sleepdownschedule.feature.agent.background.DayAgentRunCoordinator
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
+import com.xiaomanjun.sleepdownschedule.feature.home.quantizeHomeProgressiveBackdropBlurProgress
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettingsStore
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiProviderPresets
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiRuntimePicker
@@ -833,17 +836,14 @@ internal fun DayAgentConversationDialog(
                     .glassBackdropProducer(agentCardContentBackdrop)
              ) {
                 if (!homePresentation) {
-                    GlassSurface(
-                        nativeMaterial = true,
-                        nativeDockMaterial = true,
-                        nativeBlurRadius = DayAgentCardNativeBlurRadius,
-                        nativeFollowLightIntensityScale = 0.45f,
+                    DayAgentDialogMaterial(
                         backdrop = backdrop,
                         config = state.config,
                         modifier = Modifier.matchParentSize(),
-                        shape = RoundedRectangle(sourceCornerRadius),
-                        shapeProvider = ::dayShellShape,
-                        tokens = sourceGlassTokens
+                        sourceCornerRadius = sourceCornerRadius,
+                        shape = ::dayShellShape,
+                        sourceTokens = sourceGlassTokens,
+                        expansion = expansion.asState()
                     ) {
                         if (!anchoredTabletConversation) {
                             // Draw the compact accent in the shell's live bounds throughout the handoff.
@@ -1565,6 +1565,40 @@ internal fun DayAgentConversationDialog(
           }
       }
  }
+
+@Composable
+private fun DayAgentDialogMaterial(
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    modifier: Modifier,
+    sourceCornerRadius: Dp,
+    shape: () -> Shape,
+    sourceTokens: GlassTokens,
+    expansion: State<Float>,
+    content: @Composable () -> Unit
+) {
+    val blurProgress by remember(expansion) {
+        derivedStateOf {
+            quantizeHomeProgressiveBackdropBlurProgress(agentSmoothStep(0.06f, 0.82f, expansion.value))
+        }
+    }
+    val expandedBlur = DayAgentHomeBackdropBlur * 2f
+    val nativeBlur = DayAgentCardNativeBlurRadius + (expandedBlur - DayAgentCardNativeBlurRadius) * blurProgress
+    val liquidBlur = sourceTokens.blur + (expandedBlur - sourceTokens.blur) * blurProgress
+    GlassSurface(
+        backdrop = backdrop,
+        config = config,
+        modifier = modifier,
+        shape = RoundedRectangle(sourceCornerRadius),
+        shapeProvider = shape,
+        tokens = sourceTokens.copy(blur = liquidBlur),
+        nativeMaterial = true,
+        nativeDockMaterial = true,
+        nativeBlurRadius = nativeBlur,
+        nativeFollowLightIntensityScale = 0.45f,
+        content = content
+    )
+}
 
 @Suppress("DEPRECATION")
 private fun keepHostBehindAgentIme(window: Window) {

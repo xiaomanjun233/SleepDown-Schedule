@@ -201,6 +201,7 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.previewCourseEdits
 import com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate
 import com.xiaomanjun.sleepdownschedule.effectiveCurrentWeek
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentBackgroundZoomRestScale
+import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentHomeBackdropBlur
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentCountdownCinematicState
 import com.xiaomanjun.sleepdownschedule.feature.agent.DayAgentPreferences
 import com.xiaomanjun.sleepdownschedule.feature.agent.HomeAssistantHost
@@ -2652,7 +2653,8 @@ fun CourseScheduleAppUi(
                         ((1f - zoom) / (1f - DayAgentBackgroundZoomRestScale)).coerceIn(0f, 1f)
                     scaleX = zoom
                     scaleY = zoom
-                    val blurPx = if (homeAssistant.visible) 0f else with(density) { 12.dp.toPx() } * depthProgress
+                    val blurPx = if (homeAssistant.visible) 0f
+                        else with(density) { DayAgentHomeBackdropBlur.toPx() } * depthProgress
                     renderEffect = if (blurPx > 0.001f) {
                         BlurEffect(blurPx, blurPx, TileMode.Clamp)
                     } else null
