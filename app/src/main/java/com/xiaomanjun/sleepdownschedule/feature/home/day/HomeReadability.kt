@@ -12,9 +12,9 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
@@ -25,11 +25,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
@@ -86,13 +86,6 @@ internal fun homeStatusBarWallpaperLuminance(context: HomeReadabilityContext): F
     )?.average()?.toFloat()
 }
 
-/**
- * Scales the legibility shadow of every text below it. A crossfade stacks two copies of the same
- * label, so it provides 0.5 to keep the total shadow strength of one label instead of doubling it
- * into a dark, hard-edged patch over the wallpaper.
- */
-internal val LocalHomeTextShadowScale = staticCompositionLocalOf { 1f }
-
 @Composable
 fun HomeReadableText(
     text: String,
@@ -105,7 +98,8 @@ fun HomeReadableText(
     textAlign: TextAlign? = null,
     maxLines: Int = Int.MAX_VALUE,
     softWrap: Boolean = true,
-    overflow: TextOverflow = TextOverflow.Clip
+    overflow: TextOverflow = TextOverflow.Clip,
+    drawColor: ColorProducer? = null,
 ) {
     val readability = LocalHomeReadability.current
     val backgroundFrozen = LocalHomeBackgroundFrozen.current
@@ -165,16 +159,14 @@ fun HomeReadableText(
         style.fontSize != TextUnit.Unspecified -> style.fontSize
         else -> 14.sp
     }
-    val shadowStyle = if (!hasWallpaper || shadowStrength <= 0.001f || readability.bitmap == null ||
-        LocalHomeTextShadowScale.current <= 0.001f
-    ) style else {
+    val shadowStyle = if (!hasWallpaper || shadowStrength <= 0.001f || readability.bitmap == null) style else {
         val radius = with(density) {
             (effectiveFontSize.toPx() * if (lightText) 0.50f else 0.54f)
                 .coerceIn(5.dp.toPx(), 12.dp.toPx())
         }
         style.copy(shadow = androidx.compose.ui.graphics.Shadow(
             color = (if (lightText) ComposeColor.Black else ComposeColor.White).copy(
-                alpha = (if (lightText) 0.62f else 0.68f) * shadowStrength * LocalHomeTextShadowScale.current
+                alpha = (if (lightText) 0.62f else 0.68f) * shadowStrength
             ),
             offset = Offset.Zero,
             blurRadius = radius
@@ -195,15 +187,17 @@ fun HomeReadableText(
     }
     val onLayout = remember { { value: TextLayoutResult -> currentTextLayout.value(value) } }
     Box(modifier = modifier.homeCountdownShockwave(0.55f)) {
-        Text(
+        BasicText(
             text = text,
             modifier = Modifier.onGloballyPositioned(onPositioned),
-            color = color,
-            style = shadowStyle,
-            fontWeight = fontWeight,
-            fontSize = fontSize,
-            lineHeight = lineHeight,
-            textAlign = textAlign,
+            style = shadowStyle.merge(
+                color = color,
+                fontWeight = fontWeight,
+                fontSize = fontSize,
+                lineHeight = lineHeight,
+                textAlign = textAlign ?: TextAlign.Unspecified
+            ),
+            color = drawColor,
             maxLines = maxLines,
             softWrap = softWrap,
             overflow = overflow,

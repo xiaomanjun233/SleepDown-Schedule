@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -68,11 +69,12 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import kotlin.math.roundToInt
 
 // Calendar 17.3.70, phone with gesture navigation: 100dp - (8dp + (88dp + 56dp) / 2).
-private val HomeReturnWeekGap = 20.dp
+private val HomeReturnDateGap = 20.dp
 
 @Composable
-internal fun HomeReturnWeekButton(
+internal fun HomeReturnDateButton(
     visible: Boolean,
+    contentLabel: String,
     plusBounds: () -> Rect,
     hasPhoneDock: Boolean,
     safeBottom: Dp,
@@ -94,7 +96,7 @@ internal fun HomeReturnWeekButton(
             try {
                 CouiFloatingRenderer.standalone()
             } catch (failure: IllegalArgumentException) {
-                Log.w("SleepDownCOUI", "Cannot compile return-week FAB", failure)
+                Log.w("SleepDownCOUI", "Cannot compile return-date FAB", failure)
                 null
             }
         }
@@ -104,13 +106,12 @@ internal fun HomeReturnWeekButton(
             try {
                 CouiFloatingRenderer.pair()
             } catch (failure: IllegalArgumentException) {
-                Log.w("SleepDownCOUI", "Cannot compile return-week fusion", failure)
+                Log.w("SleepDownCOUI", "Cannot compile return-date fusion", failure)
                 null
             }
         }
     } else null
-    // ColorOS Calendar's Theme.COUI.Blue and couiColorBar in both theme resources.
-    val ink = if (dark) Color(0xFF5C9DFF) else Color(0xFF0080FF)
+    val ink = dockAccent ?: MaterialTheme.colorScheme.primary
     val neutral = if (dark) Color(0xFF1E1E1E) else Color(0xFFFAFAFA)
     var root by remember { mutableStateOf(Rect.Zero) }
     BoxWithConstraints(Modifier.fillMaxSize().onGloballyPositioned { root = it.boundsInRoot() }) {
@@ -129,7 +130,7 @@ internal fun HomeReturnWeekButton(
         val buttonSize = with(density) { diameter.toDp() }
         val target = with(density) {
             val centerX = source?.center?.x ?: (maxWidth - 16.dp).toPx() - radius
-            val bottom = source?.top?.minus(HomeReturnWeekGap.toPx())
+            val bottom = source?.top?.minus(HomeReturnDateGap.toPx())
                 ?: (maxHeight - safeBottom - 14.dp).toPx()
             Rect(centerX - radius, bottom - diameter, centerX + radius, bottom)
         }
@@ -140,7 +141,7 @@ internal fun HomeReturnWeekButton(
         if (Build.VERSION.SDK_INT >= 34 && !settled && source != null) {
             val pair = pairRenderer?.value
             if (pair != null) {
-                ReturnWeekFusion(
+                ReturnDateFusion(
                     source, target, buttonSize, backdrop, pair, dark,
                     dockAccent ?: homeDockImportButtonGlassColor(palette.lightGlass),
                     ink, ::positionProgress, ::offset
@@ -159,10 +160,13 @@ internal fun HomeReturnWeekButton(
             }
         ).then(if (enabled) Modifier.excludeParentPullGesture() else Modifier)
 
-        ReturnWeekFab(button, backdrop, buttonRenderer?.value, dark, neutral, ink, enabled, ::offset, onClick = {
-            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-            onReturn()
-        }) { ReturnWeekGlyph(ink) }
+        ReturnDateFab(
+            button, backdrop, buttonRenderer?.value, dark, neutral, ink, enabled, contentLabel, ::offset,
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                onReturn()
+            }
+        ) { ReturnDateGlyph(ink) }
     }
 }
 
@@ -174,7 +178,7 @@ private fun Modifier.clipBehindDockPlus(bounds: Rect): Modifier = drawWithCache 
 
 @RequiresApi(34)
 @Composable
-private fun ReturnWeekFusion(
+private fun ReturnDateFusion(
     source: Rect,
     target: Rect,
     buttonSize: Dp,
@@ -188,7 +192,7 @@ private fun ReturnWeekFusion(
 ) {
     val density = LocalDensity.current
     val extension = with(density) { 4.dp.roundToPx() }
-    val style = rememberReturnWeekStyle(dark, ink)
+    val style = rememberReturnDateStyle(dark, ink)
     val materials = remember(accent, dark, extension, style) {
         listOf(
             CouiFabDefaults.translucentMaterial(accent, dark, extension).copy(index = 1),
@@ -238,12 +242,12 @@ private fun ReturnWeekFusion(
                 glyphLayer.record { this@drawWithContent.drawContent() }
             },
             contentAlignment = Alignment.Center,
-        ) { ReturnWeekGlyph(ink) }
+        ) { ReturnDateGlyph(ink) }
     }
 }
 
 @Composable
-private fun ReturnWeekGlyph(ink: Color) {
+private fun ReturnDateGlyph(ink: Color) {
     Text(
         "今", color = ink, fontSize = with(LocalDensity.current) { 22.dp.toSp() },
         fontWeight = FontWeight.SemiBold, maxLines = 1, modifier = Modifier.clearAndSetSemantics {}
@@ -252,7 +256,7 @@ private fun ReturnWeekGlyph(ink: Color) {
 
 @RequiresApi(34)
 @Composable
-private fun rememberReturnWeekStyle(dark: Boolean, ink: Color): CouiDockStyle {
+private fun rememberReturnDateStyle(dark: Boolean, ink: Color): CouiDockStyle {
     val density = LocalDensity.current.density
     // Calendar NaviSearchView uses FRAMEWORK_BOTTOM_BAR, CAPSULE_3 and level-3b elevation.
     return remember(dark, density, ink) {
@@ -261,7 +265,7 @@ private fun rememberReturnWeekStyle(dark: Boolean, ink: Color): CouiDockStyle {
 }
 
 @Composable
-private fun ReturnWeekFab(
+private fun ReturnDateFab(
     modifier: Modifier,
     backdrop: Backdrop,
     renderer: CouiFloatingRenderer?,
@@ -269,12 +273,13 @@ private fun ReturnWeekFab(
     neutral: Color,
     ink: Color,
     enabled: Boolean,
+    contentLabel: String,
     offset: () -> Offset,
     onClick: () -> Unit,
     content: @Composable () -> Unit,
 ) {
     if (Build.VERSION.SDK_INT >= 34 && renderer != null) {
-        val style = rememberReturnWeekStyle(dark, ink)
+        val style = rememberReturnDateStyle(dark, ink)
         Fab(
             modifier = modifier, backdrop = rememberCouiGlassBackdrop(backdrop), renderer = renderer,
             onClick = onClick, dark = dark, material = style.material,
@@ -282,7 +287,7 @@ private fun ReturnWeekFab(
             foregroundComposition = true, contentColor = ink, enabled = enabled,
             spotlightPreset = SpotlightPreset.OpaqueMedium2,
             spotlightColor = if (dark) Color.White else Color.Black,
-            appearanceOffset = offset, contentLabel = "回到本周", content = content
+            appearanceOffset = offset, contentLabel = contentLabel, content = content
         )
         return
     }
@@ -292,7 +297,7 @@ private fun ReturnWeekFab(
             translationX = movement.x
             translationY = movement.y
         }.clip(CircleShape).background(neutral)
-            .then(if (enabled) Modifier.semantics { contentDescription = "回到本周" }
+            .then(if (enabled) Modifier.semantics { contentDescription = contentLabel }
                 .clickable(role = Role.Button, onClick = onClick) else Modifier),
         contentAlignment = Alignment.Center
     ) { content() }

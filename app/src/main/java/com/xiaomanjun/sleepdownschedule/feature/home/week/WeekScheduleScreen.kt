@@ -219,15 +219,15 @@ internal fun SinglePillWeekScheduleScreen(
     val latestWeekJumpSettled by rememberUpdatedState(onWeekJumpSettled)
     val weekTail = rememberWeekPageTailMotion(pagerState)
     val homeSwitching = LocalHomeTextContrastFrozen.current
+    val weekHeaderPreview = remember(pagerState) {
+        derivedStateOf {
+            // currentPage changes halfway through the swipe. Only the header follows it.
+            if (programmaticPage < 0) pagerState.currentPage.coerceIn(0, pagerState.pageCount - 1) + 1 else null
+        }
+    }
     LaunchedEffect(pagerState) {
         try {
-            snapshotFlow {
-                // currentPage changes at the halfway point in either direction. This is only
-                // chrome preview; changing displayWeek here would cancel the active gesture.
-                if (programmaticPage < 0) {
-                    pagerState.currentPage.coerceIn(0, pagerState.pageCount - 1) + 1
-                } else null
-            }.distinctUntilChanged().collect { latestWeekHeaderPreview(it) }
+            snapshotFlow { weekHeaderPreview.value }.collect { latestWeekHeaderPreview(it) }
         } finally {
             latestWeekHeaderPreview(null)
         }
@@ -474,7 +474,7 @@ internal fun SinglePillWeekScheduleScreen(
                 ) {
                     WeekSwitchButton(-1, state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
                     WeekHeaderCrossfade(
-                        target = weekStart,
+                        target = scheduleWeekStartDate(state.config, weekHeaderPreview.value ?: displayWeek, today),
                         modifier = Modifier.padding(horizontal = 10.dp)
                     ) { start ->
                         val end = start.plusDays(6)
@@ -513,8 +513,8 @@ internal fun SinglePillWeekScheduleScreen(
                                         textAlign = TextAlign.Center
                                     )
                                 }
-                                WeekPagerHeaderLabels(
-                                    pagerState = pagerState,
+                                WeekdayHeaderLabels(
+                                    displayWeek = weekHeaderPreview.value ?: displayWeek,
                                     courses = state.courses,
                                     config = state.config,
                                     today = today,

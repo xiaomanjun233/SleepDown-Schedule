@@ -224,7 +224,7 @@ import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorSource
 import com.xiaomanjun.sleepdownschedule.feature.home.week.LocalWeekCourseAddition
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseAddPreview
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseAddition
-import com.xiaomanjun.sleepdownschedule.feature.home.HomeReturnWeekButton
+import com.xiaomanjun.sleepdownschedule.feature.home.HomeReturnDateButton
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.LocalCourseEditorFlightRegistry
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.NormalizedCourseEditorScreen
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorApplyAllScope
@@ -1378,23 +1378,16 @@ fun CourseScheduleAppUi(
         homeDisplayWeek = homeDisplayWeek.coerceIn(1, visualState.config.totalWeeks.coerceAtLeast(1))
         if (visualState.config.autoCurrentWeek) homeDisplayWeek = currentTargetWeek
     }
-    val homeTitleWeek = if (homeMode != HomeMode.Week) {
-        effectiveCurrentWeek(visualState.config, homeDisplayDate)
-    } else {
-        homeDisplayWeek
-    }
-    val homeTitleDate = if (homeMode != HomeMode.Week) {
-        homeDisplayDate
-    } else {
-        todayDate
-    }
     val homeReturnTargetWeek = if (beforeScheduleTerm) 1 else homeCurrentWeek
-    val homeShowingAnotherWeek = homeMode == HomeMode.Week &&
-        (homeWeekHeaderPreview.value ?: homeDisplayWeek) != homeReturnTargetWeek
-    val canSelectWeekAddSlot = screen is Screen.Home && homeMode == HomeMode.Week && state.loaded &&
+    val homeShowingAnotherDate = when (homeMode) {
+        HomeMode.Day -> homeDisplayDate != todayDate
+        HomeMode.Week -> (homeWeekHeaderPreview.value ?: homeDisplayWeek) != homeReturnTargetWeek
+    }
+    val canUseHomeNavigation = screen is Screen.Home && state.loaded &&
         !rootPageMotion.moving && !homeModeMotion.moving && !homeBackgroundOverlayActive &&
         !homeAssistant.visible && !courseCopy.active && homeDialog == null && renderedHomeDialog == null &&
         !jumpWeekDialogMounted && quickScheduleDraft == null && pickerState.phase is CustomizeUiState.Home
+    val canSelectWeekAddSlot = canUseHomeNavigation && homeMode == HomeMode.Week
     LaunchedEffect(canSelectWeekAddSlot, homeDisplayWeek, state.config.id, state.periods, state.courses,
         homeAdaptiveMetrics.screenWidth, homeAdaptiveMetrics.screenHeight) {
         if (courseEditorRequest?.creating != true) weekCourseAddition.clear()
@@ -1950,6 +1943,7 @@ fun CourseScheduleAppUi(
         latestPickerBackAction()
     }
     var returnHomeWeekRequest by remember { mutableIntStateOf(0) }
+    val returnHomeToToday = { homeDisplayDate = LocalDate.now() }
     val returnHomeToCurrentDateAndWeek = {
         homeWeekHeaderPreview.value = null
         returnHomeWeekRequest++
@@ -2286,13 +2280,14 @@ fun CourseScheduleAppUi(
             }),
         popupHost = {
             Box(Modifier.fillMaxSize()) {
-                HomeReturnWeekButton(
-                    visible = homeShowingAnotherWeek && canSelectWeekAddSlot && !dockImportOpening,
+                HomeReturnDateButton(
+                    visible = homeShowingAnotherDate && canUseHomeNavigation && !dockImportOpening,
+                    contentLabel = if (homeMode == HomeMode.Day) "回到今天" else "回到本周",
                     plusBounds = { dockPlusBounds.value },
                     hasPhoneDock = !homeAdaptiveMetrics.isLargeScreen,
                     safeBottom = homeAdaptiveMetrics.safeBottom,
                     backdrop = chromeBackdrop,
-                    onReturn = returnHomeToCurrentDateAndWeek
+                    onReturn = if (homeMode == HomeMode.Day) returnHomeToToday else returnHomeToCurrentDateAndWeek
                 )
                 WeekCourseAddPreview(
                     selection = weekCourseAddition,
@@ -2867,13 +2862,11 @@ fun CourseScheduleAppUi(
                                 homeMode = homeMode,
                                 onHomeModeChange = { homeMode = it },
                                 homeDisplayDate = homeDisplayDate,
-                                homeDisplayWeek = if (weekViewStyle == WeekViewStyle.BOUNDLESS) {
-                                    homeWeekHeaderPreview.value ?: homeDisplayWeek
-                                } else homeDisplayWeek,
+                                homeDisplayWeek = homeWeekHeaderPreview.value ?: homeDisplayWeek,
                                 beforeScheduleTerm = beforeScheduleTerm,
                                 afterScheduleTerm = afterScheduleTerm,
                                 homeReturnTargetWeek = homeReturnTargetWeek,
-                                onReturnToday = returnHomeToCurrentDateAndWeek,
+                                onReturnToday = returnHomeToToday,
                                 personalizeButtonHidden =
                                     homeAnchoredMorphState.renderedKind == HomeAnchoredOverlayKind.Personalize,
                                 homeOverlayReturning = homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing,

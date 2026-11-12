@@ -1,9 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Transition
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -30,10 +28,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.RenderEffect
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.get
@@ -54,9 +55,10 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColo
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlpha
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.excludeParentPullGesture
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.rememberMotionBlur
+import com.xiaomanjun.sleepdownschedule.feature.home.HomeHeaderMotionSpec
+import com.xiaomanjun.sleepdownschedule.feature.home.HomeHeaderText
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekHeaderWeather
-import com.xiaomanjun.sleepdownschedule.feature.home.week.HomeHeaderMotionMillis
-import com.xiaomanjun.sleepdownschedule.feature.home.week.homeHeaderTextTransform
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassLens
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassPill
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
@@ -95,6 +97,7 @@ internal fun HomeDateTitle(
         "${displayDate.monthValue}月${displayDate.dayOfMonth}日–$endMonth${dateRangeEnd.dayOfMonth}日"
     }
     val title = updateTransition(HomeTitleFrame(mode, caption, dateLabel), label = "home-title")
+    val blur = rememberMotionBlur(TileMode.Decal)
     val interaction = remember { MutableInteractionSource() }
     Column(
         modifier = if (mode == HomeMode.Day) Modifier.excludeParentPullGesture()
@@ -102,7 +105,7 @@ internal fun HomeDateTitle(
         verticalArrangement = Arrangement.Center
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            title.HomeTitleLine(HomeTitleFrame::caption, Modifier.weight(1f, fill = false)) { text ->
+            title.HomeTitleLine(HomeTitleFrame::caption, blur, 3.5.dp, Modifier.weight(1f, fill = false)) { text ->
                 HomeReadableText(
                     text, style = MaterialTheme.typography.labelMedium.copy(fontSize = 16.sp, lineHeight = 18.sp),
                     fontWeight = FontWeight.Medium, color = color.copy(alpha = 0.68f),
@@ -111,13 +114,13 @@ internal fun HomeDateTitle(
             }
             title.AnimatedVisibility(
                 visible = { it.mode == HomeMode.Week },
-                enter = fadeIn(tween(HomeHeaderMotionMillis)),
-                exit = fadeOut(tween(HomeHeaderMotionMillis))
+                enter = fadeIn(HomeHeaderMotionSpec),
+                exit = fadeOut(HomeHeaderMotionSpec)
             ) {
                 WeekHeaderWeather(color.copy(alpha = 0.68f))
             }
         }
-        title.HomeTitleLine(HomeTitleFrame::dateLabel) { text ->
+        title.HomeTitleLine(HomeTitleFrame::dateLabel, blur, 5.dp) { text ->
             HomeReadableText(
                 text,
                 style = MaterialTheme.typography.titleMedium.copy(
@@ -138,14 +141,18 @@ internal fun HomeDateTitle(
 @Composable
 private fun Transition<HomeTitleFrame>.HomeTitleLine(
     label: (HomeTitleFrame) -> String,
+    blur: (Float) -> RenderEffect?,
+    peakBlur: Dp,
     modifier: Modifier = Modifier,
     content: @Composable (String) -> Unit
 ) {
-    AnimatedContent(
+    HomeHeaderText(
         modifier = modifier,
         contentKey = label,
         contentAlignment = Alignment.CenterStart,
-        transitionSpec = { homeHeaderTextTransform(TransformOrigin(0f, 0.5f)) }
+        origin = TransformOrigin(0f, 0.5f),
+        blur = blur,
+        peakBlur = peakBlur,
     ) { frame ->
         Box(Modifier.padding(vertical = 2.dp)) { content(label(frame)) }
     }
