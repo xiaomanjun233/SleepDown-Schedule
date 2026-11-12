@@ -406,12 +406,14 @@ internal fun HomeSidebar(
                     Column(Modifier.weight(1f).pageVerticalScroll(sidebarScroll),
                         verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         HomeSidebarTabs.forEach { (destination, label) ->
-                            val iconRes = when (destination) {
-                                HomeSidebarDestination.Day -> R.drawable.ic_day_view
-                                HomeSidebarDestination.Week -> R.drawable.ic_week_view
-                                else -> R.drawable.ic_settings
+                            val icon = when (destination) {
+                                HomeSidebarDestination.Day -> homeActionIcon(R.drawable.ic_day_view)
+                                HomeSidebarDestination.Week -> homeActionIcon(
+                                    R.drawable.ic_week_view, selected = selected == destination
+                                )
+                                else -> homeActionIcon(R.drawable.ic_settings)
                             }
-                            SidebarDestinationRow(destination, label, requireNotNull(homeActionIcon(iconRes)),
+                            SidebarDestinationRow(destination, label, requireNotNull(icon),
                                 selected, ink, enabled, !lightGlass) {
                                 navigate(destination)
                             }

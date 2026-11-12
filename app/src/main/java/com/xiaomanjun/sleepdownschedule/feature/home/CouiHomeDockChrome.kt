@@ -136,13 +136,14 @@ internal fun CouiHomeDock(
             selectedColor, effectiveDark, base.material.extension)) }
     }
     val dayIcon = requireNotNull(homeActionIcon(R.drawable.ic_day_view))
-    val weekIcon = requireNotNull(homeActionIcon(R.drawable.ic_week_view))
-    val settingsIcon = requireNotNull(homeActionIcon(R.drawable.ic_settings, filledSetting = false))
-    val selectedSettingsIcon = requireNotNull(homeActionIcon(R.drawable.ic_settings))
-    val items = remember(dayIcon, weekIcon, settingsIcon, selectedSettingsIcon) {
+    val weekIcon = requireNotNull(homeActionIcon(R.drawable.ic_week_view, selected = false))
+    val selectedWeekIcon = requireNotNull(homeActionIcon(R.drawable.ic_week_view, selected = true))
+    val settingsIcon = requireNotNull(homeActionIcon(R.drawable.ic_settings, selected = false))
+    val selectedSettingsIcon = requireNotNull(homeActionIcon(R.drawable.ic_settings, selected = true))
+    val items = remember(dayIcon, weekIcon, selectedWeekIcon, settingsIcon, selectedSettingsIcon) {
         listOf(
             CouiDockItem("今日", dayIcon),
-            CouiDockItem("课程表", weekIcon),
+            CouiDockItem("课程表", weekIcon, selectedIcon = selectedWeekIcon),
             CouiDockItem("设置", settingsIcon, selectedIcon = selectedSettingsIcon),
         )
     }

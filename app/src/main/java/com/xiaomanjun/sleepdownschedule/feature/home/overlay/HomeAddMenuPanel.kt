@@ -218,7 +218,7 @@ internal fun HomeAddMenuMorphPanel(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(3.dp)
                 ) {
-                    Icon(homeActionIconPainter(iconRes), contentDescription = null, modifier = Modifier.size(21.dp))
+                    Icon(homeActionIconPainter(iconRes, selected = selected), contentDescription = null, modifier = Modifier.size(21.dp))
                     Text(label, style = MaterialTheme.typography.labelSmall, maxLines = 1)
                 }
             }

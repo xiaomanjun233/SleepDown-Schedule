@@ -192,7 +192,7 @@ internal fun DockTabContent(iconRes: Int, label: String, iconSize: Dp, selected:
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically)
     ) {
-        Icon(homeActionIconPainter(iconRes, filledSetting = selected), contentDescription = null,
+        Icon(homeActionIconPainter(iconRes, selected = selected), contentDescription = null,
             modifier = Modifier.size(iconSize))
         Text(label, style = MaterialTheme.typography.labelSmall)
     }
@@ -223,7 +223,7 @@ fun DockItem(selected: Boolean, backdrop: Backdrop?, config: ScheduleConfigEntit
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)
         ) {
-            Icon(homeActionIconPainter(iconRes, filledSetting = selected), contentDescription = null,
+            Icon(homeActionIconPainter(iconRes, selected = selected), contentDescription = null,
                 modifier = Modifier.size(22.dp))
             Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium)
         }

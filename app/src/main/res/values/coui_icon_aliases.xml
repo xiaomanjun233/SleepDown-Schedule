@@ -11,5 +11,4 @@
     <item type="drawable" name="ic_material_photo_library">@drawable/coui_album_outlined</item>
     <item type="drawable" name="ic_schedule_layers">@drawable/coui_multi_phone_filled</item>
     <item type="drawable" name="ic_day_view">@drawable/coui_certificate_filled</item>
-    <item type="drawable" name="ic_week_view">@drawable/coui_calendar</item>
 </resources>
