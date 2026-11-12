@@ -18,6 +18,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -53,12 +54,14 @@ import com.itos.coui.button.CouiCapsuleButton
 import com.itos.coui.shape.CouiShape
 import com.itos.coui.text.CouiTextKind
 import com.itos.coui.text.rememberCouiTextStyle
+import com.itos.coui.theme.CouiTheme
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.feature.update.AppUpdateDialog
+import com.xiaomanjun.sleepdownschedule.feature.update.GiteeReleaseInfo
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.couiUpdateCardMaterial
 import com.xiaomanjun.sleepdownschedule.glass.couiUpdateCardOutline
@@ -69,16 +72,15 @@ import kotlin.math.roundToInt
 @Composable
 internal fun ImmersiveSoftwareUpdateContent(
     version: String,
-    installedVersion: String,
     dialog: AppUpdateDialog?,
-    releaseNotes: String?,
+    release: GiteeReleaseInfo?,
     primary: Pair<String, () -> Unit>?,
     secondary: Pair<String, () -> Unit>?,
-    downloadPercent: Int?,
     showVersionNotes: Boolean,
+    footerClearance: Dp,
 ) {
     val top = detailContentTopPadding()
-    val bottom = detailContentBottomPadding() + 4.dp
+    val bottom = detailContentBottomPadding() + 4.dp + footerClearance
     val wallpaper = if (Build.VERSION.SDK_INT >= 31 && !AppMaterialPreferences.isSuperPerformance) {
         rememberGlassLayerBackdrop(GlassBackdropDomain.Background, "software-update-wallpaper")
     } else null
@@ -153,8 +155,9 @@ internal fun ImmersiveSoftwareUpdateContent(
                     },
                     label = "software-update-card-content",
                 ) { showingNotes ->
-                    if (showingNotes) SoftwareUpdateVersionNotes(installedVersion)
-                    else SoftwareUpdateStatus(version, dialog, releaseNotes, primary, secondary, downloadPercent)
+                    if (showingNotes) SoftwareUpdateVersionNotes(version, release?.notes,
+                        downloadError = (dialog as? AppUpdateDialog.Error)?.message.takeIf { release != null })
+                    else SoftwareUpdateStatus(version, dialog, primary, secondary)
                 }
             }
         }
@@ -189,10 +192,8 @@ private fun softwareUpdateWallpaperBlur(height: Float, radius: Float): androidx.
 private fun SoftwareUpdateStatus(
     version: String,
     dialog: AppUpdateDialog?,
-    releaseNotes: String?,
     primary: Pair<String, () -> Unit>?,
     secondary: Pair<String, () -> Unit>?,
-    downloadPercent: Int?,
 ) {
     Box(Modifier.fillMaxWidth().animateContentSize(tween(285))) {
         if (dialog == AppUpdateDialog.Checking) {
@@ -212,18 +213,12 @@ private fun SoftwareUpdateStatus(
                     style = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = 20.sp, lineHeight = 28.sp))
                 Text(summary, Modifier.padding(top = 4.dp), color = Color.White.copy(alpha = .9f),
                     style = rememberCouiTextStyle(CouiTextKind.PreferenceValue))
-                if (!releaseNotes.isNullOrBlank()) {
-                    Text(releaseNotes.trim(), Modifier.padding(top = 12.dp).heightIn(max = 160.dp)
-                        .verticalScroll(rememberScrollState()), color = Color.White.copy(alpha = .84f),
-                        style = rememberCouiTextStyle(CouiTextKind.PreferenceSummary))
-                }
-                val downloading = dialog is AppUpdateDialog.Downloading
-                if (primary != null || downloading) {
+                if (primary != null || secondary != null) {
                     Column(Modifier.fillMaxWidth().padding(top = 20.dp), horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val label = primary?.first ?: downloadPercent?.let { "正在下载 · $it%" } ?: "正在下载"
-                        val width = if (releaseNotes != null) 296.dp else Dp.Infinity
-                        SoftwareUpdateAction(label, width, primary?.second, downloadPercent, lightSurface = true)
+                        primary?.let { (label, action) ->
+                            SoftwareUpdateAction(label, action, Modifier.fillMaxWidth(), lightSurface = true)
+                        }
                         secondary?.let { (label, action) ->
                             SoftwareUpdatePanelButton(label, action)
                         }
@@ -235,27 +230,37 @@ private fun SoftwareUpdateStatus(
 }
 
 @Composable
-internal fun SoftwareUpdateVersionNotes(version: String) {
-    val sections = rememberBundledReleaseNotes(version)
-    var expanded by rememberSaveable { mutableStateOf(true) }
+internal fun SoftwareUpdateVersionNotes(
+    version: String, releaseNotes: String? = null, lightFrame: Boolean = false, downloadError: String? = null,
+) {
+    val sections = if (releaseNotes != null) remember(releaseNotes) { parseReleaseNotes(releaseNotes.lines()) }
+        else rememberBundledReleaseNotes(version)
+    var expanded by rememberSaveable(version) { mutableStateOf(true) }
+    val colors = CouiTheme.colorScheme
+    val foreground = if (lightFrame) colors.onSurface else Color.White
+    val body = if (lightFrame) colors.onSurface.copy(alpha = .84f) else Color.White.copy(alpha = .87f)
+    val secondary = if (lightFrame) colors.onSurfaceVariant else Color.White.copy(alpha = .78f)
+    val divider = if (lightFrame) colors.outlineVariant else Color.White.copy(alpha = .16f)
     val arrowRotation by animateFloatAsState(if (expanded) 180f else 0f, tween(240), label = "update-notes-arrow")
     val headingStyle = rememberCouiTextStyle(CouiTextKind.PageTitle).copy(fontSize = 19.sp, lineHeight = 26.sp)
     val bodyStyle = rememberCouiTextStyle(CouiTextKind.PreferenceValue).copy(fontSize = 15.sp, lineHeight = 23.sp)
     Column(Modifier.fillMaxWidth().padding(18.dp)) {
-        Text("软件版本", color = Color.White, style = headingStyle)
-        Text(version, Modifier.padding(top = 5.dp), color = Color.White.copy(alpha = .9f), style = bodyStyle)
+        Text("软件版本", color = foreground, style = headingStyle)
+        Text(version, Modifier.padding(top = 5.dp), color = body, style = bodyStyle)
+        if (downloadError != null) Text(downloadError, Modifier.padding(top = 8.dp), color = body, style = bodyStyle)
         Box(Modifier.padding(top = 18.dp, bottom = 14.dp).fillMaxWidth().height(.5.dp)
-            .background(Color.White.copy(alpha = .16f)))
+            .background(divider))
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("更新说明", color = Color.White, style = headingStyle)
+            Text("更新说明", color = foreground, style = headingStyle)
             CouiCapsuleButton(
                 modifier = Modifier.width(36.dp), height = 36.dp,
-                onClick = { expanded = !expanded }, dark = true, colors = SoftwareUpdateToolbarColors,
+                onClick = { expanded = !expanded }, dark = !lightFrame,
+                colors = if (lightFrame) CouiButtonDefaults.secondaryColors(dark = false) else SoftwareUpdateToolbarColors,
                 contentPadding = PaddingValues(0.dp), pressFeedback = true,
             ) {
                 Icon(Icons.Rounded.ExpandMore, if (expanded) "收起更新说明" else "展开更新说明",
-                    Modifier.size(23.dp).rotate(arrowRotation), tint = Color.White)
+                    Modifier.size(23.dp).rotate(arrowRotation), tint = foreground)
             }
         }
         AnimatedVisibility(
@@ -265,15 +270,17 @@ internal fun SoftwareUpdateVersionNotes(version: String) {
         ) {
             Column(Modifier.padding(top = 7.dp, bottom = 2.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 if (sections.isEmpty()) {
-                    Text("此版本暂无内置更新说明。", color = Color.White.copy(alpha = .87f), style = bodyStyle)
+                    Text("此版本暂无更新说明。", color = body, style = bodyStyle)
                 }
                 sections.forEach { section ->
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(section.title, color = Color.White.copy(alpha = .78f), style = headingStyle.copy(fontSize = 17.sp))
+                        if (section.title.isNotEmpty()) {
+                            Text(section.title, color = secondary, style = headingStyle.copy(fontSize = 17.sp))
+                        }
                         section.entries.forEach { entry ->
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text("•", color = Color.White.copy(alpha = .87f), style = bodyStyle)
-                                Text(entry, Modifier.weight(1f), color = Color.White.copy(alpha = .87f), style = bodyStyle)
+                                Text("•", color = body, style = bodyStyle)
+                                Text(entry, Modifier.weight(1f), color = body, style = bodyStyle)
                             }
                         }
                     }
@@ -288,9 +295,16 @@ internal fun SoftwareUpdateCard(
     wallpaper: Backdrop?,
     modifier: Modifier,
     sampleWallpaper: Boolean = true,
+    lightFrame: Boolean = false,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val shape = CouiShape(24.dp)
+    if (lightFrame) {
+        val colors = CouiTheme.colorScheme
+        Box(modifier.fillMaxWidth().clip(shape).background(colors.surface).border(0.5.dp, colors.outlineVariant, shape),
+            content = content)
+        return
+    }
     // The tall notes use the already blurred wallpaper under the card tint.
     val material = if (Build.VERSION.SDK_INT >= 31 && wallpaper != null && sampleWallpaper) couiUpdateCardMaterial(wallpaper, shape)
         else Modifier

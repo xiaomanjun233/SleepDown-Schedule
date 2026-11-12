@@ -1,8 +1,14 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings.about
 
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
@@ -24,17 +30,21 @@ fun ChangelogSettingsScreen(
         listOf(ReleaseHistoryEntry(ConsolidatedReleaseVersion, currentNotes.flatMap { it.entries }.joinToString("\n"))) +
             ArchivedReleaseHistory.entries
     }
-    SleepDownSecondaryPageList(contentTopPadding = detailContentTopPadding(),
-        contentBottomPadding = detailContentBottomPadding()) {
-        itemsIndexed(history, key = { _, release -> release.version }) { index, release ->
-            val position = when (index) {
-                0 -> SettingsGroupPosition.First
-                history.lastIndex -> SettingsGroupPosition.Last
-                else -> SettingsGroupPosition.Middle
-            }
-            SettingsGroup(backdrop, state.config, topSpacing = 0.dp.takeIf { index > 0 }, position = position) {
-                CollapsibleChangelogRow(release.version, release.body)
-                if (index < history.lastIndex) SettingsDivider()
+    val wide = LocalConfiguration.current.screenWidthDp >= 600
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
+        SleepDownSecondaryPageList(contentTopPadding = detailContentTopPadding(),
+            contentBottomPadding = detailContentBottomPadding(),
+            modifier = (if (wide) Modifier.widthIn(max = 708.dp) else Modifier).fillMaxSize()) {
+            itemsIndexed(history, key = { _, release -> release.version }) { index, release ->
+                val position = when (index) {
+                    0 -> SettingsGroupPosition.First
+                    history.lastIndex -> SettingsGroupPosition.Last
+                    else -> SettingsGroupPosition.Middle
+                }
+                SettingsGroup(backdrop, state.config, topSpacing = 0.dp.takeIf { index > 0 }, position = position) {
+                    CollapsibleChangelogRow(release.version, release.body)
+                    if (index < history.lastIndex) SettingsDivider()
+                }
             }
         }
     }

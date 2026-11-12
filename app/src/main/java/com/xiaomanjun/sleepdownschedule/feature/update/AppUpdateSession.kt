@@ -26,15 +26,26 @@ internal class AppUpdateSession(
 ) {
     var dialog by mutableStateOf<AppUpdateDialog?>(null)
         private set
-    private var downloadedApk: File? = null
+    var availableRelease by mutableStateOf<GiteeReleaseInfo?>(null)
+        private set
+    private var downloaded by mutableStateOf<UpdateDownloadState.Completed?>(null)
+
+    val downloadedReleaseTag: String? get() = downloaded?.releaseTag
 
     fun dismiss() { dialog = null }
 
     fun resumeInstall() {
-        val apk = downloadedApk
-        if (apk != null && GiteeAppUpdater.canRequestPackageInstalls(context)) {
+        val apk = downloaded?.apk ?: return
+        if (GiteeAppUpdater.canRequestPackageInstalls(context)) openInstaller(apk)
+    }
+
+    private fun openInstaller(apk: File) {
+        if (GiteeAppUpdater.canRequestPackageInstalls(context)) {
             runCatching { GiteeAppUpdater.launchInstaller(context, apk) }
+                .onSuccess { dialog = null }
                 .onFailure { dialog = AppUpdateDialog.Error(it.readableUpdateMessage()) }
+        } else {
+            dialog = AppUpdateDialog.InstallPermissionRequired
         }
     }
 
@@ -46,6 +57,7 @@ internal class AppUpdateSession(
             dialog = GiteeAppUpdater.checkForUpdate(context, versionName).fold(
                 onSuccess = { result ->
                     GiteeAppUpdater.recordCheckResult(context, result)
+                    availableRelease = (result as? GiteeUpdateCheckResult.UpdateAvailable)?.release
                     when (result) {
                         is GiteeUpdateCheckResult.UpdateAvailable -> AppUpdateDialog.Available(result.release)
                         is GiteeUpdateCheckResult.UpToDate -> AppUpdateDialog.UpToDate(result.release.tagName)
@@ -57,22 +69,22 @@ internal class AppUpdateSession(
     }
 
     fun downloadAndInstall(release: GiteeReleaseInfo) {
+        if (dialog is AppUpdateDialog.Downloading || dialog == AppUpdateDialog.InstallPermissionRequired) return
         if (release.apkUrl == null) {
             dialog = AppUpdateDialog.NoApk(release)
+            return
+        }
+        val existingApk = downloaded?.takeIf { it.releaseTag == release.tagName }?.apk
+        if (existingApk?.isFile == true) {
+            openInstaller(existingApk)
             return
         }
         dialog = AppUpdateDialog.Downloading(release)
         scope.launch {
             GiteeAppUpdater.downloadApk(context, release).fold(
                 onSuccess = { apk ->
-                    downloadedApk = apk
-                    if (GiteeAppUpdater.canRequestPackageInstalls(context)) {
-                        runCatching { GiteeAppUpdater.launchInstaller(context, apk) }
-                            .onSuccess { dialog = null }
-                            .onFailure { dialog = AppUpdateDialog.Error(it.readableUpdateMessage()) }
-                    } else {
-                        dialog = AppUpdateDialog.InstallPermissionRequired
-                    }
+                    downloaded = UpdateDownloadState.Completed(release.tagName, apk)
+                    openInstaller(apk)
                 },
                 onFailure = { dialog = AppUpdateDialog.Error(it.readableUpdateMessage()) }
             )

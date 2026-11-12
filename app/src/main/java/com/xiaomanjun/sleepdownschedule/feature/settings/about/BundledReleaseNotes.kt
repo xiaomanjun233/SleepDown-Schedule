@@ -20,19 +20,30 @@ internal fun rememberBundledReleaseNotes(version: String): List<ReleaseNotesSect
         } catch (_: FileNotFoundException) {
             emptyList()
         }
-        buildList {
-            var title = ""
-            val entries = mutableListOf<String>()
-            for (line in lines) {
-                if (line.startsWith("## ")) {
-                    if (entries.isNotEmpty()) add(ReleaseNotesSection(title, entries.toList()))
-                    title = line.removePrefix("## ")
-                    entries.clear()
-                } else if (line.startsWith("- ") && title.isNotEmpty()) {
-                    entries.add(line.removePrefix("- "))
-                }
-            }
-            if (entries.isNotEmpty()) add(ReleaseNotesSection(title, entries.toList()))
-        }
+        parseReleaseNotes(lines, includeIntroduction = false)
     }
 }
+
+internal fun parseReleaseNotes(lines: Iterable<String>, includeIntroduction: Boolean = true): List<ReleaseNotesSection> =
+    buildList {
+        var title = ""
+        val entries = mutableListOf<String>()
+        fun flush() {
+            if (entries.isNotEmpty()) add(ReleaseNotesSection(title, entries.toList()))
+            entries.clear()
+        }
+        for (rawLine in lines) {
+            val line = rawLine.trim()
+            when {
+                line.startsWith("## ") || line.startsWith("### ") -> {
+                    flush()
+                    title = line.trimStart('#').trim()
+                }
+                line.startsWith("# ") || line.isEmpty() -> Unit
+                line.startsWith("- ") && (title.isNotEmpty() || includeIntroduction) ->
+                    entries.add(line.removePrefix("- "))
+                includeIntroduction -> entries.add(line.removePrefix("* "))
+            }
+        }
+        flush()
+    }

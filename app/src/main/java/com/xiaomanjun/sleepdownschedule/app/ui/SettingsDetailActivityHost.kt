@@ -97,6 +97,7 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSetti
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateMenu
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateToolbarButton
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.WideSoftwareUpdateToolbarButton
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
 import com.xiaomanjun.sleepdownschedule.feature.settings.usesPersistentCenteredSettingsTitle
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCustomizationScreen
@@ -268,6 +269,9 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                     topBarNavigation = when {
                         creatingTimeSlotCourse -> { { CouiSettingsToolbarTextButton("取消", onClick = requestExit) } }
                         immersiveUpdate -> { { SoftwareUpdateToolbarButton(CouiIcons.Back, "返回", requestExit) } }
+                        section == SettingsPage.SoftwareUpdate -> {
+                            { WideSoftwareUpdateToolbarButton(CouiIcons.Back, "返回", onClick = requestExit) }
+                        }
                         else -> null
                     },
                     topBarActions = { topBackdrop ->

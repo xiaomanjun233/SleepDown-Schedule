@@ -59,6 +59,8 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.about.AutoUpdateSetting
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateMenu
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.WideSoftwareUpdateToolbarButton
+import com.itos.coui.icons.CouiIcons
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCustomizationScreen
 
@@ -184,7 +186,8 @@ fun SettingsScreen(
                 lastHandledExternalExitRequest = exitCommitRequest
                 requestPaneExit(checkScheduleDraft = true, onFinished = onExitCommitFinished)
             }
-            BackHandler(enabled = tabletNavigation.detailPages.isNotEmpty()) {
+            BackHandler(enabled = tabletNavigation.detailPages.isNotEmpty() ||
+                (displayedPage == SettingsPage.SoftwareUpdate && showingUpdateNotes)) {
                 popTabletDetailPage()
             }
             Row(Modifier.fillMaxSize().background(settingsPageBackground(pageConfig))) {
@@ -244,8 +247,13 @@ fun SettingsScreen(
                             title = if (targetPage == SettingsPage.SoftwareUpdate && showingUpdateNotes) "更新说明" else targetPage.title(),
                             config = pageConfig,
                             topBarVisible = !(targetPage == SettingsPage.Widgets && tabletWidgetEditorVisible),
-                            showBackButton = navigation.detailPages.isNotEmpty(),
+                            showBackButton = navigation.detailPages.isNotEmpty() ||
+                                (targetPage == SettingsPage.SoftwareUpdate && showingUpdateNotes),
                             onBack = ::popTabletDetailPage,
+                            topBarNavigation = if (targetPage == SettingsPage.SoftwareUpdate &&
+                                (navigation.detailPages.isNotEmpty() || showingUpdateNotes)) {
+                                { WideSoftwareUpdateToolbarButton(CouiIcons.Back, "返回", onClick = ::popTabletDetailPage) }
+                            } else null,
                             topBarActions = { topBackdrop ->
                                 if (targetPage == SettingsPage.AutoRefreshSchedule && autoRefreshProfile == null) {
                                     TopGlassIconButton(

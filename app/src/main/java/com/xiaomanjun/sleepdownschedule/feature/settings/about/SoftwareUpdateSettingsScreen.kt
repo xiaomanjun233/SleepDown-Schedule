@@ -6,36 +6,32 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.itos.coui.button.CouiButtonDefaults
-import com.itos.coui.button.CouiButtonStyle
 import com.itos.coui.button.CouiCapsuleButton
+import com.itos.coui.button.CouiProgressButton
 import com.itos.coui.icons.CouiIcons
 import com.itos.coui.shape.CouiCapsuleShape
 import com.itos.coui.shape.CouiShape
@@ -54,6 +50,8 @@ import com.xiaomanjun.sleepdownschedule.core.web.resolveSleepDownCustomTabsPacka
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.feature.update.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.GlowOverflowMenuButton
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 
 /** 独立全屏软件更新页，沿用既有检查、下载、安装及底部权限窗口。 */
 @Composable
@@ -79,10 +77,28 @@ internal fun SoftwareUpdateSettingsScreen(
         }
     }
     val dialog = updates.dialog
+    val release = updates.availableRelease
+    var openedReleaseTag by rememberSaveable { mutableStateOf<String?>(null) }
+    val openNotes by rememberUpdatedState(onOpenVersionNotes)
+    LaunchedEffect(release?.tagName) {
+        val tag = release?.tagName ?: return@LaunchedEffect
+        if (openedReleaseTag != tag) {
+            openedReleaseTag = tag
+            openNotes()
+        }
+    }
     val downloadPercent = if (dialog is AppUpdateDialog.Downloading) {
-        val downloadState by GiteeAppUpdater.downloadState.collectAsStateWithLifecycle()
-        (downloadState as? UpdateDownloadState.Downloading)
-            ?.takeIf { it.releaseTag == dialog.release.tagName }?.progressPercent
+        val tag = dialog.release.tagName
+        val progress = remember(tag) {
+            GiteeAppUpdater.downloadState.map { state ->
+                when (state) {
+                    is UpdateDownloadState.Downloading -> state.progressPercent.takeIf { state.releaseTag == tag }
+                    is UpdateDownloadState.Completed -> 100.takeIf { state.releaseTag == tag }
+                    else -> null
+                }
+            }.distinctUntilChanged()
+        }
+        progress.collectAsStateWithLifecycle(initialValue = null).value
     } else null
     SoftwareUpdatePageContent(
         version = updates.versionName, dialog = dialog,
@@ -91,6 +107,8 @@ internal fun SoftwareUpdateSettingsScreen(
         onOpenBackup = { open(SleepDownReleasesUrl) },
         downloadPercent = downloadPercent,
         onOpenVersionNotes = onOpenVersionNotes, showVersionNotes = showVersionNotes,
+        release = release,
+        downloaded = release != null && updates.downloadedReleaseTag == release.tagName,
     )
     if (updates.dialog == AppUpdateDialog.InstallPermissionRequired) {
         AppUpdateDialogHost(updates, backdrop, state.config,
@@ -118,9 +136,7 @@ internal fun SoftwareUpdateMenu(backdrop: Backdrop?, onOpenPage: (SettingsPage) 
         menuWidth = 164.dp) { open ->
         if (compact) {
             SoftwareUpdateToolbarButton(CouiIcons.More, "更多选项", open)
-        } else CouiSettingsToolbarButton(backdrop, onClick = open) {
-            Icon(CouiIcons.More, "更多选项", Modifier.size(24.dp), tint = CouiTheme.colorScheme.onSurface)
-        }
+        } else WideSoftwareUpdateToolbarButton(CouiIcons.More, "更多选项", backdrop, onClick = open)
     }
 }
 
@@ -143,6 +159,15 @@ internal fun SoftwareUpdateToolbarButton(icon: ImageVector, label: String, onCli
     }
 }
 
+@Composable
+internal fun WideSoftwareUpdateToolbarButton(
+    icon: ImageVector, label: String, backdrop: Backdrop? = null, onClick: () -> Unit,
+) {
+    CouiSettingsToolbarButton(backdrop, onClick = onClick, emphasizeLightShadow = true) {
+        Icon(icon, label, Modifier.size(24.dp), tint = CouiTheme.colorScheme.onSurface)
+    }
+}
+
 /** 手机用沉浸式状态卡，宽屏沿用 OTA 的独立头卡布局。 */
 @Composable
 internal fun SoftwareUpdatePageContent(
@@ -150,73 +175,94 @@ internal fun SoftwareUpdatePageContent(
     onDownload: (GiteeReleaseInfo) -> Unit, onOpenRelease: (GiteeReleaseInfo) -> Unit,
     onOpenBackup: () -> Unit, downloadPercent: Int? = null, onOpenVersionNotes: () -> Unit = onOpenBackup,
     showVersionNotes: Boolean = false,
-) {
-    val screenWidth = LocalConfiguration.current.screenWidthDp
-    val release = when (dialog) {
+    release: GiteeReleaseInfo? = when (dialog) {
         is AppUpdateDialog.Available -> dialog.release
         is AppUpdateDialog.Downloading -> dialog.release
+        is AppUpdateDialog.NoApk -> dialog.release
+        else -> null
+    },
+    downloaded: Boolean = false,
+) {
+    val screenWidth = LocalConfiguration.current.screenWidthDp
+    val compact = screenWidth < 600
+    val statusAction: Pair<String, () -> Unit>? = when {
+        release != null -> null
+        dialog == null -> "检查更新" to onRetry
+        dialog is AppUpdateDialog.UpToDate && compact -> "重新检查" to onRetry
+        dialog is AppUpdateDialog.Error -> "重试" to onRetry
         else -> null
     }
-    val downloading = dialog is AppUpdateDialog.Downloading
-    val action: Pair<String, () -> Unit>? = when (dialog) {
-        null -> "检查更新" to onRetry
-        is AppUpdateDialog.Available -> "下载并安装" to { onDownload(dialog.release) }
-        is AppUpdateDialog.NoApk -> "查看发布页" to { onOpenRelease(dialog.release) }
-        is AppUpdateDialog.Error -> "重试" to onRetry
-        else -> null
-    }
-    val hasBackup = dialog is AppUpdateDialog.Error || dialog is AppUpdateDialog.NoApk
+    val hasBackup = release == null && dialog is AppUpdateDialog.Error
     val displayVersion = release?.tagName?.removePrefix("v") ?: version
-    if (screenWidth < 600) {
-        val upToDate = dialog is AppUpdateDialog.UpToDate
-        ImmersiveSoftwareUpdateContent(
-            version = displayVersion,
-            installedVersion = version,
-            dialog = dialog,
-            releaseNotes = release?.notes,
-            primary = if (upToDate) "重新检查" to onRetry else action,
-            secondary = when {
-                upToDate || dialog == null -> "查看更新说明" to onOpenVersionNotes
-                hasBackup -> "备用下载" to onOpenBackup
-                else -> null
-            },
-            downloadPercent = downloadPercent,
-            showVersionNotes = showVersionNotes,
-        )
-        return
-    }
-    val top = detailContentTopPadding()
+    val actionWidth = if (screenWidth in 600..839) 280.dp else 296.dp
+    val footerClearance = if (release == null) 0.dp else 64.dp
     val bottom = detailContentBottomPadding() + 8.dp
-    AnimatedContent(showVersionNotes, Modifier.fillMaxSize(),
-        transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "wide-software-update") { showingNotes ->
-        if (showingNotes) {
-            Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
-                .padding(start = 24.dp, end = 24.dp, top = top + 12.dp, bottom = bottom),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                SoftwareUpdateCard(wallpaper = null, modifier = Modifier.widthIn(max = 660.dp)) {
-                    SoftwareUpdateVersionNotes(version)
+    val downloadError = (dialog as? AppUpdateDialog.Error)?.message.takeIf { release != null }
+    Box(Modifier.fillMaxSize()) {
+        if (compact) {
+            ImmersiveSoftwareUpdateContent(
+                version = displayVersion, dialog = dialog, release = release,
+                primary = statusAction,
+                secondary = when {
+                    release != null || dialog is AppUpdateDialog.UpToDate || dialog == null ->
+                        "查看更新说明" to onOpenVersionNotes
+                    hasBackup -> "备用下载" to onOpenBackup
+                    else -> null
+                },
+                showVersionNotes = showVersionNotes,
+                footerClearance = footerClearance,
+            )
+        } else {
+            val top = detailContentTopPadding()
+            AnimatedContent(showVersionNotes, Modifier.fillMaxSize(),
+                transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "wide-software-update") { showingNotes ->
+                Column(Modifier.fillMaxSize().padding(bottom = bottom + footerClearance),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(
+                        modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
+                            .padding(start = 24.dp, end = 24.dp, top = top + 12.dp, bottom = 20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        if (showingNotes) {
+                            val lightFrame = !CouiTheme.isDark
+                            SoftwareUpdateCard(null, Modifier.widthIn(max = 660.dp), lightFrame = lightFrame) {
+                                SoftwareUpdateVersionNotes(displayVersion, release?.notes, lightFrame, downloadError)
+                            }
+                        } else {
+                            Column(Modifier.widthIn(max = 660.dp).fillMaxWidth()) {
+                                SoftwareUpdateHero(displayVersion, updateAvailable = release != null)
+                                SoftwareUpdateDetails(dialog, release, displayVersion, onRetry, onOpenVersionNotes)
+                            }
+                        }
+                    }
+                    if (!showingNotes && statusAction != null) {
+                        SoftwareUpdateAction(statusAction.first, statusAction.second,
+                            Modifier.padding(horizontal = 24.dp).widthIn(max = actionWidth).fillMaxWidth())
+                        if (hasBackup) SoftwareUpdateTextButton("备用下载", onOpenBackup)
+                    }
                 }
             }
-        } else Column(Modifier.fillMaxSize().padding(bottom = bottom), horizontalAlignment = Alignment.CenterHorizontally) {
-        Column(
-            modifier = Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())
-                .padding(top = top + 12.dp, bottom = 20.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-        ) {
-            Column(Modifier.padding(horizontal = 24.dp).widthIn(max = 660.dp).fillMaxWidth()) {
-                SoftwareUpdateHero(displayVersion, updateAvailable = release != null)
-                SoftwareUpdateDetails(dialog, release, displayVersion, onRetry, onOpenVersionNotes)
-            }
         }
-        if (action != null || downloading) {
-            // OTA 在绑定进度按钮时按窗口类别覆盖 InstallDownloadLarge 的资源宽度。
-            val buttonWidth = if (screenWidth in 600..839) 280.dp else 296.dp
-            val label = action?.first ?: downloadPercent?.let { "正在下载 · $it%" } ?: "正在下载"
-            Box(Modifier.padding(horizontal = 24.dp)) {
-                SoftwareUpdateAction(label, buttonWidth, action?.second, downloadPercent)
+        if (release != null) {
+            val downloading = dialog is AppUpdateDialog.Downloading
+            val label = when {
+                downloading -> downloadPercent?.let { "正在下载 · $it%" } ?: "正在下载"
+                release.apkUrl == null -> "查看发布页"
+                downloaded -> "安装更新"
+                downloadError != null -> "重试下载"
+                else -> "下载并安装"
             }
-            if (hasBackup) SoftwareUpdateTextButton("备用下载", onOpenBackup)
-        }
+            val action: (() -> Unit)? = when {
+                downloading -> null
+                release.apkUrl == null -> { { onOpenRelease(release) } }
+                else -> { { onDownload(release) } }
+            }
+            SoftwareUpdateAction(label, action,
+                Modifier.align(Alignment.BottomCenter)
+                    .padding(start = 24.dp, end = 24.dp, bottom = bottom)
+                    .widthIn(max = actionWidth).fillMaxWidth(),
+                percent = downloadPercent, lightSurface = compact, raised = true,
+            )
         }
     }
 }
@@ -267,11 +313,8 @@ private fun SoftwareUpdateDetails(
                 verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(release.name, color = foreground, style = titleStyle)
                 Text(version, color = secondary, style = summaryStyle)
-                Box(Modifier.fillMaxWidth().padding(top = 16.dp, bottom = 20.dp)
-                    .height(0.33.dp).background(secondary.copy(alpha = .24f)))
-                Text("更新内容", color = foreground, style = titleStyle)
-                Text(release.notes.trim().ifEmpty { "此版本未提供更新说明。" }, Modifier.padding(top = 8.dp),
-                    color = secondary, style = summaryStyle)
+                if (dialog is AppUpdateDialog.Error) Text(dialog.message, color = secondary, style = summaryStyle)
+                SoftwareUpdateTextButton("查看更新说明", onOpenVersionNotes)
             }
         }
         else -> {
@@ -288,15 +331,16 @@ private fun SoftwareUpdateDetails(
                 if (dialog is AppUpdateDialog.UpToDate) {
                     val dark = CouiTheme.isDark
                     val buttonColors = CouiButtonDefaults.secondaryColors(dark)
+                        .let { if (dark) it else it.copy(surface = colors.surface) }
                     CouiCapsuleButton(
-                        modifier = Modifier.padding(top = 8.dp),
+                        modifier = Modifier.padding(top = 8.dp).wideUpdateButtonShadow(!dark),
                         onClick = onRetry, dark = dark, height = 40.dp, colors = buttonColors,
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), pressFeedback = true,
                     ) {
                         Text("重新检查", color = buttonColors.content,
                             style = rememberCouiTextStyle(CouiTextKind.Progress))
                     }
-                    SoftwareUpdateTextButton("查看更新说明", onOpenVersionNotes)
+                    SoftwareUpdateTextButton("查看更新说明", onOpenVersionNotes, raised = true)
                 }
             }
         }
@@ -304,11 +348,13 @@ private fun SoftwareUpdateDetails(
 }
 
 @Composable
-private fun SoftwareUpdateTextButton(label: String, onClick: () -> Unit) {
+private fun SoftwareUpdateTextButton(label: String, onClick: () -> Unit, raised: Boolean = false) {
     val dark = CouiTheme.isDark
     CouiCapsuleButton(
+        modifier = Modifier.wideUpdateButtonShadow(raised && !dark),
         onClick = onClick, dark = dark, height = 40.dp,
-        colors = CouiButtonDefaults.secondaryColors(dark).copy(surface = Color.Transparent),
+        colors = CouiButtonDefaults.secondaryColors(dark)
+            .copy(surface = if (raised && !dark) CouiTheme.colorScheme.surface else Color.Transparent),
         contentPadding = PaddingValues(horizontal = 12.dp), pressFeedback = true,
     ) {
         Text(label, color = CouiTheme.colorScheme.accent, style = rememberCouiTextStyle(CouiTextKind.PreferenceSummary))
@@ -330,50 +376,23 @@ internal fun SoftwareUpdateChecking(foreground: Color, modifier: Modifier) {
 
 @Composable
 internal fun SoftwareUpdateAction(
-    label: String, width: Dp, onClick: (() -> Unit)?, percent: Int?, lightSurface: Boolean = false,
+    label: String, onClick: (() -> Unit)?, modifier: Modifier = Modifier, percent: Int? = null,
+    lightSurface: Boolean = false, raised: Boolean = false,
 ) {
     val colors = CouiTheme.colorScheme
     val accent = if (lightSurface) Color(0xFFEFEFF3) else colors.accent
     val onAccent = if (lightSurface) Color(0xFF15151B) else colors.onAccent
-    val widthModifier = Modifier.widthIn(max = width).fillMaxWidth()
-    val labelStyle = rememberCouiTextStyle(if (lightSurface) CouiTextKind.Button else CouiTextKind.Progress)
-    if (onClick != null) {
-        CouiCapsuleButton(
-            modifier = widthModifier,
-            onClick = onClick, dark = CouiTheme.isDark && !lightSurface, height = 44.dp,
-            colors = CouiButtonDefaults.primaryColors(accent).copy(content = onAccent),
-            style = CouiButtonStyle.Primary,
-            shape = CouiCapsuleShape,
-            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-            pressFeedback = true,
-        ) {
-            Text(label, color = onAccent, style = labelStyle)
-        }
-        return
-    }
-    val fraction = percent?.div(100f)
-    val progress = if (fraction == null) Modifier.progressSemantics() else Modifier.progressSemantics(fraction)
-    Box(
-        modifier = widthModifier.heightIn(min = 44.dp)
-            .clip(CouiCapsuleShape)
-            .background(accent.copy(alpha = .35f)).then(progress),
-        contentAlignment = Alignment.Center,
-    ) {
-        val labelPadding = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-        Text(label, labelPadding, color = if (lightSurface) Color.White else colors.onSurface, style = labelStyle)
-        if (fraction != null) {
-            // 原厂下载组件在填充区内单独裁切进度色和文字色。
-            Box(
-                Modifier.matchParentSize().drawWithContent {
-                    val filled = size.width * fraction
-                    val rtl = layoutDirection == LayoutDirection.Rtl
-                    clipRect(left = if (rtl) size.width - filled else 0f,
-                        right = if (rtl) size.width else filled) { this@drawWithContent.drawContent() }
-                }.background(accent),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(label, labelPadding.clearAndSetSemantics {}, color = onAccent, style = labelStyle)
-            }
-        }
-    }
+    CouiProgressButton(
+        label = label, onClick = onClick, dark = CouiTheme.isDark && !lightSurface,
+        colors = CouiButtonDefaults.primaryColors(accent).copy(content = onAccent),
+        trackContentColor = if (lightSurface) Color.White else colors.onSurface,
+        modifier = modifier.wideUpdateButtonShadow(raised && !lightSurface && !CouiTheme.isDark),
+        progress = percent?.div(100f),
+        textKind = if (lightSurface) CouiTextKind.Button else CouiTextKind.Progress,
+    )
 }
+
+private fun Modifier.wideUpdateButtonShadow(enabled: Boolean): Modifier =
+    if (enabled) shadow(5.dp, CouiCapsuleShape, clip = false,
+        ambientColor = Color.Black.copy(alpha = .18f), spotColor = Color.Black.copy(alpha = .26f))
+    else this

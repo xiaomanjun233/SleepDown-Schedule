@@ -15,6 +15,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
@@ -148,10 +149,12 @@ internal fun CouiSettingsTabletDetailPaneScaffold(
     title: String, config: ScheduleConfigEntity, modifier: Modifier = Modifier,
     topBarVisible: Boolean = true, showBackButton: Boolean = false,
     onBack: () -> Unit = {}, topBarActions: @Composable (Backdrop?) -> Unit = {},
+    topBarNavigation: (@Composable () -> Unit)? = null,
     content: @Composable (Backdrop?) -> Unit,
 ) {
     CouiSettingsPageScaffold(title, config, modifier, showBack = showBackButton, onBack = onBack,
-        topBarVisible = topBarVisible, avoidHomeTabBar = true, topBarActions = topBarActions) { _, source ->
+        topBarVisible = topBarVisible, avoidHomeTabBar = true,
+        topBarActions = topBarActions, topBarNavigation = topBarNavigation) { _, source ->
         content(source.takeIf { Build.VERSION.SDK_INT >= 31 })
     }
 }
@@ -395,8 +398,10 @@ private fun CouiCompatibleSettingsSearch(search: CouiSettingsSearch, backdrop: B
 @Composable
 internal fun CouiSettingsToolbarButton(backdrop: Backdrop?, onClick: () -> Unit,
     modifier: Modifier = Modifier, darkOverride: Boolean? = null, sampleExplicitBackdrop: Boolean = false,
+    emphasizeLightShadow: Boolean = false,
     content: @Composable () -> Unit) {
     val dark = darkOverride ?: CouiTheme.isDark
+    val lightShadow = emphasizeLightShadow && !dark
     if (Build.VERSION.SDK_INT >= 34 && LocalCouiMaterialEnabled.current && LocalCouiSettingsToolbar.current) {
         val density = LocalDensity.current.density
         val contour = LocalCouiContourGlowEnabled.current
@@ -406,12 +411,23 @@ internal fun CouiSettingsToolbarButton(backdrop: Backdrop?, onClick: () -> Unit,
                 textStyle = rememberCouiTextStyle(CouiTextKind.Toolbar),
                 cursorColor = scheme.accent,
                 material = { CouiTopAppBarButtonDefaults.systemMaterial(dark, it) },
-                shadow = { CouiTopAppBarButtonDefaults.shadow(dark, it, density, contour, alphaScale = 1f) },
+                shadow = { CouiTopAppBarButtonDefaults.shadow(dark, it, density, contour,
+                    alphaScale = if (lightShadow) 1.7f else 1f) },
             )
         if (sampleExplicitBackdrop && backdrop != null) {
             TopAppBarButton(modifier = modifier, onClick = onClick, style = style,
                 backdrop = com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop(backdrop)) { content() }
         } else TopAppBarButton(modifier = modifier, onClick = onClick, style = style) { content() }
+        return
+    }
+    if (lightShadow) {
+        Box(modifier.size(48.dp), contentAlignment = Alignment.Center) {
+            CouiCapsuleButton(
+                Modifier.size(40.dp).shadow(5.dp, CouiButtonDefaults.shape, clip = false),
+                onClick, dark = false, height = 40.dp, contentPadding = PaddingValues(0.dp),
+                colors = CouiButtonDefaults.secondaryColors(false).copy(surface = CouiTheme.colorScheme.surface),
+            ) { content() }
+        }
         return
     }
     val interaction = remember { MutableInteractionSource() }
