@@ -160,10 +160,10 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBackdropBlur
 import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBlurDirection
-import com.xiaomanjun.sleepdownschedule.glass.ui.TopAssistantCameraReturnSpec
 import com.xiaomanjun.sleepdownschedule.glass.ui.TopAssistantOpenEasing
 import com.xiaomanjun.sleepdownschedule.glass.ui.TopAssistantSurface
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.glass.ui.animateTopAssistantCameraReturn
 import com.xiaomanjun.sleepdownschedule.glass.ui.assistantMorphBounds
 import com.xiaomanjun.sleepdownschedule.glass.ui.fixedAssistantContentSize
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberTopAssistantMotion
@@ -682,7 +682,7 @@ internal fun DayAgentConversationDialog(
             coroutineScope {
                 launch {
                     if (homePresentation) {
-                        launch { homeReturnProgress.animateTo(1f, TopAssistantCameraReturnSpec) }
+                        launch { homeReturnProgress.animateTopAssistantCameraReturn() }
                         expansion.animateTo(0f, tween(260))
                     } else expansion.animateTo(
                         0f,
@@ -712,7 +712,6 @@ internal fun DayAgentConversationDialog(
                     }
                 }
             }
-            if (homePresentation) withFrameNanos { }
             onDismiss()
             // Page-opening Agent actions are dispatched only after the source card has handed
             // ownership back to Home. Dispatching them at button-down left the Agent card alive

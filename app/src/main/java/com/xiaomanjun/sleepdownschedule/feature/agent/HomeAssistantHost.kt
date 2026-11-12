@@ -258,8 +258,7 @@ internal fun HomeAssistantHost(
             if (controller.stage == HomeAssistantStage.Reminder) {
                 if (controller.closing) {
                     reminderReturnFrom = reminderGeometry()
-                    returnProgress.animateTo(1f, TopAssistantCameraReturnSpec)
-                    withFrameNanos { }
+                    returnProgress.animateTopAssistantCameraReturn()
                     controller.reset()
                 } else {
                     reminderReturnFrom = null

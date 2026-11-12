@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.glass.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.LinearEasing
@@ -13,6 +14,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -67,10 +69,18 @@ internal val TopAssistantOpenEasing = CubicBezierEasing(0.18f, 0.76f, 0.20f, 1f)
 private val TopAssistantCloseEasing = CubicBezierEasing(0.34f, 0.02f, 0.30f, 1f)
 private val TopAssistantReboundEasing = CubicBezierEasing(0.22f, 0f, 0.28f, 1f)
 private val TopAssistantSettleEasing = CubicBezierEasing(0.20f, 0.72f, 0.26f, 1f)
-internal val TopAssistantCameraReturnSpec = tween<Float>(480, easing = LinearEasing)
 private const val TopAssistantCameraArrival = 0.68f
+private val TopAssistantCameraApproachSpec = tween<Float>(320, easing = LinearEasing)
+private val TopAssistantCameraFoldSpec = tween<Float>(190, easing = LinearEasing)
 private val TopAssistantCameraApproachEasing = CubicBezierEasing(0.34f, 0.06f, 0.42f, 1f)
 private val TopAssistantCameraFoldEasing = CubicBezierEasing(0.22f, 0f, 0.30f, 1f)
+
+internal suspend fun Animatable<Float, AnimationVector1D>.animateTopAssistantCameraReturn() {
+    // Start the fold on its own frame clock so a late approach frame still reaches the opening.
+    animateTo(TopAssistantCameraArrival, TopAssistantCameraApproachSpec)
+    animateTo(1f, TopAssistantCameraFoldSpec)
+    withFrameNanos { }
+}
 
 /** Authored Bezier beats, not a platform/Compose spring simulation. */
 internal fun topAssistantBezierSpec(start: Float, target: Float, vertical: Boolean): FiniteAnimationSpec<Float> {
@@ -111,7 +121,8 @@ internal fun topAssistantCameraReturnRect(start: Rect, cameraDock: Rect, progres
     val approach = TopAssistantCameraApproachEasing.transform((progress / arrival).coerceIn(0f, 1f))
     val center = start.center + (cameraDock.center - start.center) * approach
     val halfSize = if (progress <= arrival) {
-        Offset(lerp(start.width, cameraDock.width, approach), lerp(start.height, cameraDock.height, approach)) / 2f
+        val width = lerp(start.width.coerceAtLeast(cameraDock.width), cameraDock.width, approach)
+        Offset(width, lerp(start.height, cameraDock.height, approach)) / 2f
     } else {
         val fold = TopAssistantCameraFoldEasing.transform(((progress - arrival) / (1f - arrival)).coerceIn(0f, 1f))
         val width = lerp(cameraDock.width, 1f, fold)
