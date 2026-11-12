@@ -2328,19 +2328,6 @@ fun CourseScheduleAppUi(
                             },
                             suppressDetailedButton = detailMorphState !is DetailMorphState.Idle,
                             onDetailedSettings = { scheduleId, resolveSourceBounds, sourceWindow, sourceView, saveBeforeOpening ->
-                                if (homeAdaptiveMetrics.isTabletLandscape) {
-                                    saveBeforeOpening {
-                                        appScope.launch {
-                                            context.openRegisteredActivity(
-                                                TransitionRouteId.QuickSheetToSettingsDetail,
-                                                Intent(context, QuickSheetSettingsDetailActivity::class.java)
-                                                    .putExtra(SettingsDetailPageExtra, SettingsPage.Schedule.name)
-                                                    .putExtra(ScheduleCustomizeIdExtra, scheduleId)
-                                            )
-                                        }
-                                    }
-                                    return@QuickScheduleSettingsSheets
-                                }
                                 // The detailed page is the real cross-activity SettingsDetailActivity opened
                                 // through the shared transition framework (QuickSheetToSettingsDetail route).
                                 if (detailMorphState !is DetailMorphState.Idle) {
