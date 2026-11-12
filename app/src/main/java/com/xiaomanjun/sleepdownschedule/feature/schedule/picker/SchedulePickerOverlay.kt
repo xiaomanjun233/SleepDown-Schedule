@@ -227,7 +227,8 @@ fun QuickScheduleSettingsSheets(
     onSave: (QuickScheduleDraft, () -> Unit) -> Unit,
     suppressDetailedButton: Boolean = false,
     onDetailedSettings: (Int, () -> Rect?, android.view.Window?, android.view.View?, ((() -> Unit) -> Unit)) -> Unit,
-    savedDraft: QuickScheduleDraft? = draft
+    savedDraft: QuickScheduleDraft? = draft,
+    managerScene: Backdrop? = null
 ) {
     // One composition lifetime per opening, including the full exit. Keeping the sheet's
     // Animatables and gesture state mounted in the home page would carry them into a reopen;
@@ -244,6 +245,7 @@ fun QuickScheduleSettingsSheets(
             savedDraft = savedDraft,
             config = config,
             backdrop = backdrop,
+            managerScene = managerScene,
             onDraftChange = onDraftChange,
             onDismiss = onDismiss,
             onDismissFinished = {
@@ -264,6 +266,7 @@ private fun QuickScheduleSettingsSheetSession(
     savedDraft: QuickScheduleDraft?,
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
+    managerScene: Backdrop?,
     onDraftChange: (QuickScheduleDraft) -> Unit,
     onDismiss: () -> Unit,
     onDismissFinished: () -> Unit,
@@ -350,6 +353,7 @@ private fun QuickScheduleSettingsSheetSession(
         show = draft != null,
         title = "课表设置",
         config = config,
+        materialScene = managerScene,
         startAction = {
             QuickSheetLiquidAction(
                 label = "取消",

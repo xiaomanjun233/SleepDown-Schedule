@@ -17,7 +17,9 @@ import androidx.compose.ui.window.DialogWindowProvider
 import com.itos.coui.backdrop.CouiBackdrop
 import com.itos.coui.dialog.*
 import com.itos.coui.menu.rememberCouiWindowBackdrop
+import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
+import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
 import android.os.Build
 
 /** Missing sampling pixels change only the decoration, never the window or its content. */
@@ -162,8 +164,8 @@ internal fun ControlAlertDialog(request: AlertDialogRequest) {
 }
 
 @Composable
-internal fun ControlPickerDialog(request: PickerDialogRequest) {
-    val backdrop = rememberCouiWindowBackdrop()
+internal fun ControlPickerDialog(request: PickerDialogRequest, materialScene: Backdrop? = null) {
+    val backdrop = if (materialScene == null) rememberCouiWindowBackdrop() else rememberCouiGlassBackdrop(materialScene)
     val lifetime = remember { DialogLifetime() }
     if (request.show) lifetime.started = true
     DialogCompletion(lifetime, request.onFinished)

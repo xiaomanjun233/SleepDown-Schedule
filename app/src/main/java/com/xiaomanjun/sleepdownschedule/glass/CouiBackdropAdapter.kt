@@ -12,12 +12,14 @@ import com.kyant.backdrop.backdrops.withTransformCompensation
 @Composable
 internal fun rememberCouiGlassBackdrop(backdrop: Backdrop): CouiBackdrop {
     val sources = remember(backdrop) { GlassSourceDemand.sources(backdrop) }
-    val drawable = remember(backdrop) {
-        if (backdrop is LayerBackdrop) backdrop.withTransformCompensation() else backdrop
-    }
+    val layer = backdrop as? LayerBackdrop
+    val drawable = remember(backdrop) { layer?.withTransformCompensation() ?: backdrop }
     return rememberCouiBackdropAdapter(backdrop,
         retain = { GlassSourceDemand.acquire(sources) },
         release = { GlassSourceDemand.release(sources) },
+        sceneCoordinates = layer?.let { source ->
+            { source.sourceCoordinates?.takeIf { source.graphicsLayer.size == it.size } }
+        },
         draw = { scope, target -> with(drawable) { scope.drawBackdrop(scope, target) } })
 }
 

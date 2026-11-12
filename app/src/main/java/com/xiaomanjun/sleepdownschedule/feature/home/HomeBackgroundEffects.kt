@@ -72,6 +72,7 @@ internal fun HomeBackgroundBlurLayer(
     prepareScene: ContentDrawScope.(frozen: Boolean) -> Boolean,
     modifier: Modifier = Modifier,
     replayUnblurredScene: Boolean = false,
+    sceneVisible: () -> Boolean = { true },
     content: @Composable BoxScope.() -> Unit
 ) {
     val latestProgress = rememberUpdatedState(blurProgress)
@@ -98,6 +99,10 @@ internal fun HomeBackgroundBlurLayer(
             blurred.alpha = blend
             blurred.renderEffect = effects[step]
         }.drawWithContent {
+            if (!sceneVisible()) {
+                prepareScene(false)
+                return@drawWithContent
+            }
             val scene = if (prepareScene(useFrozenHomeScene())) retainedScene else {
                 liveScene.record { this@drawWithContent.drawContent() }
                 liveScene
@@ -126,8 +131,11 @@ internal fun HomeBackgroundBlurLayer(
             drawLayer(blurred)
         }
     } else Modifier.drawWithContent {
-        if (prepareScene(replayUnblurredScene && useFrozenHomeScene())) drawLayer(retainedScene)
-        else drawContent()
+        val visible = sceneVisible()
+        val retained = prepareScene(visible && replayUnblurredScene && useFrozenHomeScene())
+        if (visible) {
+            if (retained) drawLayer(retainedScene) else drawContent()
+        }
     }
     Box(modifier.then(sampling), content = content)
 }

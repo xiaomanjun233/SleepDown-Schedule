@@ -163,7 +163,7 @@ fun SleepDownPickerDialog(
 
 }
 
-/** Floating forms use an actual COUI window, so their background samples the complete page. */
+/** Floating forms keep the COUI window while sampling their owning page. */
 @Composable
 internal fun SleepDownFloatingSheet(
     show: Boolean,
@@ -174,6 +174,7 @@ internal fun SleepDownFloatingSheet(
     allowDismiss: Boolean = true,
     contentModifier: Modifier = Modifier,
     actions: List<LiquidAlertAction>? = null,
+    materialScene: Backdrop? = null,
     startAction: @Composable () -> Unit,
     endAction: @Composable () -> Unit,
     content: @Composable () -> Unit
@@ -181,7 +182,7 @@ internal fun SleepDownFloatingSheet(
     if (actions != null) {
         ControlPickerDialog(PickerDialogRequest(
             show, title, appUsesDarkTheme(config), { if (allowDismiss) onDismissRequest() }, onDismissFinished,
-            null, actions, null, false, false, { Column(Modifier.fillMaxWidth()) { content() } }))
+            null, actions, null, false, false, { Column(Modifier.fillMaxWidth()) { content() } }), materialScene)
         return
     }
     val body: @Composable () -> Unit = {
@@ -220,7 +221,7 @@ internal fun SleepDownFloatingSheet(
     }
     ControlPickerDialog(PickerDialogRequest(
         show, "", appUsesDarkTheme(config), { if (allowDismiss) onDismissRequest() },
-        onDismissFinished, null, null, null, false, true, body))
+        onDismissFinished, null, null, null, false, true, body), materialScene)
 
 }
 

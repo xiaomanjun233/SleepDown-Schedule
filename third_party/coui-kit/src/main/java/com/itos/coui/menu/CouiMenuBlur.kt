@@ -8,7 +8,10 @@ import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.isFinite
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Matrix
 import androidx.compose.ui.graphics.RenderEffect as ComposeRenderEffect
 import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -54,6 +57,9 @@ class CouiMenuBlur internal constructor(
     private var recordedBlurSize = IntSize.Zero
     private var recordedDensity: Density? = null
     private var recordedLayoutDirection: LayoutDirection? = null
+    private var recordedScene: LayoutCoordinates? = null
+    private var recordedSceneSize = IntSize.Zero
+    private val sceneToTarget = Matrix()
 
     init {
         layers.forEach {
@@ -92,28 +98,74 @@ class CouiMenuBlur internal constructor(
         }
 
         // native 以设备像素决定网格, 而不是 dp 或未变形的菜单尺寸。
-        val blocksX = ceil(deviceWidth / 16f).toInt().coerceAtLeast(1)
-        val blocksY = ceil(deviceHeight / 16f).toInt().coerceAtLeast(1)
-        val captureSize = IntSize(blocksX * 8, blocksY * 8)
-        val blurSize = IntSize(blocksX * 2, blocksY * 2)
-        updateEffects(captureSize)
-
-        layers[0].record(scope, scope.layoutDirection, captureSize) {
-            // 补底也进入采样链, 不能在材质混色之后再补不透明背景。
-            drawRect(background)
-            withTransform({
-                scale(captureSize.width / menuSize.width, captureSize.height / menuSize.height, Offset.Zero)
-            }) {
-                drawSource(this)
-            }
-        }
-        recordBlurPasses(scope, blurSize)
+        val captureSize = captureSize(deviceWidth, deviceHeight)
+        val blurSize = recordCapture(scope, menuSize, captureSize) { drawSource(this) }
+        recordedScene = null
         scope.withTransform({
             // native 使用输入区域与实际中间图尺寸的比值, 不是固定乘八。
             scale(menuSize.width / blurSize.width, menuSize.height / blurSize.height, Offset.Zero)
         }) {
             drawLayer(layers[9])
         }
+    }
+
+    /** Filter a retained producer in its own pixel space and crop it at the moving window. */
+    internal fun drawScene(scope: DrawScope, target: LayoutCoordinates, sampleScale: Float,
+        translation: Offset): Boolean {
+        val source = backdrop.sceneCoordinates?.invoke() ?: return false
+        if (radius == 0 || !target.isAttached || source.size.width <= 0 || source.size.height <= 0) return false
+        val size = source.size
+        val origin = source.localToScreen(Offset.Zero)
+        val right = source.localToScreen(Offset(size.width.toFloat(), 0f))
+        val bottom = source.localToScreen(Offset(0f, size.height.toFloat()))
+        if (!origin.isFinite || !right.isFinite || !bottom.isFinite) return false
+        val captureSize = captureSize((right - origin).getDistance(), (bottom - origin).getDistance())
+        val blurSize = if (recordedScene !== source || recordedSceneSize != size || firstSize != captureSize ||
+            recordedDensity?.density != scope.density || recordedDensity?.fontScale != scope.fontScale ||
+            recordedLayoutDirection != scope.layoutDirection) {
+            // This capture retains the producer's RenderNode. Producer updates invalidate its
+            // pixels through the dependency; changing the dialog's transform never records it.
+            recordCapture(scope, Size(size.width.toFloat(), size.height.toFloat()), captureSize) {
+                backdrop.draw(this, source)
+            }.also {
+                recordedScene = source
+                recordedSceneSize = size
+            }
+        } else recordedBlurSize
+        val localOrigin = target.screenToLocal(origin)
+        val localRight = target.screenToLocal(right)
+        val localBottom = target.screenToLocal(bottom)
+        if (!localOrigin.isFinite || !localRight.isFinite || !localBottom.isFinite) return false
+        val x = (localRight - localOrigin) / (blurSize.width * sampleScale)
+        val y = (localBottom - localOrigin) / (blurSize.height * sampleScale)
+        val offset = (localOrigin - translation) / sampleScale
+        sceneToTarget[0, 0] = x.x
+        sceneToTarget[0, 1] = x.y
+        sceneToTarget[1, 0] = y.x
+        sceneToTarget[1, 1] = y.y
+        sceneToTarget[3, 0] = offset.x
+        sceneToTarget[3, 1] = offset.y
+        scope.drawRect(background)
+        scope.withTransform({ transform(sceneToTarget) }) { drawLayer(layers[9]) }
+        return true
+    }
+
+    private fun captureSize(width: Float, height: Float): IntSize =
+        IntSize(ceil(width / 16f).toInt().coerceAtLeast(1) * 8,
+            ceil(height / 16f).toInt().coerceAtLeast(1) * 8)
+
+    private fun recordCapture(scope: DrawScope, sourceSize: Size, captureSize: IntSize,
+        drawSource: DrawScope.() -> Unit): IntSize {
+        updateEffects(captureSize)
+        layers[0].record(scope, scope.layoutDirection, captureSize) {
+            drawRect(background)
+            withTransform({
+                scale(captureSize.width / sourceSize.width, captureSize.height / sourceSize.height, Offset.Zero)
+            }, drawSource)
+        }
+        val blurSize = IntSize(captureSize.width / 4, captureSize.height / 4)
+        recordBlurPasses(scope, blurSize)
+        return blurSize
     }
 
     private fun recordBlurPasses(scope: DrawScope, size: IntSize) {

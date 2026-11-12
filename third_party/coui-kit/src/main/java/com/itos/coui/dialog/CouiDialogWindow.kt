@@ -382,7 +382,9 @@ private fun DialogCard(
                 // Sample the moving window with its inverse transform, but keep the Kawase
                 // passes on one grid instead of rebuilding all nine as the window grows.
                 trace("COUI Dialog.recordKawase") {
-                    blur.draw(this, target, scale, sampleTranslation, stableSampleGrid = true)
+                    if (!blur.drawScene(this, target, scale, sampleTranslation)) {
+                        blur.draw(this, target, scale, sampleTranslation, stableSampleGrid = true)
+                    }
                 }
             }
             drawLayer(layer)

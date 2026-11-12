@@ -2318,6 +2318,7 @@ fun CourseScheduleAppUi(
                             // do not restore the former root-level quickSheetBackdrop: it caused the native
                             // RenderThread recursion when the new-schedule sheet opened after Picker exit.
                             backdrop = if (pickerState.overlayVisible) pickerSceneBackdrop else chromeBackdrop,
+                            managerScene = pickerSceneBackdrop.takeIf { pickerState.overlayVisible },
                             onDraftChange = { quickScheduleDraft = it },
                             onDismiss = { quickScheduleDraft = null },
                             onDismissFinished = {
@@ -2672,6 +2673,9 @@ fun CourseScheduleAppUi(
             useFrozenHomeScene = useFrozenHomeMorphBlur,
             retainedScene = screenGraphicsLayer,
             replayUnblurredScene = weekAssistantConversation,
+            // The settled manager covers the entire page. The recorder can still prepare
+            // a different schedule for a preview, without drawing Home behind the manager.
+            sceneVisible = { pickerState.phase !is CustomizeUiState.Picker },
             prepareScene = prepareScene@ { freeze ->
                 val frameSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
                 val validSize = frameSize.width > 0 && frameSize.height > 0
@@ -3163,6 +3167,7 @@ fun CourseScheduleAppUi(
         modifier = Modifier.align(Alignment.BottomStart).zIndex(100f)
     )
     } // end cached page content, including native Dock
+    } // end HomeBackgroundBlurLayer
 
         // This control intentionally lives outside the recorded home layer. It can be visible
         // while the real home is pre-captured without becoming part of its own preview bitmap.
@@ -3325,7 +3330,6 @@ fun CourseScheduleAppUi(
             // that does not contain the later quick-settings sheet consumer.
             modifier = Modifier.glassBackdropProducer(pickerSceneBackdrop)
         )
-    } // end HomeBackgroundBlurLayer
     } // end HomeBackgroundZoomLayer
     } // end assistant background depth
 

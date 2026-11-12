@@ -64,10 +64,11 @@ fun rememberCouiBackdropAdapter(
     source: Any,
     retain: () -> Unit,
     release: () -> Unit,
+    sceneCoordinates: (() -> LayoutCoordinates?)? = null,
     draw: (DrawScope, LayoutCoordinates) -> Unit,
 ): CouiBackdrop {
     return remember(source) {
-        CouiBackdrop(null, null, "host-backdrop", {}, {}, draw, retain, release)
+        CouiBackdrop(null, null, "host-backdrop", {}, {}, draw, retain, release, sceneCoordinates)
     }
 }
 
@@ -81,6 +82,7 @@ class CouiBackdrop internal constructor(
     private val externalDraw: ((DrawScope, LayoutCoordinates) -> Unit)? = null,
     private val retainExternal: () -> Unit = {},
     private val releaseExternal: () -> Unit = {},
+    internal val sceneCoordinates: (() -> LayoutCoordinates?)? = null,
 ) {
     private var drawPassCount = 0L
     private var recordCallbackCount = 0L
