@@ -57,13 +57,14 @@ internal fun ExperimentalNotificationHelpSheet(
     val material = if (Build.VERSION.SDK_INT >= 33 && windowBackdrop != null &&
         LocalCouiMaterialEnabled.current && !LocalCouiLiquidMaterial.current
     ) CouiSheetDefaults.material(dark) else null
+    val viewport = if (LocalConfiguration.current.smallestScreenWidthDp >= 600) Modifier.fillMaxWidth()
+        else Modifier.fillMaxSize()
     ModalBottomSheet(
         visible = visible,
         onDismissRequest = onDismiss,
         title = "教程与诊断",
         dismissDescription = "关闭教程与诊断",
         dark = dark,
-        sheetHeight = LocalConfiguration.current.screenHeightDp.dp,
         showDragHandle = false,
         contentDrawsBehindNavigationBar = true,
         colors = CouiSheetDefaults.colors(dark).copy(surface = pageColor),
@@ -88,13 +89,13 @@ internal fun ExperimentalNotificationHelpSheet(
             CouiSheetDefaults.toolbarTopSpacing + CouiSheetDefaults.toolbarHeight
         }
 
-        Box(Modifier.fillMaxSize().centeredDialogSceneProducer(sheetScene)) {
+        Box(viewport.centeredDialogSceneProducer(sheetScene)) {
             CompositionLocalProvider(
                 LocalCenteredDialogSceneBackdrop provides sheetScene,
                 LocalSettingsPopupBackdrop provides sheetScene,
             ) {
                 SleepDownSecondaryPageList(
-                    modifier = Modifier.fillMaxSize().then(scrollProducer),
+                    modifier = viewport.then(scrollProducer),
                     contentTopPadding = toolbarHeight + 4.dp,
                     contentBottomPadding = 16.dp + navigationBarPadding,
                 ) { content(sheetScene) }

@@ -27,7 +27,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.*
@@ -291,7 +290,6 @@ internal fun PeriodSchemeEditor(
             title = "编辑作息",
             dismissDescription = "关闭编辑作息",
             dark = dark,
-            sheetHeight = LocalConfiguration.current.screenHeightDp.dp,
             draggable = false,
             dismissOnClickOutside = false,
             showDragHandle = false,

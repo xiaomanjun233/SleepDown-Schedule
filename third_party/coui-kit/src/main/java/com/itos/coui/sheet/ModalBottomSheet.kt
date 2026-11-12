@@ -112,6 +112,18 @@ object CouiSheetDefaults {
     )
 }
 
+private fun panelWidth(windowWidth: Dp, windowHeight: Dp): Dp {
+    if (windowWidth < 600.dp) return minOf(windowWidth, CouiSheetDefaults.maxWidth)
+    // The stock panel spans six columns. Wide landscape windows use the expanded grid.
+    val expandedGrid = windowWidth >= 840.dp && windowHeight >= 480.dp &&
+        !(windowHeight >= 900.dp && windowHeight > windowWidth && windowWidth < 960.dp)
+    val columns = if (expandedGrid) 12 else 8
+    val margin = if (expandedGrid) 40.dp else 24.dp
+    val gutter = if (expandedGrid) 12.dp else 8.dp
+    val columnWidth = (windowWidth - margin * 2 - gutter * (columns - 1)) / columns
+    return (columnWidth * 6 + gutter * 5).coerceIn(1.dp, CouiSheetDefaults.maxWidth)
+}
+
 private val SheetShape = object : Shape {
     private val rounded = CouiShape(CouiSheetDefaults.cornerRadius, 3f)
     override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
@@ -163,7 +175,9 @@ fun ModalBottomSheet(
     var mounted by remember { mutableStateOf(visible) }
     if (visible && !mounted) SideEffect { mounted = true }
     if (!visible && !mounted) return
-    val largeScreen = LocalConfiguration.current.smallestScreenWidthDp >= 600
+    val configuration = LocalConfiguration.current
+    val largeScreen = configuration.smallestScreenWidthDp >= 600
+    val windowHeight = configuration.screenHeightDp.dp
     val requestDismiss by rememberUpdatedState(onDismissRequest)
     val currentVisible by rememberUpdatedState(visible)
     val motion = remember { CouiSheetMotion() }
@@ -268,7 +282,7 @@ fun ModalBottomSheet(
                         .background(Color.Black.copy(alpha = colors.dimAmount)).then(dismissOnScrim))
                     val heightModifier = if (sheetHeight != null) Modifier.height(sheetHeight.coerceAtMost(limit)) else Modifier.heightIn(max = limit)
                     // 面板底边伸入导航区，内容仅消费一次底部 inset。底角延伸到窗口外，只露出上圆角。
-                    Box(modifier.align(Alignment.BottomCenter).widthIn(max = CouiSheetDefaults.maxWidth).fillMaxWidth()
+                    Box(modifier.align(Alignment.BottomCenter).widthIn(max = panelWidth(maxWidth, windowHeight)).fillMaxWidth()
                         .then(heightModifier).onSizeChanged {
                             panelHeight = it.height.toFloat()
                         }

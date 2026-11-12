@@ -91,6 +91,8 @@ internal fun HolidayAdjustmentPreviewSheet(
     val material = if (Build.VERSION.SDK_INT >= 33 && backdrop != null &&
         LocalCouiMaterialEnabled.current && !LocalCouiLiquidMaterial.current
     ) CouiSheetDefaults.material(dark) else null
+    val viewport = if (LocalConfiguration.current.smallestScreenWidthDp >= 600) Modifier.fillMaxWidth()
+        else Modifier.fillMaxSize()
     ModalBottomSheet(
         visible = visible,
         onDismissRequest = onDismiss,
@@ -98,7 +100,6 @@ internal fun HolidayAdjustmentPreviewSheet(
         title = "调休预览",
         dismissDescription = "关闭调休预览",
         dark = dark,
-        sheetHeight = LocalConfiguration.current.screenHeightDp.dp,
         draggable = !saving,
         showDragHandle = false,
         colors = CouiSheetDefaults.colors(dark).copy(surface = settingsPageBackground(config)),
@@ -116,13 +117,13 @@ internal fun HolidayAdjustmentPreviewSheet(
         var toolbarHeight by remember { mutableIntStateOf(0) }
         val topPadding = if (toolbarHeight > 0) with(density) { toolbarHeight.toDp() }
             else CouiSheetDefaults.toolbarTopSpacing + CouiSheetDefaults.toolbarHeight
-        Box(Modifier.fillMaxSize().centeredDialogSceneProducer(sheetScene)) {
+        Box(viewport.centeredDialogSceneProducer(sheetScene)) {
             CompositionLocalProvider(
                 LocalCenteredDialogSceneBackdrop provides sheetScene,
                 LocalSettingsPopupBackdrop provides sheetScene,
             ) {
                 SleepDownSecondaryPageList(
-                    modifier = Modifier.fillMaxSize().glassBackdropProducer(underlay),
+                    modifier = viewport.glassBackdropProducer(underlay),
                     contentTopPadding = topPadding + 4.dp,
                     contentBottomPadding = 16.dp,
                 ) {
