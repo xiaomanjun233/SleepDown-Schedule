@@ -66,7 +66,8 @@ import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Sidebar
 
 internal val HomeSidebarTabHeight = 52.dp
-private val HomeSidebarTabShape = RoundedRectangle(26.dp)
+internal val HomeSidebarTabCorner = 26.dp
+private val HomeSidebarTabShape = RoundedRectangle(HomeSidebarTabCorner)
 
 /** Compact HD navigation shares the sidebar's destinations. */
 @Composable

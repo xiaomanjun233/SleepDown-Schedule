@@ -2,10 +2,12 @@ package com.xiaomanjun.sleepdownschedule.feature.home
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Transition
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
@@ -29,6 +31,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.selection.selectable
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import androidx.compose.material3.Icon
@@ -53,12 +56,15 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
@@ -74,6 +80,7 @@ import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -94,9 +101,7 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import kotlin.math.PI
-import kotlin.math.abs
 import kotlin.math.roundToInt
-import kotlin.math.sin
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.extended.Layers
 import top.yukonga.miuix.kmp.icon.extended.Notes
@@ -104,12 +109,21 @@ import top.yukonga.miuix.kmp.icon.extended.Weeks
 
 internal enum class HomeSidebarDestination { Day, Week, Settings, Courses, Schedules, EduImport }
 
-private val HomeSidebarPanelShape = RoundedRectangle(32.dp)
+private val HomeSidebarPanelCorner = 32.dp
+private val HomeSidebarPanelShape = RoundedRectangle(HomeSidebarPanelCorner)
+private val HomeSidebarTabs = listOf(
+    HomeSidebarDestination.Day to "今日",
+    HomeSidebarDestination.Week to "课程表",
+    HomeSidebarDestination.Settings to "设置"
+)
 
 @Stable
 internal class HomeSidebarState(
     private val expandedState: MutableState<Boolean>,
-    private val progress: State<Float>,
+    private val transition: Transition<Boolean>,
+    private val horizontal: State<Float>,
+    private val vertical: State<Float>,
+    private val tabEntries: List<State<Float>>,
     val enabled: Boolean,
     val overlaysContent: Boolean,
     val startEdge: Dp,
@@ -120,7 +134,7 @@ internal class HomeSidebarState(
     var expanded by expandedState
 
     val moving: Boolean by derivedStateOf {
-        enabled && abs(progress.value - if (expanded) 1f else 0f) > 0.001f
+        enabled && (transition.currentState != expanded || transition.isRunning)
     }
 
     val targetContentInset: Dp
@@ -130,12 +144,29 @@ internal class HomeSidebarState(
             else -> expandedInset
         }
 
-    fun expansionProgress(): Float = progress.value
+    fun horizontalExpansion(): Float = horizontal.value.coerceIn(0f, 1f)
+
+    fun verticalExpansion(): Float = vertical.value.coerceIn(0f, 1f)
+
+    // The capsule settles into its destination size before the sideways travel stops.
+    fun shellExpansion(): Float = ((horizontalExpansion() - 0.2f) / 0.8f).coerceIn(0f, 1f)
+
+    fun sidebarAlpha(): Float {
+        val arrived = minOf(shellExpansion(), tabEntryExpansion(0), tabEntryExpansion(HomeSidebarTabs.lastIndex))
+        return ((arrived - 0.68f) / 0.32f).coerceIn(0f, 1f)
+    }
+
+    fun tabBarAlpha(): Float {
+        val remaining = maxOf(horizontalExpansion(), tabEntryExpansion(0), tabEntryExpansion(HomeSidebarTabs.lastIndex))
+        return (1f - remaining / 0.25f).coerceIn(0f, 1f)
+    }
+
+    fun tabEntryExpansion(index: Int): Float = tabEntries[index].value
 
     fun animatedContentInset(): Dp = when {
         !enabled -> 0.dp
         overlaysContent -> collapsedInset
-        else -> lerp(collapsedInset.value, expandedInset.value, progress.value).dp
+        else -> lerp(collapsedInset.value, expandedInset.value, horizontalExpansion()).dp
     }
 
     val targetContentTopInset: Dp
@@ -156,14 +187,19 @@ internal fun rememberHomeSidebarState(metrics: HomeAdaptiveMetrics): HomeSidebar
     val expanded = rememberSaveable(portrait, compactHeight) {
         mutableStateOf(!portrait && !compactHeight)
     }
-    val progress = animateFloatAsState(
-        targetValue = if (metrics.isLargeScreen && expanded.value) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioNoBouncy,
-            stiffness = Spring.StiffnessMediumLow
-        ),
-        label = "HomeSidebarExpansion"
-    )
+    val motion = updateTransition(metrics.isLargeScreen && expanded.value, label = "HomeNavigationMorph")
+    val horizontal = motion.animateFloat(transitionSpec = {
+        if (targetState) homeNavSpring(0.20f, 0.97f) else homeNavSpring(0.40f, 0.82f)
+    }, label = "HomeNavigationHorizontal") { if (it) 1f else 0f }
+    val vertical = motion.animateFloat(transitionSpec = {
+        if (targetState) homeNavSpring(0.40f, 0.72f) else homeNavSpring(0.20f, 0.97f)
+    }, label = "HomeNavigationVertical") { if (it) 1f else 0f }
+    val tabEntries = HomeSidebarTabs.mapIndexed { index, (destination, _) ->
+        motion.animateFloat(transitionSpec = {
+            val order = if (targetState) index else HomeSidebarTabs.lastIndex - index
+            tween(if (targetState) 300 else 320, delayMillis = order * 20, easing = FastOutSlowInEasing)
+        }, label = "HomeNavigation${destination.name}") { if (it) 1f else 0f }
+    }
     val safeLeft = with(density) { WindowInsets.safeDrawing.getLeft(this, layoutDirection).toDp() }
     val safeRight = with(density) { WindowInsets.safeDrawing.getRight(this, layoutDirection).toDp() }
     val safeStart = if (layoutDirection == LayoutDirection.Ltr) safeLeft else safeRight
@@ -171,13 +207,20 @@ internal fun rememberHomeSidebarState(metrics: HomeAdaptiveMetrics): HomeSidebar
     val startEdge = safeStart + 12.dp
     val collapsedInset = safeStart
     val expandedInset = safeStart + (metrics.screenWidth * 0.22f).coerceIn(200.dp, 320.dp)
-    return remember(expanded, progress, metrics.isLargeScreen, portrait, startEdge, safeEnd, expandedInset) {
+    return remember(expanded, motion, horizontal, vertical, tabEntries, metrics.isLargeScreen, portrait,
+        startEdge, safeEnd, expandedInset) {
         HomeSidebarState(
-            expanded, progress, metrics.isLargeScreen, portrait, startEdge,
+            expanded, motion, horizontal, vertical, tabEntries, metrics.isLargeScreen, portrait, startEdge,
             if (metrics.isLargeScreen) safeEnd else 0.dp, collapsedInset, expandedInset
         )
     }
 }
+
+private fun homeNavSpring(responseSeconds: Float, damping: Float) = spring<Float>(
+    dampingRatio = damping,
+    stiffness = (2f * PI.toFloat() / responseSeconds).let { it * it },
+    visibilityThreshold = 0.002f,
+)
 
 /** Measure the page once per target; only placement observes the spring on each frame. */
 internal fun Modifier.homeSidebarContentInset(state: HomeSidebarState): Modifier {
@@ -223,8 +266,17 @@ internal fun HomeSidebar(
         targetValue = if (followHomeGlass) adaptiveGlass.contentColor else if (lightGlass) Color.Black else Color.White,
         animationSpec = tween(220), label = "HomeSidebarContentTheme"
     )
-    val shape = HomeSidebarPanelShape
-    val enabled = navigationEnabled && !state.moving
+    val moving = state.moving
+    val shape = remember(state) {
+        object : Shape {
+            override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density) =
+                RoundedRectangle(lerp(HomeSidebarTabCorner.value, HomeSidebarPanelCorner.value,
+                    state.shellExpansion()).dp).createOutline(size, layoutDirection, density)
+        }
+    }
+    val tabWidth = minOf(300.dp, metrics.screenWidth - 24.dp)
+    val sidebarScroll = rememberScrollState()
+    val enabled = navigationEnabled && !moving
     val currentEnabled by rememberUpdatedState(enabled)
     val currentOnNavigate by rememberUpdatedState(onNavigate)
     val currentOnJumpWeek by rememberUpdatedState(onJumpWeek)
@@ -243,32 +295,33 @@ internal fun HomeSidebar(
         currentOnJumpWeek()
     }
     Box(Modifier.fillMaxSize()) {
-        if (state.overlaysContent && state.expanded) {
+        if (state.overlaysContent && (state.expanded || moving)) {
             Box(
                 Modifier.fillMaxSize()
-                    .drawBehind { drawRect(Color.Black.copy(alpha = 0.12f * state.expansionProgress())) }
-                    .semantics { contentDescription = "收起侧栏" }
-                    .clickable(
-                        enabled = navigationEnabled, interactionSource = scrimInteraction,
-                        indication = null, onClick = { state.expanded = false }
-                    )
+                    .drawBehind { drawRect(Color.Black.copy(alpha = 0.12f * state.verticalExpansion())) }
+                    .then(if (state.expanded) Modifier.semantics { contentDescription = "收起侧栏" }
+                        .clickable(
+                            enabled = navigationEnabled, interactionSource = scrimInteraction,
+                            indication = null, onClick = { state.expanded = false }
+                        ) else Modifier)
             )
         }
         Box(
             modifier = Modifier
                 .layout { measurable, constraints ->
-                    val progress = state.expansionProgress().coerceIn(0f, 1f)
+                    val progress = state.shellExpansion()
                     val sidebarWidth = (state.expandedInset - state.startEdge).roundToPx()
-                    val tabWidth = minOf(300.dp.roundToPx(), constraints.maxWidth - 24.dp.roundToPx())
+                    val tabWidthPx = minOf(tabWidth.roundToPx(), constraints.maxWidth - 24.dp.roundToPx())
                         .coerceAtLeast(1)
                     val sidebarHeight = (constraints.maxHeight -
                         (metrics.safeTop + metrics.safeBottom + 14.dp).roundToPx()).coerceAtLeast(1)
-                    val width = lerp(tabWidth.toFloat(), sidebarWidth.toFloat(), progress).roundToInt()
+                    val width = lerp(tabWidthPx.toFloat(), sidebarWidth.toFloat(), progress).roundToInt()
                         .coerceIn(1, constraints.maxWidth)
                     val height = lerp(HomeSidebarTabHeight.toPx(), sidebarHeight.toFloat(), progress).roundToInt()
                         .coerceIn(1, constraints.maxHeight)
-                    val start = lerp((constraints.maxWidth - tabWidth) / 2f, state.startEdge.toPx(), progress)
-                    val top = (metrics.safeTop + 2.dp).toPx() + sin(progress * PI).toFloat() * 12.dp.toPx()
+                    val start = lerp((constraints.maxWidth - tabWidthPx) / 2f, state.startEdge.toPx(),
+                        state.horizontalExpansion())
+                    val top = metrics.safeTop.toPx() + 2.dp.toPx() * state.verticalExpansion()
                     val placeable = measurable.measure(Constraints.fixed(width, height))
                     layout(constraints.maxWidth, constraints.maxHeight) {
                         placeable.placeRelative(start.roundToInt(), top.roundToInt())
@@ -279,9 +332,9 @@ internal fun HomeSidebar(
         // own measured child, otherwise a disabled bar can shield the dialog beside it.
         Box(
             Modifier.fillMaxSize().excludeParentPullGesture()
-                .onGloballyPositioned {
-                    if (!state.expanded && !state.moving) currentBoundsCallback(it.boundsInRoot())
-                }
+                .then(if (!state.expanded && !moving) Modifier.onGloballyPositioned {
+                    currentBoundsCallback(it.boundsInRoot())
+                } else Modifier)
                 .pointerInput(enabled) {
                     if (!enabled) awaitPointerEventScope {
                         while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
@@ -292,21 +345,21 @@ internal fun HomeSidebar(
         ) {
             // Glass clips its own drawContent to the material outline. Keep the slider a sibling
             // so its pressed lens can grow beyond the shell instead of being cut at both ends.
-            if (state.expanded || state.moving) HomeNavigationSurface(
+            if (state.expanded || moving) HomeNavigationSurface(
                 config = config, backdrop = backdrop, lightGlass = lightGlass, shape = shape,
                 domain = if (selected == HomeSidebarDestination.Schedules) GlassBackdropDomain.PickerScene
                     else GlassBackdropDomain.ChromeCombined,
                 modifier = Modifier.matchParentSize(),
                 followTouch = false
             )
-            if (state.expanded || state.moving) {
+            if (state.expanded || moving) {
                 Column(
                     Modifier.fillMaxSize().clipToBounds()
                         .fixedFloatingChromeContent(state.expandedInset - state.startEdge,
                             metrics.screenHeight - metrics.safeTop - metrics.safeBottom - 14.dp)
                         .padding(horizontal = 8.dp, vertical = 6.dp)
-                        .graphicsLayer { alpha = ((state.expansionProgress() - 0.35f) / 0.65f).coerceIn(0f, 1f) }
-                        .then(if (state.moving) Modifier.clearAndSetSemantics { } else Modifier)
+                        .graphicsLayer { alpha = state.sidebarAlpha() }
+                        .then(if (moving) Modifier.clearAndSetSemantics { } else Modifier)
                 ) {
                     Row(
                         Modifier.fillMaxWidth().height(44.dp).padding(start = 12.dp),
@@ -330,14 +383,18 @@ internal fun HomeSidebar(
                         }
                     }
                     Spacer(Modifier.height(6.dp))
-                    Column(Modifier.weight(1f).pageVerticalScroll(rememberScrollState()),
+                    Column(Modifier.weight(1f).pageVerticalScroll(sidebarScroll),
                         verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        SidebarDestinationRow(HomeSidebarDestination.Day, "今日", HomeTodayIcon,
-                            selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Day) }
-                        SidebarDestinationRow(HomeSidebarDestination.Week, "课程表", MiuixIcons.Weeks,
-                            selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Week) }
-                        SidebarDestinationRow(HomeSidebarDestination.Settings, "设置", requireNotNull(homeActionIcon(R.drawable.ic_settings)),
-                            selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Settings) }
+                        HomeSidebarTabs.forEach { (destination, label) ->
+                            val icon = when (destination) {
+                                HomeSidebarDestination.Day -> HomeTodayIcon
+                                HomeSidebarDestination.Week -> MiuixIcons.Weeks
+                                else -> requireNotNull(homeActionIcon(R.drawable.ic_settings))
+                            }
+                            SidebarDestinationRow(destination, label, icon, selected, ink, enabled, !lightGlass) {
+                                navigate(destination)
+                            }
+                        }
                         SidebarSectionHeading("课表操作", ink)
                         SidebarDestinationRow(HomeSidebarDestination.Courses, "课程管理", MiuixIcons.Notes,
                             selected, ink, enabled, !lightGlass) { navigate(HomeSidebarDestination.Courses) }
@@ -355,27 +412,22 @@ internal fun HomeSidebar(
                     }
                 }
             }
-            if (!state.expanded || state.moving) {
+            if (!state.expanded || moving) {
                 Row(
                     Modifier.fillMaxWidth().height(HomeSidebarTabHeight)
-                        .fixedFloatingChromeContent(minOf(300.dp, metrics.screenWidth - 24.dp), HomeSidebarTabHeight)
+                        .fixedFloatingChromeContent(tabWidth, HomeSidebarTabHeight)
                         .graphicsLayer {
-                            alpha = (1f - state.expansionProgress() * 2.5f).coerceIn(0f, 1f)
+                            alpha = state.tabBarAlpha()
                             compositingStrategy = CompositingStrategy.ModulateAlpha
                         }
-                        .then(if (state.moving) Modifier.clearAndSetSemantics { } else Modifier),
+                        .then(if (moving) Modifier.clearAndSetSemantics { } else Modifier),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    val tabs = listOf(
-                        HomeSidebarDestination.Day to "今日",
-                        HomeSidebarDestination.Week to "课程表",
-                        HomeSidebarDestination.Settings to "设置"
-                    )
                     HomeSidebarTabBar(
-                        tabs = tabs,
+                        tabs = HomeSidebarTabs,
                         selected = tabSelection,
                         enabled = enabled,
-                        moving = state.moving,
+                        moving = moving,
                         lightGlass = lightGlass,
                         ink = ink,
                         config = config,
@@ -386,7 +438,39 @@ internal fun HomeSidebar(
                     )
                 }
             }
+            if (moving) HomeSidebarMorphLabels(state, tabWidth, sidebarScroll, ink, Modifier.matchParentSize())
         }
+        }
+    }
+}
+
+/** The three shared destinations travel with the morph; their interactive rows stay measured. */
+@Composable
+private fun HomeSidebarMorphLabels(
+    state: HomeSidebarState, tabWidth: Dp, sidebarScroll: ScrollState, ink: Color, modifier: Modifier,
+) {
+    Layout(
+        content = {
+            HomeSidebarTabs.forEach { (_, label) -> Text(label, color = ink, fontSize = 15.sp, maxLines = 1) }
+        },
+        modifier = modifier.clipToBounds().graphicsLayer {
+            alpha = 1f - maxOf(state.sidebarAlpha(), state.tabBarAlpha())
+            compositingStrategy = CompositingStrategy.ModulateAlpha
+        }.clearAndSetSemantics { },
+    ) { measurables, constraints ->
+        val labels = measurables.map { it.measure(Constraints(maxWidth = (tabWidth / 3f).roundToPx())) }
+        val segmentWidth = (tabWidth - 60.dp).toPx() / labels.size
+        layout(constraints.maxWidth, constraints.maxHeight) {
+            labels.forEachIndexed { index, label ->
+                val progress = state.tabEntryExpansion(index)
+                val fromX = 56.dp.toPx() + (index + 0.5f) * segmentWidth - label.width / 2f
+                val fromY = (HomeSidebarTabHeight.toPx() - label.height) / 2f
+                val toY = (77 + 44 * index).dp.toPx() - label.height / 2f - sidebarScroll.value
+                label.placeRelative(
+                    lerp(fromX, 52.dp.toPx(), progress).roundToInt(),
+                    lerp(fromY, toY, progress).roundToInt(),
+                )
+            }
         }
     }
 }
