@@ -160,6 +160,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBackdropBlur
 import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBlurDirection
+import com.xiaomanjun.sleepdownschedule.glass.ui.TopAssistantCameraReturnSpec
 import com.xiaomanjun.sleepdownschedule.glass.ui.TopAssistantOpenEasing
 import com.xiaomanjun.sleepdownschedule.glass.ui.TopAssistantSurface
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
@@ -167,6 +168,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.assistantMorphBounds
 import com.xiaomanjun.sleepdownschedule.glass.ui.fixedAssistantContentSize
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberTopAssistantMotion
 import com.xiaomanjun.sleepdownschedule.glass.ui.topAssistantBezierSpec
+import com.xiaomanjun.sleepdownschedule.glass.ui.topAssistantCameraReturnRect
 import com.xiaomanjun.sleepdownschedule.glass.ui.topAssistantMorphRect
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedActionType
 import com.xiaomanjun.sleepdownschedule.transition.legacy.BACKGROUND_EXIT_DURATION
@@ -180,6 +182,12 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.PopupLayout
+
+private data class HomeAssistantReturnFrame(
+    val contentBounds: Rect,
+    val materialBounds: Rect,
+    val cornerRadius: Float,
+)
 
 @Composable
 internal fun DayAgentConversationDialog(
@@ -202,7 +210,7 @@ internal fun DayAgentConversationDialog(
     onPrepareDismiss: () -> Unit,
     onDismiss: () -> Unit,
     homePresentation: Boolean = false,
-    homeAnchorBounds: Rect? = null,
+    homeCameraCenter: Offset? = null,
     homeInitiallyFullScreen: Boolean = false,
     onWeatherClick: (() -> Unit)? = null,
     onImportFile: ((List<android.net.Uri>) -> Unit)? = null
@@ -272,7 +280,8 @@ internal fun DayAgentConversationDialog(
     val expansion = remember { Animatable(0f) }
     var sourceOverlayReady by remember { mutableStateOf(false) }
     val homeMotion = rememberTopAssistantMotion()
-    val homeDockFade = remember { Animatable(1f) }
+    val homeReturnProgress = remember { Animatable(0f) }
+    var homeReturnFrame by remember { mutableStateOf<HomeAssistantReturnFrame?>(null) }
     val fullMotion = rememberTopAssistantMotion(if (homeInitiallyFullScreen) 1f else 0f)
     var homeFullScreen by remember { mutableStateOf(homeInitiallyFullScreen) }
     val fullConversationLayout by remember(fullMotion) {
@@ -517,25 +526,30 @@ internal fun DayAgentConversationDialog(
                 agentMorphPositionProgress(raw, closing), agentMorphSizeProgress(raw, closing),
                 with(density) { adaptiveMetrics.animationArc.toPx() })
         }
+        homeReturnFrame?.let {
+            return topAssistantCameraReturnRect(it.contentBounds, homeCameraCenter ?: sourceRect.center,
+                homeReturnProgress.value)
+        }
         if (homeFullScreenSettled) return homeFullRect
         val destination = topAssistantMorphRect(homeCompactRect(), homeFullRect, fullMotion.drop.value, fullMotion.spread.value)
             .let { it.copy(bottom = it.bottom + fullPullDistance * (1f - fullMotion.drop.value.coerceIn(0f, 1f))) }
-        return topAssistantMorphRect(
-            if (closing) homeAnchorBounds ?: sourceRect else sourceRect,
-            destination, homeMotion.drop.value, homeMotion.spread.value
-        )
+        return topAssistantMorphRect(sourceRect, destination, homeMotion.drop.value, homeMotion.spread.value)
     }
     fun homeShellRadiusPx(): Float = with(density) {
         if (homeFullScreenSettled) return@with 0f
         val geometry = conversationGeometry()
+        val maxRadius = minOf(geometry.width, geometry.height) / 2f
+        homeReturnFrame?.let {
+            val round = agentSmoothStep(0.04f, 0.72f, homeReturnProgress.value)
+            return@with (it.cornerRadius + (maxRadius - it.cornerRadius) * round).coerceIn(0f, maxRadius)
+        }
         val full = fullMotion.spread.value.coerceIn(0f, 1f)
         val compactRadius = homeCapsuleHeight.toPx() / 2f
         val targetRadius = compactRadius + (deviceCornerPx - compactRadius) * full
-        val originRadius = if (closing) (homeAnchorBounds ?: sourceRect).height / 2f
-            else minOf(sourceRadiusPx, sourceRect.height / 2f)
+        val originRadius = minOf(sourceRadiusPx, sourceRect.height / 2f)
         val open = homeMotion.drop.value.coerceIn(0f, 1f)
         (originRadius + (targetRadius - originRadius) * open)
-            .coerceAtMost(minOf(geometry.width, geometry.height) / 2f)
+            .coerceAtMost(maxRadius)
     }
     fun homeShellShape(): Shape = RoundedRectangle(with(density) { homeShellRadiusPx().toDp() })
     fun settleFullPull(commit: Boolean) {
@@ -551,15 +565,20 @@ internal fun DayAgentConversationDialog(
             ) { fullPullDistance = value }
         }
     }
-    val homeGeometry = rememberUpdatedState<() -> GlassTransitionGeometry> {
+    fun homeMaterialBounds(): Rect {
+        homeReturnFrame?.let {
+            return topAssistantCameraReturnRect(it.materialBounds, homeCameraCenter ?: sourceRect.center,
+                homeReturnProgress.value)
+        }
+        if (homeFullScreenSettled) return homeMaterialFullRect
         val destination = topAssistantMorphRect(homeCompactRect(), homeMaterialFullRect,
             fullMotion.drop.value, fullMotion.spread.value).let {
             it.copy(bottom = it.bottom + fullPullDistance * (1f - fullMotion.drop.value.coerceIn(0f, 1f)))
         }
-        GlassTransitionGeometry(topAssistantMorphRect(
-            if (closing) homeAnchorBounds ?: sourceRect else sourceRect,
-            destination, homeMotion.drop.value, homeMotion.spread.value
-        ), homeShellRadiusPx().coerceAtLeast(0f))
+        return topAssistantMorphRect(sourceRect, destination, homeMotion.drop.value, homeMotion.spread.value)
+    }
+    val homeGeometry = rememberUpdatedState<() -> GlassTransitionGeometry> {
+        GlassTransitionGeometry(homeMaterialBounds(), homeShellRadiusPx().coerceAtLeast(0f))
     }
     val homeSurfaceAllocation = remember(homeSurfaceEnvelope) {
         GlassMorphAllocation(
@@ -651,6 +670,9 @@ internal fun DayAgentConversationDialog(
     }
     fun dismissAnimated(afterDismiss: (() -> Unit)? = null) {
         if (closing) return
+        if (homePresentation) {
+            homeReturnFrame = HomeAssistantReturnFrame(conversationGeometry(), homeMaterialBounds(), homeShellRadiusPx())
+        }
         closing = true
         keyboard?.hide()
         // Give the host a closing hook, but keep the real source card hidden until the overlay
@@ -660,7 +682,7 @@ internal fun DayAgentConversationDialog(
             coroutineScope {
                 launch {
                     if (homePresentation) {
-                        launch { homeMotion.animateTo(0f, overshoot = false) }
+                        launch { homeReturnProgress.animateTo(1f, TopAssistantCameraReturnSpec) }
                         expansion.animateTo(0f, tween(260))
                     } else expansion.animateTo(
                         0f,
@@ -690,8 +712,7 @@ internal fun DayAgentConversationDialog(
                     }
                 }
             }
-            // Keep the camera-sized cap fully visible through the return motion, then dissolve it.
-            if (homePresentation) homeDockFade.animateTo(0f, tween(110))
+            if (homePresentation) withFrameNanos { }
             onDismiss()
             // Page-opening Agent actions are dispatched only after the source card has handed
             // ownership back to Home. Dispatching them at button-down left the Agent card alive
@@ -791,7 +812,6 @@ internal fun DayAgentConversationDialog(
               ) {
             if (homePresentation) Box(
                 (if (homeFullScreenSettled) Modifier.matchParentSize() else Modifier.glassMorphHost(homeSurfaceAllocation))
-                    .graphicsLayer { alpha = homeDockFade.value }
                     .glassBackdropProducer(homeSurfaceBackdrop)
             ) {
                 TopAssistantSurface(
@@ -805,7 +825,7 @@ internal fun DayAgentConversationDialog(
                     morphAllocation = homeSurfaceAllocation.takeUnless { homeFullScreenSettled },
                     shapeProvider = if (homeFullScreenSettled) null else ::homeShellShape,
                     edgeEffectsEnabled = !homeFullScreenSettled,
-                    refractionEnabled = !homeFullScreen && !fullMotion.drop.isRunning,
+                    refractionEnabled = !closing && !homeFullScreen && !fullMotion.drop.isRunning,
                     surfaceFrame = {
                         ((homeInputTop - homeTop) * (1f - fullMotion.drop.value.coerceIn(0f, 1f))) to
                             (0.04f + 0.40f * (1f - homeResponseMotion.value.coerceIn(0f, 1f)) *
@@ -827,7 +847,6 @@ internal fun DayAgentConversationDialog(
                          val sizeProgress = agentMorphSizeProgress(raw, closing)
                           alpha = when {
                               anchoredTabletConversation -> agentSmoothStep(0.08f, 0.26f, sizeProgress)
-                              homePresentation && closing -> homeDockFade.value
                               !homePresentation && !sourceOverlayReady -> 0f
                               else -> 1f
                           }
@@ -1304,7 +1323,8 @@ internal fun DayAgentConversationDialog(
                       shape = if (homePresentation) homeShellShape() else RoundedCornerShape(32.dp)
                       clip = !homeFullScreenSettled
                       alpha = if (homePresentation) fullMotion.drop.value.coerceIn(0f, 1f) *
-                          (if (closing) homeDockFade.value else homeMotion.drop.value.coerceIn(0f, 1f))
+                          (if (closing) 1f - agentSmoothStep(0.06f, 0.45f, homeReturnProgress.value)
+                            else homeMotion.drop.value.coerceIn(0f, 1f))
                           else agentSmoothStep(0.38f, 0.92f, expansion.value)
                   }
               ) {

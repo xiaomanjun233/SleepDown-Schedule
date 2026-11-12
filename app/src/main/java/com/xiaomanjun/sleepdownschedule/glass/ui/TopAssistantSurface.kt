@@ -65,6 +65,7 @@ internal val TopAssistantOpenEasing = CubicBezierEasing(0.18f, 0.76f, 0.20f, 1f)
 private val TopAssistantCloseEasing = CubicBezierEasing(0.34f, 0.02f, 0.30f, 1f)
 private val TopAssistantReboundEasing = CubicBezierEasing(0.22f, 0f, 0.28f, 1f)
 private val TopAssistantSettleEasing = CubicBezierEasing(0.20f, 0.72f, 0.26f, 1f)
+internal val TopAssistantCameraReturnSpec = tween<Float>(440, easing = CubicBezierEasing(0.34f, 0.06f, 0.42f, 0.86f))
 
 /** Authored Bezier beats, not a platform/Compose spring simulation. */
 internal fun topAssistantBezierSpec(start: Float, target: Float, vertical: Boolean): FiniteAnimationSpec<Float> {
@@ -98,6 +99,16 @@ internal fun topAssistantMorphRect(source: Rect, target: Rect, drop: Float, spre
     val centerX = source.center.x + (target.center.x - source.center.x) * x
     val top = source.top + (target.top - source.top) * y
     return Rect(centerX - width / 2f, top, centerX + width / 2f, top + height)
+}
+
+internal fun topAssistantCameraReturnRect(start: Rect, cameraCenter: Offset, progress: Float): Rect {
+    val remaining = 1f - progress.coerceIn(0f, 1f)
+    val center = cameraCenter + (start.center - cameraCenter) * remaining
+    val halfSize = Offset(
+        0.5f + (start.width / 2f - 0.5f) * remaining,
+        0.5f + (start.height / 2f - 0.5f) * remaining
+    )
+    return Rect(center - halfSize, center + halfSize)
 }
 
 /** Measure the *final* paragraph layout even when its revealing shell is only a few pixels wide. */
