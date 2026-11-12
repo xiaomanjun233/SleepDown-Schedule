@@ -13,7 +13,11 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.isFinite
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
@@ -48,19 +52,26 @@ internal fun rememberCouiMenuShadow(
     val dark = LocalCouiMenuStyle.current.isDark
     val child = parentTouchMotion != null
     val renderer = if (Build.VERSION.SDK_INT >= 34) remember { CouiShadowRenderer.createOrNull() } else null
-    if (renderer == null) {
-        // shortcut: 旧平台保留局部 Compose 投影; 公开 Mesh 可用后才承接原厂 LV4。
-        val shadow = Shadow(12.dp, Color.Black.copy(alpha = (if (dark) .24f else .12f) * outlineAlpha().coerceIn(0f, 1f)),
-            offset = DpOffset(0.dp, 3.dp))
-        val legacy = remember(shape, shadow) {
+    val softShadow = if (!dark || renderer == null) {
+        val shadow = Shadow(
+            radius = if (dark) 12.dp else 16.dp,
+            color = Color.Black.copy(alpha = (if (dark) .24f else .14f) * outlineAlpha().coerceIn(0f, 1f)),
+            offset = DpOffset(0.dp, if (dark) 3.dp else 4.dp),
+        )
+        remember(shape, shadow, dark) {
             Modifier.drawWithCache {
-                // 动态子轮廓不能进入宿主无界历史缓存。
                 val painter = ShadowContext().createDropShadowPainter(shape, shadow)
-                onDrawBehind { painter.apply { draw(size) } }
+                val outline = if (dark) null else Path().apply {
+                    addOutline(shape.createOutline(size, layoutDirection, this@drawWithCache))
+                }
+                onDrawBehind {
+                    if (outline == null) painter.apply { draw(size) }
+                    else clipPath(outline, ClipOp.Difference) { painter.apply { draw(size) } }
+                }
             }
         }
-        return CouiMenuShadow(Modifier, legacy)
-    }
+    } else Modifier
+    if (renderer == null) return CouiMenuShadow(Modifier, softShadow)
     val density = LocalDensity.current
     val radius = with(density) { LocalCouiMenuStyle.current.resolvedRadius.toPx() }
     val style = CouiShadowDefaults.menu(dark)
@@ -108,5 +119,5 @@ internal fun rememberCouiMenuShadow(
         }
         drawContent()
     }
-    return CouiMenuShadow(drawing, Modifier.onGloballyPositioned { surface = it })
+    return CouiMenuShadow(drawing, softShadow.onGloballyPositioned { surface = it })
 }

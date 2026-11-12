@@ -253,9 +253,9 @@ private fun rememberMiuixListPopupStyle(
     holdAnchor = true,
     // Broad ambient shadow separates the light panel from white settings cards without
     // adding a second blurred backdrop or a dark, hard outline.
-    shadowElevation = if (dark) 16.dp else 24.dp,
-    ambientShadowColor = Color.Black.copy(alpha = if (dark) 0.125f else 0.22f),
-    spotShadowColor = Color.Black.copy(alpha = 0.125f),
+    shadowElevation = if (dark) 16.dp else 28.dp,
+    ambientShadowColor = Color.Black.copy(alpha = if (dark) 0.125f else 0.28f),
+    spotShadowColor = Color.Black.copy(alpha = if (dark) 0.125f else 0.16f),
     interactionModifier = interaction,
     suspendedInteractionModifier = visualInteraction
     )
