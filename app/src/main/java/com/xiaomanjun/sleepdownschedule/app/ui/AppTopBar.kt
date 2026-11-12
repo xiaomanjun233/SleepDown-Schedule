@@ -44,7 +44,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailTopOverlayHeight
 import com.xiaomanjun.sleepdownschedule.effectiveCurrentWeek
 import com.xiaomanjun.sleepdownschedule.feature.home.boundlessHomeTopGradientHeight
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeDateTitle
-import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredOverlayKind
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
@@ -87,7 +86,7 @@ internal fun AppTopBar(
     afterScheduleTerm: Boolean,
     homeShowingAnotherWeek: Boolean,
     onReturnHomeToCurrentWeek: () -> Unit,
-    activeHomeOverlay: HomeAnchoredOverlayKind?,
+    personalizeButtonHidden: Boolean,
     addButtonHidden: Boolean,
     onAddButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
     onPersonalizeButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
@@ -159,8 +158,8 @@ internal fun AppTopBar(
                     iconRes = R.drawable.ic_edit,
                     contentDescription = "benchmark_personalize_button",
                     selected = false,
-                    visible = activeHomeOverlay != HomeAnchoredOverlayKind.Personalize,
-                    enabled = homeOverlayReturning || activeHomeOverlay != HomeAnchoredOverlayKind.Personalize,
+                    visible = !personalizeButtonHidden,
+                    enabled = homeOverlayReturning || !personalizeButtonHidden,
                     onClick = onTogglePersonalize,
                     onButtonPositioned = onPersonalizeButtonPositioned
                 )

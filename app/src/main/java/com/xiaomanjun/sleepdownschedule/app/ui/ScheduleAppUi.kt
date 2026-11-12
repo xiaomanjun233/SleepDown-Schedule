@@ -2808,7 +2808,8 @@ fun CourseScheduleAppUi(
                                 afterScheduleTerm = afterScheduleTerm,
                                 homeShowingAnotherWeek = homeShowingAnotherWeek,
                                 onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
-                                activeHomeOverlay = activeHomeAnchoredOverlay,
+                                personalizeButtonHidden =
+                                    homeAnchoredMorphState.renderedKind == HomeAnchoredOverlayKind.Personalize,
                                 homeOverlayReturning = homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing,
                                 addButtonHidden = addButtonHidden,
                                 onAddButtonPositioned = { addButtonBounds = it },
