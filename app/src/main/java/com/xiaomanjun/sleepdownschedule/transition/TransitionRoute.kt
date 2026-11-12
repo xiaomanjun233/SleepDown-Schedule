@@ -8,6 +8,7 @@ enum class TransitionRouteId(val wireName: String) {
     HomeMenuToCourseManagement("home_menu_to_course_management"),
     TabletHomeToCourseManagement("tablet_home_to_course_management"),
     TabletHomeToEduImport("tablet_home_to_edu_import"),
+    HomeToUnifiedImport("home_to_unified_import"),
     CourseManagementToDetail("course_management_to_detail"),
     ManualImportToHistory("manual_import_to_history"),
     AiProgressToHistory("ai_progress_to_history"),
@@ -256,6 +257,11 @@ object TransitionRouteCatalog {
         ),
         TransitionRouteSpec(
             TransitionRouteId.TabletHomeToEduImport,
+            "$PackageName.EduSchoolSelectActivity",
+            LegacyTransitionProfile.PlatformDefault
+        ),
+        TransitionRouteSpec(
+            TransitionRouteId.HomeToUnifiedImport,
             "$PackageName.EduSchoolSelectActivity",
             LegacyTransitionProfile.PlatformDefault
         ),

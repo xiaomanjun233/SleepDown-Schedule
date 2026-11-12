@@ -471,11 +471,6 @@ class HomeAnchoredMorphGeometryTest {
             ),
             Tolerance
         )
-        assertEquals(
-            0f,
-            homeMenuDestinationOpeningContentBlurMix(rawProgress = 0.62f, isFullScreen = false),
-            Tolerance
-        )
     }
 
     @Test

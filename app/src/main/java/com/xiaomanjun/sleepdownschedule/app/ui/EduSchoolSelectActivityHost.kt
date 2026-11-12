@@ -1,6 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.app.ui
 
+import android.content.ClipData
+import android.content.Context
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
 import android.view.WindowManager
@@ -85,6 +88,22 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
 import kotlinx.coroutines.launch
 
+private const val InitialImportTextExtra = "initial_import_text"
+
+internal fun unifiedImportIntent(context: Context, text: String? = null, files: List<Uri> = emptyList()): Intent =
+    Intent(context, com.xiaomanjun.sleepdownschedule.EduSchoolSelectActivity::class.java)
+        .putExtra(EduSchoolSelectActivityHost.UnifiedImportExtra, true)
+        .apply {
+            if (text != null) putExtra(InitialImportTextExtra, text)
+            val uris = files.distinct()
+            if (uris.isNotEmpty()) {
+                clipData = ClipData.newRawUri("Schedule import", uris.first()).also { clip ->
+                    uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
+                }
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        }
+
 open class EduSchoolSelectActivityHost : ComponentActivity() {
     companion object {
         const val UnifiedImportExtra = "unified_schedule_import"
@@ -106,6 +125,14 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
             )
             val state by viewModel.state.collectAsStateWithLifecycle()
             val form: UnifiedImportFormState = androidx.lifecycle.viewmodel.compose.viewModel()
+            LaunchedEffect(form, unifiedImport) {
+                if (unifiedImport) form.initialize(
+                    intent.getStringExtra(InitialImportTextExtra),
+                    intent.clipData?.let { clip ->
+                        (0 until clip.itemCount).mapNotNull { clip.getItemAt(it).uri }
+                    }.orEmpty()
+                )
+            }
             var selectedTab by rememberSaveable { mutableIntStateOf(0) }
             val schoolSelected = !unifiedImport || selectedTab == 1
             val retainedTabs = rememberSaveableStateHolder()
@@ -312,6 +339,8 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
                                 NormalizedAiManualImportScreen(
                                     state = state, backdrop = backdrop, onCancel = requestClose,
                                     initialText = form.input,
+                                    initialFileUris = form.initialFiles,
+                                    onInitialFileConsumed = { form.initialFiles = emptyList() },
                                     inlineHeader = { Box(Modifier.padding(bottom = 10.dp)) { importTabs() } },
                                     inlineHasPreview = form.draft != null,
                                     inlineSubmitting = form.submitting,
@@ -379,8 +408,17 @@ open class EduSchoolSelectActivityHost : ComponentActivity() {
 }
 
 internal class UnifiedImportFormState : ViewModel() {
+    private var initialized = false
     var input by mutableStateOf("")
+    var initialFiles by mutableStateOf<List<Uri>>(emptyList())
     var draft by mutableStateOf<ImportDraft?>(null)
     var submitting by mutableStateOf(false)
     var saveError by mutableStateOf<String?>(null)
+
+    fun initialize(text: String?, files: List<Uri>) {
+        if (initialized) return
+        initialized = true
+        input = text.orEmpty()
+        initialFiles = files
+    }
 }

@@ -21,16 +21,6 @@ class HomePopupAndPageTransitionBenchmark {
         destinationResource = "benchmark_home_destination_add_course"
     )
 
-    @Test fun manualImportPopupWithoutCompilation() = measureAddDestination(
-        actionText = "手动导入课表",
-        destinationResource = "benchmark_home_destination_manual_import"
-    )
-
-    @Test fun eduImportPageWithoutCompilation() = measureAddDestination(
-        actionText = "教务系统导入",
-        destinationResource = "benchmark_home_destination_edu_import"
-    )
-
     private fun measureAddDestination(
         actionText: String,
         destinationResource: String

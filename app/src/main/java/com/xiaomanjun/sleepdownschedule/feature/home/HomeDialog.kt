@@ -8,9 +8,7 @@ import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.ImportDraft
 
 sealed interface HomeDialog {
-    data object ImportSchedule : HomeDialog
-    data object EduImport : HomeDialog
-    data class ConfirmImport(val draft: ImportDraft, val returnDialog: HomeDialog? = ImportSchedule,
+    data class ConfirmImport(val draft: ImportDraft, val returnToImport: Boolean = false,
         val errorMessage: String? = null) : HomeDialog
     data class EditWallpaper(val uri: Uri, val entrySnapshot: Bitmap?) : HomeDialog
     data class EditCourse(val course: CourseEntity?, val targetWeek: Int? = null) : HomeDialog
