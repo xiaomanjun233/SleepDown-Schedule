@@ -6,6 +6,26 @@
 将同一签名包覆盖安装到用户当前指定的已授权设备，并核对安装结果。HD 这轮改为
 先装小米平板，由用户直接实机验收。
 
+## 2026-11-12 宽屏导入历史、导航材质和 Sheet
+
+`codex/home-render-architecture` 的运行时基线为 `782472a5`。宽屏导入右栏加 16dp 两侧留白，
+导入页、历史列表和记录详情共用淡入淡出，新的导入请求回到表单。侧栏和顶部导航复用手机
+底栏的凝光及液态材质参数。多课表管理与小组件的下投光从卡片下沿取色，浅色 COUI 和 Miuix
+Popup 加强外侧软阴影。
+
+ColorOS 17 Settings APK 的 `design_bottom_sheet_dialog.xml` 指定六列和内容高度，
+`COUIPanelPercentFrameLayout` 先走窗口网格，再以 540dp 封顶。`sw600dp` 资源高度
+上限 800dp。12 列横屏网格的边距为 40dp、列距为 12dp。小米平板横屏全宽约
+1280dp，六列计算约 594dp，默认上限下得到 540dp。尺寸依据 APK 的 HD 分支，
+实际设备为小米平板。调休预览与灵动岛教程在大屏按内容测高，作息编辑使用可用高度。
+
+`assembleGithubRelease` 通过（7m14s），APK v2 签名验证通过。归档
+`tmp/material-device-qa/hd-pane-polish-final.apk`，SHA-256
+`F6D4D8FECF7D24966CD8A0FE2F4201B01ADBB3FC536EEF220A2C87A2DAB62D8F`。
+22:43:42 经 SDK ADB 37.0.1、5038 的序列号通道覆盖安装至小米平板 7S Pro 12.5
+（25053RP5CC，0A84E43049A40540，Android 17 / API 37，用户 0），回读哈希一致。
+页面与材质效果等待用户实机验收。
+
 ## 2026-11-12 HD 右栏、课程编辑和课表回弹
 
 `codex/home-render-architecture` 的运行时基线为 `6570e8f1`。右栏共用口令／文件与教务的
