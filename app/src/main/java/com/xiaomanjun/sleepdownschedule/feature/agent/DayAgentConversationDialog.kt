@@ -275,6 +275,9 @@ internal fun DayAgentConversationDialog(
     val homeDockFade = remember { Animatable(1f) }
     val fullMotion = rememberTopAssistantMotion(if (homeInitiallyFullScreen) 1f else 0f)
     var homeFullScreen by remember { mutableStateOf(homeInitiallyFullScreen) }
+    val fullConversationLayout by remember(fullMotion) {
+        derivedStateOf { fullMotion.drop.value >= 0.46f }
+    }
     var homeEntranceFinished by remember { mutableStateOf(false) }
     var fullScreenMotionFinished by remember { mutableStateOf(homeInitiallyFullScreen) }
     var homeResponseVisible by remember { mutableStateOf(sending) }
@@ -427,7 +430,7 @@ internal fun DayAgentConversationDialog(
     ).coerceAtLeast(1.dp)
     val homeHasReply = homeResponseVisible
     // The compact result shows this answer; the full page retains the shared, complete history.
-    val visibleMessages = if (compactHomeInput) {
+    val visibleMessages = if (homePresentation && !fullConversationLayout) {
         messages.drop(messages.indexOfLast { it.role == "user" } + 1)
             .filter { it.role == "assistant" && it.id > homeResponseStartId }
     } else messages
@@ -455,14 +458,14 @@ internal fun DayAgentConversationDialog(
     }
     // Reading width may remain compact on tablets; the material always covers the window.
     val homeMaterialFullRect = with(density) { Rect(0f, 0f, windowWidth.toPx(), windowHeight.toPx()) }
-    val homeFinalWidth = if (homeFullScreen) homeExpandedWidth else homeWidth
+    val homeFinalWidth = if (fullConversationLayout) homeExpandedWidth else homeWidth
     val homeFullScreenSettled = homePresentation && homeFullScreen && !closing &&
         homeEntranceFinished && fullScreenMotionFinished
     // Text always measures in the final viewport; only the outside reveal changes each frame.
-    val homeFinalHeight = if (homeFullScreen) windowHeight else maxOf(
+    val homeFinalHeight = if (fullConversationLayout) windowHeight else maxOf(
         homeCapsuleHeight, homeResponseTop + homeAnswerLimit + homeHandleHeight
     )
-    val homeComposerWidth = if (homeFullScreen) homeExpandedWidth - 16.dp else homeWidth - 8.dp
+    val homeComposerWidth = minOf(homeExpandedWidth - 16.dp, homeWidth - 8.dp)
     val homeSurfaceEnvelope = remember(homeMaterialFullRect, sourceRect, density.density) {
         GlassTransitionEnvelope.covering(listOf(
             GlassTransitionGeometry(sourceRect, 0f), GlassTransitionGeometry(homeMaterialFullRect, 0f)
@@ -500,6 +503,12 @@ internal fun DayAgentConversationDialog(
         val progress = expansion.value.coerceIn(0f, 1f)
         return if (closing) 1f - agentSmoothStep(0.32f, 0.56f, progress)
         else 1f - agentSmoothStep(0.10f, 0.38f, progress)
+    }
+    fun homeConversationAlpha(): Float {
+        val reveal = fullMotion.drop.value.coerceIn(0f, 1f)
+        // Each layout keeps its own wrapping. Switch history, padding and viewport while invisible.
+        return if (fullConversationLayout) agentSmoothStep(0.46f, 0.80f, reveal)
+        else (1f - agentSmoothStep(0.12f, 0.46f, reveal)) * homeResponseMotion.value.coerceIn(0f, 1f)
     }
     fun conversationGeometry(): Rect {
         if (!homePresentation) {
@@ -861,7 +870,10 @@ internal fun DayAgentConversationDialog(
                         activityAccent = sourceActivityAccent,
                         drawSurface = false,
                         modifier = Modifier
-                            .fillMaxWidth()
+                            .fixedAssistantContentSize(
+                                with(density) { sourceRect.width.toDp() },
+                                with(density) { sourceRect.height.toDp() }
+                            )
                             .graphicsLayer {
                                 val raw = expansion.value.coerceIn(0f, 1f)
                                  alpha = daySourceAlpha()
@@ -873,10 +885,10 @@ internal fun DayAgentConversationDialog(
                             }
                     )
                 }
-                  if (!homePresentation || homeResponseVisible || homeFullScreen) Column(
+                  if (!homePresentation || homeResponseVisible || fullConversationLayout) Column(
                       Modifier
                           .then(if (homePresentation) Modifier.fixedAssistantContentSize(homeFinalWidth, homeFinalHeight)
-                              else Modifier)
+                              else Modifier.fixedAssistantContentSize(answerWidth, answerMaxHeight))
                           .graphicsLayer {
                               val raw = expansion.value.coerceIn(0f, 1f)
                               alpha = if (closing) {
@@ -887,9 +899,7 @@ internal fun DayAgentConversationDialog(
                               } else {
                                   agentSmoothStep(0.10f, 0.38f, raw)
                               }
-                              if (homePresentation) alpha *= maxOf(
-                                  homeResponseMotion.value, fullMotion.drop.value
-                              ).coerceIn(0f, 1f)
+                              if (homePresentation) alpha *= homeConversationAlpha()
                               val blurPx = 5.dp.toPx() * (
                                   1f - agentSmoothStep(0.38f, 0.92f, raw)
                               )
@@ -901,14 +911,14 @@ internal fun DayAgentConversationDialog(
                           .padding(
                               start = if (homePresentation) 22.dp else 16.dp,
                               top = if (homePresentation) {
-                                  if (homeFullScreen) 0.dp else homeResponseTop
+                                  if (fullConversationLayout) 0.dp else homeResponseTop
                               } else 16.dp,
                               end = if (homePresentation) 22.dp else 16.dp,
-                              bottom = if (homePresentation && homeFullScreen)
+                              bottom = if (homePresentation && fullConversationLayout)
                                   0.dp
                                   else if (homePresentation) homeHandleHeight else 0.dp
                           ),
-                     verticalArrangement = Arrangement.spacedBy(if (homePresentation && !homeFullScreen) 0.dp else 10.dp)
+                     verticalArrangement = Arrangement.spacedBy(if (homePresentation && !fullConversationLayout) 0.dp else 10.dp)
                   ) {
                       /*
                        * Once the streamed answer has been persisted it immediately joins `messages`.
@@ -922,23 +932,23 @@ internal fun DayAgentConversationDialog(
                           ?.id
                       SleepDownLazyColumn(
                          state = conversationListState,
-                         modifier = if (homePresentation && !homeFullScreen) {
+                         modifier = if (homePresentation && !fullConversationLayout) {
                              Modifier.heightIn(max = homeAnswerLimit).onSizeChanged {
                                  homeAnswerHeightPx = it.height
                              }
                          } else Modifier.weight(1f),
                          contentPadding = PaddingValues(
-                             top = if (homePresentation && homeFullScreen) adaptiveMetrics.safeTop + homeTopBarHeight
+                             top = if (homePresentation && fullConversationLayout) adaptiveMetrics.safeTop + homeTopBarHeight
                                  else if (!homePresentation) 34.dp else 0.dp,
-                             bottom = if (homePresentation && homeFullScreen)
+                             bottom = if (homePresentation && fullConversationLayout)
                                  inputInsets.bottom +
                                      homeInputHeight + with(density) { pendingCapsulesHeightPx.toDp() } + 24.dp
                                  else if (anchoredTabletConversation) 58.dp + with(density) { pendingCapsulesHeightPx.toDp() }
-                                 else if (compactHomeInput) 4.dp else 16.dp
+                                 else if (homePresentation) 4.dp else 16.dp
                          ),
                          verticalArrangement = Arrangement.spacedBy(10.dp)
                      ) {
-                         if (messages.isEmpty() && streamingText.isBlank() && (!homePresentation || homeFullScreen)) {
+                         if (messages.isEmpty() && streamingText.isBlank() && (!homePresentation || fullConversationLayout)) {
                              item {
                                  if (homePresentation) DayAgentCardVisualContent(
                                      sourceVisual.copy(trailingStatus = sourceVisual.trailingStatus.takeIf { sourceVisual.weatherAlert }),
@@ -1555,7 +1565,7 @@ internal fun DayAgentConversationDialog(
                }
            }
        }
-       LaunchedEffect(messages.size, error) {
+       LaunchedEffect(messages.size, error, fullConversationLayout) {
            withFrameNanos { }
            val lastIndex = conversationListState.layoutInfo.totalItemsCount - 1
            if (lastIndex >= 0) {
