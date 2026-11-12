@@ -74,7 +74,8 @@ internal fun ParallelHomeDock(
     selectedIndex: Int, config: ScheduleConfigEntity, backdrop: Backdrop,
     onSelect: (Int) -> Unit, onOpenMenu: (DockImportSource) -> Unit,
     buttonHidden: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onPlusPositioned: (Rect) -> Unit = {}
 ) {
     val homeSelected = selectedIndex < 2
     val adaptiveGlass = LocalAdaptiveGlass.current
@@ -150,7 +151,10 @@ internal fun ParallelHomeDock(
                     }
                 }, backdrop = backdrop, contentDescription = "导入课表", enabled = buttonInteractive,
                     modifier = Modifier.offset(buttonOffset).size(54.dp)
-                        .onGloballyPositioned { buttonBounds = it.boundsInRoot() }
+                        .onGloballyPositioned {
+                            buttonBounds = it.boundsInRoot()
+                            if (homeSelected) onPlusPositioned(buttonBounds)
+                        }
                         .drawWithContent {
                             // The attached View and the Legacy return use this same button layer.
                             returnButtonLayer.record {

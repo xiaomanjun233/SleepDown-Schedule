@@ -84,8 +84,8 @@ internal fun AppTopBar(
     homeDisplayWeek: Int,
     beforeScheduleTerm: Boolean,
     afterScheduleTerm: Boolean,
-    homeShowingAnotherWeek: Boolean,
-    onReturnHomeToCurrentWeek: () -> Unit,
+    homeReturnTargetWeek: Int,
+    onReturnToday: () -> Unit,
     personalizeButtonHidden: Boolean,
     addButtonHidden: Boolean,
     onAddButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
@@ -130,16 +130,18 @@ internal fun AppTopBar(
                         end = if (landscape) 64.dp else 120.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
+                val weekStart = if (homeMode == HomeMode.Week && homeDisplayWeek != homeReturnTargetWeek) {
+                    com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekStartDate(state.config, homeDisplayWeek)
+                } else null
                 HomeDateTitle(
                     state = state,
-                    displayDate = if (homeMode == HomeMode.Day) homeDisplayDate else LocalDate.now(),
+                    mode = homeMode,
+                    displayDate = if (homeMode == HomeMode.Day) homeDisplayDate else weekStart ?: LocalDate.now(),
                     displayWeek = if (homeMode == HomeMode.Day) effectiveCurrentWeek(state.config, homeDisplayDate) else homeDisplayWeek,
-                    showTwoDays = false,
+                    dateRangeEnd = weekStart?.plusDays(6),
                     beforeScheduleTerm = beforeScheduleTerm,
                     afterScheduleTerm = afterScheduleTerm,
-                    showReturnToCurrentWeekHint = homeMode == HomeMode.Week && homeDisplayWeek != effectiveCurrentWeek(state.config),
-                    showWeather = homeMode == HomeMode.Week,
-                    onReturnCurrent = onReturnHomeToCurrentWeek
+                    onReturnToday = onReturnToday
                 )
             }
             Row(

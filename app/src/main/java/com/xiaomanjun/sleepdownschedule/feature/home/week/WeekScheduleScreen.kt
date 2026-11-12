@@ -474,11 +474,12 @@ internal fun SinglePillWeekScheduleScreen(
                 ) {
                     WeekSwitchButton(-1, state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
                     WeekHeaderCrossfade(
-                        target = displayWeek,
+                        target = weekStart,
                         modifier = Modifier.padding(horizontal = 10.dp)
-                    ) { week ->
+                    ) { start ->
+                        val end = start.plusDays(6)
                         HomeReadableText(
-                            text = "第${week}周",
+                            text = "${start.monthValue}/${start.dayOfMonth}–${end.monthValue}/${end.dayOfMonth}",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.Bold,
                             textAlign = TextAlign.Center,

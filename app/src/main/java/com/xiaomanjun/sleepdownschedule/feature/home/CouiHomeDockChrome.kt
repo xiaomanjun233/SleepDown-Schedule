@@ -16,6 +16,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
@@ -69,6 +72,7 @@ internal fun CouiHomeDock(
     backdrop: CouiBackdrop,
     onSelect: (Int) -> Unit,
     onOpenMenu: (DockImportSource) -> Unit,
+    onPlusPositioned: (Rect) -> Unit = {},
 ): Boolean {
     if (Build.VERSION.SDK_INT < 34) {
         android.util.Log.i("SleepDownCOUI",
@@ -201,8 +205,9 @@ internal fun CouiHomeDock(
                 menuWidth = dockWidth,
                 showPlusSurface = { plusView?.showsOverflow != false },
                 onSelection = { trace("SleepDown Dock.select") { onSelect(it) } },
-                plusInputModifier = if (plusEnabled) Modifier.captureTransitionPress(plusView, activity?.window)
-                    else Modifier,
+                plusInputModifier = Modifier.onGloballyPositioned {
+                    if (plusVisible) onPlusPositioned(it.boundsInRoot())
+                }.then(if (plusEnabled) Modifier.captureTransitionPress(plusView, activity?.window) else Modifier),
                 onPlusClick = { bounds ->
                     if (plusEnabled) {
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)

@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.State
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
 import com.itos.coui.backdrop.CouiBackdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.performance.DockEntranceContainer
@@ -25,6 +26,7 @@ internal fun NativeHomeDockChrome(
     config: ScheduleConfigEntity,
     couiBackdrop: CouiBackdrop?,
     onSelect: (Int) -> Unit, onOpenMenu: (DockImportSource) -> Unit,
+    onPlusPositioned: (Rect) -> Unit = {},
     fallback: State<@Composable () -> Unit>,
     phase: StartupPhase,
     modifier: Modifier = Modifier
@@ -49,6 +51,7 @@ internal fun NativeHomeDockChrome(
                 backdrop = couiBackdrop,
                 onSelect = onSelect,
                 onOpenMenu = onOpenMenu,
+                onPlusPositioned = onPlusPositioned,
             )
         ) return@DockEntranceContainer
         NativeDockFallback(fallback)

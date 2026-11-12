@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import androidx.compose.foundation.layout.Spacer
+
 import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -143,8 +145,7 @@ internal val BoundlessWeekGridEndPadding = 4.dp
  * weekday/date labels stay crisp and are never covered by the gradient. It reuses the exact
  * course-column geometry: a rowHeaderWidth leading slot (same width as the timeline rail) plus
  * equal weekday columns with weekGridEndPadding trailing. The leading slot is fixed width so the
- * grid always stays aligned. The leading week caption and every weekday column are shared
- * elements: changing words dissolve, changing slots travel with a spring.
+ * grid always stays aligned. The weekday columns keep their identity as their slots move.
  */
 @Composable
 internal fun BoundlessWeekdayHeaderRow(
@@ -163,40 +164,7 @@ internal fun BoundlessWeekdayHeaderRow(
             .height(BoundlessWeekHeaderRowHeight),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .width(rowHeaderWidth)
-                .fillMaxHeight(),
-            contentAlignment = Alignment.Center
-        ) {
-            WeekHeaderCrossfade(
-                target = displayWeek,
-                modifier = Modifier.fillMaxSize()
-            ) { week ->
-                AutoFitSingleLineText(
-                    text = "第${week}周",
-                    color = textColor,
-                    style = MaterialTheme.typography.titleSmall.copy(
-                        fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.Center
-                    ),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 1.dp),
-                    alignment = Alignment.Center,
-                    candidateFontSizes = listOf(14.sp, 13.sp, 12.sp, 11.sp, 10.sp),
-                    content = { fittedSize ->
-                        HomeReadableText(
-                            text = "第${week}周", color = textColor,
-                            style = MaterialTheme.typography.titleSmall,
-                            fontSize = fittedSize, fontWeight = FontWeight.Medium,
-                            textAlign = TextAlign.Center, maxLines = 1, softWrap = false,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                )
-            }
-        }
+        Spacer(Modifier.width(rowHeaderWidth))
         Box(Modifier.weight(1f).fillMaxHeight()) {
             val maxPage = (config.totalWeeks - 1).coerceAtLeast(0)
             val displayedPage = (displayWeek - 1).coerceIn(0, maxPage)

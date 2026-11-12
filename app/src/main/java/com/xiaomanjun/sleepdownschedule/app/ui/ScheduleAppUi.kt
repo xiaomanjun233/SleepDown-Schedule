@@ -224,6 +224,7 @@ import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorSource
 import com.xiaomanjun.sleepdownschedule.feature.home.week.LocalWeekCourseAddition
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseAddPreview
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekCourseAddition
+import com.xiaomanjun.sleepdownschedule.feature.home.HomeReturnWeekButton
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.LocalCourseEditorFlightRegistry
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.NormalizedCourseEditorScreen
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseEditorApplyAllScope
@@ -2146,6 +2147,8 @@ fun CourseScheduleAppUi(
         }
     }
     val dockSelect = remember { { index: Int -> currentDockSelect.value(index) } }
+    val dockPlusBounds = remember { mutableStateOf(Rect.Zero) }
+    val reportDockPlusBounds = remember { { bounds: Rect -> dockPlusBounds.value = bounds } }
     val currentDockOpenImport = rememberUpdatedState<(DockImportSource) -> Unit> openImport@{ source ->
         val activity = context.findActivity()
         if (activity == null || activity.isFinishing || dockImportOpening || homeBackgroundOverlayActive ||
@@ -2281,6 +2284,14 @@ fun CourseScheduleAppUi(
             }),
         popupHost = {
             Box(Modifier.fillMaxSize()) {
+                HomeReturnWeekButton(
+                    visible = homeShowingAnotherWeek && canSelectWeekAddSlot && !dockImportOpening,
+                    plusBounds = { dockPlusBounds.value },
+                    hasPhoneDock = !homeAdaptiveMetrics.isLargeScreen,
+                    safeBottom = homeAdaptiveMetrics.safeBottom,
+                    backdrop = chromeBackdrop,
+                    onReturn = returnHomeToCurrentDateAndWeek
+                )
                 WeekCourseAddPreview(
                     selection = weekCourseAddition,
                     interactive = canSelectWeekAddSlot,
@@ -2859,8 +2870,8 @@ fun CourseScheduleAppUi(
                                 } else homeDisplayWeek,
                                 beforeScheduleTerm = beforeScheduleTerm,
                                 afterScheduleTerm = afterScheduleTerm,
-                                homeShowingAnotherWeek = homeShowingAnotherWeek,
-                                onReturnHomeToCurrentWeek = returnHomeToCurrentDateAndWeek,
+                                homeReturnTargetWeek = homeReturnTargetWeek,
+                                onReturnToday = returnHomeToCurrentDateAndWeek,
                                 personalizeButtonHidden =
                                     homeAnchoredMorphState.renderedKind == HomeAnchoredOverlayKind.Personalize,
                                 homeOverlayReturning = homeAnchoredMorphState.phase == HomeAnchoredOverlayPhase.Closing,
@@ -3204,7 +3215,7 @@ fun CourseScheduleAppUi(
     val nativeDockFallback = rememberUpdatedState<@Composable () -> Unit> {
         // The route host already applies DockEntranceContainer; keep only the shared liquid dock.
         ParallelHomeDock(dockSelectedIndex, dockConfig, chromeBackdrop, dockSelect, dockOpenImport,
-            buttonHidden = dockButtonHidden)
+            buttonHidden = dockButtonHidden, onPlusPositioned = reportDockPlusBounds)
     }
     com.xiaomanjun.sleepdownschedule.feature.home.NativeHomeDockChrome(
         visible = dockVisible,
@@ -3218,6 +3229,7 @@ fun CourseScheduleAppUi(
         couiBackdrop = dockUnderlay,
         onSelect = dockSelect,
         onOpenMenu = dockOpenImport,
+        onPlusPositioned = reportDockPlusBounds,
         phase = startupPhase,
         fallback = nativeDockFallback,
         modifier = Modifier.align(Alignment.BottomStart).zIndex(100f)
