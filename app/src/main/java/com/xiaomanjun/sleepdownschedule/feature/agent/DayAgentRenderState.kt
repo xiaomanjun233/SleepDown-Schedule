@@ -15,13 +15,6 @@ import java.util.LinkedHashMap
 
 internal val LocalAgentBackgroundCaptureMask = staticCompositionLocalOf<() -> Boolean> { { false } }
 
-internal data class AgentSourceHandoffTransform(
-    val scaleX: Float,
-    val scaleY: Float,
-    val translationX: Float,
-    val translationY: Float
-)
-
 /**
  * The day page is disposed while the week page is entering. Keep the expensive, immutable Agent
  * projection outside that short-lived composition so switching back does not scan and sort the

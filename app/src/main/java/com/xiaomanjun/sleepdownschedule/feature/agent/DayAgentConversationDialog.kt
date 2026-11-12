@@ -86,6 +86,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.TransformOrigin
@@ -143,6 +144,7 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.MaxAiImportFiles
 import com.xiaomanjun.sleepdownschedule.feature.importing.MaxAiImportBatchBytes
 import com.xiaomanjun.sleepdownschedule.feature.importing.rememberAiRuntimePickerState
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceActive
 import com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation
 import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionEnvelope
 import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionGeometry
@@ -195,7 +197,6 @@ internal fun DayAgentConversationDialog(
     onAgentAction: AgentActionHandler,
     onOverlayReady: () -> Unit,
     onPrepareDismiss: () -> Unit,
-    onSourceHandoff: (AgentSourceHandoffTransform) -> Unit,
     onDismiss: () -> Unit,
     homePresentation: Boolean = false,
     homeAnchorBounds: Rect? = null,
@@ -266,6 +267,7 @@ internal fun DayAgentConversationDialog(
         mutableStateOf(emptyMap<String, AgentPlanExecutionResult>())
     }
     val expansion = remember { Animatable(0f) }
+    var sourceOverlayReady by remember { mutableStateOf(false) }
     val homeMotion = rememberTopAssistantMotion()
     val homeDockFade = remember { Animatable(1f) }
     val fullMotion = rememberTopAssistantMotion(if (homeInitiallyFullScreen) 1f else 0f)
@@ -485,6 +487,17 @@ internal fun DayAgentConversationDialog(
         val fullY = windowHeight.toPx() - inputInsets.bottomPx - 8.dp.toPx() - homeInputHeight.toPx()
         compactY + (fullY - compactY) * p
     }
+    fun dayShellShape(): Shape {
+        val sizeProgress = agentMorphSizeProgress(expansion.value.coerceIn(0f, 1f), closing)
+        val corner = agentSmoothStep(0.04f, 0.90f, sizeProgress)
+        val radius = sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * corner
+        return RoundedRectangle(with(density) { radius.toDp() })
+    }
+    fun daySourceAlpha(): Float {
+        val progress = expansion.value.coerceIn(0f, 1f)
+        return if (closing) 1f - agentSmoothStep(0.32f, 0.56f, progress)
+        else 1f - agentSmoothStep(0.10f, 0.38f, progress)
+    }
     fun conversationGeometry(): Rect {
         if (!homePresentation) {
             val raw = expansion.value.coerceIn(0f, 1f)
@@ -640,30 +653,6 @@ internal fun DayAgentConversationDialog(
                     } else expansion.animateTo(
                         0f,
                         tween(AgentMorphCloseDurationMillis, easing = LinearEasing)
-                    )
-                }
-                launch {
-                    // Report the final return geometry while the background finishes settling.
-                    // The day-card owner keeps its source material hidden until onDismiss,
-                    // so both shells cannot become visible during this remaining segment.
-                    while (expansion.value > 0.01f) {
-                        withFrameNanos { }
-                    }
-                    val raw = expansion.value.coerceIn(0f, 1f)
-                    val geometry = agentMorphGeometry(
-                        source = sourceRect,
-                        target = targetRect,
-                        positionProgress = agentMorphPositionProgress(raw, closing = true),
-                        sizeProgress = agentMorphSizeProgress(raw, closing = true),
-                        maxArcPx = with(density) { adaptiveMetrics.animationArc.toPx() }
-                    )
-                    if (!homePresentation) onSourceHandoff(
-                        AgentSourceHandoffTransform(
-                            scaleX = geometry.width / sourceRect.width.coerceAtLeast(1f),
-                            scaleY = geometry.height / sourceRect.height.coerceAtLeast(1f),
-                            translationX = geometry.center.x - sourceRect.center.x,
-                            translationY = geometry.center.y - sourceRect.center.y
-                        )
                     )
                 }
                 if (!anchoredTabletConversation && !homePresentation) {
@@ -824,16 +813,13 @@ internal fun DayAgentConversationDialog(
                      .graphicsLayer {
                          val raw = expansion.value.coerceIn(0f, 1f)
                          val sizeProgress = agentMorphSizeProgress(raw, closing)
-                         alpha = if (anchoredTabletConversation) {
-                             agentSmoothStep(0.08f, 0.26f, sizeProgress)
-                         } else if (homePresentation && closing) homeDockFade.value else 1f
-                         val cornerProgress = agentSmoothStep(0.04f, 0.90f, sizeProgress)
-                        val visualRadiusPx =
-                            sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * cornerProgress
-                        // Restore the native round-rect clip used by this route in v1.2.3.
-                        shape = if (homePresentation) {
-                            homeShellShape()
-                        } else RoundedRectangle(visualRadiusPx.toDp())
+                          alpha = when {
+                              anchoredTabletConversation -> agentSmoothStep(0.08f, 0.26f, sizeProgress)
+                              homePresentation && closing -> homeDockFade.value
+                              !homePresentation && !sourceOverlayReady -> 0f
+                              else -> 1f
+                          }
+                          shape = if (homePresentation) homeShellShape() else dayShellShape()
                          clip = !homeFullScreenSettled &&
                              (!homePresentation || homeResponseVisible || homeFullScreen || homeMotion.drop.isRunning)
                      }
@@ -847,39 +833,38 @@ internal fun DayAgentConversationDialog(
                     .glassBackdropProducer(agentCardContentBackdrop)
              ) {
                 if (!homePresentation) {
-                GlassSurface(
-                    nativeMaterial = true,
-                    nativeDockMaterial = true,
-                    nativeBlurRadius = DayAgentNativeBlurRadius,
-                    nativeFollowLightIntensityScale = 0.45f,
-                    backdrop = backdrop,
-                    config = state.config,
-                    modifier = Modifier.matchParentSize(),
-                    shape = RoundedRectangle(sourceCornerRadius),
-                    shapeProvider = {
-                        val raw = expansion.value.coerceIn(0f, 1f)
-                        val corner = agentSmoothStep(0.04f, 0.90f, agentMorphSizeProgress(raw, closing))
-                        RoundedRectangle(with(density) { (sourceRadiusPx + (targetRadiusPx - sourceRadiusPx) * corner).toDp() })
-                    },
-                    // Reuse the source card's light/dark tint. The expanded shell uses its
-                    // own blur radius to give the conversation more separation.
-                    tokens = sourceGlassTokens
-                ) {}
+                    GlassSurface(
+                        nativeMaterial = true,
+                        nativeDockMaterial = true,
+                        nativeBlurRadius = DayAgentCardNativeBlurRadius,
+                        nativeFollowLightIntensityScale = 0.45f,
+                        backdrop = backdrop,
+                        config = state.config,
+                        modifier = Modifier.matchParentSize(),
+                        shape = RoundedRectangle(sourceCornerRadius),
+                        shapeProvider = ::dayShellShape,
+                        tokens = sourceGlassTokens
+                    ) {
+                        if (!anchoredTabletConversation) {
+                            // Draw the compact accent in the shell's live bounds throughout the handoff.
+                            Box(Modifier.fillMaxSize()
+                                .graphicsLayer { alpha = daySourceAlpha() }
+                                .dayAgentCardSurface(sourceVisual, sourceActivityAccent, RectangleShape,
+                                    LocalNativeMaterialSurfaceActive.current))
+                        }
+                    }
                 }
                 if (!homePresentation && !anchoredTabletConversation) {
                     DayAgentCardVisualContent(
                         visual = sourceVisual,
                         foreground = sourceForeground,
                         activityAccent = sourceActivityAccent,
+                        decorated = false,
                         modifier = Modifier
                             .fillMaxWidth()
                             .graphicsLayer {
                                 val raw = expansion.value.coerceIn(0f, 1f)
-                                alpha = if (closing) {
-                                    1f - agentSmoothStep(0.32f, 0.56f, raw)
-                                } else {
-                                    1f - agentSmoothStep(0.10f, 0.38f, raw)
-                                }
+                                 alpha = daySourceAlpha()
                                 val blurPx = 5.dp.toPx() * agentSmoothStep(0f, 0.56f, raw)
                                 compositingStrategy = CompositingStrategy.Offscreen
                                 renderEffect = if (blurPx > 0.01f) {
@@ -1509,14 +1494,14 @@ internal fun DayAgentConversationDialog(
                             else inputCapsuleBounds.top - pendingCapsulesHeightPx - 6.dp.toPx()).roundToInt().coerceAtLeast(0))
                     }.graphicsLayer { alpha = ((expansion.value - 0.6f) / 0.4f).coerceIn(0f, 1f) })
                 }
-         LaunchedEffect(Unit) {
+          LaunchedEffect(closing) {
+               if (closing) return@LaunchedEffect
               backgroundMotionState.progress.snapTo(0f)
               backgroundMotionState.backgroundZoom.snapTo(1f)
-              // Commit the p=0 source snapshot to the Dialog window before hiding the real
-              // card below it. A second frame applies that hide while expansion is still zero,
-              // eliminating the one-frame hole between the two layers.
+               // Lay out the overlay at the source bounds and swap both owners in one frame.
               withFrameNanos { }
               onOverlayReady()
+               sourceOverlayReady = true
               withFrameNanos { }
               coroutineScope {
                  launch {
@@ -1553,7 +1538,8 @@ internal fun DayAgentConversationDialog(
                       }
                   }
              }
-             if (!homePresentation || (!homeResponseVisible && !homeFullScreen)) {
+              if (closing) return@LaunchedEffect
+              if (!homePresentation || (!homeResponseVisible && !homeFullScreen)) {
                  focusRequester.requestFocus()
                  keyboard?.show()
              }

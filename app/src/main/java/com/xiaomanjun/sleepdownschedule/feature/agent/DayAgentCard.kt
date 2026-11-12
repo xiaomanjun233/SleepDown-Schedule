@@ -136,10 +136,6 @@ fun TodayAgentCard(
     val messages by messageFlow
         .collectAsStateWithLifecycle(initialValue = emptyList())
     var sourceCardHidden by remember(date, scheduleId) { mutableStateOf(false) }
-    var sourceHandoffTransform by remember(date, scheduleId) {
-        mutableStateOf<AgentSourceHandoffTransform?>(null)
-    }
-    val sourceHandoffProgress = remember(date, scheduleId) { Animatable(0f) }
     var pendingQuestion by remember(date, scheduleId) { mutableStateOf<String?>(null) }
     var cardBounds by remember(date, scheduleId) { mutableStateOf<Rect?>(null) }
     var dialogSourceBounds by remember(date, scheduleId) { mutableStateOf<Rect?>(null) }
@@ -212,8 +208,6 @@ fun TodayAgentCard(
                 }
                 val frozenBounds = resolvedBounds ?: return@launch
                 dialogSourceBounds = frozenBounds
-                sourceHandoffTransform = null
-                sourceHandoffProgress.snapTo(0f)
                 pendingQuestion = question
                 dialogOpen = true
             } finally {
@@ -252,13 +246,6 @@ fun TodayAgentCard(
             }
             .graphicsLayer {
                 alpha = if (sourceCardHidden) 0f else 1f
-                sourceHandoffTransform?.let { handoff ->
-                    val settle = sourceHandoffProgress.value.coerceIn(0f, 1f)
-                    scaleX = handoff.scaleX + (1f - handoff.scaleX) * settle
-                    scaleY = handoff.scaleY + (1f - handoff.scaleY) * settle
-                    translationX = handoff.translationX * (1f - settle)
-                    translationY = handoff.translationY * (1f - settle)
-                }
             }
             // Keep source geometry stable for the first/last Morph frame. The generic Liquid
             // interaction expands the card by 4dp while pressed, but layout bounds and the cached
@@ -297,21 +284,9 @@ fun TodayAgentCard(
             modifier = Modifier.fillMaxWidth(),
             shape = cardShape,
             tokens = cardTokens,
-            nativeBlurRadius = DayAgentCompactNativeBlurRadius
+            nativeBlurRadius = DayAgentCardNativeBlurRadius
         ) {
-        Box(
-            modifier = Modifier.graphicsLayer {
-                alpha = sourceHandoffTransform?.let {
-                    // Keep the compact glass shell continuous at handoff, but do not squeeze the
-                    // fully laid-out text into the still-oversized intermediate rectangle.
-                    agentSmoothStep(
-                        edge0 = 0.48f,
-                        edge1 = 0.88f,
-                        value = sourceHandoffProgress.value.coerceIn(0f, 1f)
-                    )
-                } ?: 1f
-            }
-        ) {
+        Box {
             DayAgentCardVisualContent(
                 visual = cardVisual,
                 foreground = foreground,
@@ -363,27 +338,18 @@ fun TodayAgentCard(
                 if (!inlineTabletConversation) sourceCardHidden = true
             },
             onPrepareDismiss = {},
-            onSourceHandoff = {
-                // Keep the source material hidden until the returned overlay is removed.
-                // Revealing it during the last 1% doubles both glass/native shells for a frame.
-            },
             onDismiss = {
                 dialogOpen = false
                 sourceCardHidden = false
                 pendingQuestion = null
                 dialogSourceBounds = null
-                sourceHandoffTransform = null
-                scope.launch {
-                    sourceHandoffProgress.snapTo(0f)
-                }
                 onAgentDismissed()
             }
         )
     }
 }
 
-private val DayAgentCompactNativeBlurRadius = 9.dp
-internal val DayAgentNativeBlurRadius = 12.dp
+internal val DayAgentCardNativeBlurRadius = 9.dp
 
 internal fun weatherEmoji(summary: String): String {
     // The suffix may contain precipitation advice/probability even when the current condition is
@@ -529,7 +495,7 @@ internal fun DayAgentCardVisualContent(
     }
 }
 
-private fun Modifier.dayAgentCardSurface(
+internal fun Modifier.dayAgentCardSurface(
     visual: DayAgentCardVisual,
     activityAccent: Color,
     shape: Shape,

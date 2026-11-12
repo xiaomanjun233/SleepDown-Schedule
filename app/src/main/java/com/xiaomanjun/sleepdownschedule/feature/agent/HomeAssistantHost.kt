@@ -344,7 +344,6 @@ internal fun HomeAssistantHost(
                     onAgentAction = onAgentAction,
                     onOverlayReady = { controller.reminderHidden = true },
                     onPrepareDismiss = { controller.closing = true },
-                    onSourceHandoff = {},
                     onDismiss = controller::reset,
                     homePresentation = true,
                     homeAnchorBounds = closingAnchor,
