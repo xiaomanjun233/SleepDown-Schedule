@@ -6,6 +6,35 @@
 将同一签名包覆盖安装到用户当前指定的已授权设备，并核对安装结果。HD 这轮改为
 先装小米平板，由用户直接实机验收。
 
+## 2026-11-13 COUI 图标替换与手机安装
+
+用户选择[图标清单](reports/2026-11-13-coui-icon-audit.md)官网表的第 1、2、4–15 项。
+`19fc63d5` 接入对应的 COUI 矢量，日视图使用 `Filled.Certificate`，周视图使用
+`Calendar`。两种材质的手机底栏按选中状态切换实心和线框齿轮，其他设置入口用实心。
+现有动作 ID 通过 drawable 别名继续使用，AI 设置保留原渐变。原始资源 Git blob 见
+[图标来源](../third_party/coui-kit/ICON_SOURCES.md)。
+
+Release 构建通过（6m23s，含发布 lint、R8、资源压缩与 V2 签名）。
+归档 `tmp/material-device-qa/coui-icon-rollout.apk`，SHA-256
+`5D4BA3E6AC8E428215029D5A19F689840F5AEF8B35F7E1CF67E4C4FB5B61BFF5`。
+用户本轮指定只安装手机。00:44:34 经 SDK ADB 37.0.1、5038 的 USB 通道
+覆盖安装到 OPPO PLJ110（3B15AE023YL00000、Android 17 / API 37、用户 0），
+回读一致。APK 内已核对日视图、周视图与两种齿轮资源。手机界面留给用户验收。
+
+用户补充后，`32013731` 将多课表管理换为 `Filled.MultiPhone`，设置里的
+AI 助理换为 `Filled.Headset`，日视图助手展开后标题旁使用彩色 `Filled.AI`。
+编辑弹窗选择行复用 COUI 列表右箭头。`3934f794` 恢复手机周视图课程卡的
+8dp 默认圆角和原滑条映射。`c44afa11` 接入实机 ColorOS 日历 17.6.30 底栏的
+24dp 矢量，未选中用线框，选中用实心。来源、原始资源哈希和对照图位置见
+[图标清单](reports/2026-11-13-coui-icon-audit.md)。
+
+最终 Release 构建通过（6m01s，含发布 lint、R8、资源压缩与 V2 签名）。
+归档 `tmp/material-device-qa/coui-calendar-states.apk`，SHA-256
+`31B5252F223D4D0DE96D0538FAE45E7237935198E81FB76BF16551933F9686B5`。
+01:10:37 经 SDK ADB 5038 USB 覆盖安装到 OPPO PLJ110（3B15AE023YL00000、
+Android 17 / API 37、用户 0）。回读哈希一致，已核对 APK 内两枚日历矢量的路径和透明度。
+按用户本轮要求留给手机界面验收。
+
 ## 2026-11-13 平板通用设置与 COUI 图标选型
 
 `b01475ec` 修复平板左栏从其他设置分类点回「通用设置」无效。旧回调捕获首次组合的

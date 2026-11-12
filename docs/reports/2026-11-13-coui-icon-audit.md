@@ -4,6 +4,21 @@
 
 清单按图标在界面里表达的动作匹配。几个共用资源 ID 在不同入口有不同含义，例如 `ic_edit` 同时出现在首页个性化和课程编辑。以每个入口的操作为准。
 
+用户选择了下表第 1、2、4–15 项。齿轮在底栏以外统一用 `Filled.Setting`，手机底栏未选中用 `Outlined.Setting`，选中用 `Filled.Setting`。日视图采用 `Filled.Certificate`，周视图采用工程内置 `Calendar`。实施源码为 `19fc63d5`。
+
+用户随后指定多课表管理用 `Filled.MultiPhone`，设置里的 AI 助理用 `Filled.Headset`，日视图助手展开后用彩色 `Filled.AI` 替换标题旁的星形。编辑弹窗的选择行复用列表的 `Next`，随弹窗前景着色。实施源码为 `32013731`。
+
+## ColorOS 日历原生资源
+
+从实机读取 `com.coloros.calendar` 17.6.30（17006030）的 APK，SHA-256 为 `1F3ED719CF4D57FCB2F38F455A6F4C35771FCF4F29D04955FC4E4020FF2ECE8D`。资源表中 `ic_bottom_nav_calendar` 根据选中状态切换 `ic_bottom_nav_calendar_normal` 和 `ic_bottom_nav_calendar_selected`，分别为 24dp 线框和实心。周视图选择器的 `ic_view_picker_week` 是 80 × 120dp 的周网格预览，`ic_launcher_os13` 是 APK 的静态桌面图标。SVG 和对照图位于本地 `tmp/material-device-qa/calendar-17630-icons/`。
+
+用户随后指定周视图使用日历底栏的两种状态。`c44afa11` 保留原始路径和填充透明度，使用各入口的前景色着色。凝光、液态和兼容底栏，展开侧栏与菜单视图切换共用 `homeActionIcon` 的选中判断。
+
+| SleepDown 资源 | ColorOS APK 资源 | 原始二进制 XML SHA-256 |
+| --- | --- | --- |
+| `ic_week_view` | `res/xp1.xml` | `c139c09ef0a4b7ead43544b7772e838e259aa3aa2c6ed3581c93d597aa5b843e` |
+| `ic_week_view_selected` | `res/vb1.xml` | `d4739cdd356e5250741484164d7fec6e3636b773f85acdf838831c754bc68b67` |
+
 ## 官网图库推荐
 
 表中的 `Outlined.`、`Filled.` 指官网的 `CouiIcons` 样式。加号、返回、关闭也各有工程内置版本可直接引用。
