@@ -24,6 +24,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -115,6 +116,7 @@ fun SettingsScreen(
             val scheduleDraft = remember(state.config.id, selectedPage) {
                 if (selectedPage == SettingsPage.Schedule) ScheduleSettingsDraft(state.config) else null
             }
+            val currentScheduleDraft by rememberUpdatedState(scheduleDraft)
             val portrait = adaptiveMetrics.screenHeight > adaptiveMetrics.screenWidth
             val navigationWidth = if (portrait) {
                 (adaptiveMetrics.contentWidth * 0.38f).coerceIn(280.dp, 328.dp)
@@ -138,29 +140,31 @@ fun SettingsScreen(
                 backupPreviewUriString = null
             }
             fun requestPaneExit(checkScheduleDraft: Boolean, onFinished: (Boolean) -> Unit) {
-                val editingRoutines = displayedPage == SettingsPage.PeriodSchemes &&
-                    exitInterceptionByPage[displayedPage] == true
+                val currentPage = tabletNavigation.displayedPage
+                val editingRoutines = currentPage == SettingsPage.PeriodSchemes &&
+                    exitInterceptionByPage[currentPage] == true
                 if (adjustmentsSaving || editingRoutines || completeExitRequest != null) {
                     onFinished(false)
                     return
                 }
                 val pageToCommit = when {
-                    exitInterceptionByPage[displayedPage] == true -> displayedPage
-                    checkScheduleDraft && scheduleDraft?.dirty == true -> SettingsPage.Schedule
+                    exitInterceptionByPage[currentPage] == true -> currentPage
+                    checkScheduleDraft && currentScheduleDraft?.dirty == true -> SettingsPage.Schedule
                     else -> null
                 }
                 if (pageToCommit == null) {
                     onFinished(true)
                     return
                 }
-                if (pageToCommit != displayedPage) applyTabletRootPage(pageToCommit)
+                if (pageToCommit != currentPage) applyTabletRootPage(pageToCommit)
                 completeExitRequest = onFinished
                 exitRequestPage = pageToCommit
                 scheduleExitRequest++
             }
             fun requestTabletRootPage(nextPage: SettingsPage) {
-                if (displayedPage == nextPage && tabletNavigation.detailPages.isEmpty()) return
-                requestPaneExit(checkScheduleDraft = nextPage != selectedPage) { completed ->
+                val navigation = tabletNavigation
+                if (navigation.rootPage == nextPage && navigation.detailPages.isEmpty()) return
+                requestPaneExit(checkScheduleDraft = nextPage != navigation.rootPage) { completed ->
                     if (completed) applyTabletRootPage(nextPage)
                 }
             }
@@ -170,13 +174,14 @@ fun SettingsScreen(
                 tabletNavigation = nextNavigation
             }
             fun popTabletDetailPage() {
-                if (displayedPage == SettingsPage.SoftwareUpdate && showingUpdateNotes) {
+                val leavingPage = tabletNavigation.displayedPage
+                if (leavingPage == SettingsPage.SoftwareUpdate && showingUpdateNotes) {
                     showingUpdateNotes = false
                     return
                 }
                 requestPaneExit(checkScheduleDraft = false) { completed ->
                     if (completed) {
-                        if (displayedPage == SettingsPage.PeriodSchemes) periodSchemeReturnRequest++
+                        if (leavingPage == SettingsPage.PeriodSchemes) periodSchemeReturnRequest++
                         tabletNavigation = tabletNavigation.popDetail()
                     }
                 }
@@ -196,7 +201,7 @@ fun SettingsScreen(
                         state = pageState,
                         backdrop = backdrop,
                         selectedPage = selectedPage,
-                        onPageChange = ::requestTabletRootPage
+                        onPageChange = { requestTabletRootPage(it) }
                     )
                 }
                 Box(
