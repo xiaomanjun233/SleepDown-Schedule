@@ -260,7 +260,10 @@ fun Modifier.couiFloatingSurfaces(
     return floatingSurfaces(backdrop, renderer, materials, shadows, shapes, contentLayers, contourGlowEnabled, surfaces = surfaces)
 }
 
-/** 双主体的采样、融球和光效；顺序与 material.index 必须分别为 1、2。 */
+/**
+ * 双主体的采样、融球和光效；顺序与 material.index 必须分别为 1、2。
+ * 如果宿主已经画了第一个主体，宿主裁掉重叠区域，本节点只在连接期间补画它的材质。
+ */
 @RequiresApi(34)
 @Composable
 fun Modifier.couiFloatingPair(
@@ -276,6 +279,7 @@ fun Modifier.couiFloatingPair(
     foregroundComposition: Boolean = false,
     shadowAlpha: (() -> Float)? = null,
     verticalFusion: Boolean = false,
+    firstSurfaceDrawnByHost: Boolean = false,
     surfaces: () -> List<CouiFloatingSurface>,
 ): Modifier {
     require(renderer.surfaceCount == 2)
@@ -285,7 +289,8 @@ fun Modifier.couiFloatingPair(
     return floatingSurfaces(backdrop, renderer, materials, shadows, shapes, contentLayers, contourGlowEnabled,
         foregroundComposition = foregroundComposition,
         beforeContent = beforeContent, drawOrder = drawOrder,
-        shadowAlpha = shadowAlpha, verticalFusion = verticalFusion, surfaces = surfaces)
+        shadowAlpha = shadowAlpha, verticalFusion = verticalFusion,
+        firstSurfaceDrawnByHost = firstSurfaceDrawnByHost, surfaces = surfaces)
 }
 
 @RequiresApi(34)
@@ -304,6 +309,7 @@ private fun Modifier.floatingSurfaces(
     drawOrder: List<Int>? = null,
     shadowAlpha: (() -> Float)? = null,
     verticalFusion: Boolean = false,
+    firstSurfaceDrawnByHost: Boolean = false,
     surfaces: () -> List<CouiFloatingSurface>,
 ): Modifier {
     backdrop.RetainWhileComposed()
@@ -351,9 +357,14 @@ private fun Modifier.floatingSurfaces(
     return onGloballyPositioned(samplingCoordinates::update).drawWithCache {
         CouiRenderDiagnostics.event("floating.material.build")
         val target = samplingCoordinates.coordinates
-        val nodes = surfaces()
+        val surfacesToDraw = surfaces()
+        require(surfacesToDraw.size == renderer.surfaceCount)
+        val nodes = if (firstSurfaceDrawnByHost) {
+            val (anchor, attachment) = surfacesToDraw
+            val connected = floatingPairIsConnected(anchor, attachment, 4f * density, verticalFusion)
+            if (connected) surfacesToDraw else listOf(anchor.copy(visible = false), attachment)
+        } else surfacesToDraw
         val shadowOpacity = shadowAlpha?.invoke()?.coerceIn(0f, 1f) ?: 1f
-        require(nodes.size == renderer.surfaceCount)
         if (target?.isAttached == true && size.width > 0f && size.height > 0f &&
             nodes.all { it.bounds.width > 0f && it.bounds.height > 0f }
         ) {
@@ -418,10 +429,11 @@ private fun Modifier.floatingSurfaces(
                 contentLayers[index].clip = true
             }
             val shadowRenderer = renderer.shadowRenderer
+            fun castsShadow(index: Int) = nodes[index].visible && shadows[index].color.alpha > 0f
             if (shadowRenderer != null && shadowOpacity > 0f) {
                 shadowLayers.forEachIndexed { index, layer ->
+                    if (!castsShadow(index)) return@forEachIndexed
                     val node = nodes[index]
-                    if (!node.visible) return@forEachIndexed
                     val bounds = node.bounds
                     val shadow = shadows[index]
                     val shadowColor = if (shadowOpacity == 1f) shadow.color else
@@ -453,7 +465,9 @@ private fun Modifier.floatingSurfaces(
             drawGroups.forEach { indices ->
                 val group = indices.filter { nodes[it].visible }
                 group.forEach { index ->
-                    if (shadowRenderer != null && shadowOpacity > 0f) commands.add(shadowLayers[index])
+                    if (shadowRenderer != null && shadowOpacity > 0f && castsShadow(index)) {
+                        commands.add(shadowLayers[index])
+                    }
                     // 前景模式下, 原 Shader 在此阈值内严格输出透明, 无需录制背景或创建光晕图层。
                     // 完整 destination 模式仍需回填, 不能套用这一短路。
                     if (contourGlowEnabled && (!foregroundComposition ||

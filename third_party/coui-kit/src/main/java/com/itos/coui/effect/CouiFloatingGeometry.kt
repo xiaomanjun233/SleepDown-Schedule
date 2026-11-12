@@ -89,6 +89,17 @@ internal fun floatingShadowShapeContext(ball: FloatArray, shadow: FloatArray): F
     floatingShapeContext(ball[2], ball[3], ball[5], shadow[20]).copyInto(this, 12)
 }
 
+private const val FloatingPairActiveSlot = 21
+
+internal fun floatingPairIsConnected(
+    anchor: CouiFloatingSurface,
+    attachment: CouiFloatingSurface,
+    extension: Float,
+    vertical: Boolean,
+): Boolean = anchor.visible && attachment.visible && floatingPair(
+    anchor.ball(0f, Offset.Zero), attachment.ball(0f, Offset.Zero), extension, vertical
+)[FloatingPairActiveSlot] > 0f
+
 // BuildPreCmpArray 的水平连接分支, 与 Shader 的 12 -> 13 -> 23 顺序配套。
 internal fun floatingPair(a: FloatArray, b: FloatArray, extension: Float, vertical: Boolean = false): FloatArray {
     if (vertical) {
@@ -167,7 +178,7 @@ internal fun floatingPair(a: FloatArray, b: FloatArray, extension: Float, vertic
     result[18] = diff
     result[19] = (if (diff > 0f) 0.2f else 0f) + 0.8f * smoothStep(0f, 20f, diff)
     result[20] = shapeChange
-    result[21] = 1f
+    result[FloatingPairActiveSlot] = 1f
     return result
 }
 

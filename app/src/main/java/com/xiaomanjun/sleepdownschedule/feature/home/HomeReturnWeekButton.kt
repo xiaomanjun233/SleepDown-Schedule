@@ -220,6 +220,7 @@ private fun ReturnWeekFusion(
                 contourGlowEnabled = LocalCouiContourGlowEnabled.current,
                 foregroundComposition = true,
                 verticalFusion = true,
+                firstSurfaceDrawnByHost = true,
             ) {
                 val p = progress()
                 val scale = lerp(0.5f, 1f, p)
@@ -227,7 +228,7 @@ private fun ReturnWeekFusion(
                     CouiFloatingSurface(localSource, cornerWeight = 2f),
                     CouiFloatingSurface(
                         localTarget.translate(offset()), scaleX = scale, scaleY = scale,
-                        cornerWeight = 2f, alpha = p.coerceAtMost(1f)
+                        cornerWeight = 2f, alpha = p.coerceAtMost(1f), visible = p > 0f
                     ),
                 )
             },
