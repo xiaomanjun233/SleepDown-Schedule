@@ -828,7 +828,7 @@
 +        }
 +
 +        val sampleScale = shapeProvider.options.sampleScale
-+        val allocationPadding = shapeProvider.options.allocationPadding ?: padding
++        val allocationPadding = shapeProvider.options.allocationPadding?.times(sampleScale) ?: padding
 +        require(allocationPadding >= padding) { "Fixed allocation must cover effect padding" }
 +        val recordingSize = IntSize(
 +            ceil(size.width * sampleScale + allocationPadding * 2).toInt().coerceAtLeast(1),
@@ -924,8 +924,8 @@
 +        val bounds = shapeProvider.options.bounds()
 +        val sampleScale = shapeProvider.options.sampleScale
 +        require(sampleScale > 0f && sampleScale <= 1f)
-+        check(sampleScale == 1f || (bounds == null && exportedBackdrop == null)) {
-+            "Downsampling requires ordinary geometry without an exported backdrop"
++        check(sampleScale == 1f || exportedBackdrop == null) {
++            "Downsampling does not support exported backdrops"
 +        }
 +        check(bounds == null || exportedBackdrop == null) {
 +            "Fixed geometry does not support exported backdrops"

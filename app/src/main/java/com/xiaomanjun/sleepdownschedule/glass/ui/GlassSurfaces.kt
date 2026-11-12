@@ -182,8 +182,7 @@ fun GlassSurface(
             placementLayer = placementLayer,
             renderBounds = { morphAllocation?.localBounds() },
             allocationPaddingPx = morphAllocation?.paddingPx,
-            // A bounded liquid lens still allocates in its unscaled geometry.
-            backdropSampleScale = if (morphAllocation == null) backdropSampleScale else 1f,
+            backdropSampleScale = backdropSampleScale,
             onDrawSurface = {
                 if (bottomLitTint) {
                     drawBottomLitGlassTint(surfaceColor, topTintFloor = bottomLitTintFloor)
