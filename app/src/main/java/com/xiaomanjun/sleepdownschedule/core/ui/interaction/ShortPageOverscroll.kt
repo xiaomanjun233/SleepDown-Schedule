@@ -18,12 +18,14 @@ import androidx.compose.foundation.rememberOverscrollEffect
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.scrollToIndex
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
-import com.itos.coui.scroll.CouiOverscrollEffect
 import com.itos.coui.scroll.couiVerticalScroll
-import com.itos.coui.scroll.rememberCouiOverscrollEffect
+import kotlinx.coroutines.launch
 
 /** Keep the page's usual scrolling when it has range, and provide COUI pull feedback when it fits. */
 @Composable
@@ -31,17 +33,37 @@ internal fun Modifier.pageVerticalScroll(state: ScrollState, enabled: Boolean = 
     if (enabled && !state.canScrollForward && !state.canScrollBackward) couiVerticalScroll(state)
     else verticalScroll(state, enabled = enabled)
 
+/**
+ * Keep one gesture owner as the header, insets, or content changes the scroll range.
+ * Foundation dispatches the input to overscroll even at zero range; the real state
+ * still decides what it can consume and owns the scroll mutation and item positions.
+ */
 @Composable
-internal fun Modifier.shortListPull(state: ScrollableState, edge: CouiOverscrollEffect): Modifier {
+internal fun Modifier.listViewportInput(
+    state: ScrollableState,
+    edge: OverscrollEffect,
+    itemCount: () -> Int,
+    scrollTo: suspend (Int) -> Unit,
+    enabled: Boolean = true,
+    reverseDirection: Boolean = true,
+    flingBehavior: FlingBehavior = ScrollableDefaults.flingBehavior(),
+): Modifier {
     val edgeState = remember(state) {
         object : ScrollableState by state {
             override val canScrollForward = true
             override val canScrollBackward = true
         }
     }
+    val scope = rememberCoroutineScope()
     return overscroll(edge).scrollable(
-        edgeState, Orientation.Vertical, overscrollEffect = edge, reverseDirection = true
-    )
+        edgeState, Orientation.Vertical, overscrollEffect = edge, enabled = enabled,
+        reverseDirection = reverseDirection, flingBehavior = flingBehavior,
+    ).then(if (enabled) Modifier.semantics {
+        scrollToIndex { index ->
+            if (index !in 0 until itemCount()) false
+            else { scope.launch { scrollTo(index) }; true }
+        }
+    } else Modifier)
 }
 
 @Composable
@@ -58,9 +80,11 @@ internal fun SleepDownLazyColumn(
     onScrollToTop: (suspend () -> Unit)? = null,
     content: LazyListScope.() -> Unit,
 ) {
-    val short = userScrollEnabled && overscrollEffect != null && !state.canScrollForward && !state.canScrollBackward
-    val edge = if (short) overscrollEffect as? CouiOverscrollEffect ?: rememberCouiOverscrollEffect() else null
-    val input = if (edge != null) Modifier.shortListPull(state, edge) else Modifier
+    val input = if (overscrollEffect != null) Modifier.listViewportInput(
+        state, overscrollEffect, itemCount = { state.layoutInfo.totalItemsCount },
+        scrollTo = { state.scrollToItem(it) }, enabled = userScrollEnabled,
+        reverseDirection = !reverseLayout, flingBehavior = flingBehavior,
+    ) else Modifier
     val scrollToTop = if (userScrollEnabled && !reverseLayout) Modifier.animateScrollToTop {
         if (onScrollToTop != null) onScrollToTop()
         else if (state.canScrollBackward) state.animateScrollToItem(0)
@@ -69,7 +93,7 @@ internal fun SleepDownLazyColumn(
         modifier = modifier.then(scrollToTop).then(input), state = state, contentPadding = contentPadding,
         reverseLayout = reverseLayout, verticalArrangement = verticalArrangement,
         horizontalAlignment = horizontalAlignment, flingBehavior = flingBehavior,
-        userScrollEnabled = userScrollEnabled && !short, overscrollEffect = if (short) null else overscrollEffect,
+        userScrollEnabled = userScrollEnabled && overscrollEffect == null, overscrollEffect = null,
         content = content,
     )
 }

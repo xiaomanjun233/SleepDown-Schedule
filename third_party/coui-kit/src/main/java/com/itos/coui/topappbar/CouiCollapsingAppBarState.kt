@@ -80,7 +80,7 @@ class CouiCollapsingAppBarState internal constructor(rangePx: Float, initialFrac
 
     val nestedScrollConnection = object : NestedScrollConnection {
         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
-            if (searchLocked || available.y >= 0f) return Offset.Zero
+            if (searchLocked || available.y >= 0f || (hasSearchBar && !canScroll())) return Offset.Zero
             return Offset(0f, consume(available.y))
         }
         override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
@@ -88,9 +88,10 @@ class CouiCollapsingAppBarState internal constructor(rangePx: Float, initialFrac
             return Offset(0f, consume(available.y))
         }
         override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-            if (!searchLocked) {
-                if (hasSearchBar && !canScroll()) animateOffset(0f, animateContent = true)
-                else if (logicalOffset > 0f && logicalOffset < rangePx) settle()
+            // A title collapse can make a barely scrollable list fit. Leave its position
+            // to the next drag; snapping the title open here fights the edge spring.
+            if (!searchLocked && (!hasSearchBar || canScroll()) && logicalOffset > 0f && logicalOffset < rangePx) {
+                settle()
             }
             return Velocity.Zero
         }

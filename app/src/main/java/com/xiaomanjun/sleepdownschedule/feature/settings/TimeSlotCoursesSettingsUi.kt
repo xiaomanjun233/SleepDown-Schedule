@@ -53,7 +53,7 @@ import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.animateScrollToTop
-import com.xiaomanjun.sleepdownschedule.core.ui.interaction.shortListPull
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.listViewportInput
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
@@ -149,15 +149,15 @@ fun TimeSlotCourseManagementScreen(
     }
     val canAdd = decoded.isSuccess && courses.size < MaxTimeSlotCourses
     val grid = rememberLazyStaggeredGridState()
-    val edge = if (!grid.canScrollForward && !grid.canScrollBackward) rememberCouiOverscrollEffect() else null
-    val shortPagePull = if (edge != null) Modifier.shortListPull(grid, edge) else Modifier
+    val edge = rememberCouiOverscrollEffect()
     Box(Modifier.fillMaxSize()) {
         LazyVerticalStaggeredGrid(
             columns = StaggeredGridCells.Fixed(2),
             state = grid,
             modifier = Modifier.fillMaxSize().glassBackdropProducer(bodyBackdrop)
                 .animateScrollToTop { if (grid.canScrollBackward) grid.animateScrollToItem(0) }
-                .then(shortPagePull),
+                .listViewportInput(grid, edge, itemCount = { grid.layoutInfo.totalItemsCount },
+                    scrollTo = { grid.scrollToItem(it) }),
             contentPadding = PaddingValues(
                 start = 16.dp, end = 16.dp,
                 top = detailContentTopPadding() + 12.dp,
@@ -165,7 +165,8 @@ fun TimeSlotCourseManagementScreen(
             ),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalItemSpacing = 8.dp,
-            userScrollEnabled = edge == null,
+            userScrollEnabled = false,
+            overscrollEffect = null,
         ) {
             item(key = "description", span = StaggeredGridItemSpan.FullLine) {
                 Text("可安排早读、午休和晚自修等固定时间，不参与课程提醒。",
