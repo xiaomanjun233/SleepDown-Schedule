@@ -1,8 +1,21 @@
 # 当前工作交接
 
+## 2026-11-12 周视图助手统一凝光背景
+
+运行时提交 `cdba8816` 位于 `codex/home-render-architecture`。周视图下拉助手的小窗、全屏和提醒
+共用凝光背景渲染器，背景从小窗展开到全屏稳定再收起沿用这套材质。前景控件跟随所选模式。
+教务悬浮窗通过同一组件按当前模式选材质。
+
+完整 `assembleGithubRelease` 通过（4m50s），签名包为 `tmp/material-device-qa/unified-agent.apk`，
+SHA-256 `E29D993F1D9C69910E7881F1A85B5B5B5CF1E2D845B50B55E61CFFCEAC756424`。
+已在 Pixel_10_Pro（API 36.1、隔离用户 10）经 SDK ADB 5038 → `127.0.0.1:5557` 覆盖安装并核对哈希。
+两种模式均点验展开、退出全屏和全屏四角覆盖。各录制三次展开与收起，应用帧 P95 液态
+174.79 → 56.18 ms，凝光 78.72 → 56.87 ms。对照取自同台模拟器上一签名包，见[验收报告](reports/2026-11-11-home-render-architecture.md)。
+本轮安装及帧验证均在模拟器执行。
+
 ## 2026-11-12 周视图交互与助手全屏
 
-当前实现位于 `codex/home-render-architecture` 的 `b608b7b5`，工作树
+本阶段实现位于 `codex/home-render-architecture` 的 `b608b7b5`，工作树
 `tmp/home-render-architecture`。长按静止可在松手前打开快捷菜单，移动时接管为单卡拖动，
 浮动卡恢复落位压缩与回弹。无首行特殊课程时，第一节普通课的删除浮标留在网格内。
 多课表设置采样预模糊的多课表背景。周视图助手展开时复用已录制首页，
