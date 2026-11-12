@@ -1276,6 +1276,17 @@ fun CourseScheduleAppUi(
         rootPositionOnScreen = { homeRootPositionOnScreen },
         rootSize = { homeReadabilityRootSize }
     ) ?: cachedWeekHomeBackdrop
+    val assistantPullOffset = remember(homeAssistant) {
+        { if (homeAssistant.pullingHome) homeAssistant.pullPixels else 0f }
+    }
+    val weekAssistantConversation = homeAssistant.stage == HomeAssistantStage.Conversation
+    val weekAssistantBackdrop = rememberScreenScaledBackdrop(
+        backdrop = cachedWeekHomeBackdrop,
+        scale = { dayAgentBackgroundMotionState.backgroundZoom.value },
+        rootPositionOnScreen = { homeRootPositionOnScreen },
+        rootSize = { homeReadabilityRootSize },
+        translation = { Offset(0f, assistantPullOffset()) }
+    )
     val homeMenuDestinationBackdrop = rememberScreenScaledBackdrop(
         backdrop = cachedWeekHomeBackdrop,
         scale = { homeMenuDestinationMotionState.backgroundZoom.value },
@@ -2236,7 +2247,8 @@ fun CourseScheduleAppUi(
                 }
             },
             onRelease = { homeAssistant.release(it && homeAssistant.armed) }
-        ).then(if (courseShortcuts.backgroundActive || courseCopy.active || homeAssistant.visible) {
+        ).then(if (courseShortcuts.backgroundActive || courseCopy.active ||
+            homeAssistant.stage == HomeAssistantStage.Reminder) {
                 Modifier.glassBackdropProducer(centeredDialogSceneBackdrop)
             } else {
                 Modifier.centeredDialogSceneProducer(centeredDialogSceneBackdrop)
@@ -2251,7 +2263,7 @@ fun CourseScheduleAppUi(
                         !homeBackgroundOverlayActive && !courseCopy.active && renderedHomeDialog == null &&
                         !jumpWeekDialogMounted && pickerState.phase is CustomizeUiState.Home &&
                         dayAgentBackgroundMotionState.progress.value < 0.001f,
-                    backdrop = centeredDialogSceneBackdrop,
+                    backdrop = if (weekAssistantConversation) weekAssistantBackdrop else centeredDialogSceneBackdrop,
                     backgroundMotion = dayAgentBackgroundMotionState,
                     onAgentAction = handleHomeAgentAction,
                     onImportFile = { uris -> assistantImportUris = uris; homeDialog = HomeDialog.ImportSchedule }
@@ -2631,7 +2643,7 @@ fun CourseScheduleAppUi(
                 .fillMaxSize()
                 .clipToBounds()
                 .graphicsLayer {
-                    translationY = if (homeAssistant.pullingHome) homeAssistant.pullPixels else 0f
+                    translationY = assistantPullOffset()
                     shape = RoundedRectangle(homeDeviceCornerPx.toDp())
                     clip = translationY != 0f
                     val zoom = dayAgentBackgroundMotionState.backgroundZoom.value
@@ -2659,6 +2671,7 @@ fun CourseScheduleAppUi(
             blurProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.backgroundProgress) },
             useFrozenHomeScene = useFrozenHomeMorphBlur,
             retainedScene = screenGraphicsLayer,
+            replayUnblurredScene = weekAssistantConversation,
             prepareScene = prepareScene@ { freeze ->
                 val frameSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
                 val validSize = frameSize.width > 0 && frameSize.height > 0

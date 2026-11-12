@@ -29,7 +29,8 @@ internal fun rememberScreenScaledBackdrop(
     backdrop: Backdrop?,
     scale: () -> Float,
     rootPositionOnScreen: () -> Offset,
-    rootSize: () -> IntSize
+    rootSize: () -> IntSize,
+    translation: () -> Offset = { Offset.Zero }
 ): Backdrop? {
     if (backdrop == null) return null
     return remember(backdrop) {
@@ -37,7 +38,8 @@ internal fun rememberScreenScaledBackdrop(
             delegate = backdrop,
             scale = scale,
             rootPositionOnScreen = rootPositionOnScreen,
-            rootSize = rootSize
+            rootSize = rootSize,
+            translation = translation
         ).also { com.xiaomanjun.sleepdownschedule.glass.GlassSourceDemand.link(it, backdrop) }
     }
 }
@@ -46,7 +48,8 @@ private class ScreenScaledBackdrop(
     private val delegate: Backdrop,
     private val scale: () -> Float,
     private val rootPositionOnScreen: () -> Offset,
-    private val rootSize: () -> IntSize
+    private val rootSize: () -> IntSize,
+    private val translation: () -> Offset
 ) : Backdrop {
 
     override val isCoordinatesDependent: Boolean = true
@@ -58,6 +61,7 @@ private class ScreenScaledBackdrop(
     ) {
         val coordinates = coordinates
         val zoom = scale()
+        val shift = translation()
         val size = rootSize()
         if (coordinates == null || size.width <= 0 || size.height <= 0) {
             with(delegate) {
@@ -104,6 +108,7 @@ private class ScreenScaledBackdrop(
              * the common screen coordinate space and is not inversely translated a second time.
              */
             withTransform({
+                translate(shift.x, shift.y)
                 scale(
                     scaleX = zoom,
                     scaleY = zoom,
@@ -117,12 +122,13 @@ private class ScreenScaledBackdrop(
                 drawLayer(delegate.graphicsLayer)
             }
         } else {
-            if (kotlin.math.abs(zoom - 1f) < 0.0001f) {
+            if (kotlin.math.abs(zoom - 1f) < 0.0001f && shift == Offset.Zero) {
                 with(delegate) {
                     drawBackdrop(density, coordinates, layerBlock)
                 }
             } else {
                 withTransform({
+                    translate(shift.x, shift.y)
                     scale(
                         scaleX = zoom,
                         scaleY = zoom,

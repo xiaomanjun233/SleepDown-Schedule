@@ -71,6 +71,7 @@ internal fun HomeBackgroundBlurLayer(
     retainedScene: GraphicsLayer,
     prepareScene: ContentDrawScope.(frozen: Boolean) -> Boolean,
     modifier: Modifier = Modifier,
+    replayUnblurredScene: Boolean = false,
     content: @Composable BoxScope.() -> Unit
 ) {
     val latestProgress = rememberUpdatedState(blurProgress)
@@ -125,7 +126,8 @@ internal fun HomeBackgroundBlurLayer(
             drawLayer(blurred)
         }
     } else Modifier.drawWithContent {
-        if (prepareScene(false)) drawLayer(retainedScene) else drawContent()
+        if (prepareScene(replayUnblurredScene && useFrozenHomeScene())) drawLayer(retainedScene)
+        else drawContent()
     }
     Box(modifier.then(sampling), content = content)
 }

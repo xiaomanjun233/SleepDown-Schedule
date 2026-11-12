@@ -84,6 +84,7 @@ fun GlassSurface(
     nativeFollowLightIntensityScale: Float = 1f,
     nativeMaterialVisible: Boolean = true,
     nativeElasticTouchFeedback: Boolean = false,
+    backdropSampleScale: Float = 1f,
     content: @Composable () -> Unit
 ) {
     if (nativeMaterial) {
@@ -103,6 +104,7 @@ fun GlassSurface(
                 else com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Content,
             onClick = onClick,
             backdrop = backdrop,
+            backdropSampleScale = backdropSampleScale,
             elasticTouchFeedback = nativeElasticTouchFeedback,
             shapeProvider = if (morphAllocation != null) {
                 { RoundedRectangle(with(nativeDensity) { morphAllocation.geometry().cornerRadiusPx.toDp() }) }
@@ -180,6 +182,8 @@ fun GlassSurface(
             placementLayer = placementLayer,
             renderBounds = { morphAllocation?.localBounds() },
             allocationPaddingPx = morphAllocation?.paddingPx,
+            // A bounded liquid lens still allocates in its unscaled geometry.
+            backdropSampleScale = if (morphAllocation == null) backdropSampleScale else 1f,
             onDrawSurface = {
                 if (bottomLitTint) {
                     drawBottomLitGlassTint(surfaceColor, topTintFloor = bottomLitTintFloor)

@@ -269,6 +269,8 @@ internal fun DayAgentConversationDialog(
     val homeDockFade = remember { Animatable(1f) }
     val fullMotion = rememberTopAssistantMotion(if (homeInitiallyFullScreen) 1f else 0f)
     var homeFullScreen by remember { mutableStateOf(homeInitiallyFullScreen) }
+    var homeEntranceFinished by remember { mutableStateOf(false) }
+    var fullScreenMotionFinished by remember { mutableStateOf(homeInitiallyFullScreen) }
     var homeResponseVisible by remember { mutableStateOf(sending) }
     var homeResponseStartId by remember { mutableStateOf(0L) }
     var homeSubmittedText by remember { mutableStateOf("") }
@@ -281,8 +283,14 @@ internal fun DayAgentConversationDialog(
     var fullPullReturnJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
     LaunchedEffect(homeFullScreen) {
-        if (!homeFullScreen) attachmentMenuExpanded = false
-        fullMotion.animateTo(if (homeFullScreen) 1f else 0f, overshoot = false)
+        val expanding = homeFullScreen
+        fullScreenMotionFinished = false
+        if (!expanding) attachmentMenuExpanded = false
+        val target = if (expanding) 1f else 0f
+        if (fullMotion.drop.value != target || fullMotion.spread.value != target) {
+            fullMotion.animateTo(target, overshoot = false)
+        }
+        fullScreenMotionFinished = expanding
     }
     LaunchedEffect(homeResponseVisible) {
         val target = if (homeResponseVisible) 1f else 0f
@@ -442,13 +450,8 @@ internal fun DayAgentConversationDialog(
     // Reading width may remain compact on tablets; the material always covers the window.
     val homeMaterialFullRect = with(density) { Rect(0f, 0f, windowWidth.toPx(), windowHeight.toPx()) }
     val homeFinalWidth = if (homeFullScreen) homeExpandedWidth else homeWidth
-    val homeFullScreenSettled by remember(homePresentation, homeFullScreen, closing) { derivedStateOf {
-        homePresentation && homeFullScreen && !closing &&
-        !fullMotion.drop.isRunning && !fullMotion.spread.isRunning &&
-        !homeMotion.drop.isRunning && !homeMotion.spread.isRunning &&
-        fullMotion.drop.value >= 1f && fullMotion.spread.value >= 1f &&
-        homeMotion.drop.value >= 1f && homeMotion.spread.value >= 1f
-    } }
+    val homeFullScreenSettled = homePresentation && homeFullScreen && !closing &&
+        homeEntranceFinished && fullScreenMotionFinished
     // Text always measures in the final viewport; only the outside reveal changes each frame.
     val homeFinalHeight = if (homeFullScreen) windowHeight else maxOf(
         homeCapsuleHeight, homeResponseTop + homeAnswerLimit + homeHandleHeight
@@ -488,6 +491,7 @@ internal fun DayAgentConversationDialog(
                 agentMorphPositionProgress(raw, closing), agentMorphSizeProgress(raw, closing),
                 with(density) { adaptiveMetrics.animationArc.toPx() })
         }
+        if (homeFullScreenSettled) return homeFullRect
         val destination = topAssistantMorphRect(homeCompactRect(), homeFullRect, fullMotion.drop.value, fullMotion.spread.value)
             .let { it.copy(bottom = it.bottom + fullPullDistance * (1f - fullMotion.drop.value.coerceIn(0f, 1f))) }
         return topAssistantMorphRect(
@@ -792,6 +796,9 @@ internal fun DayAgentConversationDialog(
                     backdrop, state.config, androidx.compose.ui.graphics.RectangleShape,
                     nativeMaterial = true,
                     nativeFollowLightIntensityScale = if (homeResponseVisible && !homeFullScreen) 0.45f else 1f,
+                    // The window-sized shell is already blurred. Keep its full-screen
+                    // capture at half resolution, with the radius in screen pixels.
+                    backdropSampleScale = 0.5f,
                     modifier = Modifier.matchParentSize(),
                     morphAllocation = homeSurfaceAllocation.takeUnless { homeFullScreenSettled },
                     shapeProvider = if (homeFullScreenSettled) null else ::homeShellShape,
@@ -1513,7 +1520,10 @@ internal fun DayAgentConversationDialog(
               coroutineScope {
                  launch {
                      if (homePresentation) {
-                         launch { homeMotion.animateTo(1f, overshoot = !homeInitiallyFullScreen) }
+                         launch {
+                             homeMotion.animateTo(1f, overshoot = !homeInitiallyFullScreen)
+                             homeEntranceFinished = true
+                         }
                          expansion.animateTo(1f, tween(320))
                      } else expansion.animateTo(
                           1f,
