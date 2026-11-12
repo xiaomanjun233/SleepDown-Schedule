@@ -76,7 +76,8 @@ class CourseShortcutMaterialTest {
                     Box(Modifier.fillMaxSize()) {
                         Box(Modifier.offset(40.dp, 160.dp).size(90.dp, 120.dp)) {
                             WeekCourseBlock(course, listOf(PeriodEntity(1, "08:00", "08:45")),
-                                height = 120.dp, cardColor = Color.Blue, backdrop = null,
+                                height = 120.dp, topInGrid = 2.dp, cardColor = Color.Blue, backdrop = null,
+                                editActivation = remember { androidx.compose.runtime.mutableFloatStateOf(0f) },
                                 config = config, shortcutPivotX = 1f, gridColumnWidth = 90.dp,
                                 onCourseClick = { _, _ -> })
                         }

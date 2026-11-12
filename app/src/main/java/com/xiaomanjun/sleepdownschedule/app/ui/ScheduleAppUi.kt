@@ -695,18 +695,19 @@ fun CourseScheduleAppUi(
             personalizationSession.sliderKey != null || personalizationPreviewProgress > 0.001f
         }
     }
-    val homeBackgroundOverlayActive =
+    val retainedHomeOverlayActive =
         homeAnchoredOverlayRequest != null || homeAnchoredMorphState.phase != HomeAnchoredOverlayPhase.Idle ||
             destinationTransitionActive || courseEditorRequest != null ||
-            courseEditorSessions.any { it.visible } || courseShortcuts.request != null ||
+            courseEditorSessions.any { it.visible } || courseShortcuts.backgroundActive ||
             homeAssistant.stage == HomeAssistantStage.Conversation
+    val homeBackgroundOverlayActive = retainedHomeOverlayActive || courseShortcuts.request != null
     val preserveHomeOverlayMotion = !isLandscapeMenuWindow() ||
         activeHomeAnchoredOverlay == HomeAnchoredOverlayKind.Personalize ||
-        courseShortcuts.request != null || homeAssistant.visible
+        courseShortcuts.backgroundActive || homeAssistant.visible
     val homeBackgroundFreezeActive = preserveHomeOverlayMotion && !rootPageMotion.moving && !homeModeMotion.moving && shouldUseFrozenHomeMorphBlur(
         screenIsHome = screen is Screen.Home,
         previewActive = personalizationPreviewActive,
-        overlayActive = homeBackgroundOverlayActive
+        overlayActive = retainedHomeOverlayActive
     )
     // Retain data inputs as well as the drawn scene. Foreground editing still uses the live
     // ViewModel state. A copied course must enter layout before its existing landing animation.
@@ -1451,7 +1452,7 @@ fun CourseScheduleAppUi(
         !homeSidebarState.moving && shouldReuseHomeSurface(
             screenIsHome = screen is Screen.Home,
             previewActive = personalizationPreviewActive,
-            overlayActive = homeBackgroundOverlayActive,
+            overlayActive = retainedHomeOverlayActive,
             cachedScheduleId = recordedScheduleId.get(),
             currentScheduleId = visualState.config.id,
             cachedFrameKey = lastRecordedHomeFrameKey.get(),
@@ -2235,7 +2236,7 @@ fun CourseScheduleAppUi(
                 }
             },
             onRelease = { homeAssistant.release(it && homeAssistant.armed) }
-        ).then(if (courseShortcuts.request != null || courseCopy.active || homeAssistant.visible) {
+        ).then(if (courseShortcuts.backgroundActive || courseCopy.active || homeAssistant.visible) {
                 Modifier.glassBackdropProducer(centeredDialogSceneBackdrop)
             } else {
                 Modifier.centeredDialogSceneProducer(centeredDialogSceneBackdrop)
@@ -2655,7 +2656,7 @@ fun CourseScheduleAppUi(
                 .background(MaterialTheme.colorScheme.background)
         ) {
         HomeBackgroundBlurLayer(
-            blurProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.progress.value) },
+            blurProgress = { maxOf(homeOverlayBackgroundBlurProgress(), courseShortcuts.backgroundProgress) },
             useFrozenHomeScene = useFrozenHomeMorphBlur,
             retainedScene = screenGraphicsLayer,
             prepareScene = prepareScene@ { freeze ->

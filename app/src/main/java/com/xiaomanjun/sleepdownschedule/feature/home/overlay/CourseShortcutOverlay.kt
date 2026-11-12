@@ -41,6 +41,7 @@ import com.xiaomanjun.sleepdownschedule.model.HomeMode
 import kotlin.math.roundToInt
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -64,6 +65,9 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
         private set
     val progress = Animatable(0f)
     val cardScale = Animatable(1f)
+    val backgroundProgress: Float
+        get() = if (request == null) 0f else ((progress.value - 0.45f) / 0.55f).coerceIn(0f, 1f)
+    val backgroundActive by derivedStateOf { backgroundProgress > 0f }
     private var motion: Job? = null
     // Optional native window exit barrier. Background blur keeps its existing animation.
     var dismissNativeMenu: (((() -> Unit) -> Unit))? = null
@@ -72,21 +76,26 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
         motion?.cancel()
         request = value
         closing = false
-        motion = scope.launch {
+        motion = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             progress.snapTo(0f)
             cardScale.snapTo(1f)
-            // Press first. The return lift and menu expansion then share the same start frame.
-            cardScale.animateTo(0.98f, tween(85, easing = FastOutSlowInEasing))
             launch {
                 cardScale.animateTo(1.015f, keyframes {
-                    durationMillis = 215
-                    0.98f at 0 using FastOutSlowInEasing
-                    1.02f at 135 using FastOutSlowInEasing
-                    1.015f at 215
+                    durationMillis = 265
+                    1f at 0 using FastOutSlowInEasing
+                    0.98f at 65 using FastOutSlowInEasing
+                    1.02f at 195 using FastOutSlowInEasing
+                    1.015f at 265
                 })
             }
+            // The local menu starts on long-press. The shared depth ramps in once
+            // the menu has started to expand, leaving the immediate drag handoff cheap.
             progress.animateTo(1f, spring(dampingRatio = 0.9f, stiffness = 380f))
         }
+    }
+
+    fun cancel(value: CourseShortcutRequest) {
+        if (request === value) clearPresentation()
     }
 
     fun close(dispatchImmediately: Boolean = false, afterClose: (() -> Unit)? = null) {
@@ -108,11 +117,15 @@ internal class CourseShortcutController(private val scope: CoroutineScope) {
     }
 
     fun reset() {
+        copyRequest = null
+        clearPresentation()
+    }
+
+    private fun clearPresentation() {
         motion?.cancel()
         request = null
-        copyRequest = null
         closing = false
-        motion = scope.launch {
+        motion = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             progress.snapTo(0f)
             cardScale.snapTo(1f)
         }
@@ -258,7 +271,8 @@ internal fun CourseShortcutOverlay(
                 onDismiss = { controller.close() }, bindDismiss = { controller.dismissNativeMenu = it },
                 anchorFraction = anchorFraction)
             if (!nativeMenu) HomeAddMenuMorphPanel(
-                backdrop = backdrop, config = config, actions = actions,
+                backdrop = if (controller.backgroundActive) backdrop else cardBackdrop,
+                config = config, actions = actions,
                 homeMode = HomeMode.Week, onHomeModeChange = {},
                 targetSizeProvider = { IntSize(target.width.roundToInt(), target.height.roundToInt()) },
                 surfaceAlphaProvider = { controller.progress.value.coerceIn(0f, 1f) },

@@ -2,6 +2,8 @@ package com.xiaomanjun.sleepdownschedule.feature.home.week
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
@@ -622,12 +624,16 @@ internal class WeekEditOverlayController(
                 )
             }
             val scaleJob = launch {
-                // Keep the impact on the floating card and start it in the release frame. The
-                // lower stiffness preserves one readable compression/rebound instead of finishing
-                // before the clone reaches its snapped cell.
                 overlayScale.animateTo(
                     1f,
-                    spring(dampingRatio = 0.46f, stiffness = 300f)
+                    keyframes {
+                        // Land on the same spring as the card position, with a distinct
+                        // compression and rebound entirely on the moving foreground card.
+                        durationMillis = 350
+                        1.03f at 115 using FastOutSlowInEasing
+                        0.973f at 183 using FastOutSlowInEasing
+                        1.014f at 265 using FastOutSlowInEasing
+                    }
                 )
             }
             val rotationJob = launch {

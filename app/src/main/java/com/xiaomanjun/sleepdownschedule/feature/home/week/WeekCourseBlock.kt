@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -12,7 +13,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -170,6 +170,7 @@ fun WeekCourseBlock(
     course: CourseEntity,
     periods: List<PeriodEntity>,
     height: Dp,
+    topInGrid: Dp,
     cardColor: ComposeColor,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
@@ -199,7 +200,6 @@ fun WeekCourseBlock(
     editWeek: Int = 1,
     allWeekCourses: List<CourseEntity> = emptyList(),
     weekdayCount: Int = 7,
-    editScrollState: ScrollState? = null,
     onEnterEditMode: () -> Unit = {},
     onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
     onDeleteSingleWeekCourse: (CourseEntity) -> Unit = {},
@@ -384,15 +384,16 @@ fun WeekCourseBlock(
     val adjustedEditor = LocalAdjustedCourseEditor.current
     val adjustedOccurrenceDate = if (editingAllowed) null else
         scheduleWeekStartDate(config, editWeek).plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, dayIndex))
-    val openShortcut by rememberUpdatedState<() -> Unit> {
-        if (editingAllowed) refreshOwnBounds()?.let { bounds ->
-            shortcuts?.open(CourseShortcutRequest(course, editWeek, bounds,
-                with(density) { cardCorner.toPx() }, shortcutPivotX, onEnterEditMode))
+    val openShortcut by rememberUpdatedState<() -> CourseShortcutRequest?> {
+        if (!editingAllowed || shortcuts == null) null else refreshOwnBounds()?.let { bounds ->
+            CourseShortcutRequest(course, editWeek, bounds, with(density) { cardCorner.toPx() },
+                shortcutPivotX, onEnterEditMode).also(shortcuts::open)
         }
     }
-    val startBodyDrag by rememberUpdatedState<(Offset) -> Boolean> { position ->
+    val startBodyDrag by rememberUpdatedState<(Offset, CourseShortcutRequest?) -> Boolean> { position, shortcut ->
         val request = buildWeekEditOverlayRequest(WeekEditOverlayMode.Move, position)
         if (request != null && !customTimeLocked) {
+            if (shortcut != null) shortcuts?.cancel(shortcut)
             bodyDragging = true
             onStartWeekEditOverlay(request)
             true
@@ -434,14 +435,29 @@ fun WeekCourseBlock(
                 return@awaitEachGesture
             }
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            val shortcutGesture = !currentEditMode
+            var heldShortcut: CourseShortcutRequest? = null
+            // A held card gets immediate feedback. Give a moving finger a short chance
+            // to claim the gesture before allocating the menu window and home blur.
+            var shortcutDeadline = if (shortcutGesture) SystemClock.uptimeMillis() + 80L else 0L
+            val shortcutDrift = minOf(viewConfiguration.touchSlop, 1.5.dp.toPx())
             val velocityTracker = VelocityTracker()
             velocityTracker.addPosition(longPress.uptimeMillis, longPress.position)
             var accumulated = Offset.Zero
-            var dragging = currentEditMode && !customTimeLocked && startBodyDrag(longPress.position)
+            var dragging = !shortcutGesture && !customTimeLocked && startBodyDrag(longPress.position, null)
             var released = false
             try {
                 while (true) {
-                    val event = awaitPointerEvent()
+                    val event = if (shortcutDeadline == 0L) {
+                        awaitPointerEvent()
+                    } else {
+                        withTimeoutOrNull(shortcutDeadline - SystemClock.uptimeMillis()) { awaitPointerEvent() }
+                    }
+                    if (event == null) {
+                        shortcutDeadline = 0L
+                        heldShortcut = openShortcut()
+                        continue
+                    }
                     val change = event.changes.firstOrNull { it.id == longPress.id } ?: break
                     if (event.changes.any { it.id != longPress.id && it.pressed } || change.isConsumed) break
                     if (!change.pressed) {
@@ -451,10 +467,11 @@ fun WeekCourseBlock(
                     }
                     val delta = change.positionChange()
                     accumulated += delta
+                    if (shortcutDeadline != 0L && accumulated.getDistance() > shortcutDrift) shortcutDeadline = 0L
                     velocityTracker.addPosition(change.uptimeMillis, change.position)
                     change.consume()
                     if (!dragging && !customTimeLocked && accumulated.getDistance() > viewConfiguration.touchSlop) {
-                        dragging = startBodyDrag(longPress.position)
+                        dragging = startBodyDrag(longPress.position, heldShortcut)
                         if (dragging) dragBody(accumulated)
                     } else if (dragging) {
                         dragBody(delta)
@@ -470,9 +487,9 @@ fun WeekCourseBlock(
                         finishBodyDrag(velocityTracker.calculateVelocity())
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     } else cancelBodyDrag()
-                } else if (released && !currentEditMode) {
-                    // Release confirms the shortcut gesture. Moving claims the card instead.
-                    openShortcut()
+                } else if (shortcutGesture) {
+                    if (released && heldShortcut == null) openShortcut()
+                    if (!released) heldShortcut?.let { shortcuts?.cancel(it) }
                 }
             }
         }
@@ -555,16 +572,15 @@ fun WeekCourseBlock(
                 refreshOwnBounds()
             }
         }
-    val shortcut = shortcuts?.request
-    val hiddenByOverlay = copyMotion?.hides(course, editWeek) == true ||
-        (shortcut?.course?.id == course.id && shortcut.week == editWeek &&
-            shortcut.bounds == ownBoundsRef[0])
-    val visibilityModifier = if (
-        shortcuts?.request != null || copyMotion?.active == true ||
-        copyMotion?.hides(course, editWeek) == true
-    ) Modifier.graphicsLayer {
-        alpha = if (hiddenByOverlay) 0f else 1f
-    } else Modifier
+    val hiddenByShortcut by remember(shortcuts, course.id, editWeek, ownBoundsRef) {
+        derivedStateOf {
+            shortcuts?.request?.let {
+                it.course.id == course.id && it.week == editWeek && it.bounds == ownBoundsRef[0]
+            } == true
+        }
+    }
+    val hiddenByOverlay = hiddenByShortcut || copyMotion?.hides(course, editWeek) == true
+    val visibilityModifier = if (hiddenByOverlay) Modifier.graphicsLayer { alpha = 0f } else Modifier
     CourseBoundsSource(
         courseId = course.id,
         visible = editingId != course.id && course.id !in
@@ -581,7 +597,7 @@ fun WeekCourseBlock(
                 .semantics {
                     if (copyMotion?.active != true) {
                         onClick(if (editingAllowed) "查看课程" else "查看调休课程") { clickBody(); true }
-                        if (editingAllowed) onLongClick("课程快捷操作") { openShortcut(); true }
+                        if (editingAllowed) onLongClick("课程快捷操作") { openShortcut() != null }
                     }
                 }
                 .then(visibilityModifier)
@@ -851,11 +867,16 @@ fun WeekCourseBlock(
                     )
                 }
             }
+            val floatingCardOwnsVisual = (isOverlayTarget || activeOverlayCourseId == course.id) &&
+                weekEditMotionState?.realCardVisible != true
+            val showEditControls = editMode && !floatingCardOwnsVisual
             AnimatedVisibility(
-                visible = editMode,
+                visible = showEditControls,
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .offset(x = (-5).dp, y = (-5).dp)
+                    // The first ordinary course may begin right at the header when there is
+                    // no special slot before it. Keep the badge and its entrance inside the grid.
+                    .offset(x = (-5).dp, y = maxOf((-5).dp, 2.dp - topInGrid))
                     .size(22.dp)
                     .zIndex(7f),
                 enter = fadeIn(tween(125, delayMillis = (editControlOrder % 7) * 9)) +
@@ -959,7 +980,7 @@ fun WeekCourseBlock(
             // already provides the four drawing pixels used by this handle; promoting only the
             // final-row handle to a window Popup made it render above the app's bottom dock.
             AnimatedVisibility(
-                visible = editMode && !customTimeLocked,
+                visible = showEditControls && !customTimeLocked,
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .offset(x = 4.dp, y = 4.dp)

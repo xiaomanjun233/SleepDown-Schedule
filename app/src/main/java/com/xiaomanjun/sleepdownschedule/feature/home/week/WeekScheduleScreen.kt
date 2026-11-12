@@ -351,9 +351,7 @@ internal fun SinglePillWeekScheduleScreen(
             }
         }
     }
-    // Keep a small cross-axis drawing gutter around HorizontalPager while edit chrome is visible.
-    // The first-row delete pill can then overlap the weekday header instead of being clipped or
-    // pushed into the course card. Retain it briefly for the exit scale/fade as well.
+    // Keep the edit chrome's shadows and exit scale outside the pager's cross-axis clip.
     var retainEditControlOverflow by remember { mutableStateOf(weekEditMode) }
     LaunchedEffect(weekEditMode) {
         if (weekEditMode) {

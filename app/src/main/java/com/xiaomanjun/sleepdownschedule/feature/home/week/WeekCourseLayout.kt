@@ -218,7 +218,6 @@ private fun WeekDayColumn(
     editWeek: Int = 1,
     allWeekCourses: List<CourseEntity> = emptyList(),
     weekdayCount: Int = 7,
-    editScrollState: ScrollState? = null,
     onEnterEditMode: () -> Unit = {},
     onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
     conflictFocusCourseId: Long? = null,
@@ -328,6 +327,7 @@ private fun WeekDayColumn(
                     course = segment.course,
                     periods = periods,
                     height = segmentHeight,
+                    topInGrid = segmentTop,
                     cardColor = cardColor,
                     backdrop = backdrop,
                     config = config,
@@ -359,7 +359,6 @@ private fun WeekDayColumn(
                     editWeek = editWeek,
                     allWeekCourses = allWeekCourses,
                     weekdayCount = weekdayCount,
-                    editScrollState = editScrollState,
                     onEnterEditMode = onEnterEditMode,
                     onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
                     onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
@@ -741,7 +740,6 @@ fun WeekCourseColumnsLayer(
                         editWeek = editWeek,
                         allWeekCourses = allWeekCourses,
                         weekdayCount = weekdays.size,
-                        editScrollState = editScrollState,
                         onEnterEditMode = enterDayEditMode,
                         onUpdateSingleWeekCourse = onUpdateSingleWeekCourse,
                         conflictFocusCourseId = conflictFocusCourseId,
@@ -786,6 +784,7 @@ fun WeekCourseColumnsLayer(
                                     color = glassForegroundColor(config), modifier = Modifier.height(12.dp))
                                 WeekCourseBlock(
                                     course = course, periods = periods, height = 64.dp,
+                                    topInGrid = timeGrid.totalHeight.dp + 36.dp + 88.dp * index,
                                     cardColor = cardColor, backdrop = backdrop,
                                     config = config, dayIndex = day, gridColumnWidth = dayColumnWidth,
                                     shortcutPivotX = shortcutPivotX,
@@ -796,7 +795,7 @@ fun WeekCourseColumnsLayer(
                                     editActivation = editActivation,
                                     editingAllowed = !adjustedDay,
                                     muted = cancelledDay,
-                                    allWeekCourses = allWeekCourses, editScrollState = editScrollState,
+                                    allWeekCourses = allWeekCourses,
                                     onEnterEditMode = enterDayEditMode,
                                     onDeleteSingleWeekCourse = onDeleteSingleWeekCourse,
                                     onCourseClick = onCourseClick
