@@ -42,17 +42,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
@@ -62,6 +68,8 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -69,16 +77,27 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.itos.coui.button.CouiButton
+import com.itos.coui.button.CouiButtonDefaults
 import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.couiIlluminatedCapsuleMaterial
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.retainGlassSources
 import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionButton
 import java.io.IOException
+import java.text.BreakIterator
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-private const val WelcomeTypingMillis = 4_500f
-private const val TitlePauseMillis = 200f
-private const val ContinueDelayMillis = 100f
+internal const val WelcomeFirstLineMillis = WelcomePanelSettleMillis + 80f
+internal const val WelcomeSecondLineMillis = WelcomeFirstLineMillis + 260f
+internal const val WelcomeContinueMillis = WelcomeSecondLineMillis + 340f
+private const val LineRevealMillis = 300f
+private const val ContinueRevealMillis = 220f
+internal val WelcomeContinueColors = CouiButtonDefaults.secondaryColors(dark = false, material = true)
+    .copy(surface = Color.White.copy(alpha = 0.47f))
 // The 3.583 s character animation has a short hold before releasing its decoder.
 private const val MascotEndMillis = WelcomePanelSettleMillis + 3_750f
 private val WelcomeClockSaver = Saver<Animatable<Float, AnimationVector1D>, Float>(
@@ -105,10 +124,7 @@ internal fun VersionWelcomeScreen(
     val reducedMotion = rememberWelcomeReducedMotion()
     val name = stringResource(R.string.app_product_name)
     val headline = stringResource(R.string.version_welcome_headline)
-    val letterMillis = (WelcomeTypingMillis - TitlePauseMillis) / (name.length + headline.length)
-    val headlineStart = WelcomePanelSettleMillis + name.length * letterMillis + TitlePauseMillis
-    val actionStart = WelcomePanelSettleMillis + WelcomeTypingMillis + ContinueDelayMillis
-    val duration = maxOf(MascotEndMillis, actionStart + 250f)
+    val duration = MascotEndMillis
     val clock = rememberSaveable(saver = WelcomeClockSaver) {
         Animatable(if (reducedMotion) duration else 0f)
     }
@@ -124,23 +140,37 @@ internal fun VersionWelcomeScreen(
             }
         }
     }
-    val showTitle by remember(clock) { derivedStateOf { clock.value >= WelcomePanelSettleMillis } }
-    val showAction by remember(clock, actionStart) { derivedStateOf { clock.value >= actionStart } }
+    val showTitle by remember(clock) { derivedStateOf { clock.value >= WelcomeFirstLineMillis } }
+    val showAction by remember(clock) { derivedStateOf { clock.value >= WelcomeContinueMillis } }
+    val lightVisible by remember(clock) { derivedStateOf { clock.value >= WelcomePanelSettleMillis } }
     val lightNavigation by remember(clock) {
         derivedStateOf { clock.value >= WelcomeWhiteFrameMillis }
     }
     LaunchedEffect(lightNavigation) { onLightBackground(lightNavigation) }
+    var lightPhase by remember { mutableFloatStateOf(0f) }
+    LaunchedEffect(lifecycle, lightVisible, reducedMotion, opening) {
+        if (!lightVisible || reducedMotion || opening) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            var previous = withFrameNanos { it }
+            while (true) {
+                withFrameNanos { time ->
+                    lightPhase = (lightPhase + (time - previous) / (WelcomeLightBreathMillis * 1_000_000f)) % 1f
+                    previous = time
+                }
+            }
+        }
+    }
+    val lightBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Background, "welcome-light")
     BoxWithConstraints(
         Modifier.fillMaxSize(),
         contentAlignment = Alignment.TopCenter,
     ) {
         val maxDrop = if (maxWidth >= 600.dp) 96.dp else 72.dp
-        val density = androidx.compose.ui.platform.LocalDensity.current
+        val density = LocalDensity.current
         val statusTop = with(density) { WindowInsets.statusBarsIgnoringVisibility.getTop(this).toDp() }
         val panelDrop = maxOf(statusTop, (maxHeight * 0.15f).coerceAtMost(maxDrop))
-        val margin = if (maxWidth >= 450.dp) 72.dp else 32.dp
+        val margin = (maxWidth * 0.085f).coerceIn(12.dp, 64.dp)
         val titleTop = panelDrop + (maxHeight * 0.16f).coerceAtMost(72.dp)
-        val titleSize = ((maxWidth - margin * 2).value * 0.123f).coerceIn(28f, 40f).sp
         val rail = Modifier.widthIn(max = 680.dp).fillMaxWidth()
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
             .padding(horizontal = margin)
@@ -149,32 +179,23 @@ internal fun VersionWelcomeScreen(
             Modifier.matchParentSize(),
             contentAlignment = Alignment.TopCenter,
         ) {
-            Box(Modifier.matchParentSize().versionWelcomeBackdrop(panelDrop, elapsedMillis))
+            Box(Modifier.matchParentSize()
+                .glassBackdropProducer(lightBackdrop, enabled = showAction && Build.VERSION.SDK_INT >= 31)
+                .versionWelcomeBackdrop(panelDrop, elapsedMillis, lightPhase = { lightPhase }))
             WelcomeMascot(
                 rail.height(panelDrop + 8.dp),
                 elapsedMillis,
                 reducedMotion,
             )
             if (showTitle) {
-                val style = TextStyle(
-                    color = Color(0xFF171719),
-                    fontSize = titleSize,
-                    fontFamily = FontFamily.SansSerif,
-                    fontWeight = FontWeight.SemiBold,
-                    lineHeight = titleSize * 1.2f,
-                )
-                Box(
-                    rail.fillMaxHeight()
+                WelcomeHeading(
+                    name, headline, elapsedMillis,
+                    modifier = rail.fillMaxHeight()
                         .padding(top = titleTop)
                         .windowInsetsPadding(WindowInsets.navigationBars.only(WindowInsetsSides.Bottom))
-                        .padding(bottom = 104.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Column(Modifier.semantics(mergeDescendants = true) { heading() }) {
-                        WelcomeTypedLine(name, style, WelcomePanelSettleMillis, letterMillis, elapsedMillis)
-                        WelcomeTypedLine(headline, style, headlineStart, letterMillis, elapsedMillis)
-                    }
-                }
+                        .padding(bottom = 100.dp)
+                        .verticalScroll(rememberScrollState()),
+                )
             }
         }
         Box(
@@ -183,15 +204,25 @@ internal fun VersionWelcomeScreen(
                 .padding(bottom = 24.dp),
             contentAlignment = Alignment.Center,
         ) {
-            if (showAction) LiveTransitionButton(modifier = Modifier.graphicsLayer {
-                alpha = WelcomeTextEasing.transform(segment(elapsedMillis(), actionStart, actionStart + 250f))
-            }) { source ->
-                CouiButton(
-                    modifier = Modifier.widthIn(min = 160.dp).heightIn(min = 56.dp),
-                    text = stringResource(R.string.version_welcome_continue),
-                    dark = false,
-                    onClick = { if (!opening) onContinue(source.takeUnless { reducedMotion }) },
-                )
+            if (showAction) {
+                val lightMaterial = if (Build.VERSION.SDK_INT >= 31) {
+                    retainGlassSources(lightBackdrop)
+                    couiIlluminatedCapsuleMaterial(lightBackdrop, CouiButtonDefaults.shape)
+                } else Modifier
+                LiveTransitionButton(modifier = Modifier.graphicsLayer {
+                    alpha = WelcomeTextEasing.transform(segment(
+                        elapsedMillis(), WelcomeContinueMillis, WelcomeContinueMillis + ContinueRevealMillis,
+                    ))
+                }) { source ->
+                    CouiButton(
+                        modifier = Modifier.widthIn(min = 164.dp).heightIn(min = 52.dp),
+                        text = stringResource(R.string.version_welcome_continue),
+                        dark = false,
+                        colors = WelcomeContinueColors,
+                        backgroundModifier = lightMaterial,
+                        onClick = { if (!opening) onContinue(source.takeUnless { reducedMotion }) },
+                    )
+                }
             }
         }
     }
@@ -200,24 +231,85 @@ internal fun VersionWelcomeScreen(
 private val WelcomeTextEasing = CubicBezierEasing(0.30f, 0f, 0.10f, 1f)
 
 @Composable
-private fun WelcomeTypedLine(
+internal fun WelcomeHeading(name: String, headline: String, elapsedMillis: () -> Float, modifier: Modifier = Modifier) {
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    BoxWithConstraints(modifier) {
+        val width = with(density) { maxWidth.roundToPx() }
+        val preferred = (maxWidth.value * 0.125f).coerceIn(26f, 40f)
+        val style = remember(name, headline, width, density, measurer) {
+            val base = TextStyle(
+                color = Color(0xFF171719),
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.SemiBold,
+            )
+            fun fits(size: Float): Boolean {
+                val font = base.copy(fontSize = size.sp)
+                return measurer.measure(name, font, maxLines = 1, softWrap = false).size.width <= width &&
+                    measurer.measure(headline, font, maxLines = 1, softWrap = false).size.width <= width
+            }
+            val fontSize = if (fits(preferred)) preferred else {
+                var lower = 1f
+                var upper = preferred
+                repeat(9) {
+                    val mid = (lower + upper) / 2f
+                    if (fits(mid)) lower = mid else upper = mid
+                }
+                lower
+            }
+            base.copy(fontSize = fontSize.sp, lineHeight = (fontSize * 1.2f).sp)
+        }
+        Column(Modifier.semantics(mergeDescendants = true) { heading() }) {
+            WelcomeRevealLine(name, style, WelcomeFirstLineMillis, elapsedMillis)
+            WelcomeRevealLine(headline, style, WelcomeSecondLineMillis, elapsedMillis)
+        }
+    }
+}
+
+@Composable
+private fun WelcomeRevealLine(
     text: String,
     style: TextStyle,
     startMillis: Float,
-    letterMillis: Float,
     elapsedMillis: () -> Float,
 ) {
-    val revealed by remember(text, startMillis, letterMillis, elapsedMillis) {
-        derivedStateOf { ((elapsedMillis() - startMillis) / letterMillis).toInt().coerceIn(0, text.length) }
+    val elapsed by remember(startMillis, elapsedMillis) {
+        derivedStateOf { (elapsedMillis() - startMillis).coerceIn(-1f, LineRevealMillis) }
     }
-    // Measure the complete line from the first character so wrapping stays fixed during typing.
-    val visibleText = remember(text, revealed) {
-        buildAnnotatedString {
-            append(text)
-            if (revealed < text.length) addStyle(SpanStyle(color = Color.Transparent), revealed, text.length)
+    if (elapsed < 0f) return
+    if (elapsed >= LineRevealMillis) {
+        BasicText(text, style = style, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+        return
+    }
+    val ends = remember(text) {
+        val boundaries = BreakIterator.getCharacterInstance().apply { setText(text) }
+        generateSequence { boundaries.next().takeUnless { it == BreakIterator.DONE } }.toList()
+    }
+    val blurRadius = with(LocalDensity.current) { 5.dp.toPx() }
+    val visibleText = buildAnnotatedString {
+        append(text)
+        var start = 0
+        for ((index, end) in ends.withIndex()) {
+            val delay = 105f * index / (ends.size - 1).coerceAtLeast(1)
+            val sharp = smoothSegment(elapsed, delay, delay + 155f)
+            addStyle(
+                SpanStyle(
+                    color = style.color.copy(alpha = 0.10f + sharp * 0.90f),
+                    shadow = if (sharp < 1f) Shadow(
+                        color = style.color.copy(alpha = 0.70f * (1f - sharp)),
+                        offset = Offset.Zero, blurRadius = blurRadius * (1f - sharp),
+                    ) else Shadow.None,
+                ),
+                start, end,
+            )
+            start = end
         }
     }
-    BasicText(visibleText, style = style)
+    BasicText(
+        visibleText,
+        modifier = Modifier.graphicsLayer { alpha = WelcomeTextEasing.transform(segment(elapsed, 0f, 165f)) },
+        style = style, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
+    )
 }
 
 @Composable

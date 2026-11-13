@@ -16,9 +16,9 @@ import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
-import com.itos.coui.button.CouiButtonDefaults
 import com.xiaomanjun.sleepdownschedule.MainActivity
 import com.xiaomanjun.sleepdownschedule.feature.onboarding.VersionWelcomeEntry
+import com.xiaomanjun.sleepdownschedule.feature.onboarding.WelcomeContinueColors
 import com.xiaomanjun.sleepdownschedule.feature.onboarding.VersionWelcomeScreen
 import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
@@ -31,6 +31,7 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionSession
 import com.xiaomanjun.sleepdownschedule.transition.TransitionSessionId
 import com.xiaomanjun.sleepdownschedule.transition.TransitionSessionState
 import com.xiaomanjun.sleepdownschedule.transition.liveTransitionBoundsInActivity
+import com.xiaomanjun.sleepdownschedule.transition.transitionSurfaceColor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -74,10 +75,7 @@ class VersionWelcomeActivity : ComponentActivity() {
                     finishWelcome()
                     return@launch
                 }
-                val anchor = TransitionAnchorFrame(
-                    bounds, bounds.height / 2f, bitmap = null,
-                    surfaceColor = CouiButtonDefaults.secondaryColors(dark = false).surface.toArgb(),
-                )
+                val anchor = TransitionAnchorFrame(bounds, bounds.height / 2f, bitmap = null)
                 val result = ActivityTransitionCoordinator.open(
                     this@VersionWelcomeActivity, TransitionRouteId.WelcomeToHome, destination,
                     TransitionPayload(openingAnchor = anchor, returnAnchorProvider = null, openingSourceView = source),
@@ -87,7 +85,8 @@ class VersionWelcomeActivity : ComponentActivity() {
                             val decor = window.decorView
                             captureGlassWindowRegion(window, Rect(0f, 0f, decor.width.toFloat(), decor.height.toFloat()))
                         } else null
-                        payload.copy(openingAnchor = anchor.copy(bitmap = frame), backgroundBitmap = underlay)
+                        val fill = frame?.let { transitionSurfaceColor(it, WelcomeContinueColors.surface.toArgb()) }
+                        payload.copy(openingAnchor = anchor.copy(bitmap = frame, surfaceColor = fill), backgroundBitmap = underlay)
                     },
                 )
                 if (result is TransitionLaunchResult.Failed) {

@@ -7,8 +7,8 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -25,9 +25,14 @@ private const val WelcomeOrbitMillis = 1_380f
 internal const val WelcomeWhiteFrameMillis = 1_820f
 internal const val WelcomePanelStartMillis = WelcomeWhiteFrameMillis + 96f
 internal const val WelcomePanelSettleMillis = WelcomePanelStartMillis + 900f
+internal const val WelcomeLightBreathMillis = 5_600f
 private val BloomEasing = CubicBezierEasing(0.33f, 0f, 0.68f, 1f)
 
-internal fun Modifier.versionWelcomeBackdrop(panelDrop: Dp, elapsedMillis: () -> Float) = drawWithCache {
+internal fun Modifier.versionWelcomeBackdrop(
+    panelDrop: Dp,
+    elapsedMillis: () -> Float,
+    lightPhase: () -> Float,
+) = drawWithCache {
     val paper = Path()
     val drop = panelDrop.toPx()
     val rebound = (drop - 10.dp.toPx()).coerceAtLeast(0f)
@@ -42,6 +47,9 @@ internal fun Modifier.versionWelcomeBackdrop(panelDrop: Dp, elapsedMillis: () ->
     )
     val warmLight = light(Color(0xFFFFD1A8))
     val coolLight = light(Color(0xFFB6D6FF))
+    val violet = ambientLight(Color(0xFFCE90DA))
+    val apricot = ambientLight(Color(0xFFF9C39C))
+    val blue = ambientLight(Color(0xFF8BBEFA))
     onDrawBehind {
         val millis = elapsedMillis()
         drawRect(Color.Black)
@@ -75,16 +83,45 @@ internal fun Modifier.versionWelcomeBackdrop(panelDrop: Dp, elapsedMillis: () ->
             paper.addRoundRect(RoundRect(Rect(0f, top, size.width, size.height),
                 topLeft = corner, topRight = corner))
             drawPath(paper, Color.White)
+
+            val bloom = smoothSegment(time, 520f, 1_650f)
+            if (bloom > 0f) {
+                val angle = lightPhase() * 2.0 * PI
+                val breath = (0.5 - 0.5 * cos(angle)).toFloat()
+                val drift = sin(angle).toFloat() * size.width * 0.045f * bloom
+                val panelHeight = size.height - top
+                val bottom = size.height + panelHeight * lerp(0.13f, -0.015f, bloom)
+                val height = panelHeight * lerp(0.25f, 0.31f, breath)
+                val strength = bloom * lerp(0.58f, 0.83f, breath)
+                drawLight(violet, Offset(size.width * 0.04f + drift, bottom), size.width * 0.62f, height, strength)
+                drawLight(apricot, Offset(size.width * 0.49f + drift, bottom), size.width * 0.68f, height, strength)
+                drawLight(blue, Offset(size.width * 0.98f + drift, bottom), size.width * 0.55f, height, strength * 0.95f)
+            }
         }
     }
 }
 
-private fun DrawScope.drawOrbLight(brush: Brush, center: Offset, spread: Float, strength: Float) {
+private fun ambientLight(color: Color) = Brush.radialGradient(
+    0f to color, 0.42f to color.copy(alpha = 0.70f), 0.73f to color.copy(alpha = 0.22f),
+    1f to color.copy(alpha = 0f), center = Offset.Zero, radius = 1f,
+)
+
+private fun DrawScope.drawOrbLight(brush: Brush, center: Offset, spread: Float, strength: Float) =
+    drawLight(brush, center, spread, spread, strength, BlendMode.Plus)
+
+private fun DrawScope.drawLight(
+    brush: Brush,
+    center: Offset,
+    radiusX: Float,
+    radiusY: Float,
+    strength: Float,
+    blendMode: BlendMode = BlendMode.SrcOver,
+) {
     withTransform({
         translate(center.x, center.y)
-        scale(spread, spread, Offset.Zero)
+        scale(radiusX, radiusY, Offset.Zero)
     }) {
-        drawCircle(brush, radius = 1f, center = Offset.Zero, alpha = strength, blendMode = BlendMode.Plus)
+        drawCircle(brush, radius = 1f, center = Offset.Zero, alpha = strength, blendMode = blendMode)
     }
 }
 
