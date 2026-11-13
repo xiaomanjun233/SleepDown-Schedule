@@ -130,7 +130,9 @@ class AboutSettingsUiTest {
         compose.onNodeWithText("历史日志").assertDoesNotExist()
         val more = compose.onNodeWithContentDescription("更多选项")
         more.performClick()
+        val highlightsMenuItem = compose.onNodeWithText("查看亮点功能").assertIsDisplayed()
         val historyMenuItem = compose.onNodeWithText("历史日志").assertIsDisplayed()
+        assertTrue(highlightsMenuItem.fetchSemanticsNode().boundsInRoot.top < historyMenuItem.fetchSemanticsNode().boundsInRoot.top)
         assertTrue(historyMenuItem.fetchSemanticsNode().boundsInRoot.width < 196f * density)
         compose.mainClock.autoAdvance = false
         try {

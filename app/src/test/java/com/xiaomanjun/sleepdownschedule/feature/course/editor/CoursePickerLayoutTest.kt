@@ -82,6 +82,7 @@ class CoursePickerLayoutTest {
             }) {
                 CourseEditorContainerOverlayHost(request, state, null, state.config, rememberHomeAdaptiveMetrics(),
                     onDismissRequest = {}, onSave = { _, _, _ -> }, onCopy = { _, _ -> },
+                    onCreate = { _, finish -> finish(false) },
                     onDelete = { _, _ -> }, motionState = rememberCourseEditorMotionState())
             }
         }

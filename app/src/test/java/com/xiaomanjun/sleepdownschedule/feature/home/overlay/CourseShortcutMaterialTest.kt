@@ -83,7 +83,7 @@ class CourseShortcutMaterialTest {
                         }
                         CompositionLocalProvider(LocalShortcutFixtureOwner provides "lifted") {
                             CourseShortcutOverlay(controller, config, null, null,
-                                onEdit = {}, onCopy = { _, _ -> }, onRemove = { _, _ -> })
+                                onEdit = { _, _ -> false }, onCopy = { _, _ -> }, onRemove = { _, _ -> })
                         }
                     }
                 }
