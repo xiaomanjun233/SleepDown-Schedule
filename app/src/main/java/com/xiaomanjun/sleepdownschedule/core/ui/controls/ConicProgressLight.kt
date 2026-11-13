@@ -1,4 +1,4 @@
-package com.xiaomanjun.sleepdownschedule.feature.agent
+package com.xiaomanjun.sleepdownschedule.core.ui.controls
 
 import android.graphics.BlendMode
 import android.graphics.Paint
@@ -7,9 +7,13 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Canvas
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 
 /**
@@ -17,7 +21,7 @@ import kotlin.math.roundToInt
  * The native drawer draws a 450px-tall, 300px-padded light layer around the track and blends it
  * with SCREEN. The light is two additive cones whose height falls off behind the progress head.
  */
-internal interface AgentConicLightPainter {
+internal interface ConicProgressLight {
     fun draw(
         canvas: Canvas,
         trackWidth: Float,
@@ -31,17 +35,17 @@ internal interface AgentConicLightPainter {
 }
 
 @Composable
-internal fun rememberAgentConicLightPainter(): AgentConicLightPainter? = remember {
+internal fun rememberConicProgressLight(): ConicProgressLight? = remember {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         // A malformed or unsupported shader must not take down the assistant card.
-        runCatching { AgentConicLightPainterApi33() }.getOrNull()
+        runCatching { ConicProgressLightApi33() }.getOrNull()
     } else {
         null
     }
 }
 
 @RequiresApi(Build.VERSION_CODES.TIRAMISU)
-private class AgentConicLightPainterApi33 : AgentConicLightPainter {
+private class ConicProgressLightApi33 : ConicProgressLight {
     private val runtimeShader = RuntimeShader(ConicLightShader)
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         shader = runtimeShader
@@ -131,6 +135,29 @@ private class AgentConicLightPainterApi33 : AgentConicLightPainter {
 private const val ConicLightHeight = 450f
 private const val ConicLightHorizontalPadding = 300f
 private const val ConicLightSpotRadius = 500f
+
+/** Older devices keep the same leading edge with a compact radial approximation of the cone. */
+internal fun DrawScope.drawFallbackConicGlow(
+    fillWidth: Float,
+    accent: Color,
+    darkSurface: Boolean,
+    alphaReveal: Float,
+    shapeReveal: Float
+) {
+    if (alphaReveal <= 0f || fillWidth <= 0f) return
+    val radius = (8f + 6f * shapeReveal.coerceIn(0f, 1f)).dp.toPx().coerceAtMost(fillWidth / 2f)
+    val center = Offset(fillWidth - radius, size.height / 2f)
+    val opacity = if (darkSurface) 0.55f else 0.16f
+    drawCircle(
+        brush = Brush.radialGradient(
+            colors = listOf(accent.copy(alpha = opacity * alphaReveal), accent.copy(alpha = 0f)),
+            center = center,
+            radius = radius,
+        ),
+        radius = radius,
+        center = center,
+    )
+}
 private const val LightSurfaceConeOpacity = 0.26f
 
 /** AGSL from com.coui.appcompat.seekbar.shader.ConicLightShaderParams. */

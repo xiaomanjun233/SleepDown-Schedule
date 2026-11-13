@@ -93,6 +93,7 @@ fun SettingsNavigationRow(
     leadingIconTint: ComposeColor = MaterialTheme.colorScheme.primary,
     enabled: Boolean = true,
     minHeight: Dp? = null,
+    badgeColor: ComposeColor = MaterialTheme.colorScheme.primary,
     onClick: () -> Unit
 ) {
     val neutralSelection = MaterialTheme.colorScheme.onSurface
@@ -123,11 +124,11 @@ fun SettingsNavigationRow(
                 if (badgeText != null) {
                     Text(
                         badgeText,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = badgeColor,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier
                             .clip(Capsule())
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                            .background(badgeColor.copy(alpha = 0.14f))
                             .padding(horizontal = 9.dp, vertical = 4.dp)
                     )
                 }
@@ -166,11 +167,11 @@ fun SettingsNavigationRow(
         if (badgeText != null) {
             Text(
                 badgeText,
-                color = MaterialTheme.colorScheme.primary,
+                color = badgeColor,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier
                     .clip(Capsule())
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                    .background(badgeColor.copy(alpha = 0.14f))
                     .padding(horizontal = 9.dp, vertical = 4.dp)
             )
             Spacer(Modifier.width(8.dp))

@@ -7,18 +7,41 @@ import java.io.IOException
 import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import okhttp3.Call
+import okhttp3.Callback
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.Response
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 
 internal enum class FeedbackKind(val wire: String, val label: String) {
     Bug("bug", "问题反馈"),
     Feature("feature", "功能建议"),
+}
+
+internal enum class FeedbackStatus(val wire: String, val label: String, val step: Int) {
+    Received("received", "已收到", 1),
+    Reviewing("reviewing", "评估中", 2),
+    Planned("planned", "已排期", 3),
+    InProgress("in_progress", "开发中", 4),
+    PendingRelease("pending_release", "待发布", 5),
+    Released("released", "已发布", 6),
+    Rejected("rejected", "暂不采纳", 0),
+    Duplicate("duplicate", "重复反馈", 0),
+    Unknown("", "状态更新", 0);
+
+    companion object {
+        const val StepCount = 6
+    }
 }
 
 @Serializable
@@ -34,17 +57,9 @@ internal data class FeedbackItem(
     val updatedAt: Long,
 ) {
     val kindLabel: String get() = FeedbackKind.entries.find { it.wire == kind }?.label ?: "反馈"
-    val statusLabel: String get() = when (status) {
-        "received" -> "已收到"
-        "reviewing" -> "评估中"
-        "planned" -> "已排期"
-        "in_progress" -> if (kind == "bug") "修复中" else "开发中"
-        "pending_release" -> "待发布"
-        "released" -> "已发布"
-        "rejected" -> "暂不采纳"
-        "duplicate" -> "重复反馈"
-        else -> "状态更新"
-    }
+    val stage: FeedbackStatus get() = FeedbackStatus.entries.firstOrNull { it.wire == status } ?: FeedbackStatus.Unknown
+    val statusLabel: String
+        get() = if (stage == FeedbackStatus.InProgress && kind == FeedbackKind.Bug.wire) "修复中" else stage.label
 }
 
 @Serializable
@@ -61,20 +76,29 @@ private data class FeedbackSubmission(
 
 internal class FeedbackRequestException(message: String, val status: Int? = null) : IOException(message)
 
+internal interface FeedbackService {
+    suspend fun list(own: Boolean, page: Int, query: String): FeedbackPage
+    suspend fun submit(id: String, kind: FeedbackKind, title: String, description: String): FeedbackItem
+}
+
 internal class FeedbackClient(
     private val context: Context,
     baseUrl: String = BuildConfig.SLEEPDOWN_API_BASE_URL,
-) {
+) : FeedbackService {
     private val endpoint = "${baseUrl.trimEnd('/')}/api/v1/feedback"
 
-    suspend fun list(own: Boolean, page: Int): FeedbackPage = withContext(Dispatchers.IO) {
+    override suspend fun list(own: Boolean, page: Int, query: String): FeedbackPage = withContext(Dispatchers.IO) {
         val route = if (own) "mine" else "roadmap"
-        val request = Request.Builder().url("$endpoint/$route?limit=$PageSize&offset=${page * PageSize}")
+        val url = "$endpoint/$route".toHttpUrl().newBuilder()
+            .addQueryParameter("limit", PageSize.toString())
+            .addQueryParameter("offset", (page * PageSize).toString())
+        if (query.isNotBlank()) url.addQueryParameter("q", query)
+        val request = Request.Builder().url(url.build())
         if (own) request.header(TokenHeader, token())
         execute<FeedbackPage>(request)
     }
 
-    suspend fun submit(id: String, kind: FeedbackKind, title: String, description: String) = withContext(Dispatchers.IO) {
+    override suspend fun submit(id: String, kind: FeedbackKind, title: String, description: String) = withContext(Dispatchers.IO) {
         val payload = JsonCodec.encodeToString(FeedbackSubmission(id, kind.wire, title, description))
         execute<FeedbackItem>(Request.Builder().url(endpoint).header(TokenHeader, token())
             .post(payload.toRequestBody(JsonType)))
@@ -93,21 +117,35 @@ internal class FeedbackClient(
         }
     }
 
-    private inline fun <reified T> execute(request: Request.Builder): T {
-        Http.newCall(request.header("Accept", "application/json").build()).execute().use { response ->
-            if (!response.isSuccessful) {
-                val message = when (response.code) {
-                    400 -> "请检查反馈内容后重试"
-                    409 -> "反馈编号已使用，请重新提交"
-                    429 -> "操作太频繁，请稍后重试"
-                    else -> "反馈服务暂不可用，请稍后重试"
+    private suspend inline fun <reified T> execute(request: Request.Builder): T =
+        suspendCancellableCoroutine { continuation ->
+            val call = Http.newCall(request.header("Accept", "application/json").build())
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : Callback {
+                override fun onFailure(call: Call, e: IOException) {
+                    continuation.resumeWithException(e)
                 }
-                throw FeedbackRequestException(message, response.code)
-            }
-            val source = response.body?.source() ?: throw IOException("Empty feedback response")
-            if (source.request(MaxResponseBytes + 1)) throw IOException("Feedback response is too large")
-            return JsonCodec.decodeFromString<T>(source.readUtf8())
+
+                override fun onResponse(call: Call, response: Response) {
+                    val result = runCatching { response.use { JsonCodec.decodeFromString<T>(readPayload(it)) } }
+                    continuation.resumeWith(result)
+                }
+            })
         }
+
+    private fun readPayload(response: Response): String {
+        if (!response.isSuccessful) {
+            val message = when (response.code) {
+                400 -> "请检查反馈内容后重试"
+                409 -> "反馈编号已使用，请重新提交"
+                429 -> "操作太频繁，请稍后重试"
+                else -> "反馈服务暂不可用，请稍后重试"
+            }
+            throw FeedbackRequestException(message, response.code)
+        }
+        val source = response.body?.source() ?: throw IOException("Empty feedback response")
+        if (source.request(MaxResponseBytes + 1)) throw IOException("Feedback response is too large")
+        return source.readUtf8()
     }
 
     companion object {

@@ -30,6 +30,9 @@ import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import com.xiaomanjun.sleepdownschedule.core.ui.controls.ConicProgressLight
+import com.xiaomanjun.sleepdownschedule.core.ui.controls.drawFallbackConicGlow
+import com.xiaomanjun.sleepdownschedule.core.ui.controls.rememberConicProgressLight
 import kotlin.math.PI
 
 /**
@@ -44,7 +47,7 @@ internal fun DayAgentProgressRow(
     modifier: Modifier = Modifier
 ) {
     val active = progress != null
-    val lightPainter = rememberAgentConicLightPainter()
+    val lightPainter = rememberConicProgressLight()
     val layoutDirection = LocalLayoutDirection.current
     val visibility = remember { MutableTransitionState(false) }.apply { targetState = active }
     val transition = rememberTransition(visibility, label = "agent-read-bar")
@@ -120,7 +123,7 @@ private fun DrawScope.drawConicReadBar(
     alphaReveal: Float,
     shapeReveal: Float,
     highlightAlpha: Float,
-    painter: AgentConicLightPainter?,
+    painter: ConicProgressLight?,
     railClip: Path,
     rtl: Boolean
 ) {
@@ -179,30 +182,4 @@ private fun DrawScope.drawConicReadBar(
     } else {
         drawLtr()
     }
-}
-
-/** API < 33 keeps the same leading edge with a compact radial approximation of the cone. */
-private fun DrawScope.drawFallbackConicGlow(
-    fillWidth: Float,
-    accent: Color,
-    darkSurface: Boolean,
-    alphaReveal: Float,
-    shapeReveal: Float
-) {
-    if (alphaReveal <= 0f) return
-    val radius = (8f + 6f * shapeReveal.coerceIn(0f, 1f)).dp.toPx().coerceAtMost(fillWidth / 2f)
-    val center = Offset(fillWidth - radius, size.height / 2f)
-    val opacity = if (darkSurface) 0.55f else 0.16f
-    drawCircle(
-        brush = Brush.radialGradient(
-            colors = listOf(
-                accent.copy(alpha = opacity * alphaReveal),
-                accent.copy(alpha = 0f)
-            ),
-            center = center,
-            radius = radius
-        ),
-        radius = radius,
-        center = center
-    )
 }
