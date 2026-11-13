@@ -220,7 +220,9 @@ internal object WidgetBackgroundRenderer {
                         } else {
                             TodayWidgetVariant.LARGE
                         },
-                        courseCount
+                        courseCount,
+                        fontScale = context.resources.configuration.fontScale,
+                        resources = context.resources,
                     )
                 )
                 WidgetAppearanceVariant.TODAY_TOMORROW -> renderTodayTomorrow(
