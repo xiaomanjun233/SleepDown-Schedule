@@ -263,6 +263,9 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPixels
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeStatusBarWallpaperLuminance
+import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeWallpaperTextAreas
+import com.xiaomanjun.sleepdownschedule.feature.home.day.LocalHomeWallpaperTextAreas
+import com.xiaomanjun.sleepdownschedule.feature.home.day.rememberHomeWallpaperLightStyle
 import com.xiaomanjun.sleepdownschedule.feature.home.day.luminance
 import com.xiaomanjun.sleepdownschedule.feature.home.day.occurrenceOverrideKey
 import com.xiaomanjun.sleepdownschedule.feature.home.week.weekPresentationWeekdays
@@ -362,6 +365,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.buildCourseCardColorAssignments
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardColorKey
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberFallbackAdaptiveGlassState
+import com.xiaomanjun.sleepdownschedule.glass.ui.LocalHomeWallpaperLightStyle
 import com.xiaomanjun.sleepdownschedule.glass.ui.rememberScreenScaledBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.resolvedCourseCardPalette
 import com.xiaomanjun.sleepdownschedule.isAfterScheduleTerm
@@ -1065,8 +1069,17 @@ fun CourseScheduleAppUi(
         )
     }
     val appDarkTheme = appUsesDarkTheme(visualState.config)
+    val expectedWallpaperRenderKey = homeWallpaperRenderKey(visualState.config, appDarkTheme)
+    val homeWallpaperTextAreas = remember(visualState.config.id) { HomeWallpaperTextAreas() }
+    val homeWallpaperLightStyle = rememberHomeWallpaperLightStyle(
+        homeReadabilityContext,
+        homeWallpaperTextAreas,
+        frozen = screen !is Screen.Home || rootPageMotion.moving || homeModeMotion.moving ||
+            homeSidebarState.moving || homeBackgroundFreezeActive ||
+            wallpaperImages.renderKey != expectedWallpaperRenderKey
+    )
     val glowVisuals = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls
-    val adaptiveGlassState = rememberFallbackAdaptiveGlassState(visualState.config)
+    val adaptiveGlassState = rememberFallbackAdaptiveGlassState(visualState.config, homeWallpaperLightStyle)
     val homeChromeHasWallpaper = visualState.config.hasAnyWallpaper()
     val homeChromeForeground = adaptiveGlassState.contentColor.toArgb().takeIf { homeChromeHasWallpaper }
     val homeChromeDark = if (homeChromeHasWallpaper) !adaptiveGlassState.lightGlass else appDarkTheme
@@ -1100,10 +1113,6 @@ fun CourseScheduleAppUi(
                 else if (screen is Screen.Home) homeStatusBarDarkIcons else !appDarkTheme
         )
     }
-    val expectedWallpaperRenderKey = homeWallpaperRenderKey(
-        visualState.config,
-        appUsesDarkTheme(visualState.config)
-    )
     val wallpaperLoadFinished = !visualState.config.hasAnyWallpaper() ||
         wallpaperImages.renderKey == expectedWallpaperRenderKey
     val noWallpaperResolved =
@@ -2183,6 +2192,8 @@ fun CourseScheduleAppUi(
             homeAddMenuBoundsInRoot = windowBounds.translate(-homeRootPositionInWindow)
         },
         LocalHomeReadability provides homeReadabilityContext,
+        LocalHomeWallpaperTextAreas provides homeWallpaperTextAreas.takeIf { homeChromeHasWallpaper },
+        LocalHomeWallpaperLightStyle provides homeWallpaperLightStyle,
         LocalCourseCardPalette provides homeCoursePalette,
         LocalCourseCardColorAssignments provides homeCourseColorAssignments,
         LocalGlassSceneState provides glassSceneState,

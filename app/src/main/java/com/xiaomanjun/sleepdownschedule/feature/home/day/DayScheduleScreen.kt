@@ -265,6 +265,7 @@ internal fun DayScheduleScreen(
                 }
             }
             val listState = rememberLazyListState()
+            TrackHomeWallpaperTextMotion { listState.isScrollInProgress || pagerState.isScrollInProgress }
             val contentUnderTopBar by remember {
                 derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 }
             }

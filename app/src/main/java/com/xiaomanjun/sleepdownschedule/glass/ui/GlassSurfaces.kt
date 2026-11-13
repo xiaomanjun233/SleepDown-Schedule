@@ -31,6 +31,7 @@ import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.performance.LocalGlassQuality
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.LocalHomeReadability
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
@@ -48,6 +49,13 @@ typealias GlassTokens = GlassMaterialSpec
 
 @Composable
 fun glassUsesLightStyle(config: ScheduleConfigEntity): Boolean {
+    val homeLightStyle = LocalHomeWallpaperLightStyle.current
+    if (homeLightStyle != null && config.hasAnyWallpaper()) {
+        val home = LocalHomeReadability.current.config
+        if (home?.id == config.id && home.wallpaperUri == config.wallpaperUri &&
+            home.defaultWallpaperStyle == config.defaultWallpaperStyle
+        ) return homeLightStyle
+    }
     if (config.wallpaperUri.isNullOrBlank()) return !appUsesDarkTheme(config)
     return when {
         config.wallpaperBrightness < 0.72f -> false

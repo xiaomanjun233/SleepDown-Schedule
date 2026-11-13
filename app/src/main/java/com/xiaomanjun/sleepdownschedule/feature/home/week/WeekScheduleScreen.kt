@@ -66,6 +66,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePagerStartOverflow
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeReadableText
+import com.xiaomanjun.sleepdownschedule.feature.home.day.TrackHomeWallpaperTextMotion
 import com.xiaomanjun.sleepdownschedule.feature.home.day.WeekCourseBuckets
 import com.xiaomanjun.sleepdownschedule.feature.home.day.weekCourseBuckets
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSidebarOverflowClip
@@ -401,11 +402,11 @@ internal fun SinglePillWeekScheduleScreen(
         }
     }
 
-    val pageTextFrozen = remember(homeSwitching, weekTail) {
-        derivedStateOf { homeSwitching.value || weekTail.moving }
-    }
-    val courseTextFrozen = remember(homeSwitching, weekTail, scrollState) {
+    val pageTextFrozen = remember(homeSwitching, weekTail, scrollState) {
         derivedStateOf { homeSwitching.value || scrollState.isScrollInProgress || weekTail.moving }
+    }
+    TrackHomeWallpaperTextMotion {
+        scrollState.isScrollInProgress || weekTail.moving
     }
     LaunchedEffect(weekAddition, scrollState, pagerState, weekEditMode) {
         if (weekAddition == null) return@LaunchedEffect
@@ -418,7 +419,7 @@ internal fun SinglePillWeekScheduleScreen(
         LocalWeekEditMotionState provides weekEditOverlay,
         LocalWeekPageTail provides weekTail,
         LocalHomeTextContrastFrozen provides pageTextFrozen,
-        LocalCourseTextMotionFrozen provides courseTextFrozen
+        LocalCourseTextMotionFrozen provides pageTextFrozen
     ) {
     Box(
         modifier = Modifier

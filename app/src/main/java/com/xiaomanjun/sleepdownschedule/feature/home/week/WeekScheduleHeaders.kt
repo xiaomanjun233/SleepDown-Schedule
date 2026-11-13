@@ -466,6 +466,7 @@ private fun WeekdayHeaderCell(
     }
     val showTodayCapsule = marked != null && todayStyle == WeekdayTodayStyle.LIGHTWEIGHT &&
         backdrop != null && config != null
+    val sampleForPagePalette = todayStyle == WeekdayTodayStyle.LIGHTWEIGHT && !showTodayCapsule
     val adjustmentAccent = ComposeColor(0xFFFFB928)
     val indicatorColor = if (marked?.adjusted == true) adjustmentAccent else MaterialTheme.colorScheme.primary
     // The last visible day has a small trailing gutter so its pill can reach the outer header
@@ -537,7 +538,8 @@ private fun WeekdayHeaderCell(
                     ColorProducer { lerp(textColor, ComposeColor.White, markerOpacity()) }
                 } else null,
                 textAlign = TextAlign.Center,
-                maxLines = 1
+                maxLines = 1,
+                sampleForPagePalette = sampleForPagePalette
             )
             if (outgoing.date != incoming.date) {
                 Box(
@@ -546,15 +548,18 @@ private fun WeekdayHeaderCell(
                 ) {
                     WeekdayDateLabel(
                         outgoing.date, dateInk(outgoing), enlargeWeekdayLabels,
-                        Modifier.homeHeaderTextLayer({ 1f - motion.fraction() }).clearAndSetSemantics {}
+                        Modifier.homeHeaderTextLayer({ 1f - motion.fraction() }).clearAndSetSemantics {},
+                        sampleForPagePalette = false
                     )
                     WeekdayDateLabel(
                         incoming.date, dateInk(incoming), enlargeWeekdayLabels,
-                        Modifier.homeHeaderTextLayer(motion::fraction)
+                        Modifier.homeHeaderTextLayer(motion::fraction),
+                        sampleForPagePalette = sampleForPagePalette
                     )
                 }
             } else {
-                WeekdayDateLabel(shown.date, dateInk(shown), enlargeWeekdayLabels)
+                WeekdayDateLabel(shown.date, dateInk(shown), enlargeWeekdayLabels,
+                    sampleForPagePalette = sampleForPagePalette)
             }
         }
     }
@@ -566,6 +571,7 @@ private fun WeekdayDateLabel(
     color: ComposeColor,
     enlarge: Boolean,
     modifier: Modifier = Modifier,
+    sampleForPagePalette: Boolean,
 ) {
     HomeReadableText(
         text = "${date.monthValue}/${date.dayOfMonth}",
@@ -575,7 +581,8 @@ private fun WeekdayDateLabel(
         fontWeight = FontWeight.SemiBold,
         color = color,
         textAlign = TextAlign.Center,
-        maxLines = 1
+        maxLines = 1,
+        sampleForPagePalette = sampleForPagePalette
     )
 }
 
