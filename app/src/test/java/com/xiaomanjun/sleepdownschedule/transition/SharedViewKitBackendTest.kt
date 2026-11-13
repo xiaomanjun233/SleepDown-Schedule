@@ -126,6 +126,24 @@ class SharedViewKitBackendTest {
         assertNull(api.returnBundle)
     }
 
+    @Test fun welcomeCanFinishItsLegacyOpeningAfterTheNativeAnimationCancels() = runBlocking {
+        val button = View(source)
+        source.setContentView(button)
+        button.layout(10, 20, 170, 76)
+        val base = request(routeId = TransitionRouteId.WelcomeToHome)
+        val opening = base.copy(payload = base.payload!!.copy(openingSourceView = button, returnAnchorProvider = null))
+        assertEquals(TransitionBackendOpenResult.Started, backend.open(opening))
+        api.callbacks!!.onStart(SharedViewKitContract.Open)
+        api.callbacks!!.onCancel(SharedViewKitContract.Open)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(TransitionSessionState.LegacyRunning, opening.session.currentState)
+        assertTrue(opening.session.hasReachedNativeRunning)
+        ActivityTransitionCoordinator.markOpen(opening.session.id)
+        assertEquals(TransitionSessionState.Finished, opening.session.currentState)
+        assertNull(TransitionPayloadStore.session(opening.session.id))
+        assertEquals(1, releases.get())
+    }
+
     @Test fun explicitCardFillWinsOverColoredCapsulePixelsOnOpenAndReturn() = runBlocking {
         anchor.bitmap!!.eraseColor(android.graphics.Color.GREEN)
         val cardFill = android.graphics.Color.rgb(43, 44, 46)

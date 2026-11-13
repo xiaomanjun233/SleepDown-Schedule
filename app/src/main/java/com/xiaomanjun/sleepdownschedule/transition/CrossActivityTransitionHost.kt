@@ -122,11 +122,7 @@ fun CrossActivityTransitionHost(
                     routeId == TransitionRouteId.HomeToSettingsDetail ||
                     routeId == TransitionRouteId.SettingsToSettingsDetail ||
                     routeId == TransitionRouteId.ScheduleManagerToSettingsDetail,
-                onOpened = {
-                    if (session?.hasReachedNativeRunning != true) {
-                        ActivityTransitionCoordinator.markOpen(sessionId)
-                    }
-                },
+                onOpened = { ActivityTransitionCoordinator.markOpen(sessionId) },
                 onCloseRequested = close@{
                     if (nativeCloseAccepted) {
                         // A fast second back after the system close was accepted must not replay

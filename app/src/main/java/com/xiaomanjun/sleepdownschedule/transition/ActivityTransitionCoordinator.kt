@@ -185,7 +185,9 @@ object ActivityTransitionCoordinator {
 
     fun markOpen(sessionId: TransitionSessionId?) {
         val session = TransitionPayloadStore.session(sessionId) ?: return
-        if (session.moveTo(TransitionSessionState.Open)) finishOneWayOpen(session)
+        if (session.moveFrom(TransitionSessionState.LegacyRunning, TransitionSessionState.Open)) {
+            finishOneWayOpen(session)
+        }
     }
 
     internal fun finishOneWayOpen(session: TransitionSession) {
