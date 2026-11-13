@@ -180,6 +180,7 @@ internal fun CouiSettingsPageScaffold(
     topBarActions: @Composable (Backdrop?) -> Unit = {},
     topBarNavigation: (@Composable () -> Unit)? = null,
     centerTopBarTitle: Boolean = false,
+    topBarExtra: (@Composable (com.itos.coui.backdrop.CouiBackdrop) -> Unit)? = null,
     content: @Composable (PaddingValues, Backdrop) -> Unit,
 ) {
     val pageConfig = settingsVisualConfig(config)
@@ -287,11 +288,16 @@ internal fun CouiSettingsPageScaffold(
                                     else TopAppBar(modifier = chrome, title = label,
                                         navigationIcon = navigation,
                                         actions = { topBarActions(topBarBackdropOverride ?: source) }, windowInsets = insets,
-                                        colors = barColors, contentModifier = toolbarContent, centerTitle = centerTopBarTitle)
+                                        colors = if (topBarExtra != null && material)
+                                            CouiTopAppBarDefaults.colors(backgroundColor = colors.background) else barColors,
+                                        contentModifier = toolbarContent, centerTitle = centerTopBarTitle,
+                                        contentBelowTitle = topBarExtra)
                                 }
                             }
-                            if (LocalCouiLiquidMaterial.current && sampling && showTopGradientBlur)
-                                SettingsGradientTopBar(pageConfig, source, true, content = toolbar)
+                            if (showTopGradientBlur && (LocalCouiLiquidMaterial.current && sampling ||
+                                    topBarExtra != null && !material))
+                                SettingsGradientTopBar(pageConfig, source.takeIf { sampling }, true,
+                                    bottomExtension = if (topBarExtra != null) 32.dp else 0.dp, content = toolbar)
                             else toolbar()
                         }
                     }) { padding ->

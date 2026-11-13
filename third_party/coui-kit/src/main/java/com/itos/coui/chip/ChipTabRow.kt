@@ -131,6 +131,8 @@ fun ChipTabRow(
     textStyle: TextStyle = CouiChipTabDefaults.themeTextStyle(),
     contourGlowEnabled: Boolean = LocalCouiContourGlowEnabled.current,
     renderers: List<CouiFloatingRenderer> = remember(items.map { it.key }) { items.map { CouiFloatingRenderer.standalone() } },
+    selectedContentColor: Color = contentColor,
+    selectedTint: Color = Color.Transparent,
 ) {
     require(items.map { it.key }.distinct().size == items.size) { "分类项的 key 必须唯一" }
     val selectedIndex = items.indexOfFirst { it.key == selectedKey }
@@ -234,8 +236,14 @@ fun ChipTabRow(
                                 scroll.reveal(index)
                             },
                             label = item.label, backdrop = backdrop, dark = dark, enabled = enabled && item.enabled,
-                            icon = item.icon, contentColor = if (enabled && item.enabled) contentColor else disabledContentColor,
+                            icon = item.icon,
+                            contentColor = when {
+                                !enabled || !item.enabled -> disabledContentColor
+                                selectedKey == item.key -> selectedContentColor
+                                else -> contentColor
+                            },
                             textStyle = textStyle, contourGlowEnabled = contourGlowEnabled, renderer = renderers[index],
+                            selectedTint = selectedTint,
                         )
                     }
                 }

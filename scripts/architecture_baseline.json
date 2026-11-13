@@ -19,7 +19,6 @@
     "feature.experimental -> feature.settings",
     "feature.home -> feature.agent",
     "feature.home -> feature.course",
-    "feature.home -> feature.importing",
     "feature.importing -> feature.agent",
     "feature.importing -> feature.home",
     "feature.importing -> feature.settings",

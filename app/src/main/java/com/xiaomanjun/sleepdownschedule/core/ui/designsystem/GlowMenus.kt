@@ -40,7 +40,7 @@ import kotlin.math.roundToInt
 private fun List<AddMenuAction>.couiItems() = mapIndexed { index, action ->
     CouiMenuItem(index, action.label, icon = action.imageVector,
         iconPainter = if (action.imageVector == null) action.iconRes?.let { homeActionIconPainter(it) } else null,
-        iconTint = action.iconTint, textColor = action.textTint)
+        iconTint = action.iconTint, textColor = action.textTint, checked = action.checked)
 }
 
 @Composable
@@ -62,17 +62,19 @@ private fun actionMenuStyle(dark: Boolean, placement: CouiMenuPlacement) = CouiM
     placement = placement,
 )
 
-/** 动作即时提交，菜单的退场回调只清理窗口状态。 */
+/** 动作即时提交。分类等复选项可以在同一次展开中连续调整。 */
 @Composable
 internal fun GlowOverflowMenuButton(dark: Boolean, interactive: Boolean, actions: List<AddMenuAction>,
     modifier: Modifier, containerColor: Color = Color.Unspecified, menuWidth: Dp = 196.dp,
+    keepOpenOnSelection: Boolean = false,
     content: @Composable (onClick: () -> Unit) -> Unit) {
     var mounted by remember { mutableStateOf(false) }
     var expanded by remember { mutableStateOf(false) }
     var submitted by remember { mutableStateOf(false) }
     var shownActions by remember { mutableStateOf(emptyList<AddMenuAction>()) }
     val latestActions by rememberUpdatedState(actions)
-    val items = shownActions.couiItems()
+    val displayedActions = if (expanded && keepOpenOnSelection) actions else shownActions
+    val items = displayedActions.couiItems()
     val onBounds = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenuBounds.current
     Box(modifier) {
         content {
@@ -89,12 +91,17 @@ internal fun GlowOverflowMenuButton(dark: Boolean, interactive: Boolean, actions
                     expanded = expanded, items = items,
                     style = if (containerColor.isSpecified) style.copy(colors = style.colors.copy(container = containerColor)) else style,
                     offset = DpOffset(0.dp, 8.dp),
-                    onDismissRequest = { expanded = false },
+                    onDismissRequest = {
+                        shownActions = displayedActions
+                        expanded = false
+                    },
                     onItemClick = { item ->
-                        val action = shownActions.getOrNull(item.value)
+                        val action = displayedActions.getOrNull(item.value)
                         if (expanded && !submitted && action != null) {
-                            submitted = true
-                            expanded = false
+                            if (!keepOpenOnSelection) {
+                                submitted = true
+                                expanded = false
+                            }
                             action.onClick()
                         }
                     },

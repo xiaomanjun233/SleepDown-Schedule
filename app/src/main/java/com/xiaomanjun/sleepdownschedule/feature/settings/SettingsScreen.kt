@@ -78,6 +78,7 @@ fun SettingsScreen(
     onUpdateGeneralConfig: (ScheduleConfigEntity) -> Unit = onUpdateConfig,
     onUpdateHomeChromeBlurScale: (Float) -> Unit,
     onPreviewLiveUpdate: (ScheduleConfigEntity) -> Unit,
+    onReplayWelcome: () -> Unit,
     onCreateSchedule: (String) -> Unit = {},
     onActivateSchedule: (Int, (() -> Unit)?) -> Unit = { _, _ -> },
     onRenameSchedule: (Int, String) -> Unit = { _, _ -> },
@@ -252,7 +253,8 @@ fun SettingsScreen(
                         CouiSettingsTabletDetailPaneScaffold(
                             title = if (targetPage == SettingsPage.SoftwareUpdate && showingUpdateNotes) "更新说明" else targetPage.title(),
                             config = pageConfig,
-                            topBarVisible = !(targetPage == SettingsPage.Widgets && tabletWidgetEditorVisible),
+                            topBarVisible = targetPage != SettingsPage.Feedback &&
+                                !(targetPage == SettingsPage.Widgets && tabletWidgetEditorVisible),
                             showBackButton = navigation.detailPages.isNotEmpty() ||
                                 (targetPage == SettingsPage.SoftwareUpdate && showingUpdateNotes),
                             onBack = ::popTabletDetailPage,
@@ -272,7 +274,7 @@ fun SettingsScreen(
                                         buttonHeight = 42.dp
                                     )
                                 } else if (targetPage == SettingsPage.SoftwareUpdate) {
-                                    SoftwareUpdateMenu(topBackdrop, onOpenPage = ::pushTabletDetailPage)
+                                    SoftwareUpdateMenu(topBackdrop, onReplayWelcome, onOpenPage = ::pushTabletDetailPage)
                                 }
                             },
                             modifier = Modifier.fillMaxSize().then(landscapePageBlur(switchingCategory))
@@ -283,6 +285,7 @@ fun SettingsScreen(
                                 pageState = pageState,
                                 backdrop = paneBackdrop,
                                 onPageChange = ::pushTabletDetailPage,
+                                onFeedbackBack = if (navigation.detailPages.isNotEmpty()) ::popTabletDetailPage else null,
                                 showUpdateNotes = showingUpdateNotes,
                                 onOpenUpdateNotes = { showingUpdateNotes = true },
                                 onSave = onSave,
@@ -385,7 +388,8 @@ private fun SettingsPageContent(
     onExitCommitFinished: (Boolean) -> Unit = {},
     onExitInterceptionChange: (Boolean) -> Unit = {},
     autoRefreshWarehouseRequest: Int = 0,
-    periodSchemeReturnRequest: Int = 0
+    periodSchemeReturnRequest: Int = 0,
+    onFeedbackBack: (() -> Unit)? = null,
 ) {
     when (page) {
         SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange = onPageChange)
@@ -483,10 +487,9 @@ private fun SettingsPageContent(
 			onDonate = { onPageChange(SettingsPage.Donate) },
 			onPrivacyPolicy = { onPageChange(SettingsPage.PrivacyPolicy) },
             onSoftwareUpdate = { onPageChange(SettingsPage.SoftwareUpdate) },
-            onFeedback = { onPageChange(SettingsPage.Feedback) },
         )
         SettingsPage.Changelog -> ChangelogSettingsScreen(pageState, backdrop)
-        SettingsPage.Feedback -> FeedbackScreen(pageState.config, backdrop)
+        SettingsPage.Feedback -> FeedbackScreen(pageState.config, onBack = onFeedbackBack)
         SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(pageState, backdrop, showUpdateNotes, onOpenUpdateNotes)
         SettingsPage.AutoUpdate -> AutoUpdateSettingsScreen(pageState.config, backdrop, onUpdateGeneralConfig)
 		SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)

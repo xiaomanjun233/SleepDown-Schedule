@@ -254,7 +254,11 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                     onBack = requestExit
                 )
                 Box(Modifier.fillMaxSize()) {
-                val settingsDetailContent: @Composable () -> Unit = {
+                val settingsDetailContent: @Composable () -> Unit = content@{
+                if (section == SettingsPage.Feedback) {
+                    FeedbackScreen(pageConfig, onBack = requestExit)
+                    return@content
+                }
                 DetailActivityScaffold(
                     title = if (isTimeSlotEditor) {
                         if (creatingTimeSlotCourse) "添加特殊课程" else "编辑特殊课程"
@@ -296,7 +300,13 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                                 buttonHeight = 42.dp
                             )
                         } else if (section == SettingsPage.SoftwareUpdate) {
-                            SoftwareUpdateMenu(topBackdrop, onOpenPage = ::openSettingsPage)
+                            SoftwareUpdateMenu(
+                                topBackdrop,
+                                onReplayWelcome = {
+                                    com.xiaomanjun.sleepdownschedule.feature.onboarding.VersionWelcomeEntry.replay(this@SettingsDetailActivityHost)
+                                },
+                                onOpenPage = ::openSettingsPage,
+                            )
                         }
                     }
                 ) { backdrop ->
@@ -390,7 +400,6 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                             onDonate = { openSettingsPage(SettingsPage.Donate) },
                             onPrivacyPolicy = { openSettingsPage(SettingsPage.PrivacyPolicy) },
                             onSoftwareUpdate = { openSettingsPage(SettingsPage.SoftwareUpdate) },
-                            onFeedback = { openSettingsPage(SettingsPage.Feedback) },
                         )
                         SettingsPage.BackupRestore -> BackupRestoreSettingsScreen(
                             state = state,
@@ -433,7 +442,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                             }
                         }
                         SettingsPage.Changelog -> ChangelogSettingsScreen(state, backdrop)
-                        SettingsPage.Feedback -> FeedbackScreen(state.config, backdrop)
+                        SettingsPage.Feedback -> Unit
                         SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(
                             state, backdrop, showingUpdateNotes, onOpenVersionNotes = { showingUpdateNotes = true },
                         )
@@ -460,14 +469,15 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                         // Morph against that placeholder consumes the whole opening duration
                         // before the selected schedule arrives, which looks like a skipped
                         // transition. Precompose the real page, then release the existing motion.
-                        openingReady = !isQuickSheetSettingsEntry || scheduleEditReady,
+                        openingReady = if (isTimeSlotEditorTransition) timeSlotInitialState != null || state.loaded
+                            else !isQuickSheetSettingsEntry || scheduleEditReady,
                         handleSystemBack = section != SettingsPage.Schedule && !isTimeSlotEditor,
                         sourceContent = {
                             // The QuickSheet route already supplies the exact composed button and
                             // full background frame. Painting a synthetic source card here would
                             // stretch a flat color across the expanding shell, so leave this layer
                             // transparent; other anchored settings entries retain their fallback.
-                            if (!isQuickSheetSettingsEntry) {
+                            if (!isQuickSheetSettingsEntry && !isTimeSlotEditorTransition) {
                                 val sourceDark = appUsesDarkTheme(state.config)
                                 Box(
                                     Modifier

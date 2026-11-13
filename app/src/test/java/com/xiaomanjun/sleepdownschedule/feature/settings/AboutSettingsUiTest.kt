@@ -51,6 +51,7 @@ class AboutSettingsUiTest {
     @Test fun aboutShowsGitHubRowsAndSoftwareUpdateShowsBundledNotesAndImmediateMenu() {
         val config = defaultConfig().copy(darkMode = true, followSystemDarkMode = false)
         var notesOpens = 0
+        var welcomeReplays = 0
         var pickedPage: SettingsPage? = null
         RuntimeEnvironment.getApplication().applicationInfo.nonLocalizedLabel = "SleepDown课程表"
         compose.setContent {
@@ -72,7 +73,7 @@ class AboutSettingsUiTest {
                             { SoftwareUpdateToolbarButton(CouiIcons.Back, "返回", back) }
                         } else null,
                         topBarActions = { source ->
-                            if (page == SettingsPage.SoftwareUpdate) SoftwareUpdateMenu(source) {
+                            if (page == SettingsPage.SoftwareUpdate) SoftwareUpdateMenu(source, onReplayWelcome = { welcomeReplays++ }) {
                                 pickedPage = it
                                 page = it
                             }
@@ -80,8 +81,7 @@ class AboutSettingsUiTest {
                     ) { _, source ->
                         when (page) {
                             SettingsPage.About -> ColorOsAboutSettingsScreen(AppState(config = config), source, {}, {},
-                                onSoftwareUpdate = { page = SettingsPage.SoftwareUpdate },
-                                onFeedback = { page = SettingsPage.Feedback })
+                                onSoftwareUpdate = { page = SettingsPage.SoftwareUpdate })
                             SettingsPage.Changelog -> ChangelogSettingsScreen(AppState(config = config), source)
                             SettingsPage.AutoUpdate -> AutoUpdateSettingsScreen(config, source, onUpdateConfig = {})
                             else -> SoftwareUpdatePageContent("2.0", AppUpdateDialog.UpToDate("2.0"),
@@ -134,6 +134,9 @@ class AboutSettingsUiTest {
         val historyMenuItem = compose.onNodeWithText("历史日志").assertIsDisplayed()
         assertTrue(highlightsMenuItem.fetchSemanticsNode().boundsInRoot.top < historyMenuItem.fetchSemanticsNode().boundsInRoot.top)
         assertTrue(historyMenuItem.fetchSemanticsNode().boundsInRoot.width < 196f * density)
+        highlightsMenuItem.performClick()
+        compose.runOnIdle { assertEquals(1, welcomeReplays) }
+        more.performClick()
         compose.mainClock.autoAdvance = false
         try {
             compose.onNodeWithText("自动更新设置").performClick()
@@ -170,7 +173,7 @@ class AboutSettingsUiTest {
         val button = compose.onNodeWithText("下载并安装")
         val bounds = button.fetchSemanticsNode().boundsInRoot
         val density = RuntimeEnvironment.getApplication().resources.displayMetrics.density
-        assertEquals(280f * density, bounds.width, 1f)
+        assertEquals(296f * density, bounds.width, 1f)
         assertEquals(44f * density, bounds.height, 1f)
         writeSettingsVisualArtifact("software-update-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
         button.performClick()

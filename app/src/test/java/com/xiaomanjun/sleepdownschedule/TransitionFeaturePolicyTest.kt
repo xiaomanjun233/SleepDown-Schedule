@@ -20,7 +20,9 @@ class TransitionFeaturePolicyTest {
             TransitionRouteId.HomeDockToImport,
             TransitionRouteId.HomeToCourseManagement,
             TransitionRouteId.QuickSheetToSettingsDetail,
-            TransitionRouteId.SpecialCourseToEditor
+            TransitionRouteId.SpecialCourseToEditor,
+            TransitionRouteId.FeedbackToEditor,
+            TransitionRouteId.WelcomeToHome,
         )
         for (id in TransitionRouteId.entries) {
             val route = TransitionRouteCatalog.get(id)

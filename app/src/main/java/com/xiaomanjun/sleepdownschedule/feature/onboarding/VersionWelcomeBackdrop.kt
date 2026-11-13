@@ -8,105 +8,93 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.sin
 
-internal const val WelcomePanelStartMillis = 2_440f
+private const val WelcomeOrbitMillis = 1_380f
+internal const val WelcomeWhiteFrameMillis = 1_820f
+internal const val WelcomePanelStartMillis = WelcomeWhiteFrameMillis + 96f
 internal const val WelcomePanelSettleMillis = WelcomePanelStartMillis + 900f
-private val WelcomePaper = Color(0xFFEEEEEF)
-private val PanelDropEasing = CubicBezierEasing(0.22f, 0f, 0.24f, 1f)
+private val BloomEasing = CubicBezierEasing(0.33f, 0f, 0.68f, 1f)
 
 internal fun Modifier.versionWelcomeBackdrop(panelDrop: Dp, elapsedMillis: () -> Float) = drawWithCache {
-    val outline = Path()
-    val maxDrop = panelDrop.toPx()
-    val bounce = minOf(10.dp.toPx(), maxDrop)
-    val maxCorner = 32.dp.toPx()
-    val openingWidth = size.minDimension.coerceAtMost(420.dp.toPx())
-    val warmLight = radialLight(Color(0xFFFFD69D))
-    val coolLight = radialLight(Color(0xFFB4DBFF))
-    val arch = Brush.radialGradient(
-        0.38f to Color.Transparent,
-        0.54f to Color(0x28C2D9EB),
-        0.63f to Color(0x49E9C4C9),
-        0.74f to Color(0x58F3D9AC),
-        0.88f to Color(0x54BDE3F0),
-        1f to Color.Transparent,
-        center = Offset.Zero,
-        radius = 1f,
+    val paper = Path()
+    val drop = panelDrop.toPx()
+    val rebound = (drop - 10.dp.toPx()).coerceAtLeast(0f)
+    val maxCorner = minOf(32.dp.toPx(), size.width / 2f)
+    val orb = size.minDimension * 0.035f
+    val origin = Offset(size.width / 2f, size.height / 2f)
+    val fillRadius = hypot(origin.x, origin.y) + 1f
+    fun light(color: Color) = Brush.radialGradient(
+        0f to color, 0.32f to color.copy(alpha = 0.45f),
+        0.68f to color.copy(alpha = 0.09f), 1f to color.copy(alpha = 0f),
+        center = Offset.Zero, radius = 1f,
     )
-    val violet = radialLight(Color(0xFFCE90DA))
-    val apricot = radialLight(Color(0xFFF9C39C))
-    val blue = radialLight(Color(0xFF8BBEFA))
-
+    val warmLight = light(Color(0xFFFFD1A8))
+    val coolLight = light(Color(0xFFB6D6FF))
     onDrawBehind {
-        drawRect(Color.Black)
         val millis = elapsedMillis()
-        if (millis < WelcomePanelStartMillis) {
-            val glow = smoothSegment(millis, 1_520f, 2_150f)
-            val bloom = openingWidth * lerp(0.18f, 0.70f, glow)
-            val origin = Offset(center.x, size.height * 0.52f)
-            drawLight(warmLight, origin - Offset(bloom * 0.35f, bloom * 0.15f), bloom, bloom * 0.8f, 0.80f * glow)
-            drawLight(coolLight, origin + Offset(bloom * 0.35f, bloom * 0.15f), bloom, bloom * 0.8f, 0.85f * glow)
-            drawRect(WelcomePaper, alpha = smoothSegment(millis, 2_140f, WelcomePanelStartMillis))
+        drawRect(Color.Black)
+        if (millis < WelcomeWhiteFrameMillis) {
+            val orbit = segment(millis, 0f, WelcomeOrbitMillis)
+            val angle = 4.0 * PI * orbit - PI / 2.0
+            val direction = Offset(cos(angle).toFloat(), sin(angle).toFloat())
+            val reach = size.minDimension * 0.18f * (1f - smoothSegment(orbit, 0.28f, 1f))
+            val center = origin + Offset(direction.x * reach, direction.y * reach * 0.72f)
+            val breath = (0.5f + 0.5f * sin(angle - PI / 3).toFloat()) * (1f - smoothSegment(orbit, 0.88f, 1f))
+            val charge = smoothSegment(millis, 920f, 1_550f)
+            val expansion = BloomEasing.transform(segment(millis, 1_350f, WelcomeWhiteFrameMillis))
+            val radius = lerp(orb * (0.79f + breath * 0.37f + charge * 0.24f), fillRadius, expansion)
+            val visible = smoothSegment(millis, 0f, 160f)
+            val lightStrength = visible * (0.40f + 0.23f * breath + 0.28f * charge)
+            val spread = maxOf(radius * 1.3f, orb * (2.4f + 1.1f * breath + 2.8f * charge))
+            drawOrbLight(warmLight, center + direction * radius * 0.5f, spread, lightStrength)
+            drawOrbLight(coolLight, center - direction * radius * 0.6f, spread, lightStrength)
+            drawCircle(Color.White, radius, center, alpha = visible)
+        } else if (millis < WelcomePanelStartMillis) {
+            drawRect(Color.White)
         } else {
-            val slideMillis = millis - WelcomePanelStartMillis
+            val time = millis - WelcomePanelStartMillis
             val top = when {
-                slideMillis < 540f -> maxDrop * PanelDropEasing.transform(segment(slideMillis, 0f, 540f))
-                slideMillis < 720f -> lerp(maxDrop, maxDrop - bounce, smoothSegment(slideMillis, 540f, 720f))
-                else -> lerp(maxDrop - bounce, maxDrop, smoothSegment(slideMillis, 720f, 900f))
+                time < 540f -> drop * curtainSegment(time, 0f, 540f)
+                time < 720f -> lerp(drop, rebound, curtainSegment(time, 540f, 720f))
+                else -> lerp(rebound, drop, curtainSegment(time, 720f, 900f))
             }
-            val corner = maxCorner * smoothSegment(slideMillis, 0f, 300f)
-            val panelHeight = size.height - top
-            outline.rewind()
-            outline.addRoundRect(RoundRect(Rect(0f, top, size.width, size.height + corner), CornerRadius(corner)))
-            clipPath(outline) {
-                drawRect(WelcomePaper)
-                val archRise = smoothSegment(slideMillis, 50f, 950f)
-                val archCenter = Offset(center.x, top + panelHeight * lerp(1.06f, 0.37f, archRise))
-                clipRect(bottom = archCenter.y.coerceAtMost(size.height)) {
-                    drawLight(arch, archCenter, size.width * 1.15f, panelHeight * 0.38f, archRise)
-                }
-                val bloom = smoothSegment(slideMillis, 660f, 2_150f)
-                val drift = smoothSegment(slideMillis, 1_200f, 4_500f)
-                val bottom = size.height + panelHeight * lerp(0.16f, 0.02f, bloom)
-                drawLight(violet, Offset(size.width * lerp(0.10f, 0.02f, drift), bottom),
-                    size.width * 0.62f, panelHeight * 0.27f, 0.76f * bloom)
-                drawLight(apricot, Offset(size.width * lerp(0.38f, 0.49f, drift), bottom),
-                    size.width * 0.68f, panelHeight * 0.27f, 0.76f * bloom)
-                drawLight(blue, Offset(size.width * 0.98f, bottom),
-                    size.width * 0.53f, panelHeight * 0.25f, 0.72f * bloom)
-            }
+            val corner = CornerRadius(maxCorner * curtainSegment(time, 0f, 300f))
+            paper.rewind()
+            paper.addRoundRect(RoundRect(Rect(0f, top, size.width, size.height),
+                topLeft = corner, topRight = corner))
+            drawPath(paper, Color.White)
         }
     }
 }
 
-private fun radialLight(color: Color) = Brush.radialGradient(
-    0f to color,
-    0.42f to color.copy(alpha = 0.70f),
-    0.73f to color.copy(alpha = 0.22f),
-    1f to color.copy(alpha = 0f),
-    center = Offset.Zero,
-    radius = 1f,
-)
-
-private fun DrawScope.drawLight(brush: Brush, position: Offset, radiusX: Float, radiusY: Float, opacity: Float) {
-    if (opacity <= 0f) return
+private fun DrawScope.drawOrbLight(brush: Brush, center: Offset, spread: Float, strength: Float) {
     withTransform({
-        translate(position.x, position.y)
-        scale(radiusX, radiusY, Offset.Zero)
+        translate(center.x, center.y)
+        scale(spread, spread, Offset.Zero)
     }) {
-        drawCircle(brush, radius = 1f, center = Offset.Zero, alpha = opacity)
+        drawCircle(brush, radius = 1f, center = Offset.Zero, alpha = strength, blendMode = BlendMode.Plus)
     }
 }
 
-private fun segment(millis: Float, start: Float, end: Float): Float =
+private fun curtainSegment(millis: Float, start: Float, end: Float): Float =
+    platformAnimatorFraction(segment(millis, start, end))
+
+internal fun platformAnimatorFraction(progress: Float): Float =
+    (0.5 - 0.5 * cos(PI * progress)).toFloat()
+
+internal fun segment(millis: Float, start: Float, end: Float): Float =
     ((millis - start) / (end - start)).coerceIn(0f, 1f)
 
 internal fun smoothSegment(millis: Float, start: Float, end: Float): Float {

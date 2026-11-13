@@ -16,6 +16,8 @@ enum class TransitionRouteId(val wireName: String) {
     HomeToSettingsDetail("home_to_settings_detail"),
     QuickSheetToSettingsDetail("quick_sheet_to_settings_detail"),
     SpecialCourseToEditor("special_course_to_editor"),
+    FeedbackToEditor("feedback_to_editor"),
+    WelcomeToHome("welcome_to_home"),
     SettingsToSettingsDetail("settings_to_settings_detail"),
     SettingsToScheduleAdjustments("settings_to_schedule_adjustments"),
     ScheduleManagerToSettingsDetail("schedule_manager_to_settings_detail"),
@@ -35,6 +37,7 @@ enum class AnchoredLegacyProfileId {
     HomeMenuDestination,
     CourseManagementDetail,
     DetailSettings,
+    Welcome,
     Liquid,
     Parabolic
 }
@@ -72,7 +75,7 @@ data class TransitionRouteSpec(
     val destinationWindowPolicy: TransitionDestinationWindowPolicy =
         TransitionDestinationWindowPolicy.Existing,
     /**
-     * A real opaque Activity component used only after the native backend accepts this route. Activity
+     * A real opaque Activity component selected for native animation. Activity
      * aliases cannot change WindowManager's translucency classification for their target and must
      * never be used here.
      */
@@ -80,6 +83,7 @@ data class TransitionRouteSpec(
     val requiresOpeningAnchor: Boolean = false,
     val requiresReturnAnchor: Boolean = false,
     val requiresLiveSourceView: Boolean = false,
+    val oneWay: Boolean = false,
 )
 
 /**
@@ -188,9 +192,9 @@ object TransitionRouteCatalog {
         TransitionRouteSpec(
             id = TransitionRouteId.SpecialCourseToEditor,
             destinationClassName = "$PackageName.feature.settings.SpecialCourseEditorActivity",
-            legacyProfile = LegacyTransitionProfile.Depth(
-                R.anim.settings_slide_enter, R.anim.settings_slide_exit,
-                R.anim.settings_slide_pop_enter, R.anim.settings_slide_pop_exit
+            legacyProfile = LegacyTransitionProfile.Anchored(
+                profileId = AnchoredLegacyProfileId.DetailSettings,
+                sourceCornerRadiusDp = 28f,
             ),
             nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
             destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
@@ -198,6 +202,31 @@ object TransitionRouteCatalog {
             requiresOpeningAnchor = true,
             requiresReturnAnchor = true,
             requiresLiveSourceView = true
+        ),
+        TransitionRouteSpec(
+            id = TransitionRouteId.FeedbackToEditor,
+            destinationClassName = "$PackageName.feature.feedback.FeedbackEditorActivity",
+            legacyProfile = LegacyTransitionProfile.Anchored(
+                profileId = AnchoredLegacyProfileId.DetailSettings,
+                sourceCornerRadiusDp = 28f
+            ),
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName = "$PackageName.feature.feedback.NativeFeedbackEditorActivity",
+            requiresOpeningAnchor = true,
+            requiresReturnAnchor = true,
+            requiresLiveSourceView = true
+        ),
+        TransitionRouteSpec(
+            id = TransitionRouteId.WelcomeToHome,
+            destinationClassName = "$PackageName.MainActivity",
+            legacyProfile = LegacyTransitionProfile.Anchored(AnchoredLegacyProfileId.Welcome, 28f),
+            nativePolicy = TransitionNativePolicy.SharedViewKitAllowlisted,
+            destinationWindowPolicy = TransitionDestinationWindowPolicy.OpaqueNativeCandidate,
+            nativeDestinationClassName = "$PackageName.MainActivity",
+            requiresOpeningAnchor = true,
+            requiresLiveSourceView = true,
+            oneWay = true,
         ),
         TransitionRouteSpec(
             TransitionRouteId.SettingsToSettingsDetail,

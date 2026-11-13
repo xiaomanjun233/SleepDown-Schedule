@@ -104,10 +104,12 @@ internal fun SettingsGradientTopBar(
     backdrop: Backdrop?,
     enabled: Boolean,
     modifier: Modifier = Modifier,
+    bottomExtension: Dp = 0.dp,
     content: @Composable () -> Unit
 ) {
     val tintColor = if (glassUsesLightStyle(config)) Color.White else Color(0xFF111111)
     val webTransition = LocalLegacyProgressiveBlur.current
+    val extension = if (webTransition) 48.dp else bottomExtension
     val blurModifier = if (enabled) {
         Modifier.progressiveBackdropBlur(
             backdrop = backdrop,
@@ -116,13 +118,13 @@ internal fun SettingsGradientTopBar(
             tintIntensity = 0.18f,
             direction = ProgressiveBlurDirection.TopToBottom,
             topMaskFadeStart = if (webTransition) 0.35f else 0.68f,
-            topMaskFadeEnd = if (webTransition) 1f else 1.14f,
+            topMaskFadeEnd = if (extension > 0.dp) 1f else 1.14f,
             topTintFadeStart = if (webTransition) 0.28f else 0.58f,
-            topTintFadeEnd = if (webTransition) 1f else 1.10f,
+            topTintFadeEnd = if (extension > 0.dp) 1f else 1.10f,
             fallbackTintStops = listOf(
                 0f to tintColor.copy(alpha = 0.42f),
                 0.68f to tintColor.copy(alpha = 0.18f),
-                1f to tintColor.copy(alpha = if (webTransition) 0f else 0.04f)
+                1f to tintColor.copy(alpha = if (extension > 0.dp) 0f else 0.04f)
             )
         )
     } else {
@@ -131,16 +133,16 @@ internal fun SettingsGradientTopBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (webTransition) Modifier else blurModifier)
+            .then(if (extension > 0.dp) Modifier else blurModifier)
             .graphicsLayer { clip = false }
     ) {
-        if (webTransition && enabled) {
+        if (extension > 0.dp && enabled) {
             Box(
                 Modifier.matchParentSize()
                     .layout { measurable, constraints ->
                         // Extend only the existing blur consumer, keeping the actual toolbar and
                         // WebView layout fixed. Its alpha reaches zero before the drawing ends.
-                        val extendedHeight = constraints.maxHeight + 48.dp.roundToPx()
+                        val extendedHeight = constraints.maxHeight + extension.roundToPx()
                         val placeable = measurable.measure(
                             constraints.copy(minHeight = extendedHeight, maxHeight = extendedHeight)
                         )

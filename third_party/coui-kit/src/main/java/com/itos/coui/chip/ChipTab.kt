@@ -79,6 +79,7 @@ fun ChipTab(
     textStyle: TextStyle = CouiChipTabDefaults.themeTextStyle(),
     contourGlowEnabled: Boolean = LocalCouiContourGlowEnabled.current,
     renderer: CouiFloatingRenderer = remember { CouiFloatingRenderer.standalone() },
+    selectedTint: Color = Color.Transparent,
 ) {
     ChipSurface(
         modifier = modifier,
@@ -92,6 +93,7 @@ fun ChipTab(
         textStyle = textStyle,
         contour = contourGlowEnabled,
         renderer = renderer,
+        selectedTint = selectedTint,
     ) {
         if (icon != null) Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) { icon() }
         Text(modifier = Modifier.widthIn(max = 200.dp), text = label, style = textStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -143,6 +145,7 @@ private fun ChipSurface(
     textStyle: TextStyle? = null,
     contour: Boolean,
     renderer: CouiFloatingRenderer,
+    selectedTint: Color = Color.Transparent,
     content: @Composable RowScope.() -> Unit,
 ) {
     val alpha = remember { ChipSelectionAlpha(selected) }
@@ -189,7 +192,10 @@ private fun ChipSurface(
         .couiFloatingSurface(
             backdrop = backdrop,
             renderer = renderer,
-            material = CouiChipTabDefaults.material(dark = dark, checkedFraction = fraction),
+            material = CouiChipTabDefaults.material(dark = dark, checkedFraction = fraction).let {
+                if (selectedTint == Color.Transparent) it
+                else it.copy(themeTint = selectedTint.copy(alpha = selectedTint.alpha * fraction))
+            },
             shadow = CouiChipTabDefaults.shadow(dark = dark, density = density, checkedFraction = fraction, caustic = contour),
             shape = CouiCapsuleShape,
             contentLayer = contentLayer,

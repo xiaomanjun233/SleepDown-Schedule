@@ -9,6 +9,8 @@ import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -65,6 +67,7 @@ internal data class FeedbackItem(
 @Serializable
 internal data class FeedbackPage(val items: List<FeedbackItem>, val total: Int)
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 private data class FeedbackSubmission(
     val id: String,
@@ -72,13 +75,20 @@ private data class FeedbackSubmission(
     val title: String,
     val description: String,
     val appVersion: String = BuildConfig.VERSION_NAME,
+    @EncodeDefault(EncodeDefault.Mode.NEVER) val contact: String = "",
 )
 
 internal class FeedbackRequestException(message: String, val status: Int? = null) : IOException(message)
 
 internal interface FeedbackService {
-    suspend fun list(own: Boolean, page: Int, query: String): FeedbackPage
-    suspend fun submit(id: String, kind: FeedbackKind, title: String, description: String): FeedbackItem
+    suspend fun list(
+        own: Boolean,
+        page: Int,
+        query: String,
+        kind: FeedbackKind? = null,
+        status: FeedbackStatus? = null,
+    ): FeedbackPage
+    suspend fun submit(id: String, kind: FeedbackKind, title: String, description: String, contact: String): FeedbackItem
 }
 
 internal class FeedbackClient(
@@ -87,19 +97,23 @@ internal class FeedbackClient(
 ) : FeedbackService {
     private val endpoint = "${baseUrl.trimEnd('/')}/api/v1/feedback"
 
-    override suspend fun list(own: Boolean, page: Int, query: String): FeedbackPage = withContext(Dispatchers.IO) {
+    override suspend fun list(
+        own: Boolean, page: Int, query: String, kind: FeedbackKind?, status: FeedbackStatus?,
+    ): FeedbackPage = withContext(Dispatchers.IO) {
         val route = if (own) "mine" else "roadmap"
         val url = "$endpoint/$route".toHttpUrl().newBuilder()
             .addQueryParameter("limit", PageSize.toString())
             .addQueryParameter("offset", (page * PageSize).toString())
         if (query.isNotBlank()) url.addQueryParameter("q", query)
+        kind?.let { url.addQueryParameter("kind", it.wire) }
+        status?.let { url.addQueryParameter("status", it.wire) }
         val request = Request.Builder().url(url.build())
         if (own) request.header(TokenHeader, token())
         execute<FeedbackPage>(request)
     }
 
-    override suspend fun submit(id: String, kind: FeedbackKind, title: String, description: String) = withContext(Dispatchers.IO) {
-        val payload = JsonCodec.encodeToString(FeedbackSubmission(id, kind.wire, title, description))
+    override suspend fun submit(id: String, kind: FeedbackKind, title: String, description: String, contact: String) = withContext(Dispatchers.IO) {
+        val payload = JsonCodec.encodeToString(FeedbackSubmission(id, kind.wire, title, description, contact = contact))
         execute<FeedbackItem>(Request.Builder().url(endpoint).header(TokenHeader, token())
             .post(payload.toRequestBody(JsonType)))
     }

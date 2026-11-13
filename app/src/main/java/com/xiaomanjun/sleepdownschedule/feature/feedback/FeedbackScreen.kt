@@ -1,25 +1,36 @@
 package com.xiaomanjun.sleepdownschedule.feature.feedback
 
+import android.app.Activity
+import android.content.Context
+import android.content.Intent
 import android.os.Build
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -30,46 +41,83 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.unit.dp
+import androidx.core.content.edit
+import com.itos.coui.chip.ChipTabButton
 import com.itos.coui.chip.ChipTabRow
 import com.itos.coui.chip.CouiChipTabItem
 import com.itos.coui.floatingactionbutton.CouiFabDefaults
 import com.itos.coui.floatingactionbutton.Fab
+import com.itos.coui.icons.CouiIcons
 import com.itos.coui.search.SearchBar
 import com.itos.coui.search.rememberCouiSearchBarState
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.GlowOverflowMenuButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownFloatingAddButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageStyle
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.findActivity
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
-import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
-import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsPageScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionButton
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
+import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
+import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteCatalog
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.liveTransitionBoundsInActivity
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
-private enum class FeedbackView(val label: String) { Roadmap("开发进度"), Mine("我的反馈") }
+internal const val FeedbackEditorDarkExtra = "feedback_editor_dark"
+internal const val FeedbackEditorAccentExtra = "feedback_editor_accent"
 
-private val FeedbackTabs = FeedbackView.entries.map { CouiChipTabItem(it, it.label) }
+private enum class FeedbackView(
+    val label: String,
+    val own: Boolean = false,
+    val kind: FeedbackKind? = null,
+    val status: FeedbackStatus? = null,
+) {
+    All("全部"),
+    Feature("功能建议", kind = FeedbackKind.Feature),
+    Bug("问题反馈", kind = FeedbackKind.Bug),
+    Mine("我的反馈", own = true),
+    InProgress("开发中", status = FeedbackStatus.InProgress),
+    PendingRelease("待发布", status = FeedbackStatus.PendingRelease),
+    Released("已完成", status = FeedbackStatus.Released),
+    Rejected("拒绝", status = FeedbackStatus.Rejected),
+}
+
+private const val HiddenFeedbackCategories = "hidden_categories"
+private const val FeedbackCategoriesDescription = "选择展示的分类"
+private val FeedbackFabSize = 56.dp
 
 private sealed interface FeedbackList {
     data object Loading : FeedbackList
@@ -78,31 +126,43 @@ private sealed interface FeedbackList {
 }
 
 @Composable
-internal fun FeedbackScreen(config: ScheduleConfigEntity, backdrop: Backdrop?) {
+internal fun FeedbackScreen(
+    config: ScheduleConfigEntity,
+    onBack: (() -> Unit)? = null,
+) {
     val context = LocalContext.current.applicationContext
     val client = remember(context) { FeedbackClient(context) }
-    FeedbackScreen(config, backdrop, client)
+    FeedbackScreen(config, client, onBack)
 }
 
 @Composable
-internal fun FeedbackScreen(config: ScheduleConfigEntity, backdrop: Backdrop?, client: FeedbackService) {
-    var view by rememberSaveable { mutableStateOf(FeedbackView.Roadmap) }
+internal fun FeedbackScreen(
+    config: ScheduleConfigEntity,
+    client: FeedbackService,
+    onBack: (() -> Unit)? = null,
+) {
+    var view by rememberSaveable { mutableStateOf(FeedbackView.All) }
     var page by rememberSaveable { mutableIntStateOf(0) }
     var query by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     var openedItem by remember { mutableStateOf<FeedbackItem?>(null) }
+    var launching by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+    val preferences = remember(context) { context.getSharedPreferences("feedback_display", Context.MODE_PRIVATE) }
+    var hiddenCategories by remember(preferences) {
+        mutableStateOf(preferences.getStringSet(HiddenFeedbackCategories, emptySet()).orEmpty().toSet())
+    }
+    val visibleCategories = FeedbackView.entries.filter { it == FeedbackView.All || it.name !in hiddenCategories }
+    val visibleTabs = remember(visibleCategories) { visibleCategories.map { CouiChipTabItem(it, it.label) } }
+    val activeView = view.takeIf { it in visibleCategories } ?: FeedbackView.All
+    val activity = context.findActivity()
+    val scope = rememberCoroutineScope()
     val search = rememberCouiSearchBarState(searching)
     val focus = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
-    val pageColor = settingsPageBackground(config)
     val dark = appUsesDarkTheme(config)
-    val background = rememberGlassLayerBackdrop(GlassBackdropDomain.Background, "feedback-background")
-    val bodyBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "feedback-list") {
-        drawRect(pageColor)
-        drawContent()
-    }
-    val couiHeader = rememberCouiGlassBackdrop(backdrop ?: background)
+    val bodyBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "feedback-list")
 
     fun setQuery(value: String) {
         if (query == value) return
@@ -121,13 +181,29 @@ internal fun FeedbackScreen(config: ScheduleConfigEntity, backdrop: Backdrop?, c
         page = 0
     }
 
+    fun toggleCategory(category: FeedbackView) {
+        val key = category.name
+        hiddenCategories = if (key in hiddenCategories) hiddenCategories - key else hiddenCategories + key
+        preferences.edit { putStringSet(HiddenFeedbackCategories, hiddenCategories) }
+        if (view == category && key in hiddenCategories) select(FeedbackView.All)
+    }
+
+    val editor = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        launching = false
+        if (result.resultCode == Activity.RESULT_OK) {
+            changeSearch(false)
+            if (FeedbackView.Mine in visibleCategories) view = FeedbackView.Mine else view = FeedbackView.All
+            page = 0
+            refresh++
+        }
+    }
     BackHandler(enabled = searching) { changeSearch(false) }
     val term = query.trim()
-    val list by key(view, page, term, refresh) {
+    val list by key(activeView, page, term, refresh) {
         produceState<FeedbackList>(FeedbackList.Loading, client) {
             if (term.isNotEmpty()) delay(280)
             value = try {
-                FeedbackList.Loaded(client.list(own = view == FeedbackView.Mine, page = page, query = term))
+                FeedbackList.Loaded(client.list(activeView.own, page, term, activeView.kind, activeView.status))
             } catch (cancellation: CancellationException) {
                 throw cancellation
             } catch (error: Exception) {
@@ -135,98 +211,183 @@ internal fun FeedbackScreen(config: ScheduleConfigEntity, backdrop: Backdrop?, c
             }
         }
     }
-    val topPadding = detailContentTopPadding()
-    val bottomPadding = detailContentBottomPadding()
-    FeedbackEditorHost(config, client, onClosed = { submitted ->
-        if (submitted) {
-            changeSearch(false)
-            view = FeedbackView.Mine
-            page = 0
-            refresh++
-        }
-    }) { sourceModifier, openEditor ->
-        Box(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxSize().glassBackdropProducer(background).background(pageColor))
-            Column(Modifier.fillMaxSize().padding(top = topPadding).imePadding()) {
+
+    CouiSettingsPageScaffold(
+        title = "问题反馈",
+        config = config,
+        showBack = onBack != null,
+        onBack = { if (searching) changeSearch(false) else onBack?.invoke() },
+        topBarExtra = { backdrop ->
+            val accent = MaterialTheme.colorScheme.primary
+            val categoryMenu: @Composable () -> Unit = {
+                val actions = FeedbackView.entries.filter { it != FeedbackView.All }.map { category ->
+                    AddMenuAction(label = category.label, checked = category in visibleCategories) {
+                        toggleCategory(category)
+                    }
+                }
+                GlowOverflowMenuButton(dark, interactive = true, actions, Modifier, keepOpenOnSelection = true) { open ->
+                    if (Build.VERSION.SDK_INT >= 34) {
+                        ChipTabButton(
+                            onClick = open, contentDescription = FeedbackCategoriesDescription,
+                            backdrop = backdrop, dark = dark,
+                        ) {
+                            Icon(CouiIcons.Components, contentDescription = null, modifier = Modifier.size(20.dp))
+                        }
+                    } else {
+                        IconButton(onClick = open) {
+                            Icon(CouiIcons.Components, FeedbackCategoriesDescription)
+                        }
+                    }
+                }
+            }
+            Column {
                 SearchBar(
                     state = search, query = query,
                     onQueryChange = { value -> if (value.codePointCount(0, value.length) <= 100) setQuery(value) },
                     onExpandedChange = ::changeSearch,
                     placeholder = "搜索反馈", cancelText = "取消", clearDescription = "清空搜索",
-                    dark = dark, backdrop = couiHeader,
+                    dark = dark, backdrop = backdrop,
                     onSearch = { focus.clearFocus() },
                 )
                 if (Build.VERSION.SDK_INT >= 34) {
                     ChipTabRow(
                         modifier = Modifier.fillMaxWidth(),
-                        items = FeedbackTabs,
-                        selectedKey = view,
+                        items = visibleTabs,
+                        selectedKey = activeView,
                         onSelectedKeyChange = { select(it as FeedbackView) },
-                        backdrop = couiHeader,
+                        backdrop = backdrop,
                         dark = dark,
+                        leadingAction = categoryMenu,
+                        selectedContentColor = accent,
+                        selectedTint = accent.copy(alpha = if (dark) 0.22f else 0.13f),
                     )
                 } else {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        FeedbackView.entries.forEach { tab ->
-                            FilterChip(selected = view == tab, onClick = { select(tab) }, label = { Text(tab.label) })
+                    Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                        categoryMenu()
+                        val colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = accent.copy(alpha = 0.14f), selectedLabelColor = accent,
+                        )
+                        Row(
+                            Modifier.weight(1f).horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 8.dp).selectableGroup(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            visibleCategories.forEach { tab ->
+                                FilterChip(activeView == tab, { select(tab) }, { Text(tab.label) }, colors = colors)
+                            }
                         }
                     }
                 }
-                val listState = key(view, page, term) { rememberLazyListState() }
-                SleepDownSecondaryPageList(
-                    contentTopPadding = 8.dp,
-                    contentBottomPadding = bottomPadding + if (searching) 12.dp else 82.dp,
-                    modifier = Modifier.weight(1f).glassBackdropProducer(bodyBackdrop),
-                    state = listState,
-                    style = SleepDownSecondaryPageStyle.Content,
-                ) {
-                    when (val result = list) {
-                        FeedbackList.Loading -> item(key = "feedback-loading") {
-                            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
-                                CircularProgressIndicator(Modifier.size(26.dp))
+            }
+        },
+    ) { padding, backdrop ->
+        val accent = MaterialTheme.colorScheme.primary
+        val pageColor = settingsPageBackground(config)
+        Box(Modifier.fillMaxSize()) {
+            val listState = key(activeView, page, term) { rememberLazyListState() }
+            SleepDownSecondaryPageList(
+                contentTopPadding = padding.calculateTopPadding() + 8.dp,
+                contentBottomPadding = padding.calculateBottomPadding() + if (searching) 12.dp else 88.dp,
+                modifier = Modifier.fillMaxSize().glassBackdropProducer(bodyBackdrop).background(pageColor),
+                state = listState,
+                style = SleepDownSecondaryPageStyle.Content,
+            ) {
+                when (val result = list) {
+                    FeedbackList.Loading -> item(key = "feedback-loading") {
+                        Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                            CircularProgressIndicator(Modifier.size(26.dp))
+                        }
+                    }
+                    is FeedbackList.Failed -> item(key = "feedback-error") {
+                        FeedbackListMessage(result.message, "重试") { refresh++ }
+                    }
+                    is FeedbackList.Loaded -> {
+                        if (result.page.items.isEmpty()) item(key = "feedback-empty") {
+                            val message = when {
+                                term.isNotEmpty() -> "未找到相关反馈"
+                                activeView == FeedbackView.All -> "暂无公开反馈"
+                                else -> "此分类暂无反馈"
+                            }
+                            FeedbackListMessage(message, if (page > 0) "返回第一页" else "刷新") {
+                                if (page > 0) page = 0 else refresh++
                             }
                         }
-                        is FeedbackList.Failed -> item(key = "feedback-error") {
-                            FeedbackListMessage(result.message, "重试") { refresh++ }
+                        items(result.page.items, key = { it.id }) { item ->
+                            FeedbackRow(item, config, backdrop, dark) {
+                                focus.clearFocus()
+                                keyboard?.hide()
+                                openedItem = item
+                            }
                         }
-                        is FeedbackList.Loaded -> {
-                            if (result.page.items.isEmpty()) item(key = "feedback-empty") {
-                                val message = when {
-                                    term.isNotEmpty() -> "未找到相关反馈"
-                                    view == FeedbackView.Mine -> "暂无反馈"
-                                    else -> "暂无公开开发进度"
-                                }
-                                FeedbackListMessage(message, if (page > 0) "返回第一页" else "刷新") {
-                                    if (page > 0) page = 0 else refresh++
-                                }
-                            }
-                            items(result.page.items, key = { it.id }) { item ->
-                                FeedbackRow(item, config, backdrop, dark) {
-                                    focus.clearFocus()
-                                    keyboard?.hide()
-                                    openedItem = item
-                                }
-                            }
-                            if (result.page.total > FeedbackClient.PageSize || page > 0) item(key = "feedback-pagination") {
-                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                    TextButton(onClick = { page-- }, enabled = page > 0) { Text("上一页") }
-                                    TextButton(onClick = { refresh++ }) { Text("刷新") }
-                                    TextButton(
-                                        onClick = { page++ },
-                                        enabled = (page + 1) * FeedbackClient.PageSize < result.page.total,
-                                    ) { Text("下一页") }
-                                }
+                        if (result.page.total > FeedbackClient.PageSize || page > 0) item(key = "feedback-pagination") {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                TextButton(onClick = { page-- }, enabled = page > 0) { Text("上一页") }
+                                TextButton(onClick = { refresh++ }) { Text("刷新") }
+                                TextButton(
+                                    onClick = { page++ },
+                                    enabled = (page + 1) * FeedbackClient.PageSize < result.page.total,
+                                ) { Text("下一页") }
                             }
                         }
                     }
                 }
             }
 
-            if (!searching) Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = 16.dp)) {
-                FeedbackAddButton(bodyBackdrop, dark, sourceModifier, openEditor)
+            if (!searching) {
+                Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = 16.dp)) {
+                    LiveTransitionButton(cornerRadius = FeedbackFabSize / 2) { source ->
+                        FeedbackAddButton(bodyBackdrop, dark, accent) {
+                            if (activity == null || launching) return@FeedbackAddButton
+                            launching = true
+                            scope.launch {
+                                var started = false
+                                try {
+                                    val route = TransitionRouteCatalog.get(TransitionRouteId.FeedbackToEditor)
+                                    val intent = Intent().setClassName(activity.packageName, route.destinationClassName)
+                                        .putExtra(FeedbackEditorDarkExtra, dark)
+                                        .putExtra(FeedbackEditorAccentExtra, accent.toArgb())
+                                    val anchor = source?.liveTransitionBoundsInActivity(activity)?.let { bounds ->
+                                        TransitionAnchorFrame(bounds, minOf(bounds.width, bounds.height) / 2f, bitmap = null)
+                                    }
+                                    fun returnAnchor(frame: TransitionAnchorFrame?) = TransitionAnchorProvider {
+                                        source?.liveTransitionBoundsInActivity(activity, coveredWindow = true)?.let {
+                                            frame?.copy(boundsInWindow = it)
+                                        }
+                                    }
+                                    val result = ActivityTransitionCoordinator.open(
+                                        activity, route.id, intent,
+                                        TransitionPayload(
+                                            openingAnchor = anchor,
+                                            returnAnchorProvider = returnAnchor(anchor),
+                                            backgroundColor = pageColor.toArgb(),
+                                            openingSourceView = source,
+                                        ),
+                                        prepareLegacy = { pending ->
+                                            val frame = anchor?.let {
+                                                it.copy(bitmap = captureGlassWindowRegion(activity.window, it.boundsInWindow))
+                                            }
+                                            pending.copy(openingAnchor = frame, returnAnchorProvider = returnAnchor(frame))
+                                        },
+                                        launchActivity = { destination, options ->
+                                            if (options != null) destination.putExtra(
+                                                ActivityResultContracts.StartActivityForResult.EXTRA_ACTIVITY_OPTIONS_BUNDLE, options,
+                                            )
+                                            editor.launch(destination)
+                                        },
+                                    )
+                                    started = result !is TransitionLaunchResult.Failed
+                                    if (!started) Toast.makeText(context, "无法打开新增反馈", Toast.LENGTH_SHORT).show()
+                                } catch (cancellation: CancellationException) {
+                                    throw cancellation
+                                } catch (_: Exception) {
+                                    Toast.makeText(context, "无法打开新增反馈", Toast.LENGTH_SHORT).show()
+                                } finally {
+                                    if (!started) launching = false
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -276,21 +437,25 @@ private fun FeedbackRow(
 }
 
 @Composable
-private fun FeedbackAddButton(backdrop: Backdrop, dark: Boolean, modifier: Modifier, onClick: () -> Unit) {
-    val primary = MaterialTheme.colorScheme.primary
-    Box(modifier) {
-        if (Build.VERSION.SDK_INT >= 34 && LocalVisualEffects.current.usesCouiControls) {
-            Fab(
-                backdrop = rememberCouiGlassBackdrop(backdrop),
-                onClick = onClick, dark = dark,
-                material = CouiFabDefaults.translucentMaterial(primary, dark),
-            ) {
-                Icon(Icons.Rounded.Add, "新增反馈", Modifier.size(24.dp), tint = Color.White)
-            }
-        } else {
-            SleepDownFloatingAddButton(backdrop, "新增反馈", onClick, primary.copy(alpha = 0.76f),
-                blurRadius = 8.dp, buttonSize = 56.dp)
+private fun FeedbackAddButton(backdrop: Backdrop, dark: Boolean, accent: Color, onClick: () -> Unit) {
+    if (Build.VERSION.SDK_INT >= 34 && LocalVisualEffects.current.usesCouiControls) {
+        Fab(
+            backdrop = rememberCouiGlassBackdrop(backdrop),
+            onClick = onClick, dark = dark,
+            material = CouiFabDefaults.translucentMaterial(accent, dark),
+        ) {
+            Icon(Icons.Rounded.Add, "新增反馈", Modifier.size(24.dp), tint = Color.White)
         }
+    } else {
+        SleepDownFloatingAddButton(backdrop, "新增反馈", onClick, accent.copy(alpha = 0.76f),
+            blurRadius = 8.dp, buttonSize = FeedbackFabSize)
+    }
+}
+
+@Composable
+internal fun FeedbackAddIcon(accent: Color) {
+    Box(Modifier.fillMaxSize().background(accent, CircleShape), contentAlignment = Alignment.Center) {
+        Icon(Icons.Rounded.Add, null, Modifier.size(24.dp), tint = Color.White)
     }
 }
 

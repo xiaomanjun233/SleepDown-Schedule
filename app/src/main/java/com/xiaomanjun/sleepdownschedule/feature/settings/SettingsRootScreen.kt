@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.size
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Favorite
+import androidx.compose.material.icons.rounded.Feedback
 import androidx.compose.material.icons.rounded.SettingsBackupRestore
 import androidx.compose.material.icons.rounded.Sync
 import androidx.compose.material3.MaterialTheme
@@ -235,6 +236,14 @@ fun SettingsRootScreen(
                         leadingIconTint = ComposeColor(0xFFFF2D55),
                         selected = selectedPage == SettingsPage.Donate,
                         minHeight = 52.dp, onClick = { onPageChange(SettingsPage.Donate) }
+                    )
+                    SettingsDivider(startIndent = 56.dp)
+                    SettingsNavigationRow(
+                        "问题反馈",
+                        leadingIcon = Icons.Rounded.Feedback,
+                        leadingIconTint = ComposeColor(0xFF0A84FF),
+                        selected = selectedPage == SettingsPage.Feedback,
+                        minHeight = 52.dp, onClick = { onPageChange(SettingsPage.Feedback) }
                     )
                 }
         }

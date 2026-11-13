@@ -2,8 +2,12 @@ package com.xiaomanjun.sleepdownschedule.feature.feedback
 
 import android.app.Application
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -12,7 +16,6 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.printToString
-import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.model.defaultConfig
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
@@ -35,38 +38,63 @@ import org.robolectric.annotation.GraphicsMode
 class FeedbackUiTest {
     @get:Rule val compose = createComposeRule()
 
-    @Test fun searchesRoadmapAndReturnsToMineAfterSubmitting() {
+    @Test fun searchesWithinTheSelectedFeedbackCategory() {
         val service = InMemoryFeedback()
         val config = defaultConfig()
         compose.setContent {
             MaterialTheme {
-                DetailActivityScaffold("问题反馈", config, onBack = {}) { backdrop ->
-                    FeedbackScreen(config, backdrop, service)
-                }
+                FeedbackScreen(config, service)
             }
         }
 
         waitForText("日历显示")
         compose.onNodeWithText("修复中").assertIsDisplayed()
+        compose.onNodeWithText("功能建议").performClick()
+        waitForText("此分类暂无反馈")
+        assertEquals(FeedbackKind.Feature, service.lastKind)
         compose.onNodeWithContentDescription("搜索反馈").performClick()
         compose.onNode(hasSetTextAction()).performTextInput("导入&课表")
         waitForText("未找到相关反馈")
         assertEquals("导入&课表", service.lastQuery)
+        assertEquals(FeedbackKind.Feature, service.lastKind)
 
         compose.onNodeWithText("取消").performClick()
-        compose.onNodeWithContentDescription("新增反馈").performClick()
+        compose.onNodeWithContentDescription("新增反馈").assertIsDisplayed()
+    }
+
+    @Test fun togglesWhichTabsAreVisibleAndFallsBackWhenTheActiveTabIsHidden() {
+        val service = InMemoryFeedback()
+        compose.setContent { MaterialTheme { FeedbackScreen(defaultConfig(), service) } }
+        waitForText("日历显示")
+        compose.onNodeWithText("功能建议").performClick()
+        waitForText("此分类暂无反馈")
+        compose.onNodeWithContentDescription("选择展示的分类").performClick()
+        val feature = compose.onNode(hasText("功能建议") and isToggleable())
+        feature.assertIsOn().performClick()
+        feature.assertIsOff()
+        waitForText("日历显示")
+        assertEquals(null, service.lastKind)
+        compose.onNode(hasText("功能建议") and !isToggleable()).assertDoesNotExist()
+        feature.performClick()
+        compose.onNode(hasText("功能建议") and !isToggleable()).assertExists()
+    }
+
+    @Test fun editorSubmitsAnOptionalContactWithTheFeedback() {
+        val service = InMemoryFeedback()
+        var submitted = false
+        compose.setContent {
+            MaterialTheme { FeedbackEditor(defaultConfig(), service) { submitted = it } }
+        }
         compose.onNodeWithText("新增反馈").assertIsDisplayed()
-        compose.onNodeWithText("取消").performClick()
-        compose.onNodeWithText("新增反馈").assertDoesNotExist()
-        compose.onNodeWithContentDescription("新增反馈").performClick()
         compose.onNodeWithText("功能建议").performClick()
         compose.onNodeWithContentDescription("反馈标题").performTextInput("我的建议")
         compose.onNodeWithContentDescription("反馈描述").performTextInput("希望在课程卡显示教室")
+        compose.onNodeWithContentDescription("联系方式").performTextInput("contact@example.invalid")
         compose.onNodeWithText("提交").performClick()
-        waitForText("已收到的建议")
-        compose.onNodeWithText("新增反馈").assertDoesNotExist()
+        compose.waitUntil { submitted }
         assertEquals("feature", service.submission?.kind)
         assertEquals("希望在课程卡显示教室", service.submission?.description)
+        assertEquals("contact@example.invalid", service.contact)
     }
 
     @Test fun sendsSearchAndSubmitsWithTheSamePrivateToken() = runBlocking {
@@ -77,18 +105,22 @@ class FeedbackUiTest {
             server.enqueue(MockResponse().setBody("""{"items":[$item],"total":1}"""))
             server.start()
             val client = FeedbackClient(RuntimeEnvironment.getApplication(), server.url("/").toString())
-            assertEquals(0, client.list(own = false, page = 1, query = "导入&课表").total)
-            assertEquals("entry", client.submit("entry", FeedbackKind.Feature, "建议", "希望在课程卡显示教室").id)
+            assertEquals(0, client.list(own = false, page = 1, query = "导入&课表",
+                kind = FeedbackKind.Feature, status = FeedbackStatus.InProgress).total)
+            assertEquals("entry", client.submit("entry", FeedbackKind.Feature, "建议", "希望在课程卡显示教室", "").id)
             assertEquals(1, client.list(own = true, page = 0, query = "").total)
             val roadmap = server.takeRequest(2, TimeUnit.SECONDS)
             assertEquals("/api/v1/feedback/roadmap", roadmap?.requestUrl?.encodedPath)
             assertEquals("导入&课表", roadmap?.requestUrl?.queryParameter("q"))
             assertEquals("20", roadmap?.requestUrl?.queryParameter("offset"))
+            assertEquals("feature", roadmap?.requestUrl?.queryParameter("kind"))
+            assertEquals("in_progress", roadmap?.requestUrl?.queryParameter("status"))
             val submission = server.takeRequest(2, TimeUnit.SECONDS)
             assertEquals("POST", submission?.method)
             val body = submission?.body?.readUtf8().orEmpty()
             assertTrue(body.contains("\"kind\":\"feature\""))
             assertTrue(body.contains("希望在课程卡显示教室"))
+            assertTrue(!body.contains("\"contact\""))
             val token = submission?.getHeader("X-SleepDown-Feedback-Token")
             assertNotNull(token)
             val mine = server.takeRequest(2, TimeUnit.SECONDS)
@@ -111,17 +143,27 @@ class FeedbackUiTest {
         private val roadmap = FeedbackItem("roadmap", "bug", "日历显示", "日期显示反馈", "in_progress",
             createdAt = 1, updatedAt = 1)
         var lastQuery = ""
+        var lastKind: FeedbackKind? = null
         var submission: FeedbackItem? = null
+        var contact = ""
 
-        override suspend fun list(own: Boolean, page: Int, query: String): FeedbackPage {
+        override suspend fun list(
+            own: Boolean, page: Int, query: String, kind: FeedbackKind?, status: FeedbackStatus?,
+        ): FeedbackPage {
             lastQuery = query
+            lastKind = kind
             val items = if (own) listOfNotNull(submission?.copy(title = "已收到的建议")) else listOf(roadmap)
-            val matching = items.filter { it.title.contains(query) }
+            val matching = items.filter { it.title.contains(query) &&
+                (kind == null || it.kind == kind.wire) && (status == null || it.status == status.wire) }
             return FeedbackPage(matching, matching.size)
         }
 
-        override suspend fun submit(id: String, kind: FeedbackKind, title: String, description: String): FeedbackItem =
-            FeedbackItem(id, kind.wire, title, description, "received", createdAt = 2, updatedAt = 2)
+        override suspend fun submit(
+            id: String, kind: FeedbackKind, title: String, description: String, contact: String,
+        ): FeedbackItem {
+            this.contact = contact
+            return FeedbackItem(id, kind.wire, title, description, "received", createdAt = 2, updatedAt = 2)
                 .also { submission = it }
+        }
     }
 }

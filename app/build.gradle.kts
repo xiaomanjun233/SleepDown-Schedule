@@ -154,12 +154,15 @@ android {
             // GitHub builds use gold transitions by default; keep an explicit comparison override.
             buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST",
                 providers.gradleProperty("sleepdown.sharedViewKitTest").map(String::toBoolean).getOrElse(true).toString())
+            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_DISABLED_FOR_BUILD",
+                providers.gradleProperty("sleepdown.disableSharedViewKit").map(String::toBoolean).getOrElse(false).toString())
         }
         create("store") {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"store\"")
             buildConfigField("boolean", "SLEEPDOWN_EXPERIMENTAL_FEATURES", "false")
             buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST", "false")
+            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_DISABLED_FOR_BUILD", "true")
         }
     }
 

@@ -2964,6 +2964,7 @@ fun CourseScheduleAppUi(
                                      personalizationPreviewState = personalizationPreviewState,
                                      mode = homeMode,
                                      modeMotion = homeModeMotion,
+                                     versionWelcomeVisible = versionWelcomeVisible,
                                      onRenderedCardCountChanged = { mode, count ->
                                          if (mode == HomeMode.Week) weekRenderedCardCount = count
                                          else dayRenderedCardCount = count
@@ -3104,6 +3105,9 @@ fun CourseScheduleAppUi(
                                         onUpdateGeneralConfig = viewModel::saveGeneralSettings,
                                         onUpdateHomeChromeBlurScale = viewModel::saveHomeChromeBlurScale,
                                         onPreviewLiveUpdate = viewModel::previewLiveUpdate,
+                                        onReplayWelcome = {
+                                            com.xiaomanjun.sleepdownschedule.feature.onboarding.VersionWelcomeEntry.replay(context)
+                                        },
                                         exitCommitRequest = settingsExitRequest,
                                         onExitCommitFinished = { completed ->
                                             val action = pendingSettingsExitAction

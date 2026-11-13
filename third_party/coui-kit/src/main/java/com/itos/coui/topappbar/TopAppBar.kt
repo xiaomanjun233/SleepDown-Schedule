@@ -1,6 +1,7 @@
 package com.itos.coui.topappbar
 
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.WindowInsets
@@ -48,13 +49,18 @@ fun TopAppBar(
     },
     contentModifier: Modifier = Modifier,
     centerTitle: Boolean = false,
+    contentBelowTitle: (@Composable (CouiBackdrop) -> Unit)? = null,
 ) {
     TopAppBarSurface(modifier.fillMaxWidth(), backdrop,
+        bottomExtension = if (contentBelowTitle == null) CouiTopAppBarDefaults.bottomExtension else 32.dp,
         gradientColor = colors.backgroundColor, dark = dark) {
         CompositionLocalProvider(LocalCouiDarkTheme provides dark) {
-            AppBarLayout(title, navigationIcon, actions, colors, windowInsets,
-                CouiTopAppBarDefaults.height, CouiTopAppBarDefaults.height, null,
-                modifier = contentModifier, centerTitle = centerTitle)
+            Column {
+                AppBarLayout(title, navigationIcon, actions, colors, windowInsets,
+                    CouiTopAppBarDefaults.height, CouiTopAppBarDefaults.height, null,
+                    modifier = contentModifier, centerTitle = centerTitle)
+                contentBelowTitle?.invoke(LocalCouiToolbarBackdrop.current ?: backdrop)
+            }
         }
     }
 }

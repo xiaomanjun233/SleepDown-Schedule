@@ -8,6 +8,7 @@ import android.view.View
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotCourse
 import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeTimeSlotCourses
+import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
 import com.xiaomanjun.sleepdownschedule.transition.*
 import com.xiaomanjun.sleepdownschedule.transition.legacy.ScheduleCustomizeIdExtra
 import java.util.concurrent.ConcurrentHashMap
@@ -71,18 +72,24 @@ internal suspend fun openTimeSlotCourseEditor(
                 ?: minOf(bounds.width, bounds.height) / 2f
             TransitionAnchorFrame(bounds, radius, bitmap = null)
         }
+        fun returnAnchor(frame: TransitionAnchorFrame?) = TransitionAnchorProvider {
+            if (handoff.sourceRemoved || !canReturn()) null
+            else liveSource?.liveTransitionBoundsInActivity(activity, coveredWindow = true)?.let {
+                frame?.copy(boundsInWindow = it)
+            }
+        }
         val result = ActivityTransitionCoordinator.open(activity, route.id, intent, TransitionPayload(
             openingAnchor = anchor,
-            returnAnchorProvider = TransitionAnchorProvider {
-                if (handoff.sourceRemoved || !canReturn()) null
-                else liveSource?.liveTransitionBoundsInActivity(activity, coveredWindow = true)?.let {
-                    anchor?.copy(boundsInWindow = it)
-                }
-            },
+            returnAnchorProvider = returnAnchor(anchor),
             backgroundColor = backgroundColor,
             onSourceReleased = restoreSource,
             openingSourceView = liveSource
-        ))
+        ), prepareLegacy = { payload ->
+            val frame = anchor?.let {
+                it.copy(bitmap = captureGlassWindowRegion(activity.window, it.boundsInWindow))
+            }
+            payload.copy(openingAnchor = frame, returnAnchorProvider = returnAnchor(frame))
+        })
         if (result is TransitionLaunchResult.Failed) {
             TimeSlotCourseStateHandoff.remove(token)
             restoreSource()

@@ -10,16 +10,14 @@ import android.view.View
 import android.view.ViewTreeObserver
 import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
-import androidx.compose.animation.core.Animatable
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -29,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -39,37 +36,42 @@ import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
-import com.xiaomanjun.sleepdownschedule.feature.onboarding.LocalWelcomeCourseFlight
+import com.xiaomanjun.sleepdownschedule.app.entrypoints.VersionWelcomeActivity
 import com.xiaomanjun.sleepdownschedule.feature.onboarding.VersionWelcomeEntry
-import com.xiaomanjun.sleepdownschedule.feature.onboarding.VersionWelcomeScreen
+import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
+import com.xiaomanjun.sleepdownschedule.transition.CrossActivityTransitionHost
+import com.xiaomanjun.sleepdownschedule.transition.TransitionPayloadStore
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.TransitionSessionState
+import com.xiaomanjun.sleepdownschedule.transition.transitionSessionIdOrNull
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 internal const val OpenScheduleWeekExtra = "com.xiaomanjun.sleepdownschedule.extra.OPEN_SCHEDULE_WEEK"
-private const val ShowingWelcomeState = "showing_version_welcome"
-
 class MainActivity : ComponentActivity() {
     private val pendingExternalIcsUri = MutableStateFlow<Uri?>(null)
     private val pendingExternalIcsUriFlow = pendingExternalIcsUri.asStateFlow()
     private val pendingScheduleWeek = MutableStateFlow<Int?>(null)
     private val startupContentReady = AtomicBoolean(false)
     private var startupPreDrawListener: ViewTreeObserver.OnPreDrawListener? = null
-    private var showingVersionWelcome by mutableStateOf(false)
-    private var welcomeAccepted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        val welcomeSession = TransitionPayloadStore.session(intent.transitionSessionIdOrNull())
+            ?.takeIf { it.routeId == TransitionRouteId.WelcomeToHome }
+        if (welcomeSession != null) ActivityTransitionCoordinator.prepareDestinationBeforeOnCreate(this)
         super.onCreate(savedInstanceState)
+        if (welcomeSession == null && VersionWelcomeEntry.shouldShow(this, intent)) {
+            showVersionWelcome()
+            return
+        }
         acceptEntryIntent(intent)
-        showingVersionWelcome = savedInstanceState?.getBoolean(ShowingWelcomeState)
-            ?: VersionWelcomeEntry.shouldShow(this, intent)
-        // The welcome and timetable share one viewport for the complete button reveal.
         WindowCompat.setDecorFitsSystemWindows(window, Build.VERSION.SDK_INT < 35)
+        if (welcomeSession != null) ActivityTransitionCoordinator.installDestinationWindowBackground(this)
         val contentRoot = findViewById<View>(android.R.id.content)
         val systemBars = WindowCompat.getInsetsController(window, contentRoot)
-        if (showingVersionWelcome) systemBars.hide(WindowInsetsCompat.Type.statusBars())
         startupPreDrawListener = ViewTreeObserver.OnPreDrawListener {
-            if (showingVersionWelcome || startupContentReady.get()) {
+            if (startupContentReady.get()) {
                 startupPreDrawListener?.let { listener ->
                     if (contentRoot.viewTreeObserver.isAlive) {
                         contentRoot.viewTreeObserver.removeOnPreDrawListener(listener)
@@ -90,75 +92,61 @@ class MainActivity : ComponentActivity() {
             val externalIcsUri by pendingExternalIcsUriFlow.collectAsStateWithLifecycle()
             val requestedScheduleWeek by pendingScheduleWeek.collectAsStateWithLifecycle()
             var homeReady by remember { mutableStateOf(false) }
-            val reveal = if (showingVersionWelcome) remember { Animatable(0f) } else null
-            var welcomeNavigationLight by remember(reveal) { mutableStateOf<Boolean?>(false) }
+            val welcomeState = welcomeSession?.state?.collectAsStateWithLifecycle()?.value
+            val welcomeOpening = welcomeState != null && !welcomeState.terminal && welcomeState != TransitionSessionState.Open
             val darkTheme = appUsesDarkTheme(config)
             CourseScheduleTheme(config = config) {
-                Box(Modifier.fillMaxSize()) {
-                    Box(
-                        if (showingVersionWelcome) Modifier.fillMaxSize().clearAndSetSemantics {}
-                        else Modifier.fillMaxSize()
-                    ) {
-                        CompositionLocalProvider(LocalWelcomeCourseFlight provides reveal?.asState()) {
-                            CourseScheduleAppUi(
-                                viewModel = viewModel,
-                                externalIcsUri = externalIcsUri,
-                                onExternalIcsConsumed = { consumed ->
-                                    pendingExternalIcsUri.compareAndSet(consumed, null)
-                                },
-                                requestedScheduleWeekId = requestedScheduleWeek,
-                                onRequestedScheduleWeekShown = { id ->
-                                    if (pendingScheduleWeek.compareAndSet(id, null) &&
-                                        intent.getIntExtra(OpenScheduleWeekExtra, 0) == id
-                                    ) {
-                                        intent.removeExtra(OpenScheduleWeekExtra)
-                                    }
-                                },
-                                onStartupContentReady = {
-                                    homeReady = true
-                                    if (startupContentReady.compareAndSet(false, true)) {
-                                        contentRoot.postInvalidateOnAnimation()
-                                    }
-                                },
-                                versionWelcomeVisible = showingVersionWelcome,
-                            )
-                        }
-                    }
-                    if (reveal != null) {
-                        VersionWelcomeScreen(
-                            reveal = reveal,
-                            homeReady = homeReady,
-                            onLightBackground = { welcomeNavigationLight = it },
-                            onAccepted = {
-                                welcomeAccepted = true
-                                VersionWelcomeEntry.markSeen(this@MainActivity)
-                            },
-                            onFinished = { showingVersionWelcome = false },
-                        )
-                    }
+                val timetable: @Composable () -> Unit = {
+                    CourseScheduleAppUi(
+                        viewModel = viewModel,
+                        externalIcsUri = externalIcsUri,
+                        onExternalIcsConsumed = { pendingExternalIcsUri.compareAndSet(it, null) },
+                        requestedScheduleWeekId = requestedScheduleWeek,
+                        onRequestedScheduleWeekShown = { id ->
+                            if (pendingScheduleWeek.compareAndSet(id, null) && intent.getIntExtra(OpenScheduleWeekExtra, 0) == id) {
+                                intent.removeExtra(OpenScheduleWeekExtra)
+                            }
+                        },
+                        onStartupContentReady = {
+                            homeReady = true
+                            if (startupContentReady.compareAndSet(false, true)) contentRoot.postInvalidateOnAnimation()
+                        },
+                        versionWelcomeVisible = welcomeOpening,
+                    )
                 }
+                if (welcomeSession != null) CrossActivityTransitionHost(
+                    activity = this@MainActivity,
+                    sourceContent = {},
+                    openingReady = homeReady,
+                    handleSystemBack = false,
+                ) { timetable() } else timetable()
+                BackHandler(enabled = welcomeOpening) { }
             }
-            LaunchedEffect(showingVersionWelcome, welcomeNavigationLight, darkTheme) {
-                if (showingVersionWelcome) {
-                    systemBars.hide(WindowInsetsCompat.Type.statusBars())
-                } else {
-                    systemBars.show(WindowInsetsCompat.Type.statusBars())
+            LaunchedEffect(welcomeOpening, darkTheme) {
+                systemBars.isAppearanceLightNavigationBars = !darkTheme
+                if (welcomeSession != null && !welcomeOpening) {
+                    if (Build.VERSION.SDK_INT >= 30) setTranslucent(false)
+                    window.applyAppThemeSurface(darkTheme)
+                    VersionWelcomeEntry.markSeen(this@MainActivity)
                 }
-                systemBars.isAppearanceLightNavigationBars = welcomeNavigationLight
-                    ?.takeIf { showingVersionWelcome } ?: !darkTheme
             }
         }
     }
 
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        outState.putBoolean(ShowingWelcomeState, showingVersionWelcome && !welcomeAccepted)
+    @Suppress("DEPRECATION")
+    private fun showVersionWelcome() {
+        startActivity(Intent(this, VersionWelcomeActivity::class.java).addFlags(
+            Intent.FLAG_ACTIVITY_NO_ANIMATION or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP,
+        ))
+        if (Build.VERSION.SDK_INT >= 34) overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, 0, 0)
+        finish()
+        overridePendingTransition(0, 0)
     }
 
     override fun onDestroy() {
         val contentRoot = findViewById<View>(android.R.id.content)
         startupPreDrawListener?.let { listener ->
-            if (contentRoot.viewTreeObserver.isAlive) {
+            if (contentRoot?.viewTreeObserver?.isAlive == true) {
                 contentRoot.viewTreeObserver.removeOnPreDrawListener(listener)
             }
         }
@@ -169,11 +157,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        acceptEntryIntent(intent)
-        if (!showingVersionWelcome && VersionWelcomeEntry.shouldShow(this, intent)) {
-            welcomeAccepted = false
-            showingVersionWelcome = true
-        }
+        if (VersionWelcomeEntry.shouldShow(this, intent)) showVersionWelcome() else acceptEntryIntent(intent)
     }
 
     private fun acceptEntryIntent(intent: Intent?) {
@@ -240,8 +224,11 @@ private fun CourseScheduleThemeContent(
         }
     }
     LaunchedEffect(darkTheme, view) {
-        val window = (view.context as? ComponentActivity)?.window ?: return@LaunchedEffect
-        window.applyAppThemeSurface(darkTheme)
+        val activity = view.context as? ComponentActivity ?: return@LaunchedEffect
+        val window = activity.window
+        if (!com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator.usesLegacyMorphWindow(activity)) {
+            window.applyAppThemeSurface(darkTheme)
+        }
         window.makeSystemBarsTransparent()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             window.isNavigationBarContrastEnforced = false
@@ -300,7 +287,13 @@ private fun CourseScheduleThemeContent(
             )
         }
     ) {
-        Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background, content = content)
+        val morphWindow = (view.context as? ComponentActivity)?.let(ActivityTransitionCoordinator::hasAnchoredMorphSession) == true
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = if (morphWindow) Color.Transparent else MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.onBackground,
+            content = content,
+        )
     }
 }
 

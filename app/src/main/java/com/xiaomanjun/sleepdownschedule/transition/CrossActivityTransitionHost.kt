@@ -16,7 +16,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.DetailActivityFloatingOverlayHost
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalDetailActivityFloatingOverlayHost
@@ -38,7 +37,6 @@ fun CrossActivityTransitionHost(
     val latestOnFinished by rememberUpdatedState(onFinished)
     val sessionId = remember(activity.intent) { activity.intent.transitionSessionIdOrNull() }
     val session = remember(sessionId) { TransitionPayloadStore.session(sessionId) }
-    val payload = remember(sessionId) { TransitionPayloadStore.payload(sessionId) }
     val routeId = session?.routeId ?: activity.intent.transitionRouteIdOrNull()
     val route = routeId?.let(TransitionRouteCatalog::get)
     val legacyProfile = route?.legacyProfile
@@ -49,7 +47,19 @@ fun CrossActivityTransitionHost(
     } else {
         null
     }
+    var payload by remember(sessionId) { mutableStateOf(TransitionPayloadStore.payload(sessionId)) }
+    LaunchedEffect(state) {
+        if (state?.terminal == true) payload = null
+    }
+    LaunchedEffect(sessionId, state) {
+        if (state == TransitionSessionState.LegacyRunning &&
+            activity.componentName.className == route?.nativeDestinationClassName
+        ) {
+            ActivityTransitionCoordinator.exposeLegacyUnderlay(activity, sessionId)
+        }
+    }
     val openingMode = when {
+        state == TransitionSessionState.Finished -> AnchoredDetailOpeningMode.ShowDestination
         state == TransitionSessionState.NativeRegistered && route?.requiresLiveSourceView == true ->
             AnchoredDetailOpeningMode.ShowDestination
         state == TransitionSessionState.NativeRegistered ->
@@ -61,10 +71,10 @@ fun CrossActivityTransitionHost(
     }
 
     val openingAnchor = payload?.openingAnchor
-    var returnAnchor by remember(payload) { mutableStateOf(payload?.returnAnchorProvider?.resolve()) }
     var nativeCloseAccepted by remember(sessionId) { mutableStateOf(false) }
     val floatingOverlayHost = remember { DetailActivityFloatingOverlayHost() }
-    val floatingOverlayVisible = session == null || state == null || state == TransitionSessionState.Open
+    val floatingOverlayVisible = session == null || state == null ||
+        state == TransitionSessionState.Open || state == TransitionSessionState.Finished
     CompositionLocalProvider(LocalDetailActivityFloatingOverlayHost provides floatingOverlayHost) {
         Box(
             Modifier
@@ -73,7 +83,7 @@ fun CrossActivityTransitionHost(
         ) {
             if (legacyProfile == LegacyTransitionProfile.PlatformDefault ||
                 legacyProfile is LegacyTransitionProfile.Depth ||
-                (legacyProfile != LegacyTransitionProfile.Page &&
+                (route?.oneWay != true && legacyProfile != LegacyTransitionProfile.Page &&
                     com.xiaomanjun.sleepdownschedule.core.ui.designsystem.isLandscapeMenuWindow()) ||
                 routeId == TransitionRouteId.TabletHomeToCourseManagement ||
                 routeId == TransitionRouteId.TabletHomeToEduImport
@@ -99,16 +109,10 @@ fun CrossActivityTransitionHost(
                 BackHandler(enabled = handleSystemBack, onBack = requestClose)
                 content(requestClose)
             } else AnchoredDetailActivityMorph(
-                sourceBounds = openingAnchor?.boundsInWindow,
-                collapseBounds = returnAnchor?.boundsInWindow,
-                sourceCornerRadius = (profile?.sourceCornerRadiusDp ?: 0f).dp,
-                collapseCornerRadius = (profile?.returnCornerRadiusDp
-                    ?: profile?.sourceCornerRadiusDp
-                    ?: 0f).dp,
+                openingAnchor = openingAnchor,
+                resolvedReturnAnchor = { payload?.returnAnchorProvider?.resolve() },
+                profileId = profile?.profileId,
                 backgroundSnapshot = payload?.backgroundBitmap,
-                sourceSnapshot = openingAnchor?.bitmap,
-                collapseSnapshot = returnAnchor?.bitmap,
-                motionStyle = profile?.profileId.toMotionStyle(),
                 animateWithoutAnchor = legacyProfile == LegacyTransitionProfile.Page,
                 destinationFirstOpening = profile?.destinationFirstOpening == true,
                 openingMode = openingMode,
@@ -127,21 +131,23 @@ fun CrossActivityTransitionHost(
                     if (nativeCloseAccepted) {
                         // A fast second back after the system close was accepted must not replay
                         // the cached return frame through the Legacy renderer.
-                        returnAnchor = null
                         return@close true
                     }
-                    returnAnchor = payload?.returnAnchorProvider?.resolve()
                     if (ActivityTransitionCoordinator.requestNativeClose(activity, sessionId)) {
                         nativeCloseAccepted = true
                         activity.finish()
                         true
                     } else {
+                        // If the SDK cannot close, a native destination has to expose the live
+                        // source window to the same renderer used on unsupported devices.
+                        if (session?.hasReachedNativeRunning == true) {
+                            ActivityTransitionCoordinator.exposeLegacyUnderlay(activity, sessionId)
+                        }
                         ActivityTransitionCoordinator.beginLegacyClose(sessionId)
                         false
                     }
                 },
                 onFinished = {
-                    returnAnchor = null
                     latestOnFinished()
                     ActivityTransitionCoordinator.finishAfterLegacy(activity, sessionId)
                 },
@@ -164,16 +170,4 @@ fun CrossActivityTransitionHost(
             }
         }
     }
-}
-
-private fun AnchoredLegacyProfileId?.toMotionStyle(): AnchoredDetailMotionStyle = when (this) {
-    AnchoredLegacyProfileId.HomeMenuDestination ->
-        AnchoredDetailMotionStyle.HomeMenuDestination
-    AnchoredLegacyProfileId.CourseManagementDetail ->
-        AnchoredDetailMotionStyle.CourseManagementDetail
-    AnchoredLegacyProfileId.DetailSettings ->
-        AnchoredDetailMotionStyle.DetailSettings
-    AnchoredLegacyProfileId.Parabolic -> AnchoredDetailMotionStyle.Parabolic
-    AnchoredLegacyProfileId.Liquid,
-    null -> AnchoredDetailMotionStyle.Liquid
 }

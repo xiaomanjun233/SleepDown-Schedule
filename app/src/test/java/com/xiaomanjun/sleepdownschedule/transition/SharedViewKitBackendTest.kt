@@ -104,6 +104,28 @@ class SharedViewKitBackendTest {
         assertEquals(0, api.optionsCalls)
     }
 
+    @Test fun welcomeCompletesAndReleasesItsLiveSourceWithoutRequestingAReturn() = runBlocking {
+        api.supportsSafeReturn = false
+        val button = View(source)
+        source.setContentView(button)
+        button.layout(10, 20, 170, 76)
+        val base = request(routeId = TransitionRouteId.WelcomeToHome)
+        val opening = base.copy(payload = base.payload!!.copy(
+            openingAnchor = TransitionAnchorFrame(ComposeRect(10f, 20f, 170f, 76f), 28f, null),
+            openingSourceView = button,
+            returnAnchorProvider = null,
+        ))
+        assertEquals(TransitionBackendOpenResult.Started, backend.open(opening))
+        assertSame(button, api.inputView)
+        api.callbacks!!.onEnd(SharedViewKitContract.Open)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(TransitionSessionState.Finished, opening.session.currentState)
+        assertNull(TransitionPayloadStore.session(opening.session.id))
+        assertEquals(1, releases.get())
+        assertFalse(backend.requestClose(source, opening.session))
+        assertNull(api.returnBundle)
+    }
+
     @Test fun explicitCardFillWinsOverColoredCapsulePixelsOnOpenAndReturn() = runBlocking {
         anchor.bitmap!!.eraseColor(android.graphics.Color.GREEN)
         val cardFill = android.graphics.Color.rgb(43, 44, 46)
@@ -419,6 +441,7 @@ class SharedViewKitBackendTest {
     private class FakeApi : SharedViewKitApi {
         var supportsReturnBitmap = false
         var supportsViewWithAlpha = false
+        var supportsSafeReturn = true
         var protocol = 100
         var provideOptions = true
         var optionsCalls = 0
@@ -431,8 +454,9 @@ class SharedViewKitBackendTest {
         var openBundle: Bundle? = null
         var recycleRejectedInput = false
         override fun supportedProtocol() = protocol
-        override fun extras() = mapOf(SharedViewKitContract.Bounds to "rect|WINDOW|bounds",
-            SharedViewKitContract.BackType to "int|VIEW_ANIM_FOLLOW_SYSTEM,VIEW_ANIM_FADE_OUT|back") +
+        override fun extras() = mapOf(SharedViewKitContract.Bounds to "rect|WINDOW|bounds") +
+            (if (supportsSafeReturn) mapOf(SharedViewKitContract.BackType to
+                "int|VIEW_ANIM_FOLLOW_SYSTEM,VIEW_ANIM_FADE_OUT|back") else emptyMap()) +
             (if (supportsReturnBitmap) mapOf(SharedViewKitContract.Bitmap to "Bitmap||return pixels") else emptyMap()) +
             (if (supportsViewWithAlpha) mapOf(SharedViewKitContract.ViewWithAlpha to "boolean") else emptyMap())
         override fun options(source: View, extras: Bundle,

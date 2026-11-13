@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -70,7 +70,6 @@ import com.xiaomanjun.sleepdownschedule.feature.home.HomeDayPageDrawingScope
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePagerStartOverflow
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePaneVisible
-import com.xiaomanjun.sleepdownschedule.feature.onboarding.LocalWelcomeCourseFlight
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSidebarOverflowViewport
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSwitchGroup
 import com.xiaomanjun.sleepdownschedule.feature.home.week.weekDayTimeline
@@ -134,7 +133,8 @@ internal fun DayScheduleScreen(
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit,
     onAgentAction: AgentActionHandler,
-    onAgentImportFile: ((List<android.net.Uri>) -> Unit)? = null
+    onAgentImportFile: ((List<android.net.Uri>) -> Unit)? = null,
+    versionWelcomeVisible: Boolean = false,
 ) {
     val centerPage = 10_000
     val anchorDate = remember { displayDate }
@@ -155,7 +155,6 @@ internal fun DayScheduleScreen(
     }
 
     val paneVisible = LocalHomePaneVisible.current
-    val versionWelcomeVisible = LocalWelcomeCourseFlight.current != null
     val currentPagerSettledChange by rememberUpdatedState(onAgentPagerSettledChange)
     LaunchedEffect(pagerState, displayDate, paneVisible) {
         snapshotFlow {
@@ -385,18 +384,13 @@ internal fun DayScheduleScreen(
                 onRenderedCardCountChanged(remainingDayCourses.size +
                     if (visibleSecondaryDate != null) remainingSecondaryCourses.size else 0)
             }
-            val lastCourseIndex = (remainingDayCourses.size +
-                (if (visibleSecondaryDate != null) remainingSecondaryCourses.size else 0) - 1).coerceAtLeast(1)
             val courseList: androidx.compose.foundation.lazy.LazyListScope.() -> Unit = {
-                var nextCourseIndex = 0
                 if (remainingDayCourses.isEmpty()) item(key = "primary-empty-$targetDate") {
                     HomeReadableText(if (isToday && dayCourses.isNotEmpty()) "今天的课程已结束"
                         else if (isToday) "今天没有课程" else "这一天没有课程", color = textColor,
                         modifier = Modifier.homeSwitchGroup())
                 }
                 groupedDayCourses.forEach { (part, coursesInPart) ->
-                    val firstCourseIndex = nextCourseIndex
-                    nextCourseIndex += coursesInPart.size
                     item(key = "primary-day-part-$targetDate-${part?.name ?: "OTHER"}") {
                         DayPartHeader(
                             part = part,
@@ -405,7 +399,7 @@ internal fun DayScheduleScreen(
                             textColor = textColor
                         )
                     }
-                    itemsIndexed(coursesInPart, key = { _, it -> "primary-$targetDate-${it.id}" }) { index, course ->
+                    items(coursesInPart, key = { "primary-$targetDate-${it.id}" }) { course ->
                         val coursePeriods = course.periods.toSet()
                         val simultaneousCount = remainingDayCourses.count { other ->
                             other.id == course.id || other.periods.any(coursePeriods::contains)
@@ -427,7 +421,6 @@ internal fun DayScheduleScreen(
                             occurrenceDate = targetDate,
                             muted = targetCancelled,
                             completed = hasDayCourseEnded(course, state.periods, targetDate, minuteClock),
-                            welcomeOrder = (firstCourseIndex + index).toFloat() / lastCourseIndex,
                         ) }
                     }
                 }
@@ -446,8 +439,6 @@ internal fun DayScheduleScreen(
                         }
                     }
                     groupedSecondaryCourses.forEach { (part, coursesInPart) ->
-                        val firstCourseIndex = nextCourseIndex
-                        nextCourseIndex += coursesInPart.size
                         item(key = "secondary-day-part-$visibleDate-${part?.name ?: "OTHER"}") {
                             DayPartHeader(
                                 part = part,
@@ -456,10 +447,10 @@ internal fun DayScheduleScreen(
                                 textColor = textColor.copy(alpha = 0.82f)
                             )
                         }
-                        itemsIndexed(
+                        items(
                             coursesInPart,
-                            key = { _, course -> "secondary-$visibleDate-${course.id}" }
-                        ) { index, course ->
+                            key = { course -> "secondary-$visibleDate-${course.id}" }
+                        ) { course ->
                             val coursePeriods = course.periods.toSet()
                             val simultaneousCount = remainingSecondaryCourses.count { other ->
                                 other.id == course.id || other.periods.any(coursePeriods::contains)
@@ -481,7 +472,6 @@ internal fun DayScheduleScreen(
                                 occurrenceDate = visibleDate,
                                 muted = secondaryCancelled,
                                 completed = hasDayCourseEnded(course, state.periods, visibleDate, minuteClock),
-                                welcomeOrder = (firstCourseIndex + index).toFloat() / lastCourseIndex,
                             ) }
                         }
                     }

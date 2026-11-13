@@ -70,6 +70,7 @@ internal class LiveTransitionSourceView(
     private val discardRestFrame = Runnable { clearRestFrame() }
     private val supportsRestCapture by lazy(LazyThreadSafetyMode.NONE) {
         BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES &&
+            !BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_DISABLED_FOR_BUILD &&
             runCatching { PlatformSharedViewKitApi.supportedProtocol() > 0 }.getOrDefault(false)
     }
     private var cropLeft = 0f

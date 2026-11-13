@@ -16,9 +16,11 @@
 | `transition/SharedViewKitApi.kt` | 唯一 SDK 适配契约，用于渠道隔离和握手测试 |
 | `src/github/.../transition/PlatformSharedViewKitApi.kt` | 官方公开 SDK 的直接类型调用 |
 | `src/store/.../transition/PlatformSharedViewKitApi.kt` | 不含 SDK 的不可用实现 |
-| `transition/LegacyTransitionBackend.kt`、`transition/legacy/` | 既有应用内轨迹、快照和绘制 |
+| `transition/LegacyTransitionBackend.kt`、`transition/legacy/` | 应用内锚点过渡、快照和绘制 |
 
-原 Oplus 私有 ViewSeamless 后端、反射/回调适配、版本门槛、源 View 桥、leash 参数、调试入口及旧 keep 规则已删除。系统原生路径统一查询金标能力，不按厂商品牌分叉。四个旧 Oplus Activity 名在 Manifest 中仅作为不导出的恢复 alias，指向实际页面；不包含旧类或旧动画。候选路线与真实 opaque 目的页以 `TransitionRouteCatalog` 为准，不使用 alias 改变窗口分类。特殊课程 `special_course_to_editor` 使用 `feature.settings.NativeSpecialCourseEditorActivity`，不具备金标能力时进入普通 `SpecialCourseEditorActivity`，按设置页资源滑入／滑出；该路线的 Legacy profile 为资源动画，其他成熟锚点路线保持原 Morph。
+系统原生路径统一查询金标能力。四个旧 Oplus Activity 名作为不导出的恢复 alias 保留。候选路线与真实 opaque 目的页以 `TransitionRouteCatalog` 为准。特殊课程和新增反馈都用独立的原生与 Legacy 目的页，Legacy 从实际卡片或加号的像素锚点展开。
+
+`transition/legacy/SharedViewFallbackMotion.kt` 按锚点类型计算尺寸、纵向位置和内容交接。普通卡片开启为 540／500 ms，圆形按钮开启为 440／405 ms，菜单为 490／450 ms。欢迎页沿实际「继续」按钮向全屏展开，开启动画为 420／400 ms。源与页面分别显隐，共用同一个不透明外壳。返回重新读取当前锚点，缺失时采用居中缩放和淡出。稳定后释放裁切、快照背景及临时绘制层。节奏参考 [Nexio 的卡片转场](https://github.com/HaoZai000/NexioSchedule/blob/28a99a3b23458a0d39741b9841c9755f5374fba2/ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/effects/motion/MorphTransition.kt#L46-L78)与[启动页开合](https://github.com/HaoZai000/NexioSchedule/blob/28a99a3b23458a0d39741b9841c9755f5374fba2/ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/effects/motion/OobeMotion.kt#L31-L69)。
 
 首页编辑器、液滴、个性化、AI 会话、周视图交互和横屏页面切换仍由原功能管理。参数、播放及释放入口见[动效维护入口](architecture/MOTION_MAINTENANCE.md)。共享 Legacy 几何仍在 `LegacySharedObjectGeometry.kt` / `LegacyMenuDestinationGeometry.kt`，首页专属适配在 `feature/home/overlay/HomeLiquidMorphSpecs.kt`。
 
@@ -45,9 +47,9 @@ Intent 承载 route/session 身份。源 View、Bitmap、返回解析器与临�
 
 ## 路线门控
 
-当前 Kit 候选为 `course_management_to_detail`、`ai_history_to_detail`、`ai_progress_to_history`、`manual_import_to_history`、`home_dock_to_import`、`home_to_edu_import`、`home_to_course_management`、`quick_sheet_to_settings_detail` 与 `special_course_to_editor`。快速设置保留真实按钮和动态返回位置，详细设置先保存再退出。特殊课程捕获点击卡片并在返回时重新解析位置。源被删除后使用 SDK 安全返回类型，编辑页沿用保存与放弃确认。
+当前 Kit 候选为 `course_management_to_detail`、`ai_history_to_detail`、`ai_progress_to_history`、`manual_import_to_history`、`home_dock_to_import`、`home_to_edu_import`、`home_to_course_management`、`quick_sheet_to_settings_detail`、`special_course_to_editor`、`feedback_to_editor` 与 `welcome_to_home`。快速设置保留真实按钮和动态返回位置，详细设置先保存再退出。特殊课程捕获点击卡片并在返回时重新解析位置。新增反馈使用真实加号 View，成功提交后刷新列表。欢迎页用真实 COUI 按钮启动主 Activity，开场结束后释放会话并结束欢迎页。
 
-关闭本地构建开关后，可通过远程全局开关和逐路线白名单启用候选路线。以下配置开放课程管理到详情。
+允许使用 SharedViewKit 的渠道也支持远程全局开关和逐路线白名单。以下配置开放课程管理到详情。
 
 ```json
 {
@@ -60,7 +62,7 @@ Intent 承载 route/session 身份。源 View、Bitmap、返回解析器与临�
 
 旧 Oplus 远程字段不再生效；远程解析器继续忽略未知字段，兼容旧 bootstrap/cache。配置不能把非候选路线升级为原生路线。
 
-GitHub 渠道的 Debug 和签名 Release 默认启用已适配路线的金标动画，不依赖后台配置；对照诊断可显式使用 `-Psleepdown.sharedViewKitTest=false`。商店版的金标开关固定关闭，继续受 `SLEEPDOWN_EXPERIMENTAL_FEATURES=false` 排除，不打包 SDK，不增加产品设置项。签名 Release 用于相同包名/签名的实机验证，日志保留系统协议查询与回退原因。开启构建开关不等于 ROM 已接受：仍需能力、真实锚点、安全返回和 SDK options 均通过。其他路线必须先完成自身截图、源交接和真实返回验证，再调整路由候选及白名单。
+GitHub 渠道的 Debug 和签名 Release 默认启用已适配路线。用 `-Psleepdown.disableSharedViewKit=true` 构建时，所有路线的 Kit 入口都被关闭，优先于远程配置，用于实机对照降级动画。只设置 `-Psleepdown.sharedViewKitTest=false` 时仍可通过后台白名单启用。商店版固定关闭金标并排除 SDK。原生转场仍需通过设备能力、真实锚点、安全返回和 SDK options 检查。
 
 ## SDK 与绘制契约
 
@@ -70,7 +72,7 @@ GitHub 渠道的 Debug 和签名 Release 默认启用已适配路线的金标动
 - 加号、导入历史、快速设置的详细设置和特殊课程入口把持续挂载并绘制原控件的 View 传给 Kit。系统从该 View 取开场位置及像素圆角。触摸按下时先取该 View 在窗口中的静止画面，再交给按钮处理按压。开合的软件绘制沿用这个画面，条件不满足时按实际可用的 View 画面处理。整页 Legacy 画面在原生路径不可用或被拒绝后才准备。
 - 按钮的影子与外扩高光跟随 SDK 对原 View 的显隐，目的页在原生注册时直接绘制稳定内容。已合成的材质取实际按钮底色并走系统实色转场，确实透底的源才在支持时声明 `EXTRA_VIEW_WITH_ALPHA`。返回读取仍附着的源 View，被目的窗口盖住也可以成为落点。未移动的按钮沿用开场注册，移动且尺寸一致时按支持项刷新位置。按钮被隐藏、回收或尺寸改变时使用声明支持的返回降级。
 - 标准 metadata 明确 WINDOW 时使用项目窗口锚点；SCREEN/缺省时增加同一根 View 的屏幕/窗口位置差。打开与关闭共用转换，不硬编码状态栏高度。
-- 首批要求设备声明可写的安全返回策略；BACK/FALLBACK 的支持集合分别解析。未声明的扩展参数不传入。
+- 双向路线要求设备声明可写的安全返回策略。单向欢迎页在开场结束时释放会话。BACK/FALLBACK 的支持集合分别解析，未声明的扩展参数不传入。
 - 源卡片保留至 OPEN 接管；稳定目的内容由系统转场使用，不能再叠加 Legacy Morph、应用背景缩放或第二层模糊。
 - 需要刷新位置或指定返回降级时，在退出的目标 Activity 调用 `overrideViewAnimationTransition`，之后由原 host 执行 `finish`。目标丢失使用声明的普通/淡出/无动画返回，避免向旧位置收缩。
 - Kit 未公开自定义时长、曲线或逐帧进度；它不接管项目全部 Compose 动效，也不等于所有设备已经支持。

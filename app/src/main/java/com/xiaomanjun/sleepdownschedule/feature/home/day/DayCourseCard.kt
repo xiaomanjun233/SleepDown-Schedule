@@ -60,7 +60,6 @@ import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorDayAppearance
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.LocalCourseEditorFlightRegistry
 import com.xiaomanjun.sleepdownschedule.feature.home.CourseAdjustmentBadge
-import com.xiaomanjun.sleepdownschedule.feature.onboarding.welcomeCourseFlight
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalAdjustedCourseEditor
 import com.xiaomanjun.sleepdownschedule.feature.home.courseAdjustmentBadgeHeight
 import com.xiaomanjun.sleepdownschedule.feature.home.courseBadgeContentInset
@@ -111,14 +110,13 @@ internal fun DayTimelineCourse(
     muted: Boolean = false,
     occurrenceDate: LocalDate? = null,
     completed: Boolean = false,
-    welcomeOrder: Float = 0.5f,
 ) {
     val adjustedEditor = LocalAdjustedCourseEditor.current
     val subdued = muted || completed
     val pageForeground = homeForegroundColor(config)
     val foreground = homeCourseTextColor(config, course, pageForeground, subdued)
     Column(
-        modifier = Modifier.homeSwitchGroup().welcomeCourseFlight(welcomeOrder).homeCountdownShockwave(),
+        modifier = Modifier.homeSwitchGroup().homeCountdownShockwave(),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         CourseGlassCard(

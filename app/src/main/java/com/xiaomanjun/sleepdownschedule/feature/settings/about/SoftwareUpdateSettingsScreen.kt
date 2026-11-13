@@ -49,7 +49,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsToolbarButton
 import com.xiaomanjun.sleepdownschedule.core.web.openSleepDownCustomTab
 import com.xiaomanjun.sleepdownschedule.core.web.resolveSleepDownCustomTabsPackage
-import com.xiaomanjun.sleepdownschedule.feature.onboarding.VersionWelcomeEntry
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.feature.update.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.GlowOverflowMenuButton
@@ -121,15 +120,19 @@ internal fun SoftwareUpdateSettingsScreen(
 }
 
 @Composable
-internal fun SoftwareUpdateMenu(backdrop: Backdrop?, onOpenPage: (SettingsPage) -> Unit) {
-    val context = LocalContext.current
+internal fun SoftwareUpdateMenu(
+    backdrop: Backdrop?,
+    onReplayWelcome: () -> Unit,
+    onOpenPage: (SettingsPage) -> Unit,
+) {
     val highlights = stringResource(R.string.software_update_view_highlights)
     val compact = LocalConfiguration.current.screenWidthDp < 600
     val dark = compact || CouiTheme.isDark
     val openPage by rememberUpdatedState(onOpenPage)
-    val actions = remember(context, highlights) {
+    val replay by rememberUpdatedState(onReplayWelcome)
+    val actions = remember(highlights) {
         buildList {
-            add(AddMenuAction(label = highlights) { VersionWelcomeEntry.replay(context) })
+            add(AddMenuAction(label = highlights) { replay() })
             if (AppDistribution.supportsSelfUpdate) {
                 add(AddMenuAction(label = "自动更新设置") { openPage(SettingsPage.AutoUpdate) })
             }

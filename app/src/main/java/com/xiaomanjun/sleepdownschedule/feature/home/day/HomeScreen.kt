@@ -93,6 +93,7 @@ internal fun HomeScreen(
     onScheduleLongPress: () -> Unit = {},
     weekEditInteractionEnabled: Boolean = true,
     modeMotion: HomeSwitchMotion = rememberHomeSwitchMotion(mode == HomeMode.Week, "home-mode"),
+    versionWelcomeVisible: Boolean = false,
 ) {
     val modeStateHolder = rememberSaveableStateHolder()
     val homeOverscrollFactory = rememberHapticMiuixOverscrollFactory()
@@ -204,7 +205,8 @@ internal fun HomeScreen(
                         onCourseClick = onCourseClick,
                         onAddCourse = onAddCourse,
                         onAgentAction = onAgentAction,
-                        onAgentImportFile = onAgentImportFile
+                        onAgentImportFile = onAgentImportFile,
+                        versionWelcomeVisible = versionWelcomeVisible,
                     )
                 }
                 HomeMode.Week -> key(state.config.id) {

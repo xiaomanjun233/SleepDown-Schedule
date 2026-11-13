@@ -1,6 +1,6 @@
 # 动效维护入口
 
-金标跨 Activity 动画的能力、路线门控、SDK 边界与资源释放见 [TRANSITION_FRAMEWORK.md](../TRANSITION_FRAMEWORK.md)。参数由 SDK 管理；应用内 Morph 仍使用下述维护入口。
+金标跨 Activity 动画的能力、路线门控、普通过渡曲线和资源释放见 [TRANSITION_FRAMEWORK.md](../TRANSITION_FRAMEWORK.md)。应用内的锚点降级使用 `transition/legacy/SharedViewFallbackMotion.kt`。
 
 通用主题判断位于 `core/ui/theme/AppTheme.kt`，纯色板/编解码/色差位于 `model/CourseCardPalette.kt`；玻璃计数与逐帧诊断位于 `glass/GlassPerformanceDiagnostics.kt`，通用帧统计、动画 Trace 和壁纸缓存仍位于 `core/performance/Performance.kt`。这些入口的归位不改变颜色、日志标签、帧计算或视觉参数。
 
@@ -18,9 +18,9 @@
 | 首页切换、卡片跟随与中断反向 | `feature/home/HomeMotionSpec.kt` 的页面曲线、错峰弹簧和背景曲线 | `HomeSwitchMotion` 单时钟计算页面与六组跟随轨道，反向接续速度 |
 | 三点/加号菜单液滴体积和内容显隐 | `feature/home/HomeDropletMotion.kt`；附加参数在 `overlay/HomeMorphGeometry.kt` 的 `ThreeDotMenuMotion` | `overlay/HomeAnchoredMorphOverlay.kt` 与 `HomeLiquidMorphSpecs.kt` |
 | 个性化弹层、首页锚点轨迹 | `feature/home/overlay/HomeMorphGeometry.kt`；共享轨迹在 `transition/legacy/LegacySharedObjectGeometry.kt` | `HomeAnchoredMorphOverlay.kt`，材质适配在 `HomeLiquidMorphSpecs.kt` |
-| 菜单到目标表单/教务页 | `transition/legacy/LegacyMenuDestinationGeometry.kt` | 首页 `HomeMenuDestinationOverlay.kt` 与跨 Activity 的 `AnchoredDetailActivityMorph.kt` 各自播放 |
+| 首页菜单到同窗口表单 | `transition/legacy/LegacyMenuDestinationGeometry.kt` | `HomeMenuDestinationOverlay.kt` |
 | AI 助理卡片展开为会话 | `feature/agent/DayAgentMorphGeometry.kt` | `DayAgentConversationDialog.kt` |
-| 跨 Activity 详情、设置、课程管理卡片 | `transition/legacy/DetailMorphOverlay.kt` 与 `AnchoredDetailActivityMorph.kt` 的对应路线 | `ActivityTransitionCoordinator.kt`、`CrossActivityTransitionHost.kt` 及 Legacy host；业务从 `TransitionRoute` 接入 |
+| 跨 Activity 锚点降级，包含教务、课程管理、特殊课程和新增反馈 | `transition/legacy/SharedViewFallbackMotion.kt` | `ActivityTransitionCoordinator.kt`、`CrossActivityTransitionHost.kt` 与 `AnchoredDetailActivityMorph.kt` |
 | 普通 Dialog、Alert、Picker | `core/ui/designsystem/ControlDialogs.kt` 与 Kit Dialog | 共用窗口、退出和 IME；两种材质通过绘制接口注入 |
 | 常规 Popup | `core/ui/settings/GlassMiuixPopup.kt` | 保留真实锚点和退出交接，源排除消费者 |
 | 横屏表单飞入 | `core/ui/designsystem/LandscapeMenu.kt` | 同文件 `LandscapeMenuOverlay`，由表单明确接入 |

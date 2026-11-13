@@ -84,7 +84,7 @@ internal class SharedViewKitBackend(
         }
             ?: return rejected("unsupportedProtocol")
         // Pilot routes must be able to return safely when their business source was removed.
-        if (capabilities.missingTargetBackType == null) return rejected("safeReturnUnavailable")
+        if (!request.route.oneWay && capabilities.missingTargetBackType == null) return rejected("safeReturnUnavailable")
         val viewBounds = liveView?.liveTransitionBoundsOnScreen(request.activity)
         if (liveView != null && viewBounds == null) return rejected("liveSourceBoundsUnavailable")
         val radius = (liveView as? LiveTransitionSourceView)?.sourceRadiusPx ?: anchor.cornerRadiusPx
@@ -183,7 +183,7 @@ internal class SharedViewKitBackend(
         }
         return try {
             movingSession = session.id
-            request.activity.startActivity(request.intent, options.toBundle())
+            request.launchActivity(request.intent, options.toBundle())
             watch(resource)
             TransitionBackendOpenResult.Started
         } catch (_: RuntimeException) {
@@ -276,6 +276,7 @@ internal class SharedViewKitBackend(
             if (resource.session.moveFrom(TransitionSessionState.NativeRunning, TransitionSessionState.Open)) {
                 disarm(resource)
                 if (movingSession == resource.session.id) movingSession = null
+                ActivityTransitionCoordinator.finishOneWayOpen(resource.session)
             }
         }
     }
