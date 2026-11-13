@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
+import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -15,13 +16,18 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.edit
 import com.xiaomanjun.sleepdownschedule.core.ui.text.softTextShadowStrength
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.HomeReadabilityContext
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.sampleVisibleWallpaperColors
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPreviewOrientation
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.wallpaperCropState
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePaneVisible
+import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import kotlin.math.pow
-import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 
 internal class HomeWallpaperTextAreas {
     val bounds = mutableStateMapOf<Any, Rect>()
@@ -46,25 +52,57 @@ internal fun TrackHomeWallpaperTextMotion(isMoving: () -> Boolean) {
 internal fun rememberHomeWallpaperLightStyle(
     context: HomeReadabilityContext,
     areas: HomeWallpaperTextAreas,
+    savedConfig: ScheduleConfigEntity,
+    darkDefaultWallpaper: Boolean,
     frozen: Boolean
 ): Boolean? {
-    val config = context.config
-    var lightStyle by remember(config?.id, config?.wallpaperUri, config?.defaultWallpaperStyle) {
-        mutableStateOf<Boolean?>(null)
+    val storage = LocalContext.current.applicationContext
+    val preferences = remember(storage) {
+        storage.getSharedPreferences("home_wallpaper_palette", Context.MODE_PRIVATE)
     }
-    LaunchedEffect(context, areas, frozen) {
-        if (frozen || context.bitmap == null || config?.hasAnyWallpaper() != true) return@LaunchedEffect
-        snapshotFlow {
-            if (areas.moving.any { it() }) null else areas.bounds.toMap()
-        }.collectLatest { bounds ->
-            if (bounds == null) return@collectLatest
-            // Coalesce label placement and disposal before choosing one palette for the page.
-            withFrameNanos { }
-            wallpaperLightStyleForTextAreas(context, bounds.values)?.let { lightStyle = it }
+    val wallpaperKey = remember(savedConfig, darkDefaultWallpaper) {
+        wallpaperPaletteKey(savedConfig, darkDefaultWallpaper)
+    }
+    val storageKey = "schedule_${savedConfig.id}"
+    var savedPalette by remember(storageKey) {
+        val cached = preferences.getString(storageKey, null)
+        mutableStateOf(cached?.substringBefore('|')?.toBooleanStrictOrNull()?.let { cached.substringAfter('|') to it })
+    }
+    val currentContext by rememberUpdatedState(context)
+    val matchingWallpaper = context.config?.let {
+        wallpaperPaletteKey(it, darkDefaultWallpaper) == wallpaperKey
+    } == true
+    val ready = !frozen && matchingWallpaper && context.bitmap != null && savedConfig.hasAnyWallpaper()
+    LaunchedEffect(storageKey, wallpaperKey, areas, ready) {
+        if (!ready || savedPalette?.first == wallpaperKey) return@LaunchedEffect
+        // Choose once from a settled layout for each saved wallpaper and crop.
+        snapshotFlow { areas.bounds.isNotEmpty() && areas.moving.none { it() } }.first { it }
+        withFrameNanos { }
+        val bounds = snapshotFlow {
+            if (areas.moving.any { it() } || areas.bounds.isEmpty()) null else areas.bounds.toMap().values
+        }.first { it != null } ?: return@LaunchedEffect
+        val decided = wallpaperLightStyleForTextAreas(currentContext, bounds) ?: if (savedConfig.wallpaperUri.isNullOrBlank()) {
+            !darkDefaultWallpaper
+        } else {
+            !savedConfig.homeTextLight && savedConfig.wallpaperBrightness >= 0.72f
         }
+        savedPalette = wallpaperKey to decided
+        preferences.edit { putString(storageKey, "$decided|$wallpaperKey") }
     }
-    return lightStyle
+    return savedPalette?.second.takeIf { savedConfig.hasAnyWallpaper() }
 }
+
+internal fun wallpaperPaletteKey(config: ScheduleConfigEntity, darkDefaultWallpaper: Boolean): String =
+    listOf(
+        config.wallpaperUri.orEmpty(),
+        config.defaultWallpaperStyle,
+        config.wallpaperUri.isNullOrBlank() && darkDefaultWallpaper,
+        config.wallpaperBrightness,
+        config.wallpaperBlur,
+        config.wallpaperCropState(WallpaperPreviewOrientation.Portrait),
+        config.wallpaperCropState(WallpaperPreviewOrientation.Landscape),
+        config.homeTextLight,
+    ).joinToString("|")
 
 /** Vote by visible text area, so a larger title carries more weight than a small time label. */
 internal fun wallpaperLightStyleForTextAreas(

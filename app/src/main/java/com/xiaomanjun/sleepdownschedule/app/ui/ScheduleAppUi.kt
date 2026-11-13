@@ -1074,7 +1074,9 @@ fun CourseScheduleAppUi(
     val homeWallpaperLightStyle = rememberHomeWallpaperLightStyle(
         homeReadabilityContext,
         homeWallpaperTextAreas,
-        frozen = screen !is Screen.Home || rootPageMotion.moving || homeModeMotion.moving ||
+        savedConfig = state.config,
+        darkDefaultWallpaper = appDarkTheme,
+        frozen = !state.loaded || screen !is Screen.Home || rootPageMotion.moving || homeModeMotion.moving ||
             homeSidebarState.moving || homeBackgroundFreezeActive ||
             wallpaperImages.renderKey != expectedWallpaperRenderKey
     )

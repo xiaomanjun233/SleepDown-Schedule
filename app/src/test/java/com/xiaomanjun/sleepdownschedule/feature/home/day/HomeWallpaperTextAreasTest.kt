@@ -2,13 +2,16 @@ package com.xiaomanjun.sleepdownschedule.feature.home.day
 
 import android.app.Application
 import android.graphics.Bitmap
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.test.junit4.createComposeRule
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.HomeReadabilityContext
 import com.xiaomanjun.sleepdownschedule.model.defaultConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -19,6 +22,33 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [35], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class HomeWallpaperTextAreasTest {
+    @get:Rule val compose = createComposeRule()
+
+    @Test fun changingDatesCannotRecolorTheDockUntilWallpaperSettingsChange() {
+        val context = mutableStateOf(splitWallpaper())
+        val saved = mutableStateOf(requireNotNull(context.value.config))
+        val areas = HomeWallpaperTextAreas()
+        val label = Any()
+        areas.bounds[label] = Rect(20f, 5f, 90f, 20f)
+        var tone: Boolean? = null
+        compose.setContent {
+            tone = rememberHomeWallpaperLightStyle(context.value, areas, saved.value, darkDefaultWallpaper = false, frozen = false)
+        }
+        compose.waitUntil { tone == true }
+        compose.runOnIdle {
+            areas.bounds[label] = Rect(20f, 90f, 90f, 110f)
+            saved.value = saved.value.copy(currentWeek = 3)
+            context.value = context.value.copy(config = saved.value)
+        }
+        compose.mainClock.advanceTimeBy(150)
+        compose.runOnIdle {
+            assertEquals(true, tone)
+            saved.value = saved.value.copy(wallpaperBrightness = 0.65f)
+            context.value = context.value.copy(config = saved.value)
+        }
+        compose.waitUntil { tone == false }
+    }
+
     @Test fun brightTitleWinsOverSeveralSmallDarkLabelsAndDarkWallpaper() {
         val context = splitWallpaper()
         val title = Rect(20f, 5f, 90f, 20f)
