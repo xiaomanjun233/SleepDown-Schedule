@@ -62,6 +62,7 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 internal fun ColorOsAboutSettingsScreen(
     state: AppState, backdrop: Backdrop?, onDonate: () -> Unit, onPrivacyPolicy: () -> Unit,
     onSoftwareUpdate: () -> Unit,
+    onFeedback: () -> Unit,
 ) {
     val context = LocalContext.current
     val configuration = LocalConfiguration.current
@@ -108,7 +109,7 @@ internal fun ColorOsAboutSettingsScreen(
             SettingsGroup(backdrop, state.config) {
                 SettingsNavigationRow("官方网站", onClick = { open(SleepDownWebsiteUrl) })
                 SettingsDivider()
-                SettingsNavigationRow("问题反馈", onClick = { open(SleepDownIssuesUrl) })
+                SettingsNavigationRow("问题反馈", onClick = onFeedback)
                 SettingsDivider()
                 SettingsNavigationRow("隐私政策", onClick = onPrivacyPolicy)
                 SettingsDivider()

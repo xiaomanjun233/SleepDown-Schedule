@@ -93,6 +93,7 @@ import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsSection
 import com.xiaomanjun.sleepdownschedule.feature.settings.VisualEffectsSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.AutoUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.feedback.FeedbackScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateMenu
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateSettingsScreen
@@ -389,6 +390,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                             onDonate = { openSettingsPage(SettingsPage.Donate) },
                             onPrivacyPolicy = { openSettingsPage(SettingsPage.PrivacyPolicy) },
                             onSoftwareUpdate = { openSettingsPage(SettingsPage.SoftwareUpdate) },
+                            onFeedback = { openSettingsPage(SettingsPage.Feedback) },
                         )
                         SettingsPage.BackupRestore -> BackupRestoreSettingsScreen(
                             state = state,
@@ -431,6 +433,7 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                             }
                         }
                         SettingsPage.Changelog -> ChangelogSettingsScreen(state, backdrop)
+                        SettingsPage.Feedback -> FeedbackScreen(state.config, backdrop)
                         SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(
                             state, backdrop, showingUpdateNotes, onOpenVersionNotes = { showingUpdateNotes = true },
                         )

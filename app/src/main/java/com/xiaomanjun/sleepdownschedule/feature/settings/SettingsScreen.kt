@@ -58,6 +58,7 @@ import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefresh
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.ScheduleManagerScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.AutoUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.feedback.FeedbackScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateMenu
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.WideSoftwareUpdateToolbarButton
@@ -482,8 +483,10 @@ private fun SettingsPageContent(
 			onDonate = { onPageChange(SettingsPage.Donate) },
 			onPrivacyPolicy = { onPageChange(SettingsPage.PrivacyPolicy) },
             onSoftwareUpdate = { onPageChange(SettingsPage.SoftwareUpdate) },
+            onFeedback = { onPageChange(SettingsPage.Feedback) },
         )
         SettingsPage.Changelog -> ChangelogSettingsScreen(pageState, backdrop)
+        SettingsPage.Feedback -> FeedbackScreen(pageState.config, backdrop)
         SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(pageState, backdrop, showUpdateNotes, onOpenUpdateNotes)
         SettingsPage.AutoUpdate -> AutoUpdateSettingsScreen(pageState.config, backdrop, onUpdateGeneralConfig)
 		SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)

@@ -14,6 +14,7 @@ private val settingsSearchEntries = listOf(
     SettingsSearchEntry(SettingsPage.Donate, "捐赠支持", "赞助"),
     SettingsSearchEntry(SettingsPage.About, "关于应用", "版本 隐私"),
     SettingsSearchEntry(SettingsPage.SoftwareUpdate, "软件更新", "检查更新 自动更新设置 接收 Beta 版更新 历史日志 更新日志"),
+    SettingsSearchEntry(SettingsPage.Feedback, "问题反馈", "功能建议 开发进度 我的反馈"),
 )
 
 internal fun settingsSearchResults(query: String): List<SettingsSearchEntry> {

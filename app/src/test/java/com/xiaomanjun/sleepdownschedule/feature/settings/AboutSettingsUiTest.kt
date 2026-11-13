@@ -80,7 +80,8 @@ class AboutSettingsUiTest {
                     ) { _, source ->
                         when (page) {
                             SettingsPage.About -> ColorOsAboutSettingsScreen(AppState(config = config), source, {}, {},
-                                onSoftwareUpdate = { page = SettingsPage.SoftwareUpdate })
+                                onSoftwareUpdate = { page = SettingsPage.SoftwareUpdate },
+                                onFeedback = { page = SettingsPage.Feedback })
                             SettingsPage.Changelog -> ChangelogSettingsScreen(AppState(config = config), source)
                             SettingsPage.AutoUpdate -> AutoUpdateSettingsScreen(config, source, onUpdateConfig = {})
                             else -> SoftwareUpdatePageContent("2.0", AppUpdateDialog.UpToDate("2.0"),
