@@ -22,8 +22,8 @@ class NotificationSchedulingTest {
         val byIndex = com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(raw, index, bells)
         val byTime = com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement(raw, time, bells)
         assertEquals(byIndex.periods, byTime.periods)
-        assertNotEquals(NotificationScheduler.scheduleSignature(listOf(byIndex), index, bells),
-            NotificationScheduler.scheduleSignature(listOf(byTime), time, bells))
+        assertNotEquals(NotificationScheduler.scheduleSignature(AppState(courses = listOf(byIndex), config = index, periods = bells)),
+            NotificationScheduler.scheduleSignature(AppState(courses = listOf(byTime), config = time, periods = bells)))
     }
     @Test
     fun lateNightPreviewRemainsVisibleUntilTomorrowInsteadOfExpiringImmediately() {
@@ -115,15 +115,11 @@ class NotificationSchedulingTest {
         val today = LocalDate.of(2026, 9, 2)
 
         val before = NotificationScheduler.scheduleSignature(
-            courses = listOf(course),
-            config = config,
-            periods = periods,
+            AppState(courses = listOf(course), config = config, periods = periods),
             today = today
         )
         val after = NotificationScheduler.scheduleSignature(
-            courses = listOf(course.copy(location = "教学楼 B202")),
-            config = config,
-            periods = periods,
+            AppState(courses = listOf(course.copy(location = "教学楼 B202")), config = config, periods = periods),
             today = today
         )
 
@@ -136,15 +132,11 @@ class NotificationSchedulingTest {
         val periods = listOf(PeriodEntity(1, "08:00", "08:45"))
 
         val firstDay = NotificationScheduler.scheduleSignature(
-            courses = emptyList(),
-            config = config,
-            periods = periods,
+            AppState(config = config, periods = periods),
             today = LocalDate.of(2026, 9, 2)
         )
         val nextDay = NotificationScheduler.scheduleSignature(
-            courses = emptyList(),
-            config = config,
-            periods = periods,
+            AppState(config = config, periods = periods),
             today = LocalDate.of(2026, 9, 3)
         )
 
@@ -164,16 +156,12 @@ class NotificationSchedulingTest {
         )
 
         val first = NotificationScheduler.scheduleSignature(
-            courses = emptyList(),
-            config = config,
-            periods = periods,
+            AppState(config = config, periods = periods),
             today = today,
             liveUpdatePreferences = before
         )
         val changed = NotificationScheduler.scheduleSignature(
-            courses = emptyList(),
-            config = config,
-            periods = periods,
+            AppState(config = config, periods = periods),
             today = today,
             liveUpdatePreferences = before.copy(tomorrowReminderTime = LocalTime.of(21, 30))
         )

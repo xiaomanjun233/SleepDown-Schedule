@@ -73,8 +73,8 @@ class CourseSessionReminderTest {
         val edited = original.copy(customEndTime = "20:00")
         assertEquals(listOf(original), courseReminderSessions(original, periods))
         assertNotEquals(
-            NotificationScheduler.scheduleSignature(listOf(original), defaultConfig(), periods, date),
-            NotificationScheduler.scheduleSignature(listOf(edited), defaultConfig(), periods, date)
+            NotificationScheduler.scheduleSignature(com.xiaomanjun.sleepdownschedule.AppState(courses = listOf(original), periods = periods), date),
+            NotificationScheduler.scheduleSignature(com.xiaomanjun.sleepdownschedule.AppState(courses = listOf(edited), periods = periods), date)
         )
     }
 

@@ -212,7 +212,7 @@ internal object AutoRefreshScheduleCoordinator {
             val result = "已核对课表：采用 ${useIncoming.size + if (useIncomingTerm && pending.termChanged) 1 else 0} 处更新，其余保留原内容"
             AutoRefreshScheduleStore.update(context) { it.copy(lastResult = result) }
             val active = app.repository.activeSnapshot()
-            NotificationScheduler.refreshToday(app, active.courses, active.config, active.periods)
+            NotificationScheduler.refreshToday(app, active)
             TodayCoursesWidgetProvider.refreshAll(app)
             result
         }

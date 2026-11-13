@@ -140,12 +140,7 @@ class CourseScheduleApp : Application() {
                             homeChromeBlurScale = next.third
                         )
                         val snapshot = repository.activeSnapshot()
-                        NotificationScheduler.refreshToday(
-                            this@CourseScheduleApp,
-                            snapshot.courses,
-                            snapshot.config,
-                            snapshot.periods
-                        )
+                        NotificationScheduler.refreshToday(this@CourseScheduleApp, snapshot)
                         TodayCoursesWidgetProvider.refreshAll(this@CourseScheduleApp)
                     }.onFailure { error ->
                         Log.w("CourseScheduleApp", "Global settings save failed", error)

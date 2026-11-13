@@ -2,6 +2,7 @@ package com.xiaomanjun.sleepdownschedule.feature.reminder
 
 import com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleAdjustment
 import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments
+import com.xiaomanjun.sleepdownschedule.model.AppState
 import com.xiaomanjun.sleepdownschedule.model.NotificationMode
 import com.xiaomanjun.sleepdownschedule.model.defaultConfig
 import java.time.LocalDate
@@ -16,14 +17,12 @@ class NotificationAdjustmentSchedulingTest {
 
     private fun signature(value: String, mode: NotificationMode = NotificationMode.STANDARD) =
         NotificationScheduler.scheduleSignature(
-            courses = emptyList(),
-            config = defaultConfig().copy(
+            AppState(config = defaultConfig().copy(
                 notificationMode = mode,
                 autoCurrentWeek = true,
                 termStartDate = "2026-08-31",
                 scheduleAdjustmentsJson = value
-            ),
-            periods = emptyList(),
+            ), periods = emptyList()),
             today = today
         )
 

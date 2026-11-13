@@ -402,12 +402,7 @@ class BackupRestoreService(
         guarded("课程提醒刷新失败") {
             ScheduleRepository(database).ensureDefaults()
             val snapshot = ScheduleRepository(database).activeSnapshot()
-            NotificationScheduler.refreshToday(
-                appContext,
-                snapshot.courses,
-                snapshot.config,
-                snapshot.periods
-            )
+            NotificationScheduler.refreshToday(appContext, snapshot)
         }
         guarded("桌面小组件刷新失败") {
             TodayCoursesWidgetProvider.refreshAll(appContext)
