@@ -103,21 +103,28 @@ internal fun coursesWidgetLayoutMetrics(
     }
 
     val normalHeaderHeight = (22f + 2f * heightProgress).roundToInt()
-    val headerHeightDp = if (isSquare) maxOf(
+    fun squareHeaderHeight(scale: Float): Int = maxOf(
         normalHeaderHeight,
-        lineHeight((16f * textScaleAt(preferredGroupHeightDp)).coerceAtLeast(12f), bold = true, sample = "今日课程"),
-    ) else normalHeaderHeight
-    val availableHeightDp = (
-        size.heightDp - verticalPaddingDp * 2 - headerHeightDp - courseTopMarginDp
-    ).coerceAtLeast(34)
+        lineHeight((16f * scale).coerceAtLeast(12f), bold = true, sample = "今日课程"),
+    )
+    val remainingHeightDp = size.heightDp - verticalPaddingDp * 2 - courseTopMarginDp
     // XML margins and RemoteViews heights round independently at fractional densities.
-    fun rowBudget(count: Int): Int = (availableHeightDp - groupGapDp * (count - 1) - 1) / count
-    val minimumPaddingDp = 2
-    val rowCapacity = if (isSquare) {
-        val twoRowHeight = minOf(rowBudget(2), preferredGroupHeightDp)
-        val neededHeight = maxOf(24, compactTextHeight(textScaleAt(twoRowHeight), 2)) + 2 * minimumPaddingDp
-        if (twoRowHeight >= neededHeight) 2 else 1
-    } else {
+    fun rowBudget(count: Int, headerHeight: Int): Int =
+        ((remainingHeightDp - headerHeight).coerceAtLeast(34) - groupGapDp * (count - 1) - 1) / count
+    val minRowPadding = 2
+    val regularSquareScale = textScaleAt(preferredGroupHeightDp)
+    val twoRowScale = if (isSquare && courseCount >= 2) {
+        // Step through the narrow layout before hiding a course. The typography's existing
+        // minimum sizes still apply, and the title is measured at the same scale as the rows.
+        val preferred = textScaleAt(rowBudget(2, normalHeaderHeight))
+        (0..10).asSequence().map { (preferred - it * 0.025f).coerceAtLeast(0.75f) }.distinct().firstOrNull { scale ->
+            minOf(rowBudget(2, squareHeaderHeight(scale)), preferredGroupHeightDp) >=
+                maxOf(24, compactTextHeight(scale, 2)) + 2 * minRowPadding
+        }
+    } else null
+    val headerHeightDp = if (isSquare) squareHeaderHeight(twoRowScale ?: regularSquareScale) else normalHeaderHeight
+    val rowCapacity = if (isSquare) if (twoRowScale != null) 2 else 1 else {
+        val availableHeightDp = (remainingHeightDp - headerHeightDp).coerceAtLeast(34)
         val minimumGroupHeightDp = (48f + 12f * expansionProgress).roundToInt()
         ((availableHeightDp + groupGapDp) / (minimumGroupHeightDp + groupGapDp)).coerceIn(1, 4)
     }
@@ -131,10 +138,10 @@ internal fun coursesWidgetLayoutMetrics(
     val visibleCourses = courseCount.coerceAtMost(maxCourses).coerceAtLeast(1)
     val usedRows = if (useGrid) ceil(visibleCourses / 2f).toInt() else visibleCourses
     val preferredHeight = if (isSquare && usedRows == 1) maxOf(
-        preferredGroupHeightDp, compactTextHeight(textScaleAt(preferredGroupHeightDp), 1) + 2 * minimumPaddingDp,
+        preferredGroupHeightDp, compactTextHeight(regularSquareScale, 1) + 2 * minRowPadding,
     ) else preferredGroupHeightDp
-    val groupHeightDp = rowBudget(usedRows).coerceIn(if (isSquare) 28 else 34, preferredHeight)
-    val textScale = textScaleAt(groupHeightDp)
+    val groupHeightDp = rowBudget(usedRows, headerHeightDp).coerceIn(if (isSquare) 28 else 34, preferredHeight)
+    val textScale = twoRowScale ?: textScaleAt(groupHeightDp)
     val preferredPadding = (3f + 2f * progress(groupHeightDp, 38, preferredGroupHeightDp)).roundToInt()
     val groupVerticalPaddingDp = if (isSquare) {
         minOf(preferredPadding, ((groupHeightDp - compactTextHeight(textScale, usedRows)) / 2).coerceAtLeast(0))

@@ -58,7 +58,8 @@ class WidgetRegressionTest {
                     View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
                 view.layout(0, 0, width, height)
                 assertEquals("连堂课", view.findViewById<TextView>(R.id.widget_compact_name_1).text.toString())
-                assertEquals("第二门课", view.findViewById<TextView>(R.id.widget_compact_name_2).text.toString())
+                assertEquals("Second course at $heightDp dp, $dpi dpi, font $font", "第二门课",
+                    view.findViewById<TextView>(R.id.widget_compact_name_2).text.toString())
                 val row = view.findViewById<View>(R.id.widget_compact_row_2)
                 val visible = android.graphics.Rect()
                 assertTrue("Second row is visible at $heightDp dp, $dpi dpi, font $font", row.getGlobalVisibleRect(visible))
