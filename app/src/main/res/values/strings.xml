@@ -1,5 +1,8 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <string name="app_name">SleepDown课程表</string>
+    <string name="version_welcome_headline">已焕然一新</string>
+    <string name="version_welcome_continue">继续</string>
+    <string name="software_update_view_highlights">查看亮点功能</string>
     <string name="backup_open_with_label">SleepDown 恢复</string>
     <string name="widget_today_courses_description">今日课程安排</string>
     <string name="widget_today_courses_name">今日课程</string>

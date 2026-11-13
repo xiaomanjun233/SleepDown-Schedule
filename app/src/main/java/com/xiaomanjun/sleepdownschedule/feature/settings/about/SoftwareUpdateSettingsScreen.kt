@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -40,6 +41,7 @@ import com.itos.coui.text.rememberCouiTextStyle
 import com.itos.coui.theme.CouiTheme
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
+import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
@@ -47,6 +49,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsToolbarButton
 import com.xiaomanjun.sleepdownschedule.core.web.openSleepDownCustomTab
 import com.xiaomanjun.sleepdownschedule.core.web.resolveSleepDownCustomTabsPackage
+import com.xiaomanjun.sleepdownschedule.feature.onboarding.VersionWelcomeEntry
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.feature.update.*
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.GlowOverflowMenuButton
@@ -119,11 +122,14 @@ internal fun SoftwareUpdateSettingsScreen(
 
 @Composable
 internal fun SoftwareUpdateMenu(backdrop: Backdrop?, onOpenPage: (SettingsPage) -> Unit) {
+    val context = LocalContext.current
+    val highlights = stringResource(R.string.software_update_view_highlights)
     val compact = LocalConfiguration.current.screenWidthDp < 600
     val dark = compact || CouiTheme.isDark
     val openPage by rememberUpdatedState(onOpenPage)
-    val actions = remember {
+    val actions = remember(context, highlights) {
         buildList {
+            add(AddMenuAction(label = highlights) { VersionWelcomeEntry.replay(context) })
             if (AppDistribution.supportsSelfUpdate) {
                 add(AddMenuAction(label = "自动更新设置") { openPage(SettingsPage.AutoUpdate) })
             }

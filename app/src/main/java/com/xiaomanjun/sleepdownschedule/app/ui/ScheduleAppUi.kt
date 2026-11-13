@@ -425,6 +425,7 @@ fun CourseScheduleAppUi(
     onStartupContentReady: () -> Unit = {},
     requestedScheduleWeekId: Int? = null,
     onRequestedScheduleWeekShown: (Int) -> Unit = {},
+    versionWelcomeVisible: Boolean = false,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val allSchedulesState by viewModel.allSchedulesState.collectAsStateWithLifecycle()
@@ -502,7 +503,12 @@ fun CourseScheduleAppUi(
     }
     var dayRenderedCardCount by remember(state.config.id) { mutableIntStateOf(0) }
     var weekRenderedCardCount by remember(state.config.id) { mutableIntStateOf(0) }
-    val rootPageMotion = rememberHomeSwitchMotion(screen is Screen.Config, "home-settings")
+    val rootPageMotion = rememberHomeSwitchMotion(
+        screen is Screen.Config, "home-settings", animate = !versionWelcomeVisible,
+    )
+    LaunchedEffect(versionWelcomeVisible) {
+        if (versionWelcomeVisible) screen = Screen.Home
+    }
     val homeModeMotion = key(state.loaded) {
         rememberHomeSwitchMotion(homeMode == HomeMode.Week, "day-week",
             animate = !rootPageMotion.landscape || !rootPageMotion.moving)
@@ -922,8 +928,8 @@ fun CourseScheduleAppUi(
             }
         }
     }
-    LaunchedEffect(remoteExperience, state.loaded, state.config.id, state.config.scheduleAdjustmentsJson) {
-        if (!state.loaded) return@LaunchedEffect
+    LaunchedEffect(versionWelcomeVisible, remoteExperience, state.loaded, state.config.id, state.config.scheduleAdjustmentsJson) {
+        if (versionWelcomeVisible || !state.loaded) return@LaunchedEffect
         if (remoteExperience.agreement != null || remoteExperience.notice != null) return@LaunchedEffect
         val holiday = HolidayReminder.upcomingHoliday(context, state.config) ?: return@LaunchedEffect
         if (HolidayReminder.claimDailyPrompt(context)) upcomingHoliday = holiday
@@ -942,9 +948,9 @@ fun CourseScheduleAppUi(
             AiEduImportProgressSession.consumeFinalImportRequest()
         }
     }
-    LaunchedEffect(externalIcsUri, state.loaded) {
+    LaunchedEffect(externalIcsUri, state.loaded, versionWelcomeVisible) {
         val uri = externalIcsUri ?: return@LaunchedEffect
-        if (!state.loaded) return@LaunchedEffect
+        if (!state.loaded || versionWelcomeVisible) return@LaunchedEffect
         onExternalIcsConsumed(uri)
         screen = Screen.Home
         pendingHomeAnchoredOverlay = null
@@ -1038,7 +1044,7 @@ fun CourseScheduleAppUi(
         return menuBounds to sourceButton
     }
     val automaticUpdates = rememberAppUpdateSession()
-    AutomaticAppUpdateCheck(automaticUpdates, state.loaded, state.config.autoCheckUpdates)
+    AutomaticAppUpdateCheck(automaticUpdates, state.loaded, !versionWelcomeVisible && state.config.autoCheckUpdates)
     val wallpaperImages by rememberHomeWallpaperImages(visualState.config)
     val colorOsOverflowActions = remember { mutableStateOf<List<AddMenuAction>>(emptyList()) }
     val homeWallpaperRecordKey = remember { mutableStateOf<WallpaperPixels?>(null) }
@@ -1086,7 +1092,8 @@ fun CourseScheduleAppUi(
             if (homeStatusBarDarkIcons) luminance >= 0.46f else luminance >= 0.56f
         } ?: !appDarkTheme
     }
-    LaunchedEffect(screen, homeStatusBarDarkIcons, appDarkTheme, context, homeAssistant.visible) {
+    LaunchedEffect(screen, homeStatusBarDarkIcons, appDarkTheme, context, homeAssistant.visible, versionWelcomeVisible) {
+        if (versionWelcomeVisible) return@LaunchedEffect
         val window = context.findActivity()?.window ?: return@LaunchedEffect
         window.setStatusBarDarkIcons(
             darkIcons = if (screen is Screen.Home && homeAssistant.visible) false
@@ -1126,6 +1133,7 @@ fun CourseScheduleAppUi(
         }
     }
     LaunchedEffect(
+        versionWelcomeVisible,
         state.loaded,
         startupPhase,
         screen,
@@ -1137,6 +1145,7 @@ fun CourseScheduleAppUi(
         remoteConfigState.bootstrap?.aiConfigs
     ) {
         if (
+            !versionWelcomeVisible &&
             state.loaded &&
             startupPhase == StartupPhase.FullQuality &&
             screen is Screen.Home &&
@@ -1721,9 +1730,9 @@ fun CourseScheduleAppUi(
         )
     }
 
-    LaunchedEffect(requestedScheduleWeekId, state.loaded, state.config.id) {
+    LaunchedEffect(requestedScheduleWeekId, state.loaded, state.config.id, versionWelcomeVisible) {
         val id = requestedScheduleWeekId ?: return@LaunchedEffect
-        if (!state.loaded || state.config.id != id) return@LaunchedEffect
+        if (!state.loaded || state.config.id != id || versionWelcomeVisible) return@LaunchedEffect
         dismissHomeDialog()
         homeAnchoredOverlayRequest = null
         quickScheduleReturnToManager = false
@@ -1910,8 +1919,14 @@ fun CourseScheduleAppUi(
         }
     )
 
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+    var notificationPermissionRequested by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(versionWelcomeVisible) {
+        if (!versionWelcomeVisible && !notificationPermissionRequested &&
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            withFrameNanos { }
+            notificationPermissionRequested = true
             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         }
     }
@@ -2248,7 +2263,7 @@ fun CourseScheduleAppUi(
                     controller = homeAssistant,
                     state = state,
                     available = screen is Screen.Home && homeMode == HomeMode.Week && state.loaded,
-                    remindersAllowed = homeMode == HomeMode.Week && !homeAssistant.editing &&
+                    remindersAllowed = !versionWelcomeVisible && homeMode == HomeMode.Week && !homeAssistant.editing &&
                         !homeBackgroundOverlayActive && !courseCopy.active && renderedHomeDialog == null &&
                         !jumpWeekDialogMounted && pickerState.phase is CustomizeUiState.Home &&
                         dayAgentBackgroundMotionState.progress.value < 0.001f,
@@ -2573,7 +2588,7 @@ fun CourseScheduleAppUi(
                 // The detailed-settings handoff needs consecutive fully composed source and
                 // clean-background frames, as in the 1.1.5 implementation.
                 val shouldRecordStableDetailFrame =
-                    detailMorphState is DetailMorphState.Idle &&
+                    !versionWelcomeVisible && detailMorphState is DetailMorphState.Idle &&
                         !rootPageMotion.moving && !homeModeMotion.moving &&
                         !courseEditorOwnsFrame &&
                         (
@@ -2656,7 +2671,7 @@ fun CourseScheduleAppUi(
                 val ready = validSize && screenGraphicsLayer.size == frameSize &&
                     lastRecordedHomeFrameKey.get() == homeCaptureFrameKey
                 // A moving pair of pages is not a stable overlay source.
-                val needsCapture = validSize && !ready &&
+                val needsCapture = !versionWelcomeVisible && validSize && !ready &&
                     !rootPageMotion.moving && !homeModeMotion.moving && !homeSidebarState.moving
                 screenGraphicsLayer.alpha = 1f
                 if (needsCapture) {
@@ -3956,13 +3971,14 @@ fun CourseScheduleAppUi(
 
     com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavRestorePrompt(
         state.config, chromeBackdrop,
-        canShow = !showManagedFreeAiOffer && homeDialog == null && courseEditorRequest == null && homeAnchoredOverlayRequest == null
+        canShow = !versionWelcomeVisible && !showManagedFreeAiOffer && homeDialog == null &&
+            courseEditorRequest == null && homeAnchoredOverlayRequest == null
     ) {
         context.startActivity(Intent(context, SettingsDetailActivity::class.java)
             .putExtra(SettingsDetailPageExtra, SettingsPage.WebDav.name))
     }
 
-    if (showManagedFreeAiOffer) {
+    if (!versionWelcomeVisible && showManagedFreeAiOffer) {
         LiquidAlertDialog(
             title = "启用每日免费 AI？",
             message = "SleepDown 为尚未配置模型服务的用户提供每日免费 AI 额度，可用于 AI 助理、AI 对话和 AI 教务导入。固定使用 gpt-5.6-luna 与 Responses 接口，可随时在 AI 设置中切换或关闭。",
@@ -3984,7 +4000,7 @@ fun CourseScheduleAppUi(
         )
     }
 
-    remoteExperience.agreement?.let { agreement ->
+    remoteExperience.agreement?.takeUnless { versionWelcomeVisible }?.let { agreement ->
         LiquidAlertDialog(
             title = agreement.title,
             message = if (agreement.forceReaccept) {
@@ -4005,7 +4021,7 @@ fun CourseScheduleAppUi(
             config = state.config,
             onDismissRequest = {}
         )
-    } ?: remoteExperience.notice?.let { notice ->
+    } ?: remoteExperience.notice?.takeUnless { versionWelcomeVisible }?.let { notice ->
         LiquidAlertDialog(
             title = notice.title,
             message = notice.content,
@@ -4021,7 +4037,7 @@ fun CourseScheduleAppUi(
         )
     }
 
-    if (remoteExperience.agreement == null && remoteExperience.notice == null) {
+    if (!versionWelcomeVisible && remoteExperience.agreement == null && remoteExperience.notice == null) {
         upcomingHoliday?.let { holiday ->
             LiquidAlertDialog(
                 title = "临近${holiday.name}",
@@ -4394,7 +4410,7 @@ fun CourseScheduleAppUi(
         }
         }
 
-        AppUpdateDialogHost(
+        if (!versionWelcomeVisible) AppUpdateDialogHost(
             session = automaticUpdates,
             backdrop = chromeBackdrop,
             config = state.config,

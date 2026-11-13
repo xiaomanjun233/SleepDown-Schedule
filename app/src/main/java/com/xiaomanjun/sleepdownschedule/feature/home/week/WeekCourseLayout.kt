@@ -78,6 +78,7 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.courseWeekDisplayFragmen
 import com.xiaomanjun.sleepdownschedule.domain.schedule.customTimeRangeOrNull
 import com.xiaomanjun.sleepdownschedule.exactTimeWeekPlacement
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorWeekGrid
+import com.xiaomanjun.sleepdownschedule.feature.onboarding.welcomeCourseFlight
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.LocalCourseEditorFlightRegistry
 import com.xiaomanjun.sleepdownschedule.feature.home.adaptiveWeekCardCornerRadius
 import com.xiaomanjun.sleepdownschedule.feature.home.currentWindowSizeDp
@@ -296,7 +297,8 @@ private fun WeekDayColumn(
                     modifier = Modifier.offset(y = card.top.dp).fillMaxWidth()
                         .padding(horizontal = WeekCourseCardInset).height(height)
                         .weekPageTail(tailKey, tailCardOrder[tailKey], tailColumnFraction)
-                        .homeSwitchGroup(tailCardOrder[tailKey])) {
+                        .homeSwitchGroup(tailCardOrder[tailKey])
+                        .welcomeCourseFlight(tailCardOrder[tailKey] ?: 0.5f)) {
                     WeekCourseOverlayCardContent(card.course, config, muted = true)
                 }
             }
@@ -335,6 +337,7 @@ private fun WeekDayColumn(
                     )
                     // Keep the custom clock labels on the same moving surface as their card.
                     .homeSwitchGroup(tailCardOrder[glassCandidateId])
+                    .welcomeCourseFlight(tailCardOrder[glassCandidateId] ?: 0.5f)
                     .zIndex(if (LocalCourseRemoval.current?.matches(segment.course, editWeek) == true) 20f else groupIndex.toFloat())
             ) {
                 WeekCourseBlock(
@@ -840,14 +843,16 @@ internal fun WeekCourseColumnsLayer(
                             maxLines = 1
                         )
                         (if (fullDayPlaceholder) emptyList() else supplementaryCoursesByDay[day].orEmpty()).forEachIndexed { index, course ->
+                            val tailKey = weekSupplementaryTailKey(day, course.id, index)
                             Column(
                                 modifier = Modifier.fillMaxWidth().height(88.dp).padding(horizontal = 2.dp)
                                     .weekPageTail(
-                                        cardKey = weekSupplementaryTailKey(day, course.id, index),
-                                        cardOrderFraction = tailCardOrder[weekSupplementaryTailKey(day, course.id, index)],
+                                        cardKey = tailKey,
+                                        cardOrderFraction = tailCardOrder[tailKey],
                                         columnOrderFraction = tailColumnOrder[day]
                                     )
-                                    .homeSwitchGroup(tailCardOrder[weekSupplementaryTailKey(day, course.id, index)]),
+                                    .homeSwitchGroup(tailCardOrder[tailKey])
+                                    .welcomeCourseFlight(tailCardOrder[tailKey] ?: 0.5f),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 WeekCourseTimeLabel(course.customStartTime.orEmpty(), fontSize = 8.sp, lineHeight = 10.sp,
@@ -859,7 +864,7 @@ internal fun WeekCourseColumnsLayer(
                                     config = config, dayIndex = day, gridColumnWidth = dayColumnWidth,
                                     shortcutPivotX = shortcutPivotX,
                                     stackIndex = index,
-                                    cardOrderFraction = tailCardOrder[weekSupplementaryTailKey(day, course.id, index)],
+                                    cardOrderFraction = tailCardOrder[tailKey],
                                     columnOrderFraction = tailColumnOrder[day],
                                     editMode = editMode && !adjustedDay, editWeek = editWeek,
                                     editActivation = editActivation,
@@ -880,7 +885,8 @@ internal fun WeekCourseColumnsLayer(
                             key(tailKey) {
                                 Column(Modifier.fillMaxWidth().height(88.dp).padding(horizontal = 2.dp)
                                     .weekPageTail(tailKey, tailCardOrder[tailKey], tailColumnOrder[day])
-                                    .homeSwitchGroup(tailCardOrder[tailKey]),
+                                    .homeSwitchGroup(tailCardOrder[tailKey])
+                                    .welcomeCourseFlight(tailCardOrder[tailKey] ?: 0.5f),
                                     horizontalAlignment = Alignment.CenterHorizontally) {
                                     WeekCourseTimeLabel(course.customStartTime.orEmpty(), fontSize = 8.sp, lineHeight = 10.sp,
                                         color = glassForegroundColor(config), modifier = Modifier.height(12.dp))

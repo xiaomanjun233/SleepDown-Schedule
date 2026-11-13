@@ -11,19 +11,27 @@ import android.view.ViewTreeObserver
 import android.view.WindowInsetsController
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.xiaomanjun.sleepdownschedule.app.state.*
@@ -31,11 +39,15 @@ import com.xiaomanjun.sleepdownschedule.app.ui.*
 import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.feature.onboarding.LocalWelcomeCourseFlight
+import com.xiaomanjun.sleepdownschedule.feature.onboarding.VersionWelcomeEntry
+import com.xiaomanjun.sleepdownschedule.feature.onboarding.VersionWelcomeScreen
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
 internal const val OpenScheduleWeekExtra = "com.xiaomanjun.sleepdownschedule.extra.OPEN_SCHEDULE_WEEK"
+private const val ShowingWelcomeState = "showing_version_welcome"
 
 class MainActivity : ComponentActivity() {
     private val pendingExternalIcsUri = MutableStateFlow<Uri?>(null)
@@ -43,14 +55,21 @@ class MainActivity : ComponentActivity() {
     private val pendingScheduleWeek = MutableStateFlow<Int?>(null)
     private val startupContentReady = AtomicBoolean(false)
     private var startupPreDrawListener: ViewTreeObserver.OnPreDrawListener? = null
+    private var showingVersionWelcome by mutableStateOf(false)
+    private var welcomeAccepted = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         acceptEntryIntent(intent)
-        WindowCompat.setDecorFitsSystemWindows(window, true)
+        showingVersionWelcome = savedInstanceState?.getBoolean(ShowingWelcomeState)
+            ?: VersionWelcomeEntry.shouldShow(this, intent)
+        // The welcome and timetable share one viewport for the complete button reveal.
+        WindowCompat.setDecorFitsSystemWindows(window, Build.VERSION.SDK_INT < 35)
         val contentRoot = findViewById<View>(android.R.id.content)
+        val systemBars = WindowCompat.getInsetsController(window, contentRoot)
+        if (showingVersionWelcome) systemBars.hide(WindowInsetsCompat.Type.statusBars())
         startupPreDrawListener = ViewTreeObserver.OnPreDrawListener {
-            if (startupContentReady.get()) {
+            if (showingVersionWelcome || startupContentReady.get()) {
                 startupPreDrawListener?.let { listener ->
                     if (contentRoot.viewTreeObserver.isAlive) {
                         contentRoot.viewTreeObserver.removeOnPreDrawListener(listener)
@@ -70,28 +89,70 @@ class MainActivity : ComponentActivity() {
             val config by viewModel.themeConfig.collectAsStateWithLifecycle()
             val externalIcsUri by pendingExternalIcsUriFlow.collectAsStateWithLifecycle()
             val requestedScheduleWeek by pendingScheduleWeek.collectAsStateWithLifecycle()
+            var homeReady by remember { mutableStateOf(false) }
+            val reveal = if (showingVersionWelcome) remember { Animatable(0f) } else null
+            var welcomeNavigationLight by remember(reveal) { mutableStateOf<Boolean?>(false) }
+            val darkTheme = appUsesDarkTheme(config)
             CourseScheduleTheme(config = config) {
-                CourseScheduleAppUi(
-                    viewModel = viewModel,
-                    externalIcsUri = externalIcsUri,
-                    onExternalIcsConsumed = { consumed ->
-                        pendingExternalIcsUri.compareAndSet(consumed, null)
-                    },
-                    requestedScheduleWeekId = requestedScheduleWeek,
-                    onRequestedScheduleWeekShown = { id ->
-                        if (pendingScheduleWeek.compareAndSet(id, null) &&
-                            intent.getIntExtra(OpenScheduleWeekExtra, 0) == id) {
-                            intent.removeExtra(OpenScheduleWeekExtra)
-                        }
-                    },
-                    onStartupContentReady = {
-                        if (startupContentReady.compareAndSet(false, true)) {
-                            contentRoot.postInvalidateOnAnimation()
+                Box(Modifier.fillMaxSize()) {
+                    Box(
+                        if (showingVersionWelcome) Modifier.fillMaxSize().clearAndSetSemantics {}
+                        else Modifier.fillMaxSize()
+                    ) {
+                        CompositionLocalProvider(LocalWelcomeCourseFlight provides reveal?.asState()) {
+                            CourseScheduleAppUi(
+                                viewModel = viewModel,
+                                externalIcsUri = externalIcsUri,
+                                onExternalIcsConsumed = { consumed ->
+                                    pendingExternalIcsUri.compareAndSet(consumed, null)
+                                },
+                                requestedScheduleWeekId = requestedScheduleWeek,
+                                onRequestedScheduleWeekShown = { id ->
+                                    if (pendingScheduleWeek.compareAndSet(id, null) &&
+                                        intent.getIntExtra(OpenScheduleWeekExtra, 0) == id
+                                    ) {
+                                        intent.removeExtra(OpenScheduleWeekExtra)
+                                    }
+                                },
+                                onStartupContentReady = {
+                                    homeReady = true
+                                    if (startupContentReady.compareAndSet(false, true)) {
+                                        contentRoot.postInvalidateOnAnimation()
+                                    }
+                                },
+                                versionWelcomeVisible = showingVersionWelcome,
+                            )
                         }
                     }
-                )
+                    if (reveal != null) {
+                        VersionWelcomeScreen(
+                            reveal = reveal,
+                            homeReady = homeReady,
+                            onLightBackground = { welcomeNavigationLight = it },
+                            onAccepted = {
+                                welcomeAccepted = true
+                                VersionWelcomeEntry.markSeen(this@MainActivity)
+                            },
+                            onFinished = { showingVersionWelcome = false },
+                        )
+                    }
+                }
+            }
+            LaunchedEffect(showingVersionWelcome, welcomeNavigationLight, darkTheme) {
+                if (showingVersionWelcome) {
+                    systemBars.hide(WindowInsetsCompat.Type.statusBars())
+                } else {
+                    systemBars.show(WindowInsetsCompat.Type.statusBars())
+                }
+                systemBars.isAppearanceLightNavigationBars = welcomeNavigationLight
+                    ?.takeIf { showingVersionWelcome } ?: !darkTheme
             }
         }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(ShowingWelcomeState, showingVersionWelcome && !welcomeAccepted)
     }
 
     override fun onDestroy() {
@@ -109,6 +170,10 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         acceptEntryIntent(intent)
+        if (!showingVersionWelcome && VersionWelcomeEntry.shouldShow(this, intent)) {
+            welcomeAccepted = false
+            showingVersionWelcome = true
+        }
     }
 
     private fun acceptEntryIntent(intent: Intent?) {

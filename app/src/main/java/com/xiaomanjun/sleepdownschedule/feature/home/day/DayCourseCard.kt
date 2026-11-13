@@ -60,6 +60,7 @@ import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorDayAppearance
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.LocalCourseEditorFlightRegistry
 import com.xiaomanjun.sleepdownschedule.feature.home.CourseAdjustmentBadge
+import com.xiaomanjun.sleepdownschedule.feature.onboarding.welcomeCourseFlight
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalAdjustedCourseEditor
 import com.xiaomanjun.sleepdownschedule.feature.home.courseAdjustmentBadgeHeight
 import com.xiaomanjun.sleepdownschedule.feature.home.courseBadgeContentInset
@@ -96,12 +97,30 @@ internal fun homeCourseTextColor(
 }
 
 @Composable
-fun DayTimelineCourse(course: CourseEntity, currentWeek: Int, periods: List<PeriodEntity>, cardColor: ComposeColor, backdrop: Backdrop?, config: ScheduleConfigEntity, onCourseClick: (CourseEntity, Int, Rect?) -> Unit, simultaneousCount: Int = 1, tabletFontScale: Float = 1f, readOnly: Boolean = false, muted: Boolean = false, occurrenceDate: LocalDate? = null, completed: Boolean = false) {
+internal fun DayTimelineCourse(
+    course: CourseEntity,
+    currentWeek: Int,
+    periods: List<PeriodEntity>,
+    cardColor: ComposeColor,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity,
+    onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
+    simultaneousCount: Int = 1,
+    tabletFontScale: Float = 1f,
+    readOnly: Boolean = false,
+    muted: Boolean = false,
+    occurrenceDate: LocalDate? = null,
+    completed: Boolean = false,
+    welcomeOrder: Float = 0.5f,
+) {
     val adjustedEditor = LocalAdjustedCourseEditor.current
     val subdued = muted || completed
     val pageForeground = homeForegroundColor(config)
     val foreground = homeCourseTextColor(config, course, pageForeground, subdued)
-    Column(modifier = Modifier.homeSwitchGroup().homeCountdownShockwave(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(
+        modifier = Modifier.homeSwitchGroup().welcomeCourseFlight(welcomeOrder).homeCountdownShockwave(),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
         CourseGlassCard(
             backdrop = backdrop,
             config = config,
