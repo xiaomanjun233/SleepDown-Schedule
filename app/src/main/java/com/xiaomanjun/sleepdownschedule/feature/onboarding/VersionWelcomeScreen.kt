@@ -115,7 +115,7 @@ internal fun VersionWelcomeScreen(
 ) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val reducedMotion = rememberWelcomeReducedMotion()
-    val name = stringResource(R.string.app_name)
+    val name = stringResource(R.string.app_product_name)
     val headline = stringResource(R.string.version_welcome_headline)
     val headlineStart = TitleStartMillis + name.length * LetterMillis + 180f
     val actionStart = maxOf(headlineStart, LiquidSettleMillis)
