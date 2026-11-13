@@ -110,9 +110,9 @@ internal fun BoxScope.HomePersonalizationAnimatedOverlay(
         }
         PersonalizationMaterial(Modifier.matchParentSize(), backdrop, config, shape, surfaceAlpha)
 
-        // The form is measured at its resting size. Its scale never enters the backdrop mapping.
+        // Clip the viewport outside the form's scale and overscroll translation.
         Box(
-            Modifier.layout { measurable, constraints ->
+            Modifier.clip(shape).layout { measurable, constraints ->
                 val targetWidth = targetRect.width.roundToInt().coerceAtLeast(1)
                 val targetHeight = targetRect.height.roundToInt().coerceAtLeast(1)
                 val form = measurable.measure(Constraints.fixed(targetWidth, targetHeight))

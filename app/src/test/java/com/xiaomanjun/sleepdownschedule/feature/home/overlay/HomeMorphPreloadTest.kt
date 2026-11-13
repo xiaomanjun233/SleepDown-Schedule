@@ -2,15 +2,23 @@ package com.xiaomanjun.sleepdownschedule.feature.home.overlay
 
 import android.app.Application
 import androidx.activity.ComponentActivity
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer
@@ -19,6 +27,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.calculateHomeAdaptiveMetric
 import com.xiaomanjun.sleepdownschedule.model.HomeMode
 import com.xiaomanjun.sleepdownschedule.model.defaultConfig
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -38,6 +47,41 @@ class HomeMorphPreloadTest {
     @Test fun independentlyEnabledCourseMaterialAlsoPreloads() = verifyPreload(cardOnly = true)
     @Test fun cancelWhilePreparingDoesNotReopenAReleasedForm() = verifyPreload(cardOnly = false, cancelPreparing = true)
     @Test fun interruptedPersonalizationJoinsBothDirectionsWithoutRemounting() = verifyPreload(cardOnly = false, interruptOpening = true)
+
+    @Test fun personalizationClipsTranslatedContentToItsStationaryViewport() {
+        val motion = HomeAnchoredMorphState()
+        val outside = Color(0xFF14364B)
+        val inside = Color(0xFFEC3B6A)
+        lateinit var panel: Rect
+        compose.setContent {
+            val scope = rememberCoroutineScope()
+            DisposableEffect(Unit) {
+                val initialize = scope.launch {
+                    motion.progress.snapTo(1f)
+                    motion.phase = HomeAnchoredOverlayPhase.Open
+                }
+                onDispose { initialize.cancel() }
+            }
+            panel = with(LocalDensity.current) {
+                Rect(24.dp.toPx(), 120.dp.toPx(), 240.dp.toPx(), 370.dp.toPx())
+            }
+            Box(Modifier.fillMaxSize().background(outside)) {
+                HomePersonalizationAnimatedOverlay(
+                    sourceBounds = panel, sourcePressedScale = 1f, targetRect = panel, maximumArcPx = 0f,
+                    motionState = motion, backdrop = null, config = defaultConfig(), previewProgress = 0f,
+                    onContentLaidOut = {}, onDismissRequest = {}, sourceContent = {},
+                    content = { modifier ->
+                        Box(modifier.graphicsLayer { translationY = -40.dp.toPx() }.background(inside))
+                    },
+                )
+            }
+        }
+        val image = compose.onRoot().captureToImage().toPixelMap()
+        val x = panel.center.x.toInt()
+        val top = panel.top.toInt()
+        assertEquals(outside, image[x, top - 4])
+        assertEquals(inside, image[x, top + 4])
+    }
 
     private fun frames(count: Int) { repeat(count) { compose.mainClock.advanceTimeByFrame(); compose.waitForIdle() } }
 
