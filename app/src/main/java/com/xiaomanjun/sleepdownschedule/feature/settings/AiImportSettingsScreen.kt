@@ -5,46 +5,33 @@ import com.xiaomanjun.sleepdownschedule.feature.importing.aiModelSelectionIndex
 
 import com.xiaomanjun.sleepdownschedule.feature.importing.ManagedAiRemoteConfig
 import android.net.Uri
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.settingsPreferencePadding
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
-import com.itos.coui.button.CouiButton
-import com.itos.coui.button.CouiButtonDefaults
-import com.itos.coui.button.CouiButtonStyle
-import com.itos.coui.theme.CouiTheme
 import com.xiaomanjun.sleepdownschedule.AppState
+import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.SleepDownRemoteConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
@@ -56,14 +43,17 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryP
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceSection
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsToolbarTextButton
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsBasicComponent
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionButton
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsFloatingActionArea
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsToggleRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdownPreference
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.settingsPreferencePadding
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiEndpointStyle
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettings
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettingsStore
@@ -139,7 +129,6 @@ fun AiImportSettingsSection(
     var message by remember { mutableStateOf<String?>(null) }
     var testResult by remember { mutableStateOf<String?>(null) }
     var showDeleteProviderConfirm by remember { mutableStateOf(false) }
-    var providerMenuExpanded by remember { mutableStateOf(false) }
     var providerListRevision by remember { mutableIntStateOf(0) }
     var modelUsesCustomInput by remember(saved.profile.id) {
         mutableStateOf(AiProviderPresets.modelOptions(saved.profile.id).none { it.model == saved.profile.defaultModel })
@@ -354,7 +343,6 @@ fun AiImportSettingsSection(
         testResult = null
         modelUsesCustomInput = providerModelOptions.isEmpty() || !providerUsesPresetModel
         customModelInput = if (providerUsesPresetModel) "" else providerSettings.profile.defaultModel
-        providerMenuExpanded = false
     }
     fun addCustomProvider() {
         val outgoingKey = apiKeyInput.ifBlank { saved.apiKey }
@@ -382,7 +370,6 @@ fun AiImportSettingsSection(
         testResult = null
         modelUsesCustomInput = true
         customModelInput = newProfile.defaultModel
-        providerMenuExpanded = false
         providerListRevision++
         message = "填写接口名称或连接信息后才会加入列表"
     }
@@ -434,6 +421,7 @@ fun AiImportSettingsSection(
 
     val topPadding = detailContentTopPadding()
     val pageColor = settingsPageBackground(state.config)
+    val showChatGptSignOut = isChatGptProvider && chatGptAuth.account?.isSignedIn == true && !chatGptAuth.isSigningIn
     val contentBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "ai-settings-body") {
         drawRect(pageColor)
         drawContent()
@@ -441,25 +429,17 @@ fun AiImportSettingsSection(
     Box(Modifier.fillMaxSize()) {
     SleepDownSecondaryPageList(
         contentTopPadding = topPadding,
-        contentBottomPadding = detailContentBottomPadding(),
+        contentBottomPadding = detailContentBottomPadding() + (if (showChatGptSignOut) 60.dp else 0.dp),
         modifier = Modifier.fillMaxSize().glassBackdropProducer(contentBackdrop)
     ) {
         item(key = "ai-provider") {
             GlassPreferenceSection("服务商") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
-        SettingsInfoRow(
-            "AI 设置",
-            "为 AI 助理、对话和课表识别选择服务。选择“无”可关闭联网 AI。"
-        )
-        SettingsDivider()
         AiProviderPickerRow(
-            value = if (isCustomProvider) customProviderDisplayName else selectedPreset.displayName,
-            expanded = providerMenuExpanded,
             presets = pickerPresets,
             selectedProviderId = selectedProviderId,
             backdrop = backdrop,
             config = state.config,
-            onExpandedChange = { providerMenuExpanded = it },
             onSelected = { selectProvider(it) },
             onAddCustomProvider = { addCustomProvider() }
         )
@@ -514,17 +494,15 @@ fun AiImportSettingsSection(
                 "每日免费 AI",
                 ManagedAiRemoteConfig.managedFreeStatusMessage(context)
             )
-			SettingsDivider()
-			SettingsBasicComponent(
-				title = "远程配置",
-				summary = remoteConfigState.lastError?.let { "刷新失败：$it" }
-					?: if (remoteConfigState.isRefreshing) "正在获取后台最新配置…" else "进入本页时会自动刷新，也可在这里立即重试",
-				endActions = {
-					CouiSettingsToolbarTextButton("刷新", enabled = !remoteConfigState.isRefreshing) {
-						SleepDownRemoteConfig.refresh(scope, force = true)
-					}
-				}
-			)
+            SettingsDivider()
+            SettingsActionRow(
+                title = "远程配置",
+                subtitle = remoteConfigState.lastError?.let { "刷新失败：$it" }
+                    ?: if (remoteConfigState.isRefreshing) "正在获取后台最新配置…" else "进入本页时会自动刷新，也可在这里立即重试",
+                buttonText = "刷新", iconRes = R.drawable.ic_refresh, backdrop = backdrop,
+                enabled = !remoteConfigState.isRefreshing,
+                onClick = { SleepDownRemoteConfig.refresh(scope, force = true) },
+            )
 			if (reasoningOptions.isNotEmpty()) {
                 SettingsDivider()
             SleepDownLiquidDropdownPreference(
@@ -603,12 +581,12 @@ fun AiImportSettingsSection(
             SettingsDivider()
         }
         if (AiProviderModelCatalog.endpoint(modelProfile.copy(baseUrl = normalizedBaseUrl)) != null) {
-            SettingsBasicComponent(
+            SettingsActionRow(
                 title = "官方模型列表",
-                summary = if (refreshingModels) "正在获取…" else modelCatalogMessage,
-                endActions = {
-                    CouiSettingsToolbarTextButton("刷新", enabled = !refreshingModels) { refreshOfficialModels() }
-                },
+                subtitle = if (refreshingModels) "正在获取…" else modelCatalogMessage,
+                buttonText = "刷新", iconRes = R.drawable.ic_refresh, backdrop = backdrop,
+                enabled = !refreshingModels,
+                onClick = ::refreshOfficialModels,
             )
             SettingsDivider()
         }
@@ -698,38 +676,43 @@ fun AiImportSettingsSection(
             GlassPreferenceSection("测试与管理") {
                 SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
         var testing by remember { mutableStateOf(false) }
-        SettingsBasicComponent(
+        SettingsActionRow(
             title = "连接测试",
-            summary = testResult,
-            endActions = {
-                CouiSettingsToolbarTextButton("测试", enabled = !testing) {
-                        val nextKey = apiKeyInput.ifBlank { saved.apiKey }
-                        testing = true
-                        testResult = "正在测试连接..."
-                        scope.launch {
-                            try {
-                                testAiProviderConnection(AiImportSettings(profile, nextKey))
-                                    .onSuccess { testResult = it }
-                                    .onFailure { testResult = it.message ?: "连接测试失败" }
-                            } finally { testing = false }
-                        }
+            subtitle = testResult,
+            buttonText = "测试", iconRes = R.drawable.ic_check, backdrop = backdrop,
+            enabled = !testing,
+            onClick = {
+                val nextKey = apiKeyInput.ifBlank { saved.apiKey }
+                testing = true
+                testResult = "正在测试连接…"
+                scope.launch {
+                    try {
+                        testAiProviderConnection(AiImportSettings(profile, nextKey))
+                            .onSuccess { testResult = it }
+                            .onFailure { testResult = it.message ?: "连接测试失败" }
+                    } finally { testing = false }
                 }
             },
         )
         if (!isManagedFreeProvider) {
             SettingsDivider()
-            SettingsBasicComponent(title = "清除 API Key", titleColor = aiDestructivePreferenceColor(),
-                    onClick = {
-                        AiImportSettingsStore.clearApiKey(context, selectedProviderId)
-                        saved = AiImportSettings(profile, "")
-                        apiKeyInput = ""
-                        message = "API Key 已清除"
-                    },
+            SettingsActionRow(
+                title = "清除 API Key", subtitle = null, buttonText = "清除",
+                iconRes = R.drawable.ic_delete_history, backdrop = backdrop, destructive = true,
+                onClick = {
+                    AiImportSettingsStore.clearApiKey(context, selectedProviderId)
+                    saved = AiImportSettings(profile, "")
+                    apiKeyInput = ""
+                    message = "API Key 已清除"
+                },
             )
             if (isCustomProvider) {
                 SettingsDivider()
-                SettingsBasicComponent(title = "删除接口", titleColor = aiDestructivePreferenceColor(),
-                    onClick = { showDeleteProviderConfirm = true })
+                SettingsActionRow(
+                    title = "删除接口", subtitle = null, buttonText = "删除",
+                    iconRes = R.drawable.ic_delete_history, backdrop = backdrop, destructive = true,
+                    onClick = { showDeleteProviderConfirm = true },
+                )
             }
         }
                 }
@@ -749,18 +732,14 @@ fun AiImportSettingsSection(
             }
         }
     }
-    if (isChatGptProvider && chatGptAuth.account?.isSignedIn == true && !chatGptAuth.isSigningIn) {
-        Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(168.dp)
-            .background(Brush.verticalGradient(listOf(pageColor.copy(alpha = 0f),
-                pageColor.copy(alpha = 0.36f), pageColor.copy(alpha = 0.70f), pageColor.copy(alpha = 0.94f)))))
-        CouiButton(
-            text = if (chatGptSigningOut) "正在退出…" else "退出登录",
-            dark = CouiTheme.isDark,
+    if (showChatGptSignOut) SettingsFloatingActionArea(pageColor, appUsesDarkTheme(state.config)) { modifier ->
+        SettingsActionButton(
+            label = if (chatGptSigningOut) "正在退出…" else "退出登录",
+            backdrop = contentBackdrop,
             enabled = !chatGptSigningOut,
-            style = CouiButtonStyle.Primary,
-            colors = CouiButtonDefaults.primaryColors(MaterialTheme.colorScheme.error),
-            modifier = Modifier.align(Alignment.BottomCenter).imePadding().navigationBarsPadding()
-                .padding(start = 16.dp, end = 16.dp, bottom = 18.dp).fillMaxWidth(),
+            modifier = modifier,
+            destructive = true,
+            glowing = true,
             onClick = {
                 if (!chatGptSigningOut) {
                     chatGptSigningOut = true
@@ -832,21 +811,11 @@ private fun AiCompatibleModelsEditor(
 }
 
 @Composable
-private fun aiDestructivePreferenceColor(): top.yukonga.miuix.kmp.basic.BasicComponentColors =
-    top.yukonga.miuix.kmp.basic.BasicComponentColors(
-        MaterialTheme.colorScheme.error,
-        MaterialTheme.colorScheme.error.copy(alpha = 0.38f),
-    )
-
-@Composable
 private fun AiProviderPickerRow(
-    value: String,
-    expanded: Boolean,
     presets: List<AiProviderProfile>,
     selectedProviderId: String,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
-    onExpandedChange: (Boolean) -> Unit,
     onSelected: (String) -> Unit,
     onAddCustomProvider: () -> Unit
 ) {
@@ -855,14 +824,10 @@ private fun AiProviderPickerRow(
         items = presets.map { it.displayName } + "新增自定义接口",
         selectedIndex = selectedIndex,
         title = "服务商",
-        summary = value.ifBlank { "未设置" },
+        summary = "为 AI 助理、对话和课表识别选择服务。",
         backdrop = backdrop,
         config = config,
         modifier = Modifier.fillMaxWidth(),
-        insideMargin = settingsPreferencePadding(),
-        maxHeight = 318.dp,
-        expanded = expanded,
-        onExpandedChange = onExpandedChange,
         onSelectedIndexChange = { index ->
             if (index == presets.size) {
                 onAddCustomProvider()

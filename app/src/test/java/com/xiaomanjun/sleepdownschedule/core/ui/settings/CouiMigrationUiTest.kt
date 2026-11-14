@@ -21,13 +21,21 @@ import com.itos.coui.menu.ProvideCouiMenuBackdrop
 import com.itos.coui.menu.rememberCouiWindowBackdrop
 import com.itos.coui.segmentbutton.CouiSegmentedControl
 import com.itos.coui.diagnostic.CouiRenderDiagnostics
+import com.itos.coui.theme.LocalCouiMaterialEnabled
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.xiaomanjun.sleepdownschedule.defaultConfig
+import com.xiaomanjun.sleepdownschedule.AppState
+import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.platform.coloros.rememberGlowButtonMaterial
 import com.xiaomanjun.sleepdownschedule.platform.coloros.ProvideCouiMaterials
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.ScheduleNameDialog
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettings
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettingsStore
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiProviderPresets
+import com.xiaomanjun.sleepdownschedule.feature.settings.AiImportSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.writeSettingsVisualArtifact
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.material.VisualEffectsState
 import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
@@ -40,6 +48,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -48,6 +57,48 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class CouiMigrationUiTest {
     @get:Rule val compose = createComposeRule()
+
+    @Test fun aiSettingsRowActionRendersWithoutAToolbarBackdrop() {
+        var testing by mutableStateOf(false)
+        compose.setContent {
+            CouiSettingsTheme(defaultConfig()) {
+                CompositionLocalProvider(LocalCouiMaterialEnabled provides true) {
+                    SettingsGroup(backdrop = null, config = defaultConfig()) {
+                        SettingsActionRow(title = "连接测试", subtitle = if (testing) "正在测试连接…" else null,
+                            buttonText = "测试", iconRes = R.drawable.ic_check,
+                            backdrop = null, enabled = !testing, onClick = { testing = true })
+                    }
+                }
+            }
+        }
+        compose.onNodeWithText("连接测试").assertIsDisplayed()
+        val button = compose.onNode(hasText("测试") and hasClickAction())
+        button.assertIsDisplayed().performClick()
+        button.assertIsNotEnabled()
+        compose.onNodeWithText("正在测试连接…").assertIsDisplayed()
+    }
+
+    @Test fun aiSettingsOpensWithTheStandardPageAndActionRows() {
+        val config = defaultConfig().copy(darkMode = false, followSystemDarkMode = false)
+        AiImportSettingsStore.save(RuntimeEnvironment.getApplication(), AiImportSettings(AiProviderPresets.deepSeek))
+        compose.setContent {
+            CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(effectiveMode = VisualEffectMode.ColorOsGlow)) {
+                CouiSettingsPageScaffold(title = "AI 设置", config = config, showBack = true) { _, backdrop ->
+                    AiImportSettingsScreen(state = AppState(config = config), backdrop = backdrop)
+                }
+            }
+        }
+        compose.onNodeWithText("AI 设置").assertIsDisplayed()
+        writeSettingsVisualArtifact("ai-settings-coui-light.png", compose.onRoot().captureToImage().asAndroidBitmap())
+        val list = compose.onNode(hasScrollToIndexAction())
+        val connect = hasText("测试") and hasClickAction()
+        val clear = hasText("清除") and hasClickAction()
+        list.performScrollToNode(connect)
+        compose.onNode(connect).assertIsDisplayed()
+        list.performScrollToNode(clear)
+        compose.onNode(clear).assertIsDisplayed()
+        writeSettingsVisualArtifact("ai-settings-actions-coui-light.png", compose.onRoot().captureToImage().asAndroidBitmap())
+    }
 
     @Test fun glowSurfaceUsesTheSuppliedUnderlayAndReleasesItWhenRemoved() {
         var visible by mutableStateOf(true)

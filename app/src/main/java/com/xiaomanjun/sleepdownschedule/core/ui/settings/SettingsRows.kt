@@ -281,12 +281,13 @@ fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdro
 @Composable
 fun SettingsActionRow(
     title: String,
-    subtitle: String,
+    subtitle: String?,
     buttonText: String,
     iconRes: Int,
     backdrop: Backdrop?,
     destructive: Boolean = false,
     badgeText: String? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
     if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
@@ -300,7 +301,8 @@ fun SettingsActionRow(
                     onClick = onClick,
                     role = if (destructive) DialogButtonRole.Cancel else DialogButtonRole.Confirm,
                     iconRes = iconRes,
-                    destructiveFilled = destructive
+                    destructiveFilled = destructive,
+                    enabled = enabled,
                 )
             }
         ) { SettingsPreferenceText(title, subtitle, badgeText) }
@@ -320,7 +322,8 @@ fun SettingsActionRow(
             verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)
         ) {
             PreferenceLabel(title, badgeText)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.width(12.dp))
         DialogLiquidButton(
@@ -329,7 +332,8 @@ fun SettingsActionRow(
             onClick = onClick,
             role = if (destructive) DialogButtonRole.Cancel else DialogButtonRole.Confirm,
             iconRes = iconRes,
-            destructiveFilled = destructive
+            destructiveFilled = destructive,
+            enabled = enabled,
         )
     }
 }
