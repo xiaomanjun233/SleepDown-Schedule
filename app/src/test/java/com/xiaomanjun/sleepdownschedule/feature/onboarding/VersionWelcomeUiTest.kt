@@ -66,10 +66,10 @@ class VersionWelcomeUiTest {
         compose.mainClock.advanceTimeBy(350)
         compose.onNodeWithText("SleepDown课程表", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("已焕然一新", useUnmergedTree = true).assertDoesNotExist()
-        compose.mainClock.advanceTimeBy(250)
+        compose.mainClock.advanceTimeBy(375)
         compose.onNodeWithText("已焕然一新", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("继续").assertDoesNotExist()
-        compose.mainClock.advanceTimeBy(560)
+        compose.mainClock.advanceTimeBy(650)
         compose.onNodeWithText("SleepDown课程表", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("SleepDown 测试版").assertDoesNotExist()
         compose.onNodeWithText("已焕然一新", useUnmergedTree = true).assertIsDisplayed()
@@ -94,8 +94,9 @@ class VersionWelcomeUiTest {
             val results = mutableListOf<TextLayoutResult>()
             node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
             assertEquals(1, results.single().lineCount)
-            assertFalse(results.single().didOverflowWidth)
-            assertEquals(line.length, results.single().getLineEnd(0))
+            val layout = results.single()
+            assertFalse("Clipped '$line' at ${layout.layoutInput.style.fontSize}, layout $layout", layout.hasVisualOverflow)
+            assertEquals(line.length, layout.getLineEnd(0))
         }
     }
 

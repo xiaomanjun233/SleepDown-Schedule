@@ -63,6 +63,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -70,6 +71,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -92,9 +94,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal const val WelcomeFirstLineMillis = WelcomePanelSettleMillis + 80f
-internal const val WelcomeSecondLineMillis = WelcomeFirstLineMillis + 260f
-internal const val WelcomeContinueMillis = WelcomeSecondLineMillis + 340f
-private const val LineRevealMillis = 300f
+internal const val WelcomeSecondLineMillis = WelcomeFirstLineMillis + 400f
+internal const val WelcomeContinueMillis = WelcomeSecondLineMillis + 455f
+private const val LineRevealMillis = 405f
 private const val ContinueRevealMillis = 220f
 internal val WelcomeContinueColors = CouiButtonDefaults.secondaryColors(dark = false, material = true)
     .copy(surface = Color.White.copy(alpha = 0.47f))
@@ -235,18 +237,21 @@ internal fun WelcomeHeading(name: String, headline: String, elapsedMillis: () ->
     val density = LocalDensity.current
     val measurer = rememberTextMeasurer()
     BoxWithConstraints(modifier) {
-        val width = with(density) { maxWidth.roundToPx() }
+        val availableWidth = Constraints(maxWidth = (constraints.maxWidth * 0.95f).toInt())
         val preferred = (maxWidth.value * 0.125f).coerceIn(26f, 40f)
-        val style = remember(name, headline, width, density, measurer) {
+        val style = remember(name, headline, availableWidth, density, measurer) {
             val base = TextStyle(
                 color = Color(0xFF171719),
                 fontFamily = FontFamily.SansSerif,
                 fontWeight = FontWeight.SemiBold,
             )
             fun fits(size: Float): Boolean {
-                val font = base.copy(fontSize = size.sp)
-                return measurer.measure(name, font, maxLines = 1, softWrap = false).size.width <= width &&
-                    measurer.measure(headline, font, maxLines = 1, softWrap = false).size.width <= width
+                val font = base.copy(fontSize = size.sp, lineHeight = (size * 1.2f).sp)
+                return listOf(name, headline).all { line ->
+                    val layout = measurer.measure(AnnotatedString(line), font, softWrap = false, maxLines = 1,
+                        constraints = availableWidth, density = density)
+                    !layout.hasVisualOverflow && layout.getLineEnd(0) == line.length
+                }
             }
             val fontSize = if (fits(preferred)) preferred else {
                 var lower = 1f
@@ -278,7 +283,7 @@ private fun WelcomeRevealLine(
     }
     if (elapsed < 0f) return
     if (elapsed >= LineRevealMillis) {
-        BasicText(text, style = style, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
+        BasicText(AnnotatedString(text), style = style, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip)
         return
     }
     val ends = remember(text) {
@@ -290,8 +295,8 @@ private fun WelcomeRevealLine(
         append(text)
         var start = 0
         for ((index, end) in ends.withIndex()) {
-            val delay = 105f * index / (ends.size - 1).coerceAtLeast(1)
-            val sharp = smoothSegment(elapsed, delay, delay + 155f)
+            val delay = 135f * index / (ends.size - 1).coerceAtLeast(1)
+            val sharp = smoothSegment(elapsed, delay, delay + 235f)
             addStyle(
                 SpanStyle(
                     color = style.color.copy(alpha = 0.10f + sharp * 0.90f),
@@ -307,7 +312,7 @@ private fun WelcomeRevealLine(
     }
     BasicText(
         visibleText,
-        modifier = Modifier.graphicsLayer { alpha = WelcomeTextEasing.transform(segment(elapsed, 0f, 165f)) },
+        modifier = Modifier.graphicsLayer { alpha = WelcomeTextEasing.transform(segment(elapsed, 0f, 245f)) },
         style = style, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
     )
 }
