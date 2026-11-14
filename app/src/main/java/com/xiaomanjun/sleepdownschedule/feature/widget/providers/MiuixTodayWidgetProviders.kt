@@ -13,17 +13,15 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
-import android.content.res.Resources
 import android.graphics.Color
-import android.graphics.Typeface
 import android.os.Build
-import android.text.StaticLayout
-import android.text.TextPaint
 import android.util.Log
 import android.util.SizeF
 import android.util.TypedValue
 import android.view.View
+import android.view.ViewGroup.LayoutParams
 import android.widget.RemoteViews
+import android.widget.TextView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -65,7 +63,7 @@ internal fun coursesWidgetLayoutMetrics(
     variant: TodayWidgetVariant,
     courseCount: Int,
     fontScale: Float = 1f,
-    resources: Resources? = null,
+    context: Context? = null,
     squareCourseText: List<Pair<String, String>> = emptyList(),
 ): CoursesWidgetLayoutMetrics {
     fun progress(value: Int, compact: Int, comfortable: Int): Float =
@@ -80,7 +78,7 @@ internal fun coursesWidgetLayoutMetrics(
     } else {
         (10f + 4f * widthProgress).roundToInt()
     }
-    val verticalPaddingDp = (8f + (if (isSquare) 3f else 6f) * heightProgress).roundToInt()
+    val preferredVerticalPaddingDp = (8f + (if (isSquare) 3f else 6f) * heightProgress).roundToInt()
     val courseTopMarginDp = 4
     val groupGapDp = 4
     val preferredGroupHeightDp = if (isSquare) 50 else (54f + 12f * expansionProgress).roundToInt()
@@ -91,8 +89,15 @@ internal fun coursesWidgetLayoutMetrics(
         0.96f + 0.12f * widthProgress,
         fontCompensation,
     )
+    val textProbe = context?.takeIf { isSquare }?.let {
+        TextView(it).apply {
+            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+            setSingleLine()
+            includeFontPadding = false
+        }
+    }
     fun lineHeight(sp: Float, bold: Boolean, sample: String): Int =
-        resources?.let { widgetTextLineHeightDp(it, sp, bold, sample) } ?: ceil(sp * fontScale * 1.20f).toInt()
+        textProbe?.let { widgetTextLineHeightDp(it, sp, bold, sample) } ?: ceil(sp * fontScale * 1.20f).toInt()
     val compactText = squareCourseText.ifEmpty { listOf("课程" to "00:00 · 教室") }
     val compactTextHeights = mutableMapOf<Pair<Float, Int>, Int>()
     fun compactTextHeight(scale: Float, rowCount: Int): Int = compactTextHeights.getOrPut(scale to rowCount) {
@@ -107,24 +112,28 @@ internal fun coursesWidgetLayoutMetrics(
         normalHeaderHeight,
         lineHeight((16f * scale).coerceAtLeast(12f), bold = true, sample = "今日课程"),
     )
-    val remainingHeightDp = size.heightDp - verticalPaddingDp * 2 - courseTopMarginDp
     // XML margins and RemoteViews heights round independently at fractional densities.
-    fun rowBudget(count: Int, headerHeight: Int): Int =
-        ((remainingHeightDp - headerHeight).coerceAtLeast(34) - groupGapDp * (count - 1) - 1) / count
+    fun availableHeight(headerHeight: Int, verticalPadding: Int): Int =
+        (size.heightDp - verticalPadding * 2 - courseTopMarginDp - headerHeight).coerceAtLeast(34)
+    fun rowBudget(count: Int, headerHeight: Int, verticalPadding: Int): Int =
+        (availableHeight(headerHeight, verticalPadding) - groupGapDp * (count - 1) - 1) / count
     val minRowPadding = 2
     val regularSquareScale = textScaleAt(preferredGroupHeightDp)
-    val twoRowScale = if (isSquare && courseCount >= 2) {
+    val compactRows = if (isSquare && courseCount >= 2) {
         // Step through the narrow layout before hiding a course. The typography's existing
         // minimum sizes still apply, and the title is measured at the same scale as the rows.
-        val preferred = textScaleAt(rowBudget(2, normalHeaderHeight))
-        (0..10).asSequence().map { (preferred - it * 0.025f).coerceAtLeast(0.75f) }.distinct().firstOrNull { scale ->
-            minOf(rowBudget(2, squareHeaderHeight(scale)), preferredGroupHeightDp) >=
-                maxOf(24, compactTextHeight(scale, 2)) + 2 * minRowPadding
+        val preferred = textScaleAt(rowBudget(2, normalHeaderHeight, preferredVerticalPaddingDp))
+        (0..10).asSequence().map { (preferred - it * 0.025f).coerceAtLeast(0.75f) }.distinct().firstNotNullOfOrNull { scale ->
+            val needed = maxOf(24, compactTextHeight(scale, 2)) + 2 * minRowPadding
+            val pad = (size.heightDp - courseTopMarginDp - squareHeaderHeight(scale) - groupGapDp - 1 - needed * 2) / 2
+            if (pad < 6 || needed > preferredGroupHeightDp) null else scale to minOf(pad, preferredVerticalPaddingDp)
         }
     } else null
+    val twoRowScale = compactRows?.first
+    val verticalPaddingDp = compactRows?.second ?: preferredVerticalPaddingDp
     val headerHeightDp = if (isSquare) squareHeaderHeight(twoRowScale ?: regularSquareScale) else normalHeaderHeight
     val rowCapacity = if (isSquare) if (twoRowScale != null) 2 else 1 else {
-        val availableHeightDp = (remainingHeightDp - headerHeightDp).coerceAtLeast(34)
+        val availableHeightDp = availableHeight(headerHeightDp, verticalPaddingDp)
         val minimumGroupHeightDp = (48f + 12f * expansionProgress).roundToInt()
         ((availableHeightDp + groupGapDp) / (minimumGroupHeightDp + groupGapDp)).coerceIn(1, 4)
     }
@@ -140,7 +149,8 @@ internal fun coursesWidgetLayoutMetrics(
     val preferredHeight = if (isSquare && usedRows == 1) maxOf(
         preferredGroupHeightDp, compactTextHeight(regularSquareScale, 1) + 2 * minRowPadding,
     ) else preferredGroupHeightDp
-    val groupHeightDp = rowBudget(usedRows, headerHeightDp).coerceIn(if (isSquare) 28 else 34, preferredHeight)
+    val groupHeightDp = rowBudget(usedRows, headerHeightDp, verticalPaddingDp)
+        .coerceIn(if (isSquare) 28 else 34, preferredHeight)
     val textScale = twoRowScale ?: textScaleAt(groupHeightDp)
     val preferredPadding = (3f + 2f * progress(groupHeightDp, 38, preferredGroupHeightDp)).roundToInt()
     val groupVerticalPaddingDp = if (isSquare) {
@@ -200,21 +210,14 @@ private data class CoursesWidgetTypography(
 private fun compactNameSp(scale: Float): Float = (13f * scale).coerceAtLeast(9.8f)
 private fun compactDetailSp(scale: Float): Float = (10.2f * scale).coerceAtLeast(8f)
 
-private fun widgetTextLineHeightDp(resources: Resources, sp: Float, bold: Boolean, sample: String): Int {
-    val metrics = resources.displayMetrics
-    val paint = TextPaint().apply {
-        typeface = if (bold) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
-        textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, sp, metrics)
-        textLocales = resources.configuration.locales
-    }
-    val width = ceil(paint.measureText(sample)).toInt().coerceAtLeast(1)
-    val line = StaticLayout.Builder.obtain(sample, 0, sample.length, paint, width)
-        .setMaxLines(1).setIncludePad(true).apply {
-            if (Build.VERSION.SDK_INT >= 28) setUseLineSpacingFromFallbacks(true)
-        }.build()
-    val font = paint.fontMetricsInt
-    // TextView can use either its one-line BoringLayout or fallback glyph metrics.
-    return ceil((maxOf(line.height, font.bottom - font.top) + 1) / metrics.density).toInt()
+private fun widgetTextLineHeightDp(probe: TextView, sp: Float, bold: Boolean, sample: String): Int {
+    val typeface = android.graphics.Typeface.DEFAULT
+    probe.setTypeface(typeface, if (bold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+    probe.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
+    probe.text = sample
+    val free = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+    probe.measure(free, free)
+    return ceil((maxOf(probe.measuredHeight, probe.layout?.height ?: 0) + 1) / probe.resources.displayMetrics.density).toInt()
 }
 
 private data class AssistantWidgetTypography(
@@ -681,7 +684,7 @@ internal object MiuixTodayWidgetRenderer {
             variant = variant,
             courseCount = allCourses.size,
             fontScale = context.resources.configuration.fontScale,
-            resources = context.resources,
+            context = context,
             squareCourseText = compactText,
         )
         val courses = allCourses.take(metrics.maxCourses)

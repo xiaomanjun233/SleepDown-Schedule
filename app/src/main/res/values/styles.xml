@@ -187,9 +187,11 @@
 
     <style name="WidgetCompactCourseName" parent="WidgetCourseName">
         <item name="android:textSize">12sp</item>
+        <item name="android:includeFontPadding">false</item>
     </style>
 
     <style name="WidgetCompactCourseDetail" parent="WidgetCourseDetail">
         <item name="android:textSize">9.5sp</item>
+        <item name="android:includeFontPadding">false</item>
     </style>
 </resources>
