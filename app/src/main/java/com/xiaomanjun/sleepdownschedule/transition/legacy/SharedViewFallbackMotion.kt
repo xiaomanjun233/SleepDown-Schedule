@@ -8,6 +8,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.util.lerp
+import com.xiaomanjun.sleepdownschedule.glass.liquidPreloadedContentAlpha
 import com.xiaomanjun.sleepdownschedule.transition.AnchoredLegacyProfileId
 import kotlin.math.abs
 import kotlin.math.pow
@@ -27,7 +28,6 @@ internal fun pageMorphStyle(
     }
 
 private fun easeOut(power: Float) = Easing { t -> 1f - (1f - t).pow(power) }
-private val FloatingAddExpansionEasing = CubicBezierEasing(0.28f, 0f, 0.18f, 1f)
 
 internal class SharedViewFallbackMotion(style: PageMorphStyle) {
     // The aperture and its center have separate timelines. A button can travel far in Y
@@ -35,7 +35,7 @@ internal class SharedViewFallbackMotion(style: PageMorphStyle) {
     val open = when (style) {
         PageMorphStyle.Card -> tween<Float>(540, easing = easeOut(4.5f))
         PageMorphStyle.Button -> tween(440, easing = easeOut(4f))
-        PageMorphStyle.FloatingAdd -> tween(430, easing = LinearEasing)
+        PageMorphStyle.FloatingAdd -> tween(AnchoredPanelMotion.OpenDurationMillis, easing = LinearEasing)
         PageMorphStyle.Menu -> tween(490, easing = easeOut(4f))
         PageMorphStyle.Welcome -> tween(420, easing = CubicBezierEasing(0.30f, 0.50f, 0.20f, 1f))
     }
@@ -49,12 +49,12 @@ internal class SharedViewFallbackMotion(style: PageMorphStyle) {
     private val closeMillis = when (style) {
         PageMorphStyle.Card -> 320
         PageMorphStyle.Button -> 285
-        PageMorphStyle.FloatingAdd -> 310
+        PageMorphStyle.FloatingAdd -> AnchoredPanelMotion.CloseDurationMillis
         PageMorphStyle.Menu -> 310
         PageMorphStyle.Welcome -> 280
     }
-    val close = tween<Float>(closeMillis, easing = if (style == PageMorphStyle.FloatingAdd)
-        CubicBezierEasing(0.32f, 0.06f, 0.30f, 1f) else easeOut(3f))
+    val close = tween<Float>(closeMillis,
+        easing = if (style == PageMorphStyle.FloatingAdd) AnchoredPanelMotion.CloseEasing else easeOut(3f))
     val closeVertical = if (style == PageMorphStyle.FloatingAdd) close else tween(closeMillis, easing = easeOut(2f))
     val backgroundOpen = tween<Float>(open.durationMillis, easing = FastOutSlowInEasing)
     val backgroundClose = tween<Float>(closeMillis, easing = FastOutSlowInEasing)
@@ -86,29 +86,37 @@ internal fun sharedViewGeometry(
     verticalProgress: Float,
     style: PageMorphStyle,
 ): HomeAnchoredMorphGeometry {
-    val floatingAdd = style == PageMorphStyle.FloatingAdd
-    val expansion = if (floatingAdd) {
-        val liftLead = 0.17f
-        FloatingAddExpansionEasing.transform(((progress - liftLead) / (1f - liftLead)).coerceIn(0f, 1f))
-    } else progress
-    val rect = if (floatingAdd) {
-        val liftDistance = minOf(source.height * 0.58f, (source.top - target.top).coerceAtLeast(0f))
-        val lift = liftDistance * homeMorphSmoothStep(0f, 0.24f, progress) * (1f - expansion)
-        sharedViewRect(source, target, expansion, expansion).translate(Offset(0f, -lift))
-    } else sharedViewRect(source, target, expansion, verticalProgress)
+    if (style == PageMorphStyle.FloatingAdd) {
+        val phase = progress.coerceIn(0f, 1f)
+        val position = AnchoredPanelMotion.OpenPositionEasing.transform(phase)
+        val size = AnchoredPanelMotion.OpenSizeEasing.transform(phase)
+        // Keep the position's head start local to the button. Let the center of the
+        // expanding page cover the remaining distance as the size catches up.
+        val rise = minOf(source.height, (source.top - target.top).coerceAtLeast(0f)) * (position - size)
+        val rect = sharedViewRect(source, target, size, size).translate(Offset(0f, -rise))
+        val contentAlpha = liquidPreloadedContentAlpha(phase, earlyContentHandoff = true, expansionProgress = size)
+        return HomeAnchoredMorphGeometry(
+            rect = rect,
+            cornerRadiusPx = lerp(sourceRadiusPx, targetRadiusPx, size),
+            sourceScale = 1f,
+            sourceAlpha = 1f - contentAlpha,
+            surfaceAlpha = 1f,
+            contentAlpha = contentAlpha,
+            pathProgress = position,
+            expansionProgress = size,
+        )
+    }
     val sourceEnd = if (style == PageMorphStyle.Menu) 0.42f else 0.33f
     val contentStart = if (style == PageMorphStyle.Welcome) 0.06f else 0.10f
-    val sourceAlpha = 1f - (expansion / sourceEnd).coerceIn(0f, 1f)
-    val iconAlpha = if (floatingAdd) 1f - homeMorphSmoothStep(0f, 0.34f, expansion) else sourceAlpha
+    val sourceAlpha = 1f - (progress / sourceEnd).coerceIn(0f, 1f)
     return HomeAnchoredMorphGeometry(
-        rect = rect,
-        cornerRadiusPx = lerp(sourceRadiusPx, targetRadiusPx, (expansion / 0.7f).coerceIn(0f, 1f)),
-        sourceScale = if (floatingAdd) 1f else lerp(1f, 1.12f, 1f - sourceAlpha),
-        sourceAlpha = iconAlpha,
+        rect = sharedViewRect(source, target, progress, verticalProgress),
+        cornerRadiusPx = lerp(sourceRadiusPx, targetRadiusPx, (progress / 0.7f).coerceIn(0f, 1f)),
+        sourceScale = lerp(1f, 1.12f, 1f - sourceAlpha),
+        sourceAlpha = sourceAlpha,
         surfaceAlpha = 1f,
-        contentAlpha = if (floatingAdd) homeMorphSmoothStep(0.13f, 0.70f, expansion)
-            else ((expansion - contentStart) / (0.60f - contentStart)).coerceIn(0f, 1f),
+        contentAlpha = ((progress - contentStart) / (0.60f - contentStart)).coerceIn(0f, 1f),
         pathProgress = verticalProgress,
-        expansionProgress = expansion,
+        expansionProgress = progress,
     )
 }

@@ -11,6 +11,7 @@ import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphInput
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMorphSpec
 import com.xiaomanjun.sleepdownschedule.glass.LiquidMotionSample
 import com.xiaomanjun.sleepdownschedule.glass.LiquidProgressKinematics
+import com.xiaomanjun.sleepdownschedule.transition.legacy.AnchoredPanelMotion
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.min
@@ -22,7 +23,7 @@ import kotlin.math.sin
  * This route is independent of the similar course-management Activity and Agent morphs.
  */
 internal object CourseEditorMotion {
-    val OpenPositionEasing = CubicBezierEasing(0.18f, 0.72f, 0.18f, 1.0f)
+    val OpenPositionEasing = AnchoredPanelMotion.OpenPositionEasing
     val OpenSizeEasing = CubicBezierEasing(0.22f, 0.62f, 0.22f, 1.0f)
     val ClosePositionEasing = CubicBezierEasing(0.30f, 0.10f, 0.22f, 1.0f)
     const val OpenDurationMillis = 380

@@ -3,6 +3,8 @@ package com.xiaomanjun.sleepdownschedule
 import androidx.compose.animation.core.TargetBasedAnimation
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.ui.geometry.Rect
+import com.xiaomanjun.sleepdownschedule.feature.home.overlay.homePersonalizationTrajectoryGeometry
+import com.xiaomanjun.sleepdownschedule.transition.legacy.AnchoredPanelMotion
 import com.xiaomanjun.sleepdownschedule.transition.legacy.PageMorphStyle
 import com.xiaomanjun.sleepdownschedule.transition.legacy.SharedViewFallbackMotion
 import com.xiaomanjun.sleepdownschedule.transition.legacy.sharedViewGeometry
@@ -13,7 +15,7 @@ import org.junit.Test
 
 class TransitionFallbackMotionTest {
     @Test
-    fun floatingAddTravelStartsUpwardsAtButtonSizeBeforeItExpands() {
+    fun floatingAddUsesThePersonalizationCurvesWithABoundedRise() {
         val source = Rect(300f, 710f, 356f, 766f)
         val page = Rect(0f, 0f, 384f, 800f)
         val motion = SharedViewFallbackMotion(PageMorphStyle.FloatingAdd)
@@ -22,14 +24,23 @@ class TransitionFallbackMotionTest {
         fun at(progress: Float) = sharedViewGeometry(source, page, 28f, 32f, progress, progress, PageMorphStyle.FloatingAdd)
 
         assertEquals(source, at(open.getValueFromNanos(0)).rect)
-        val lifted = at(open.getValueFromNanos(65_000_000L))
-        assertEquals(source.width, lifted.rect.width, 0.01f)
-        assertEquals(source.height, lifted.rect.height, 0.01f)
-        assertEquals(source.center.x, lifted.rect.center.x, 0.01f)
-        assertTrue(lifted.rect.center.y < source.center.y - 15f)
+        val lifted = at(open.getValueFromNanos(16_000_000L))
+        assertTrue(lifted.rect.width > source.width && lifted.rect.width < source.width + 2f)
+        assertTrue(lifted.rect.center.y in (source.center.y - 16f)..(source.center.y - 7f))
         assertEquals(1f, lifted.sourceAlpha, 0f)
-        assertTrue(at(open.getValueFromNanos(180_000_000L)).rect.width > source.width)
+        for (progress in listOf(.08f, .17f, .32f, .55f, .82f)) {
+            val panel = homePersonalizationTrajectoryGeometry(source, page, progress, 32f)
+            val floating = at(progress)
+            assertEquals(panel.pathProgress, floating.pathProgress, .0001f)
+            assertEquals(panel.expansionProgress, floating.expansionProgress, .0001f)
+            assertEquals(panel.rect.width, floating.rect.width, .001f)
+            val centerAfterExpansion = sharedViewRect(source, page, floating.expansionProgress, floating.expansionProgress).center.y
+            assertTrue(floating.rect.center.y in (centerAfterExpansion - source.height)..centerAfterExpansion)
+            assertEquals(1f, floating.sourceAlpha + floating.contentAlpha, .0001f)
+        }
         assertEquals(page, at(open.getValueFromNanos(open.durationNanos)).rect)
+        assertEquals(1f - AnchoredPanelMotion.CloseEasing.transform(.25f),
+            close.getValueFromNanos(close.durationNanos / 4), .001f)
         assertEquals(source, at(close.getValueFromNanos(close.durationNanos)).rect)
     }
 

@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.overlay
 
+import com.xiaomanjun.sleepdownschedule.transition.legacy.AnchoredPanelMotion
 import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredOpenSettleStartFraction
 import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredFallEasing
 import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredOpenPositionEasing
@@ -9,7 +10,6 @@ import com.xiaomanjun.sleepdownschedule.transition.legacy.lerpHomeMorph
 import com.xiaomanjun.sleepdownschedule.transition.legacy.homeMorphSmoothStep
 
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
@@ -22,7 +22,6 @@ import androidx.compose.ui.unit.IntSize
 import com.kyant.backdrop.effects.blur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeInitialTopInset
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.HomeAddMenuSelectionCornerDp
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorMotion
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.curvedCourseEditorRect
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeDropletCloseDurationMillis
@@ -35,8 +34,6 @@ import kotlin.math.pow
 import kotlin.math.sign
 import kotlin.math.sin
 import kotlinx.coroutines.flow.first
-internal const val HomePersonalizeMorphOpenDurationMillis = 380
-internal const val HomePersonalizeMorphCloseDurationMillis = 260
 
 /** Motion parameters for the three-dot first-level menu's shared-object trajectory. */
 internal object ThreeDotMenuMotion {
@@ -171,8 +168,8 @@ internal fun homePersonalizationTrajectoryGeometry(
     maximumArcPx: Float = Float.MAX_VALUE
 ): HomeAnchoredMorphGeometry {
     val raw = rawProgress.coerceIn(0f, 1f)
-    val position = CourseEditorMotion.OpenPositionEasing.transform(raw)
-    val size = FastOutSlowInEasing.transform(raw)
+    val position = AnchoredPanelMotion.OpenPositionEasing.transform(raw)
+    val size = AnchoredPanelMotion.OpenSizeEasing.transform(raw)
     val pressedScale = sourcePressedScale.coerceIn(1f, 1.16f)
     val insetX = source.width * (pressedScale - 1f) / 2f
     val insetY = source.height * (pressedScale - 1f) / 2f

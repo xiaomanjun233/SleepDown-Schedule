@@ -5,6 +5,7 @@ package com.xiaomanjun.sleepdownschedule.feature.home.overlay
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import com.xiaomanjun.sleepdownschedule.transition.legacy.AnchoredPanelMotion
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -159,13 +160,13 @@ internal fun HomeAnchoredMorphOverlayHost(
             coroutineScope {
                 launch {
                     motionState.retarget.animate(motionState.progress, 1f,
-                        if (personalizing) HomePersonalizeMorphOpenDurationMillis else HomeAddMenuMorphOpenDurationMillis,
+                        if (personalizing) AnchoredPanelMotion.OpenDurationMillis else HomeAddMenuMorphOpenDurationMillis,
                         continuation = motionState.curveContinuity.takeUnless { personalizing })
                 }
                 if (personalizing && !adaptiveMetrics.isLargeScreen) {
                     launch {
                         motionState.backgroundRetarget.animate(motionState.backgroundZoom, HomeAnchoredMorphBackgroundScale,
-                            HomePersonalizeMorphOpenDurationMillis, FastOutSlowInEasing)
+                            AnchoredPanelMotion.OpenDurationMillis, FastOutSlowInEasing)
                     }
                 }
             }
@@ -194,14 +195,14 @@ internal fun HomeAnchoredMorphOverlayHost(
                 coroutineScope {
                     launch {
                         motionState.retarget.animate(motionState.progress, 0f,
-                            if (personalizing) HomePersonalizeMorphCloseDurationMillis else HomeAddMenuMorphCloseDurationMillis,
-                            easing = if (personalizing) FastOutSlowInEasing else LinearEasing,
+                            if (personalizing) AnchoredPanelMotion.CloseDurationMillis else HomeAddMenuMorphCloseDurationMillis,
+                            easing = if (personalizing) AnchoredPanelMotion.CloseEasing else LinearEasing,
                             continuation = motionState.curveContinuity.takeUnless { personalizing })
                     }
                     if (motionState.backgroundZoom.value > 1.0001f) {
                         launch {
                             motionState.backgroundRetarget.animate(motionState.backgroundZoom, 1f,
-                                HomePersonalizeMorphCloseDurationMillis, FastOutSlowInEasing)
+                                AnchoredPanelMotion.CloseDurationMillis, FastOutSlowInEasing)
                         }
                     }
                 }

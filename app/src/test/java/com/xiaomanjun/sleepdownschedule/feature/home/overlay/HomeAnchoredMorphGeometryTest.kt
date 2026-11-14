@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.overlay
 
+import com.xiaomanjun.sleepdownschedule.transition.legacy.AnchoredPanelMotion
 import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredMorphOpenDurationMillis
 import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredOpenSettleStartFraction
 import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredMorphPinchFraction
@@ -537,7 +538,7 @@ class HomeAnchoredMorphGeometryTest {
     @Test
     fun bothOverlayCloseDurationsAreShorterThanOpening() {
         assertTrue(HomeAddMenuMorphCloseDurationMillis < HomeAnchoredMorphOpenDurationMillis)
-        assertTrue(HomePersonalizeMorphCloseDurationMillis < HomeAnchoredMorphOpenDurationMillis)
+        assertTrue(AnchoredPanelMotion.CloseDurationMillis < HomeAnchoredMorphOpenDurationMillis)
     }
 
     @Test
