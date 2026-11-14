@@ -75,13 +75,13 @@ class SharedViewKitBackendTest {
     @Test fun dockPassesItsAttachedViewAndReturnsToItWithoutABitmapProjection() = runBlocking {
         api.supportsViewWithAlpha = true
         val button = View(source)
-        source.setContentView(button)
-        button.layout(10, 20, 64, 74)
+        attachSource(button, 54, 54)
         val request = request(routeId = TransitionRouteId.HomeDockToImport)
         returning = TransitionAnchorFrame(ComposeRect(10f, 20f, 64f, 74f), 27f, null)
-        assertEquals(TransitionBackendOpenResult.Started, backend.open(request.copy(
+        val opened = backend.open(request.copy(
             payload = request.payload!!.copy(openingAnchor = returning, openingSourceView = button)
-        )))
+        ))
+        assertEquals(opened.toString(), TransitionBackendOpenResult.Started, opened)
         assertSame(button, api.inputView)
         assertNull(api.inputBitmap)
         assertFalse(api.openBundle!!.containsKey(SharedViewKitContract.ViewWithAlpha))
@@ -170,12 +170,13 @@ class SharedViewKitBackendTest {
 
     @Test fun specialCourseRouteUsesNativeReturnAndSafelyHandlesADeletedSource() = runBlocking {
         val card = View(source)
-        source.setContentView(card)
-        card.layout(10, 20, 160, 110)
+        attachSource(card, 150, 90)
         val base = request(routeId = TransitionRouteId.SpecialCourseToEditor)
         val request = base.copy(payload = base.payload!!.copy(openingSourceView = card))
-        assertTrue(request.route.legacyProfile is LegacyTransitionProfile.Depth)
-        assertEquals(TransitionBackendOpenResult.Started, backend.open(request))
+        assertEquals(AnchoredLegacyProfileId.DetailSettings,
+            (request.route.legacyProfile as LegacyTransitionProfile.Anchored).profileId)
+        val opened = backend.open(request)
+        assertEquals(opened.toString(), TransitionBackendOpenResult.Started, opened)
         api.callbacks!!.onEnd(SharedViewKitContract.Open)
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(TransitionSessionState.Open, request.session.currentState)
@@ -445,6 +446,20 @@ class SharedViewKitBackendTest {
         api.callbacks!!.onStart(SharedViewKitContract.Open)
         api.callbacks!!.onEnd(SharedViewKitContract.Open)
         shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun attachSource(view: View, width: Int, height: Int) {
+        val root = android.widget.FrameLayout(source)
+        val params = android.widget.FrameLayout.LayoutParams(width, height).apply {
+            leftMargin = 10
+            topMargin = 20
+        }
+        root.addView(view, params)
+        source.setContentView(root)
+        shadowOf(Looper.getMainLooper()).idle()
+        val spec = View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY)
+        root.measure(spec, spec)
+        root.layout(0, 0, 300, 300)
     }
 
     private fun request(activity: Activity = source, routeId: TransitionRouteId = TransitionRouteId.CourseManagementToDetail): TransitionOpenRequest {

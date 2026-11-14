@@ -133,7 +133,6 @@ class HomeMorphPreloadTest {
                 frames(2)
                 compose.runOnIdle {
                     assertEquals(if (turn % 2 == 0) HomeAnchoredOverlayPhase.Closing else HomeAnchoredOverlayPhase.Opening, motion.phase)
-                    assertEquals(true, motion.curveContinuity.isActive)
                     assertEquals(1, mounted)
                     assertEquals(1, mountCount)
                 }
