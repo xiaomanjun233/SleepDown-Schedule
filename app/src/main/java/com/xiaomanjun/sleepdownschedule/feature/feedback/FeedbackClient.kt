@@ -57,6 +57,8 @@ internal data class FeedbackItem(
     val releaseVersion: String = "",
     val createdAt: Long,
     val updatedAt: Long,
+    val owned: Boolean = false,
+    val contact: String = "",
 ) {
     val kindLabel: String get() = FeedbackKind.entries.find { it.wire == kind }?.label ?: "反馈"
     val stage: FeedbackStatus get() = FeedbackStatus.entries.firstOrNull { it.wire == status } ?: FeedbackStatus.Unknown
@@ -89,6 +91,7 @@ internal interface FeedbackService {
         status: FeedbackStatus? = null,
     ): FeedbackPage
     suspend fun submit(id: String, kind: FeedbackKind, title: String, description: String, contact: String): FeedbackItem
+    suspend fun delete(id: String)
 }
 
 internal class FeedbackClient(
@@ -107,8 +110,7 @@ internal class FeedbackClient(
         if (query.isNotBlank()) url.addQueryParameter("q", query)
         kind?.let { url.addQueryParameter("kind", it.wire) }
         status?.let { url.addQueryParameter("status", it.wire) }
-        val request = Request.Builder().url(url.build())
-        if (own) request.header(TokenHeader, token())
+        val request = Request.Builder().url(url.build()).header(TokenHeader, token())
         execute<FeedbackPage>(request)
     }
 
@@ -116,6 +118,14 @@ internal class FeedbackClient(
         val payload = JsonCodec.encodeToString(FeedbackSubmission(id, kind.wire, title, description, contact = contact))
         execute<FeedbackItem>(Request.Builder().url(endpoint).header(TokenHeader, token())
             .post(payload.toRequestBody(JsonType)))
+    }
+
+    override suspend fun delete(id: String): Unit = withContext(Dispatchers.IO) {
+        val url = "$endpoint/mine".toHttpUrl().newBuilder().addPathSegment(id).build()
+        send(Request.Builder().url(url).header(TokenHeader, token()).delete()) { response ->
+            checkStatus(response)
+            if (response.code != 204) throw IOException("Unexpected feedback deletion response: ${response.code}")
+        }
     }
 
     private fun token(): String = synchronized(IdentityLock) {
@@ -131,7 +141,14 @@ internal class FeedbackClient(
         }
     }
 
-    private suspend inline fun <reified T> execute(request: Request.Builder): T =
+    private suspend inline fun <reified T> execute(request: Request.Builder): T = send(request) {
+        checkStatus(it)
+        val source = it.body?.source() ?: throw IOException("Empty feedback response")
+        if (source.request(MaxResponseBytes + 1)) throw IOException("Feedback response is too large")
+        JsonCodec.decodeFromString<T>(source.readUtf8())
+    }
+
+    private suspend fun <T> send(request: Request.Builder, decode: (Response) -> T): T =
         suspendCancellableCoroutine { continuation ->
             val call = Http.newCall(request.header("Accept", "application/json").build())
             continuation.invokeOnCancellation { call.cancel() }
@@ -141,25 +158,24 @@ internal class FeedbackClient(
                 }
 
                 override fun onResponse(call: Call, response: Response) {
-                    val result = runCatching { response.use { JsonCodec.decodeFromString<T>(readPayload(it)) } }
+                    val result = runCatching { response.use(decode) }
                     continuation.resumeWith(result)
                 }
             })
         }
 
-    private fun readPayload(response: Response): String {
+    private fun checkStatus(response: Response) {
         if (!response.isSuccessful) {
             val message = when (response.code) {
                 400 -> "请检查反馈内容后重试"
+                401 -> "无法识别此设备的反馈凭据"
+                404 -> "暂时找不到这条反馈"
                 409 -> "反馈编号已使用，请重新提交"
                 429 -> "操作太频繁，请稍后重试"
                 else -> "反馈服务暂不可用，请稍后重试"
             }
             throw FeedbackRequestException(message, response.code)
         }
-        val source = response.body?.source() ?: throw IOException("Empty feedback response")
-        if (source.request(MaxResponseBytes + 1)) throw IOException("Feedback response is too large")
-        return source.readUtf8()
     }
 
     companion object {

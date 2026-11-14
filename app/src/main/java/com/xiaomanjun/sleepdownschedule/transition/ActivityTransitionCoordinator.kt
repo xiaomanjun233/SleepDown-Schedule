@@ -218,14 +218,25 @@ object ActivityTransitionCoordinator {
         }
         if (profile == LegacyTransitionProfile.PlatformDefault || profile == LegacyTransitionProfile.TaskReturn) return
         if (profile is LegacyTransitionProfile.Depth) {
-            if (Build.VERSION.SDK_INT < 34) {
-                @Suppress("DEPRECATION")
-                activity.overridePendingTransition(profile.closeEnterAnimation, profile.closeExitAnimation)
-            }
+            applyLegacyDepthClose(activity, profile)
             return
         }
         @Suppress("DEPRECATION")
         activity.overridePendingTransition(0, 0)
+    }
+
+    internal fun applyLegacyDepthClose(activity: Activity) {
+        if (Build.VERSION.SDK_INT >= 34) return
+        val profile = activity.intent.transitionRouteIdOrNull()
+            ?.let(TransitionRouteCatalog::get)?.legacyProfile as? LegacyTransitionProfile.Depth ?: return
+        applyLegacyDepthClose(activity, profile)
+    }
+
+    private fun applyLegacyDepthClose(activity: Activity, profile: LegacyTransitionProfile.Depth) {
+        if (Build.VERSION.SDK_INT < 34) {
+            @Suppress("DEPRECATION")
+            activity.overridePendingTransition(profile.closeEnterAnimation, profile.closeExitAnimation)
+        }
     }
 
     /** Called before super.onCreate so the destination can recognize its matching native session. */

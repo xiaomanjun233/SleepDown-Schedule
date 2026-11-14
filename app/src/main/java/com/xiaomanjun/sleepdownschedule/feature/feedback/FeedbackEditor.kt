@@ -197,7 +197,7 @@ internal fun FeedbackEditor(
                 }
                 item("feedback-message") {
                     Text(
-                        error.ifBlank { "原始反馈和联系方式仅你和管理员可见。" },
+                        error.ifBlank { "管理员审核后可公开反馈原文。联系方式仅你和管理员可见。" },
                         modifier = Modifier.padding(horizontal = 4.dp),
                         style = MaterialTheme.typography.bodySmall,
                         color = if (error.isNotBlank()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,

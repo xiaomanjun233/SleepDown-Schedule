@@ -3075,7 +3075,8 @@ fun CourseScheduleAppUi(
                                                 intent.putExtra(ScheduleCustomizeIdExtra, state.config.id)
                                             }
                                             context.openRegisteredActivity(
-                                                TransitionRouteId.HomeToSettingsDetail,
+                                                if (it == SettingsPage.Feedback) TransitionRouteId.SettingsToFeedback
+                                                else TransitionRouteId.HomeToSettingsDetail,
                                                 intent
                                             )
                                         },

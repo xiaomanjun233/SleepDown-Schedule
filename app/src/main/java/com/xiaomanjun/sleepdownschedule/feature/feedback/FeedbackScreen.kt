@@ -8,7 +8,11 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -45,8 +49,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -55,6 +62,7 @@ import androidx.core.content.edit
 import com.itos.coui.chip.ChipTabButton
 import com.itos.coui.chip.ChipTabRow
 import com.itos.coui.chip.CouiChipTabItem
+import com.itos.coui.effect.couiButtonFeedback
 import com.itos.coui.floatingactionbutton.CouiFabDefaults
 import com.itos.coui.floatingactionbutton.Fab
 import com.itos.coui.icons.CouiIcons
@@ -70,12 +78,16 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownFloatingAddButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageStyle
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.blockPaneInputWhile
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.detailPageSlide
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.findActivity
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsPageScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsArrowPreference
+import com.kyant.shapes.Capsule
+import androidx.compose.ui.draw.clip
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -145,6 +157,8 @@ internal fun FeedbackScreen(
     var searching by rememberSaveable { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     var openedItem by remember { mutableStateOf<FeedbackItem?>(null) }
+    var pendingDelete by remember { mutableStateOf<FeedbackItem?>(null) }
+    var deleting by remember { mutableStateOf(false) }
     var launching by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val preferences = remember(context) { context.getSharedPreferences("feedback_display", Context.MODE_PRIVATE) }
@@ -195,7 +209,13 @@ internal fun FeedbackScreen(
             refresh++
         }
     }
-    BackHandler(enabled = searching) { changeSearch(false) }
+    val navigation = updateTransition(openedItem, label = "FeedbackDetailNavigation")
+    val moving = navigation.isRunning || navigation.currentState != navigation.targetState
+    BackHandler(enabled = searching || openedItem != null || moving) {
+        if (!deleting && !moving) {
+            if (openedItem != null) openedItem = null else changeSearch(false)
+        }
+    }
     val term = query.trim()
     val list by key(activeView, page, term, refresh) {
         produceState<FeedbackList>(FeedbackList.Loading, client) {
@@ -209,8 +229,31 @@ internal fun FeedbackScreen(
             }
         }
     }
+    fun delete(item: FeedbackItem) {
+        if (deleting) return
+        deleting = true
+        pendingDelete = null
+        scope.launch {
+            try {
+                client.delete(item.id)
+                if (openedItem?.id == item.id) openedItem = null
+                val remaining = (list as? FeedbackList.Loaded)?.page?.total?.minus(1)
+                if (page > 0 && remaining != null && remaining <= page * FeedbackClient.PageSize) page--
+                refresh++
+                Toast.makeText(context, "反馈已删除", Toast.LENGTH_SHORT).show()
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (error: Exception) {
+                Toast.makeText(context, feedbackError(error), Toast.LENGTH_SHORT).show()
+            } finally {
+                deleting = false
+            }
+        }
+    }
 
-    CouiSettingsPageScaffold(
+    val listState = key(activeView, page, term) { rememberLazyListState() }
+    @Composable
+    fun ListPage() = CouiSettingsPageScaffold(
         title = "问题反馈",
         config = config,
         showBack = onBack != null,
@@ -282,7 +325,6 @@ internal fun FeedbackScreen(
         val accent = MaterialTheme.colorScheme.primary
         val pageColor = settingsPageBackground(config)
         Box(Modifier.fillMaxSize()) {
-            val listState = key(activeView, page, term) { rememberLazyListState() }
             SleepDownSecondaryPageList(
                 contentTopPadding = padding.calculateTopPadding() + 8.dp,
                 contentBottomPadding = padding.calculateBottomPadding() + if (searching) 12.dp else 88.dp,
@@ -311,10 +353,12 @@ internal fun FeedbackScreen(
                             }
                         }
                         items(result.page.items, key = { it.id }) { item ->
-                            FeedbackRow(item, config, backdrop, dark) {
+                            val ownsItem = activeView.own || item.owned
+                            FeedbackRow(item, config, backdrop, dark, enabled = !deleting,
+                                onLongClick = if (ownsItem) ({ pendingDelete = item }) else null) {
                                 focus.clearFocus()
                                 keyboard?.hide()
-                                openedItem = item
+                                openedItem = item.copy(owned = ownsItem)
                             }
                         }
                         if (result.page.total > FeedbackClient.PageSize || page > 0) item(key = "feedback-pagination") {
@@ -359,6 +403,7 @@ internal fun FeedbackScreen(
                                             returnAnchorProvider = returnAnchor(anchor),
                                             backgroundColor = pageColor.toArgb(),
                                             openingSourceView = source,
+                                            floatingAddSource = true,
                                         ),
                                         launchActivity = { destination, options ->
                                             if (options != null) destination.putExtra(
@@ -384,20 +429,26 @@ internal fun FeedbackScreen(
         }
     }
 
-    openedItem?.let { item ->
-        val close = { openedItem = null }
-        val detail = buildString {
-            append(listOf(item.kindLabel, item.statusLabel, item.releaseVersion).filter(String::isNotBlank).joinToString(" · "))
-            append("\n\n").append(item.description)
-            if (item.note.isNotBlank()) append("\n\n开发者回复\n").append(item.note)
-        }
+    navigation.AnimatedContent(
+        modifier = Modifier.fillMaxSize().clipToBounds().blockPaneInputWhile(moving),
+        contentKey = { it?.id },
+        transitionSpec = { detailPageSlide(returning = targetState == null) },
+    ) { detail ->
+        if (detail == null) ListPage()
+        else FeedbackDetailScreen(detail, config, deleting, onBack = { if (!deleting) openedItem = null },
+            onDelete = { pendingDelete = detail })
+    }
+
+    pendingDelete?.let { item ->
         LiquidAlertDialog(
-            title = item.title,
-            message = detail,
-            actions = listOf(LiquidAlertAction("关闭", LiquidAlertActionStyle.Primary, onClick = close)),
+            title = "删除这条反馈？",
+            message = "删除后无法恢复。如果这条反馈已公开，也会从列表移除。",
+            actions = listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { pendingDelete = null },
+                LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive) { delete(item) },
+            ),
             config = config,
-            onDismissRequest = close,
-                                            floatingAddSource = true,
+            onDismissRequest = { pendingDelete = null },
         )
     }
 }
@@ -408,25 +459,46 @@ private fun FeedbackRow(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     dark: Boolean,
+    enabled: Boolean,
+    onLongClick: (() -> Unit)?,
     onClick: () -> Unit,
 ) {
-    val statusColor = when (item.stage) {
+    val statusColor = feedbackStatusColor(item, dark)
+    val firstLine = item.description.lineSequence().firstOrNull().orEmpty()
+    val preview = if (firstLine.length > 72) firstLine.take(71) + "…" else firstLine
+    val interaction = remember { MutableInteractionSource() }
+    SettingsGroup(backdrop, config) {
+        Column(Modifier.fillMaxWidth()
+            .couiButtonFeedback(dark, interaction, enabled = enabled, list = true)
+            .combinedClickable(
+                interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button,
+                onLongClickLabel = if (onLongClick != null) "删除反馈" else null,
+                onLongClick = onLongClick, onClick = onClick,
+            )) {
+            SettingsArrowPreference(
+                title = item.title,
+                summary = listOf(item.kindLabel, item.releaseVersion, preview).filter(String::isNotBlank).joinToString(" · "),
+                endActions = { FeedbackStatusBadge(item, statusColor) },
+            )
+            FeedbackProgress(item.stage, statusColor, dark, Modifier.padding(start = 20.dp, end = 20.dp, bottom = 16.dp))
+        }
+    }
+}
+
+@Composable
+internal fun feedbackStatusColor(item: FeedbackItem, dark: Boolean): Color =
+    when (item.stage) {
         FeedbackStatus.Released -> if (dark) Color(0xFF87DDB0) else Color(0xFF16714B)
         FeedbackStatus.Rejected, FeedbackStatus.Duplicate, FeedbackStatus.Unknown -> MaterialTheme.colorScheme.onSurfaceVariant
         else -> MaterialTheme.colorScheme.primary
     }
-    val firstLine = item.description.lineSequence().firstOrNull().orEmpty()
-    val preview = if (firstLine.length > 72) firstLine.take(71) + "…" else firstLine
-    SettingsGroup(backdrop, config) {
-        SettingsNavigationRow(
-            title = item.title,
-            subtitle = listOf(item.kindLabel, item.releaseVersion, preview).filter(String::isNotBlank).joinToString(" · "),
-            badgeText = item.statusLabel,
-            badgeColor = statusColor,
-            onClick = onClick,
-        )
-        FeedbackProgress(item.stage, statusColor, dark, Modifier.padding(start = 20.dp, end = 20.dp, bottom = 16.dp))
-    }
+
+@Composable
+internal fun FeedbackStatusBadge(item: FeedbackItem, color: Color) {
+    Text(item.statusLabel, color = color, style = MaterialTheme.typography.labelMedium,
+        maxLines = 1, overflow = TextOverflow.Ellipsis,
+        modifier = Modifier.clip(Capsule()).background(color.copy(alpha = 0.14f))
+            .padding(horizontal = 9.dp, vertical = 4.dp))
 }
 
 @Composable

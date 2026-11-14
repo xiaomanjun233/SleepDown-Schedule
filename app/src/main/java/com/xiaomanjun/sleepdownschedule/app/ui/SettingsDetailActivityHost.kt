@@ -232,7 +232,9 @@ open class SettingsDetailActivityHost : ComponentActivity() {
                 val closeSettings: () -> Unit = { (transitionRequestClose ?: { finish() })() }
                 fun openSettingsPage(page: SettingsPage) {
                     ActivityTransitionCoordinator.openImmediate(
-                        this@SettingsDetailActivityHost, TransitionRouteId.SettingsToSettingsDetail,
+                        this@SettingsDetailActivityHost,
+                        if (page == SettingsPage.Feedback) TransitionRouteId.SettingsToFeedback
+                        else TransitionRouteId.SettingsToSettingsDetail,
                         Intent(this@SettingsDetailActivityHost, SettingsDetailActivity::class.java)
                             .putExtra(SettingsDetailPageExtra, page.name)
                     )
@@ -528,6 +530,13 @@ open class SettingsDetailActivityHost : ComponentActivity() {
             }
         }
     }
+    override fun finish() {
+        super.finish()
+        if (intent.transitionRouteIdOrNull() == TransitionRouteId.SettingsToFeedback) {
+            ActivityTransitionCoordinator.applyLegacyDepthClose(this)
+        }
+    }
+
     override fun onDestroy() {
         if (isFinishing) TimeSlotCourseStateHandoff.remove(timeSlotHandoffToken)
         super.onDestroy()
