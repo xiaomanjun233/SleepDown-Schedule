@@ -91,6 +91,7 @@ internal enum class AnchoredDetailOpeningMode { AnimateLegacy, HoldSourceFrame, 
 private data class LegacyReturn(
     val anchor: TransitionAnchorFrame?,
     val fromPresentedPage: Boolean,
+    val floatingAddStart: HomeAnchoredMorphGeometry?,
 )
 
 @Composable
@@ -130,7 +131,10 @@ internal fun AnchoredDetailActivityMorph(
     val activeAnchor = if (closing) returnFlight?.anchor else openingAnchor
     val style = pageMorphStyle(profileId, activeAnchor?.boundsInWindow, activeAnchor?.cornerRadiusPx ?: 0f, floatingAddSource)
     val motion = remember(style) { SharedViewFallbackMotion(style) }
-    val showPresentedPage = !legacyReturnStarted && (returnFlight?.fromPresentedPage ?: showDestination)
+    val targetRadius = deviceScreenCornerRadiusPx()
+    val floatingAddStart = returnFlight?.floatingAddStart
+    val showPresentedPage = !legacyReturnStarted && (floatingAddStart != null ||
+        (returnFlight?.fromPresentedPage ?: showDestination))
     val currentProgress = { if (showPresentedPage) 1f else extent.value }
     val currentVertical = { if (showPresentedPage) 1f else vertical.value }
     val latestProgress = rememberUpdatedState(currentProgress)
@@ -147,10 +151,19 @@ internal fun AnchoredDetailActivityMorph(
         }
         val returnStyle = pageMorphStyle(profileId, target?.boundsInWindow, target?.cornerRadiusPx ?: 0f, floatingAddSource)
         val returnMotion = SharedViewFallbackMotion(returnStyle)
-        returnFlight = LegacyReturn(target, fromPresentedPage)
+        val start = if (floatingAddSource && hasOpeningMotion && viewport != IntSize.Zero) {
+            val full = Rect(0f, 0f, viewport.width.toFloat(), viewport.height.toFloat())
+            val source = openingAnchor?.boundsInWindow?.translate(-windowOffset) ?: unanchoredPageStart(full)
+            // Back can arrive before the button finishes expanding. Start the ordinary button
+            // return from the visible frame so switching curves cannot jump to a different size.
+            val progress = currentProgress()
+            sharedViewGeometry(source, full, openingAnchor?.cornerRadiusPx ?: targetRadius, targetRadius,
+                progress, progress, PageMorphStyle.FloatingAdd)
+        } else null
+        returnFlight = LegacyReturn(target, fromPresentedPage, start)
         onLegacyMotionStart()
         scope.launch {
-            if (fromPresentedPage) {
+            if (fromPresentedPage || start != null) {
                 extent.snapTo(1f)
                 vertical.snapTo(1f)
             }
@@ -158,7 +171,7 @@ internal fun AnchoredDetailActivityMorph(
             coroutineScope {
                 if (backgroundSnapshot != null) launch { backgroundScale.animateTo(1f, returnMotion.backgroundClose) }
                 launch { extent.animateTo(0f, if (target == null) UnanchoredPageMotion else returnMotion.close) }
-                if (!floatingAddSource) launch {
+                if (!floatingAddSource || start != null) launch {
                     vertical.animateTo(0f, if (target == null) UnanchoredPageMotion else returnMotion.closeVertical)
                 }
             }
@@ -204,9 +217,11 @@ internal fun AnchoredDetailActivityMorph(
             anchor = activeAnchor,
             viewport = viewport,
             windowOffset = windowOffset,
+            targetRadius = targetRadius,
             style = style,
             progress = currentProgress,
-            vertical = if (floatingAddSource) currentProgress else currentVertical,
+            vertical = if (floatingAddSource && floatingAddStart == null) currentProgress else currentVertical,
+            floatingAddStart = floatingAddStart,
             settled = settled,
             waitForFloatingAdd = floatingAddSource && !closing && !showDestination &&
                 (openingMode == AnchoredDetailOpeningMode.HoldSourceFrame || !openingReady || !hasOpeningMotion),
@@ -230,9 +245,11 @@ private fun AnchoredPageSurface(
     anchor: TransitionAnchorFrame?,
     viewport: IntSize,
     windowOffset: Offset,
+    targetRadius: Float,
     style: PageMorphStyle,
     progress: () -> Float,
     vertical: () -> Float,
+    floatingAddStart: HomeAnchoredMorphGeometry?,
     settled: Boolean,
     waitForFloatingAdd: Boolean,
     destinationFirstOpening: Boolean,
@@ -243,13 +260,16 @@ private fun AnchoredPageSurface(
     val density = LocalDensity.current
     val full = Rect(0f, 0f, viewport.width.toFloat(), viewport.height.toFloat())
     val source = anchor?.boundsInWindow?.translate(-windowOffset) ?: unanchoredPageStart(full)
-    val targetRadius = deviceScreenCornerRadiusPx()
     val sourceRadius = anchor?.cornerRadiusPx ?: targetRadius
     val currentProgress by rememberUpdatedState(progress)
     val currentVertical by rememberUpdatedState(vertical)
-    val geometry by remember(source, full, sourceRadius, targetRadius, style) {
+    val geometry by remember(source, full, sourceRadius, targetRadius, style, floatingAddStart) {
         derivedStateOf {
-            sharedViewGeometry(source, full, sourceRadius, targetRadius, currentProgress(), currentVertical(), style)
+            if (floatingAddStart != null) {
+                floatingAddReturnGeometry(source, sourceRadius, floatingAddStart, currentProgress(), currentVertical())
+            } else {
+                sharedViewGeometry(source, full, sourceRadius, targetRadius, currentProgress(), currentVertical(), style)
+            }
         }
     }
     val currentRadius = rememberUpdatedState { geometry.cornerRadiusPx }

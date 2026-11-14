@@ -30,8 +30,8 @@ internal fun pageMorphStyle(
 private fun easeOut(power: Float) = Easing { t -> 1f - (1f - t).pow(power) }
 
 internal class SharedViewFallbackMotion(style: PageMorphStyle) {
-    // The aperture and its center have separate timelines. A button can travel far in Y
-    // without holding up the opening of the page, while a menu keeps its orientation on return.
+    // The floating add opening applies the panel's curves in its geometry. Ordinary button
+    // returns apply easing here so the aperture can narrow before its center reaches the anchor.
     val open = when (style) {
         PageMorphStyle.Card -> tween<Float>(540, easing = easeOut(4.5f))
         PageMorphStyle.Button -> tween(440, easing = easeOut(4f))
@@ -48,14 +48,12 @@ internal class SharedViewFallbackMotion(style: PageMorphStyle) {
     }
     private val closeMillis = when (style) {
         PageMorphStyle.Card -> 320
-        PageMorphStyle.Button -> 285
-        PageMorphStyle.FloatingAdd -> AnchoredPanelMotion.CloseDurationMillis
+        PageMorphStyle.Button, PageMorphStyle.FloatingAdd -> 285
         PageMorphStyle.Menu -> 310
         PageMorphStyle.Welcome -> 280
     }
-    val close = tween<Float>(closeMillis,
-        easing = if (style == PageMorphStyle.FloatingAdd) AnchoredPanelMotion.CloseEasing else easeOut(3f))
-    val closeVertical = if (style == PageMorphStyle.FloatingAdd) close else tween(closeMillis, easing = easeOut(2f))
+    val close = tween<Float>(closeMillis, easing = easeOut(3f))
+    val closeVertical = tween<Float>(closeMillis, easing = easeOut(2f))
     val backgroundOpen = tween<Float>(open.durationMillis, easing = FastOutSlowInEasing)
     val backgroundClose = tween<Float>(closeMillis, easing = FastOutSlowInEasing)
 }
@@ -75,6 +73,26 @@ internal fun sharedViewRect(source: Rect, target: Rect, progress: Float, vertica
     val x = lerp(source.center.x, target.center.x, progress)
     val y = lerp(source.center.y, target.center.y, verticalProgress)
     return Rect(x - width / 2f, y - height / 2f, x + width / 2f, y + height / 2f)
+}
+
+internal fun floatingAddReturnGeometry(
+    source: Rect,
+    sourceRadiusPx: Float,
+    from: HomeAnchoredMorphGeometry,
+    progress: Float,
+    verticalProgress: Float,
+): HomeAnchoredMorphGeometry {
+    if (progress == 1f && verticalProgress == 1f) return from
+    val expansion = from.expansionProgress * progress
+    val contentAlpha = liquidPreloadedContentAlpha(expansion, earlyContentHandoff = true)
+    return from.copy(
+        rect = sharedViewRect(source, from.rect, progress, verticalProgress),
+        cornerRadiusPx = lerp(sourceRadiusPx, from.cornerRadiusPx, progress),
+        sourceAlpha = 1f - contentAlpha,
+        contentAlpha = contentAlpha,
+        pathProgress = verticalProgress,
+        expansionProgress = expansion,
+    )
 }
 
 internal fun sharedViewGeometry(
