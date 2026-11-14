@@ -6,9 +6,9 @@
 
 | 项目 | 当前事实 | 核对入口 |
 | --- | --- | --- |
-| 持续开发入口 | `main`，本轮源码由 `v2.0` 标签定位 | `git merge-base --is-ancestor v2.0 origin/main` 与 `app/build.gradle.kts` |
+| 持续开发入口 | `main`，2.0 发布源码 `dbdfa578` 由 #105 合入 | `git merge-base --is-ancestor v2.0 origin/main` 与 `app/build.gradle.kts` |
 | 最新 Beta | `v1.2.8_beta2`，发布源码 `8e43ac36`，已通过 #96 进入 main；发布标签与附件保持原样 | [发布记录](2026-10-31-beta2-1.2.8-release.md)、[Beta1 记录](2026-10-27-beta1-1.2.8-release.md) |
-| 本轮正式版 | `v2.0`，正式 Release 的日志与应用内日志一致 | [2.0 更新日志](../release-notes/v2.0.md)、[GitHub Release](https://github.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v2.0) |
+| 本轮正式版 | `v2.0`，双平台标签、源码、日志与 APK 一致 | [2.0 更新日志](../release-notes/v2.0.md)、[GitHub Release](https://github.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v2.0)、[Gitee 发行版](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v2.0) |
 | Android 主应用 | `com.xiaomanjun.sleepdownschedule`，`2.0` / `36` | `app/build.gradle.kts` 与发布记录 |
 | 发行渠道 | `github` 与 `store` 两种 flavor；厂商实验入口由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 按渠道控制 | `app/build.gradle.kts`、`app/src/github/`、`app/src/store/` |
 | 课程组件 | 独立包 `com.suda.yzune.wakeupschedule`；构建版本 `6.0.19` / `259` | `coloros-wakeup-proxy/build.gradle.kts` |
@@ -59,7 +59,7 @@
 
 ## 1.2.8 Beta2 已发布（2026-10-31）
 
-用户确认先写日志再发布。主应用 `1.2.8_beta2` / `36`（与 Beta1 相同的 `versionCode`，可直接覆盖安装），新标签 `v1.2.8_beta2`，源码 `8e43ac36`。GitHub 已发为预发布，两份附件回读的字节数与 SHA-256 与本地一致；课程组件沿用 `6.0.19` / `259`，本版未重新构建。详见[发布记录](2026-10-31-beta2-1.2.8-release.md)。
+用户确认先写日志再发布。主应用 `1.2.8_beta2` / `36`（与 Beta1 相同的 `versionCode`，可直接覆盖安装），标签 `v1.2.8_beta2`，源码 `8e43ac36`。GitHub 与 Gitee 均为预发布，两边公开附件的字节数与 SHA-256 一致。课程组件沿用 `6.0.19` / `259`。详见[发布记录](2026-10-31-beta2-1.2.8-release.md)。
 
 ## 1.2.8 Beta1 已发布（2026-10-27）
 

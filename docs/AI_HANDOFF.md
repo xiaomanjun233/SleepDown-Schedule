@@ -4,9 +4,13 @@
 
 用户确认以 `codex/v2-onboarding-2.0` 当前成果正式发布 `v2.0`，开启 GitHub 包的 SharedViewKit 金标门控，并在发版时同步 `main`、处理上下游相关 PR。合入前 `origin/main` 为 `3792fdba`。应用版本 2.0／36，课程组件沿用 6.0.19／259。
 
-将 1.2.7 至 2.0 仍生效的变化归并到应用内及仓库各一份 `v2.0.md`，保留用户删改与历史 Beta 独立说明。金标签名构建使用 `assembleGithubRelease`。发布结果以 Release、合并 PR 和附件 SHA-256 为准。
+将 1.2.7 至 2.0 仍生效的变化归并到应用内及仓库各一份 `v2.0.md`，保留用户删改与历史 Beta 独立说明。最终签名构建的 head 是 `8e5dae5d`，通过 [#105](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/105) 合入 `main` 的 `dbdfa578`，源码树与构建一致。两边 `v2.0` 标签均指向这一合并提交。本轮修订使用 `assembleGithubRelease` 开启金标构建，共 6m44s；61 项本地定向回归与发布 PR 的完整 Actions 均通过。
 
-`caf348c8` 补齐非金标返回动画的曲线采样验证。设置日志、加号转场与 Dock 定向回归 7 项通过，架构检查通过。用户随后要求暂缓改写 README，改用与小组件页相同的备份分页控件，并让教务导入支持中途补充附件、按上下文窗口压缩及无固定步数运行。合并与双平台发版见 [#105](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/105) 及对应 Release。此前安装的是金标关闭的验收包；发版以包含本轮修订的金标开启签名 APK 为准。
+`caf348c8` 补齐非金标返回动画的曲线采样验证。最终修订将备份页下方换为小组件页同款分页控件。AI 教务导入允许中途补充文件，移除固定调查步数，压缩较早工具记录并保留用户要求和材料索引。README 保留既有内容，双平台仓库简介写明凝光视效。此前真机安装的是金标关闭的验收包，最终发布包已核对签名与构建门控，尚未重新在真机运行。
+
+[GitHub 2.0](https://github.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v2.0)（`445310910`）和 [Gitee 2.0](https://gitee.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v2.0)（`1309089`）为正式版。两边公开附件下载回读通过。主 APK 为 9,972,096 字节、SHA-256 `1b6a67cd442cbe79bbb16e7d3015c303b232c6f243f5b189c21c64028f55ee03`，课程组件为 3,577,334 字节、SHA-256 `5f5b4c4716c2218ce5277fe336b221cd6f85b85d04dc8ee9f72ecbb8d78ac593`。
+
+发布 PR 已包含 #98 和 #102 的提交。#100 的短口令实现和测试已纳入发布；#101 的投光及分页交互与 #97 的壁纸底栏效果由当前 COUI 实现接替。#97 的独有 Beta2 Gitee 发布记录见[历史发布记录](2026-10-31-beta2-1.2.8-release.md)，继续保留。
 
 ## 2026-11-14 加号返回与两处旧箭头
 
