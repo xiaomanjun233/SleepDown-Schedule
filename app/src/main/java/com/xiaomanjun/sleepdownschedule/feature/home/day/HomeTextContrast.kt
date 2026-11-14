@@ -13,7 +13,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
@@ -28,6 +27,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePaneVisible
 import com.xiaomanjun.sleepdownschedule.model.ScheduleConfigEntity
 import kotlin.math.pow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.filterNotNull
 
 internal class HomeWallpaperTextAreas {
     val bounds = mutableStateMapOf<Any, Rect>()
@@ -76,15 +76,12 @@ internal fun rememberHomeWallpaperLightStyle(
     LaunchedEffect(storageKey, wallpaperKey, areas, ready) {
         if (!ready || savedPalette?.first == wallpaperKey) return@LaunchedEffect
         // Choose once from a settled layout for each saved wallpaper and crop.
-        snapshotFlow { areas.bounds.isNotEmpty() && areas.moving.none { it() } }.first { it }
-        withFrameNanos { }
         val bounds = snapshotFlow {
             if (areas.moving.any { it() } || areas.bounds.isEmpty()) null else areas.bounds.toMap().values
-        }.first { it != null } ?: return@LaunchedEffect
-        val decided = wallpaperLightStyleForTextAreas(currentContext, bounds) ?: if (savedConfig.wallpaperUri.isNullOrBlank()) {
-            !darkDefaultWallpaper
-        } else {
-            !savedConfig.homeTextLight && savedConfig.wallpaperBrightness >= 0.72f
+        }.filterNotNull().first()
+        val decided = wallpaperLightStyleForTextAreas(currentContext, bounds) ?: run {
+            if (savedConfig.wallpaperUri.isNullOrBlank()) !darkDefaultWallpaper
+            else !savedConfig.homeTextLight && savedConfig.wallpaperBrightness >= 0.72f
         }
         savedPalette = wallpaperKey to decided
         preferences.edit { putString(storageKey, "$decided|$wallpaperKey") }
