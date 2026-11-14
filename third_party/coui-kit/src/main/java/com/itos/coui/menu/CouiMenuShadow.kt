@@ -54,9 +54,9 @@ internal fun rememberCouiMenuShadow(
     val renderer = if (Build.VERSION.SDK_INT >= 34) remember { CouiShadowRenderer.createOrNull() } else null
     val softShadow = if (!dark || renderer == null) {
         val shadow = Shadow(
-            radius = if (dark) 12.dp else 16.dp,
-            color = Color.Black.copy(alpha = (if (dark) .24f else .14f) * outlineAlpha().coerceIn(0f, 1f)),
-            offset = DpOffset(0.dp, if (dark) 3.dp else 4.dp),
+            radius = if (dark) 12.dp else 25.dp,
+            color = Color.Black.copy(alpha = (if (dark) .24f else .23f) * outlineAlpha().coerceIn(0f, 1f)),
+            offset = DpOffset(0.dp, if (dark) 3.dp else 6.dp),
         )
         remember(shape, shadow, dark) {
             Modifier.drawWithCache {

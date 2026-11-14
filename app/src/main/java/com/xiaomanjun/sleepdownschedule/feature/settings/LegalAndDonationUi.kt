@@ -119,7 +119,6 @@ fun DonationThanksPanel(
 		)
 		if (entries.isNotEmpty()) DonationPodium(entries.take(3))
 		if (entries.size > 3) {
-		SettingsDivider()
 		Row(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp)) {
 			Text("ID", modifier = Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
 			Text("捐赠金额", modifier = Modifier.weight(1f), textAlign = TextAlign.End, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField as MaterialOutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.settingsPreferencePadding
@@ -22,9 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
-import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogCapsuleField
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
@@ -211,18 +210,15 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
-        MaterialOutlinedTextField(
+        DialogCapsuleField(
             value = memoryDraft,
             onValueChange = { memoryDraft = it.take(1200) },
+            config = state.config,
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 180.dp, max = 300.dp),
-            placeholder = {
-                Text("例如：默认只修改本周；跨校区课程之间预留 30 分钟")
-            },
+                .heightIn(max = 300.dp),
+            placeholder = "例如：默认只修改本周，跨校区课程之间预留 30 分钟",
             minLines = 6,
-            maxLines = 10,
-            shape = RoundedRectangle(24.dp)
         )
         Text(
             "${memoryDraft.length}/1200",

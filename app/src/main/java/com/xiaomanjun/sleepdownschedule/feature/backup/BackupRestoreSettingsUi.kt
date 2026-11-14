@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.backup
 
 import android.net.Uri
+import android.os.Build
 import android.provider.DocumentsContract
 import android.text.format.Formatter
 import android.util.Log
@@ -14,10 +15,14 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,6 +42,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.itos.coui.chip.ChipTabRow
+import com.itos.coui.chip.CouiChipTabItem
+import com.itos.coui.theme.CouiTheme
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
@@ -51,7 +59,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
+import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
 import java.io.File
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -75,7 +83,8 @@ private data class BackupGuidePage(
     val iconRes: Int,
     val title: String,
     val message: String,
-    val tint: Color? = null
+    val tint: Color? = null,
+    val tabLabel: String = title,
 )
 
 /** Settings-facing SAF bridge. Selecting and previewing a backup never mutates app data. */
@@ -170,25 +179,29 @@ fun BackupRestoreSettingsScreen(
                         R.drawable.ic_material_event,
                         "全部课表与课程",
                         "保存全部课表、课程、上课周数、节次时间，以及你调整过的作息。",
-                        tint = Color(0xFF4B8DFF)
+                        tint = Color(0xFF4B8DFF),
+                        tabLabel = "课表",
                     ),
                     BackupGuidePage(
                         R.drawable.ic_material_settings_backup_restore,
                         "个性化设置",
                         "保存卡片样式、深色模式、首页、课程提醒、AI 助理、AI 服务选项和小组件样式。",
-                        tint = Color(0xFF8C78E8)
+                        tint = Color(0xFF8C78E8),
+                        tabLabel = "个性化",
                     ),
                     BackupGuidePage(
                         R.drawable.ic_material_photo_library,
                         "图片与导入记录",
                         "保存正在使用的课表和小组件壁纸、助手图片，以及 AI 导入记录。",
-                        tint = Color(0xFF39A89A)
+                        tint = Color(0xFF39A89A),
+                        tabLabel = "图片与记录",
                     ),
                     BackupGuidePage(
                         R.drawable.ic_material_verified_user,
                         "敏感信息留在本机",
                         "API Key、教务登录状态和系统权限不会进入备份。备份文件没有加密，请不要发送给他人。",
-                        tint = Color(0xFFE09B3F)
+                        tint = Color(0xFFE09B3F),
+                        tabLabel = "隐私",
                     )
                 ),
                 backdrop = backdrop,
@@ -539,7 +552,8 @@ private fun BackupPreviewContent(
                 } else {
                     "课表和设置可以恢复；其余提示请左右滑动查看。"
                 },
-                tint = Color(0xFF43A36F)
+                tint = Color(0xFF43A36F),
+                tabLabel = "检查结果",
             )
         )
         if (report.missingAssets.isNotEmpty()) {
@@ -555,13 +569,14 @@ private fun BackupPreviewContent(
                 )
             )
         }
-        visibleWarnings.forEach { warning ->
+        visibleWarnings.forEachIndexed { index, warning ->
             add(
                 BackupGuidePage(
                     R.drawable.ic_material_settings_backup_restore,
                     "恢复提示",
                     userFacingBackupWarning(warning),
-                    tint = Color(0xFFD99A36)
+                    tint = Color(0xFFD99A36),
+                    tabLabel = if (visibleWarnings.size == 1) "恢复提示" else "提示 ${index + 1}",
                 )
             )
         }
@@ -571,7 +586,8 @@ private fun BackupPreviewContent(
                     R.drawable.ic_material_verified_user,
                     "恢复后需要重新设置",
                     item,
-                    tint = if (index % 2 == 0) Color(0xFF5A86D6) else Color(0xFF7B72D2)
+                    tint = if (index % 2 == 0) Color(0xFF5A86D6) else Color(0xFF7B72D2),
+                    tabLabel = if (nonMigratableItems.size == 1) "需要重设" else "重设 ${index + 1}",
                 )
             )
         }
@@ -622,12 +638,43 @@ private fun BackupGuideCarousel(
 ) {
     if (pages.isEmpty()) return
     val pagerState = rememberPagerState(pageCount = { pages.size })
+    val scope = rememberCoroutineScope()
     GlassPreferenceSection(sectionTitle) {
         SettingsGroup(backdrop = backdrop, config = config, modifier = Modifier.fillMaxWidth()) {
             Column(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                if (pages.size > 1) {
+                    val tabBackdrop = if (Build.VERSION.SDK_INT >= 34 && backdrop != null)
+                        rememberCouiGlassBackdrop(backdrop) else null
+                    val tabs = remember(pages) {
+                        pages.mapIndexed { index, page -> CouiChipTabItem(index, page.tabLabel) }
+                    }
+                    val selectPage: (Int) -> Unit = { index ->
+                        scope.launch { pagerState.animateScrollToPage(index) }
+                    }
+                    if (Build.VERSION.SDK_INT >= 34 && tabBackdrop != null) {
+                        ChipTabRow(
+                            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                            items = tabs, selectedKey = pagerState.currentPage.coerceIn(pages.indices),
+                            onSelectedKeyChange = { selectPage(it as Int) },
+                            backdrop = tabBackdrop,
+                            selectedContentColor = CouiTheme.colorScheme.accent,
+                            selectedTint = CouiTheme.colorScheme.accent.copy(alpha = if (CouiTheme.isDark) .22f else .13f),
+                        )
+                    } else {
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp, vertical = 8.dp)
+                                .selectableGroup(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            tabs.forEachIndexed { index, tab ->
+                                FilterChip(index == pagerState.currentPage, { selectPage(index) }, { Text(tab.label) })
+                            }
+                        }
+                    }
+                }
                 HorizontalPager(
                     state = pagerState,
                     modifier = Modifier
@@ -669,11 +716,6 @@ private fun BackupGuideCarousel(
                         )
                     }
                 }
-                ProjectPagerIndicator(
-                    pagerState = pagerState,
-                    pageCount = pages.size,
-                    modifier = Modifier.padding(bottom = 12.dp)
-                )
             }
         }
     }
