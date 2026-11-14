@@ -46,10 +46,17 @@ class TransitionFallbackMotionTest {
         val page = Rect(0f, 0f, 384f, 800f)
         val motion = SharedViewFallbackMotion(PageMorphStyle.FloatingAdd)
         val button = SharedViewFallbackMotion(PageMorphStyle.Button)
-        assertEquals(button.close, motion.close)
-        assertEquals(button.closeVertical, motion.closeVertical)
         val close = TargetBasedAnimation(motion.close, Float.VectorConverter, 1f, 0f)
         val vertical = TargetBasedAnimation(motion.closeVertical, Float.VectorConverter, 1f, 0f)
+        val buttonClose = TargetBasedAnimation(button.close, Float.VectorConverter, 1f, 0f)
+        val buttonVertical = TargetBasedAnimation(button.closeVertical, Float.VectorConverter, 1f, 0f)
+        assertEquals(buttonClose.durationNanos, close.durationNanos)
+        assertEquals(buttonVertical.durationNanos, vertical.durationNanos)
+        for (frame in 0..15) {
+            val time = close.durationNanos * frame / 15L
+            assertEquals(buttonClose.getValueFromNanos(time), close.getValueFromNanos(time), .0001f)
+            assertEquals(buttonVertical.getValueFromNanos(time), vertical.getValueFromNanos(time), .0001f)
+        }
 
         for (openingProgress in listOf(.30f, 1f)) {
             val start = sharedViewGeometry(anchor, page, 28f, 32f, openingProgress, openingProgress,
