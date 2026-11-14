@@ -476,7 +476,7 @@ internal fun ManagedCourseListCardContent(
                 CardSelectionCheck(checkedForDeletion, selectionEnabled, appUsesDarkTheme(config))
             } else {
                 Icon(
-                    painter = painterResource(R.drawable.ic_arrow_back),
+                    painter = painterResource(R.drawable.ic_chevron_left),
                     contentDescription = null,
                     tint = textColor.copy(alpha = 0.70f),
                     modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = 180f }

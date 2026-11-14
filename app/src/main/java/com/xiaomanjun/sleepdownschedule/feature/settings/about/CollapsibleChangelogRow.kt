@@ -147,7 +147,7 @@ internal fun CollapsibleChangelogRow(version: String, body: String) {
                     Spacer(Modifier.width(8.dp))
                 }
                 Icon(
-                    painter = painterResource(R.drawable.ic_arrow_back),
+                    painter = painterResource(R.drawable.ic_chevron_left),
                     contentDescription = if (expanded) "折叠 $version" else "展开 $version",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.size(18.dp).graphicsLayer(rotationZ = arrowRotation),
