@@ -14,25 +14,20 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.Dp
 
 val LocalFloatingChromeBounds = staticCompositionLocalOf<State<Rect?>> { mutableStateOf(null) }
 
-/** Reserve space only in a toolbar whose actual horizontal span intersects floating chrome. */
+/** Measure toolbar content after the system insets have been applied. */
 @Composable
-fun Modifier.avoidFloatingChrome(centerContentWidth: Dp, startContentWidth: Dp = 0.dp): Modifier {
+internal fun Modifier.avoidFloatingChrome(): Modifier {
     val chrome = LocalFloatingChromeBounds.current.value
     var toolbar by remember { mutableStateOf<Rect?>(null) }
     val bounds = toolbar
     val density = LocalDensity.current
-    val overlaps = if (chrome != null && bounds != null) with(density) {
-        val width = centerContentWidth.toPx().coerceAtMost(bounds.width)
-        chrome.overlaps(Rect(bounds.center.x - width / 2, bounds.top, bounds.center.x + width / 2, bounds.bottom)) ||
-            (startContentWidth > 0.dp && chrome.overlaps(Rect(bounds.left, bounds.top,
-                bounds.left + startContentWidth.toPx(), bounds.bottom)))
-    } else false
-    val inset = if (overlaps && chrome != null && bounds != null) {
-        with(density) { (chrome.bottom - bounds.top).coerceAtLeast(0f).toDp() } + 4.dp
+    val inset = if (chrome != null && bounds != null &&
+        chrome.left < bounds.right && chrome.right > bounds.left
+    ) {
+        (with(density) { (chrome.bottom - bounds.top).toDp() } + 4.dp).coerceAtLeast(0.dp)
     } else 0.dp
     return this.onGloballyPositioned { toolbar = it.boundsInRoot() }.padding(top = inset)
 }

@@ -142,45 +142,9 @@ class HomeAdaptiveMetricsTest {
         )
         val root = IntSize(1236, 2745)
         val bounds = metrics.contentRectPx(root, density = 3f)
-        val destination = homeMenuDestinationTargetRect(
-            kind = HomeMenuDestinationKind.AddCourse,
-            rootSize = root,
-            density = 3f,
-            adaptiveMetrics = metrics
-        )
-
         assertTrue(bounds.left > 30f)
         assertEquals(96f, bounds.top, 0.01f)
         assertTrue(bounds.bottom < root.height - 100f)
-        assertTrue(destination.left >= bounds.left)
-        assertTrue(destination.top >= bounds.top)
-        assertTrue(destination.right <= bounds.right)
-        assertTrue(destination.bottom <= bounds.bottom)
-    }
-
-    @Test
-    fun tabletDestinationUsesCenteredBoundedPanel() {
-        val metrics = calculateHomeAdaptiveMetrics(
-            widthDp = 1280,
-            heightDp = 800,
-            safeTop = 24.dp,
-            safeBottom = 24.dp,
-            fontScale = 1f
-        )
-        val root = IntSize(2560, 1600)
-        val content = metrics.contentRectPx(root, density = 2f)
-        val destination = homeMenuDestinationTargetRect(
-            kind = HomeMenuDestinationKind.ManualImport,
-            rootSize = root,
-            density = 2f,
-            adaptiveMetrics = metrics
-        )
-
-        assertEquals(1360f, destination.width, 0.01f)
-        assertTrue(destination.left >= content.left)
-        assertTrue(destination.top >= content.top)
-        assertTrue(destination.right <= content.right)
-        assertTrue(destination.bottom <= content.bottom)
     }
 
     @Test

@@ -1,17 +1,16 @@
 package com.xiaomanjun.sleepdownschedule.feature.settings
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField as MaterialOutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.settingsPreferencePadding
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -21,14 +20,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import com.kyant.backdrop.Backdrop
-import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogCapsuleField
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
@@ -63,7 +59,7 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
 
     SleepDownSecondaryPageList(
         contentTopPadding = topPadding,
-        contentBottomPadding = DockScrollPadding
+        contentBottomPadding = detailContentBottomPadding()
     ) {
         item {
             GlassPreferenceSection("AI 助理") {
@@ -149,7 +145,7 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
                         backdrop = backdrop,
                         config = state.config,
                         modifier = Modifier.fillMaxWidth(),
-                        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+                        insideMargin = settingsPreferencePadding(),
                         maxHeight = 260.dp,
                         onExpandedChange = {},
                         onSelectedIndexChange = { index ->
@@ -194,73 +190,42 @@ fun DayAgentSettingsScreen(state: AppState, backdrop: Backdrop?) {
     SleepDownPickerDialog(
         show = showMemoryEditor,
         title = "助手记忆",
+        contentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
         onDismissRequest = { showMemoryEditor = false },
-        backdrop = popupBackdrop,
-        config = state.config
-    ) {
-            Text(
-                "这里保存的是助手可跨天使用的简短长期记忆；你可以直接修改；关闭记忆后内容会保留，但不会再注入对话或由助手更新",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            MaterialOutlinedTextField(
-                value = memoryDraft,
-                onValueChange = { memoryDraft = it.take(1200) },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 180.dp, max = 300.dp),
-                placeholder = {
-                    Text("例如：默认只修改本周；跨校区课程之间预留 30 分钟")
-                },
-                minLines = 6,
-                maxLines = 10,
-                shape = RoundedRectangle(24.dp)
-            )
-            Text(
-                "${memoryDraft.length}/1200",
-                modifier = Modifier.align(Alignment.End),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
-            ) {
-                QuickSheetLiquidAction(
-                    label = "清空",
-                    enabled = true,
-                    backdrop = popupBackdrop,
-                    config = state.config,
-                    destructive = true,
-                    modifier = Modifier.weight(1f),
-                    height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-                ) {
-                    memoryDraft = ""
-                }
-                QuickSheetLiquidAction(
-                    label = "取消",
-                    enabled = true,
-                    backdrop = popupBackdrop,
-                    config = state.config,
-                    modifier = Modifier.weight(1f),
-                    height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-                ) {
-                    showMemoryEditor = false
-                }
-                QuickSheetLiquidAction(
-                    label = "保存",
-                    enabled = true,
-                    backdrop = popupBackdrop,
-                    config = state.config,
-                    primary = true,
-                    modifier = Modifier.weight(1f),
-                    height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-                ) {
-                    DayAgentPreferences.saveMemory(context, memoryDraft)
-                    memoryText = DayAgentPreferences.memory(context)
-                    memoryDraft = memoryText
-                    showMemoryEditor = false
-                }
+        config = state.config,
+        adjustForIme = true,
+        actions = listOf(
+            LiquidAlertAction("清空", LiquidAlertActionStyle.Destructive, dismissOnClick = false) { memoryDraft = "" },
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showMemoryEditor = false },
+            LiquidAlertAction("保存", LiquidAlertActionStyle.Primary) {
+                DayAgentPreferences.saveMemory(context, memoryDraft)
+                memoryText = DayAgentPreferences.memory(context)
+                memoryDraft = memoryText
+                showMemoryEditor = false
             }
+        )
+    ) {
+        Text(
+            "这里保存的是助手可跨天使用的简短长期记忆；你可以直接修改；关闭记忆后内容会保留，但不会再注入对话或由助手更新",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        DialogCapsuleField(
+            value = memoryDraft,
+            onValueChange = { memoryDraft = it.take(1200) },
+            config = state.config,
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 300.dp),
+            placeholder = "例如：默认只修改本周，跨校区课程之间预留 30 分钟",
+            minLines = 6,
+        )
+        Text(
+            "${memoryDraft.length}/1200",
+            modifier = Modifier.align(Alignment.End),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
     }
 }

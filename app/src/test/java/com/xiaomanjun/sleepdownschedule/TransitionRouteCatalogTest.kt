@@ -11,6 +11,15 @@ import org.junit.Test
 
 class TransitionRouteCatalogTest {
     @Test
+    fun feedbackListAndDetailUseThePlatformActivityTransition() {
+        val routes = listOf(TransitionRouteId.SettingsToFeedback, TransitionRouteId.FeedbackToDetail)
+        routes.map(TransitionRouteCatalog::get).forEach { route ->
+            assertEquals(LegacyTransitionProfile.PlatformDefault, route.legacyProfile)
+            assertEquals(TransitionNativePolicy.Never, route.nativePolicy)
+        }
+    }
+
+    @Test
     fun colorOsCourseManagementUsesTheSamePageTransitionAsSettingsDetails() {
         val course = TransitionRouteCatalog.get(TransitionRouteId.HomeMenuToCourseManagement)
         val settings = TransitionRouteCatalog.get(TransitionRouteId.SettingsToSettingsDetail)
@@ -40,15 +49,17 @@ class TransitionRouteCatalogTest {
                 TransitionRouteId.ManualImportToHistory,
                 TransitionRouteId.AiProgressToHistory,
                 TransitionRouteId.HomeToEduImport,
+                TransitionRouteId.HomeDockToImport,
                 TransitionRouteId.HomeToCourseManagement,
                 TransitionRouteId.QuickSheetToSettingsDetail,
-                TransitionRouteId.SpecialCourseToEditor
+                TransitionRouteId.SpecialCourseToEditor,
+                TransitionRouteId.FeedbackToEditor,
+                TransitionRouteId.WelcomeToHome,
             ),
             nativeCandidates.map { it.id }.toSet()
         )
-        assertTrue(nativeCandidates.filterNot { it.id == TransitionRouteId.SpecialCourseToEditor }
-            .all { it.legacyProfile is LegacyTransitionProfile.Anchored })
-        assertTrue(nativeCandidates.all { it.requiresOpeningAnchor && it.requiresReturnAnchor })
+        assertTrue(nativeCandidates.all { it.legacyProfile is LegacyTransitionProfile.Anchored })
+        assertTrue(nativeCandidates.all { it.requiresOpeningAnchor && (it.requiresReturnAnchor || it.oneWay) })
         assertTrue(
             TransitionRouteCatalog.all()
                 .filter { it.nativePolicy == TransitionNativePolicy.Never }
@@ -64,9 +75,12 @@ class TransitionRouteCatalogTest {
             TransitionRouteId.ManualImportToHistory,
             TransitionRouteId.AiProgressToHistory,
             TransitionRouteId.HomeToEduImport,
+            TransitionRouteId.HomeDockToImport,
             TransitionRouteId.HomeToCourseManagement,
             TransitionRouteId.QuickSheetToSettingsDetail,
-            TransitionRouteId.SpecialCourseToEditor
+            TransitionRouteId.SpecialCourseToEditor,
+            TransitionRouteId.FeedbackToEditor,
+            TransitionRouteId.WelcomeToHome,
         )
         assertEquals(
             "com.xiaomanjun.sleepdownschedule.NativeCourseManagementDetailActivity",
@@ -93,6 +107,10 @@ class TransitionRouteCatalogTest {
                 .nativeDestinationClassName
         )
         assertEquals(
+            TransitionRouteCatalog.get(TransitionRouteId.HomeToEduImport).nativeDestinationClassName,
+            TransitionRouteCatalog.get(TransitionRouteId.HomeDockToImport).nativeDestinationClassName
+        )
+        assertEquals(
             "com.xiaomanjun.sleepdownschedule.NativeCourseManagementActivity",
             TransitionRouteCatalog.get(TransitionRouteId.HomeToCourseManagement)
                 .nativeDestinationClassName
@@ -104,8 +122,14 @@ class TransitionRouteCatalogTest {
         val special = TransitionRouteCatalog.get(TransitionRouteId.SpecialCourseToEditor)
         assertEquals("com.xiaomanjun.sleepdownschedule.feature.settings.NativeSpecialCourseEditorActivity",
             special.nativeDestinationClassName)
-        assertEquals(LegacyTransitionProfile.Depth(R.anim.settings_slide_enter, R.anim.settings_slide_exit,
-            R.anim.settings_slide_pop_enter, R.anim.settings_slide_pop_exit), special.legacyProfile)
+        val feedback = TransitionRouteCatalog.get(TransitionRouteId.FeedbackToEditor)
+        assertEquals("com.xiaomanjun.sleepdownschedule.feature.feedback.NativeFeedbackEditorActivity",
+            feedback.nativeDestinationClassName)
+        assertEquals(special.legacyProfile, feedback.legacyProfile)
+        assertTrue(feedback.requiresLiveSourceView)
+        val welcome = TransitionRouteCatalog.get(TransitionRouteId.WelcomeToHome)
+        assertTrue(welcome.oneWay && welcome.requiresLiveSourceView && !welcome.requiresReturnAnchor)
+        assertEquals("com.xiaomanjun.sleepdownschedule.MainActivity", welcome.nativeDestinationClassName)
         assertTrue(TransitionRouteCatalog.all().filter { it.id !in adapted }
             .all { it.nativePolicy == TransitionNativePolicy.Never && it.nativeDestinationClassName == null })
     }

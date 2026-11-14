@@ -26,9 +26,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -49,7 +53,6 @@ import com.xiaomanjun.sleepdownschedule.courseCardBlurMaximum
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalPersonalizationPreview
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.homeFlatBackgroundColor
-import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
 import com.xiaomanjun.sleepdownschedule.glass.GlassHighlightFrame
@@ -57,8 +60,8 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassHighlightStyle
 import com.xiaomanjun.sleepdownschedule.glass.GlassInnerShadowFrame
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialRole
 import com.xiaomanjun.sleepdownschedule.glass.GlassMaterialSpec
-import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassMaterialRevealProgress
-import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
+import com.xiaomanjun.sleepdownschedule.glass.courseTexture
+import com.xiaomanjun.sleepdownschedule.glass.CourseMaterialSampling
 import com.xiaomanjun.sleepdownschedule.glass.decorationOnly
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.materialEffectsOnly
@@ -149,13 +152,14 @@ fun CourseGlassCard(
     course: CourseEntity? = null,
     shape: Shape = RoundedRectangle(12.dp),
     blurOverride: Float? = null,
+    nativeBlurRadius: androidx.compose.ui.unit.Dp? = null,
     renderSurface: Boolean = true,
-    mountMaterial: Boolean = true,
     viewportMaterialVisible: Boolean = true,
     // Compatibility for the course editor's shell; timetable cards always sample at 1x.
     editorSampleScale: Float = 1f,
     expandedOutlineLight: Boolean = false,
     followTouch: Boolean = true,
+    externalTouch: (() -> com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSurfaceTouch)? = null,
     // Expanded forms can keep course material without the card's rim/caustic projection.
     nativeEdgeEffects: Boolean = true,
     followLightRadius: androidx.compose.ui.unit.Dp? = null,
@@ -166,57 +170,78 @@ fun CourseGlassCard(
     onClick: (() -> Unit)? = null,
     content: @Composable () -> Unit
 ) {
-    // A tint alone leaves glass highlights and the content bright. Dim the complete rendered
-    // card, including native material, without an extra offscreen layer or changing its opacity.
-    val statusModifier = modifier.then(if (muted) Modifier.drawWithCache {
+    val wallpaper = backdrop as? CourseMaterialSampling
+    // A custom morph filter reads the raw source; ordinary surfaces receive the prepared
+    // handle explicitly from their scene, including floating/animated copies.
+    val localBackdrop = wallpaper?.filtered?.source ?: backdrop
+    val preparedWallpaper = wallpaper?.takeIf { blurOverride == null && nativeBlurRadius == null }
+    val dark = appUsesDarkTheme(config)
+    val hasWallpaper = config.hasAnyWallpaper()
+    val pageBackground = homeFlatBackgroundColor(dark)
+    val lightCardBacking = pageBackground.takeIf {
+        !dark && !hasWallpaper && course != null && nativeEdgeEffects && !muted && flatOpacityOverride == null
+    }
+    val courseColor = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
+    val baseColor = if (lightCardBacking != null) remember(courseColor) {
+        // Keep the fill bright and chromatic. The text uses its own contrast calculation.
+        lightCourseCardTint(courseColor)
+    } else courseColor
+    fun courseTintAlpha(strength: Float): Float =
+        if (lightCardBacking != null) 0.27f + 0.11f * strength else strength
+    fun tintOnBacking(tint: Color): Color =
+        if (lightCardBacking != null) tint.compositeOver(lightCardBacking) else tint
+
+    val showLightCardOutline = lightCardBacking != null && renderSurface
+    val statusModifier = modifier.then(if (muted || showLightCardOutline) Modifier.drawWithCache {
         val outline = shape.createOutline(size, layoutDirection, this)
+        val rim = if (showLightCardOutline) Path().apply { addOutline(outline) } else null
+        val rimColor = baseColor.copy(alpha = 0.10f)
+        val rimStroke = Stroke(0.6.dp.toPx() * 2f)
         onDrawWithContent {
             drawContent()
-            drawOutline(outline, Color.Black.copy(alpha = 0.26f))
+            // The inner half of the stroke traces the same curve as the rendered card.
+            if (rim != null) clipPath(rim) { drawPath(rim, rimColor, style = rimStroke) }
+            // Dim the whole card so the material highlights and text recede together.
+            if (muted) drawOutline(outline, Color.Black.copy(alpha = 0.26f))
         }
     } else Modifier)
     val materialPolicy = com.xiaomanjun.sleepdownschedule.core.performance.effectiveAppMaterialPolicy()
+    val readableFlatInk = lightCardBacking != null && config.courseCardColoredTextEnabled
     if (!materialPolicy.denseMaterials) {
         val preview = LocalPersonalizationPreview.current
-        val base = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
-        val opacity = flatOpacityOverride?.coerceIn(0f, 1f) ?: materialPolicy.opacity(blurOverride ?: preview?.cardBlur ?: config.courseCardBlur,
+        val strength = flatOpacityOverride?.coerceIn(0f, 1f) ?: materialPolicy.opacity(blurOverride ?: preview?.cardBlur ?: config.courseCardBlur,
             com.xiaomanjun.sleepdownschedule.model.courseCardBlurMaximum(config.courseCardGlassEnabled))
-        val background = rememberCourseTextBackground(base, opacity, false, 0f, false, false,
-            flatBackground = homeFlatBackgroundColor(appUsesDarkTheme(config)), ready = true, cardBounds = { null })
-        Box(statusModifier.clip(shape).then(if (renderSurface) Modifier.background(base.copy(alpha = opacity)) else Modifier)
+        val opacity = courseTintAlpha(strength)
+        val background = rememberCourseTextBackground(baseColor, opacity, false, 0f, false, false,
+            flatBackground = pageBackground, ready = true, cardBounds = { null },
+            flatAccentTintAlpha = opacity.takeIf { readableFlatInk })
+        val fill = if (renderSurface) Modifier.background(tintOnBacking(baseColor.copy(alpha = opacity))) else Modifier
+        Box(statusModifier.clip(shape).then(fill)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
             CompositionLocalProvider(LocalCourseTextBackground provides background) { content() }
         }
         return
     }
-    val occlusionPhase = LocalCourseGlassOcclusionPhase.current
-    val materialRevealProgress = LocalCourseGlassMaterialRevealProgress.current
-    val occlusionAllowsMaterial =
-        mountMaterial && occlusionPhase.mountsMaterialNodes
-    val drawMaterialNodes = occlusionAllowsMaterial && viewportMaterialVisible
-    val mountMaterialNodes = occlusionAllowsMaterial ||
-        com.xiaomanjun.sleepdownschedule.glass.GlassMotionExperiments.retainMaterialNodes
-    val materialCrossfadeActive =
-        occlusionPhase == CourseGlassOcclusionPhase.PostCloseRestore ||
-            occlusionPhase == CourseGlassOcclusionPhase.Revealing
+    val drawMaterialNodes = viewportMaterialVisible
     val previewState = LocalPersonalizationPreview.current
     val nativeMode = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode.current
     if (nativeMode?.enabled == true) {
-        val base = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
-        val alpha = nativeMode.tintStrength
-        val tintDraw: DrawScope.() -> Unit = remember(base, alpha, expandedOutlineLight) {
-            var height = Float.NaN
-            var brush: Brush? = null
-            val draw: DrawScope.() -> Unit = {
-                if (size.height != height) {
-                    height = size.height
-                    brush = bottomLitGlassTintBrush(base.copy(alpha = alpha), height,
-                        expanded = expandedOutlineLight)
-                }
-                // Transfer course tint only. Native stroke and foreground light own the
-                // material highlights; legacy shading would paint over and duplicate them.
-                drawRect(requireNotNull(brush))
-            }
+        val strength = nativeMode.tintStrength
+        val wallpaperCardGradient = hasWallpaper && course != null && nativeEdgeEffects
+        val alpha = when {
+            wallpaperCardGradient -> strength
+            lightCardBacking != null -> courseTintAlpha(strength)
+            else -> strength * (0x66 / 255f)
+        }
+        val topTintFloor = when {
+            wallpaperCardGradient -> 0.20f
+            lightCardBacking != null -> 0.72f
+            else -> 0.55f
+        }
+        val tintDraw: DrawScope.() -> Unit = remember(baseColor, alpha, topTintFloor, expandedOutlineLight, lightCardBacking) {
+            val brush = bottomLitGlassTintBrush(baseColor.copy(alpha = alpha), Float.POSITIVE_INFINITY,
+                topTintFloor = topTintFloor, expanded = expandedOutlineLight, colorTransform = ::tintOnBacking)
+            val draw: DrawScope.() -> Unit = { drawRect(brush) }
             draw
         }
         val coordinates = remember { arrayOfNulls<LayoutCoordinates>(1) }
@@ -226,16 +251,24 @@ fun CourseGlassCard(
                 Rect(origin.x, origin.y, origin.x + position.size.width, origin.y + position.size.height)
             }
         } }
-        val background = rememberCourseTextBackground(base, alpha, true, nativeMode.blurRadiusPx, true, expandedOutlineLight,
-            flatBackground = homeFlatBackgroundColor(appUsesDarkTheme(config)).takeUnless { config.hasAnyWallpaper() },
-            ready = true, cardBounds = cardBounds)
+        val background = rememberCourseTextBackground(baseColor, if (wallpaperCardGradient) alpha else alpha * topTintFloor,
+            lightCardBacking == null, nativeMode.blurRadiusPx, outline = wallpaperCardGradient, expanded = expandedOutlineLight,
+            flatBackground = pageBackground.takeUnless { hasWallpaper },
+            ready = true, cardBounds = cardBounds,
+            flatAccentTintAlpha = alpha.takeIf { readableFlatInk })
+        val preparedBackdrop = preparedWallpaper
         val renderer = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardRenderer.current
         if (renderer?.invoke(com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCourseCardRequest(
-                statusModifier.onGloballyPositioned { coordinates[0] = it }, shape, appUsesDarkTheme(config),
+                statusModifier.onGloballyPositioned { coordinates[0] = it }, shape, dark,
                 renderSurface, drawMaterialNodes, onClick, tintDraw,
                 followTouch = followTouch,
+                externalTouch = externalTouch,
                 edgeEffects = nativeEdgeEffects,
-                followLightRadius = followLightRadius
+                // The opaque backing covers the body sample and feeds the caustic directly.
+                blurRadiusScale = if (lightCardBacking != null) 0f else 1f,
+                followLightRadius = followLightRadius, backdrop = localBackdrop, blurRadius = nativeBlurRadius,
+                backdropSampleScale = editorSampleScale, causticTint = courseColor,
+                preparedBackdrop = preparedBackdrop, flatBackdropColor = lightCardBacking
             )) {
                 CompositionLocalProvider(LocalCourseTextBackground provides background) { content() }
             } == true) return
@@ -243,11 +276,12 @@ fun CourseGlassCard(
     // A native edition must not silently render the liquid recipe when a vendor surface
     // is unavailable. Keep the course tint and interaction in the existing flat material.
     if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardRenderer.current != null) {
-        val base = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
-        val opacity = nativeMode?.tintStrength ?: 0.5f
-        val background = rememberCourseTextBackground(base, opacity, false, 0f, false, false,
-            flatBackground = homeFlatBackgroundColor(appUsesDarkTheme(config)), ready = true, cardBounds = { null })
-        Box(statusModifier.clip(shape).then(if (renderSurface) Modifier.background(base.copy(alpha = opacity)) else Modifier)
+        val opacity = courseTintAlpha(nativeMode?.tintStrength ?: 0.5f)
+        val background = rememberCourseTextBackground(baseColor, opacity, false, 0f, false, false,
+            flatBackground = pageBackground, ready = true, cardBounds = { null },
+            flatAccentTintAlpha = opacity.takeIf { readableFlatInk })
+        val fill = if (renderSurface) Modifier.background(tintOnBacking(baseColor.copy(alpha = opacity))) else Modifier
+        Box(statusModifier.clip(shape).then(fill)
             .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)) {
             CompositionLocalProvider(LocalCourseTextBackground provides background) { content() }
         }
@@ -255,21 +289,19 @@ fun CourseGlassCard(
     }
     val glassBackdrop = if (
         config.courseCardGlassEnabled &&
-        config.hasAnyWallpaper() &&
+        hasWallpaper &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    ) backdrop else null
+    ) localBackdrop else null
     val simpleBlurBackdrop = if (
         !config.courseCardGlassEnabled &&
         config.courseCardGaussianBlurEnabled &&
-        config.hasAnyWallpaper() &&
+        hasWallpaper &&
         Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
-    ) backdrop else null
+    ) localBackdrop else null
     val useGlass = glassBackdrop != null
     val quality = LocalGlassQuality.current
     val clickInteractionSource = remember { MutableInteractionSource() }
     var pressed by remember { mutableStateOf(false) }
-    val baseColor = if (muted) MutedCourseLightColor else courseCardBaseColor(config, course)
-    val hasWallpaper = config.hasAnyWallpaper()
     val tokens = GlassTokens.courseCard(blurOverride ?: config.courseCardBlur)
     val lightGlass = glassUsesLightStyle(config)
     val liveLiquidBlur = blurOverride ?: previewState?.cardBlur ?: config.courseCardBlur
@@ -309,7 +341,7 @@ fun CourseGlassCard(
     }
     val liveCardAlpha = (previewState?.cardAlpha ?: config.cardAlpha).coerceIn(0f, 1f)
     val textSurfaceAlpha = when {
-        !hasWallpaper -> liveCardAlpha.coerceAtLeast(FlatCourseCardMinimumAlpha)
+        !hasWallpaper -> courseTintAlpha(liveCardAlpha.coerceAtLeast(FlatCourseCardMinimumAlpha))
         useGlass -> courseGlassTintAlpha(if (outlineLightEnabled) 0.75f else liveCardAlpha, quality, hasWallpaper) *
             courseCardBrightnessAttenuation(config.wallpaperBrightness, outlineLightEnabled)
         simpleBlurBackdrop != null -> courseSimpleBlurTintAlpha(liveCardAlpha, quality, hasWallpaper)
@@ -324,9 +356,10 @@ fun CourseGlassCard(
             (if (useGlass) liquidEffectFrame.blur ?: 0.dp else simpleBlurValue.dp).toPx()
         },
         outline = useGlass && outlineLightEnabled, expanded = expandedOutlineLight,
-        flatBackground = if (!hasWallpaper) homeFlatBackgroundColor(appUsesDarkTheme(config)) else null,
+        flatBackground = pageBackground.takeUnless { hasWallpaper },
         ready = textCardReady, cardBounds = textCardBounds,
-        surfaceDimAlpha = if (useGlass) LiquidCourseCardSurfaceDimAlpha else 0f
+        surfaceDimAlpha = if (useGlass) LiquidCourseCardSurfaceDimAlpha else 0f,
+        flatAccentTintAlpha = textSurfaceAlpha.takeIf { readableFlatInk }
     )
     val simpleMaterial = GlassMaterialSpec.simpleBlur(simpleBlurValue.dp)
     val simpleDescriptor = rememberGlassSurfaceDescriptor(
@@ -336,13 +369,11 @@ fun CourseGlassCard(
         sceneKey = "course-card-simple-blur"
     )
     val backdropViewport = com.xiaomanjun.sleepdownschedule.glass.LocalCourseBackdropViewport.current
-    val sharedWallpaper = com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop.current
-    val requiredBlurPx = with(androidx.compose.ui.platform.LocalDensity.current) { (liquidEffectFrame.blur ?: 0.dp).toPx() }
-    val sharedWallpaperCompatible = sharedWallpaper != null &&
-        sharedWallpaper.source === glassBackdrop && sharedWallpaper.radiusPx == requiredBlurPx &&
-        sharedWallpaper.vibrant == liquidEffectFrame.useVibrancy && morphAllocation == null
-    val useSharedWallpaper = sharedWallpaperCompatible && sharedWallpaper.ready
-    val sampledSource = if (useSharedWallpaper) sharedWallpaper else glassBackdrop
+    // Ordinary cards consume the scene's prepared prefix from their first frame. Only an
+    // explicit editor/overlay source owns local filtering; readiness never selects a backend.
+    val sharedWallpaper = preparedWallpaper?.filtered
+    val useSharedWallpaper = sharedWallpaper != null
+    val sampledSource = sharedWallpaper ?: glassBackdrop
     // Course highlights use a fixed cached vector instead of the Kyant directional shader.
     val cardEffects = if (useSharedWallpaper) {
         liquidEffectFrame.materialEffectsOnly().copy(blur = null, useVibrancy = false)
@@ -354,9 +385,8 @@ fun CourseGlassCard(
     val decorationEffectFrame = decoratedFrame.decorationOnly().copy(highlight = null)
     // At rest and during ordinary card motion, one draw node owns the sampled material,
     // tint and decorations. They then use the same measured size, outline and placement.
-    // Keep the split path while the sampled material alone is crossfading or suspended.
-    val unifiedLiquidSurface = useGlass && renderSurface && drawMaterialNodes &&
-        !materialCrossfadeActive
+    // Exported morph surfaces keep their own decoration geometry.
+    val unifiedLiquidSurface = useGlass && renderSurface && drawMaterialNodes
     val unifiedLiquidEffectFrame = if (useSharedWallpaper) {
         decoratedFrame.copy(blur = null, useVibrancy = false, highlight = null)
     } else decoratedFrame.copy(highlight = null)
@@ -409,13 +439,6 @@ fun CourseGlassCard(
     val stableCardShape: () -> Shape = remember(shape) { { shape } }
     val stableMaterialEnabled: () -> Boolean = remember(drawMaterialNodes) { { drawMaterialNodes } }
     val stableMaterialBounds: () -> Rect? = remember(morphAllocation) { { morphAllocation?.localBounds() } }
-    val materialAlphaModifier = if (materialCrossfadeActive) {
-        Modifier.graphicsLayer {
-            alpha = materialRevealProgress().coerceIn(0f, 1f)
-        }
-    } else {
-        Modifier
-    }
     val cardModifier = statusModifier.onGloballyPositioned {
         textCardCoordinates[0] = it
         textCardReady = true
@@ -451,8 +474,17 @@ fun CourseGlassCard(
                     Box(Modifier.matchParentSize().courseGlassOuterShadow(shape, shadowAlpha) { viewportMaterialVisible })
                 }
             }
-            val surfaceModifier = if (!renderSurface || (!mountMaterialNodes && (useGlass || simpleBlurBackdrop != null))) {
+            val surfaceModifier = if (!renderSurface) {
                 Modifier
+            } else if (useGlass && preparedWallpaper?.supportsTexture == true &&
+                morphAllocation == null && surfaceBackdrop == null) {
+                Modifier.matchParentSize().courseTexture(
+                    source = preparedWallpaper,
+                    shape = stableCardShape,
+                    frame = unifiedLiquidEffectFrame,
+                    enabled = stableMaterialEnabled,
+                    onSurface = liquidSurfaceDraw,
+                )
             } else if (useGlass) {
                 Modifier
                     .matchParentSize()
@@ -472,6 +504,11 @@ fun CourseGlassCard(
                             allocationPaddingPx = morphAllocation?.paddingPx,
                             onDrawSurface = if (unifiedLiquidSurface) liquidSurfaceDraw else null
                     )
+            } else if (simpleBlurBackdrop != null && preparedWallpaper?.supportsTexture == true &&
+                morphAllocation == null && surfaceBackdrop == null) {
+                Modifier.matchParentSize().courseTexture(
+                    source = preparedWallpaper, shape = stableCardShape, enabled = stableMaterialEnabled,
+                )
             } else if (simpleBlurBackdrop != null) {
                 // Non-liquid mode still samples the content behind the course card, but
                 // deliberately omits lens/refraction/vibrancy.  This is a cheap Gaussian
@@ -479,13 +516,13 @@ fun CourseGlassCard(
                 Modifier
                     .matchParentSize()
                     .sleepDownGlassSurface(
-                        backdrop = simpleBlurBackdrop,
+                        backdrop = sharedWallpaper ?: simpleBlurBackdrop,
                         descriptor = simpleDescriptor,
                         material = simpleMaterial,
                         renderEnabled = stableMaterialEnabled,
                         placementLayer = false,
                         shape = stableCardShape,
-                        effectFrame = GlassEffectFrame(blur = simpleBlurValue.dp)
+                        effectFrame = GlassEffectFrame(blur = if (useSharedWallpaper) null else simpleBlurValue.dp)
                     )
             } else {
                 Modifier
@@ -494,27 +531,16 @@ fun CourseGlassCard(
                     .drawBehind {
                         val liveAlpha = previewState?.cardAlpha ?: config.cardAlpha
                         val alpha = liveAlpha.coerceIn(0f, 1f)
-                        drawRect(
-                            baseColor.copy(
-                                alpha = if (!hasWallpaper) {
-                                    alpha.coerceAtLeast(FlatCourseCardMinimumAlpha)
-                                } else if (
-                                    !config.courseCardGlassEnabled &&
-                                    !config.courseCardGaussianBlurEnabled &&
-                                    hasWallpaper
-                                ) {
-                                    // 纯纯色卡片：透明度拉满时也不能完全消失，保留可辨识底座
-                                    alpha.coerceAtLeast(0.35f)
-                                } else {
-                                    alpha.coerceAtLeast(0.86f)
-                                }
-                            )
-                        )
+                        val tintAlpha = when {
+                            !hasWallpaper -> courseTintAlpha(alpha.coerceAtLeast(FlatCourseCardMinimumAlpha))
+                            !config.courseCardGlassEnabled && !config.courseCardGaussianBlurEnabled -> alpha.coerceAtLeast(0.35f)
+                            else -> alpha.coerceAtLeast(0.86f)
+                        }
+                        drawRect(tintOnBacking(baseColor.copy(alpha = tintAlpha)))
                     }
             }
             Box(
-                (if (useGlass || simpleBlurBackdrop != null) materialAlphaModifier else Modifier)
-                    .then(surfaceModifier)
+                surfaceModifier
                     .then(if (unifiedLiquidSurface) presetHighlight else Modifier)
             )
             if (useGlass && !unifiedLiquidSurface) {

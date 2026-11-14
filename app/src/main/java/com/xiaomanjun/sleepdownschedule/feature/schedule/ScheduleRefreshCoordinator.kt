@@ -65,6 +65,6 @@ class ScheduleRefreshCoordinator(
 
 internal suspend fun refreshScheduleSurfaces(context: Context, repository: ScheduleRepository) = withContext(Dispatchers.IO) {
     val snapshot = repository.activeSnapshot()
-    NotificationScheduler.refreshToday(context, snapshot.courses, snapshot.config, snapshot.periods)
+    NotificationScheduler.refreshToday(context, snapshot)
     TodayCoursesWidgetProvider.refreshAll(context)
 }

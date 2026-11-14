@@ -31,7 +31,6 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
 
 @Composable
 fun SettingsTextFieldRow(
@@ -50,8 +49,17 @@ fun SettingsTextFieldRow(
             value.matches(Regex("\\d{4}[./-]\\d{1,2}[./-]\\d{1,2}")) ||
                     title.contains("日期")
             )
-    val fieldWidth = if (compact && keyboardType == KeyboardType.Number) 64.dp else 170.dp
+    // 数字列不占用长文本输入宽度，避免二级页标题在窄窗口和大字体下换行。
+    val fieldWidth = if (keyboardType == KeyboardType.Number) 64.dp else 170.dp
     if (isTimePicker || isDatePicker) {
+        val dialogConfig = LocalSettingsDialogConfig.current
+        if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls && dialogConfig != null) {
+            if (isDatePicker) SettingsDatePickerRow(title, value, onValueChange,
+                LocalSettingsPopupBackdrop.current, dialogConfig, enabled, yearRange = 1900..2100)
+            else SettingsTimePickerRow(title, value, onValueChange,
+                LocalSettingsPopupBackdrop.current, dialogConfig, enabled)
+            return
+        }
         SettingsPickerValueRow(
             title = title,
             value = value,
@@ -67,12 +75,12 @@ fun SettingsTextFieldRow(
         )
         return
     }
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixBasicComponent(
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsBasicComponent(
             title = title,
             enabled = enabled,
             modifier = Modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = if (compact) 4.dp else 14.dp, vertical = if (compact) 8.dp else 12.dp),
+            insideMargin = settingsPreferencePadding(compact),
             endActions = {
                 SettingsInlineTextField(
                     value = value,
@@ -156,6 +164,7 @@ private fun SettingsInlineTextField(
             onValueChange = onValueChange,
             enabled = enabled,
             singleLine = true,
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
             keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
             visualTransformation = if (keyboardType == KeyboardType.Password) androidx.compose.ui.text.input.PasswordVisualTransformation()
                 else androidx.compose.ui.text.input.VisualTransformation.None,
@@ -190,6 +199,7 @@ private fun SettingsInlineTextField(
         },
         enabled = enabled,
         singleLine = true,
+        cursorBrush = androidx.compose.ui.graphics.SolidColor(MaterialTheme.colorScheme.primary),
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
         visualTransformation = if (keyboardType == KeyboardType.Password) androidx.compose.ui.text.input.PasswordVisualTransformation()
             else androidx.compose.ui.text.input.VisualTransformation.None,

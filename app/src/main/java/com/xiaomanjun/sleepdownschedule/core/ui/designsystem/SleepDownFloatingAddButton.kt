@@ -30,7 +30,8 @@ internal fun SleepDownFloatingAddButton(
     blurRadius: Dp,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    sharedInteractiveHighlight: InteractiveHighlight? = null
+    sharedInteractiveHighlight: InteractiveHighlight? = null,
+    buttonSize: Dp = 54.dp,
 ) {
     val haptic = LocalHapticFeedback.current
     val click = {
@@ -46,11 +47,11 @@ internal fun SleepDownFloatingAddButton(
         LiquidButton(
             onClick = click,
             backdrop = backdrop,
-            modifier = modifier.size(54.dp),
+            modifier = modifier.size(buttonSize),
             isInteractive = enabled,
             clickTargetEnabled = enabled,
             enabled = enabled,
-            height = 54.dp,
+            height = buttonSize,
             contentPadding = PaddingValues(0.dp),
             surfaceColor = surfaceColor,
             sharedInteractiveHighlight = sharedInteractiveHighlight,
@@ -64,7 +65,7 @@ internal fun SleepDownFloatingAddButton(
         Surface(
             onClick = click,
             enabled = enabled,
-            modifier = modifier.size(54.dp),
+            modifier = modifier.size(buttonSize),
             shape = Capsule(),
             color = surfaceColor
         ) { content() }

@@ -55,14 +55,16 @@ data class AiEduImportConversationTurn(
     val aiOutput: String = "",
     val artifactPayload: String = "",
     val status: String = "已完成",
-    val assistantMessage: String = ""
+    val assistantMessage: String = "",
+    val activityReports: List<AiImportReport> = emptyList()
 )
 
 internal fun archiveImportTurn(progress: AiEduImportProgress, draft: ImportDraft? = null): List<AiEduImportConversationTurn> {
     val turn = AiEduImportConversationTurn(progress.userPrompt, progress.reasoningOutput, progress.aiOutput,
-        draft?.let { draftToPayload(it).toString() }.orEmpty(),
+        progress.checkpoints.lastOrNull { it.taskId == progress.taskId }?.payload
+            ?: draft?.let { draftToPayload(it).toString() }.orEmpty(),
         when { progress.error != null -> progress.error; progress.awaitingUserInput -> "已停止，等待补充"; else -> "已完成" },
-        progress.assistantMessage)
+        progress.assistantMessage, progress.activityReports)
     val previous = progress.conversationTurns
     val archived = if (previous.lastOrNull()?.let { it.userPrompt == turn.userPrompt && it.aiOutput == turn.aiOutput } == true)
         previous.dropLast(1) + turn else previous + turn
@@ -149,7 +151,9 @@ object AiEduImportProgressSession {
             return@synchronized { _: String -> }
         }
         val generation = ++reasoningGeneration
-        _liveReasoning.value = AiImportLiveReasoning(taskId)
+        _liveReasoning.value = AiImportLiveReasoning(taskId,
+            usage = _liveReasoning.value.takeIf { it.taskId == taskId }?.usage ?: com.xiaomanjun.sleepdownschedule.core.ai.AiUsageTotals(),
+            startedAtNanos = _liveReasoning.value.takeIf { it.taskId == taskId }?.startedAtNanos ?: System.nanoTime())
         return@synchronized { text: String ->
             synchronized(lock) {
                 val current = _progress.value
@@ -172,6 +176,12 @@ object AiEduImportProgressSession {
         if (_progress.value?.let { it.taskId == taskId && !it.finished && !it.awaitingUserInput } == true) {
             // Presentation can be coalesced/delayed. It must not rewind the actual transport/tool clock.
             _liveReasoning.value = _liveReasoning.value.copy(taskId = taskId, activity = activity)
+        }
+    }
+
+    internal fun updateUsage(taskId: String, usage: com.xiaomanjun.sleepdownschedule.core.ai.AiRequestUsage) = synchronized(lock) {
+        if (_progress.value?.let { it.taskId == taskId && !it.finished } == true) {
+            _liveReasoning.value = _liveReasoning.value.copy(usage = _liveReasoning.value.usage.plus(usage))
         }
     }
     internal fun updateWaitPhase(taskId: String, phase: AiImportWaitPhase,
@@ -416,7 +426,7 @@ object AiEduImportProgressSession {
     private fun publishProgressLocked(next: AiEduImportProgress?) {
         if (next?.taskId != _progress.value?.taskId || next == null) {
             reasoningGeneration++
-            _liveReasoning.value = AiImportLiveReasoning()
+            _liveReasoning.value = AiImportLiveReasoning(taskId = next?.taskId.orEmpty())
             _previewDraft.value = null
         }
         _progress.value = next
@@ -437,7 +447,9 @@ object AiEduImportProgressSession {
 internal data class AiImportLiveReasoning(val taskId: String = "", val text: String = "",
     val nativeReasoning: Boolean = false, val courses: List<CourseEntity> = emptyList(),
     val activity: AiImportActivity? = null, val activityAtNanos: Long = System.nanoTime(),
-    val waitPhase: AiImportWaitPhase = AiImportWaitPhase.LOCAL_OPERATION)
+    val waitPhase: AiImportWaitPhase = AiImportWaitPhase.LOCAL_OPERATION,
+    val startedAtNanos: Long = System.nanoTime(),
+    val usage: com.xiaomanjun.sleepdownschedule.core.ai.AiUsageTotals = com.xiaomanjun.sleepdownschedule.core.ai.AiUsageTotals())
 
 private fun AiEduImportProgress.withCheckpointsFrom(source: AiEduImportProgress): AiEduImportProgress = copy(
     checkpoints = source.checkpoints, selectedCheckpointId = source.selectedCheckpointId,

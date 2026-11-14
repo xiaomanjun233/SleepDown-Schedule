@@ -104,6 +104,7 @@ fun NormalizedCourseEditorScreen(
     onPagerPresentationChange: ((CourseEditorPagerPresentation) -> Unit)? = null,
     rowEntrance: (Int) -> Float = { _ -> 1f },
     copyDraft: CourseEntity? = null,
+    newCourseDraft: CourseEntity? = null,
     contextMessage: String? = null,
     onDismissHandlerChange: (((() -> Unit)?) -> Unit)? = null
 ) {
@@ -120,9 +121,11 @@ fun NormalizedCourseEditorScreen(
         editorGroups.indexOfFirst { group -> group.courses.any { it.id == initialCourse?.id } }.coerceAtLeast(0)
     }
     val pagerState = rememberPagerState(initialPage = initialPage) { editorGroups.size }
-    val initialDrafts = remember(editorGroups, periodValues, config.totalWeeks, copyDraft, formData.timetableCatalog) {
+    val initialDrafts = remember(editorGroups, periodValues, config.totalWeeks, copyDraft, newCourseDraft, formData.timetableCatalog) {
         editorGroups.mapIndexed { index, group ->
-            index to if (copyDraft != null && initialCourse == null) {
+            index to if (newCourseDraft != null && initialCourse == null) {
+                courseEditorDraft(listOf(newCourseDraft), periodValues, config.totalWeeks.coerceAtLeast(1))
+            } else if (copyDraft != null && initialCourse == null) {
                 // A copy is a new draft, never a member of the source course's edit group.
                 // Keep its content and selected weeks, but require a fresh time selection.
                 courseEditorCopyDraft(copyDraft, periodValues, config.totalWeeks.coerceAtLeast(1))
@@ -266,7 +269,8 @@ fun NormalizedCourseEditorScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .zIndex(20f)
-                    .padding(bottom = 10.dp)
+                    .padding(bottom = 10.dp),
+                backdrop = backdrop
             )
         }
         pickerRequest?.let { request ->
@@ -321,7 +325,6 @@ fun NormalizedCourseEditorScreen(
                 },
                 LiquidAlertAction("继续编辑", LiquidAlertActionStyle.Cancel) { showExitConfirm = false }
             ),
-            backdrop = backdrop,
             config = config,
             onDismissRequest = { showExitConfirm = false }
         )

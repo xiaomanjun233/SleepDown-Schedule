@@ -13,6 +13,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
@@ -26,7 +27,10 @@ fun LiquidMenuButton(
     modifier: Modifier = Modifier,
     destructive: Boolean = false,
     textColorOverride: ComposeColor? = null,
-    surfaceColorOverride: ComposeColor? = null
+    surfaceColorOverride: ComposeColor? = null,
+    lightBackdrop: Boolean = false,
+    lightShadow: Boolean = false,
+    surfaceSheen: (() -> Brush?)? = null
 ) {
     val textColor = textColorOverride ?: if (destructive) ComposeColor(0xFFFF453A) else MaterialTheme.colorScheme.primary
     val surfaceColor = surfaceColorOverride ?: if (destructive) ComposeColor(0xFFFF453A).copy(alpha = 0.16f) else ComposeColor.White.copy(alpha = 0.10f)
@@ -37,6 +41,9 @@ fun LiquidMenuButton(
             modifier = modifier,
             height = 40.dp,
             surfaceColor = surfaceColor,
+            nativeLightBackdrop = lightBackdrop,
+            nativeLightShadow = lightShadow,
+            surfaceSheen = surfaceSheen,
             contentPadding = PaddingValues(horizontal = 14.dp),
             blurRadius = 8.dp,
             lensHeight = 24.dp,

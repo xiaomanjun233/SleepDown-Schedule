@@ -1,0 +1,8 @@
+<resources>
+    <string name="coui_picker_calendar_previous_month">Previous month</string>
+    <string name="coui_picker_calendar_next_month">Next month</string>
+    <string name="coui_picker_calendar_change_mode">Switch date selection mode</string>
+    <string name="coui_picker_calendar_year">Year</string>
+    <string name="coui_picker_calendar_month">Month</string>
+    <string name="coui_picker_calendar_day">Day</string>
+</resources>

@@ -9,18 +9,12 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.AppState
 import java.time.LocalDate
 import java.util.LinkedHashMap
 
 internal val LocalAgentBackgroundCaptureMask = staticCompositionLocalOf<() -> Boolean> { { false } }
-
-internal data class AgentSourceHandoffTransform(
-    val scaleX: Float,
-    val scaleY: Float,
-    val translationX: Float,
-    val translationY: Float
-)
 
 /**
  * The day page is disposed while the week page is entering. Keep the expensive, immutable Agent
@@ -106,6 +100,7 @@ class DayAgentBackgroundMotionState {
 // blur so the two never drift apart, exactly like CourseEditorContainerOverlay. The surface
 // pushes in (1 -> 1.08) as the agent opens — same direction and magnitude as the course editor.
 internal const val DayAgentBackgroundZoomRestScale = 1.08f
+internal val DayAgentHomeBackdropBlur = 12.dp
 internal const val DayAgentBackgroundZoomOpenDurationMillis = 620
 internal const val DayAgentBackgroundZoomCloseDurationMillis = 620
 

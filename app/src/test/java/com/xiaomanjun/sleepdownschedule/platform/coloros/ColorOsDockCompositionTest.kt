@@ -15,17 +15,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.core.performance.StartupPhase
+import com.xiaomanjun.sleepdownschedule.defaultConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeCourseCardMode
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeCourseCardMode
+import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
+import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
+import com.xiaomanjun.sleepdownschedule.core.ui.material.VisualEffectsState
+import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
+import com.itos.coui.backdrop.rememberCouiBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
-import com.xiaomanjun.sleepdownschedule.glass.LocalSharedCourseBackdrop
+import com.xiaomanjun.sleepdownschedule.glass.CourseMaterialSampling
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
-import com.kyant.backdrop.backdrops.SharedBlurBackdrop
+import com.kyant.backdrop.backdrops.MaterialBackdrop
+import com.kyant.backdrop.backdrops.MaterialBackdropFilter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -53,19 +58,25 @@ class ColorOsDockCompositionTest {
         val receive: (Pair<Float, Float>) -> Unit = { received = it }
         val select: (Int) -> Unit = {}
         val home: () -> Unit = {}
-        val menu: (Rect, GraphicsLayer) -> Unit = { _, _ -> }
+        val menu: (DockImportSource) -> Unit = { it.release() }
         ShadowLog.clear()
         compose.setContent {
             SideEffect { providerCommits++ }
             val fallback = rememberUpdatedState<@Composable () -> Unit> { Box(Modifier.size(64.dp)) }
             CompositionLocalProvider(LocalNativeCourseCardMode provides mode) {
                 NativeCoursePreviewConsumer(receive)
-                NativeHomeDockChrome(true, 1, false, false,
-                    select, menu, fallback, StartupPhase.FullQuality)
+                NativeHomeDockChrome(
+                    visible = true, selectedIndex = 1, dark = false,
+                    dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
+                    buttonHidden = false, config = defaultConfig(),
+                    couiBackdrop = null,
+                    onSelect = select, onOpenMenu = menu,
+                    fallback = fallback, phase = StartupPhase.FullQuality
+                )
             }
         }
         compose.waitForIdle()
-        fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Native dock commit:") }
+        fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Dock commit:") }
         val initial = commits()
         val initialProvider = providerCommits
         assertTrue(initial > 0)
@@ -78,12 +89,40 @@ class ColorOsDockCompositionTest {
         assertEquals(initial, commits())
     }
 
+    @Test @Config(sdk = [33])
+    fun oldSystemFallsBackEvenWhenCouiKitIsMarkedAvailable() {
+        var fallbackRendered = 0
+        val select: (Int) -> Unit = {}
+        val menu: (DockImportSource) -> Unit = { it.release() }
+        compose.setContent {
+            val pageBackdrop = rememberCouiBackdrop(diagnosticName = "dock-page-test-33")
+            val fallback = rememberUpdatedState<@Composable () -> Unit> {
+                SideEffect { fallbackRendered++ }
+            }
+            CompositionLocalProvider(LocalVisualEffects provides VisualEffectsState(
+                effectiveMode = VisualEffectMode.ColorOsGlow,
+                couiKitAvailable = true,
+            )) {
+                NativeHomeDockChrome(
+                    visible = true, selectedIndex = 1, dark = false,
+                    dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
+                    buttonHidden = false, config = defaultConfig(),
+                    couiBackdrop = pageBackdrop,
+                    onSelect = select, onOpenMenu = menu,
+                    fallback = fallback, phase = StartupPhase.FullQuality
+                )
+            }
+        }
+        compose.waitForIdle()
+        assertTrue("Android 13 must keep the existing dock", fallbackRendered > 0)
+    }
+
     @Test fun changingBackgroundCapturedByFallbackDoesNotCommitDockHostAgain() {
         val backgroundRevision = mutableIntStateOf(0)
         var renderedFallbackRevision = -1
         val select: (Int) -> Unit = {}
         val home: () -> Unit = {}
-        val menu: (Rect, GraphicsLayer) -> Unit = { _, _ -> }
+        val menu: (DockImportSource) -> Unit = { it.release() }
         ShadowLog.clear()
         compose.setContent {
             val revision = backgroundRevision.intValue
@@ -91,11 +130,17 @@ class ColorOsDockCompositionTest {
                 Box(Modifier.size(64.dp))
                 SideEffect { renderedFallbackRevision = revision }
             }
-            NativeHomeDockChrome(true, 1, false, false,
-                select, menu, fallback, StartupPhase.FullQuality)
+            NativeHomeDockChrome(
+                visible = true, selectedIndex = 1, dark = false,
+                dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
+                buttonHidden = false, config = defaultConfig(),
+                couiBackdrop = null,
+                onSelect = select, onOpenMenu = menu,
+                fallback = fallback, phase = StartupPhase.FullQuality
+            )
         }
         compose.waitForIdle()
-        fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Native dock commit:") }
+        fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Dock commit:") }
         val initial = commits()
         assertTrue(initial > 0)
         for (revision in 1..12) {
@@ -111,22 +156,33 @@ class ColorOsDockCompositionTest {
         var receivedRadius = -1f
         val select: (Int) -> Unit = {}
         val home: () -> Unit = {}
-        val menu: (Rect, GraphicsLayer) -> Unit = { _, _ -> }
+        val menu: (DockImportSource) -> Unit = { it.release() }
         val receive: (Float) -> Unit = { receivedRadius = it }
         ShadowLog.clear()
         compose.setContent {
             val source = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "course-preview-test")
             val pixels = radius.intValue.toFloat()
-            val shared = remember(source, pixels) { SharedBlurBackdrop(source, pixels, false) }
+            val wallpaper = remember {
+                mutableStateOf<com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPixels?>(null)
+            }
+            val shared = remember(source, pixels) {
+                CourseMaterialSampling(MaterialBackdrop(source).apply { filter = MaterialBackdropFilter(pixels) }, wallpaper) { 1f }
+            }
             val fallback = rememberUpdatedState<@Composable () -> Unit> { Box(Modifier.size(64.dp)) }
-            CompositionLocalProvider(LocalSharedCourseBackdrop provides shared) {
-                CourseSamplerConsumer(receive)
-                NativeHomeDockChrome(true, 1, false, false,
-                    select, menu, fallback, StartupPhase.FullQuality)
+            androidx.compose.foundation.layout.Box {
+                CourseSamplerConsumer(shared, receive)
+                NativeHomeDockChrome(
+                    visible = true, selectedIndex = 1, dark = false,
+                    dockDark = false, dockForeground = null, dockSampleBrightness = 1f,
+                    buttonHidden = false, config = defaultConfig(),
+                    couiBackdrop = null,
+                    onSelect = select, onOpenMenu = menu,
+                    fallback = fallback, phase = StartupPhase.FullQuality
+                )
             }
         }
         compose.waitForIdle()
-        fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Native dock commit:") }
+        fun commits() = ShadowLog.getLogsForTag("SleepDownCOUI").count { it.msg.startsWith("Dock commit:") }
         val initial = commits()
         assertTrue(initial > 0)
         for (value in 5..16) {
@@ -146,7 +202,7 @@ private fun NativeCoursePreviewConsumer(receive: (Pair<Float, Float>) -> Unit) {
 }
 
 @Composable
-private fun CourseSamplerConsumer(receive: (Float) -> Unit) {
-    val sampler = LocalSharedCourseBackdrop.current
-    SideEffect { receive(requireNotNull(sampler).radiusPx) }
+private fun CourseSamplerConsumer(sampler: CourseMaterialSampling, receive: (Float) -> Unit) {
+    val radius = requireNotNull(sampler.filtered.filter).radiusPx
+    SideEffect { receive(radius) }
 }

@@ -139,7 +139,6 @@ internal fun AiImportBackgroundPermissionTip(
                 onClick = state::requestPermission
             )
         ),
-        backdrop = backdrop,
         config = config,
         onDismissRequest = state::cancelAndContinue
     )

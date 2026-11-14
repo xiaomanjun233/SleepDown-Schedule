@@ -3,8 +3,6 @@ package com.xiaomanjun.sleepdownschedule.core.ui.designsystem
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalWindowInfo
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
@@ -18,12 +16,8 @@ internal fun MaterialFormDialog(
 ) {
     val density = LocalDensity.current
     val maxHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() * 0.82f }
-    if (LocalNativeAlertRenderer.current?.invoke(
-            NativeAlertRequest(
-                "", "", emptyList(), appUsesDarkTheme(config), onDismissRequest,
-                maxHeight, false, content, visible, deferDismissUntilHost = true
-            )
-        ) == true
-    ) return
-    Dialog(onDismissRequest, properties = DialogProperties(usePlatformDefaultWidth = false), content = content)
+    ControlAlertDialog(AlertDialogRequest(
+        "", "", emptyList(), appUsesDarkTheme(config), onDismissRequest,
+        maxHeight, false, content, visible, deferDismissUntilHost = true
+    ))
 }

@@ -2,6 +2,8 @@ package com.xiaomanjun.sleepdownschedule.feature.settings
 
 import android.net.Uri
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -15,7 +17,6 @@ import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -29,12 +30,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
+import com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeScheduleAdjustments
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
@@ -47,21 +47,24 @@ import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignToke
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassMiuixSettingsTheme
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassMiuixTabletDetailPaneScaffold
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalSettingsSharedGradient
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsSharedGradient
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.rememberSettingsPaneBackground
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsTabletDetailPaneScaffold
 import com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestorePreviewScreen
 import com.xiaomanjun.sleepdownschedule.feature.backup.BackupRestoreSettingsScreen
-import com.xiaomanjun.sleepdownschedule.core.ui.interaction.AdaptivePaneTransition
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.blockPaneInputWhile
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.landscapePageBlur
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.importing.DonateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh.AutoRefreshScheduleStore
 import com.xiaomanjun.sleepdownschedule.feature.schedule.manager.ScheduleManagerScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.AutoUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.settings.about.ChangelogSettingsScreen
-import com.xiaomanjun.sleepdownschedule.feature.settings.about.aboutPageGradientColors
+import com.xiaomanjun.sleepdownschedule.feature.feedback.FeedbackScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.ColorOsAboutSettingsScreen
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateMenu
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.WideSoftwareUpdateToolbarButton
+import com.itos.coui.icons.CouiIcons
+import com.xiaomanjun.sleepdownschedule.feature.settings.about.SoftwareUpdateSettingsScreen
 import com.xiaomanjun.sleepdownschedule.feature.widget.WidgetCustomizationScreen
-import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
 @Composable
 fun SettingsScreen(
@@ -70,28 +73,26 @@ fun SettingsScreen(
     backdrop: Backdrop?,
     onPageChange: (SettingsPage) -> Unit,
     onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
+    onSaveAdjustments: suspend (Int, String, String) -> Unit,
     onUpdateConfig: (ScheduleConfigEntity) -> Unit,
     onUpdateGeneralConfig: (ScheduleConfigEntity) -> Unit = onUpdateConfig,
     onUpdateHomeChromeBlurScale: (Float) -> Unit,
     onPreviewLiveUpdate: (ScheduleConfigEntity) -> Unit,
+    onReplayWelcome: () -> Unit,
     onCreateSchedule: (String) -> Unit = {},
     onActivateSchedule: (Int, (() -> Unit)?) -> Unit = { _, _ -> },
     onRenameSchedule: (Int, String) -> Unit = { _, _ -> },
     onDeleteSchedule: (Int) -> Unit = {},
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
-    onExitInterceptionChange: (Boolean) -> Unit = {},
-    onTabletAboutBackgroundChanged: (List<ComposeColor>?) -> Unit = {}
+    onExitInterceptionChange: (Boolean) -> Unit = {}
 ) {
     val context = LocalContext.current
     val pageConfig = settingsVisualConfig(state.config)
     val pageState = state.copy(config = pageConfig)
     val adaptiveMetrics = rememberHomeAdaptiveMetrics()
-    val latestAboutBackgroundChanged by rememberUpdatedState(onTabletAboutBackgroundChanged)
-    DisposableEffect(Unit) {
-        onDispose { latestAboutBackgroundChanged(null) }
-    }
     var backupPreviewUriString by rememberSaveable { mutableStateOf<String?>(null) }
+    var showingUpdateNotes by rememberSaveable { mutableStateOf(false) }
     var autoRefreshWarehouseRequest by remember { mutableIntStateOf(0) }
     val autoRefreshProfile = AutoRefreshScheduleStore.observe(context).collectAsStateWithLifecycle().value
     GlassMiuixSettingsTheme(pageConfig) {
@@ -101,19 +102,23 @@ fun SettingsScreen(
             ) {
                 mutableStateOf(TabletSettingsNavigationState())
             }
-            var detailNavigationDirection by remember { mutableIntStateOf(0) }
             var periodSchemeReturnRequest by remember { mutableIntStateOf(0) }
             var tabletWidgetEditorVisible by remember { mutableStateOf(false) }
-            var pendingPageName by remember { mutableStateOf<String?>(null) }
-            var scheduleExitInFlight by remember { mutableStateOf(false) }
             var scheduleExitRequest by remember { mutableIntStateOf(0) }
-            var externalExitInFlight by remember { mutableStateOf(false) }
+            var exitRequestPage by remember { mutableStateOf<SettingsPage?>(null) }
+            var completeExitRequest by remember { mutableStateOf<((Boolean) -> Unit)?>(null) }
+            var adjustmentCalendar by remember(state.config.id) { mutableStateOf<ScheduleConfigEntity?>(null) }
+            var adjustmentsSaving by remember(state.config.id) { mutableStateOf(false) }
             var lastHandledExternalExitRequest by remember { mutableIntStateOf(exitCommitRequest) }
             var exitInterceptionByPage by remember {
                 mutableStateOf<Map<SettingsPage, Boolean>>(emptyMap())
             }
             val selectedPage = tabletNavigation.rootPage
             val displayedPage = tabletNavigation.displayedPage
+            val scheduleDraft = remember(state.config.id, selectedPage) {
+                if (selectedPage == SettingsPage.Schedule) ScheduleSettingsDraft(state.config) else null
+            }
+            val currentScheduleDraft by rememberUpdatedState(scheduleDraft)
             val portrait = adaptiveMetrics.screenHeight > adaptiveMetrics.screenWidth
             val navigationWidth = if (portrait) {
                 (adaptiveMetrics.contentWidth * 0.38f).coerceIn(280.dp, 328.dp)
@@ -123,116 +128,145 @@ fun SettingsScreen(
             LaunchedEffect(displayedPage) {
                 if (displayedPage != SettingsPage.Widgets) tabletWidgetEditorVisible = false
             }
-            val interceptRootExit = tabletNavigation.detailPages.isEmpty() &&
-                exitInterceptionByPage[selectedPage] == true
-            LaunchedEffect(interceptRootExit) {
-                onExitInterceptionChange(interceptRootExit)
+            val interceptExit = adjustmentsSaving || exitInterceptionByPage[displayedPage] == true ||
+                scheduleDraft?.dirty == true
+            LaunchedEffect(interceptExit) {
+                onExitInterceptionChange(interceptExit)
             }
             DisposableEffect(onExitInterceptionChange) {
                 onDispose { onExitInterceptionChange(false) }
             }
             fun applyTabletRootPage(nextPage: SettingsPage) {
-                detailNavigationDirection = 0
                 tabletNavigation = tabletNavigation.selectRoot(nextPage)
+                showingUpdateNotes = false
                 backupPreviewUriString = null
-                pendingPageName = null
+            }
+            fun requestPaneExit(checkScheduleDraft: Boolean, onFinished: (Boolean) -> Unit) {
+                val currentPage = tabletNavigation.displayedPage
+                val editingRoutines = currentPage == SettingsPage.PeriodSchemes &&
+                    exitInterceptionByPage[currentPage] == true
+                if (adjustmentsSaving || editingRoutines || completeExitRequest != null) {
+                    onFinished(false)
+                    return
+                }
+                val pageToCommit = when {
+                    exitInterceptionByPage[currentPage] == true -> currentPage
+                    checkScheduleDraft && currentScheduleDraft?.dirty == true -> SettingsPage.Schedule
+                    else -> null
+                }
+                if (pageToCommit == null) {
+                    onFinished(true)
+                    return
+                }
+                if (pageToCommit != currentPage) applyTabletRootPage(pageToCommit)
+                completeExitRequest = onFinished
+                exitRequestPage = pageToCommit
+                scheduleExitRequest++
             }
             fun requestTabletRootPage(nextPage: SettingsPage) {
-                if (
-                    tabletNavigation.detailPages.isEmpty() &&
-                    exitInterceptionByPage[selectedPage] == true
-                ) {
-                    pendingPageName = nextPage.name
-                    if (!scheduleExitInFlight) {
-                        scheduleExitInFlight = true
-                        scheduleExitRequest++
+                val navigation = tabletNavigation
+                if (navigation.rootPage == nextPage && navigation.detailPages.isEmpty() &&
+                    nextPage != SettingsPage.Feedback
+                ) return
+                requestPaneExit(checkScheduleDraft = nextPage != navigation.rootPage) { completed ->
+                    if (completed) {
+                        if (nextPage == SettingsPage.Feedback) onPageChange(nextPage)
+                        else applyTabletRootPage(nextPage)
                     }
-                } else {
-                    applyTabletRootPage(nextPage)
                 }
             }
             fun pushTabletDetailPage(nextPage: SettingsPage) {
                 val nextNavigation = tabletNavigation.pushDetail(nextPage)
                 if (nextNavigation == tabletNavigation) return
-                detailNavigationDirection = 1
                 tabletNavigation = nextNavigation
             }
             fun popTabletDetailPage() {
-                val nextNavigation = tabletNavigation.popDetail()
-                if (nextNavigation == tabletNavigation) return
-                if (displayedPage == SettingsPage.PeriodSchemes) periodSchemeReturnRequest++
-                detailNavigationDirection = -1
-                tabletNavigation = nextNavigation
+                val leavingPage = tabletNavigation.displayedPage
+                if (leavingPage == SettingsPage.SoftwareUpdate && showingUpdateNotes) {
+                    showingUpdateNotes = false
+                    return
+                }
+                requestPaneExit(checkScheduleDraft = false) { completed ->
+                    if (completed) {
+                        if (leavingPage == SettingsPage.PeriodSchemes) periodSchemeReturnRequest++
+                        tabletNavigation = tabletNavigation.popDetail()
+                    }
+                }
             }
             LaunchedEffect(exitCommitRequest) {
                 if (exitCommitRequest == lastHandledExternalExitRequest) return@LaunchedEffect
                 lastHandledExternalExitRequest = exitCommitRequest
-                if (
-                    tabletNavigation.detailPages.isEmpty() &&
-                    exitInterceptionByPage[selectedPage] == true
-                ) {
-                    externalExitInFlight = true
-                    if (!scheduleExitInFlight) {
-                        scheduleExitInFlight = true
-                        scheduleExitRequest++
-                    }
-                } else {
-                    onExitCommitFinished(true)
-                }
+                requestPaneExit(checkScheduleDraft = true, onFinished = onExitCommitFinished)
             }
-            BackHandler(enabled = tabletNavigation.detailPages.isNotEmpty()) {
+            BackHandler(enabled = tabletNavigation.detailPages.isNotEmpty() ||
+                (displayedPage == SettingsPage.SoftwareUpdate && showingUpdateNotes)) {
                 popTabletDetailPage()
             }
-            val aboutColors = aboutPageGradientColors(appUsesDarkTheme(pageConfig))
-            val aboutBackground = remember(aboutColors) { SettingsSharedGradient(aboutColors) }
-            val showAboutBackground = displayedPage == SettingsPage.About || displayedPage == SettingsPage.Changelog
-            LaunchedEffect(showAboutBackground, aboutColors) {
-                latestAboutBackgroundChanged(aboutColors.takeIf { showAboutBackground })
-            }
-            val inheritedBackground = LocalSettingsSharedGradient.current
-            val sharedBackground = (inheritedBackground ?: aboutBackground).takeIf { showAboutBackground }
-            CompositionLocalProvider(LocalSettingsSharedGradient provides sharedBackground) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .onGloballyPositioned {
-                        if (inheritedBackground == null) aboutBackground.boundsInRoot = it.boundsInRoot()
-                    }
-                    .then(rememberSettingsPaneBackground(settingsPageBackground(pageConfig)).modifier)
-            ) {
+            Row(Modifier.fillMaxSize().background(settingsPageBackground(pageConfig))) {
                 Box(Modifier.width(navigationWidth).fillMaxHeight()) {
                     SettingsRootScreen(
                         state = pageState,
                         backdrop = backdrop,
                         selectedPage = selectedPage,
-                        onPageChange = ::requestTabletRootPage
+                        onPageChange = { requestTabletRootPage(it) }
                     )
                 }
-                Box(
-                    Modifier
-                        .width(1.dp)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.46f))
-                )
                 Box(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
                         .clipToBounds()
                 ) {
-                    AdaptivePaneTransition(
-                        target = displayedPage, landscape = adaptiveMetrics.isTabletLandscape,
-                        portraitTransitionSpec = { settingsDetailTransition(detailNavigationDirection) },
-                        label = "TabletSettingsDetailNavigation"
-                    ) { targetPage ->
-                        GlassMiuixTabletDetailPaneScaffold(
-                            title = targetPage.title(),
+                    val detailTransition = updateTransition(tabletNavigation, label = "TabletSettingsDetailNavigation")
+                    val moving = detailTransition.isRunning || detailTransition.currentState != detailTransition.targetState
+                    val switchingCategory = detailTransition.segment.run { initialState.rootPage != targetState.rootPage }
+                    detailTransition.AnimatedContent(
+                        modifier = Modifier.fillMaxSize().blockPaneInputWhile(moving),
+                        contentKey = { it.displayedPage },
+                        transitionSpec = { settingsDetailTransition() }
+                    ) { navigation ->
+                        val targetPage = navigation.displayedPage
+                        if (targetPage == SettingsPage.ScheduleAdjustments) {
+                            val calendar = adjustmentCalendar ?: state.config
+                            val entries = remember(state.config.scheduleAdjustmentsJson) {
+                                decodeScheduleAdjustments(state.config.scheduleAdjustmentsJson)
+                            }
+                            ScheduleAdjustmentsScreen(
+                                state = state.copy(config = state.config.copy(
+                                    totalWeeks = calendar.totalWeeks,
+                                    currentWeek = calendar.currentWeek,
+                                    autoCurrentWeek = calendar.autoCurrentWeek,
+                                    termStartDate = calendar.termStartDate
+                                )),
+                                entries = entries,
+                                saving = adjustmentsSaving,
+                                onDismiss = ::popTabletDetailPage,
+                                onSave = { previous, updated ->
+                                    check(!adjustmentsSaving) { "正在保存调休安排" }
+                                    adjustmentsSaving = true
+                                    try {
+                                        onSaveAdjustments(state.config.id, encodeScheduleAdjustments(previous),
+                                            encodeScheduleAdjustments(updated))
+                                    } finally {
+                                        adjustmentsSaving = false
+                                    }
+                                },
+                                embedded = true
+                            )
+                            return@AnimatedContent
+                        }
+                        CouiSettingsTabletDetailPaneScaffold(
+                            title = if (targetPage == SettingsPage.SoftwareUpdate && showingUpdateNotes) "更新说明" else targetPage.title(),
                             config = pageConfig,
-                            topBarVisible = !(targetPage == SettingsPage.Widgets && tabletWidgetEditorVisible),
-                            showBackButton = targetPage != selectedPage,
-                            useMiuixCollapsedTitleStyle =
-                                targetPage.usesPersistentCenteredSettingsTitle(),
+                            topBarVisible = targetPage != SettingsPage.Feedback &&
+                                !(targetPage == SettingsPage.Widgets && tabletWidgetEditorVisible),
+                            showBackButton = navigation.detailPages.isNotEmpty() ||
+                                (targetPage == SettingsPage.SoftwareUpdate && showingUpdateNotes),
                             onBack = ::popTabletDetailPage,
+                            topBarNavigation = if (targetPage == SettingsPage.SoftwareUpdate &&
+                                (navigation.detailPages.isNotEmpty() || showingUpdateNotes)) {
+                                { WideSoftwareUpdateToolbarButton(CouiIcons.Back, "返回", onClick = ::popTabletDetailPage) }
+                            } else null,
                             topBarActions = { topBackdrop ->
                                 if (targetPage == SettingsPage.AutoRefreshSchedule && autoRefreshProfile == null) {
                                     TopGlassIconButton(
@@ -244,9 +278,11 @@ fun SettingsScreen(
                                         modifier = Modifier.size(SleepDownDesignTokens.SecondaryPage.BackButtonSize),
                                         buttonHeight = 42.dp
                                     )
+                                } else if (targetPage == SettingsPage.SoftwareUpdate) {
+                                    SoftwareUpdateMenu(topBackdrop, onReplayWelcome, onOpenPage = ::pushTabletDetailPage)
                                 }
                             },
-                            modifier = Modifier.fillMaxSize()
+                            modifier = Modifier.fillMaxSize().then(landscapePageBlur(switchingCategory))
                         ) { paneBackdrop ->
                             SettingsPageContent(
                                 page = targetPage,
@@ -254,6 +290,9 @@ fun SettingsScreen(
                                 pageState = pageState,
                                 backdrop = paneBackdrop,
                                 onPageChange = ::pushTabletDetailPage,
+                                onFeedbackBack = if (navigation.detailPages.isNotEmpty()) ::popTabletDetailPage else null,
+                                showUpdateNotes = showingUpdateNotes,
+                                onOpenUpdateNotes = { showingUpdateNotes = true },
                                 onSave = onSave,
                                 onUpdateConfig = onUpdateConfig,
                                 onUpdateGeneralConfig = onUpdateGeneralConfig,
@@ -269,23 +308,18 @@ fun SettingsScreen(
                                     backupPreviewUriString = source.toString()
                                     pushTabletDetailPage(SettingsPage.BackupPreview)
                                 },
-                                exitCommitRequest = scheduleExitRequest,
+                                retainedScheduleDraft = scheduleDraft,
+                                onOpenAdjustments = { config ->
+                                    adjustmentCalendar = config
+                                    pushTabletDetailPage(SettingsPage.ScheduleAdjustments)
+                                },
+                                exitCommitRequest = if (targetPage == exitRequestPage) scheduleExitRequest else 0,
                                 onExitCommitFinished = { completed ->
-                                    scheduleExitInFlight = false
-                                    scheduleExitRequest = 0
-                                    if (externalExitInFlight) {
-                                        externalExitInFlight = false
-                                        pendingPageName = null
-                                        onExitCommitFinished(completed)
-                                    } else {
-                                        val destination = pendingPageName
-                                        pendingPageName = null
-                                        if (completed && destination != null) {
-                                            applyTabletRootPage(
-                                                runCatching { SettingsPage.valueOf(destination) }
-                                                    .getOrDefault(SettingsPage.General)
-                                            )
-                                        }
+                                    if (targetPage == exitRequestPage) {
+                                        val action = completeExitRequest
+                                        completeExitRequest = null
+                                        exitRequestPage = null
+                                        action?.invoke(completed)
                                     }
                                 },
                                 onExitInterceptionChange = { needsInterception ->
@@ -294,21 +328,22 @@ fun SettingsScreen(
                                     }
                                 },
                                 autoRefreshWarehouseRequest = autoRefreshWarehouseRequest,
-                                onOpenScheduleSettings = ::popTabletDetailPage,
                                 periodSchemeReturnRequest = periodSchemeReturnRequest
                             )
                         }
                     }
                 }
             }
-            }
         } else {
+            BackHandler(enabled = page == SettingsPage.SoftwareUpdate && showingUpdateNotes) { showingUpdateNotes = false }
             SettingsPageContent(
                 page = page,
                 state = state,
                 pageState = pageState,
                 backdrop = backdrop,
                 onPageChange = onPageChange,
+                showUpdateNotes = showingUpdateNotes,
+                onOpenUpdateNotes = { showingUpdateNotes = true },
                 onSave = onSave,
                 onUpdateConfig = onUpdateConfig,
                 onUpdateGeneralConfig = onUpdateGeneralConfig,
@@ -338,6 +373,8 @@ private fun SettingsPageContent(
     pageState: AppState,
     backdrop: Backdrop?,
     onPageChange: (SettingsPage) -> Unit,
+    showUpdateNotes: Boolean,
+    onOpenUpdateNotes: () -> Unit,
     onSave: (ScheduleConfigEntity, List<PeriodEntity>) -> Unit,
     onUpdateConfig: (ScheduleConfigEntity) -> Unit,
     onUpdateGeneralConfig: (ScheduleConfigEntity) -> Unit,
@@ -350,12 +387,14 @@ private fun SettingsPageContent(
     onWidgetEditorVisibilityChange: (Boolean) -> Unit = {},
     backupPreviewUri: Uri? = null,
     onOpenBackupPreview: (Uri) -> Unit = {},
+    retainedScheduleDraft: ScheduleSettingsDraft? = null,
+    onOpenAdjustments: ((ScheduleConfigEntity) -> Unit)? = null,
     exitCommitRequest: Int = 0,
     onExitCommitFinished: (Boolean) -> Unit = {},
     onExitInterceptionChange: (Boolean) -> Unit = {},
     autoRefreshWarehouseRequest: Int = 0,
-    onOpenScheduleSettings: (() -> Unit)? = null,
-    periodSchemeReturnRequest: Int = 0
+    periodSchemeReturnRequest: Int = 0,
+    onFeedbackBack: (() -> Unit)? = null,
 ) {
     when (page) {
         SettingsPage.Root -> SettingsRootScreen(pageState, backdrop, onPageChange = onPageChange)
@@ -393,16 +432,18 @@ private fun SettingsPageContent(
             exitCommitRequest = exitCommitRequest,
             onExitCommitFinished = onExitCommitFinished,
             onExitInterceptionChange = onExitInterceptionChange,
-            onOpenPeriodSchemes = { onPageChange(SettingsPage.PeriodSchemes) }
+            retainedDraft = retainedScheduleDraft,
+            onOpenSchedulePage = if (retainedScheduleDraft != null) onPageChange else null,
+            onOpenAdjustments = onOpenAdjustments
         ) }
+        SettingsPage.ScheduleAdjustments -> Unit // Owns the scaffold in the tablet detail stack.
         SettingsPage.PeriodSchemes -> PeriodSchemeManagementScreen(
             state = state, backdrop = backdrop, exitCommitRequest = exitCommitRequest,
             onExitCommitFinished = onExitCommitFinished,
-            onExitInterceptionChange = onExitInterceptionChange,
-            onOpenScheduleSettings = onOpenScheduleSettings ?: { onPageChange(SettingsPage.Schedule) }
+            onExitInterceptionChange = onExitInterceptionChange
         )
         SettingsPage.SpecialCourses -> TimeSlotCourseManagementScreen(
-            state, backdrop, exitCommitRequest, onExitCommitFinished, onExitInterceptionChange
+            state, exitCommitRequest, onExitCommitFinished, onExitInterceptionChange
         )
         SettingsPage.AutoRefreshSchedule -> AutoRefreshScheduleSettingsScreen(
             state = state,
@@ -445,18 +486,17 @@ private fun SettingsPageContent(
                 )
             }
         }
-        SettingsPage.About -> ChangelogSettingsScreen(
+        SettingsPage.About -> ColorOsAboutSettingsScreen(
             pageState,
             backdrop,
 			onDonate = { onPageChange(SettingsPage.Donate) },
-			onPrivacyPolicy = { onPageChange(SettingsPage.PrivacyPolicy) }
+			onPrivacyPolicy = { onPageChange(SettingsPage.PrivacyPolicy) },
+            onSoftwareUpdate = { onPageChange(SettingsPage.SoftwareUpdate) },
         )
-        SettingsPage.Changelog -> ChangelogSettingsScreen(
-            pageState,
-            backdrop,
-			onDonate = { onPageChange(SettingsPage.Donate) },
-			onPrivacyPolicy = { onPageChange(SettingsPage.PrivacyPolicy) }
-        )
+        SettingsPage.Changelog -> ChangelogSettingsScreen(pageState, backdrop)
+        SettingsPage.Feedback -> FeedbackScreen(pageState.config, onBack = onFeedbackBack)
+        SettingsPage.SoftwareUpdate -> SoftwareUpdateSettingsScreen(pageState, backdrop, showUpdateNotes, onOpenUpdateNotes)
+        SettingsPage.AutoUpdate -> AutoUpdateSettingsScreen(pageState.config, backdrop, onUpdateGeneralConfig)
 		SettingsPage.Donate -> DonateSettingsScreen(pageState, backdrop)
 		SettingsPage.PrivacyPolicy -> PrivacyPolicySettingsScreen(pageState, backdrop)
     }

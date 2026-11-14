@@ -1,0 +1,8 @@
+<resources>
+    <string name="coui_picker_calendar_previous_month">上个月</string>
+    <string name="coui_picker_calendar_next_month">下个月</string>
+    <string name="coui_picker_calendar_change_mode">切换日期选择方式</string>
+    <string name="coui_picker_calendar_year">年</string>
+    <string name="coui_picker_calendar_month">月</string>
+    <string name="coui_picker_calendar_day">日</string>
+</resources>

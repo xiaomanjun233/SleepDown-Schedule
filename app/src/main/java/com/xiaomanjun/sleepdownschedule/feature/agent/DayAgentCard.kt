@@ -3,9 +3,17 @@ package com.xiaomanjun.sleepdownschedule.feature.agent
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateTo
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -63,6 +71,7 @@ import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassSurface
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassTokens
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
+import com.xiaomanjun.sleepdownschedule.glass.ui.fluidCloudTop
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
 import com.xiaomanjun.sleepdownschedule.glass.ui.verticalGlassAccent
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedAction
@@ -86,6 +95,8 @@ internal data class DayAgentCardVisual(
     val collapsed: Boolean,
     val cardIsDark: Boolean,
     val countdownSeconds: Long? = null,
+    /** Elapsed fraction of the current class or break; null while the card is not reading down. */
+    val countdownProgress: Float? = null,
     val transitionKey: String? = null
 )
 
@@ -104,7 +115,7 @@ fun TodayAgentCard(
     onPrepareOpen: suspend () -> Unit,
     onAgentDismissed: () -> Unit,
     onAgentAction: AgentActionHandler,
-    onImportFile: ((android.net.Uri) -> Unit)? = null
+    onImportFile: ((List<android.net.Uri>) -> Unit)? = null
 ) {
     val context = LocalContext.current
     val scheduleId = state.config.id
@@ -125,10 +136,6 @@ fun TodayAgentCard(
     val messages by messageFlow
         .collectAsStateWithLifecycle(initialValue = emptyList())
     var sourceCardHidden by remember(date, scheduleId) { mutableStateOf(false) }
-    var sourceHandoffTransform by remember(date, scheduleId) {
-        mutableStateOf<AgentSourceHandoffTransform?>(null)
-    }
-    val sourceHandoffProgress = remember(date, scheduleId) { Animatable(0f) }
     var pendingQuestion by remember(date, scheduleId) { mutableStateOf<String?>(null) }
     var cardBounds by remember(date, scheduleId) { mutableStateOf<Rect?>(null) }
     var dialogSourceBounds by remember(date, scheduleId) { mutableStateOf<Rect?>(null) }
@@ -151,7 +158,7 @@ fun TodayAgentCard(
         while (true) {
             val current = LocalDateTime.now()
             now = current
-            val interval = if (agentNextBoundaryWithinTenMinutes(
+            val interval = if (agentNeedsSecondTick(
                     staticFacts.today, staticFacts.periodDefinitions, current
                 )) 1_000L else 60_000L
             delay(interval - (System.currentTimeMillis() % interval))
@@ -201,8 +208,6 @@ fun TodayAgentCard(
                 }
                 val frozenBounds = resolvedBounds ?: return@launch
                 dialogSourceBounds = frozenBounds
-                sourceHandoffTransform = null
-                sourceHandoffProgress.snapTo(0f)
                 pendingQuestion = question
                 dialogOpen = true
             } finally {
@@ -213,7 +218,7 @@ fun TodayAgentCard(
 
     val cardShape = RoundedRectangle(if (collapsed) 26.dp else 28.dp)
     val cardTokens = GlassTokens.dialog(intensity = 1.12f).copy(
-        blur = if (cardIsDark) 8.dp else 10.dp,
+        blur = if (cardIsDark) 5.dp else 6.dp,
         lensHeight = 20.dp,
         lensAmount = 40.dp,
         surfaceAlpha = if (cardIsDark) 0.46f else 0.50f,
@@ -241,13 +246,6 @@ fun TodayAgentCard(
             }
             .graphicsLayer {
                 alpha = if (sourceCardHidden) 0f else 1f
-                sourceHandoffTransform?.let { handoff ->
-                    val settle = sourceHandoffProgress.value.coerceIn(0f, 1f)
-                    scaleX = handoff.scaleX + (1f - handoff.scaleX) * settle
-                    scaleY = handoff.scaleY + (1f - handoff.scaleY) * settle
-                    translationX = handoff.translationX * (1f - settle)
-                    translationY = handoff.translationY * (1f - settle)
-                }
             }
             // Keep source geometry stable for the first/last Morph frame. The generic Liquid
             // interaction expands the card by 4dp while pressed, but layout bounds and the cached
@@ -280,25 +278,15 @@ fun TodayAgentCard(
         GlassSurface(
             nativeMaterial = true,
             nativeDockMaterial = true,
+            nativeMaterialVisible = !sourceCardHidden,
             backdrop = backdrop,
             config = state.config,
             modifier = Modifier.fillMaxWidth(),
             shape = cardShape,
-            tokens = cardTokens
+            tokens = cardTokens,
+            nativeBlurRadius = DayAgentCardNativeBlurRadius
         ) {
-        Box(
-            modifier = Modifier.graphicsLayer {
-                alpha = sourceHandoffTransform?.let {
-                    // Keep the compact glass shell continuous at handoff, but do not squeeze the
-                    // fully laid-out text into the still-oversized intermediate rectangle.
-                    agentSmoothStep(
-                        edge0 = 0.48f,
-                        edge1 = 0.88f,
-                        value = sourceHandoffProgress.value.coerceIn(0f, 1f)
-                    )
-                } ?: 1f
-            }
-        ) {
+        Box {
             DayAgentCardVisualContent(
                 visual = cardVisual,
                 foreground = foreground,
@@ -350,23 +338,18 @@ fun TodayAgentCard(
                 if (!inlineTabletConversation) sourceCardHidden = true
             },
             onPrepareDismiss = {},
-            onSourceHandoff = {
-                if (!inlineTabletConversation) sourceCardHidden = false
-            },
             onDismiss = {
                 dialogOpen = false
                 sourceCardHidden = false
                 pendingQuestion = null
                 dialogSourceBounds = null
-                sourceHandoffTransform = null
-                scope.launch {
-                    sourceHandoffProgress.snapTo(0f)
-                }
                 onAgentDismissed()
             }
         )
     }
 }
+
+internal val DayAgentCardNativeBlurRadius = 9.dp
 
 internal fun weatherEmoji(summary: String): String {
     // The suffix may contain precipitation advice/probability even when the current condition is
@@ -408,10 +391,12 @@ internal fun DayAgentCardVisualContent(
     modifier: Modifier = Modifier,
     onWeatherClick: (() -> Unit)? = null,
     decorated: Boolean = true,
-    animated: Boolean = false
+    animated: Boolean = false,
+    drawSurface: Boolean = true
 ) {
     if (!animated) {
-        DayAgentCardVisualCore(visual, foreground, activityAccent, modifier, onWeatherClick, decorated)
+        DayAgentCardVisualCore(visual, foreground, activityAccent, modifier, onWeatherClick, decorated,
+            drawSurface = drawSurface)
         return
     }
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -456,19 +441,25 @@ internal fun DayAgentCardVisualContent(
         }
     }
     Box(modifier) {
-        if (decorated) {
+        if (decorated && drawSurface) {
             val shape = RoundedRectangle(if (displayedVisual.collapsed) 26.dp else 28.dp)
             Box(Modifier.matchParentSize().clip(shape)
-                .dayAgentCardSurface(displayedVisual, activityAccent, shape))
+                .dayAgentCardSurface(
+                    displayedVisual,
+                    activityAccent,
+                    shape,
+                    nativeMaterial = LocalNativeMaterialSurfaceActive.current
+                ))
         }
         outgoing?.let { old ->
             DayAgentCardVisualCore(old, foreground, activityAccent,
-                Modifier.fillMaxWidth().graphicsLayer {
+                Modifier.matchParentSize().graphicsLayer {
                     val p = burst.value.coerceIn(0f, 1f)
                     alpha = 1f - agentSmoothStep(0.72f, 0.94f, p)
                     val blur = 7.dp.toPx() * agentSmoothStep(0.72f, 0.94f, p)
                     renderEffect = if (blur > 0.01f) BlurEffect(blur, blur, TileMode.Clamp) else null
-                }, null, decorated, shockwaveProgress = { burst.value }, drawSurface = false)
+                }, null, decorated, shockwaveProgress = { burst.value }, drawSurface = false,
+                animateSize = false)
         }
         DayAgentCardVisualCore(displayedVisual, foreground, activityAccent,
             Modifier.fillMaxWidth().graphicsLayer {
@@ -506,13 +497,18 @@ internal fun DayAgentCardVisualContent(
     }
 }
 
-private fun Modifier.dayAgentCardSurface(
+internal fun Modifier.dayAgentCardSurface(
     visual: DayAgentCardVisual,
     activityAccent: Color,
-    shape: Shape
+    shape: Shape,
+    nativeMaterial: Boolean
 ): Modifier = background(
     if (visual.cardIsDark) Color.Black.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.30f),
     shape
+).then(
+    // The fluid-cloud mask belongs to the native glass composition; the shared Compose
+    // fallback keeps its original vertical accent only.
+    if (nativeMaterial) Modifier.fluidCloudTop(dark = visual.cardIsDark) else Modifier
 ).verticalGlassAccent(
     accentColor = activityAccent,
     shape = shape,
@@ -531,9 +527,18 @@ private fun DayAgentCardVisualCore(
     decorated: Boolean,
     animateCountdown: Boolean = false,
     shockwaveProgress: (() -> Float)? = null,
-    drawSurface: Boolean = true
+    drawSurface: Boolean = true,
+    animateSize: Boolean = true
 ) {
     val shape = RoundedRectangle(if (visual.collapsed) 26.dp else 28.dp)
+    val nativeMaterial = LocalNativeMaterialSurfaceActive.current
+    val sizeAnimation = if (animateSize) {
+        Modifier.animateContentSize(
+            animationSpec = spring(dampingRatio = 0.9f, stiffness = 380f)
+        )
+    } else {
+        Modifier
+    }
     fun shock(x: Float, y: Float, arrival: Float, origin: Boolean = false): Modifier =
         if (shockwaveProgress == null) Modifier else Modifier.graphicsLayer {
             val p = shockwaveProgress().coerceIn(0f, 1f)
@@ -553,10 +558,14 @@ private fun DayAgentCardVisualCore(
         }
     Column(
         modifier = modifier
+            // Keep the material and its clip outside the size modifier so they draw at the
+            // animated height instead of jumping to the target height first. The outgoing burst
+            // copy is an overlay and disables its own size animation.
             .clip(shape)
             .then(if (decorated && drawSurface) Modifier.dayAgentCardSurface(
-                visual, activityAccent, shape
+                visual, activityAccent, shape, nativeMaterial
             ) else Modifier)
+            .then(sizeAnimation)
             .padding(horizontal = 16.dp, vertical = if (visual.collapsed) 10.dp else 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -620,51 +629,80 @@ private fun DayAgentCardVisualCore(
                 }
             }
         }
-        if (!visual.collapsed) {
-            Box(Modifier.fillMaxWidth().height(1.dp).background(foreground.copy(alpha = 0.10f)))
-            Text(
-                visual.courseCountText,
-                modifier = shock(-13f, 9f, 0.14f),
-                color = foreground,
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
+        AnimatedVisibility(
+            visible = !visual.collapsed,
+            enter = expandVertically(tween(340, easing = FastOutSlowInEasing), clip = false) +
+                fadeIn(tween(220, delayMillis = 80)),
+            exit = shrinkVertically(tween(260, easing = FastOutSlowInEasing), clip = false) +
+                fadeOut(tween(140))
+        ) {
+            @Composable
+            fun CourseCount(modifier: Modifier = Modifier) {
                 Text(
-                    visual.weatherText,
-                    modifier = Modifier
-                        .weight(1f)
-                        .then(if (onWeatherClick != null) Modifier.clickable(onClick = onWeatherClick) else Modifier)
-                        .then(shock(-14f, 10f, 0.19f)),
-                    color = foreground.copy(alpha = if (decorated) 0.58f else 0.82f),
-                    style = MaterialTheme.typography.bodyMedium,
+                    visual.courseCountText,
+                    modifier = modifier.then(shock(-13f, 9f, 0.14f)),
+                    color = foreground,
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+
+            @Composable
+            fun Status(text: String, modifier: Modifier = Modifier) {
+                Text(
+                    text = text,
+                    modifier = modifier.then(shock(10f, 10f, 0.10f)),
+                    color = if (visual.weatherAlert) {
+                        if (visual.cardIsDark) Color(0xFFFFB86B) else Color(0xFFB84D00)
+                    } else {
+                        foreground.copy(alpha = if (decorated) 0.52f else 0.78f)
+                    },
+                    style = if (visual.weatherAlert) {
+                        MaterialTheme.typography.labelMedium
+                    } else {
+                        MaterialTheme.typography.labelSmall
+                    },
+                    fontWeight = if (visual.weatherAlert) FontWeight.SemiBold else FontWeight.Normal,
+                    textAlign = TextAlign.End,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                visual.trailingStatus?.let { status ->
-                    Spacer(Modifier.width(6.dp))
-                     Text(
-                         text = status,
-                         modifier = shock(10f, 10f, 0.10f),
-                         color = if (visual.weatherAlert) {
-                            if (visual.cardIsDark) Color(0xFFFFB86B) else Color(0xFFB84D00)
-                        } else {
-                            foreground.copy(alpha = if (decorated) 0.52f else 0.78f)
-                        },
-                        style = if (visual.weatherAlert) {
-                            MaterialTheme.typography.labelMedium
-                        } else {
-                            MaterialTheme.typography.labelSmall
-                        },
-                        fontWeight = if (visual.weatherAlert) FontWeight.SemiBold else FontWeight.Normal,
-                        textAlign = TextAlign.End,
-                        maxLines = 1,
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                DayAgentProgressRow(
+                    progress = visual.countdownProgress,
+                    accent = activityAccent,
+                    foreground = foreground,
+                    darkSurface = visual.cardIsDark,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (decorated) CourseCount()
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(if (decorated) 6.dp else 12.dp)
+                ) {
+                    if (!decorated) CourseCount(Modifier.weight(1f).alignByBaseline())
+                    Text(
+                        visual.weatherText,
+                        modifier = Modifier
+                            .weight(1f)
+                            .then(if (decorated) Modifier else Modifier.alignByBaseline())
+                            .then(
+                                if (onWeatherClick != null) Modifier.clickable(onClick = onWeatherClick)
+                                else Modifier
+                            )
+                            .then(shock(-14f, 10f, 0.19f)),
+                        color = foreground.copy(alpha = if (decorated) 0.58f else 0.82f),
+                        style = if (decorated) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleSmall,
+                        textAlign = if (decorated) TextAlign.Start else TextAlign.End,
+                        maxLines = if (decorated) 1 else 2,
                         overflow = TextOverflow.Ellipsis
                     )
+                    if (decorated) visual.trailingStatus?.let { Status(it) }
                 }
+                if (!decorated) visual.trailingStatus?.let { Status(it, Modifier.align(Alignment.End)) }
             }
         }
     }

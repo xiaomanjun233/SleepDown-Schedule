@@ -41,20 +41,20 @@ private sealed interface AgentMarkdownRenderBlock {
 }
 
 @Composable
-fun AgentMarkdownText(markdown: String, color: Color, style: TextStyle, spacious: Boolean = false) {
+fun AgentMarkdownText(markdown: String, color: Color, style: TextStyle, spacious: Boolean = false, streaming: Boolean = false) {
     // Compile both block structure and inline spans once per message. Previously the block list
     // was remembered, but every Text rebuilt its AnnotatedString whenever an ancestor recomposed.
-    val blocks = remember(markdown) {
+    val blocks = remember(markdown, streaming) {
         parseAgentMarkdown(markdown).map { block ->
             when (block) {
                 is AgentMarkdownBlock.Paragraph ->
-                    AgentMarkdownRenderBlock.Paragraph(agentInlineMarkdown(block.text))
+                    AgentMarkdownRenderBlock.Paragraph(agentInlineMarkdown(block.text, streaming))
                 is AgentMarkdownBlock.Bullet ->
-                    AgentMarkdownRenderBlock.Bullet(agentInlineMarkdown(block.text))
+                    AgentMarkdownRenderBlock.Bullet(agentInlineMarkdown(block.text, streaming))
                 is AgentMarkdownBlock.Table ->
                     AgentMarkdownRenderBlock.Table(
-                        header = block.header.map(::agentInlineMarkdown),
-                        rows = block.rows.map { row -> row.map(::agentInlineMarkdown) }
+                        header = block.header.map { agentInlineMarkdown(it, streaming) },
+                        rows = block.rows.map { row -> row.map { agentInlineMarkdown(it, streaming) } }
                     )
             }
         }
@@ -189,7 +189,7 @@ private fun markdownCells(line: String): List<String> = line
     .split('|')
     .map(String::trim)
 
-private fun agentInlineMarkdown(text: String): AnnotatedString = buildAnnotatedString {
+private fun agentInlineMarkdown(text: String, streaming: Boolean): AnnotatedString = buildAnnotatedString {
     var index = 0
     while (index < text.length) {
         when {
@@ -200,6 +200,11 @@ private fun agentInlineMarkdown(text: String): AnnotatedString = buildAnnotatedS
                     append(text.substring(index + 2, end))
                     pop()
                     index = end + 2
+                } else if (streaming) {
+                    pushStyle(SpanStyle(fontWeight = FontWeight.Bold))
+                    append(text.substring(index + 2))
+                    pop()
+                    index = text.length
                 } else {
                     append("**")
                     index += 2
@@ -212,6 +217,11 @@ private fun agentInlineMarkdown(text: String): AnnotatedString = buildAnnotatedS
                     append(text.substring(index + 1, end))
                     pop()
                     index = end + 1
+                } else if (streaming) {
+                    pushStyle(SpanStyle(fontFamily = FontFamily.Monospace))
+                    append(text.substring(index + 1))
+                    pop()
+                    index = text.length
                 } else {
                     append('`')
                     index++

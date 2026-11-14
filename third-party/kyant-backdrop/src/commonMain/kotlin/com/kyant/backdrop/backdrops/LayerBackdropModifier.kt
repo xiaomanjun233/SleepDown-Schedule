@@ -5,6 +5,7 @@ import androidx.compose.runtime.snapshots.Snapshot
 
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.drawscope.ContentDrawScope
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.node.DrawModifierNode
 import androidx.compose.ui.node.GlobalPositionAwareModifierNode
@@ -74,7 +75,7 @@ private class LayerBackdropNode(
     fun markNeedsRecord() = recordingCache.clear()
 
     override fun ContentDrawScope.draw() {
-        drawContent()
+        if (!backdrop.recordsVisibleContent) drawContent()
         val key = recordKey?.invoke()
         val dimensions = size.toIntSize()
         if (recordingCache.needsRecord(key, dimensions, density, fontScale, layoutDirection)) {
@@ -88,6 +89,9 @@ private class LayerBackdropNode(
         } else {
             BackdropDiagnostics.event("ProducerRecord.Reused")
         }
+        // Record and present the same frame once. Drawing the subtree before recording
+        // visits every nested producer and material twice, even though the pixels agree.
+        if (backdrop.recordsVisibleContent) drawLayer(backdrop.graphicsLayer)
     }
 
     override fun onGloballyPositioned(coordinates: LayoutCoordinates) {

@@ -8,10 +8,18 @@ import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
 internal data class VisualEffectsState(
     val selectedMode: VisualEffectMode = VisualEffectMode.LiquidGlass,
     val effectiveMode: VisualEffectMode = VisualEffectMode.LiquidGlass,
-    val colorOsAvailable: Boolean = false,
+    /** COUI-Kit 可创建（Android 14+）；渲染器创建失败由 Dock 路由另行记录。 */
+    val couiKitAvailable: Boolean = false,
     val selectMode: (VisualEffectMode) -> Unit = {}
 ) {
-    val usesNativeControls: Boolean get() = effectiveMode == VisualEffectMode.ColorOsGlow
+    val glowEnabled: Boolean get() = effectiveMode == VisualEffectMode.ColorOsGlow
+
+    /** 跨品牌 COUI 控件（Dock、FAB、按钮等）共用 Android 14+ 能力门控。 */
+    val usesCouiControls: Boolean get() = glowEnabled && couiKitAvailable
+
+    val usesGlowMaterials: Boolean get() = usesCouiControls
+
+    val usesCouiDock: Boolean get() = usesCouiControls
 }
 
 internal val LocalVisualEffects = staticCompositionLocalOf { VisualEffectsState() }

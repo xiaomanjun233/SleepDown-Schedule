@@ -1,16 +1,20 @@
 package com.xiaomanjun.sleepdownschedule.glass.ui
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -28,10 +32,13 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.constrainWidth
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.liquidButtonVisualTransform
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalGlowMaterialSurfaceRenderer
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer
 import com.xiaomanjun.sleepdownschedule.glass.GlassMorphAllocation
 import com.xiaomanjun.sleepdownschedule.glass.insetShapeFor
 import kotlin.math.roundToInt
@@ -62,6 +69,18 @@ internal val TopAssistantOpenEasing = CubicBezierEasing(0.18f, 0.76f, 0.20f, 1f)
 private val TopAssistantCloseEasing = CubicBezierEasing(0.34f, 0.02f, 0.30f, 1f)
 private val TopAssistantReboundEasing = CubicBezierEasing(0.22f, 0f, 0.28f, 1f)
 private val TopAssistantSettleEasing = CubicBezierEasing(0.20f, 0.72f, 0.26f, 1f)
+private const val TopAssistantCameraArrival = 0.68f
+private val TopAssistantCameraApproachSpec = tween<Float>(320, easing = LinearEasing)
+private val TopAssistantCameraFoldSpec = tween<Float>(190, easing = LinearEasing)
+private val TopAssistantCameraApproachEasing = CubicBezierEasing(0.34f, 0.06f, 0.42f, 1f)
+private val TopAssistantCameraFoldEasing = CubicBezierEasing(0.22f, 0f, 0.30f, 1f)
+
+internal suspend fun Animatable<Float, AnimationVector1D>.animateTopAssistantCameraReturn() {
+    // Start the fold on its own frame clock so a late approach frame still reaches the opening.
+    animateTo(TopAssistantCameraArrival, TopAssistantCameraApproachSpec)
+    animateTo(1f, TopAssistantCameraFoldSpec)
+    withFrameNanos { }
+}
 
 /** Authored Bezier beats, not a platform/Compose spring simulation. */
 internal fun topAssistantBezierSpec(start: Float, target: Float, vertical: Boolean): FiniteAnimationSpec<Float> {
@@ -95,6 +114,22 @@ internal fun topAssistantMorphRect(source: Rect, target: Rect, drop: Float, spre
     val centerX = source.center.x + (target.center.x - source.center.x) * x
     val top = source.top + (target.top - source.top) * y
     return Rect(centerX - width / 2f, top, centerX + width / 2f, top + height)
+}
+
+internal fun topAssistantCameraReturnRect(start: Rect, cameraDock: Rect, progress: Float): Rect {
+    val arrival = TopAssistantCameraArrival
+    val approach = TopAssistantCameraApproachEasing.transform((progress / arrival).coerceIn(0f, 1f))
+    val center = start.center + (cameraDock.center - start.center) * approach
+    val halfSize = if (progress <= arrival) {
+        val width = lerp(start.width.coerceAtLeast(cameraDock.width), cameraDock.width, approach)
+        Offset(width, lerp(start.height, cameraDock.height, approach)) / 2f
+    } else {
+        val fold = TopAssistantCameraFoldEasing.transform(((progress - arrival) / (1f - arrival)).coerceIn(0f, 1f))
+        val width = lerp(cameraDock.width, 1f, fold)
+        // Hold the height through the lateral fold, then converge to a single point.
+        Offset(width, minOf(cameraDock.height, width)) / 2f
+    }
+    return Rect(center - halfSize, center + halfSize)
 }
 
 /** Measure the *final* paragraph layout even when its revealing shell is only a few pixels wide. */
@@ -142,8 +177,9 @@ internal fun TopAssistantSurface(
     shapeProvider: (() -> Shape)? = null,
     surfaceFrame: (() -> Pair<Dp, Float>)? = null,
     materialEnabled: Boolean = true,
-    nativeMaterial: Boolean = false,
+    useGlowMaterial: Boolean = false,
     nativeFollowLightIntensityScale: Float = 1f,
+    backdropSampleScale: Float = 1f,
     content: @Composable BoxScope.() -> Unit = {}
 ) {
     Box(
@@ -162,27 +198,34 @@ internal fun TopAssistantSurface(
             }
         } else Modifier)
     ) {
-        if (materialEnabled) GlassSurface(
-            nativeMaterial = nativeMaterial,
-            nativeFollowLightIntensityScale = nativeFollowLightIntensityScale,
-            nativeDark = true,
-            backdrop = backdrop,
-            config = config,
-            modifier = Modifier.matchParentSize(),
-            shape = shape,
-            shapeProvider = shapeProvider,
-            morphAllocation = morphAllocation,
-            baseSurfaceColorOverride = Color.Black,
-            tokens = GlassTokens.dialog(1f).copy(
-                blur = 12.dp, surfaceAlpha = 0.12f, lensHeight = 24.dp, lensAmount = 42.dp,
-                chromaticAberration = false, highlightAlpha = 0.08f, shadowAlpha = 0f
-            ).let { tokens -> if (refractionEnabled) tokens else tokens.copy(lensHeight = 0.dp, lensAmount = 0.dp, depthEffect = false)
-            }.let { tokens -> if (edgeEffectsEnabled) tokens else tokens.copy(
-                lensHeight = 0.dp, lensAmount = 0.dp, borderAlpha = 0f, highlightAlpha = 0f,
-                innerShadowAlpha = 0f, depthEffect = false
-            ) },
-            debugLabel = "TopAssistantSurface"
-        ) {}
+        if (materialEnabled && !solidShade) {
+            val renderer = if (useGlowMaterial) LocalGlowMaterialSurfaceRenderer.current
+                else LocalNativeMaterialSurfaceRenderer.current
+            CompositionLocalProvider(LocalNativeMaterialSurfaceRenderer provides renderer) {
+                GlassSurface(
+                    nativeMaterial = renderer != null,
+                    nativeFollowLightIntensityScale = nativeFollowLightIntensityScale,
+                    backdropSampleScale = backdropSampleScale,
+                    nativeDark = true,
+                    backdrop = backdrop,
+                    config = config,
+                    modifier = Modifier.matchParentSize(),
+                    shape = shape,
+                    shapeProvider = shapeProvider,
+                    morphAllocation = morphAllocation,
+                    baseSurfaceColorOverride = Color.Black,
+                    tokens = GlassTokens.dialog(1f).copy(
+                        blur = 12.dp, surfaceAlpha = 0.12f, lensHeight = 24.dp, lensAmount = 42.dp,
+                        chromaticAberration = false, highlightAlpha = 0.08f, shadowAlpha = 0f
+                    ).let { tokens -> if (refractionEnabled) tokens else tokens.copy(lensHeight = 0.dp, lensAmount = 0.dp, depthEffect = false)
+                    }.let { tokens -> if (edgeEffectsEnabled) tokens else tokens.copy(
+                        lensHeight = 0.dp, lensAmount = 0.dp, borderAlpha = 0f, highlightAlpha = 0f,
+                        innerShadowAlpha = 0f, depthEffect = false
+                    ) },
+                    debugLabel = "TopAssistantSurface"
+                ) {}
+            }
+        }
         Box(
             Modifier.fillMaxSize().then(if (morphAllocation == null) Modifier.clip(shape) else Modifier.graphicsLayer {
                 this.shape = morphAllocation.envelope.insetShapeFor(morphAllocation.geometry())

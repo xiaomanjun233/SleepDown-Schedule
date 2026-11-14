@@ -67,7 +67,7 @@ class AgentImportActivityTest {
             assertTrue(raw, importAgentProgressDetails(raw).isEmpty())
         }
         assertEquals(listOf("已核对两门课程。"), importAgentProgressDetails("<import_progress>已核对两门课程。</import_progress>"))
-        assertEquals(listOf("已读取草稿。 正在核对时间。"), importAgentProgressDetails("已读取草稿。\n正在核对时间。"))
+        assertEquals(listOf("已读取草稿。\n正在核对时间。"), importAgentProgressDetails("已读取草稿。\n正在核对时间。"))
     }
 
     @Test fun completedAgentDecisionReportsEveryPublicBlockInOrderBeforeToolsRun() {

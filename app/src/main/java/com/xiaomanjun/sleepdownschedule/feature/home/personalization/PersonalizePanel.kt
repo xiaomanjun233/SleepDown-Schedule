@@ -37,7 +37,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -837,7 +837,7 @@ fun PersonalizePanel(
     val scrollState = rememberScrollState()
     val contentModifier = Modifier
         .fillMaxSize()
-        .verticalScroll(scrollState, enabled = activeTouchSliderKey == null)
+        .pageVerticalScroll(scrollState, enabled = activeTouchSliderKey == null)
     val panelTextColor = personalizePanelForegroundColor(state.config)
     if (!drawSurface) {
         Box(modifier = modifier) {

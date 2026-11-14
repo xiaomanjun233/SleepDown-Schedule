@@ -16,7 +16,7 @@ class BackdropViewport {
         bounds = windowBounds
     }
 
-    internal fun intersects(coordinates: LayoutCoordinates): Boolean =
+    fun intersects(coordinates: LayoutCoordinates): Boolean =
         bounds?.let { viewport ->
             val card = coordinates.boundsInWindow(clipBounds = false)
             card.right >= viewport.left && card.left <= viewport.right &&

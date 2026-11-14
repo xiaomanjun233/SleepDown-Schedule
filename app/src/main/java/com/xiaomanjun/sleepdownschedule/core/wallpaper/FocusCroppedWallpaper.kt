@@ -16,6 +16,8 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import kotlin.math.roundToInt
 
+internal data class WallpaperPixels(val bitmap: Bitmap, val crop: WallpaperCropState, val previewBlur: Float?)
+
 @Composable
 fun FocusCroppedBitmap(
     bitmap: Bitmap,
@@ -24,7 +26,7 @@ fun FocusCroppedBitmap(
     alpha: Float = 1f
 ) {
     val imageBitmap = remember(bitmap) { bitmap.asImageBitmap() }
-    Canvas(modifier = modifier.graphicsLayer { this.alpha = alpha }) {
+    Canvas(modifier = if (alpha == 1f) modifier else modifier.graphicsLayer { this.alpha = alpha }) {
         drawFocusCroppedBitmap(bitmap, imageBitmap, cropState)
     }
 }

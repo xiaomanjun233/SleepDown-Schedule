@@ -15,37 +15,14 @@ import android.os.Looper
 import android.view.PixelCopy
 import android.util.Base64
 import android.webkit.WebView
+import androidx.annotation.MainThread
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 import kotlin.coroutines.resume
-
-enum class EduPageCaptureMode {
-    TEXT_ONLY,
-    TEXT_PLUS_SCREENSHOT,
-    SCREENSHOT_ONLY
-}
-
-data class EduPageCaptureResult(
-    val text: String,
-    val screenshots: List<RenderedPageImage>,
-    val warnings: List<String>,
-    val mode: EduPageCaptureMode
-) {
-    val diagnosticsText: String = buildString {
-        appendLine("抓取模式：$mode")
-        appendLine("DOM 文本：${text.length} 字符")
-        appendLine("截图数量：${screenshots.size}")
-        if (warnings.isNotEmpty()) {
-            appendLine("诊断：")
-            warnings.forEach { appendLine("- $it") }
-        }
-    }.trim()
-}
 
 private val EduPageDeepExtractScript = """
 (function () {
@@ -208,243 +185,26 @@ private val EduPageDeepExtractScript = """
 })()
 """.trimIndent()
 
-private fun eduPageScrollCaptureScript(fraction: Float): String = """
-(function () {
-  var fraction = ${fraction.coerceIn(0f, 1f)};
-  function textOf(node) {
-    if (!node) return "";
-    return (node.innerText || node.textContent || "").replace(/\s+/g, " ").trim();
-  }
-  function visibleArea(el) {
-    try {
-      var rect = el.getBoundingClientRect();
-      var width = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
-      var height = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
-      return width * height;
-    } catch (e) {
-      return 0;
-    }
-  }
-  function score(el) {
-    if (!el) return -1;
-    var maxScroll = Math.max(0, (el.scrollHeight || 0) - (el.clientHeight || window.innerHeight || 1));
-    if (maxScroll < 40) return -1;
-    var text = textOf(el).slice(0, 5000);
-    var signals = ["课表", "课程", "节次", "星期", "周一", "周二", "周三", "教师", "教室", "周次", "时间"];
-    var signalScore = signals.reduce(function (sum, key) { return sum + (text.indexOf(key) >= 0 ? 1 : 0); }, 0);
-    var area = visibleArea(el);
-    var tagBoost = /table|grid|kb|course|schedule|timetable|lesson|calendar/i.test((el.className || "") + " " + (el.id || "")) ? 4 : 0;
-    return maxScroll / 120 + signalScore * 10 + tagBoost + area / 40000;
-  }
-  function scheduleScore(el) {
-    if (!el) return -1;
-    var text = textOf(el).slice(0, 8000);
-    var signals = ["课表", "课程", "节次", "星期", "周一", "周二", "周三", "周四", "周五", "教师", "教室", "周次", "时间"];
-    var signalScore = signals.reduce(function (sum, key) { return sum + (text.indexOf(key) >= 0 ? 1 : 0); }, 0);
-    var tagBoost = /table|grid|kb|course|schedule|timetable|lesson|calendar|el-table|ant-table|layui-table/i.test((el.className || "") + " " + (el.id || "") + " " + el.tagName) ? 8 : 0;
-    return signalScore * 12 + tagBoost + visibleArea(el) / 50000;
-  }
-  function scrollParentOf(el) {
-    var current = el;
-    while (current && current !== document.body && current !== document.documentElement) {
-      var maxScroll = Math.max(0, (current.scrollHeight || 0) - (current.clientHeight || 1));
-      if (maxScroll >= 40) return current;
-      current = current.parentElement;
-    }
-    return document.scrollingElement || document.documentElement || document.body;
-  }
-  var candidates = [document.scrollingElement, document.documentElement, document.body];
-  try {
-    candidates = candidates.concat(Array.prototype.slice.call(document.querySelectorAll("*")).slice(0, 1400));
-  } catch (e) {}
-  var bestSignal = null;
-  var bestSignalScore = -1;
-  candidates.forEach(function (el) {
-    var current = scheduleScore(el);
-    if (current > bestSignalScore) {
-      bestSignal = el;
-      bestSignalScore = current;
-    }
-  });
-  var best = null;
-  var bestScore = -1;
-  candidates.forEach(function (el) {
-    var current = score(el);
-    if (current > bestScore) {
-      best = el;
-      bestScore = current;
-    }
-  });
-  if (bestSignal && bestSignalScore >= 8) {
-    best = scrollParentOf(bestSignal);
-    try { bestSignal.scrollIntoView({ block: "center", inline: "nearest" }); } catch (e) {}
-  }
-  if (!best || bestScore < 0) {
-    var doc = document.scrollingElement || document.documentElement || document.body;
-    var docMax = Math.max(0, (doc.scrollHeight || 0) - window.innerHeight);
-    window.scrollTo(0, Math.round(docMax * fraction));
-    return JSON.stringify({ target: "document", maxScroll: docMax, fraction: fraction });
-  }
-  var maxScroll = Math.max(0, (best.scrollHeight || 0) - (best.clientHeight || window.innerHeight || 1));
-  var nextTop = Math.round(maxScroll * fraction);
-  if (best === document.scrollingElement || best === document.documentElement || best === document.body) {
-    window.scrollTo(0, nextTop);
-  } else {
-    best.scrollTop = nextTop;
-    try { best.dispatchEvent(new Event("scroll", { bubbles: true })); } catch (e) {}
-  }
-  return JSON.stringify({
-    target: best.tagName + "#" + (best.id || "") + "." + (best.className || ""),
-    maxScroll: maxScroll,
-    scrollTop: best.scrollTop || window.scrollY || 0,
-    fraction: fraction
-  });
-})()
-""".trimIndent()
-
-private val EduPageScrollTargetMetricsScript = """
-(function () {
-  function textOf(node) {
-    if (!node) return "";
-    return (node.innerText || node.textContent || "").replace(/\s+/g, " ").trim();
-  }
-  function visibleArea(el) {
-    try {
-      var rect = el.getBoundingClientRect();
-      var width = Math.max(0, Math.min(rect.right, window.innerWidth) - Math.max(rect.left, 0));
-      var height = Math.max(0, Math.min(rect.bottom, window.innerHeight) - Math.max(rect.top, 0));
-      return width * height;
-    } catch (e) {
-      return 0;
-    }
-  }
-  function scheduleScore(el) {
-    if (!el) return -1;
-    var text = textOf(el).slice(0, 8000);
-    var signals = ["课表", "课程", "节次", "星期", "周一", "周二", "周三", "周四", "周五", "教师", "教室", "周次", "时间"];
-    var signalScore = signals.reduce(function (sum, key) { return sum + (text.indexOf(key) >= 0 ? 1 : 0); }, 0);
-    var tagBoost = /table|grid|kb|course|schedule|timetable|lesson|calendar|el-table|ant-table|layui-table/i.test((el.className || "") + " " + (el.id || "") + " " + el.tagName) ? 8 : 0;
-    return signalScore * 12 + tagBoost + visibleArea(el) / 50000;
-  }
-  function scrollParentOf(el) {
-    var current = el;
-    while (current && current !== document.body && current !== document.documentElement) {
-      var maxScroll = Math.max(0, (current.scrollHeight || 0) - (current.clientHeight || 1));
-      if (maxScroll >= 40) return current;
-      current = current.parentElement;
-    }
-    return document.scrollingElement || document.documentElement || document.body;
-  }
-  var candidates = [document.scrollingElement, document.documentElement, document.body];
-  try {
-    candidates = candidates.concat(Array.prototype.slice.call(document.querySelectorAll("*")).slice(0, 1400));
-  } catch (e) {}
-  var bestSignal = null;
-  var bestSignalScore = -1;
-  candidates.forEach(function (el) {
-    var current = scheduleScore(el);
-    if (current > bestSignalScore) {
-      bestSignal = el;
-      bestSignalScore = current;
-    }
-  });
-  var target = bestSignal && bestSignalScore >= 8 ? scrollParentOf(bestSignal) : (document.scrollingElement || document.documentElement || document.body);
-  var clientHeight = target === document.scrollingElement || target === document.documentElement || target === document.body ? window.innerHeight : (target.clientHeight || window.innerHeight);
-  var maxScroll = Math.max(0, (target.scrollHeight || 0) - clientHeight);
-  return JSON.stringify({
-    target: target.tagName + "#" + (target.id || "") + "." + (target.className || ""),
-    clientHeight: clientHeight,
-    maxScroll: maxScroll
-  });
-})()
-""".trimIndent()
-
-suspend fun captureEduPage(
-    webView: WebView,
-    maxScreenshots: Int = 6,
-    allowScreenshotFallback: Boolean = true,
-    forceScreenshots: Boolean = false,
-    onScreenshotProgress: ((index: Int, total: Int) -> Unit)? = null
-): EduPageCaptureResult {
-    return withContext(Dispatchers.Main.immediate) {
-        waitForWebViewStable(webView)
-        val initialY = webView.scrollY
-        val viewportHeight = webView.height.coerceAtLeast(1)
-        val contentHeight = webView.scaledContentHeight().coerceAtLeast(viewportHeight)
-        val positions = scrollSamplePositions(initialY, viewportHeight, contentHeight, maxScreenshots)
-        val snapshots = mutableListOf<EduPageSnapshot>()
-
-        try {
-            for (position in positions) {
-                webView.scrollTo(webView.scrollX, position)
-                delay(160)
-                evaluateWebViewJson(webView, EduPageDeepExtractScript)
-                    ?.let { decodeEduPageSnapshot(it) }
-                    ?.let { snapshots += it }
-            }
-        } finally {
-            webView.scrollTo(webView.scrollX, initialY)
-        }
-        delay(80)
-
-        val compactText = compactEduPageSnapshots(snapshots)
-        val text = compactText.take(60_000)
-        val warnings = snapshots.flatMap { it.warnings }.distinct().toMutableList()
-        if (compactText.length > 60_000) warnings += "页面内容超过 60000 字符，文本已截断；请分学期或缩小页面范围后核对导入。"
-        val needsScreenshot = forceScreenshots || (allowScreenshotFallback && shouldUseScreenshotFallback(text, snapshots))
-        if (forceScreenshots) {
-            warnings += "用户选择识屏模式，已强制生成当前 WebView 页面截图。"
-        }
-        val screenshots = if (needsScreenshot) {
-            val captured = mutableListOf<RenderedPageImage>()
-            val metrics = if (forceScreenshots) {
-                evaluateWebViewJson(webView, EduPageScrollTargetMetricsScript)
-                    ?.let { decodeEduPageScrollMetrics(it) }
-            } else {
-                null
-            }
-            val screenshotCount = if (forceScreenshots) {
-                0
-            } else {
-                positions.size.coerceIn(1, maxScreenshots.coerceIn(1, 6))
-            }
-            val fractions = if (forceScreenshots) {
-                val rollingFractions = rollingScreenshotFractions(metrics, viewportHeight, maxScreenshots)
-                warnings += "识屏将按小步重叠滚动截取 ${rollingFractions.size} 张：${metrics?.summary().orEmpty()}"
-                rollingFractions
-            } else if (screenshotCount <= 1) {
-                listOf(0f)
-            } else {
-                (0 until screenshotCount).map { index -> index.toFloat() / (screenshotCount - 1).toFloat() }
-            }
-            try {
-                fractions.forEachIndexed { index, fraction ->
-                    onScreenshotProgress?.invoke(index + 1, fractions.size)
-                    evaluateWebViewJson(webView, eduPageScrollCaptureScript(fraction))?.let { info ->
-                        if (index == 0 || index == fractions.lastIndex) {
-                            warnings += "识屏滚动段 ${index + 1}/${fractions.size}：$info"
-                        }
-                    }
-                    waitForWebViewRender(webView)
-                    captureVisibleWebViewBitmap(webView, index)?.let { captured += it }
-                    delay(140)
+/** Bind on Main, invoke on a worker. DOM access returns to Main without blocking the UI caller. */
+@MainThread
+internal fun eduPageMaterialReader(webView: WebView, stillCurrent: () -> Boolean): () -> String {
+    check(Looper.myLooper() == Looper.getMainLooper()) { "页面材料读取器必须在主线程创建" }
+    val reference = java.lang.ref.WeakReference(webView)
+    val expectedUrl = webView.url
+    return {
+        check(Looper.myLooper() != Looper.getMainLooper()) { "页面材料读取必须在后台执行" }
+        kotlinx.coroutines.runBlocking {
+            kotlinx.coroutines.withTimeoutOrNull(12_000) {
+                withContext(Dispatchers.Main.immediate) {
+                    val target = requireNotNull(reference.get()) { "教务页面已关闭，请返回页面重新导入" }
+                    require(stillCurrent() && target.url == expectedUrl) { "教务页面已变化，请重新确认导入材料" }
+                    val snapshot = evaluateWebViewJson(target, EduPageDeepExtractScript)?.let(::decodeEduPageSnapshot)
+                        ?: throw IllegalArgumentException("当前教务页面无法读取")
+                    require(stillCurrent() && target.url == expectedUrl) { "读取期间教务页面已变化，请重新导入" }
+                    compactEduPageSnapshots(listOf(snapshot)).take(60_000)
                 }
-            } finally {
-                webView.scrollTo(webView.scrollX, initialY)
-            }
-            captured
-        } else {
-            emptyList()
+            } ?: error("读取网页超过12秒，请返回页面检查后重试")
         }
-        if (needsScreenshot && screenshots.isEmpty()) {
-            warnings += "页面文本不足或疑似图片课表，但截图生成失败。"
-        }
-        val mode = when {
-            screenshots.isEmpty() -> EduPageCaptureMode.TEXT_ONLY
-            text.count { !it.isWhitespace() } < 80 -> EduPageCaptureMode.SCREENSHOT_ONLY
-            else -> EduPageCaptureMode.TEXT_PLUS_SCREENSHOT
-        }
-        EduPageCaptureResult(text = text, screenshots = screenshots, warnings = warnings.distinct(), mode = mode)
     }
 }
 
@@ -478,37 +238,6 @@ internal fun compactEduPageSnapshots(snapshots: List<EduPageSnapshot>): String {
     }.trim()
 }
 
-@Suppress("DEPRECATION") // WebView exposes no non-deprecated equivalent that preserves the page zoom factor.
-private fun WebView.scaledContentHeight(): Int = (contentHeight * scale).toInt()
-
-fun shouldUseScreenshotFallback(text: String, snapshots: List<EduPageSnapshot>): Boolean {
-    val compactLength = text.count { !it.isWhitespace() }
-    val scheduleSignals = listOf("课表", "课程", "节次", "星期", "周一", "周二", "教师", "教室", "上课", "周次")
-        .count { text.contains(it) }
-    val hasFrameWarning = snapshots.any { snapshot -> snapshot.warnings.any { it.contains("inaccessible", ignoreCase = true) } }
-    val hasVisualHeavyPage = snapshots.maxOfOrNull { it.visualCount }?.let { it >= 6 } == true
-    return compactLength < 220 || scheduleSignals < 2 || hasFrameWarning || hasVisualHeavyPage
-}
-
-private suspend fun waitForWebViewStable(webView: WebView) {
-    repeat(8) {
-        val ready = evaluateWebViewJson(webView, "document.readyState")?.trim('"') == "complete"
-        if (ready) {
-            delay(260)
-            return
-        }
-        delay(180)
-    }
-}
-
-private fun scrollSamplePositions(initialY: Int, viewportHeight: Int, contentHeight: Int, maxCount: Int): List<Int> {
-    if (contentHeight <= viewportHeight * 3 / 2) return listOf(initialY.coerceAtLeast(0))
-    val maxY = (contentHeight - viewportHeight).coerceAtLeast(0)
-    val count = maxCount.coerceIn(1, 6)
-    val step = (maxY / (count - 1).coerceAtLeast(1)).coerceAtLeast(1)
-    return (0 until count).map { (it * step).coerceIn(0, maxY) }.distinct()
-}
-
 private suspend fun evaluateWebViewJson(webView: WebView, script: String): String? {
     return suspendCancellableCoroutine { continuation ->
         webView.evaluateJavascript(script) { value ->
@@ -540,51 +269,6 @@ private fun decodeEduPageSnapshot(encoded: String?): EduPageSnapshot? {
     }.getOrNull()
 }
 
-private fun decodeEduPageScrollMetrics(encoded: String?): EduPageScrollMetrics? {
-    return runCatching {
-        val decoded = JSONArray("[$encoded]").getString(0)
-        val metrics = JSONObject(decoded)
-        EduPageScrollMetrics(
-            target = metrics.optString("target"),
-            clientHeight = metrics.optInt("clientHeight"),
-            maxScroll = metrics.optInt("maxScroll")
-        )
-    }.getOrNull()
-}
-
-private fun rollingScreenshotFractions(
-    metrics: EduPageScrollMetrics?,
-    fallbackViewportHeight: Int,
-    maxCount: Int
-): List<Float> {
-    val viewport = (metrics?.clientHeight ?: fallbackViewportHeight).coerceAtLeast(1)
-    val maxScroll = (metrics?.maxScroll ?: 0).coerceAtLeast(0)
-    if (maxScroll <= viewport / 3) return listOf(0f)
-    val stepPx = (viewport * 0.52f).toInt().coerceAtLeast(1)
-    val positions = buildList {
-        var current = 0
-        while (current < maxScroll) {
-            add(current)
-            current += stepPx
-        }
-        add(maxScroll)
-    }.distinct()
-    return positions
-        .take(maxCount.coerceIn(1, 6))
-        .let { limited ->
-            if (limited.lastOrNull() == maxScroll) limited else limited.dropLast(1) + maxScroll
-        }
-        .map { it.toFloat() / maxScroll.toFloat() }
-}
-
-private data class EduPageScrollMetrics(
-    val target: String,
-    val clientHeight: Int,
-    val maxScroll: Int
-) {
-    fun summary(): String = "滚动容器=${target.take(80)}，可滚动高度=$maxScroll，视口高度=$clientHeight"
-}
-
 data class EduPageSnapshot(
     val title: String,
     val url: String,
@@ -598,53 +282,16 @@ data class EduPageSnapshot(
     val shadowText: String,
     val text: String,
     val warnings: List<String>
-) {
-    fun toTextBlock(): String = buildString {
-        appendLine("ScrollY: $scrollY")
-        if (title.isNotBlank()) appendLine("页面标题：$title")
-        if (url.isNotBlank()) appendLine("页面地址：$url")
-        if (visualCount > 0) appendLine("Visual elements: $visualCount")
-        if (tables.isNotBlank()) {
-            appendLine("页面表格：")
-            appendLine(tables)
-        }
-        if (containers.isNotBlank()) {
-            appendLine("Page schedule-like containers:")
-            appendLine(containers)
-        }
-        if (semanticHtml.isNotBlank()) {
-            appendLine("页面课表语义 HTML（已移除脚本、样式、密码与表单值）：")
-            appendLine(semanticHtml)
-        }
-        if (formState.isNotBlank()) {
-            appendLine("Page form state:")
-            appendLine(formState)
-        }
-        if (iframeText.isNotBlank()) {
-            appendLine("Page frames:")
-            appendLine(iframeText)
-        }
-        if (shadowText.isNotBlank()) {
-            appendLine("Page shadow DOM:")
-            appendLine(shadowText)
-        }
-        if (warnings.isNotEmpty()) {
-            appendLine("Page warnings:")
-            warnings.forEach { appendLine("- $it") }
-        }
-        if (text.isNotBlank()) {
-            appendLine("页面正文：")
-            appendLine(text)
-        }
-    }.trim()
-}
+)
 
-private suspend fun waitForWebViewRender(webView: WebView) {
-    webView.invalidate()
-    awaitNextWebViewFrame(webView)
-    delay(760)
-    awaitNextWebViewFrame(webView)
-}
+/** The model chooses when to view a single viewport; no automatic scrolling or batch capture. */
+internal suspend fun captureEduViewport(webView: WebView): RenderedPageImage? =
+    kotlinx.coroutines.withTimeoutOrNull(5_000) {
+        withContext(Dispatchers.Main.immediate) {
+            awaitNextWebViewFrame(webView)
+            captureVisibleWebViewBitmap(webView, 0)
+        }
+    }
 
 private suspend fun awaitNextWebViewFrame(webView: WebView) {
     suspendCancellableCoroutine<Unit> { continuation ->
@@ -683,7 +330,10 @@ private suspend fun captureVisibleWebViewBitmap(webView: WebView, pageIndex: Int
 }
 
 private suspend fun captureWebViewPixels(webView: WebView): Bitmap? {
-    val activity = webView.context.findActivity() ?: return null
+    val visible = android.graphics.Rect()
+    if (!webView.isShown || !webView.getGlobalVisibleRect(visible) ||
+        visible.width() < webView.width || visible.height() < webView.height) return null
+    val activity = webView.rootView.context.findActivity() ?: return null
     val window = activity.window ?: return null
     val location = IntArray(2)
     webView.getLocationInWindow(location)

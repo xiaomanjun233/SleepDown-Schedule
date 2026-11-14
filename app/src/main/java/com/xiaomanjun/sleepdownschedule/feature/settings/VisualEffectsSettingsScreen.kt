@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,7 +43,7 @@ import com.xiaomanjun.sleepdownschedule.DefaultWallpaperStyle
 import com.xiaomanjun.sleepdownschedule.DockAlignment
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidControlSlider
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
@@ -120,10 +121,10 @@ fun VisualEffectsSettingsScreen(
 ) {
     val superPerformance = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
     val effects = LocalVisualEffects.current
-    if (effects.usesNativeControls || superPerformance) {
+    if (effects.usesGlowMaterials || superPerformance) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text(
-                text = if (effects.usesNativeControls) "凝光视效下无需调整液态玻璃" else "超级性能模式下不可用",
+                text = if (effects.usesGlowMaterials) "凝光视效下无需调整液态玻璃" else "超级性能模式下不可用",
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
@@ -145,15 +146,11 @@ fun VisualEffectsSettingsScreen(
         homeChromeBlurScale = previewBlurScale
     )
 
-    LazyColumn(
+    SleepDownSecondaryPageList(
         modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
-            top = topPadding + 32.dp,
-            bottom = DockScrollPadding
-        ),
-        verticalArrangement = Arrangement.spacedBy(24.dp)
+        contentTopPadding = topPadding + if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) 16.dp else 32.dp,
+        contentBottomPadding = detailContentBottomPadding(),
+        sectionSpacing = if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) 16.dp else 24.dp,
     ) {
         item(key = "liquid-glass-preview") {
             LiquidGlassDockPreview(
@@ -303,7 +300,7 @@ private fun LiquidGlassDockPreview(
                     config = config,
                     backdrop = previewBackdrop,
                     onSelect = {},
-                    onOpenMenu = { _, _ -> },
+                    onOpenMenu = { it.release() },
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
             }

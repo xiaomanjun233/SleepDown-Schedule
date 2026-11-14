@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,18 +58,17 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseEntity
-import com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.WeekDockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 import com.xiaomanjun.sleepdownschedule.currentTimelinePeriod
-import com.xiaomanjun.sleepdownschedule.domain.schedule.courseWeekDisplayFragments
-import com.xiaomanjun.sleepdownschedule.domain.schedule.courseNeedsSupplementaryWeekRow
+import com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekForDateOrNull
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePagerStartOverflow
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeReadableText
+import com.xiaomanjun.sleepdownschedule.feature.home.day.TrackHomeWallpaperTextMotion
 import com.xiaomanjun.sleepdownschedule.feature.home.day.WeekCourseBuckets
-import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.feature.home.day.weekCourseBuckets
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSidebarOverflowClip
 import com.xiaomanjun.sleepdownschedule.feature.home.homeSidebarOverflowViewport
@@ -81,8 +79,6 @@ import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassCombinedBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.scheduleWeekStartDate
-import java.time.LocalDate
-import java.time.LocalTime
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
@@ -115,6 +111,7 @@ internal fun SinglePillWeekScheduleScreen(
     conflictFocusCourseKey: String? = null,
     onResolveCourseConflict: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
+    onBlankLongPress: () -> Unit = {},
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit
 ) {
     // Keep the period rail and the weekday grid on one shared horizontal geometry. The phone
@@ -125,6 +122,7 @@ internal fun SinglePillWeekScheduleScreen(
     // clearance to the grid shrinks, and the freed width flows into every course column equally.
     val boundless = style == WeekViewStyle.BOUNDLESS
     val scrollState = rememberScrollState()
+    val weekAddition = LocalWeekCourseAddition.current
     val weekEditOverlay = rememberWeekEditOverlayController(scrollState = scrollState, scheduleId = state.config.id)
     val rowHeaderWidth = if (boundless) BoundlessWeekRowHeaderWidth else 56.dp
     val clock by produceState(initialValue = java.time.LocalDateTime.now()) {
@@ -139,9 +137,10 @@ internal fun SinglePillWeekScheduleScreen(
     val todayTimeline = remember(state.config, state.periods, state.courses, state.timetableCatalog, today, now) {
         weekDayTimeline(state, today, now)
     }
+    val todayWeek = scheduleWeekForDateOrNull(state.config, today)
     // Keep one computed bucket per visited week, shared by the rail, supplements and Pager.
     // Data replacement invalidates the cache; swiping back reuses the same immutable lists.
-    val weekBucketCache = remember(state.courses, state.config.id, state.config.totalWeeks,
+    val weekBucketCache = remember(state.courses, state.periods, state.config.id, state.config.totalWeeks,
         state.config.currentWeek, state.config.autoCurrentWeek, state.config.termStartDate,
         state.config.scheduleAdjustmentsJson, state.config.weekStartsOnSunday, state.timetableCatalog, today) { mutableMapOf<Int, WeekCourseBuckets>() }
     fun bucketsForWeek(week: Int) = weekBucketCache.getOrPut(week) {
@@ -221,20 +220,17 @@ internal fun SinglePillWeekScheduleScreen(
     val latestSwipeWeek by rememberUpdatedState(onSwipeWeek)
     val latestWeekHeaderPreview by rememberUpdatedState(onWeekHeaderPreview)
     val latestWeekJumpSettled by rememberUpdatedState(onWeekJumpSettled)
-    val weekTail = rememberWeekPageTailMotion(pagerState,
-        com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.policy.courseSamples(
-            state.config.courseCardGlassEnabled, state.config.courseCardGaussianBlurEnabled, state.config.hasAnyWallpaper()),
-        tailEnabled = true)
+    val weekTail = rememberWeekPageTailMotion(pagerState)
     val homeSwitching = LocalHomeTextContrastFrozen.current
-    LaunchedEffect(pagerState, boundless) {
+    val weekHeaderPreview = remember(pagerState) {
+        derivedStateOf {
+            // currentPage changes halfway through the swipe. Only the header follows it.
+            if (programmaticPage < 0) pagerState.currentPage.coerceIn(0, pagerState.pageCount - 1) + 1 else null
+        }
+    }
+    LaunchedEffect(pagerState) {
         try {
-            snapshotFlow {
-                // currentPage changes at the halfway point in either direction. This is only
-                // chrome preview; changing displayWeek here would cancel the active gesture.
-                if (boundless && programmaticPage < 0) {
-                    pagerState.currentPage.coerceIn(0, pagerState.pageCount - 1) + 1
-                } else null
-            }.distinctUntilChanged().collect { latestWeekHeaderPreview(it) }
+            snapshotFlow { weekHeaderPreview.value }.collect { latestWeekHeaderPreview(it) }
         } finally {
             latestWeekHeaderPreview(null)
         }
@@ -316,7 +312,13 @@ internal fun SinglePillWeekScheduleScreen(
         domain = GlassBackdropDomain.Content,
         providerId = "week-stationary-courses"
     )
-    val needsStationaryCoursesBackdrop = weekEditMode || weekEditOverlay.request != null
+    val weekEditOwnsPager = weekEditMode || weekEditOverlay.request != null
+    // The wave can start while the landing clone still samples the course layer.
+    val needsStationaryCoursesBackdrop = weekEditOverlay.request != null ||
+        (weekEditMode && weekEditOverlay.landingRipple == null)
+    stationaryCoursesBackdrop.graphicsLayer.compositingStrategy =
+        if (needsStationaryCoursesBackdrop) androidx.compose.ui.graphics.layer.CompositingStrategy.Offscreen
+        else androidx.compose.ui.graphics.layer.CompositingStrategy.Auto
     val floatingSamplingBase = floatingCourseBackdrop ?: backdrop
     val liftedCourseBackdrop = if (floatingSamplingBase != null) {
         rememberGlassCombinedBackdrop(floatingSamplingBase, stationaryCoursesBackdrop)
@@ -357,9 +359,7 @@ internal fun SinglePillWeekScheduleScreen(
             }
         }
     }
-    // Keep a small cross-axis drawing gutter around HorizontalPager while edit chrome is visible.
-    // The first-row delete pill can then overlap the weekday header instead of being clipped or
-    // pushed into the course card. Retain it briefly for the exit scale/fade as well.
+    // Keep the edit chrome's shadows and exit scale outside the pager's cross-axis clip.
     var retainEditControlOverflow by remember { mutableStateOf(weekEditMode) }
     LaunchedEffect(weekEditMode) {
         if (weekEditMode) {
@@ -381,7 +381,7 @@ internal fun SinglePillWeekScheduleScreen(
         hasAdjustmentBadges -> 24.dp
         else -> 0.dp
     }
-    LaunchedEffect(state.config.id, displayWeek, weekEditMode) {
+    LaunchedEffect(weekEditOverlay, weekEditMode) {
         if (!weekEditMode) weekEditOverlay.clear()
     }
     LaunchedEffect(
@@ -404,18 +404,24 @@ internal fun SinglePillWeekScheduleScreen(
         }
     }
 
-    val pageTextFrozen = remember(homeSwitching, weekTail) {
-        derivedStateOf { homeSwitching.value || weekTail.moving }
-    }
-    val courseTextFrozen = remember(homeSwitching, weekTail, scrollState) {
+    val pageTextFrozen = remember(homeSwitching, weekTail, scrollState) {
         derivedStateOf { homeSwitching.value || scrollState.isScrollInProgress || weekTail.moving }
+    }
+    TrackHomeWallpaperTextMotion {
+        scrollState.isScrollInProgress || weekTail.moving
+    }
+    LaunchedEffect(weekAddition, scrollState, pagerState, weekEditMode) {
+        if (weekAddition == null) return@LaunchedEffect
+        if (weekEditMode) weekAddition.clear()
+        else snapshotFlow { scrollState.isScrollInProgress || pagerState.isScrollInProgress }
+            .collect { if (it) weekAddition.clear() }
     }
     CompositionLocalProvider(
         LocalWeekTimeSlotGrid provides timeGrid,
         LocalWeekEditMotionState provides weekEditOverlay,
         LocalWeekPageTail provides weekTail,
         LocalHomeTextContrastFrozen provides pageTextFrozen,
-        LocalCourseTextMotionFrozen provides courseTextFrozen
+        LocalCourseTextMotionFrozen provides pageTextFrozen
     ) {
     Box(
         modifier = Modifier
@@ -447,7 +453,10 @@ internal fun SinglePillWeekScheduleScreen(
         modifier = Modifier
             .fillMaxSize()
             .homeSidebarOverflowViewport()
-            .verticalScroll(scrollState)
+            .pageVerticalScroll(
+                state = scrollState,
+                enabled = !(weekEditOverlay.gestureActive && weekEditOverlay.request?.mode == WeekEditOverlayMode.Resize)
+            )
     ) {
         Column(
             modifier = Modifier.padding(
@@ -469,14 +478,19 @@ internal fun SinglePillWeekScheduleScreen(
                     horizontalArrangement = Arrangement.Center
                 ) {
                     WeekSwitchButton(-1, state.config, headerBackdrop, enabled = displayWeek > 1) { onSwipeWeek(-1) }
-                    HomeReadableText(
-                        text = "第${displayWeek}周",
-                        modifier = Modifier.padding(horizontal = 10.dp),
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        textAlign = TextAlign.Center,
-                        color = textColor
-                    )
+                    WeekHeaderCrossfade(
+                        target = scheduleWeekStartDate(state.config, weekHeaderPreview.value ?: displayWeek, today),
+                        modifier = Modifier.padding(horizontal = 10.dp)
+                    ) { start ->
+                        val end = start.plusDays(6)
+                        HomeReadableText(
+                            text = "${start.monthValue}/${start.dayOfMonth}–${end.monthValue}/${end.dayOfMonth}",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            textAlign = TextAlign.Center,
+                            color = textColor
+                        )
+                    }
                     WeekSwitchButton(1, state.config, headerBackdrop, enabled = displayWeek < state.config.totalWeeks) { onSwipeWeek(1) }
                 }
             }
@@ -504,9 +518,8 @@ internal fun SinglePillWeekScheduleScreen(
                                         textAlign = TextAlign.Center
                                     )
                                 }
-                                WeekPagerHeaderLabels(
-                                    pagerState = pagerState,
-                                    displayWeek = displayWeek,
+                                WeekdayHeaderLabels(
+                                    displayWeek = weekHeaderPreview.value ?: displayWeek,
                                     courses = state.courses,
                                     config = state.config,
                                     today = today,
@@ -623,7 +636,9 @@ internal fun SinglePillWeekScheduleScreen(
                             .fillMaxSize()
                             .then(
                                 if (needsStationaryCoursesBackdrop) {
-                                    Modifier.glassBackdropProducer(stationaryCoursesBackdrop)
+                                    // Keep this display list independent of the moving sibling.
+                                    // Scroll, a week change or any changed card still redraws it.
+                                    Modifier.graphicsLayer().glassBackdropProducer(stationaryCoursesBackdrop)
                                 } else {
                                     Modifier
                                 }
@@ -641,7 +656,7 @@ internal fun SinglePillWeekScheduleScreen(
                                 // top gutter to extend above it without compressing the last row.
                                 .wrapContentHeight(align = Alignment.Top, unbounded = true)
                                 .height(timeGrid.totalHeight.dp + supplementaryHeight + courseTopOverflow + editControlBottomOverflow),
-                            userScrollEnabled = !weekEditMode && programmaticPage < 0,
+                            userScrollEnabled = !weekEditOwnsPager && programmaticPage < 0,
                             // Keep the pager topology stable while a home overlay opens/closes.
                             // Disposing the adjacent week at the exact frame Personalization
                             // starts, then rebuilding it on close, competes with the full-screen
@@ -680,12 +695,14 @@ internal fun SinglePillWeekScheduleScreen(
                                 showSupplementaryRows = false,
                                 weekdays = pageWeekdays,
                                 periods = state.periods,
+                                railClockDay = today.dayOfWeek.value.takeIf { pageWeek == todayWeek },
+                                railClockPeriods = todayTimeline.periods.takeIf {
+                                    pageWeek == todayWeek && todayTimeline.exceptionalActivePeriod
+                                }.orEmpty(),
+                                railClockCourseId = todayTimeline.activeCourseId,
                                 cardHeight = cardHeight,
                                 cardColor = cardColor,
                                 backdrop = backdrop,
-                                // The lifted combined backdrop is reserved for WeekEditOverlayHost,
-                                // which is outside stationaryCoursesBackdrop.
-                                floatingBackdrop = backdrop,
                                 config = state.config,
                                 weekMotionDirection = 0,
                                 outgoing = false,
@@ -731,6 +748,9 @@ internal fun SinglePillWeekScheduleScreen(
                                     )
                                 },
                                 onCancelWeekEditOverlay = weekEditOverlay::cancelGesture,
+                                canSelectAddSlot = isActivePage && !weekEditMode &&
+                                    !pagerState.isScrollInProgress && !scrollState.isScrollInProgress,
+                                onBlankLongPress = onBlankLongPress,
                                 onCourseClick = openPageOccurrence
                             )
                             }
@@ -745,18 +765,8 @@ internal fun SinglePillWeekScheduleScreen(
         }
     }
         WeekEditOverlayHost(
-            request = weekEditOverlay.request,
+            motion = weekEditOverlay,
             hostBounds = overlayHostBounds,
-            offsetX = weekEditOverlay.offsetX,
-            offsetY = weekEditOverlay.offsetY,
-            overlayScale = weekEditOverlay.scale,
-            overlayAlpha = weekEditOverlay.alpha * weekEditOverlay.revealProgress,
-            liftProgress = weekEditOverlay.liftProgress,
-            rotation = weekEditOverlay.rotation,
-            gestureActive = weekEditOverlay.gestureActive,
-            gridOffsetY = weekEditOverlay.gridOffsetY,
-            gridScrollCompensationY = weekEditOverlay.gridScrollCompensationY,
-            heightPx = weekEditOverlay.height,
             backdrop = liftedCourseBackdrop ?: floatingSamplingBase,
             config = state.config
         )

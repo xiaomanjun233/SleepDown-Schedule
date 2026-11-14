@@ -48,26 +48,32 @@ data class AgentImageAttachment(
 
 data class AgentPersistedMessageContent(
     val text: String,
-    val attachmentFileName: String? = null
+    val attachmentFileName: String? = null,
+    val attachmentFileNames: List<String> = listOfNotNull(attachmentFileName)
 )
 
 private val AgentImageMarkerRegex =
     Regex("""^\[\[agent_image:([A-Za-z0-9._-]+)]]\r?\n?""")
 
 fun agentMessageContent(text: String, attachmentFileName: String?): String {
-    return if (attachmentFileName.isNullOrBlank()) {
-        text
-    } else {
-        "[[agent_image:$attachmentFileName]]\n$text"
-    }
+    return agentMessageContent(text, listOfNotNull(attachmentFileName?.takeIf { it.isNotBlank() }))
 }
 
+fun agentMessageContent(text: String, attachmentFileNames: List<String>): String =
+    attachmentFileNames.joinToString("") { name ->
+        require(name.matches(Regex("[A-Za-z0-9._-]+"))) { "附件文件名无效" }
+        "[[agent_image:$name]]\n"
+    } + text
+
 fun parseAgentMessageContent(content: String): AgentPersistedMessageContent {
-    val match = AgentImageMarkerRegex.find(content)
-    return AgentPersistedMessageContent(
-        text = if (match == null) content else content.removeRange(match.range),
-        attachmentFileName = match?.groupValues?.getOrNull(1)
-    )
+    val names = mutableListOf<String>()
+    var text = content
+    while (true) {
+        val match = AgentImageMarkerRegex.find(text) ?: break
+        names += match.groupValues[1]
+        text = text.removeRange(match.range)
+    }
+    return AgentPersistedMessageContent(text, names.firstOrNull(), names)
 }
 
 data class DayAgentFacts(
@@ -894,6 +900,8 @@ private fun normalizeAgentSetting(
     facts: DayAgentFacts
 ): Pair<String, String>? {
     val normalized = AgentSettingRegistry.normalize(keyValue, rawValue) ?: return null
+    if (normalized.first == "TIME_SLOT_COURSES" && applySpecialCoursePatch(
+            facts.settingSnapshot[normalized.first].orEmpty(), normalized.second) == null) return null
     if (AgentSettingRegistry.isPeriodTimeSetting(normalized.first)) {
         val periodIndex = Regex("PERIOD_(\\d+)_TIME").matchEntire(normalized.first)
             ?.groupValues?.getOrNull(1)?.toIntOrNull() ?: return null

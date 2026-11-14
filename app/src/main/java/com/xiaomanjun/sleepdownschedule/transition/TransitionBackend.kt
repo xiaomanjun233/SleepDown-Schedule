@@ -2,13 +2,15 @@ package com.xiaomanjun.sleepdownschedule.transition
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Bundle
 
 data class TransitionOpenRequest(
     val activity: Activity,
     val intent: Intent,
     val route: TransitionRouteSpec,
     val session: TransitionSession,
-    val payload: TransitionPayload?
+    val payload: TransitionPayload?,
+    val launchActivity: (Intent, Bundle?) -> Unit = activity::startActivity,
 )
 
 sealed interface TransitionBackendOpenResult {

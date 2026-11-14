@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -19,7 +20,18 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathOperation
+import androidx.compose.ui.graphics.RectangleShape
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.addOutline
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidPanel
@@ -28,17 +40,34 @@ import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import top.yukonga.miuix.kmp.basic.SmallTitle as MiuixSmallTitle
 
+internal enum class SettingsGroupPosition { Whole, First, Middle, Last }
+
 @Composable
-fun SettingsGroup(
+internal fun SettingsGroup(
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier,
     surfaceModifier: Modifier = Modifier,
     surfaceColorOverride: ComposeColor? = null,
+    topSpacing: androidx.compose.ui.unit.Dp? = null,
+    position: SettingsGroupPosition = SettingsGroupPosition.Whole,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    if (LocalCouiSettingsEnabled.current) {
+        val colors = com.itos.coui.theme.CouiTheme.colorScheme
+        val resolvedTopSpacing = topSpacing ?: if (LocalCouiSettingsListLayout.current && !LocalCouiSettingsGroupHasHeader.current)
+            com.itos.coui.layout.CouiPageDefaults.groupSpacing else 0.dp
+        CompositionLocalProvider(LocalContentColor provides colors.onSurface) {
+            // Settings 17 的普通卡片消费者使用 24dp / 2.5；Demo 目录的权重 3 不套到表单。
+            com.itos.coui.layout.Group(modifier = modifier.then(surfaceModifier),
+                colors = com.itos.coui.layout.CouiPageDefaults.themeColors().copy(card = surfaceColorOverride ?: colors.container),
+                shape = com.itos.coui.shape.CouiShape(24.dp, 2.5f).forGroupPosition(position),
+                horizontalMargin = 0.dp, topSpacing = resolvedTopSpacing, content = content)
+        }
+        return
+    }
     val miuixLayout = LocalGlassMiuixEnabled.current
-    val shape = RoundedRectangle(if (miuixLayout) 24.dp else 30.dp)
+    val shape = RoundedRectangle(if (miuixLayout) 24.dp else 30.dp).forGroupPosition(position)
     val darkTheme = appUsesDarkTheme(config)
     val contentColor = if (darkTheme) ComposeColor.White else ComposeColor(0xFF111111)
     if (miuixLayout) {
@@ -56,6 +85,10 @@ fun SettingsGroup(
         }
         return
     }
+    val edgePadding = Modifier.padding(
+        top = if (position == SettingsGroupPosition.Whole || position == SettingsGroupPosition.First) 4.dp else 0.dp,
+        bottom = if (position == SettingsGroupPosition.Whole || position == SettingsGroupPosition.Last) 4.dp else 0.dp
+    )
     if (backdrop != null) {
         LiquidPanel(
             backdrop = backdrop,
@@ -64,7 +97,7 @@ fun SettingsGroup(
             surfaceColor = if (darkTheme) ComposeColor(0xFF1C1C1E).copy(alpha = 0.78f) else ComposeColor.White.copy(alpha = 0.94f)
         ) {
             CompositionLocalProvider(LocalContentColor provides contentColor) {
-                Column(Modifier.padding(vertical = if (miuixLayout) 0.dp else 4.dp), content = content)
+                Column(edgePadding, content = content)
             }
         }
     } else {
@@ -73,15 +106,40 @@ fun SettingsGroup(
                 modifier = modifier
                     .clip(shape)
                     .background(if (darkTheme) ComposeColor(0xFF1C1C1E) else ComposeColor.White)
-                    .padding(vertical = if (miuixLayout) 0.dp else 4.dp),
+                    .then(edgePadding),
                 content = content
             )
         }
     }
 }
 
+private fun Shape.forGroupPosition(position: SettingsGroupPosition): Shape = when (position) {
+    SettingsGroupPosition.Whole -> this
+    SettingsGroupPosition.Middle -> RectangleShape
+    SettingsGroupPosition.First, SettingsGroupPosition.Last ->
+        SettingsGroupEdgeShape(this, position == SettingsGroupPosition.First)
+}
+
+private data class SettingsGroupEdgeShape(val fullShape: Shape, val first: Boolean) : Shape {
+    override fun createOutline(size: Size, layoutDirection: LayoutDirection, density: Density): Outline {
+        // Slice the existing card outline so independently composed rows form the same card.
+        val outline = fullShape.createOutline(Size(size.width, size.height * 2f), layoutDirection, density)
+        val card = Path().apply {
+            addOutline(outline)
+            if (!first) translate(Offset(0f, -size.height))
+        }
+        val row = Path().apply { addRect(Rect(Offset.Zero, size)) }
+        return Outline.Generic(Path.combine(PathOperation.Intersect, card, row))
+    }
+}
+
 @Composable
-fun SettingsDivider() {
+fun SettingsDivider(startIndent: androidx.compose.ui.unit.Dp = 16.dp) {
+    if (LocalCouiSettingsEnabled.current) {
+        com.itos.coui.layout.Divider(startIndent = startIndent,
+            color = com.itos.coui.theme.CouiTheme.colorScheme.outlineVariant)
+        return
+    }
     if (LocalGlassMiuixEnabled.current) return
     Box(
         Modifier
@@ -94,6 +152,16 @@ fun SettingsDivider() {
 
 @Composable
 fun GlassPreferenceCategory(text: String, modifier: Modifier = Modifier) {
+    if (LocalCouiSettingsEnabled.current) {
+        // 列表承担外侧 16dp，标题与上游 Group 的 32dp 起始位置对齐。
+        val topSpacing = if (LocalCouiSettingsListLayout.current)
+            com.itos.coui.layout.CouiPageDefaults.categoryTopSpacing else 0.dp
+        Box(modifier.padding(top = topSpacing).padding(horizontal = 16.dp, vertical = 8.dp).heightIn(min = 16.dp)) {
+            com.itos.coui.text.Text(text = text, kind = com.itos.coui.text.CouiTextKind.GroupTitle,
+                color = com.itos.coui.theme.CouiTheme.colorScheme.onSurfaceVariant)
+        }
+        return
+    }
     if (LocalGlassMiuixEnabled.current) {
         MiuixSmallTitle(
             text = text,
@@ -122,11 +190,19 @@ fun GlassPreferenceSection(
         horizontalAlignment = Alignment.Start
     ) {
         if (badgeText == null) GlassPreferenceCategory(title) else {
-            Row(Modifier.padding(start = 6.dp, top = 8.dp, bottom = 8.dp)) {
-                PreferenceLabel(title, badgeText, style = MaterialTheme.typography.labelLarge,
+            val coui = LocalCouiSettingsEnabled.current
+            Row(if (coui) Modifier.padding(top = if (LocalCouiSettingsListLayout.current)
+                    com.itos.coui.layout.CouiPageDefaults.categoryTopSpacing else 0.dp)
+                    .padding(horizontal = 16.dp, vertical = 8.dp).heightIn(min = 16.dp)
+                else Modifier.padding(start = 6.dp, top = 8.dp, bottom = 8.dp)) {
+                PreferenceLabel(title, badgeText, style = if (coui)
+                    com.itos.coui.text.rememberCouiTextStyle(com.itos.coui.text.CouiTextKind.GroupTitle)
+                    else MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        content()
+        CompositionLocalProvider(LocalCouiSettingsGroupHasHeader provides LocalCouiSettingsEnabled.current) {
+            content()
+        }
     }
 }

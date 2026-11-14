@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.agent
 
+import com.xiaomanjun.sleepdownschedule.core.ai.AgentHarness
+
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import java.net.HttpURLConnection
@@ -34,7 +36,8 @@ internal data class AgentResponsesTurn(
 internal class OpenAiResponsesAgentRunner(
     private val interaction: AiImportInteraction? = null,
     private val onReasoning: ((String) -> Unit)? = null,
-    private val request: ((AiImportSettings, JsonObject) -> String)? = null
+    private val request: ((AiImportSettings, JsonObject) -> String)? = null,
+    private val materials: AiMaterialWorkspace? = null
 ) {
     fun readOnlyAnswer(settings: AiImportSettings, instructions: String, input: String): AgentResponsesTurn =
         parseAgentResponsesTurn(post(settings, responsesBody(
@@ -55,7 +58,8 @@ internal class OpenAiResponsesAgentRunner(
         cachedResults: Map<String, AgentToolResult> = emptyMap(),
         validateAnswer: (String) -> String? = { null },
         telemetry: DayAgentTurnTelemetry,
-        importWorkspace: Boolean = false
+        importWorkspace: Boolean = false,
+        acceptSteering: () -> List<AgentTaskInput> = { interaction?.acceptSteering().orEmpty() }
     ): String {
         val instructions = chatMessages
             .filter { it["role"]?.jsonPrimitive?.contentOrNull == "system" }
@@ -67,13 +71,16 @@ internal class OpenAiResponsesAgentRunner(
             .toMutableList()
         val completedOneShotTools = cachedTools.toMutableSet()
         val evidenceKeys = mutableSetOf<String>()
-        val turnTools = AgentTurnToolSession(cachedResults, executeTool)
+        val harness = AgentHarness(MaxAgentToolRounds, checkActive = { interaction?.checkActive() })
+        val turnTools = AgentTurnToolSession(cachedResults, harness, executeTool)
         var outputRetryRequested = false
+        var validationRepairs = 0
         var toolAvailabilityRetryRequested = false
         val initialReadRequired = settings.profile.id == AiProviderPresets.chatGpt.id &&
             !importWorkspace && agentNeedsScheduleRead(chatMessages)
 
-        toolRounds@ for (round in 0 until MaxAgentToolRounds) {
+        return harness.run(step = step@ { round ->
+            input += acceptSteering().map { toResponsesInputMessage(agentUserMessage(it.text, it.allImages)) }
             interaction?.checkActive()
             onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在思考"))
             telemetry.requestStarted()
@@ -115,8 +122,9 @@ internal class OpenAiResponsesAgentRunner(
                 )
             }
             // Preserve opaque reasoning even when retrying an empty response without tool calls.
-            input += decision.outputItems
+            input += com.xiaomanjun.sleepdownschedule.core.ai.newResponseItems(input, decision.outputItems).map { it.jsonObject }
             if (decision.calls.isEmpty()) {
+                if (interaction?.hasSteering() == true) return@step AgentHarness.Next.Continue
                 val toolFeedback = if (settings.profile.id == AiProviderPresets.chatGpt.id && round <= 1)
                     agentLocalToolAvailabilityFeedback(decision.content) else null
                 if ((toolFeedback != null || requireRead) && round == 0) {
@@ -126,7 +134,7 @@ internal class OpenAiResponsesAgentRunner(
                         put("content", toolFeedback ?: "本轮是读取应用课表的请求。请先调用已提供的只读课表函数，再根据返回的真实数据回答。")
                     }
                     onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "重新核对应用工具"))
-                    continue@toolRounds
+                    return@step AgentHarness.Next.Continue
                 }
                 if ((toolFeedback != null || requireRead) && toolAvailabilityRetryRequested) {
                     val outputTypes = decision.outputItems.mapNotNull {
@@ -135,7 +143,7 @@ internal class OpenAiResponsesAgentRunner(
                     ChatGptUsageStatus.failed(diagnostic = "local_tools_not_returned; output_types=$outputTypes")
                     val diagnostic = "ChatGPT 本次未返回可执行的课表工具调用，本次没有修改课程。可在 AI 设置查看调用诊断。"
                     onDelta(diagnostic)
-                    return diagnostic
+                    return@step AgentHarness.Next.Complete(diagnostic)
                 }
                 val answer = usableAgentAnswer(decision.content)
                 if (answer != null) {
@@ -143,16 +151,17 @@ internal class OpenAiResponsesAgentRunner(
                     if (feedback != null) {
                         onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "根据自检结果修正计划"))
                         input += buildJsonObject { put("role", "user"); put("content", feedback) }
-                        continue@toolRounds
+                        if (++validationRepairs >= 6) return@step AgentHarness.Next.Converge
+                        return@step AgentHarness.Next.Continue
                     }
                     onDelta(answer)
-                    return answer
+                    return@step AgentHarness.Next.Complete(answer)
                 }
                 if (!outputRetryRequested) {
                     outputRetryRequested = true
-                    continue@toolRounds
+                    return@step AgentHarness.Next.Continue
                 }
-                break@toolRounds
+                return@step AgentHarness.Next.Converge
             }
 
             val results = decision.calls.map { call ->
@@ -160,26 +169,27 @@ internal class OpenAiResponsesAgentRunner(
                 val result = if (call.name == AgentToolName.PROPOSE_ACTIONS && decision.calls.size != 1) {
                     AgentToolResult(call.id, call.name, false, "请在读完事实后单独调用 PROPOSE_ACTIONS，一次提交完整计划。")
                 } else turnTools.run(call)
-                input += buildJsonObject {
+                if (!com.xiaomanjun.sleepdownschedule.core.ai.responseToolReceipt(input, result.callId)) input += buildJsonObject {
                     put("type", "function_call_output")
                     put("call_id", result.callId)
                     put("output", result.content)
                 }
+                else if (!result.success) input += buildJsonObject { put("role", "user"); put("content", result.content) }
                 if (result.success && call.name.isOneShotPerTurn) completedOneShotTools += call.name
                 result
             }
             telemetry.recordToolResults(results)
+            input += agentMaterialImageMessages(results).map(::toResponsesInputMessage)
             results.singleOrNull()?.proposedAnswer?.let { answer ->
+                if (interaction?.hasSteering() == true) return@let
                 onDelta(answer)
-                return answer
+                return@step AgentHarness.Next.Complete(answer)
             }
             val addedEvidence = decision.calls
                 .map { call -> evidenceKeys.add(call.cacheKey()) }
                 .any { it }
-            if (!addedEvidence && !importWorkspace) break@toolRounds
-        }
-
-        return streamFinal(
+            if (!addedEvidence && !importWorkspace) AgentHarness.Next.Converge else AgentHarness.Next.Continue
+        }, converge = { streamFinal(
             settings = settings,
             instructions = instructions,
             input = input,
@@ -189,7 +199,7 @@ internal class OpenAiResponsesAgentRunner(
             validateAnswer = validateAnswer,
             telemetry = telemetry,
             importWorkspace = importWorkspace
-        )
+        ) })
     }
 
     private fun streamFinal(
@@ -279,7 +289,10 @@ internal class OpenAiResponsesAgentRunner(
         put("store", false)
         put("stream", stream)
         put("instructions", instructions)
-        put("input", JsonArray(input))
+        val policy = com.xiaomanjun.sleepdownschedule.core.ai.AgentContextPolicy(settings.profile.contextWindowTokens)
+        val projection = policy.compactResponses(input)
+        require(policy.estimatedTokens(JsonArray(projection)) <= policy.inputBudget) { "上下文已超过本轮预算，请缩小任务范围；未自动删除用户要求" }
+        put("input", JsonArray(projection))
         put("reasoning", buildJsonObject {
             put("effort", if (isOfficialMimoEndpoint(settings.profile.baseUrl)) mimoResponsesEffort(reasoningEffort) else reasoningEffort.apiValue)
             if (
@@ -291,7 +304,10 @@ internal class OpenAiResponsesAgentRunner(
         })
         if (includeTools) {
             val tools = agentResponsesToolDefinitions(includeMemoryTool,
-                if (requireRead) emptySet() else excludedTools, importWorkspace = importWorkspace)
+                if (requireRead) emptySet() else excludedTools, importWorkspace = importWorkspace,
+                materialSource = materials?.hasContent == true,
+                materialImages = materials?.canView == true && AiProviderPresets.supportsImageInput(settings.profile),
+                workspaceTools = materials?.taskWorkspace?.definitions(false).orEmpty())
             put("tools", if (requireRead) agentReadRecoveryTools(tools) else tools)
             put("tool_choice", if (requireRead) "required" else "auto")
         }
@@ -488,6 +504,7 @@ private fun toResponsesInputMessage(message: JsonObject): JsonObject {
                                 item["image_url"]?.jsonObject
                                     ?.get("url")?.jsonPrimitive?.contentOrNull.orEmpty()
                             )
+                            put("detail", "high")
                         })
                     }
                 }

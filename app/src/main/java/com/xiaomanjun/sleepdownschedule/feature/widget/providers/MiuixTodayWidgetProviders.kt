@@ -19,7 +19,9 @@ import android.util.Log
 import android.util.SizeF
 import android.util.TypedValue
 import android.view.View
+import android.view.ViewGroup.LayoutParams
 import android.widget.RemoteViews
+import android.widget.TextView
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,7 +36,6 @@ import java.time.ZoneId
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
 import kotlin.math.ceil
-import kotlin.math.floor
 import kotlin.math.roundToInt
 
 internal enum class TodayWidgetVariant { LARGE, SQUARE }
@@ -61,7 +62,9 @@ internal fun coursesWidgetLayoutMetrics(
     size: WidgetRenderSize,
     variant: TodayWidgetVariant,
     courseCount: Int,
-    fontScale: Float = 1f
+    fontScale: Float = 1f,
+    context: Context? = null,
+    squareCourseText: List<Pair<String, String>> = emptyList(),
 ): CoursesWidgetLayoutMetrics {
     fun progress(value: Int, compact: Int, comfortable: Int): Float =
         ((value - compact).toFloat() / (comfortable - compact).toFloat()).coerceIn(0f, 1f)
@@ -75,20 +78,65 @@ internal fun coursesWidgetLayoutMetrics(
     } else {
         (10f + 4f * widthProgress).roundToInt()
     }
-    val verticalPaddingDp = (8f + (if (isSquare) 3f else 6f) * heightProgress).roundToInt()
-    val headerHeightDp = (22f + 2f * heightProgress).roundToInt()
+    val preferredVerticalPaddingDp = (8f + (if (isSquare) 3f else 6f) * heightProgress).roundToInt()
     val courseTopMarginDp = 4
     val groupGapDp = 4
     val preferredGroupHeightDp = if (isSquare) 50 else (54f + 12f * expansionProgress).roundToInt()
-    val minimumGroupHeightDp = if (isSquare) 50 else (48f + 12f * expansionProgress).roundToInt()
-    val availableHeightDp = (
-        size.heightDp - verticalPaddingDp * 2 - headerHeightDp - courseTopMarginDp
-    ).coerceAtLeast(34)
-    val maximumRows = if (isSquare) 2 else 4
-    val rowCapacity = floor(
-        (availableHeightDp + groupGapDp).toFloat() /
-            (minimumGroupHeightDp + groupGapDp).toFloat()
-    ).toInt().coerceIn(1, maximumRows)
+    val fontCompensation = (1f / (1f + (fontScale.coerceAtLeast(1f) - 1f) * 0.52f))
+        .coerceIn(0.82f, 1f)
+    fun textScaleAt(rowHeight: Int): Float = minOf(
+        0.86f + 0.20f * progress(rowHeight, 34, preferredGroupHeightDp) + 0.06f * expansionProgress,
+        0.96f + 0.12f * widthProgress,
+        fontCompensation,
+    )
+    val textProbe = context?.takeIf { isSquare }?.let {
+        TextView(it).apply {
+            layoutParams = LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT)
+            setSingleLine()
+            includeFontPadding = false
+        }
+    }
+    fun lineHeight(sp: Float, bold: Boolean, sample: String): Int =
+        textProbe?.let { widgetTextLineHeightDp(it, sp, bold, sample) } ?: ceil(sp * fontScale * 1.20f).toInt()
+    val compactText = squareCourseText.ifEmpty { listOf("课程" to "00:00 · 教室") }
+    val compactTextHeights = mutableMapOf<Pair<Float, Int>, Int>()
+    fun compactTextHeight(scale: Float, rowCount: Int): Int = compactTextHeights.getOrPut(scale to rowCount) {
+        compactText.take(rowCount).maxOf { (name, detail) ->
+            lineHeight(compactNameSp(scale), bold = true, sample = name) +
+                lineHeight(compactDetailSp(scale), bold = false, sample = detail)
+        }
+    }
+
+    val normalHeaderHeight = (22f + 2f * heightProgress).roundToInt()
+    fun squareHeaderHeight(scale: Float): Int = maxOf(
+        normalHeaderHeight,
+        lineHeight((16f * scale).coerceAtLeast(12f), bold = true, sample = "今日课程"),
+    )
+    // XML margins and RemoteViews heights round independently at fractional densities.
+    fun availableHeight(headerHeight: Int, verticalPadding: Int): Int =
+        (size.heightDp - verticalPadding * 2 - courseTopMarginDp - headerHeight).coerceAtLeast(34)
+    fun rowBudget(count: Int, headerHeight: Int, verticalPadding: Int): Int =
+        (availableHeight(headerHeight, verticalPadding) - groupGapDp * (count - 1) - 1) / count
+    val minRowPadding = 2
+    val regularSquareScale = textScaleAt(preferredGroupHeightDp)
+    val compactRows = if (isSquare && courseCount >= 2) {
+        // Step through the narrow layout before hiding a course. The typography's existing
+        // minimum sizes still apply, and the title is measured at the same scale as the rows.
+        val preferred = textScaleAt(rowBudget(2, normalHeaderHeight, preferredVerticalPaddingDp))
+        (0..10).asSequence().map { (preferred - it * 0.025f).coerceAtLeast(0.75f) }.distinct().firstNotNullOfOrNull { scale ->
+            val needed = maxOf(24, compactTextHeight(scale, 2)) + 2 * minRowPadding
+            val pad = (size.heightDp - courseTopMarginDp - squareHeaderHeight(scale) - groupGapDp - 1 - needed * 2) / 2
+            if (pad < 6 || needed > preferredGroupHeightDp) null else scale to minOf(pad, preferredVerticalPaddingDp)
+        }
+    } else null
+    val twoRowScale = compactRows?.first
+    val verticalPaddingDp = compactRows?.second ?: preferredVerticalPaddingDp
+    val headerHeightDp = if (isSquare) squareHeaderHeight(twoRowScale ?: regularSquareScale) else normalHeaderHeight
+    val rowCapacity = if (isSquare) if (twoRowScale != null) 2 else 1 else {
+        val availableHeightDp = availableHeight(headerHeightDp, verticalPaddingDp)
+        val minimumGroupHeightDp = (48f + 12f * expansionProgress).roundToInt()
+        ((availableHeightDp + groupGapDp) / (minimumGroupHeightDp + groupGapDp)).coerceIn(1, 4)
+    }
     // Fold into two columns only when the host's real height cannot fit the visible courses.
     val useGrid = !isSquare && courseCount > rowCapacity
     val maxCourses = when {
@@ -98,19 +146,16 @@ internal fun coursesWidgetLayoutMetrics(
     }
     val visibleCourses = courseCount.coerceAtMost(maxCourses).coerceAtLeast(1)
     val usedRows = if (useGrid) ceil(visibleCourses / 2f).toInt() else visibleCourses
-    // XML margins and RemoteViews heights round independently at fractional densities.
-    // Leave one dp inside the row budget so the final row cannot be clipped by that rounding.
-    val groupHeightDp = floor(
-        (availableHeightDp - groupGapDp * (usedRows - 1) - 1).toFloat() / usedRows.toFloat()
-    ).toInt().coerceIn(34, preferredGroupHeightDp)
-    val groupVerticalPaddingDp = (3f + 2f * progress(groupHeightDp, 38, preferredGroupHeightDp))
-        .roundToInt()
-    val fontCompensation = (1f / (1f + (fontScale.coerceAtLeast(1f) - 1f) * 0.52f))
-        .coerceIn(0.82f, 1f)
-    val groupScale = (
-        0.86f + 0.20f * progress(groupHeightDp, 34, preferredGroupHeightDp) + 0.06f * expansionProgress
-    )
-    val textScale = minOf(groupScale, 0.96f + 0.12f * widthProgress, fontCompensation)
+    val preferredHeight = if (isSquare && usedRows == 1) maxOf(
+        preferredGroupHeightDp, compactTextHeight(regularSquareScale, 1) + 2 * minRowPadding,
+    ) else preferredGroupHeightDp
+    val groupHeightDp = rowBudget(usedRows, headerHeightDp, verticalPaddingDp)
+        .coerceIn(if (isSquare) 28 else 34, preferredHeight)
+    val textScale = twoRowScale ?: textScaleAt(groupHeightDp)
+    val preferredPadding = (3f + 2f * progress(groupHeightDp, 38, preferredGroupHeightDp)).roundToInt()
+    val groupVerticalPaddingDp = if (isSquare) {
+        minOf(preferredPadding, ((groupHeightDp - compactTextHeight(textScale, usedRows)) / 2).coerceAtLeast(0))
+    } else preferredPadding
     val indicatorHeightDp = ((groupHeightDp - groupVerticalPaddingDp * 2) * 0.82f)
         .roundToInt()
         .coerceIn(8, 44)
@@ -161,6 +206,19 @@ private data class CoursesWidgetTypography(
     val compactNameSp: Float,
     val compactDetailSp: Float
 )
+
+private fun compactNameSp(scale: Float): Float = (13f * scale).coerceAtLeast(9.8f)
+private fun compactDetailSp(scale: Float): Float = (10.2f * scale).coerceAtLeast(8f)
+
+private fun widgetTextLineHeightDp(probe: TextView, sp: Float, bold: Boolean, sample: String): Int {
+    val typeface = android.graphics.Typeface.DEFAULT
+    probe.setTypeface(typeface, if (bold) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+    probe.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
+    probe.text = sample
+    val free = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+    probe.measure(free, free)
+    return ceil((maxOf(probe.measuredHeight, probe.layout?.height ?: 0) + 1) / probe.resources.displayMetrics.density).toInt()
+}
 
 private data class AssistantWidgetTypography(
     val activitySp: Float,
@@ -217,8 +275,8 @@ private fun coursesWidgetTypography(
         timeSp = sp(13.8f, 9.8f),
         courseNameSp = sp(16f, 11f),
         courseDetailSp = sp(11.8f, 8.7f),
-        compactNameSp = sp(13f, 9.8f),
-        compactDetailSp = sp(10.2f, 8f)
+        compactNameSp = compactNameSp(scale),
+        compactDetailSp = compactDetailSp(scale)
     )
 }
 
@@ -316,6 +374,9 @@ private fun RemoteViews.applyCoursesWidgetLayout(
         px(metrics.verticalPaddingDp)
     )
     setWidgetHeight(R.id.widget_header, metrics.headerHeightDp)
+    if (variant == TodayWidgetVariant.SQUARE && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+        setInt(R.id.widget_header, "setMinimumHeight", px(metrics.headerHeightDp))
+    }
     val (listRows, listContents) = if (variant == TodayWidgetVariant.LARGE) {
         intArrayOf(
             R.id.widget_course_row_1,
@@ -335,6 +396,9 @@ private fun RemoteViews.applyCoursesWidgetLayout(
     listRows.indices.forEach { index ->
         val row = listRows[index]
         setWidgetHeight(row, metrics.groupHeightDp)
+        if (variant == TodayWidgetVariant.SQUARE && Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            setInt(row, "setMinimumHeight", px(metrics.groupHeightDp))
+        }
         setViewPadding(
             listContents[index],
             px(if (variant == TodayWidgetVariant.LARGE) 10 else 7),
@@ -612,11 +676,16 @@ internal object MiuixTodayWidgetRenderer {
         val termStatus = scheduleTermStatusLabel(state.config, targetDate)
         val allCourses = coursesForDate(state, targetDate)
             .filter { targetDate != today || courseEndTime(it, state.periods)?.isAfter(now) != false }
+        val compactText = if (variant == TodayWidgetVariant.SQUARE) allCourses.take(2).map { course ->
+            course.name to compactCourseDetail(course, state.periods)
+        } else emptyList()
         val metrics = coursesWidgetLayoutMetrics(
             size = size,
             variant = variant,
             courseCount = allCourses.size,
-            fontScale = context.resources.configuration.fontScale
+            fontScale = context.resources.configuration.fontScale,
+            context = context,
+            squareCourseText = compactText,
         )
         val courses = allCourses.take(metrics.maxCourses)
         val layout = when (variant) {
@@ -861,9 +930,7 @@ internal object MiuixTodayWidgetRenderer {
                     defaultBackground = courseBackground
                 )
                 setTextViewText(names[index], course.name)
-                val time = courseStartTime(course, state.periods)?.format(timeFormatter).orEmpty()
-                val location = course.location?.takeIf(String::isNotBlank)
-                setTextViewText(details[index], listOfNotNull(time.takeIf(String::isNotBlank), location).joinToString(" · "))
+                setTextViewText(details[index], compactCourseDetail(course, state.periods))
                 setWidgetTextSize(names[index], typography.compactNameSp)
                 setWidgetTextSize(details[index], typography.compactDetailSp)
                 setWidgetIndicatorHeight(indicators[index], metrics.indicatorHeightDp)
@@ -913,9 +980,7 @@ internal object MiuixTodayWidgetRenderer {
                     defaultBackground = courseBackground
                 )
                 setTextViewText(names[index], course.name)
-                val time = courseStartTime(course, state.periods)?.format(timeFormatter).orEmpty()
-                val location = course.location?.takeIf(String::isNotBlank)
-                setTextViewText(details[index], listOfNotNull(time.takeIf(String::isNotBlank), location).joinToString(" · "))
+                setTextViewText(details[index], compactCourseDetail(course, state.periods))
                 setWidgetTextSize(names[index], typography.compactNameSp)
                 setWidgetTextSize(details[index], typography.compactDetailSp)
                 setWidgetIndicatorHeight(indicators[index], metrics.indicatorHeightDp)
@@ -929,6 +994,12 @@ internal object MiuixTodayWidgetRenderer {
             }
         }
     }
+
+    private fun compactCourseDetail(course: CourseEntity, periods: List<PeriodEntity>): String =
+        listOfNotNull(
+            courseStartTime(course, periods)?.format(timeFormatter),
+            course.location?.takeIf(String::isNotBlank),
+        ).joinToString(" · ")
 
     private fun RemoteViews.applyTheme(dark: Boolean, variant: TodayWidgetVariant) {
         setInt(

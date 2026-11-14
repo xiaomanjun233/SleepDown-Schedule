@@ -5,14 +5,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.MaterialTheme
@@ -40,14 +37,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.CourseCardColorMode
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogHostSize
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalControlDialogHostSize
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.FocusCroppedWallpaper
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperCropState
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPreviewOrientation
@@ -58,7 +52,6 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -66,24 +59,18 @@ internal fun WallpaperPaletteSampler(
     mode: CourseCardColorMode,
     colors: List<Long>,
     config: ScheduleConfigEntity,
-    backdrop: Backdrop?,
     onColorChange: (Int, Long) -> Unit,
-    onCancel: () -> Unit,
-    onConfirm: () -> Unit
+    onWallpaperReady: (Boolean) -> Unit,
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
     val windowHeight = with(density) {
-        (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogHostSize.current
-            ?: LocalWindowInfo.current.containerSize).height.toDp()
+        (LocalControlDialogHostSize.current ?: LocalWindowInfo.current.containerSize).height.toDp()
     }
-    // Use the page's available height, never the animated wrap-content dialog height. Otherwise
-    // each resize changes the preview, triggers new sampling, and starts another dialog resize.
-    // Miuix caps a centered dialog at two thirds of the current window. Reserve the measured
-    // title, copy, actions, shell insets and compact gaps first, then let the wallpaper preview
-    // consume only the remaining space. This keeps both actions inside the shell on phones with
-    // large display or font scaling while retaining a useful sampling area on taller screens.
-    val previewHeight = (windowHeight * (2f / 3f) - 210.dp).coerceIn(180.dp, 300.dp)
+    // Use the host height rather than the animated dialog height. The fixed footer stays visible
+    // when the body needs to scroll on a short window.
+    val previewHeight = (windowHeight * 0.62f - 140.dp).coerceIn(128.dp, 320.dp)
+    val previewWidth = previewHeight * (9f / 16f)
     val foreground = appPanelForegroundColor(config)
     val useDarkDefaultWallpaper = appUsesDarkTheme(config)
     val bitmap by produceState<Bitmap?>(
@@ -115,7 +102,11 @@ internal fun WallpaperPaletteSampler(
     var previewSize by remember { mutableStateOf(IntSize.Zero) }
 
     fun updatePoint(index: Int, point: Offset) {
-        val safePoint = Offset(point.x.coerceIn(0.04f, 0.96f), point.y.coerceIn(0.04f, 0.96f))
+        if (previewSize.width <= 0 || previewSize.height <= 0) return
+        val radius = with(density) { 18.dp.toPx() }
+        val insetX = (radius / previewSize.width).coerceAtMost(.5f)
+        val insetY = (radius / previewSize.height).coerceAtMost(.5f)
+        val safePoint = Offset(point.x.coerceIn(insetX, 1f - insetX), point.y.coerceIn(insetY, 1f - insetY))
         samplePoints = samplePoints.toMutableList().also { it[index] = safePoint }
         val source = bitmap ?: return
         val cropState = if (!config.wallpaperUri.isNullOrBlank()) {
@@ -133,8 +124,11 @@ internal fun WallpaperPaletteSampler(
     }
 
     LaunchedEffect(bitmap, previewSize, mode) {
-        val source = bitmap ?: return@LaunchedEffect
-        if (previewSize.width <= 0 || previewSize.height <= 0) return@LaunchedEffect
+        val source = bitmap
+        if (source == null || previewSize.width <= 0 || previewSize.height <= 0) {
+            onWallpaperReady(false)
+            return@LaunchedEffect
+        }
         val cropState = if (!config.wallpaperUri.isNullOrBlank()) {
             config.wallpaperCropState(WallpaperPreviewOrientation.Portrait)
         } else {
@@ -149,6 +143,7 @@ internal fun WallpaperPaletteSampler(
                 cropState
             )?.let { onColorChange(index, it) }
         }
+        onWallpaperReady(true)
     }
 
     Text(
@@ -167,7 +162,7 @@ internal fun WallpaperPaletteSampler(
     Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
         Box(
             modifier = Modifier
-                .width(210.dp)
+                .width(previewWidth)
                 .height(previewHeight)
                 .clip(RoundedRectangle(24.dp))
                 .background(if (appUsesDarkTheme(config)) ComposeColor(0xFF15171C) else ComposeColor(0xFFF1F3F8))
@@ -196,11 +191,11 @@ internal fun WallpaperPaletteSampler(
                 color = foreground,
                 modifier = Modifier.align(Alignment.Center)
             )
-            samplePoints.forEachIndexed { index, point ->
+            if (bitmap != null) samplePoints.forEachIndexed { index, point ->
                 val markerColor = ComposeColor(colors.getOrElse(index) { colors.firstOrNull() ?: 0xFFD6E9FFL }.toInt())
                 Surface(
                     modifier = Modifier
-                        .offset {
+                        .absoluteOffset {
                             val radiusPx = with(density) { 18.dp.roundToPx() }
                             IntOffset(
                                 (point.x * previewSize.width).roundToInt() - radiusPx,
@@ -236,29 +231,5 @@ internal fun WallpaperPaletteSampler(
                 ) {}
             }
         }
-    }
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        QuickSheetLiquidAction(
-            label = "取消",
-            enabled = true,
-            backdrop = backdrop,
-            config = config,
-            modifier = Modifier.weight(1f),
-            height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
-            onClick = onCancel
-        )
-        QuickSheetLiquidAction(
-            label = "确认",
-            enabled = bitmap != null,
-            backdrop = backdrop,
-            config = config,
-            modifier = Modifier.weight(1f),
-            primary = true,
-            height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
-            onClick = onConfirm
-        )
     }
 }

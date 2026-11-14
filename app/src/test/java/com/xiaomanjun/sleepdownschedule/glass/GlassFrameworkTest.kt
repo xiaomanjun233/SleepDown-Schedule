@@ -3,8 +3,6 @@ package com.xiaomanjun.sleepdownschedule.glass
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 
 import androidx.compose.ui.unit.IntSize
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.LiquidCourseCardBlurMax
@@ -29,8 +27,7 @@ class GlassFrameworkTest {
             { early, opening -> legacyCourseEditorMorphSpec(source, target, 24f, 32f, 180f,
                 6f, 5f, hasSourceTransform = true, preloadedContent = true,
                 earlyContentHandoff = early, earlyOpeningContentHandoff = opening) },
-            { early, opening -> legacyPersonalizationMorphSpec(source, target, 18f, 36f, 72f,
-                90f, 28f, 1f, 12f, 6f, 14f, preloadedContent = true,
+            { early, opening -> legacyPersonalizationMorphSpec(source, target, 28f, 1f, preloadedContent = true,
                 earlyContentHandoff = early, earlyOpeningContentHandoff = opening) }
         )
         routes.forEach { route ->
@@ -59,8 +56,8 @@ class GlassFrameworkTest {
         val routes: List<(Boolean) -> LiquidMorphSpec> = listOf(
             { early -> legacyCourseEditorMorphSpec(source, target, 24f, 32f, 180f,
                 6f, 5f, hasSourceTransform = true, preloadedContent = true, earlyContentHandoff = early) },
-            { early -> legacyPersonalizationMorphSpec(source, target, 18f, 36f, 72f,
-                90f, 28f, 1f, 12f, 6f, 14f, preloadedContent = true, earlyContentHandoff = early) }
+            { early -> legacyPersonalizationMorphSpec(source, target, 28f, 1f,
+                preloadedContent = true, earlyContentHandoff = early) }
         )
         routes.forEach { route ->
             for (direction in LiquidMorphDirection.entries) {
@@ -86,8 +83,7 @@ class GlassFrameworkTest {
         val routes: List<(Boolean) -> LiquidMorphSpec> = listOf(
             { preload -> legacyCourseEditorMorphSpec(source, target, 24f, 32f, 180f,
                 6f, 5f, hasSourceTransform = true, preloadedContent = preload) },
-            { preload -> legacyPersonalizationMorphSpec(source, target, 18f, 36f, 72f,
-                90f, 28f, 1f, 12f, 6f, 14f, preloadedContent = preload) }
+            { preload -> legacyPersonalizationMorphSpec(source, target, 28f, 1f, preloadedContent = preload) }
         )
         routes.forEach { route ->
             val legacy = route(false)
@@ -412,385 +408,6 @@ class GlassFrameworkTest {
     }
 
     @Test
-    fun genericSampledSurfacesScaleOnlyMaterialEffects() {
-        val sampled = GlassEffectFrame(
-            blur = 4.dp,
-            lensHeight = 12.dp,
-            lensAmount = 24.dp,
-            highlight = GlassHighlightFrame(GlassHighlightStyle.Default, 0.1f),
-            shadowAlpha = 0.2f,
-            innerShadow = GlassInnerShadowFrame(5.dp, 0.1f)
-        ).sampledBackdropOnly(0.5f)
-        assertEquals(2.dp, sampled.blur)
-        assertEquals(6.dp, sampled.lensHeight)
-        assertEquals(12.dp, sampled.lensAmount)
-        assertEquals(null, sampled.highlight)
-        assertEquals(null, sampled.shadowAlpha)
-        assertEquals(null, sampled.innerShadow)
-    }
-
-    @Test
-    fun courseGlassOcclusionRequiresExactSubstantialWeekCache() {
-        assertTrue(
-            shouldSuspendCourseGlassMaterials(
-                experimentEnabled = true,
-                weekMode = true,
-                exactCacheCoverActive = true,
-                substantialOverlayActive = true
-            )
-        )
-        assertFalse(
-            shouldSuspendCourseGlassMaterials(
-                experimentEnabled = true,
-                weekMode = true,
-                exactCacheCoverActive = false,
-                substantialOverlayActive = true
-            )
-        )
-        assertFalse(
-            shouldSuspendCourseGlassMaterials(
-                experimentEnabled = true,
-                weekMode = true,
-                exactCacheCoverActive = true,
-                substantialOverlayActive = false
-            )
-        )
-        assertTrue(CourseGlassOcclusionPhase.Live.mountsMaterialNodes)
-        assertTrue(CourseGlassOcclusionPhase.Preparing.mountsMaterialNodes)
-        assertFalse(CourseGlassOcclusionPhase.Suspended.mountsMaterialNodes)
-        assertTrue(CourseGlassOcclusionPhase.PostCloseRestore.mountsMaterialNodes)
-        assertTrue(CourseGlassOcclusionPhase.Revealing.mountsMaterialNodes)
-
-        val restoring = CourseGlassRestorePlan(
-            phase = CourseGlassOcclusionPhase.PostCloseRestore,
-            restoredGroupKeys = setOf("current-centre")
-        )
-        assertTrue(restoring.mountsGroup("current-centre"))
-        assertFalse(restoring.mountsGroup("current-edge"))
-        assertFalse(
-            CourseGlassRestorePlan(CourseGlassOcclusionPhase.Suspended)
-                .mountsGroup("current-centre")
-        )
-        assertTrue(
-            CourseGlassRestorePlan(CourseGlassOcclusionPhase.Revealing, setOf("current-centre"))
-                .mountsGroup("current-centre")
-        )
-        assertEquals(280, CourseGlassMaterialRevealDurationMillis)
-        assertEquals(0.72f, courseGlassFlatFallbackAlpha(0.72f, 0f), 0.0001f)
-        assertEquals(0.36f, courseGlassFlatFallbackAlpha(0.72f, 0.5f), 0.0001f)
-        assertEquals(0f, courseGlassFlatFallbackAlpha(0.72f, 1f), 0.0001f)
-    }
-
-    @Test
-    fun courseGlassRestoreRegistryFreezesCurrentWeekCentreOutThenNeighbours() {
-        val registry = CourseGlassRestoreRegistry()
-        registry.replacePage(
-            pageWeek = 7,
-            groups = listOf(
-                CourseGlassRestoreGroup("current-edge", 7, 0.05f),
-                CourseGlassRestoreGroup("current-centre", 7, 0.52f)
-            ),
-            topologyFrozen = false
-        )
-        registry.replacePage(
-            pageWeek = 6,
-            groups = listOf(CourseGlassRestoreGroup("previous-centre", 6, 0.48f)),
-            topologyFrozen = false
-        )
-        registry.replacePage(
-            pageWeek = 8,
-            groups = listOf(CourseGlassRestoreGroup("next-centre", 8, 0.51f)),
-            topologyFrozen = false
-        )
-
-        assertEquals(
-            listOf("current-centre", "current-edge", "previous-centre", "next-centre"),
-            registry.orderedGroupKeys(targetWeek = 7)
-        )
-        assertEquals(
-            courseGlassRestoreGroupKey(7, listOf("b", "a")),
-            courseGlassRestoreGroupKey(7, listOf("a", "b"))
-        )
-    }
-
-    @Test
-    fun courseGlassViewportDropsOnlyFullyOutsideCardsAndPrewarmsOnReturn() {
-        val viewport = Rect(0f, 0f, 1_800f, 2_880f)
-        val prewarmDistance = adaptiveCourseGlassPrewarmDistancePx(
-            viewport = viewport,
-            density = 2f
-        )
-        assertEquals(216f, prewarmDistance, 0.001f)
-
-        assertTrue(
-            decideCourseGlassViewportMaterial(
-                enabled = true,
-                currentlyMounted = true,
-                previousDistanceOutsidePx = null,
-                boundsInWindow = Rect(1_700f, 500f, 1_900f, 700f),
-                viewport = viewport,
-                prewarmDistancePx = prewarmDistance
-            ).mountMaterial
-        )
-        assertFalse(
-            decideCourseGlassViewportMaterial(
-                enabled = true,
-                currentlyMounted = true,
-                previousDistanceOutsidePx = null,
-                boundsInWindow = Rect(2_240f, 500f, 2_440f, 700f),
-                viewport = viewport,
-                prewarmDistancePx = prewarmDistance
-            ).mountMaterial
-        )
-        assertTrue(
-            decideCourseGlassViewportMaterial(
-                enabled = true,
-                currentlyMounted = false,
-                previousDistanceOutsidePx = 420f,
-                boundsInWindow = Rect(1_950f, 500f, 2_150f, 700f),
-                viewport = viewport,
-                prewarmDistancePx = prewarmDistance
-            ).mountMaterial
-        )
-        assertFalse(
-            decideCourseGlassViewportMaterial(
-                enabled = true,
-                currentlyMounted = false,
-                previousDistanceOutsidePx = 80f,
-                boundsInWindow = Rect(1_920f, 500f, 2_120f, 700f),
-                viewport = viewport,
-                prewarmDistancePx = prewarmDistance
-            ).mountMaterial
-        )
-        assertTrue(
-            decideCourseGlassViewportMaterial(
-                enabled = true,
-                currentlyMounted = true,
-                previousDistanceOutsidePx = null,
-                boundsInWindow = Rect(1_900f, 500f, 2_100f, 700f),
-                viewport = viewport,
-                prewarmDistancePx = prewarmDistance,
-                cullHorizontal = false
-            ).mountMaterial
-        )
-        assertFalse(
-            decideCourseGlassViewportMaterial(
-                enabled = true,
-                currentlyMounted = true,
-                previousDistanceOutsidePx = null,
-                boundsInWindow = Rect(500f, 3_320f, 700f, 3_520f),
-                viewport = viewport,
-                prewarmDistancePx = prewarmDistance,
-                cullHorizontal = false
-            ).mountMaterial
-        )
-    }
-
-    @Test
-    fun nonOverlappingCourseCardsCollapseToOneMaterialGroup() {
-        val viewport = Rect(0f, 0f, 1_000f, 2_000f)
-        val candidates = (0 until 32).map { index ->
-            val column = index % 8
-            val row = index / 8
-            GlassGroupCandidate(
-                id = "course-$index",
-                domain = GlassBackdropDomain.Content,
-                materialKey = "course-default",
-                boundsInViewport = Rect(
-                    left = column * 110f,
-                    top = row * 160f,
-                    right = column * 110f + 100f,
-                    bottom = row * 160f + 150f
-                ),
-                cornerRadiusPx = 24f
-            )
-        }
-
-        val groups = GlassGroupPlanner.plan(viewport, candidates)
-        assertEquals(1, groups.size)
-        assertEquals(32, groups.single().members.size)
-
-        val boundedGroups = GlassGroupPlanner.plan(
-            viewport = viewport,
-            candidates = candidates,
-            maxMembersPerPlan = GlassGroupMaximumMembers
-        )
-        assertEquals(4, boundedGroups.size)
-        assertTrue(boundedGroups.all { it.members.size <= GlassGroupMaximumMembers })
-
-        val tightLayer = boundedGroups[1].toTightLayerPlan()
-        assertEquals(IntOffset(0, 160), tightLayer.offsetInViewport)
-        assertEquals(IntSize(870, 150), tightLayer.size)
-        assertEquals(Rect(0f, 0f, 870f, 150f), tightLayer.localPlan.viewport)
-        assertEquals(
-            boundedGroups[1].members.map { it.boundsInViewport },
-            tightLayer.localPlan.members.map { member ->
-                member.boundsInViewport.translate(
-                    Offset(
-                        tightLayer.offsetInViewport.x.toFloat(),
-                        tightLayer.offsetInViewport.y.toFloat()
-                    )
-                )
-            }
-        )
-
-        val halfResolution = tightLayer.sampled(0.5f)
-        assertEquals(tightLayer.offsetInViewport, halfResolution.offsetInViewport)
-        assertEquals(IntSize(435, 75), halfResolution.size)
-        assertEquals(Rect(0f, 0f, 435f, 75f), halfResolution.localPlan.viewport)
-        assertEquals(12f, halfResolution.localPlan.members.first().cornerRadiusPx)
-    }
-
-    @Test
-    fun overlappingOrDifferentMaterialCardsNeverShareAnEffectGroup() {
-        val viewport = Rect(0f, 0f, 500f, 500f)
-        fun candidate(id: String, material: String, rect: Rect) = GlassGroupCandidate(
-            id = id,
-            domain = GlassBackdropDomain.Content,
-            materialKey = material,
-            boundsInViewport = rect,
-            cornerRadiusPx = 20f
-        )
-        val groups = GlassGroupPlanner.plan(
-            viewport,
-            listOf(
-                candidate("a", "liquid", Rect(0f, 0f, 100f, 100f)),
-                candidate("b", "liquid", Rect(50f, 50f, 150f, 150f)),
-                candidate("c", "simple", Rect(200f, 0f, 300f, 100f))
-            )
-        )
-
-        assertEquals(3, groups.size)
-        assertTrue(groups.all { it.members.size == 1 })
-    }
-
-    @Test
-    fun spatialPlannerBatchesDenseWholePageRowsWithoutCreatingHugeTargets() {
-        val viewport = Rect(0f, 0f, 700f, 1_000f)
-        val candidates = (0 until 7).map { column ->
-            GlassGroupCandidate(
-                id = "day-$column",
-                domain = GlassBackdropDomain.Content,
-                materialKey = "week-course-card-liquid",
-                boundsInViewport = Rect(
-                    left = column * 100f + 5f,
-                    top = 120f,
-                    right = column * 100f + 95f,
-                    bottom = 270f
-                ),
-                cornerRadiusPx = 20f
-            )
-        }
-
-        val plans = GlassGroupPlanner.planSpatialChunks(
-            viewport = viewport,
-            candidates = candidates,
-            maxMembersPerPlan = GlassGroupMaximumMembers,
-            minimumFillRatio = 0.34f,
-            maximumLayerAreaFraction = 0.58f
-        )
-
-        assertEquals(1, plans.size)
-        assertEquals(candidates.map { it.id }.toSet(), plans.single().members.map { it.id }.toSet())
-        val tightLayer = plans.single().toTightLayerPlan()
-        val layerAreaFraction =
-            (tightLayer.size.width * tightLayer.size.height).toFloat() /
-                (viewport.width * viewport.height)
-        assertTrue(layerAreaFraction <= 0.58f)
-    }
-
-    @Test
-    fun spatialPlannerSeparatesSparseOrOverlappingCardsAndKeepsTheMemberCap() {
-        val viewport = Rect(0f, 0f, 1_400f, 1_000f)
-        fun candidate(id: String, rect: Rect) = GlassGroupCandidate(
-            id = id,
-            domain = GlassBackdropDomain.Content,
-            materialKey = "week-course-card-liquid",
-            boundsInViewport = rect,
-            cornerRadiusPx = 20f
-        )
-        val sparse = GlassGroupPlanner.planSpatialChunks(
-            viewport = viewport,
-            candidates = listOf(
-                candidate("top-left", Rect(0f, 0f, 90f, 90f)),
-                candidate("bottom-right", Rect(1_310f, 900f, 1_400f, 990f)),
-                candidate("overlap", Rect(20f, 20f, 110f, 110f))
-            ),
-            maxMembersPerPlan = GlassGroupMaximumMembers,
-            minimumFillRatio = 0.34f,
-            maximumLayerAreaFraction = 0.58f
-        )
-        assertEquals(3, sparse.size)
-
-        val denseRow = (0 until 14).map { column ->
-            candidate(
-                id = "dense-$column",
-                rect = Rect(
-                    left = column * 100f + 5f,
-                    top = 200f,
-                    right = column * 100f + 95f,
-                    bottom = 300f
-                )
-            )
-        }
-        val bounded = GlassGroupPlanner.planSpatialChunks(
-            viewport = viewport,
-            candidates = denseRow,
-            maxMembersPerPlan = GlassGroupMaximumMembers,
-            minimumFillRatio = 0.34f,
-            maximumLayerAreaFraction = 0.58f
-        )
-        assertEquals(2, bounded.size)
-        assertTrue(bounded.all { it.members.size <= GlassGroupMaximumMembers })
-        assertEquals(14, bounded.sumOf { it.members.size })
-    }
-
-    @Test
-    fun groupedCourseCardLensIsEligibleWithBoundedMultiShapeSdf() {
-        val sceneKey = "week-course-cards"
-        val state = GlassSceneState(
-            sceneId = "home",
-            diagnosticsEnabled = true,
-            backendPolicy = GlassBackendPolicy(groupedSceneAllowlist = setOf(sceneKey))
-        )
-        val plan = GlassGroupPlan(
-            domain = GlassBackdropDomain.Content,
-            materialKey = "course-default",
-            viewport = Rect(0f, 0f, 500f, 500f),
-            members = listOf(
-                GlassGroupCandidate(
-                    id = "course",
-                    domain = GlassBackdropDomain.Content,
-                    materialKey = "course-default",
-                    boundsInViewport = Rect(0f, 0f, 100f, 100f),
-                    cornerRadiusPx = 20f
-                )
-            )
-        )
-
-        assertEquals(
-            GlassGroupRenderEligibility.Eligible,
-            state.glassGroupEligibility(
-                sceneKey = sceneKey,
-                plan = plan,
-                effectFrame = GlassEffectFrame(
-                    blur = 3.dp,
-                    lensHeight = 10.dp,
-                    lensAmount = 20.dp
-                )
-            )
-        )
-        assertEquals(
-            GlassGroupRenderEligibility.Eligible,
-            state.glassGroupEligibility(
-                sceneKey = sceneKey,
-                plan = plan,
-                effectFrame = GlassEffectFrame(blur = 3.dp)
-            )
-        )
-    }
-
-    @Test
     fun morphControllerReleasesEveryGenerationExactlyOnce() {
         val controller = LiquidMorphController()
         var cleanupCount = 0
@@ -891,15 +508,8 @@ class GlassFrameworkTest {
         val personalizationSpec = legacyPersonalizationMorphSpec(
             source = source,
             target = target,
-            pinchDiameterPx = 18f,
-            minimumDropPx = 36f,
-            maximumDropPx = 72f,
-            maximumArcPx = 90f,
             targetCornerRadiusPx = 28f,
-            sourcePressedScale = 1.05f,
-            verticalReboundAmplitudePx = 12f,
-            closingSinkOffsetPx = 6f,
-            closingControlDropPx = 14f
+            sourcePressedScale = 1.05f
         )
         val destinationSpec = legacyHomeMenuDestinationMorphSpec(
             sourceBoundsInRoot = target,
@@ -940,16 +550,8 @@ class GlassFrameworkTest {
                         source = source,
                         target = target,
                         rawProgress = progress,
-                        pinchDiameterPx = 18f,
-                        minimumDropPx = 36f,
-                        maximumDropPx = 72f,
-                        maximumArcPx = 90f,
                         targetCornerRadiusPx = 28f,
-                        sourcePressedScale = 1.05f,
-                        closing = closing,
-                        verticalReboundAmplitudePx = 12f,
-                        closingSinkOffsetPx = 6f,
-                        closingControlDropPx = 14f
+                        sourcePressedScale = 1.05f
                     ),
                     personalizationSpec.homeGeometry(source, target, progress, closing)
                 )

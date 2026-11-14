@@ -26,8 +26,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.core.remoteconfig.RemoteDonationEntry
-import top.yukonga.miuix.kmp.basic.Text
-import top.yukonga.miuix.kmp.theme.MiuixTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.MaterialTheme
 import kotlin.math.sin
 
 /** Published order is authoritative; amounts in different currencies are never compared. */
@@ -72,7 +72,7 @@ internal fun DonationPodium(entries: List<RemoteDonationEntry>) {
                     }
                     Text(
                         supporter.supporterId,
-                        style = MiuixTheme.textStyles.body1,
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Medium,
                         textAlign = TextAlign.Center,
                         minLines = 2,
@@ -81,8 +81,8 @@ internal fun DonationPodium(entries: List<RemoteDonationEntry>) {
                     )
                     Text(
                         supporter.formattedAmount(),
-                        style = MiuixTheme.textStyles.body2,
-                        color = MiuixTheme.colorScheme.onSurfaceVariantSummary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center
                     )
                     Box(
@@ -96,7 +96,7 @@ internal fun DonationPodium(entries: List<RemoteDonationEntry>) {
                     ) {
                         Text(
                             "${rank + 1}",
-                            style = MiuixTheme.textStyles.title1,
+                            style = MaterialTheme.typography.titleLarge,
                             color = color,
                             fontWeight = FontWeight.Bold
                         )

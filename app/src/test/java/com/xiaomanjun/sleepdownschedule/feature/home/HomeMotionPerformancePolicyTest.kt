@@ -53,67 +53,21 @@ class HomeMotionPerformancePolicyTest {
     }
 
     @Test
-    fun substantialOverlayBlurLeadsOpeningAndReleasesBeforeClosingTail() {
-        assertTrue(
-            stagedHomeOverlayBlurProgress(
-                legacyDepthProgress = 0f,
-                morphProgress = 0.2f,
-                closing = false
-            ) > 0.5f
-        )
-        assertEquals(
-            1f,
-            stagedHomeOverlayBlurProgress(
-                legacyDepthProgress = 0f,
-                morphProgress = HomeOpeningBlurFullProgress,
-                closing = false
-            ),
-            0.0001f
-        )
-        val earlyClosingBlur = stagedHomeOverlayBlurProgress(
-            legacyDepthProgress = 0f,
-            morphProgress = 0.8f,
-            closing = true
-        )
-        val middleClosingBlur = stagedHomeOverlayBlurProgress(
-            legacyDepthProgress = 0f,
-            morphProgress = 0.4f,
-            closing = true
-        )
-        assertTrue(earlyClosingBlur > 0.98f)
-        assertTrue(middleClosingBlur in 0.67f..0.71f)
-        assertTrue(
-            stagedHomeOverlayBlurProgress(
-                legacyDepthProgress = 0f,
-                morphProgress = 0.88f,
-                closing = true
-            ) > 0.67f
-        )
-        assertEquals(
-            0f,
-            stagedHomeOverlayBlurProgress(
-                legacyDepthProgress = 0f,
-                morphProgress = 0f,
-                closing = true
-            ),
-            0.0001f
-        )
-        assertEquals(
-            0.4f,
-            stagedHomeOverlayBlurProgress(
-                legacyDepthProgress = 0.4f,
-                morphProgress = null,
-                closing = false
-            ),
-            0.0001f
-        )
+    fun overlayBlurHasOneContinuousCurveInBothDirections() {
+        val opening = (0..100).map { stagedHomeOverlayBlurProgress(0f, it / 100f) }
+        val closing = (100 downTo 0).map { stagedHomeOverlayBlurProgress(0f, it / 100f) }
+        assertEquals(opening, closing.reversed())
+        assertEquals(0f, opening.first(), 0f)
+        assertEquals(1f, opening.last(), 0f)
+        assertTrue(opening.zipWithNext().all { (a, b) -> b >= a && b - a < 0.04f })
+        assertEquals(0.4f, stagedHomeOverlayBlurProgress(0.4f, null), 0f)
+        assertEquals(1f, stagedHomeOverlayBlurProgress(0f, 0.38f), 0f)
+        assertEquals(0.8f, stagedHomeOverlayBlurProgress(0.8f, 0.05f), 0f)
     }
 
     @Test
-    fun frozenWeekBlurUsesQuarterAreaSurfaceAndBoundedLiveEffects() {
-        assertEquals(0.25f, HomeFrozenBlurSampleScale * HomeFrozenBlurSampleScale, 0.0001f)
-        assertEquals(32, HomeLiveBlurStepCount)
-        assertEquals(12, HomeNonClosingBlurStepCount)
+    fun frozenWeekBlurUsesOneNinthAreaSurfaceAndBoundedLiveEffects() {
+        assertEquals(1f / 9f, HomeFrozenBlurSampleScale * HomeFrozenBlurSampleScale, 0.0001f)
         assertEquals(12, HomeProgressiveBackdropBlurStepCount)
         assertTrue(
             shouldUseFrozenWeekHomeBlur(
@@ -148,19 +102,6 @@ class HomeMotionPerformancePolicyTest {
                 overlayActive = false
             )
         )
-    }
-
-    @Test
-    fun frozenBlurRevealsOriginalPixelsContinuouslyAtClearEndpoint() {
-        assertEquals(3, quantizeHomeBackgroundBlurStep(0.07f, closing = false))
-        assertEquals(2, quantizeHomeBackgroundBlurStep(0.07f, closing = true))
-        val handoff = HomeFrozenBlurMinimumStep.toFloat() / HomeLiveBlurStepCount
-        assertEquals(0f, homeFrozenBlurAlpha(0f), 0.0001f)
-        assertEquals(0.5f, homeFrozenBlurAlpha(handoff / 2f), 0.0001f)
-        assertEquals(1f, homeFrozenBlurAlpha(handoff), 0.0001f)
-        assertEquals(1f, homeFrozenBlurAlpha(1f), 0.0001f)
-        assertEquals(0f, homeFrozenBlurAlpha(-1f), 0.0001f)
-        assertEquals(1f, homeFrozenBlurAlpha(2f), 0.0001f)
     }
 
     @Test

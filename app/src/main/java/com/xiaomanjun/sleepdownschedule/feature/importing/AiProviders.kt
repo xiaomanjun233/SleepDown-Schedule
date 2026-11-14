@@ -21,6 +21,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 import java.io.File
 import java.net.URL
 
@@ -67,7 +68,7 @@ internal fun AiProviderConfig.normalizedForRequest(): AiProviderConfig {
         },
         endpointStyle = if (useResponses) AiEndpointStyle.RESPONSES else AiEndpointStyle.CHAT_COMPLETIONS,
         structuredOutputMode = outputMode,
-        supportsPdfDirect = useResponses && supportsPdfDirect,
+        supportsPdfDirect = (useResponses || isOfficialOpenAIBaseUrl(normalizedBaseUrl)) && supportsPdfDirect,
         // Compatible chat endpoints cannot consume a raw PDF, but the import
         // pipeline still uses this capability flag to render the PDF into page
         // images before creating the multi-modal request.
@@ -132,7 +133,7 @@ internal class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
                 addImagePart("data:${input.mimeType};base64,${input.base64}")
             }
             is AiScheduleInput.Images -> buildJsonArray {
-                addTextPart(aiSchedulePrompt() + "\n\n下面图片来自同一份课表文件，按页码或视口位置有序发送。相邻图片可能保留少量重叠区域用于校对，请不要重复生成课程。请综合所有图片还原完整课程信息。")
+                addTextPart(aiSchedulePrompt() + "\n\n按材料目录与图片顺序综合核对全部课表，不要重复生成重叠的课程。\n" + input.text)
                 input.images.forEach { image -> addImagePart(image.dataUrl) }
             }
             is AiScheduleInput.CapturedPage -> buildJsonArray {
@@ -148,7 +149,16 @@ internal class OpenAiCompatibleChatProvider : AiScheduleImportProvider {
                 )
                 input.images.forEach { image -> addImagePart(image.dataUrl) }
             }
-            is AiScheduleInput.RawFile -> error("当前兼容接口不支持直接上传原始文件，请改用文本、图片或 OpenAI 原生文件模式。")
+            is AiScheduleInput.RawFile -> {
+                require(input.mimeType == "application/pdf" && canSendNativePdf(config)) { "当前接口未启用原始 PDF 输入" }
+                buildJsonArray {
+                    addTextPart(aiSchedulePrompt())
+                    add(buildJsonObject { put("type", "file"); put("file", buildJsonObject {
+                        put("filename", input.fileName)
+                        put("file_data", "data:application/pdf;base64," + Base64.encodeToString(input.bytes, Base64.NO_WRAP))
+                    }) })
+                }
+            }
         }
         val body = buildJsonObject {
             put("model", JsonPrimitive(config.model))
@@ -373,11 +383,16 @@ internal class OpenAiResponsesProvider : AiScheduleImportProvider {
                     put("type", JsonPrimitive("input_text"))
                     put("text", JsonPrimitive(input.text))
                 })
-                is AiScheduleInput.Images -> input.images.forEach { image ->
+                is AiScheduleInput.Images -> {
+                    if (input.text.isNotBlank()) add(buildJsonObject {
+                        put("type", "input_text"); put("text", input.text)
+                    })
+                    input.images.forEach { image ->
                     add(buildJsonObject {
                         put("type", JsonPrimitive("input_image"))
                         put("image_url", JsonPrimitive(image.dataUrl))
                     })
+                    }
                 }
                 is AiScheduleInput.CapturedPage -> {
                     add(buildJsonObject {
@@ -607,12 +622,8 @@ suspend fun loadAiImportFile(context: Context, uri: Uri): Result<AiImportFile> =
             val rawBytes = resolver.openInputStream(uri)
                 ?.use { it.readBytesWithLimit(MaxAiImportFileBytes) }
                 ?: error("无法读取文件")
-            val bytes = if (classifyAiImportDocument(name, mime) == AiImportDocumentKind.IMAGE) {
-                compressAiImportImage(rawBytes)
-            } else {
-                rawBytes
-            }
-            AiImportFile(uri, name, mime, bytes)
+            // Retain original image pixels for local detail tools; only the overview is compressed.
+            AiImportFile(uri, name, mime, rawBytes)
         }
     }
 

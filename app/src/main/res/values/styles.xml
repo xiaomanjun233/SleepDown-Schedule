@@ -11,6 +11,12 @@
 
     <style name="AppTheme" parent="@style/AppThemeBase" />
 
+    <style name="AppTheme.Welcome" parent="@style/AppTheme">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowDisablePreview">true</item>
+    </style>
+
     <style name="AppTheme.SettingsSlide" parent="@style/AppTheme">
         <item name="android:windowAnimationStyle">@style/Animation.SettingsSlide</item>
     </style>
@@ -122,7 +128,7 @@
 
     <style name="WidgetCompactCourseRowFrame">
         <item name="android:layout_width">match_parent</item>
-        <item name="android:layout_height">50dp</item>
+        <item name="android:layout_height">wrap_content</item>
         <item name="android:background">@drawable/widget_course_background_compact</item>
     </style>
 
@@ -181,9 +187,11 @@
 
     <style name="WidgetCompactCourseName" parent="WidgetCourseName">
         <item name="android:textSize">12sp</item>
+        <item name="android:includeFontPadding">false</item>
     </style>
 
     <style name="WidgetCompactCourseDetail" parent="WidgetCourseDetail">
         <item name="android:textSize">9.5sp</item>
+        <item name="android:includeFontPadding">false</item>
     </style>
 </resources>

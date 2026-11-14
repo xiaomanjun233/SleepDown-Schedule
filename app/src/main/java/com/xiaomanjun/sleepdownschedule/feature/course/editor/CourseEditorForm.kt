@@ -11,7 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -37,9 +37,8 @@ import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogButtonRole
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogCapsuleField
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogLiquidButton
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSurface
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalControlDialogSurface
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialForeground
-import com.xiaomanjun.sleepdownschedule.courseAnchorPeriodsForTimeRange
 import com.xiaomanjun.sleepdownschedule.courseTimeLabel
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -48,13 +47,11 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.CourseGlassCard
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
-import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardAllowsCustomOverrides
 import com.xiaomanjun.sleepdownschedule.glass.ui.courseCardBaseColor
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.hasCustomTime
 import com.xiaomanjun.sleepdownschedule.weekdayLabel
-import java.time.LocalTime
 import kotlin.math.max
 import kotlin.math.min
 import kotlinx.coroutines.flow.map
@@ -90,7 +87,7 @@ internal fun CourseEditorFormPage(
     val materialForeground = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialForeground.current
     val editorContentColor = if (materialForeground != ComposeColor.Unspecified) {
         materialForeground
-    } else if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSurface.current) {
+    } else if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalControlDialogSurface.current) {
         appPanelForegroundColor(config)
     } else if (backdrop != null) {
         LocalAdaptiveGlass.current.contentColor
@@ -120,7 +117,7 @@ internal fun CourseEditorFormPage(
     }
     CompositionLocalProvider(LocalContentColor provides editorContentColor) {
     Box(modifier = Modifier.fillMaxSize()) {
-    LazyColumn(
+    SleepDownLazyColumn(
         // Compose only visible fields. Hidden input/selector rows and adjacent full forms must
         // not compete with the first visible editor frame. Drafts remain owned above the list.
         modifier = Modifier

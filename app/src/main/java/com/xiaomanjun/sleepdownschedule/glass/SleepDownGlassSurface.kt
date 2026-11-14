@@ -31,6 +31,9 @@ import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onGloballyPositioned
+import com.itos.coui.backdrop.CouiSamplingCoordinates
 import androidx.compose.ui.unit.IntSize
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.BackdropEffectScope
@@ -57,6 +60,7 @@ internal val LocalGlassCoordinatesFrozen = compositionLocalOf { LiveGlassCoordin
 private val NoGlassSampleRecordKey: () -> Any? = { null }
 internal val LocalGlassSampleRecordKey = compositionLocalOf { NoGlassSampleRecordKey }
 private val DefaultLayerBackdropDraw: ContentDrawScope.() -> Unit = { drawContent() }
+private val NoGlassEffects: BackdropEffectScope.() -> Unit = {}
 private val DefaultGlassBackdropDraw: DrawScope.(DrawScope.() -> Unit) -> Unit = { drawBackdrop ->
     drawBackdrop()
 }
@@ -161,7 +165,11 @@ fun rememberGlassLayerBackdrop(
             })
         }
     }
-    return rememberLayerBackdrop(graphicsLayer = graphicsLayer, onDraw = stableOnDraw)
+    return if (diagnosticSceneState == null && usesDefaultDraw) {
+        rememberLayerBackdrop(graphicsLayer = graphicsLayer)
+    } else {
+        rememberLayerBackdrop(graphicsLayer = graphicsLayer, onDraw = stableOnDraw)
+    }
 }
 
 @Composable
@@ -240,6 +248,14 @@ fun Modifier.sleepDownGlassSurface(
 
     val performanceMaterial = effectiveAppMaterialPolicy().level == AppMaterialLevel.PERFORMANCE
     val resolvedFrame = if (performanceMaterial) effectFrame.copy(lensHeight = null, lensAmount = null) else effectFrame
+    // Wallpaper-only controls use the scene's existing texture renderer too. Live page/sheet
+    // sources and custom effect chains keep their original renderer and decorations.
+    val textureSource = (backdrop as? CourseMaterialSampling)?.takeIf {
+        sampleBackdrop && it.textureReady && effectsOverride == null && onDrawBackdrop == null &&
+            exportedBackdrop == null && allocationPaddingPx == null
+    }
+    val textureCoordinates = remember(textureSource) { textureSource?.let { CouiSamplingCoordinates() } }
+    val samplesLayer = sampleBackdrop && textureSource == null
     val currentShape = rememberUpdatedState(shape)
     val resolvedShape = remember { derivedGlassShape(currentShape) }
     val currentFrame = rememberUpdatedState(resolvedFrame)
@@ -263,12 +279,12 @@ fun Modifier.sleepDownGlassSurface(
     val currentCoordinatesFrozen = rememberUpdatedState(LocalGlassCoordinatesFrozen.current)
     val currentSampleRecordKey = rememberUpdatedState(LocalGlassSampleRecordKey.current)
     val renderOptions = remember(
-        sampleBackdrop, allocationPaddingPx, cacheDecorations,
+        samplesLayer, allocationPaddingPx, cacheDecorations,
         clipGenericOutlineInDraw, placementLayer, backdropSampleScale, backdropViewport
     ) {
         com.kyant.backdrop.BackdropRenderOptions(
             enabled = { currentRenderEnabled.value.invoke() },
-            sampleBackdrop = sampleBackdrop,
+            sampleBackdrop = samplesLayer,
             bounds = { currentRenderBounds.value.invoke() },
             allocationPadding = allocationPaddingPx,
             effectKey = { currentEffectInputKey.value },
@@ -404,8 +420,17 @@ fun Modifier.sleepDownGlassSurface(
     val stableOnDrawBehind: (DrawScope.() -> Unit)? = remember(onDrawBehind != null) {
         if (onDrawBehind == null) null else ({ currentOnDrawBehind.value?.invoke(this) })
     }
-    val stableOnDrawSurface: (DrawScope.() -> Unit)? = remember(onDrawSurface != null, sampleBackdrop, diagnosticSceneState, descriptor) {
-        if (onDrawSurface == null && (sampleBackdrop || diagnosticSceneState == null)) null else ({
+    val stableOnDrawSurface: (DrawScope.() -> Unit)? = remember(onDrawSurface != null, sampleBackdrop, diagnosticSceneState, descriptor, textureSource) {
+        if (textureSource == null && onDrawSurface == null && (sampleBackdrop || diagnosticSceneState == null)) null else ({
+            if (textureSource != null) {
+                currentSampleRecordKey.value.invoke()
+                textureCoordinates?.coordinates?.takeIf { it.isAttached }?.let { target ->
+                    with(textureSource.textureRenderer) {
+                        draw(textureSource, target, resolvedShape.value, currentMaterialFrame.value, null,
+                            currentMaterialFrame.value.blur?.toPx() ?: 0f)
+                    }
+                }
+            }
             if (!sampleBackdrop) diagnosticSceneState?.recordConsumerDraw(
                 descriptor, IntSize(ceil(size.width).toInt(), ceil(size.height).toInt())
             )
@@ -438,20 +463,38 @@ fun Modifier.sleepDownGlassSurface(
     // Experimental renderers are guarded by empty-by-default allowlists. Until a scene-specific
     // implementation is selected, every path deliberately resolves to the reference backend.
     sceneState?.rendererFor(descriptor)
+    val useShadowMasks = textureSource != null && shadowOverride == null && innerShadowOverride == null &&
+        (hasShadow || hasInnerShadow)
+    val shadows = if (useShadowMasks) {
+        val innerRadius = remember { derivedStateOf { currentFrame.value.innerShadow?.radius } }
+        Modifier.wallpaperGlassShadows(
+            shape = stableShape,
+            outerAlpha = { currentFrame.value.shadowAlpha ?: 0f },
+            innerRadius = { innerRadius.value },
+            innerAlpha = { currentFrame.value.innerShadow?.alpha ?: 0f },
+            enabled = { currentRenderEnabled.value.invoke() },
+        )
+    } else Modifier
     return drawWithContent {
         if (MaterialSamplingDiagnostics.enabled && sampleBackdrop) {
             if (usage == MaterialUsage.SCENE_BLUR) MaterialSamplingDiagnostics.sceneDraws++
             else MaterialSamplingDiagnostics.denseDraws++
         }
         drawContent()
-    }.drawBackdrop(
+    }
+        // Keep coordinates inside the existing press transform, so the texture stays aligned
+        // with the wallpaper while the control scales. There is still only one press layer.
+        .then(if (textureSource != null && stableLayerBlock != null) Modifier.graphicsLayer(stableLayerBlock) else Modifier)
+        .then(if (textureCoordinates != null) Modifier.onGloballyPositioned(textureCoordinates::update) else Modifier)
+        .then(shadows)
+        .drawBackdrop(
         backdrop = backdrop,
         shape = stableShape,
-        effects = stableEffects,
+        effects = if (textureSource == null) stableEffects else NoGlassEffects,
         highlight = stableHighlight,
-        shadow = stableShadow,
-        innerShadow = stableInnerShadow,
-        layerBlock = stableLayerBlock,
+        shadow = stableShadow.takeUnless { useShadowMasks },
+        innerShadow = stableInnerShadow.takeUnless { useShadowMasks },
+        layerBlock = stableLayerBlock.takeIf { textureSource == null },
         exportedBackdrop = exportedBackdrop,
         onDrawBehind = stableOnDrawBehind,
         onDrawBackdrop = stableOnDrawBackdrop,

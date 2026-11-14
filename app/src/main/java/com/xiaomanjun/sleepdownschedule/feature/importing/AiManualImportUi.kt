@@ -23,18 +23,18 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
@@ -53,7 +53,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Rect
@@ -95,12 +94,16 @@ import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvide
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionButton
+import com.xiaomanjun.sleepdownschedule.transition.liveTransitionBoundsInActivity
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
 import com.xiaomanjun.sleepdownschedule.transition.openRegisteredActivity
 import java.util.Locale
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -164,10 +167,16 @@ fun NormalizedAiManualImportScreen(
     onCancel: () -> Unit,
     captureHistoryBackground: suspend () -> AiImportHistoryBackgroundCapture? = { null },
     initialFileUri: Uri? = null,
+    initialFileUris: List<Uri> = emptyList(),
     onInitialFileConsumed: () -> Unit = {},
     initialText: String? = null,
     onInitialTextConsumed: () -> Unit = {},
     transitionActive: Boolean = false,
+    inlineHeader: @Composable () -> Unit = {},
+    inlinePreview: (@Composable (header: @Composable () -> Unit) -> Unit)? = null,
+    inlineHasPreview: Boolean = false,
+    inlineSubmitting: Boolean = false,
+    onInlineTextChange: (String) -> Unit = {},
     onParsed: (ImportDraft) -> Unit
 ) {
     val context = LocalContext.current
@@ -231,8 +240,8 @@ fun NormalizedAiManualImportScreen(
         drawContent()
     }
     var historyEntries by remember { mutableStateOf(emptyList<AiImportHistoryEntry>()) }
-    LaunchedEffect(context) {
-        historyEntries = withContext(Dispatchers.IO) { AiImportHistoryStore.load(context) }
+    LaunchedEffect(context, inlinePreview != null) {
+        if (inlinePreview == null) historyEntries = withContext(Dispatchers.IO) { AiImportHistoryStore.load(context) }
     }
     val taskProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     LaunchedEffect(taskProgress?.taskId, taskProgress?.finished) {
@@ -244,7 +253,7 @@ fun NormalizedAiManualImportScreen(
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
+            if (event == Lifecycle.Event.ON_RESUME && inlinePreview == null) {
                 scope.launch {
                     historyEntries = withContext(Dispatchers.IO) { AiImportHistoryStore.load(context) }
                 }
@@ -351,6 +360,51 @@ fun NormalizedAiManualImportScreen(
         routeMessage = "正在使用拾光 ${request.label} 官方适配器读取口令…"
         target.loadUrl(adapter.importUrl.ifBlank { "about:blank" })
     }
+    suspend fun showLocallyParsedFile(draft: ImportDraft, fileName: String) {
+        if (inlinePreview == null) {
+            aiParsing = false
+            onParsed(draft)
+            return
+        }
+        val progress = ensureImportCheckpoint(
+            AiEduImportProgress(
+                routeLabel = "文件导入",
+                steps = listOf("已在本机读取并校验课表"),
+                attachmentTitle = fileName,
+                userPrompt = "导入这份课表",
+                liveSummary = "已读取 ${draft.courses.size} 门课程，可先核对或让 AI 修改。",
+                requestSent = true,
+                finished = true
+            ),
+            draft
+        )
+        if (progress.checkpoints.isEmpty()) {
+            aiParsing = false
+            onParsed(draft)
+            return
+        }
+        val historySaved = withContext(Dispatchers.IO) {
+            try {
+                AiImportHistoryStore.record(context, draft, progress)
+                true
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
+            }
+        }
+        aiParsing = false
+        // A new task must explicitly carry its validated checkpoint into the session.
+        AiEduImportProgressSession.beginTask(
+            progress = if (historySaved) progress else progress.copy(checkpointNotice = "课表已读取，历史记录保存失败"),
+            preserveCheckpointsFromTaskId = progress.taskId
+        )
+        context.openRegisteredActivity(
+            TransitionRouteId.ImportToAiProgress,
+            Intent(context, AiEduImportProgressActivity::class.java)
+                .putExtra(AiImportTaskManager.EXTRA_TASK_ID, progress.taskId)
+        )
+    }
     fun prepareImportFile(uri: Uri) {
         val settings = AiImportSettingsStore.load(context)
         aiSettings = settings
@@ -365,8 +419,7 @@ fun NormalizedAiManualImportScreen(
                     if (file.isIcs) {
                         val parsed = IcsScheduleCodec.parse(file.bytes, state.config)
                         if (parsed.isSuccess) {
-                            aiParsing = false
-                            onParsed(parsed.getOrThrow())
+                            showLocallyParsedFile(parsed.getOrThrow(), file.displayName)
                             return@fileLoaded
                         }
                         if (IcsScheduleCodec.isSleepDown(file.bytes)) {
@@ -377,8 +430,28 @@ fun NormalizedAiManualImportScreen(
                         // Complex external calendars use the existing file confirmation flow;
                         // no model request is sent until the user confirms there.
                     }
+                    if (file.isJson) {
+                        val localJson = withContext(Dispatchers.Default) {
+                            runCatching {
+                                val text = file.bytes.toString(Charsets.UTF_8).removePrefix("\uFEFF")
+                                if (!CanonicalScheduleJson.isCanonical(text)) null
+                                else ScheduleImportParser.parseStoredDraft(text, state.config).getOrThrow()
+                            }
+                        }
+                        val localDraft = localJson.getOrNull()
+                        if (localDraft != null) {
+                            showLocallyParsedFile(localDraft, file.displayName)
+                            return@fileLoaded
+                        }
+                        if (localJson.isFailure) {
+                            error = localJson.exceptionOrNull()?.message ?: "SleepDown JSON 解析失败"
+                            aiParsing = false
+                            return@fileLoaded
+                        }
+                        // Other JSON files still use the AI text-extraction path below.
+                    }
                     val localTextPreviewResult = withContext(Dispatchers.Default) {
-                        runCatching { extractAiImportTextPreview(file) }
+                        runCatching { extractAiImportTextPreview(file, context) }
                     }
                     if ((file.isLocalTextDocument || file.isIcs) && localTextPreviewResult.isFailure) {
                         error = localTextPreviewResult.exceptionOrNull()?.message ?: "文件文字提取失败"
@@ -418,7 +491,7 @@ fun NormalizedAiManualImportScreen(
                     }
                     routeMessage = when {
                         localTextPreview != null -> "已在本机提取文字；确认后只发送文字，不上传原文件。"
-                        file.isPdf -> "PDF 未提取到足够文字；确认后将发送逐页转换的图片。"
+                        file.isPdf -> "PDF 会在本机按页处理，AI 可读取页面并裁切放大细节；确认后才会发送所需内容。"
                         file.isImage -> "图片已在本机压缩暂存；确认后才会发送给视觉模型。"
                         else -> "文件已在本机暂存；确认后才会发送给 AI。"
                     }
@@ -477,24 +550,88 @@ fun NormalizedAiManualImportScreen(
                 }
         }
     }
-    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let(::prepareImportFile)
+    fun prepareImportFiles(uris: List<Uri>) {
+        val selected = uris.distinct()
+        if (selected.isEmpty()) return
+        if (selected.size == 1) { prepareImportFile(selected.single()); return }
+        val settings = AiImportSettingsStore.load(context)
+        aiSettings = settings
+        error = null
+        routeMessage = null
+        aiParsing = true
+        scope.launch {
+            runCatching {
+                val files = loadAiImportFiles(context, selected)
+                val prepared = prepareAiImportBatch(context, files)
+                require(prepared.images.isEmpty() || AiProviderPresets.supportsImageInput(settings.profile)) {
+                    "这组文件包含图片，请先选择支持图片输入的模型"
+                }
+                selectedFileName = "${files.size} 个文件"
+                val initial = AiEduImportProgress(routeLabel = "文件导入", steps = listOf("已读取 ${files.size} 个文件，等待确认"),
+                    userPrompt = "综合这些文件，核对并导入完整课表", attachmentTitle = files.joinToString("、") { it.displayName },
+                    pageText = prepared.text, screenshotPreviews = prepared.images, awaitingConfirmation = true,
+                    confirmActionLabel = "确认发送并解析", cancelActionLabel = "取消")
+                AiEduImportProgressSession.clearActions()
+                AiEduImportProgressSession.update(initial)
+                AiEduImportProgressSession.setActions(onConfirm = {
+                    AiImportTaskManager.startFilesImport(context, files, settings, state.config,
+                        checkNotNull(AiEduImportProgressSession.progress.value).copy(steps = listOf("已确认发送 ${files.size} 个文件")))
+                }, onCancel = { aiParsing = false; routeMessage = "已取消，文件没有发送给 AI。" })
+                context.openRegisteredActivity(TransitionRouteId.ImportToAiProgress, Intent(context, AiEduImportProgressActivity::class.java))
+            }.onFailure { error = it.message ?: "文件读取失败"; aiParsing = false }
+        }
+    }
+    val fileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        prepareImportFiles(uris)
     }
     val icsFileLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let(::prepareImportFile)
     }
-    LaunchedEffect(initialFileUri) {
-        initialFileUri?.let { uri ->
+    LaunchedEffect(initialFileUri, initialFileUris) {
+        (listOfNotNull(initialFileUri) + initialFileUris).distinct().takeIf { it.isNotEmpty() }?.let { uris ->
             onInitialFileConsumed()
-            prepareImportFile(uri)
+            prepareImportFiles(uris)
         }
     }
     fun parseDraft() {
+        if (aiParsing) return
         val result = ScheduleImportParser.parse(jsonText, state.config, state.periods)
         result.onSuccess {
             error = null
             onParsed(it)
-        }.onFailure {
+        }.onFailure { localError ->
+            val shortCode = CloudShortCode.extractCode(jsonText)
+            if (shortCode != null) {
+                if (aiParsing) return@onFailure
+                error = null
+                routeMessage = "正在从云端获取短口令课表…"
+                aiParsing = true
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) { CloudShortCode.resolve(shortCode) }
+                    }.onSuccess { payload ->
+                        runCatching {
+                            withContext(Dispatchers.Default) {
+                                ScheduleImportParser.parse(payload, state.config, state.periods).getOrThrow()
+                            }
+                        }.onSuccess { draft ->
+                            aiParsing = false
+                            routeMessage = null
+                            error = null
+                            onParsed(draft)
+                        }.onFailure { parseError ->
+                            aiParsing = false
+                            routeMessage = null
+                            error = parseError.message ?: "短口令课表解析失败"
+                        }
+                    }.onFailure { networkError ->
+                        aiParsing = false
+                        routeMessage = null
+                        error = networkError.message ?: "短口令获取失败"
+                    }
+                }
+                return@onFailure
+            }
             val starLinkCode = extractStarLinkShareCode(jsonText)
             if (starLinkCode != null) {
                 error = null
@@ -523,7 +660,7 @@ fun NormalizedAiManualImportScreen(
                 error = null
                 showAiTokenRepairPrompt = true
             } else {
-                error = it.message ?: "口令解析失败"
+                error = localError.message ?: "口令解析失败"
             }
         }
     }
@@ -579,7 +716,49 @@ fun NormalizedAiManualImportScreen(
             Intent(context, AiEduImportProgressActivity::class.java)
         )
     }
-    AiManualImportDialogContent(
+    LaunchedEffect(inlinePreview != null, jsonText, state.loaded) {
+        if (inlinePreview == null || inlineHasPreview || !state.loaded || jsonText.isBlank() || aiParsing) {
+            return@LaunchedEffect
+        }
+        delay(300)
+        val text = jsonText
+        val local = withContext(Dispatchers.Default) { ScheduleImportParser.parse(text, state.config, state.periods) }
+        if (aiParsing || jsonText != text) return@LaunchedEffect
+        local.onSuccess {
+            error = null
+            onParsed(it)
+        }.onFailure {
+            // Plain bare codes can still be incomplete while typing. Only automatically
+            // resolve an unambiguously tagged cloud or sharing code.
+            if (CloudShortCode.extractCode(text) != null ||
+                WakeUpLabelledKey.containsMatchIn(text) || StarLinkStructuredCode.containsMatchIn(text)) {
+                parseDraft()
+            }
+        }
+    }
+    if (inlinePreview != null) {
+        InlineRegularImportForm(
+            config = state.config,
+            text = jsonText,
+            onTextChange = {
+                jsonText = it
+                error = null
+                routeMessage = null
+                onInlineTextChange(it)
+            },
+            enabled = state.loaded && !aiParsing && !inlineSubmitting,
+            resolving = aiParsing,
+            hasPreview = inlineHasPreview,
+            message = error ?: routeMessage,
+            hasError = error != null,
+            onParse = ::parseDraft,
+            onUpload = {
+                backgroundPermissionGate.continueWithPermissionTip { fileLauncher.launch(arrayOf("*/*")) }
+            },
+            header = inlineHeader,
+            preview = inlinePreview
+        )
+    } else AiManualImportDialogContent(
         state = state,
         backdrop = backdrop,
         onCancel = onCancel,
@@ -605,38 +784,21 @@ fun NormalizedAiManualImportScreen(
         historySourceHidden = historySourceHidden,
         historyButtonModifier = historyButtonRecordModifier,
         onHistoryButtonBoundsChanged = { historyButtonBounds = it },
-        onOpenHistory = { sourceBounds ->
+        onOpenHistory = { sourceBounds, sourceView ->
             scope.launch {
-                // The idle recording of the button itself is the source. A page crop cannot see
-                // this sheet's footer and would animate the wallpaper behind it into the system.
-                val sourceSnapshot = cleanHistoryButtonBitmap
-                    ?: runCatching { historyButtonLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
-                        ?.takeIf { it.width > 1 && it.height > 1 }
-                    ?: (cleanHistoryCapture ?: captureHistoryBackground())
-                        ?.cropToAiHistorySource(sourceBounds)
-                // A malformed crop cannot represent the real source button. Keeping the source
-                // mounted is preferable to hiding it and exposing a black/uncurved Activity shell.
-                if (sourceSnapshot == null) return@launch
                 val activity = context as? ComponentActivity ?: return@launch
+                val bounds = sourceView?.liveTransitionBoundsInActivity(activity) ?: sourceBounds
                 val anchor = TransitionAnchorFrame(
-                    boundsInWindow = sourceBounds,
+                    boundsInWindow = bounds,
                     cornerRadiusPx = with(transitionDensity) { 21.dp.toPx() },
-                    bitmap = sourceSnapshot
+                    bitmap = null
                 )
-                val releaseOpeningSource =
-                    activity.attachOpeningSourceSnapshotHandoff(anchor) ?: return@launch
-                historySourceHidden = true
-                withFrameNanos { }
-                withFrameNanos { }
-                val backgroundSnapshot = captureHistoryBackground()?.bitmap
-                // The detail Activity needs both halves of the handoff. Starting it without
-                // the clean source-page frame regresses to the black fallback shell that the
-                // real source was just hidden to avoid.
-                if (backgroundSnapshot == null) {
-                    releaseOpeningSource()
-                    historySourceHidden = false
-                    return@launch
+                fun returnAnchor(frame: TransitionAnchorFrame) = TransitionAnchorProvider {
+                    val current = sourceView?.liveTransitionBoundsInActivity(activity, coveredWindow = true)
+                        ?: historyButtonBounds
+                    frame.copy(boundsInWindow = current).takeIf { it.hasBounds }
                 }
+                var releaseOpeningSource: (() -> Unit)? = null
                 val intent = Intent(context, AiImportHistoryActivity::class.java)
                 val launchResult = ActivityTransitionCoordinator.open(
                     activity = activity,
@@ -644,17 +806,34 @@ fun NormalizedAiManualImportScreen(
                     intent = intent,
                     payload = TransitionPayload(
                         openingAnchor = anchor,
-                        returnAnchorProvider = TransitionAnchorProvider {
-                            historyButtonBounds.takeIf { it.width > 1f && it.height > 1f }
-                                ?.let { anchor.copy(boundsInWindow = it) }
-                        },
-                        backgroundBitmap = backgroundSnapshot,
-                        onOpeningSourceHandoff = releaseOpeningSource,
-                        onSourceReleased = { historySourceHidden = false }
-                    )
+                        returnAnchorProvider = returnAnchor(anchor),
+                        onOpeningSourceHandoff = { releaseOpeningSource?.invoke() },
+                        onSourceReleased = { historySourceHidden = false },
+                        openingSourceView = sourceView
+                    ),
+                    prepareLegacy = { pending ->
+                        val snapshot = cleanHistoryButtonBitmap
+                            ?: runCatching { historyButtonLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                                ?.takeIf { it.width > 1 && it.height > 1 }
+                            ?: (cleanHistoryCapture ?: captureHistoryBackground())?.cropToAiHistorySource(bounds)
+                        val captured = anchor.copy(bitmap = snapshot)
+                        releaseOpeningSource = activity.attachOpeningSourceSnapshotHandoff(captured)
+                        if (releaseOpeningSource != null) {
+                            historySourceHidden = true
+                            withFrameNanos { }
+                            withFrameNanos { }
+                        }
+                        val background = captureHistoryBackground()?.bitmap
+                        if (background == null) {
+                            releaseOpeningSource?.invoke()
+                            historySourceHidden = false
+                            pending.copy(openingAnchor = null, returnAnchorProvider = null)
+                        } else pending.copy(openingAnchor = captured, returnAnchorProvider = returnAnchor(captured),
+                            backgroundBitmap = background)
+                    }
                 )
                 if (launchResult is TransitionLaunchResult.Failed) {
-                    releaseOpeningSource()
+                    releaseOpeningSource?.invoke()
                     historySourceHidden = false
                     return@launch
                 }
@@ -741,7 +920,6 @@ fun NormalizedAiManualImportScreen(
                     }
                 )
             ),
-            backdrop = backdrop,
             config = state.config,
             onDismissRequest = { showAiTokenRepairPrompt = false }
         )
@@ -774,11 +952,13 @@ private fun AiManualImportDialogContent(
     historySourceHidden: Boolean,
     historyButtonModifier: Modifier = Modifier,
     onHistoryButtonBoundsChanged: (Rect) -> Unit,
-    onOpenHistory: (Rect) -> Unit,
+    onOpenHistory: (Rect, android.view.View?) -> Unit,
     onOpenHistoryEntry: (AiImportHistoryEntry, Rect) -> Unit,
     onPrimaryAction: () -> Unit
 ) {
-    val nativeSurface = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeDialogSurface.current
+    val nativeHeading = LocalControlDialogHeading.current
+    val nativeChrome = nativeHeading != null
+    val nativeSurface = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalControlDialogSurface.current
     val materialForeground = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialForeground.current
         .takeUnless { it == ComposeColor.Unspecified }
     // A home morph owns wallpaper contrast; standalone native dialogs follow the app theme.
@@ -802,9 +982,9 @@ private fun AiManualImportDialogContent(
     Column(
         Modifier
             .fillMaxWidth()
-            .height(panelHeight)
+            .then(if (nativeChrome) Modifier.heightIn(max = com.itos.coui.dialog.CouiDialogDefaults.maxHeight) else Modifier.height(panelHeight))
     ) {
-        LiquidDialogHeader(
+        if (nativeHeading != null) nativeHeading("口令/文件导入") else LiquidDialogHeader(
             title = "口令/文件导入",
             onDismiss = onCancel,
             backdrop = backdrop,
@@ -899,7 +1079,7 @@ private fun AiManualImportDialogContent(
                     DialogCapsuleField(
                         value = jsonText,
                         onValueChange = onJsonTextChange,
-                        placeholder = "粘贴 SleepDown / WakeUp / 星链口令或 AI 返回内容",
+                        placeholder = "粘贴 SleepDown 课表口令/短口令、WakeUp/星链口令或 AI 返回内容",
                         config = state.config,
                         minLines = 5,
                         cornerRadius = 16.dp,
@@ -911,7 +1091,7 @@ private fun AiManualImportDialogContent(
             }
         } else {
             LiquidDialogBody {
-                LazyColumn(
+                SleepDownLazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     verticalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
@@ -924,7 +1104,7 @@ private fun AiManualImportDialogContent(
                                 if (mode == 1) {
                                     "选择标准 .ics 日历文件后，应用会在本机识别课程时间、重复规则和时区，并直接进入导入预览。"
                                 } else {
-                                    "支持 PDF、图片、XLSX、CSV、DOCX、PPTX、ODS、TXT、Markdown、JSON、XML 和 HTML。"
+                                    "支持 PDF、图片、XLSX、CSV、DOCX、PPTX、ODS、TXT、Markdown、JSON、XML 和 HTML。SleepDown 课表 JSON 会直接在本机导入。"
                                 },
                                 color = textColor.copy(alpha = 0.86f),
                                 style = MaterialTheme.typography.bodyMedium,
@@ -994,45 +1174,51 @@ private fun AiManualImportDialogContent(
                 style = MaterialTheme.typography.bodySmall
             )
         }
-        LiquidDialogFooter {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
-                Box(
-                    Modifier.weight(1f).onGloballyPositioned {
-                        historyButtonBounds = it.boundsInWindow()
-                        onHistoryButtonBoundsChanged(historyButtonBounds)
-                    }
-                ) {
-                    // Keep the real button in the layout while the native transition owns it: a
-                    // placeholder of a different height would move the measured return bounds.
-                    DialogLiquidButton(
-                        backdrop = backdrop,
-                        label = "导入历史",
-                        role = DialogButtonRole.Cancel,
-                        iconRes = R.drawable.ic_history,
-                        modifier = Modifier.fillMaxWidth()
-                            .alpha(if (historySourceHidden) 0f else 1f)
-                            .then(historyButtonModifier),
-                        destructiveFilled = true,
-                        onClick = {
-                            if (!historySourceHidden && historyButtonBounds.width > 1f)
-                                onOpenHistory(historyButtonBounds)
-                        }
-                    )
-                }
+        val historyAction: @Composable (Modifier) -> Unit = { historyModifier ->
+            var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
+            LiveTransitionButton(
+                modifier = historyModifier.onGloballyPositioned {
+                    historyButtonBounds = it.boundsInWindow()
+                    onHistoryButtonBoundsChanged(historyButtonBounds)
+                },
+                show = !historySourceHidden,
+            ) { sourceView ->
+                // Keep the real button in the layout while the native transition owns it: a
+                // placeholder of a different height would move the measured return bounds.
                 DialogLiquidButton(
                     backdrop = backdrop,
-                    label = when {
-                        aiParsing -> "解析中..."
-                        mode == 0 -> "解析并预览"
-                        mode == 1 -> "选择 ICS 文件"
-                        else -> "上传文件"
-                    },
-                    role = DialogButtonRole.Confirm,
-                    iconRes = R.drawable.ic_download,
-                    modifier = Modifier.weight(1f),
-                    onClick = onPrimaryAction
+                    label = "导入历史",
+                    role = DialogButtonRole.Cancel,
+                    iconRes = R.drawable.ic_history,
+                    modifier = Modifier.fillMaxWidth().then(historyButtonModifier),
+                    destructiveFilled = !nativeChrome,
+                    monochromeNeutral = nativeChrome,
+                    height = if (nativeChrome) com.itos.coui.dialog.CouiDialogDefaults.buttonHeight else 40.dp,
+                    onClick = {
+                        if (!historySourceHidden && historyButtonBounds.width > 1f)
+                            onOpenHistory(historyButtonBounds, sourceView)
+                    }
                 )
+            }
+        }
+        val primaryLabel = when {
+            aiParsing -> "解析中..."
+            mode == 0 -> "解析并预览"
+            mode == 1 -> "选择 ICS 文件"
+            else -> "上传文件"
+        }
+        if (nativeChrome) {
+            historyAction(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp))
+            LiquidAlertActions(listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onCancel),
+                LiquidAlertAction(primaryLabel, LiquidAlertActionStyle.Primary, enabled = !aiParsing,
+                    dismissOnClick = false, onClick = onPrimaryAction)
+            ), backdrop, state.config)
+        } else LiquidDialogFooter {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                historyAction(Modifier.weight(1f))
+                DialogLiquidButton(backdrop = backdrop, label = primaryLabel, role = DialogButtonRole.Confirm,
+                    iconRes = R.drawable.ic_download, modifier = Modifier.weight(1f), onClick = onPrimaryAction)
             }
         }
     }

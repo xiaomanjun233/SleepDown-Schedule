@@ -4,7 +4,10 @@ import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import android.os.Looper
+import android.view.View
+import android.view.Window
 import androidx.compose.ui.geometry.Rect
+import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
@@ -17,9 +20,11 @@ data class TransitionAnchorFrame(
     /** Fill of the moving surface, independent of the source Activity's page background. */
     val surfaceColor: Int? = null
 ) {
+    val hasBounds: Boolean
+        get() = boundsInWindow.width > 1f && boundsInWindow.height > 1f
+
     val isValid: Boolean
-        get() = boundsInWindow.width > 1f && boundsInWindow.height > 1f &&
-            bitmap != null && !bitmap.isRecycled
+        get() = hasBounds && bitmap != null && !bitmap.isRecycled
 }
 
 /**
@@ -37,11 +42,13 @@ internal fun Activity.attachOpeningSourceSnapshotHandoff(
     val bounds = anchor.boundsInWindow
     val drawable = object : BitmapDrawable(resources, bitmap) {
         private val path = android.graphics.Path()
+        private val outline = android.graphics.RectF()
         override fun draw(canvas: android.graphics.Canvas) {
             val count = canvas.save()
             val radius = anchor.cornerRadiusPx.coerceIn(0f, minOf(this.bounds.width(), this.bounds.height()) / 2f)
             path.reset()
-            path.addRoundRect(android.graphics.RectF(this.bounds), radius, radius, android.graphics.Path.Direction.CW)
+            outline.set(this.bounds)
+            path.addRoundRect(outline, radius, radius, android.graphics.Path.Direction.CW)
             canvas.clipPath(path)
             super.draw(canvas)
             canvas.restoreToCount(count)
@@ -89,7 +96,6 @@ data class TransitionPayload(
      * Solid underlay color of the source Activity. The moving surface has its own anchor color.
      */
     val backgroundColor: Int? = null,
-    val backgroundDialog: com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeDialogSnapshot? = null,
     val parentSessionId: TransitionSessionId? = null,
     /**
      * Keeps a source-owned visual handoff alive until a renderer has actually taken ownership.
@@ -102,8 +108,24 @@ data class TransitionPayload(
      * It is session scoped and runs exactly once for native completion, Legacy completion or
      * cancellation, so source Activities never have to guess from an early onResume callback.
      */
-    val onSourceReleased: (() -> Unit)? = null
+    val onSourceReleased: (() -> Unit)? = null,
+    val openingSourceView: View? = null,
+    val openingSourceWindow: Window? = null,
+    val floatingAddSource: Boolean = false,
 )
+
+/** Only copy the moving button. The live source window supplies the clean underlay. */
+internal suspend fun TransitionPayload.captureLegacyFloatingAdd(activity: Activity): TransitionPayload {
+    val anchor = openingAnchor ?: return this
+    val bitmap = captureGlassWindowRegion(activity.window, anchor.boundsInWindow)
+    val provider = returnAnchorProvider
+    return copy(
+        openingAnchor = anchor.copy(bitmap = bitmap),
+        returnAnchorProvider = provider?.let {
+            TransitionAnchorProvider { it.resolve()?.copy(bitmap = bitmap) }
+        },
+    )
+}
 
 private class CleanupHandle(private val cleanup: () -> Unit) {
     private val executed = AtomicBoolean(false)
@@ -115,7 +137,7 @@ private class CleanupHandle(private val cleanup: () -> Unit) {
 
 private class StoredTransitionPayload(
     val session: TransitionSession,
-    val payload: TransitionPayload?
+    @Volatile var payload: TransitionPayload?
 ) {
     private val closed = AtomicBoolean(false)
     private val cleanup = CopyOnWriteArrayList<CleanupHandle>()
@@ -175,6 +197,11 @@ object TransitionPayloadStore {
 
     fun payload(id: TransitionSessionId?): TransitionPayload? = id?.let { entries[it]?.payload }
 
+    /** Legacy captures are prepared after a rejected native launch and before the Activity starts. */
+    internal fun replaceOpeningVisuals(id: TransitionSessionId, payload: TransitionPayload) {
+        entries[id]?.payload = payload
+    }
+
     fun registerCleanup(id: TransitionSessionId, cleanup: () -> Unit): Boolean {
         val entry = entries[id]
         if (entry == null) {
@@ -191,6 +218,15 @@ object TransitionPayloadStore {
     /** Restores business-owned source content without disposing the native frame-sync bridge. */
     fun releaseSource(id: TransitionSessionId) {
         entries[id]?.releaseSource()
+    }
+
+    internal fun hideLegacyMorphSource(id: TransitionSessionId) {
+        val payload = payload(id) ?: return
+        val anchor = payload.openingAnchor?.takeIf(TransitionAnchorFrame::hasBounds) ?: return
+        val hasWelcomeSnapshot = session(id)?.routeId == TransitionRouteId.WelcomeToHome && anchor.bitmap != null
+        if (!payload.floatingAddSource && !hasWelcomeSnapshot) return
+        val source = payload.openingSourceView as? LiveTransitionSourceView ?: return
+        source.hideForLegacyMorph()?.let { registerCleanup(id, it) }
     }
 
     fun remove(id: TransitionSessionId?) {

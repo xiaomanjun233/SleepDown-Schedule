@@ -1,7 +1,11 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import androidx.compose.ui.unit.dp
+import com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups
+import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
 import com.xiaomanjun.sleepdownschedule.model.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.timingPreviewState
+import com.xiaomanjun.sleepdownschedule.domain.schedule.hasCustomTime
 import com.xiaomanjun.sleepdownschedule.feature.importing.CanonicalScheduleJson
 import java.time.LocalDate
 import java.time.LocalTime
@@ -12,6 +16,58 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WeekCourseBellTest {
+    @Test fun activeCourseBoundsUseTheSameClocksAsTheYellowRail() {
+        val later = exception.copy(id = 22, customStartTime = "11:00", customEndTime = "11:45")
+        val source = state(listOf(later))
+        val rail = weekDayTimeline(source, today, LocalTime.of(11, 10))
+        assertTrue(rail.exceptionalActivePeriod)
+        assertEquals(1, rail.activePeriodIndex)
+
+        val projected = projectCourseArrangement(later, config, periods, date = today)
+        val segment = buildWeekConflictGroups(listOf(projected), periods.map(PeriodEntity::periodIndex), periods)
+            .single().segments.single()
+        val baselineGrid = weekTimeSlotGrid(emptyList(), periods.size, 100f, periods = periods)
+        val todayGrid = baselineGrid.withLessonClocks(rail.periods)
+        assertEquals(baselineGrid.rowTops, todayGrid.rowTops)
+        assertEquals(12f to 88f, weekCardVerticalBounds(segment, periods, 100.dp, todayGrid, useRailClocks = true))
+        assertTrue(weekCardVerticalBounds(segment, periods, 100.dp, baselineGrid).first > 200f)
+    }
+
+    @Test fun specialLessonClocksFollowTheirDayAndWeekWithoutReplacingOrdinaryCourses() {
+        val slot = com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotCourse(
+            "special", "自习", "08:20", "09:05", weekdays = listOf(4), periodIndices = listOf(1),
+            customPeriodTimes = "1,08:20-09:05", displayMode = com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotDisplayMode.SMART,
+            startWeek = 1, endWeek = 1)
+        val source = state(emptyList()).copy(config = config.copy(timeSlotCoursesJson =
+            com.xiaomanjun.sleepdownschedule.domain.schedule.encodeTimeSlotCourses(listOf(slot))))
+        val active = weekDayTimeline(source, today, LocalTime.of(8, 30))
+        assertEquals("08:20", active.periods.first().startTime)
+        assertTrue(active.exceptionalActivePeriod)
+        assertEquals(periods, weekDayTimeline(source, today.plusDays(1), LocalTime.of(8, 30)).periods)
+        assertEquals(periods, weekDayTimeline(source, today.plusWeeks(1), LocalTime.of(8, 30)).periods)
+        val ordinary = exception.copy(customStartTime = null, customEndTime = null)
+        assertEquals(periods, weekDayTimeline(source.copy(courses = listOf(ordinary)), today, LocalTime.of(9, 10)).periods)
+        val independent = source.copy(config = source.config.copy(timeSlotCoursesJson =
+            com.xiaomanjun.sleepdownschedule.domain.schedule.encodeTimeSlotCourses(listOf(slot.copy(
+                displayMode = com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotDisplayMode.INDEPENDENT)))))
+        assertEquals(periods, weekDayTimeline(independent, today, LocalTime.of(8, 30)).periods)
+    }
+
+    @Test fun importedCampusClockRemainsCustomThroughPreviewAndReplacesTheActualRail() {
+        val session = com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangImportSession()
+        session.begin(config, periods, allowImportedBellTimes = true)
+        session.stageCourses("""[{"name":"异校区","teacher":"","position":"","day":4,"startSection":1,"endSection":2,
+            "weeks":[1],"isCustomTime":true,"customStartTime":"08:20","customEndTime":"10:30"}]""")
+        val draft = session.complete()
+        val course = draft.courses.single()
+        assertTrue(course.hasCustomTime())
+        assertEquals(listOf(1, 2), course.periods)
+        val rail = weekDayTimeline(draft.timingPreviewState(), today, LocalTime.of(8, 30))
+        assertEquals("08:20", rail.periods.first().startTime)
+        assertEquals("10:30", rail.periods[1].endTime)
+        assertTrue(rail.exceptionalActivePeriod)
+    }
+
     private val today = LocalDate.of(2026, 10, 29)
     private val periods = listOf(PeriodEntity(1, "09:00", "09:45"), PeriodEntity(2, "09:55", "10:40"), PeriodEntity(3, "10:50", "11:35"))
     private val config = defaultConfig().copy(termStartDate = "2026-10-26", totalWeeks = 2)

@@ -1,0 +1,5 @@
+<set xmlns:android="http://schemas.android.com/apk/res/android" android:shareInterpolator="false">
+    <translate android:duration="250" android:interpolator="@anim/coui_dialog_enter_curve"
+        android:fromYDelta="100%" android:toYDelta="0%p" android:fillBefore="false"
+        android:fillAfter="true" android:fillEnabled="true" />
+</set>

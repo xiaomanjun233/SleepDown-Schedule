@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox
+import com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskInput
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,12 +14,46 @@ import java.net.HttpURLConnection
 
 /** One attempt's cancellation and user instructions. Original attachments stay in the task owner. */
 class AiImportInteraction(val instruction: String) {
+    internal var mailbox = AgentMailbox<AgentTaskInput>()
+    internal var onAcceptedInput: ((AgentTaskInput) -> Unit)? = null
+    @Volatile internal var supplementalFiles: List<AiImportFile> = emptyList()
+    private var closedToAttachments = false
+
+    @Synchronized
+    internal fun submitFiles(input: AgentTaskInput): Boolean =
+        !cancelled && !closedToAttachments && mailbox.trySubmit(input, AgentMailbox.Mode.STEER) != null
+
+    @Synchronized
+    internal fun acceptCandidate(): Boolean {
+        if (hasSteering()) return false
+        closedToAttachments = true
+        return true
+    }
+
+    internal fun acceptSteering(beforeAccept: (AgentTaskInput) -> Boolean = { true }): List<AgentTaskInput> {
+        checkActive()
+        val messages = mailbox.drainSteering()
+        return messages.filterIndexed { index, input ->
+            try {
+                if (!beforeAccept(input)) return@filterIndexed false
+                supplementalFiles = supplementalFiles + input.files
+                onAcceptedInput?.invoke(input)
+                true
+            }
+            catch (error: Exception) {
+                messages.drop(index).forEach { mailbox.submit(it, AgentMailbox.Mode.STEER) }
+                throw error
+            }
+        }
+    }
+    internal fun hasSteering(): Boolean = !mailbox.paused && mailbox.inputs.value.any { it.mode == AgentMailbox.Mode.STEER }
     internal var onHttpPhase: (AiImportHttpPhase) -> Unit = {}
     internal var onTransportPhase: ((AiImportHttpPhase) -> Unit)? = null
     internal var onStream: ((Boolean, String) -> Unit)? = null
     internal var onActivity: ((AiImportActivity) -> Unit)? = null
     internal var onExecutionStep: ((String) -> Unit)? = null
     internal var onProgressReport: ((String) -> Unit)? = null
+    internal var onUsage: ((com.xiaomanjun.sleepdownschedule.core.ai.AiRequestUsage) -> Unit)? = null
     private val emittedProgressReports = linkedSetOf<String>()
     private val activityScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val activityPublisher = AiImportActivityPublisher(schedule = { delayMs, flush ->
@@ -100,11 +136,11 @@ internal const val AiImportActivityMaxChars = 180
 /** Completed public prose only. JSON, code and opaque protocol fields are never progress reports. */
 internal fun importPublicProgressText(text: CharSequence): String? {
     val prose = text.toString().trim()
-    if (prose.isBlank() || prose.any { it in "{}[]`<>" } ||
+    if (prose.isBlank() || prose.any { it in "{}<>" } || prose.startsWith('[') && !Regex("^\\[[^]]+](?:\\(|:|\\s)").containsMatchIn(prose) || prose.contains("```") ||
         Regex("(?i)encrypted_content|chain_of_thought|DSML|tool_calls|function_call").containsMatchIn(prose) ||
         Regex("[A-Za-z0-9+/_=-]{80,}").containsMatchIn(prose) ||
         Regex("(?im)^\\s*(?:fun|val|var|class|def|import|package|function|const|let)\\s+").containsMatchIn(prose)) return null
-    return importActivityText(prose)
+    return normalizeAiImportReport(AiImportReport(prose, AiImportReportKind.MODEL)).text
 }
 
 /** Bounded, single-line live text. It is deliberately separate from the complete result buffers. */
@@ -130,7 +166,8 @@ internal class AiImportActivityPublisher(
 
     @Synchronized
     fun publish(activity: AiImportActivity) {
-        val bounded = activity.copy(text = importActivityText(activity.text))
+        val bounded = activity.copy(text = if (activity.source == AiImportActivitySource.MODEL_PROGRESS)
+            importPublicProgressText(activity.text).orEmpty() else importActivityText(activity.text))
         if (bounded.text.isBlank()) return
         if (bounded == lastActivity) {
             pending = null

@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.app.state
 
+import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
+
 import android.app.Application
 import android.util.Log
 import androidx.lifecycle.AndroidViewModel
@@ -10,11 +12,13 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlan
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentPlanExecutionResult
 import com.xiaomanjun.sleepdownschedule.feature.agent.AgentSettingPlanExecutor
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportHistoryStore
 import com.xiaomanjun.sleepdownschedule.feature.reminder.NotificationScheduler
 import com.xiaomanjun.sleepdownschedule.feature.schedule.*
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedAction
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -112,8 +116,10 @@ class ScheduleViewModel(
         repository.addCourse(course)
     }
 
-    fun addCourses(courses: List<CourseEntity>) = launchCourseMutation {
-        repository.addCourses(courses)
+    fun addCourses(courses: List<CourseEntity>, expectedScheduleId: Int, onResult: (Boolean) -> Unit) = launchCourseMutation(
+        onSuccess = { onResult(true) }, onFailure = { onResult(false) }
+    ) {
+        repository.addCourses(courses, expectedScheduleId)
     }
 
     fun copyCourses(courses: List<CourseEntity>, onResult: (Boolean) -> Unit) =
@@ -146,7 +152,14 @@ class ScheduleViewModel(
         successMessage = if (replacements.isEmpty()) "课程已删除" else "课程已更新",
         onSuccess = { onFinished(true) }, onFailure = { onFinished(false) }
     ) {
-        if (replacements.isEmpty()) repository.deleteCourses(originals)
+        val originalById = originals.associateBy(CourseEntity::id)
+        val deletionOnly = replacements.size < originals.size &&
+            replacements.all { originalById[it.id]?.originalArrangement() == it }
+        if (deletionOnly) {
+            repository.deleteManagedCourses(
+                originals.first().scheduleId, originals, replacements.mapTo(hashSetOf(), CourseEntity::id),
+            )
+        } else if (replacements.isEmpty()) repository.deleteCourses(originals)
         else repository.replaceCourseGroup(originals, replacements)
     }
 
@@ -173,6 +186,11 @@ class ScheduleViewModel(
         launchCourseMutation("课程已删除", onSuccess) {
             repository.deleteCourses(courses)
         }
+
+    suspend fun deleteManagedCourses(scheduleId: Int, courses: List<CourseEntity>) {
+        repository.deleteManagedCourses(scheduleId, courses)
+        refreshCoordinator.request()
+    }
 
     fun deleteCoursesSingleWeek(courses: List<CourseEntity>, targetWeek: Int, onFailure: (() -> Unit)? = null) =
         launchCourseMutation("课程已删除", onFailure = onFailure) {
@@ -222,13 +240,25 @@ class ScheduleViewModel(
     fun importDraft(
         draft: ImportDraft,
         createNewSchedule: Boolean = false,
+        historySource: String = "常规导入",
         onFailure: ((Throwable) -> Unit)? = null,
         onDone: (Int) -> Unit
     ) = viewModelScope.launch {
         try {
             val scheduleId = repository.importDraft(draft, createNewSchedule)
+            val historySaved = draft.source != ImportDraftSource.STANDARD || withContext(Dispatchers.IO) {
+                runCatching {
+                    AiImportHistoryStore.record(app, draft, progress = null, sourceSummary = historySource)
+                }.onFailure { error ->
+                    Log.w("ScheduleViewModel", "Import history save failed: ${error.javaClass.simpleName}")
+                }.isSuccess
+            }
             refreshCoordinator.request()
-            mutableSnackbar.value = if (createNewSchedule) "已导入到新课表" else "课程表已导入"
+            mutableSnackbar.value = when {
+                !historySaved -> "课表已导入，历史记录保存失败"
+                createNewSchedule -> "已导入到新课表"
+                else -> "课程表已导入"
+            }
             onDone(scheduleId)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -403,6 +433,12 @@ class ScheduleViewModel(
     fun saveScheduleAdjustments(scheduleId: Int, original: String, updated: String,
         onSuccess: (() -> Unit)? = null, onFailure: (() -> Unit)? = null) =
         scheduleActions.saveScheduleAdjustments(scheduleId, original, updated, onSuccess, onFailure)
+
+    internal suspend fun commitScheduleAdjustments(scheduleId: Int, original: String, updated: String) {
+        viewModelScope.async {
+            scheduleActions.commitScheduleAdjustments(scheduleId, original, updated)
+        }.await()
+    }
 
     fun clearSnackbar() {
         mutableSnackbar.value = null

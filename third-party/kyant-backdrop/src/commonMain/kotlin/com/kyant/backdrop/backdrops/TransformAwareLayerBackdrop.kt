@@ -17,15 +17,29 @@ fun LayerBackdrop.withTransformCompensation(): Backdrop = TransformAwareLayerBac
 
 private class TransformAwareLayerBackdrop(private val source: LayerBackdrop) : Backdrop {
     override val isCoordinatesDependent = true
-    private val sourceToConsumer = Matrix()
+    private val mapping = BackdropCoordinateMapping()
 
     override fun DrawScope.drawBackdrop(
         density: Density,
         coordinates: LayoutCoordinates?,
         layerBlock: (GraphicsLayerScope.() -> Unit)?
     ) {
-        val consumer = coordinates?.takeIf { it.isAttached } ?: return
-        val producer = source.layerCoordinates?.takeIf { it.isAttached } ?: return
+        mapping.draw(this, source.graphicsLayer, source.layerCoordinates, coordinates)
+    }
+}
+
+/** Same mapping for raw, prefiltered and animated consumers; no card-specific offsets. */
+internal class BackdropCoordinateMapping {
+    private val sourceToConsumer = Matrix()
+
+    fun draw(
+        scope: DrawScope,
+        image: androidx.compose.ui.graphics.layer.GraphicsLayer,
+        source: LayoutCoordinates?,
+        coordinates: LayoutCoordinates?,
+    ) = with(scope) {
+        val consumer = coordinates?.takeIf { it.isAttached } ?: return@with
+        val producer = source?.takeIf { it.isAttached } ?: return@with
         sourceToConsumer.reset()
         try {
             consumer.transformFrom(producer, sourceToConsumer)
@@ -36,7 +50,7 @@ private class TransformAwareLayerBackdrop(private val source: LayerBackdrop) : B
             val origin = consumer.screenToLocal(producer.localToScreen(Offset.Zero))
             val x = consumer.screenToLocal(producer.localToScreen(Offset(1f, 0f)))
             val y = consumer.screenToLocal(producer.localToScreen(Offset(0f, 1f)))
-            if (!origin.isSpecified || !x.isSpecified || !y.isSpecified) return
+            if (!origin.isSpecified || !x.isSpecified || !y.isSpecified) return@with
             sourceToConsumer[0, 0] = x.x - origin.x
             sourceToConsumer[0, 1] = x.y - origin.y
             sourceToConsumer[1, 0] = y.x - origin.x
@@ -46,6 +60,6 @@ private class TransformAwareLayerBackdrop(private val source: LayerBackdrop) : B
         }
         // LayoutCoordinates already includes the popup's graphics layers. Applying Kyant's
         // explicit layerBlock inverse as well would compensate the same transform twice.
-        withTransform({ transform(sourceToConsumer) }) { drawLayer(source.graphicsLayer) }
+        withTransform({ transform(sourceToConsumer) }) { drawLayer(image) }
     }
 }

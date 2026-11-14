@@ -1,22 +1,29 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.settings
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
+import android.content.res.Configuration
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.padding
+import com.itos.coui.picker.WheelPicker
+import com.itos.coui.picker.CouiPickerDefaults
+import com.itos.coui.picker.couiPickerSelectionLines
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -25,11 +32,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.LastMinuteOfDay
 import com.xiaomanjun.sleepdownschedule.PeriodTimePickerBounds
@@ -37,8 +47,6 @@ import com.xiaomanjun.sleepdownschedule.PeriodTimeSelection
 import com.xiaomanjun.sleepdownschedule.PeriodTimeSelectionAnchor
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.constrainPeriodTimeSelection
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.domain.schedule.constrainPeriodTimeSelection
 import com.xiaomanjun.sleepdownschedule.domain.schedule.parseScheduleTime
@@ -46,6 +54,7 @@ import com.xiaomanjun.sleepdownschedule.formatScheduleDate
 import com.xiaomanjun.sleepdownschedule.parseScheduleDate
 import java.time.LocalDate
 import java.time.LocalTime
+import java.util.Locale
 
 fun showNativeDatePicker(context: Context, currentValue: String, onPicked: (String) -> Unit) {
     val date = parseScheduleDate(currentValue) ?: LocalDate.now()
@@ -80,14 +89,18 @@ fun SettingsDatePickerRow(
     onValueChange: (String) -> Unit,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    yearRange: IntRange = 2000..2100,
+    initialDate: LocalDate? = null,
 ) {
     val popupBackdrop = LocalSettingsPopupBackdrop.current ?: backdrop
     var showPicker by remember { mutableStateOf(false) }
-    val initialDate = remember(value, showPicker) { parseScheduleDate(value) ?: LocalDate.now() }
-    var pickerYear by remember(initialDate, showPicker) { mutableIntStateOf(initialDate.year) }
-    var pickerMonth by remember(initialDate, showPicker) { mutableIntStateOf(initialDate.monthValue) }
-    var pickerDay by remember(initialDate, showPicker) { mutableIntStateOf(initialDate.dayOfMonth) }
+    val pickerDate = remember(value, showPicker, initialDate) {
+        initialDate ?: parseScheduleDate(value) ?: LocalDate.now()
+    }
+    var pickerYear by remember(pickerDate, showPicker) { mutableIntStateOf(pickerDate.year) }
+    var pickerMonth by remember(pickerDate, showPicker) { mutableIntStateOf(pickerDate.monthValue) }
+    var pickerDay by remember(pickerDate, showPicker) { mutableIntStateOf(pickerDate.dayOfMonth) }
     SettingsPickerValueRow(
         title = title,
         value = value,
@@ -96,37 +109,35 @@ fun SettingsDatePickerRow(
     )
     SleepDownPickerDialog(
         show = showPicker,
-        title = "选择日期",
+        title = if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) "" else "选择日期",
         onDismissRequest = { showPicker = false },
-        backdrop = popupBackdrop,
         config = config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
+        actions = listOf(
+            LiquidAlertAction("取消",
+                LiquidAlertActionStyle.Cancel, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    showPicker = false
+                }),
+            LiquidAlertAction("确定",
+                LiquidAlertActionStyle.Primary, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    val maxDay = java.time.YearMonth.of(pickerYear, pickerMonth).lengthOfMonth()
+                    onValueChange(formatScheduleDate(LocalDate.of(pickerYear, pickerMonth, pickerDay.coerceAtMost(maxDay))))
+                    showPicker = false
+                })
+        )
     ) {
         SettingsDatePickerContent(
             year = pickerYear, month = pickerMonth, day = pickerDay,
             onYearChange = { pickerYear = it }, onMonthChange = { pickerMonth = it },
-            onDayChange = { pickerDay = it }
+            onDayChange = { pickerDay = it }, yearRange = yearRange
         )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)) {
-            QuickSheetLiquidAction(
-                "取消", true, popupBackdrop, config,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) { showPicker = false }
-            QuickSheetLiquidAction(
-                "确定", true, popupBackdrop, config, primary = true,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
-                val maxDay = java.time.YearMonth.of(pickerYear, pickerMonth).lengthOfMonth()
-                onValueChange(formatScheduleDate(LocalDate.of(pickerYear, pickerMonth, pickerDay.coerceAtMost(maxDay))))
-                showPicker = false
-            }
-        }
+
     }
 }
 
 /**
- * Shared year/month/day wheels. Kept separate from the row so a centered dialog can host the same
- * control as one of its pages instead of stacking a second dialog on top of itself.
+ * Shared date selection content for settings rows and dialogs.
  */
 @Composable
 internal fun SettingsDatePickerContent(
@@ -136,9 +147,38 @@ internal fun SettingsDatePickerContent(
     onYearChange: (Int) -> Unit,
     onMonthChange: (Int) -> Unit,
     onDayChange: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    yearRange: IntRange = 2000..2100
 ) {
     val maxDay = java.time.YearMonth.of(year, month).lengthOfMonth()
+    if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
+        val context = LocalContext.current
+        val configuration = LocalConfiguration.current
+        val calendarResources = remember(context, configuration) {
+            val chinese = Configuration(configuration).apply { setLocale(Locale.SIMPLIFIED_CHINESE) }
+            context.createConfigurationContext(chinese).resources
+        }
+        // The calendar reads its date formats and accessibility labels from separate locals.
+        CompositionLocalProvider(
+            LocalConfiguration provides calendarResources.configuration,
+            LocalResources provides calendarResources,
+        ) {
+            com.itos.coui.picker.CalendarPicker(
+                modifier = modifier.fillMaxWidth(),
+                value = LocalDate.of(year, month, day.coerceIn(1, maxDay)),
+                minDate = LocalDate.of(yearRange.first, 1, 1),
+                maxDate = LocalDate.of(yearRange.last, 12, 31),
+                dark = MaterialTheme.colorScheme.background.luminance() < 0.5f,
+                accent = MaterialTheme.colorScheme.primary,
+                onValueChange = { date ->
+                    onYearChange(date.year)
+                    onMonthChange(date.monthValue)
+                    onDayChange(date.dayOfMonth)
+                },
+            )
+        }
+        return
+    }
     LaunchedEffect(maxDay) {
         if (day > maxDay) onDayChange(maxDay)
     }
@@ -149,7 +189,7 @@ internal fun SettingsDatePickerContent(
         // readable without changing the dialog width: reserve more width for the year and cap
         // only this dense numeric control's effective size at the extreme DPI combinations.
         val compactPicker = maxWidth < 300.dp || fontScale > 1.12f
-        val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+        val pickerTextStyle = MaterialTheme.typography.headlineSmall.copy(
             fontSize = when {
                 maxWidth < 270.dp || fontScale > 1.32f -> 21.sp
                 compactPicker -> 24.sp
@@ -160,16 +200,16 @@ internal fun SettingsDatePickerContent(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(if (compactPicker) 4.dp else 8.dp)
         ) {
-            top.yukonga.miuix.kmp.basic.NumberPicker(
+            SettingsNumberPicker(
                 value = year,
                 onValueChange = onYearChange,
-                range = 2000..2100,
+                range = yearRange,
                 visibleItemCount = 3,
                 label = { "${it}年" },
                 textStyle = pickerTextStyle,
                 modifier = Modifier.weight(if (compactPicker) 1.65f else 1.5f)
             )
-            top.yukonga.miuix.kmp.basic.NumberPicker(
+            SettingsNumberPicker(
                 value = month,
                 onValueChange = onMonthChange,
                 range = 1..12,
@@ -178,7 +218,7 @@ internal fun SettingsDatePickerContent(
                 textStyle = pickerTextStyle,
                 modifier = Modifier.weight(1f)
             )
-            top.yukonga.miuix.kmp.basic.NumberPicker(
+            SettingsNumberPicker(
                 value = day.coerceAtMost(maxDay),
                 onValueChange = onDayChange,
                 range = 1..maxDay,
@@ -220,30 +260,26 @@ fun SettingsTimePickerRow(
         show = showPicker,
         title = "选择时间",
         onDismissRequest = { showPicker = false },
-        backdrop = popupBackdrop,
         config = config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
+        actions = listOf(
+            LiquidAlertAction("取消",
+                LiquidAlertActionStyle.Cancel, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    showPicker = false
+                }),
+            LiquidAlertAction("确定",
+                LiquidAlertActionStyle.Primary, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    onValueChange("%02d:%02d".format(selectedMinute / 60, selectedMinute % 60))
+                    showPicker = false
+                })
+        )
     ) {
             SettingsTimePickerContent(selectedMinute, safeMinimum..safeMaximum) {
                 pickerHour = it / 60
                 pickerMinute = it % 60
             }
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
-            ) {
-                QuickSheetLiquidAction(
-                    "取消", true, popupBackdrop, config,
-                    modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-                ) { showPicker = false }
-                QuickSheetLiquidAction(
-                    "确定", true, popupBackdrop, config, primary = true,
-                    modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-                ) {
-                    onValueChange("%02d:%02d".format(selectedMinute / 60, selectedMinute % 60))
-                    showPicker = false
-                }
-            }
+
     }
 }
 
@@ -272,27 +308,23 @@ internal fun SettingsMinutePickerRow(
         show = showPicker,
         title = pickerTitle,
         onDismissRequest = { showPicker = false },
-        backdrop = popupBackdrop,
         config = config,
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding)
+        actions = listOf(
+            LiquidAlertAction("取消",
+                LiquidAlertActionStyle.Cancel, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    showPicker = false
+                }),
+            LiquidAlertAction("确定",
+                LiquidAlertActionStyle.Primary, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    onValueChange(pickerValue)
+                    showPicker = false
+                })
+        )
     ) {
         SettingsMinutePickerContent(pickerValue, { pickerValue = it }, range)
-        Row(
-            Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
-        ) {
-            QuickSheetLiquidAction(
-                "取消", true, popupBackdrop, config,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) { showPicker = false }
-            QuickSheetLiquidAction(
-                "确定", true, popupBackdrop, config, primary = true,
-                modifier = Modifier.weight(1f), height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
-                onValueChange(pickerValue)
-                showPicker = false
-            }
-        }
+
     }
 }
 
@@ -307,9 +339,26 @@ internal fun SettingsTimePickerContent(
     val selectedHour = selectedMinute / 60
     val allowedMinuteRange = minuteRangeForHour(selectedHour, safeMinimum, safeMaximum)
     BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+                if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls) {
+                    val dark = MaterialTheme.colorScheme.background.luminance() < .5f
+                    // DemoTimePicker 的 62dp 数字列、共享选中线与 12dp 上下留白；范围仍由业务约束。
+                    Row(Modifier.fillMaxWidth().couiPickerSelectionLines(MaterialTheme.colorScheme.outlineVariant, 16.dp)
+                        .padding(vertical = CouiPickerDefaults.padding),
+                        horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                        WheelPicker(Modifier.width(CouiPickerDefaults.columnWidth), value = selectedHour,
+                            onValueChange = { hour -> onValueChange(hour * 60 +
+                                (selectedMinute % 60).coerceIn(minuteRangeForHour(hour, safeMinimum, safeMaximum))) },
+                            valueRange = (safeMinimum / 60)..(safeMaximum / 60), label = "小时", dark = dark)
+                        WheelPicker(Modifier.width(CouiPickerDefaults.columnWidth), value = selectedMinute % 60,
+                            onValueChange = { onValueChange(selectedHour * 60 + it) }, valueRange = allowedMinuteRange,
+                            label = "分钟", dark = dark, wrap = allowedMinuteRange == 0..59,
+                            repeatIntervalMillis = 100, formatter = { "%02d".format(it) })
+                    }
+                    return@BoxWithConstraints
+                }
                 val pickerContentColor = LocalContentColor.current
                 val compact = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.15f
-                val pickerTextStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+                val pickerTextStyle = MaterialTheme.typography.headlineSmall.copy(
                     color = pickerContentColor,
                     fontSize = if (compact) 23.sp else 28.sp
                 )
@@ -323,7 +372,7 @@ internal fun SettingsTimePickerContent(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(if (compact) 6.dp else 12.dp)
                 ) {
-                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                    SettingsNumberPicker(
                         value = selectedHour,
                         onValueChange = { hour ->
                             val minute = (selectedMinute % 60).coerceIn(minuteRangeForHour(hour, safeMinimum, safeMaximum))
@@ -336,7 +385,7 @@ internal fun SettingsTimePickerContent(
                         textStyle = pickerTextStyle,
                         modifier = Modifier.weight(1f)
                     )
-                    top.yukonga.miuix.kmp.basic.NumberPicker(
+                    SettingsNumberPicker(
                         value = selectedMinute % 60,
                         onValueChange = { onValueChange(selectedHour * 60 + it) },
                         range = allowedMinuteRange,
@@ -356,7 +405,7 @@ internal fun SettingsMinutePickerContent(
     value: Int, onValueChange: (Int) -> Unit, range: IntRange, modifier: Modifier = Modifier
 ) {
         val pickerContentColor = LocalContentColor.current
-        top.yukonga.miuix.kmp.basic.NumberPicker(
+        SettingsNumberPicker(
             value = value.coerceIn(range),
             onValueChange = onValueChange,
             range = range,
@@ -368,7 +417,7 @@ internal fun SettingsMinutePickerContent(
                 disabledSelectedTextColor = pickerContentColor.copy(alpha = 0.55f),
                 disabledUnselectedTextColor = pickerContentColor.copy(alpha = 0.22f)
             ),
-            textStyle = top.yukonga.miuix.kmp.theme.MiuixTheme.textStyles.title1.copy(
+            textStyle = MaterialTheme.typography.headlineSmall.copy(
                 color = pickerContentColor,
                 fontSize = 28.sp
             ),
@@ -444,7 +493,7 @@ internal fun ConstrainedPeriodTimePickers(
                 Text("开始时间", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(Modifier.fillMaxWidth()) {
-                top.yukonga.miuix.kmp.basic.NumberPicker(
+                SettingsNumberPicker(
                     value = startHour,
                     onValueChange = { hour ->
                         val minute = (selection.startMinute % 60)
@@ -458,7 +507,7 @@ internal fun ConstrainedPeriodTimePickers(
                     colors = pickerColors,
                     modifier = Modifier.weight(1f)
                 )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
+                SettingsNumberPicker(
                     value = selection.startMinute % 60,
                     onValueChange = { updateStart(startHour * 60 + it) },
                     range = startMinuteRange,
@@ -476,7 +525,7 @@ internal fun ConstrainedPeriodTimePickers(
                 Text("结束时间", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             Row(Modifier.fillMaxWidth()) {
-                top.yukonga.miuix.kmp.basic.NumberPicker(
+                SettingsNumberPicker(
                     value = endHour,
                     onValueChange = { hour ->
                         val minute = (selection.endMinute % 60)
@@ -490,7 +539,7 @@ internal fun ConstrainedPeriodTimePickers(
                     colors = pickerColors,
                     modifier = Modifier.weight(1f)
                 )
-                top.yukonga.miuix.kmp.basic.NumberPicker(
+                SettingsNumberPicker(
                     value = selection.endMinute % 60,
                     onValueChange = { updateEnd(endHour * 60 + it) },
                     range = endMinuteRange,

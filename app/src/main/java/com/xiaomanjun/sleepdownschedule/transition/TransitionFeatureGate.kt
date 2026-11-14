@@ -7,6 +7,7 @@ import com.xiaomanjun.sleepdownschedule.BuildConfig
 internal object TransitionFeatureGate {
     fun allowsSharedViewKit(route: TransitionRouteSpec): Boolean =
         BuildConfig.SLEEPDOWN_EXPERIMENTAL_FEATURES &&
+            !BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_DISABLED_FOR_BUILD &&
             TransitionFeaturePolicy.allowsSharedViewKit(route,
                 SleepDownRemoteConfig.state.value.bootstrap?.transitions,
                 localPilot = BuildConfig.SLEEPDOWN_SHARED_VIEW_KIT_TEST)

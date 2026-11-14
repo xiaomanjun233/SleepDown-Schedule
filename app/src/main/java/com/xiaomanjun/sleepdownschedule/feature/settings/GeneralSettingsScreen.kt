@@ -16,9 +16,8 @@ import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.HomeStartMode
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.identity.AppDistribution
 import com.xiaomanjun.sleepdownschedule.core.identity.AppIconManager
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
@@ -31,11 +30,9 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsToggleRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdownPreference
 import com.xiaomanjun.sleepdownschedule.feature.home.day.DayViewPreferences
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekViewPreferences
-import com.xiaomanjun.sleepdownschedule.feature.update.GiteeAppUpdater
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
 import com.xiaomanjun.sleepdownschedule.withGeneralSettingsFrom
-import com.xiaomanjun.sleepdownschedule.switchCourseCardGlassMode
 
 @Composable
 fun GeneralSettingsScreen(
@@ -70,7 +67,6 @@ fun GeneralSettingsScreen(
     var appIconStyle by remember(context) {
         mutableStateOf(AppIconManager.currentStyle(context))
     }
-    var includeBetaUpdates by remember(context) { mutableStateOf(GiteeAppUpdater.includesBeta(context)) }
     LaunchedEffect(state.config) {
         if (hasLocalEdits) {
             val rebased = state.config.withGeneralSettingsFrom(draft)
@@ -102,7 +98,7 @@ fun GeneralSettingsScreen(
     }
     SleepDownSecondaryPageList(
         contentTopPadding = topPadding,
-        contentBottomPadding = DockScrollPadding
+        contentBottomPadding = detailContentBottomPadding()
     ) {
         item(key = "general-appearance") {
             GlassPreferenceSection("外观") {
@@ -113,6 +109,7 @@ fun GeneralSettingsScreen(
                         defaultHomeMode = draft.defaultHomeMode,
                         onSelected = { applyChange(draft.copy(darkMode = it, followSystemDarkMode = false)) }
                     )
+                    SettingsDivider()
                     SettingsToggleRow(
                         title = "跟随系统",
                         subtitle = "",
@@ -122,25 +119,20 @@ fun GeneralSettingsScreen(
                             applyChange(draft.copy(followSystemDarkMode = it, darkMode = effectiveDarkMode))
                         }
                     )
-                    if (effects.colorOsAvailable) {
-                        SettingsDivider()
-                        SleepDownLiquidDropdownPreference(
-                            title = "视效模式",
-                            summary = if (effects.usesNativeControls) "使用 ColorOS 17 系统控件与凝光材质" else "使用液态玻璃材质",
-                            items = listOf(VisualEffectMode.LiquidGlass.label, VisualEffectMode.ColorOsGlow.label),
-                            selectedIndex = if (effects.usesNativeControls) 1 else 0,
-                            backdrop = backdrop,
-                            config = visualConfig,
-                            onSelectedIndexChange = { index ->
-                                val mode = if (index == 1) VisualEffectMode.ColorOsGlow else VisualEffectMode.LiquidGlass
-                                if (mode == VisualEffectMode.ColorOsGlow && effects.selectedMode != mode) {
-                                    onUpdateConfig(state.config.withGeneralSettingsFrom(draft).switchCourseCardGlassMode(true))
-                                }
-                                effects.selectMode(mode)
-                            }
-                        )
-                    }
-                    if (!effects.usesNativeControls) {
+                    SettingsDivider()
+                    SleepDownLiquidDropdownPreference(
+                        title = "视效模式",
+                        summary = if (effects.usesGlowMaterials) "凝光材质与触摸反馈" else "使用液态玻璃材质",
+                        items = listOf(VisualEffectMode.LiquidGlass.label, VisualEffectMode.ColorOsGlow.label),
+                        selectedIndex = if (effects.selectedMode == VisualEffectMode.ColorOsGlow) 1 else 0,
+                        backdrop = backdrop,
+                        config = visualConfig,
+                        onSelectedIndexChange = { index ->
+                            val mode = if (index == 1) VisualEffectMode.ColorOsGlow else VisualEffectMode.LiquidGlass
+                            effects.selectMode(mode)
+                        }
+                    )
+                    if (!effects.usesGlowMaterials) {
                     SettingsDivider()
                     SleepDownLiquidDropdownPreference(
                         title = "材质分级",
@@ -159,7 +151,7 @@ fun GeneralSettingsScreen(
                         }
                     )
                     }
-                    if (!effects.usesNativeControls &&
+                    if (!effects.usesGlowMaterials &&
                         !com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance) {
                         SettingsDivider()
                         SettingsNavigationRow(
@@ -236,35 +228,13 @@ fun GeneralSettingsScreen(
         item(key = "general-system-behavior") {
             GlassPreferenceSection("系统行为") {
                 SettingsGroup(backdrop = backdrop, config = visualConfig, modifier = Modifier.fillMaxWidth()) {
-                SettingsToggleRow(
-                    title = "隐藏后台卡片",
-                    subtitle = "以任意方式离开应用后，都从最近任务列表中隐藏本应用",
-                    checked = draft.hideFromRecents,
-                    backdrop = backdrop,
-                    onCheckedChange = { applyChange(draft.copy(hideFromRecents = it)) }
-                )
-                if (AppDistribution.supportsSelfUpdate) {
-                    SettingsDivider()
                     SettingsToggleRow(
-                        title = "自动检查更新",
-                        subtitle = "每天首次打开应用时检查 Gitee 上的新版本",
-                        checked = draft.autoCheckUpdates,
+                        title = "隐藏后台卡片",
+                        subtitle = "以任意方式离开应用后，都从最近任务列表中隐藏本应用",
+                        checked = draft.hideFromRecents,
                         backdrop = backdrop,
-                        onCheckedChange = { applyChange(draft.copy(autoCheckUpdates = it)) }
+                        onCheckedChange = { applyChange(draft.copy(hideFromRecents = it)) }
                     )
-                    SettingsDivider()
-                    SettingsToggleRow(
-                        title = "接收 Beta 版更新",
-                        subtitle = if (includeBetaUpdates) "更新渠道：正式版与 Beta 版；同版本正式版发布后也会提示"
-                            else "更新渠道：仅正式版；开启后可提前体验 Beta 版",
-                        checked = includeBetaUpdates,
-                        backdrop = backdrop,
-                        onCheckedChange = {
-                            includeBetaUpdates = it
-                            GiteeAppUpdater.setIncludesBeta(context, it)
-                        }
-                    )
-                }
                 }
             }
         }

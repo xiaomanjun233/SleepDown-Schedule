@@ -24,6 +24,10 @@ import kotlin.math.roundToInt
 
 internal const val MinimumWeekCardHeightScale = 0.72f
 internal const val MaximumWeekCardHeightScale = 1.45f
+internal val WeekCourseAdditionCorner = 13.dp
+private const val WideWeekCardWindowDp = 600f
+
+internal fun DpSize.usesCompactWeekCards(): Boolean = min(width.value, height.value) < WideWeekCardWindowDp
 
 /*
  * The expanded week rail renders one 15sp period number plus two 11sp time lines. Its
@@ -381,9 +385,7 @@ internal fun HomeAdaptiveMetrics.contentRectPx(rootSize: IntSize, density: Float
 }
 
 /**
- * Keeps the phone week-card silhouette unchanged while allowing wide tablet grids to use a
- * slightly softer continuous corner. The radius is bounded by the card's shorter side so short
- * one-period cards never collapse into pills.
+ * Phone course cards use an 8dp midpoint. Wide grids scale with the card's shorter side.
  */
 internal fun adaptiveWeekCardCornerRadius(
     cardWidth: Dp,
@@ -394,10 +396,11 @@ internal fun adaptiveWeekCardCornerRadius(
 ): Dp {
     val shortWindowEdge = min(windowWidth.value, windowHeight.value)
     val shortCardEdge = min(cardWidth.value, cardHeight.value).coerceAtLeast(1f)
-    val baseRadius = if (shortWindowEdge < 600f) {
+    val compact = shortWindowEdge < WideWeekCardWindowDp
+    val baseRadius = if (compact) {
         8f
     } else {
-        val resolutionScale = ((shortWindowEdge - 600f) / 600f).coerceIn(0f, 1f)
+        val resolutionScale = ((shortWindowEdge - WideWeekCardWindowDp) / WideWeekCardWindowDp).coerceIn(0f, 1f)
         val oldMaximum = 14f + 2f * resolutionScale
         (shortCardEdge * 0.18f).coerceIn(10f, oldMaximum)
     }
@@ -410,8 +413,6 @@ internal fun adaptiveWeekCardCornerRadius(
     } else {
         baseRadius + (maximumRadius - baseRadius) * (safeProgress - 0.5f) * 2f
     }
-    // 大屏（宽窗口）在滑块基础上再扩大一截曲率，短卡仍保持不塌成胶囊
-    val tabletBoost = if (shortWindowEdge >= 600f) 3f else 0f
-    val scaledRadius = (radius + tabletBoost).coerceAtMost(shortCardEdge * 0.34f)
-    return scaledRadius.dp
+    val wideWindowBoost = if (compact) 0f else 3f
+    return (radius + wideWindowBoost).coerceAtMost(shortCardEdge * 0.34f).dp
 }

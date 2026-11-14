@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.agent
 
+import com.xiaomanjun.sleepdownschedule.core.ai.AgentHarness
+
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 
 import com.xiaomanjun.sleepdownschedule.*
@@ -43,7 +45,7 @@ import java.time.ZonedDateTime
 import java.util.UUID
 
 private val DayAgentJson = Json { ignoreUnknownKeys = true; isLenient = true }
-internal const val MaxAgentToolRounds = 6
+internal const val MaxAgentToolRounds = 12
 private const val DayAgentWeatherCacheMillis = 30 * 60 * 1000L
 private const val DayAgentMetricsTag = "DayAgentMetrics"
 
@@ -160,10 +162,10 @@ private fun agentTextMessage(role: String, content: String): JsonObject = buildJ
     put("content", content)
 }
 
-private fun agentUserMessage(
+internal fun agentUserMessage(
     content: String,
-    imageAttachment: AgentImageAttachment?
-): JsonObject = if (imageAttachment == null) {
+    imageAttachments: List<AgentImageAttachment>
+): JsonObject = if (imageAttachments.isEmpty()) {
     agentTextMessage("user", content)
 } else {
     buildJsonObject {
@@ -173,7 +175,7 @@ private fun agentUserMessage(
                 put("type", "text")
                 put("text", content)
             })
-            add(buildJsonObject {
+            imageAttachments.forEach { imageAttachment -> add(buildJsonObject {
                 put("type", "image_url")
                 put("image_url", buildJsonObject {
                     put(
@@ -181,7 +183,7 @@ private fun agentUserMessage(
                         "data:${imageAttachment.mimeType};base64,${imageAttachment.base64}"
                     )
                 })
-            })
+            }) }
         })
     }
 }
@@ -392,7 +394,7 @@ class DayAgentService(
     private var onCommitted: () -> Unit = {}
     private val chatTransport = DayAgentChatTransport(interaction, onReasoning)
 
-    suspend fun chat(
+    internal suspend fun chat(
         facts: DayAgentFacts,
         history: List<AgentMessageEntity>,
         question: String,
@@ -403,11 +405,14 @@ class DayAgentService(
         settingsOverride: AiImportSettings? = null,
         taskBoundary: String? = null,
         answerConstraint: (String) -> String? = { null },
-        importWorkspace: AgentImportWorkspace? = null
+        importWorkspace: AgentImportWorkspace? = null,
+        imageAttachments: List<AgentImageAttachment> = emptyList(),
+        sourceWorkspace: AiMaterialWorkspace? = null
     ): String = withContext(Dispatchers.IO) {
+        val attachments = listOfNotNull(imageAttachment) + imageAttachments
         val settings = settingsOverride ?: AiImportSettingsStore.loadForRuntime(context)
             ?: AiImportSettingsStore.load(context)
-        withManagedAiFailover(context, settings, requiresVision = imageAttachment != null,
+        withManagedAiFailover(context, settings, requiresVision = attachments.isNotEmpty(),
             onSwitch = { onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在切换备用配置", it.profile.defaultModel)) }
         ) { candidate, attempt ->
             interaction?.checkActive()
@@ -416,9 +421,9 @@ class DayAgentService(
             interaction?.onHttpPhase = { attempt.observe(it); previousPhase?.invoke(it) }
             try {
                 DayAgentService(context, interaction, reasoning).apply { onCommitted = attempt::commit }.chatOnce(
-                    facts, history, question, imageAttachment, onStatus,
+                    facts, history, question, attachments, onStatus,
                     { if (it.isNotBlank()) attempt.commit(); onDelta(it) }, onStreamReset,
-                    candidate, taskBoundary, answerConstraint, importWorkspace
+                    candidate, taskBoundary, answerConstraint, importWorkspace, sourceWorkspace
                 )
             } finally {
                 if (previousPhase != null) interaction?.onHttpPhase = previousPhase
@@ -430,14 +435,15 @@ class DayAgentService(
         facts: DayAgentFacts,
         history: List<AgentMessageEntity>,
         question: String,
-        imageAttachment: AgentImageAttachment? = null,
+        imageAttachments: List<AgentImageAttachment>,
         onStatus: (AgentRunStatus) -> Unit,
         onDelta: (String) -> Unit,
         onStreamReset: () -> Unit = {},
         settingsOverride: AiImportSettings? = null,
         taskBoundary: String? = null,
         answerConstraint: (String) -> String? = { null },
-        importWorkspace: AgentImportWorkspace? = null
+        importWorkspace: AgentImportWorkspace? = null,
+        sourceWorkspace: AiMaterialWorkspace? = null
     ): String = withContext(Dispatchers.IO) {
         require(facts.scheduleId > 0) { "当前课表尚未就绪" }
         require(facts.semesterCourses.all { it.scheduleId == facts.scheduleId }) {
@@ -457,16 +463,21 @@ class DayAgentService(
             ),
             model = settings.profile.defaultModel
         )
+        val materials = sourceWorkspace ?: imageAttachments.takeIf { it.isNotEmpty() }?.let { images ->
+            AiMaterialWorkspace.fromPages("本轮附件", "", images.mapIndexed { index, image -> RenderedPageImage(index, image.mimeType, image.base64) })
+        } ?: AiMaterialWorkspace.fromPages("本轮附件", "", emptyList())
+        if (materials.taskWorkspace == null) materials.taskWorkspace = AiTaskWorkspace(context, checkActive = { interaction?.checkActive() })
         val memoryEnabled = importWorkspace == null && DayAgentPreferences.isMemoryEnabled(context)
         val savedMemory = if (memoryEnabled) DayAgentPreferences.memory(context) else ""
         val memoryToolAvailable = memoryEnabled && taskBoundary == null && DayAgentPreferences.shouldOfferMemoryUpdate(context, facts.date)
         val availableCachedFacts = if (importWorkspace == null) SharedAgentToolFacts.read(facts, System.currentTimeMillis()) else emptyMap()
         val cachedFacts = agentPreloadedFacts(availableCachedFacts)
         val telemetry = DayAgentTurnTelemetry(settings.profile.id)
-        val actionAuthorization = AgentActionAuthorization(question) {
+        var authorizationQuestion = question
+        fun authorization() = AgentActionAuthorization(authorizationQuestion) {
             onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "核对操作意图"))
             telemetry.requestStarted()
-            val input = AgentActionAuthorization.input(question, history)
+            val input = AgentActionAuthorization.input(authorizationQuestion, history)
             if (AiProviderPresets.shouldUseResponses(settings.profile)) {
                 OpenAiResponsesAgentRunner(interaction).readOnlyAnswer(
                     settings, AgentActionAuthorization.Instructions, input
@@ -480,11 +491,34 @@ class DayAgentService(
                 parseFullChatContent(response)
             }
         }
+        var actionAuthorization = authorization()
+        fun acceptInputs(): List<AgentTaskInput> {
+            val inputs = interaction?.acceptSteering().orEmpty()
+            if (inputs.isNotEmpty()) {
+                authorizationQuestion += inputs.joinToString("\n", prefix = "\n用户最新补充（优先于原要求）：\n") { it.text }
+                actionAuthorization = authorization()
+                inputs.flatMap { it.allImages }.forEach { materials.appendImage(RenderedPageImage(materials.pageCount, it.mimeType, it.base64)) }
+            }
+            return inputs
+        }
         fun validateAnswer(answer: String): String? = if (importWorkspace != null) {
             importWorkspace.validateAnswer(answer) ?: answerConstraint(answer)
         } else actionAuthorization.validateAnswer(answer) ?: agentAnswerValidationFeedback(answer, facts) ?: answerConstraint(answer)
         fun executeTurnTool(call: AgentToolCall): AgentToolResult {
             onCommitted()
+            if (call.name in setOf(AgentToolName.READ_IMPORT_MATERIAL, AgentToolName.VIEW_IMPORT_DETAIL,
+                    AgentToolName.TASK_WORKSPACE, AgentToolName.EDU_WORKSPACE)) {
+                return try {
+                    require(call.validationError == null) { call.validationError.orEmpty() }
+                    val source = requireNotNull(materials) { "本轮没有材料附件" }
+                    require(call.name != AgentToolName.VIEW_IMPORT_DETAIL || AiProviderPresets.supportsImageInput(settings.profile)) { "当前模型不支持视觉输入" }
+                    val reply = source.execute(call.name.name, buildJsonObject { call.arguments.forEach { (key, value) -> put(key, value) } })
+                    AgentToolResult(call.id, call.name, true, reply.text, images = listOfNotNull(reply.image?.let {
+                        AgentImageAttachment(it.mimeType, it.base64, "原材料局部细节")
+                    }))
+                } catch (error: kotlinx.coroutines.CancellationException) { throw error }
+                catch (error: Exception) { AgentToolResult(call.id, call.name, false, "工具未完成：${error.message}") }
+            }
             if (importWorkspace != null) return importWorkspace.execute(call)
             if (call.name == AgentToolName.GET_ACTION_GUIDE || call.name == AgentToolName.PROPOSE_ACTIONS) {
                 actionAuthorization.feedback()?.let { return AgentToolResult(call.id, call.name, false, it) }
@@ -499,8 +533,9 @@ class DayAgentService(
                 if (feedback == null) result else result.copy(success = false, content = feedback, proposedAnswer = null)
             }
         }
-        val turnTools = AgentTurnToolSession(cachedFacts, ::executeTurnTool)
-        if (imageAttachment != null) {
+        val harness = AgentHarness(MaxAgentToolRounds, checkActive = { interaction?.checkActive() })
+        val turnTools = AgentTurnToolSession(cachedFacts, harness, ::executeTurnTool)
+        if (imageAttachments.isNotEmpty()) {
             require(AiProviderPresets.supportsImageInput(settings.profile)) {
                 "当前模型没有启用图片理解能力，请切换支持视觉输入的模型"
             }
@@ -558,11 +593,12 @@ class DayAgentService(
                     )
                 )
             }
-            add(agentUserMessage(question, imageAttachment))
+            if (materials.hasContent) add(agentTextMessage("user", materials.overview()))
+            add(agentUserMessage(question, imageAttachments))
         }
         try {
             if (AiProviderPresets.shouldUseResponses(settings.profile)) {
-                return@withContext OpenAiResponsesAgentRunner(interaction, onReasoning).chat(
+                return@withContext OpenAiResponsesAgentRunner(interaction, onReasoning, materials = materials).chat(
                     settings = settings,
                     chatMessages = messages,
                     includeMemoryTool = memoryToolAvailable,
@@ -574,7 +610,8 @@ class DayAgentService(
                     cachedResults = cachedFacts,
                     validateAnswer = ::validateAnswer,
                     telemetry = telemetry,
-                    importWorkspace = importWorkspace != null
+                    importWorkspace = importWorkspace != null,
+                    acceptSteering = ::acceptInputs
                 )
             }
             val completedOneShotTools = cachedFacts.values.map { it.name }.filter { it.isOneShotPerTurn }.toMutableSet()
@@ -583,6 +620,7 @@ class DayAgentService(
             val closedToolFacts = linkedMapOf<String, AgentToolResult>()
             var latestRoundFacts = emptyList<Pair<String, AgentToolResult>>()
             var latestRoundMessages = emptyList<JsonObject>()
+            val supplementalInputs = mutableListOf<JsonObject>()
             fun rebuildChatContext() {
                 messages.clear()
                 messages += baseMessages
@@ -605,10 +643,17 @@ class DayAgentService(
                     )
                 }
                 messages += latestRoundMessages
+                messages += supplementalInputs
             }
 
             var outputRetryRequested = false
-            for (round in 0 until MaxAgentToolRounds) {
+            var validationRepairs = 0
+            return@withContext harness.run(step = step@ { round ->
+                val inputs = acceptInputs()
+                if (inputs.isNotEmpty()) {
+                    supplementalInputs += inputs.map { agentUserMessage(it.text, it.allImages) }
+                    rebuildChatContext()
+                }
                 interaction?.checkActive()
                 onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在思考"))
                 fun requestDecision(forceMiMoWebSearch: Boolean): AgentToolDecision {
@@ -627,7 +672,8 @@ class DayAgentService(
                         includeMemoryTool = memoryToolAvailable,
                         forceMiMoWebSearch = forceMiMoWebSearch,
                         excludedTools = completedOneShotTools,
-                        importWorkspace = importWorkspace != null
+                        importWorkspace = importWorkspace != null,
+                        materials = materials
                     )
                     telemetry.requestStarted()
                     val response = chatTransport.post(settings, decisionBody)
@@ -663,6 +709,11 @@ class DayAgentService(
                     onStatus(AgentRunStatus(AgentRunStatusIcon.SEARCH, "联网搜索"))
                 }
                 if (decision.calls.isEmpty()) {
+                    if (interaction?.hasSteering() == true) {
+                        latestRoundMessages = listOf(decision.assistantMessage)
+                        rebuildChatContext()
+                        return@step AgentHarness.Next.Continue
+                    }
                     val answer = usableAgentAnswer(decision.content)
                     if (answer != null) {
                         val feedback = validateAnswer(answer)
@@ -670,18 +721,19 @@ class DayAgentService(
                             onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "根据自检结果修正计划"))
                             messages += decision.assistantMessage
                             messages += agentTextMessage("user", feedback)
-                            continue
+                            if (++validationRepairs >= 6) return@step AgentHarness.Next.Converge
+                            return@step AgentHarness.Next.Continue
                         }
                         onDelta(answer)
-                        return@withContext answer
+                        return@step AgentHarness.Next.Complete(answer)
                     }
                     // An empty body or legacy sentinel is not evidence that all reads are done.
                     // Repair once with the same available tools instead of stranding the task.
                     if (!outputRetryRequested) {
                         outputRetryRequested = true
-                        continue
+                        return@step AgentHarness.Next.Continue
                     }
-                    break
+                    return@step AgentHarness.Next.Converge
                 }
 
                 val roundResults = decision.calls.map { call ->
@@ -694,8 +746,9 @@ class DayAgentService(
                 }
                 telemetry.recordToolResults(roundResults)
                 roundResults.singleOrNull()?.proposedAnswer?.let { answer ->
+                    if (interaction?.hasSteering() == true) return@let
                     onDelta(answer)
-                    return@withContext answer
+                    return@step AgentHarness.Next.Complete(answer)
                 }
                 val addedEvidence = decision.calls
                     .map { call -> evidenceKeys.add("${facts.sourceHash}\u0000${call.cacheKey()}") }
@@ -705,12 +758,10 @@ class DayAgentService(
                     call.cacheKey() to result
                 }
                 latestRoundMessages = listOf(decision.assistantMessage) +
-                    roundResults.map { it.asAgentToolMessage() }
+                    roundResults.map { it.asAgentToolMessage() } + agentMaterialImageMessages(roundResults)
                 rebuildChatContext()
-                if (!addedEvidence && importWorkspace == null) break
-            }
-
-            return@withContext streamFinalAnswer(
+                if (!addedEvidence && importWorkspace == null) AgentHarness.Next.Converge else AgentHarness.Next.Continue
+            }, converge = { streamFinalAnswer(
                 settings = settings,
                 messages = messages,
                 onStatus = onStatus,
@@ -719,9 +770,10 @@ class DayAgentService(
                 validateAnswer = ::validateAnswer,
                 telemetry = telemetry,
                 importWorkspace = importWorkspace != null
-            )
+            ) })
         } finally {
             telemetry.logSummary()
+            materials.close()
         }
     }
 
@@ -862,7 +914,7 @@ class DayAgentRepository(private val context: Context) {
             dao.deleteMessagesBefore(oldest)
             dao.deleteSessionsBefore(oldest)
             val referencedNames = dao.getAllMessageContents()
-                .mapNotNull { parseAgentMessageContent(it).attachmentFileName }
+                .flatMap { parseAgentMessageContent(it).attachmentFileNames }
                 .toSet()
             val directory = File(context.filesDir, "agent_attachments")
             val existingNames = directory.listFiles()
@@ -884,7 +936,9 @@ class DayAgentRepository(private val context: Context) {
         imageAttachment: AgentImageAttachment? = null,
         onStatus: (AgentRunStatus) -> Unit,
         onDelta: (String) -> Unit,
-        onStreamReset: () -> Unit = {}
+        onStreamReset: () -> Unit = {},
+        interaction: AiImportInteraction? = null,
+        imageAttachments: List<AgentImageAttachment> = emptyList()
     ): Result<String> = runCatching {
         require(scheduleId == facts.scheduleId) {
             "课表已切换，请重新发送这条消息"
@@ -898,9 +952,9 @@ class DayAgentRepository(private val context: Context) {
         require(stored.config.id == scheduleId) { "课表已切换，请重新发送这条消息" }
         cleanup(facts.date)
         val userMessageId = attachmentMutex.withLock {
-            var createdAttachment: File? = null
-            val attachmentName = imageAttachment?.let { attachment ->
-                runCatching {
+            val createdAttachments = mutableListOf<File>()
+            try {
+            val attachmentNames = (listOfNotNull(imageAttachment) + imageAttachments).map { attachment ->
                     val directory = File(context.filesDir, "agent_attachments").apply { mkdirs() }
                     val extension = when (attachment.mimeType.lowercase()) {
                         "image/png" -> "png"
@@ -909,30 +963,51 @@ class DayAgentRepository(private val context: Context) {
                     }
                     val fileName = "${UUID.randomUUID()}.$extension"
                     val target = File(directory, fileName)
+                    createdAttachments += target
                     target.writeBytes(
                         android.util.Base64.decode(attachment.base64, android.util.Base64.DEFAULT)
                     )
-                    createdAttachment = target
                     fileName
-                }.getOrNull()
             }
-            try {
                 dao.insertMessage(
                     AgentMessageEntity(
                         scheduleId = scheduleId,
                         sessionDate = facts.date.toString(),
                         role = "user",
-                        content = agentMessageContent(question, attachmentName),
+                        content = agentMessageContent(question, attachmentNames),
                         createdAt = System.currentTimeMillis(),
                         status = "PENDING"
                     )
                 )
             } catch (error: Throwable) {
-                createdAttachment?.delete()
+                createdAttachments.forEach { it.delete() }
                 throw error
             }
         }
         DayAgentPreferences.noteConversationTurn(context, facts.date)
+        val acceptedUserIds = mutableListOf<Long>()
+        val previousAccepted = interaction?.onAcceptedInput
+        interaction?.onAcceptedInput = { input ->
+            kotlinx.coroutines.runBlocking {
+                attachmentMutex.withLock {
+                    val created = mutableListOf<File>()
+                    try {
+                    val attachmentNames = input.allImages.map { attachment ->
+                        val directory = File(context.filesDir, "agent_attachments").apply { mkdirs() }
+                        val extension = when (attachment.mimeType.lowercase()) { "image/png" -> "png"; "image/webp" -> "webp"; else -> "jpg" }
+                        val fileName = "${UUID.randomUUID()}.$extension"
+                        val target = File(directory, fileName)
+                        created += target
+                        target.writeBytes(android.util.Base64.decode(attachment.base64, android.util.Base64.DEFAULT))
+                        fileName
+                    }
+                        acceptedUserIds += dao.insertMessage(AgentMessageEntity(scheduleId = scheduleId, sessionDate = facts.date.toString(),
+                            role = "user", content = agentMessageContent(input.text, attachmentNames), createdAt = System.currentTimeMillis(), status = "PENDING"))
+                    } catch (error: Throwable) { created.forEach { it.delete() }; throw error }
+                }
+            }
+            previousAccepted?.invoke(input)
+        }
         val history = dao.getRecentMessages(scheduleId, facts.date.toString(), 20).reversed()
         /*
          * UI facts deliberately stay cheap. Rich period-scheme facts are read here, immediately
@@ -985,11 +1060,12 @@ class DayAgentRepository(private val context: Context) {
             onStatus(status)
         }
         try {
-            val answer = service.chat(
+            val answer = (if (interaction == null) service else DayAgentService(context.applicationContext, interaction)).chat(
                 facts = currentFacts,
                 history = history,
                 question = question,
                 imageAttachment = imageAttachment,
+                imageAttachments = imageAttachments,
                 onStatus = ::recordStatus,
                 onDelta = onDelta,
                 onStreamReset = onStreamReset
@@ -1008,10 +1084,14 @@ class DayAgentRepository(private val context: Context) {
                 )
             )
             dao.updateMessageStatus(userMessageId, "READY")
+            acceptedUserIds.forEach { dao.updateMessageStatus(it, "READY") }
             cleanAnswer
         } catch (error: Throwable) {
             runCatching { dao.updateMessageStatus(userMessageId, "FAILED") }
+            acceptedUserIds.forEach { runCatching { dao.updateMessageStatus(it, "FAILED") } }
             throw error
+        } finally {
+            interaction?.onAcceptedInput = previousAccepted
         }
     }
 
@@ -1044,12 +1124,11 @@ internal fun compactAgentHistory(history: List<AgentMessageEntity>): List<AgentM
         .sortedBy { it.createdAt }
     val assistantIndex = ready.indexOfLast { it.role == "assistant" }
     if (assistantIndex < 0) return emptyList()
-    val user = ready
-        .subList(0, assistantIndex)
-        .lastOrNull { it.role == "user" }
-        ?: return emptyList()
+    val previousAssistant = ready.subList(0, assistantIndex).indexOfLast { it.role == "assistant" }
+    val users = ready.subList(previousAssistant + 1, assistantIndex).filter { it.role == "user" }
+    if (users.isEmpty()) return emptyList()
     val assistant = ready[assistantIndex]
-    return listOf(user, assistant)
+    return (users + assistant)
         .mapNotNull { message ->
             val stored = parseAgentStoredMessage(parseAgentMessageContent(message.content).text)
             val clean = sanitizeAgentToolOutput(stored.content)
@@ -1068,7 +1147,7 @@ internal fun compactAgentHistory(history: List<AgentMessageEntity>): List<AgentM
                     ""
                 )
                 .trim()
-                .take(1_200)
+                .take(if (message.role == "user") 6_000 else 4_000)
             clean.takeIf(String::isNotBlank)?.let { message.copy(content = it) }
         }
 }

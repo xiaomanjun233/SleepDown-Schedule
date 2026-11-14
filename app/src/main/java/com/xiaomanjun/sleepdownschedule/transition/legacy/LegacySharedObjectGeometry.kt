@@ -1,12 +1,22 @@
 package com.xiaomanjun.sleepdownschedule.transition.legacy
 
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.geometry.Rect
 import kotlin.math.abs
 import kotlin.math.PI
 import kotlin.math.min
 import kotlin.math.sign
 import kotlin.math.sin
+
+/** The position leads the size when a compact anchor opens a panel. */
+internal object AnchoredPanelMotion {
+    const val OpenDurationMillis = 380
+    const val CloseDurationMillis = 260
+    val OpenPositionEasing = CubicBezierEasing(0.18f, 0.72f, 0.18f, 1f)
+    val OpenSizeEasing = FastOutSlowInEasing
+    val CloseEasing = FastOutSlowInEasing
+}
 
 internal const val HomeAnchoredMorphOpenDurationMillis = 430
 

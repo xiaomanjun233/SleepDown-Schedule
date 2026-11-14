@@ -12,10 +12,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
@@ -29,7 +30,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.ColorProducer
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextLayoutResult
@@ -49,6 +52,7 @@ import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperPreviewOrientati
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.calculateFocusCropRect
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.wallpaperCropState
 import com.xiaomanjun.sleepdownschedule.feature.agent.homeCountdownShockwave
+import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePaneVisible
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
@@ -97,12 +101,20 @@ fun HomeReadableText(
     textAlign: TextAlign? = null,
     maxLines: Int = Int.MAX_VALUE,
     softWrap: Boolean = true,
-    overflow: TextOverflow = TextOverflow.Clip
+    overflow: TextOverflow = TextOverflow.Clip,
+    drawColor: ColorProducer? = null,
+    sampleForPagePalette: Boolean = true,
 ) {
     val readability = LocalHomeReadability.current
     val backgroundFrozen = LocalHomeBackgroundFrozen.current
     val textContrastFrozen = LocalHomeTextContrastFrozen.current
     val hasWallpaper = readability.config?.hasAnyWallpaper() == true
+    val paneVisible = LocalHomePaneVisible.current
+    val textAreas = LocalHomeWallpaperTextAreas.current.takeIf { hasWallpaper && sampleForPagePalette }
+    val textAreaKey = remember { Any() }
+    DisposableEffect(textAreas) {
+        onDispose { textAreas?.bounds?.remove(textAreaKey) }
+    }
     var targetShadowStrength by remember(color) { mutableFloatStateOf(0f) }
     val shadowStrength by animateFloatAsState(targetShadowStrength, tween(160), label = "home-text-soft-shadow")
     val textLayout = remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -110,6 +122,10 @@ fun HomeReadableText(
     // Reuse each decision until the actual text bounds or wallpaper inputs change.
     val lastSample = remember(readability, color) { arrayOfNulls<Rect>(1) }
     fun updateContrast() {
+        if (!paneVisible.value) {
+            textAreas?.bounds?.remove(textAreaKey)
+            return
+        }
         if (!hasWallpaper) {
             targetShadowStrength = 0f
             return
@@ -122,7 +138,13 @@ fun HomeReadableText(
             (0 until layout.lineCount).minOf { layout.getLineLeft(it) }, layout.getLineTop(0),
             (0 until layout.lineCount).maxOf { layout.getLineRight(it) }, layout.getLineBottom(layout.lineCount - 1)
         )
-        val origin = position.localToWindow(Offset.Zero) - readability.rootOffsetInWindow
+        val windowOrigin = position.localToWindow(Offset.Zero)
+        if (textAreas != null) {
+            val visible = textBounds.translate(windowOrigin).intersect(position.boundsInWindow())
+            if (visible.isEmpty) textAreas.bounds.remove(textAreaKey)
+            else textAreas.bounds[textAreaKey] = visible
+        }
+        val origin = windowOrigin - readability.rootOffsetInWindow
         val bounds = textBounds.translate(origin)
         if (lastSample[0] == bounds) return
         lastSample[0] = bounds
@@ -145,10 +167,11 @@ fun HomeReadableText(
         targetShadowStrength = requiredStrength
     }
     val currentUpdateContrast by rememberUpdatedState(::updateContrast)
-    LaunchedEffect(readability, color, backgroundFrozen, textContrastFrozen, hasWallpaper) {
-        snapshotFlow { backgroundFrozen.value || textContrastFrozen.value }.collect { frozen ->
-            if (!frozen) currentUpdateContrast()
-        }
+    LaunchedEffect(readability, color, backgroundFrozen, textContrastFrozen, paneVisible, textAreas) {
+        snapshotFlow { paneVisible.value to (backgroundFrozen.value || textContrastFrozen.value) }
+            .collect { (visible, frozen) ->
+                if (!visible || !frozen) currentUpdateContrast()
+            }
     }
     val density = LocalDensity.current
     val lightText = color.luminance() >= 0.5f
@@ -185,15 +208,17 @@ fun HomeReadableText(
     }
     val onLayout = remember { { value: TextLayoutResult -> currentTextLayout.value(value) } }
     Box(modifier = modifier.homeCountdownShockwave(0.55f)) {
-        Text(
+        BasicText(
             text = text,
             modifier = Modifier.onGloballyPositioned(onPositioned),
-            color = color,
-            style = shadowStyle,
-            fontWeight = fontWeight,
-            fontSize = fontSize,
-            lineHeight = lineHeight,
-            textAlign = textAlign,
+            style = shadowStyle.merge(
+                color = color,
+                fontWeight = fontWeight,
+                fontSize = fontSize,
+                lineHeight = lineHeight,
+                textAlign = textAlign ?: TextAlign.Unspecified
+            ),
+            color = drawColor,
             maxLines = maxLines,
             softWrap = softWrap,
             overflow = overflow,
@@ -204,7 +229,7 @@ fun HomeReadableText(
 
 @Composable
 fun homeForegroundColor(config: ScheduleConfigEntity): ComposeColor {
-    if (config.wallpaperUri.isNullOrBlank()) return MaterialTheme.colorScheme.onBackground
+    if (!config.hasAnyWallpaper()) return MaterialTheme.colorScheme.onBackground
     return LocalAdaptiveGlass.current.contentColor
 }
 

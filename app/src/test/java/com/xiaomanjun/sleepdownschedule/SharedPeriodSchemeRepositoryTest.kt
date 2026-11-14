@@ -9,6 +9,7 @@ import com.xiaomanjun.sleepdownschedule.model.agent.AgentActionScope
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedAction
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedActionType
 import com.xiaomanjun.sleepdownschedule.model.*
+import com.xiaomanjun.sleepdownschedule.model.ScheduleAdjustment
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangImportSession
 import com.xiaomanjun.sleepdownschedule.feature.importing.CanonicalScheduleJson
 import com.xiaomanjun.sleepdownschedule.feature.importing.buildCanonicalScheduleJson
@@ -567,6 +568,127 @@ class SharedPeriodSchemeRepositoryTest {
         val ics = IcsScheduleCodec.export("日期教务验收", saved.config, saved.periods, saved.courses, date, saved.timetableCatalog)
         val restored = IcsScheduleCodec.parse(ics.toByteArray(), saved.config).getOrThrow().timingPreviewState()
         assertEquals(clocks, courseTimeSegments(coursesForDate(restored, date).single(), restored.periods))
+    }
+
+    @Test
+    fun scheduleRoutineCopyClonesAllDateRulesAndRemapsTargetCoursesByDayPart() = runBlocking {
+        val scheme = requireNotNull(database.periodSchemeDao().getScheme(11))
+        database.periodSchemeDao().upsertScheme(scheme.copy(id = 21, publicId = "source", name = "来源常规",
+            morningPeriodCount = 3))
+        database.periodSchemeDao().upsertTimes(standardTimes(21).take(2) + listOf(
+            PeriodSchemeTimeEntity(21, 3, "10:00", "10:45"),
+            PeriodSchemeTimeEntity(21, 4, "14:00", "14:45", alias = "下午第一节"),
+        ))
+        database.periodSchemeDao().upsertScheme(scheme.copy(id = 22, publicId = "sparse", name = "临时调整"))
+        database.periodSchemeDao().upsertTimes(listOf(PeriodSchemeTimeEntity(22, 1, "08:10", "08:55")))
+        val combo = database.timetableDao().putCombo(TimetableComboEntity(name = "来源组合", baseSchemeId = 21))
+        database.timetableDao().putRules(listOf(
+            TimetableDateRuleEntity(combo, 0, 22, "2026-09-01", "2026-09-02"),
+            TimetableDateRuleEntity(combo, 1, 22, "2026-10-01", "2026-10-01"),
+        ))
+        val config = requireNotNull(database.configDao().getConfig(1))
+        database.configDao().upsertConfig(config.copy(activePeriodSchemeId = 21, activeTimetableComboId = combo))
+        val second = LocalDate.of(2026, 11, 1)
+        val source = saveTestDateRoutine(repository.loadScheduleRoutines(1), "另一个日期作息", second)
+
+        database.courseDao().insertCourses(listOf(
+            course(2, listOf(3)).copy(name = "下午课程", originalPeriodTimes = "3,14:00-14:45"),
+            course(2, listOf(3)).copy(name = "固定时间", customStartTime = "15:00", customEndTime = "15:45"),
+        ))
+        val target = repository.loadScheduleRoutines(2)
+        val copied = repository.saveScheduleRoutine(source, source.timeline(source.regularId), source.rules, copyTarget = target)
+        assertEquals(20, copied.config.totalWeeks)
+        assertEquals(3, copied.config.morningPeriodCount)
+        assertEquals("下午第一节", copied.grid.times.last().alias)
+        assertEquals(source.rules.map { it.startDate to it.endDate }, copied.rules.map { it.startDate to it.endDate })
+        assertEquals(source.schemes.map { it.scheme.name }, copied.schemes.map { it.scheme.name })
+        assertTrue(copied.schemes.none { copy -> source.schemes.any { it.scheme.id == copy.scheme.id } })
+        assertEquals(2, copied.rules.map { it.schemeId }.distinct().size)
+        assertEquals(listOf(4), copied.courses.first { it.name == "下午课程" }.periods)
+        assertEquals("4,14:00-14:45", copied.courses.first { it.name == "下午课程" }.originalPeriodTimes)
+        assertEquals(target.courses.first { it.name == "固定时间" }, copied.courses.first { it.name == "固定时间" })
+
+        val dateId = copied.rules.first().schemeId
+        val session = copied.timeline(dateId)
+        assertEquals(listOf(1, 2, 3, 4), session.active.times.map { it.periodIndex })
+        val edited = session.updateActive(changeFirstBell(session.active))
+        val saved = repository.saveScheduleRoutine(copied, edited, copied.rules)
+        val changed = saved.schemes.first { it.scheme.id == saved.rules.first().schemeId }
+        assertEquals(listOf(1), changed.times.map { it.periodIndex })
+        assertEquals("08:05", changed.times.single().startTime)
+        assertEquals("08:00", saved.regular.times.first().startTime)
+        val deleted = repository.deleteScheduleRoutine(saved, changed.scheme.id)
+        assertEquals(listOf(second.toString()), deleted.rules.map { it.startDate })
+        assertEquals(source, repository.loadScheduleRoutines(1))
+    }
+
+    @Test
+    fun scheduleRoutineCopyRejectsUnmappedCoursesAndStaleDraftsWithoutWritingTarget() = runBlocking {
+        database.courseDao().insertCourses(listOf(course(2, listOf(4))))
+        val source = repository.loadScheduleRoutines(1)
+        val session = source.timeline(source.regularId)
+        val unmappedTarget = repository.loadScheduleRoutines(2)
+        val before = state()
+        rejected { repository.saveScheduleRoutine(source, session, source.rules, copyTarget = unmappedTarget) }
+        assertEquals(before, state())
+
+        val existing = database.courseDao().getCourses(2).single()
+        database.courseDao().insertCourses(listOf(existing.copy(periods = listOf(3))))
+        val target = repository.loadScheduleRoutines(2)
+        saveTestDateRoutine(source, "后加作息", LocalDate.now())
+        rejected { repository.saveScheduleRoutine(source, session, source.rules, copyTarget = target) }
+        assertEquals(target, repository.loadScheduleRoutines(2))
+    }
+
+    @Test
+    fun newTermCopiesScheduleSettingsAndRoutinesThenActivatesAnEmptyCourseList() = runBlocking {
+        val sourceConfig = requireNotNull(database.configDao().getConfig(1))
+        val specials = encodeTimeSlotCourses(listOf(TimeSlotCourse("early", "早读", "07:15", "07:40")))
+        val adjustments = encodeScheduleAdjustments(listOf(ScheduleAdjustment("2026-09-18", label = "停课")))
+        database.configDao().upsertConfig(sourceConfig.copy(
+            termStartDate = "2026-09-07", currentWeek = 8, weekStartsOnSunday = true,
+            wallpaperUri = "file:///test-wallpaper.jpg", showNonCurrentWeekCourses = true,
+            timeSlotCoursesJson = specials, scheduleAdjustmentsJson = adjustments,
+        ))
+        database.courseDao().insertCourses(listOf(course(1, listOf(2)).copy(name = "原学期课程")))
+        val source = saveTestDateRoutine(repository.loadScheduleRoutines(1), "日期作息", LocalDate.of(2026, 9, 22))
+        val startDate = LocalDate.of(2036, 3, 2)
+        val before = state()
+        rejected { repository.createNewTerm(source.config, source.config.copy(totalWeeks = 0), startDate) }
+        assertEquals(before, state())
+
+        val id = repository.createNewTerm(source.config, source.config.copy(totalWeeks = 17), startDate)
+        val active = repository.activeSnapshot()
+        val created = repository.loadScheduleRoutines(id)
+        assertEquals(id, active.config.id)
+        assertEquals("课表1 · 新学期", database.scheduleProfileDao().getProfiles().single { it.isActive }.name)
+        assertEquals(startDate.toString(), created.config.termStartDate)
+        assertEquals(1, created.config.currentWeek)
+        assertEquals(17, created.config.totalWeeks)
+        assertTrue(created.config.weekStartsOnSunday)
+        assertTrue(created.config.showNonCurrentWeekCourses)
+        assertTrue(created.config.timeSlotCoursesJson.isEmpty())
+        assertEquals(adjustments, created.config.scheduleAdjustmentsJson)
+        assertEquals(source.config.wallpaperUri, created.config.wallpaperUri)
+        assertEquals(source.rules.map { it.startDate to it.endDate }, created.rules.map { it.startDate to it.endDate })
+        assertEquals(source.schemes.map { it.scheme.name }, created.schemes.map { it.scheme.name })
+        assertTrue(created.schemes.none { copy -> source.schemes.any { it.scheme.id == copy.scheme.id } })
+        assertTrue(created.courses.isEmpty())
+        assertEquals(source, repository.loadScheduleRoutines(1))
+    }
+
+    private suspend fun saveTestDateRoutine(source: ScheduleRoutines, name: String, date: LocalDate): ScheduleRoutines {
+        val session = source.timeline(source.regularId)
+        val id = -1L
+        val newRoutine = session.active.copy(
+            scheme = session.active.scheme.copy(id = id, name = name),
+            times = session.active.times.map { it.copy(schemeId = id) },
+        )
+        val edited = session.copy(draft = session.draft.copy(
+            schemes = session.draft.schemes + newRoutine, activeSchemeId = id,
+        ))
+        val rules = source.rules + TimetableDateRuleEntity(0, source.rules.size, id, date.toString(), date.toString())
+        return repository.saveScheduleRoutine(source, edited, rules)
     }
 
     private fun academicDraft(courses: String, dateRule: Boolean = false): ImportDraft {

@@ -19,7 +19,7 @@ val releaseStorePassword = releaseSecret("sleepdown.releaseStorePassword", "SLEE
 val releaseKeyAlias = releaseSecret("sleepdown.releaseKeyAlias", "SLEEPDOWN_RELEASE_KEY_ALIAS")
 val releaseKeyPassword = releaseSecret("sleepdown.releaseKeyPassword", "SLEEPDOWN_RELEASE_KEY_PASSWORD")
 val remoteConfigSecret = releaseSecret("sleepdown.remoteConfigSecret", "SLEEPDOWN_REMOTE_CONFIG_SECRET").orEmpty()
-val sleepDownVersionName = "1.2.8_beta2"
+val sleepDownVersionName = "2.0"
 val skipReleaseResourceShrink = providers.gradleProperty("sleepdown.skipReleaseResourceShrink")
     .map(String::toBoolean)
     .getOrElse(false)
@@ -71,6 +71,7 @@ android {
     defaultConfig {
         applicationId = "com.xiaomanjun.sleepdownschedule"
         minSdk = 26
+        buildConfigField("boolean", "SLEEPDOWN_COUI_SETTINGS", "true")
         targetSdk = 36
         versionCode = 36
         versionName = sleepDownVersionName
@@ -153,12 +154,15 @@ android {
             // GitHub builds use gold transitions by default; keep an explicit comparison override.
             buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST",
                 providers.gradleProperty("sleepdown.sharedViewKitTest").map(String::toBoolean).getOrElse(true).toString())
+            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_DISABLED_FOR_BUILD",
+                providers.gradleProperty("sleepdown.disableSharedViewKit").map(String::toBoolean).getOrElse(false).toString())
         }
         create("store") {
             dimension = "distribution"
             buildConfigField("String", "DISTRIBUTION_CHANNEL", "\"store\"")
             buildConfigField("boolean", "SLEEPDOWN_EXPERIMENTAL_FEATURES", "false")
             buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_TEST", "false")
+            buildConfigField("boolean", "SLEEPDOWN_SHARED_VIEW_KIT_DISABLED_FOR_BUILD", "true")
         }
     }
 
@@ -200,6 +204,7 @@ ksp {
 }
 
 dependencies {
+    implementation(project(":sleepdown-coui"))
     val composeBom = platform("androidx.compose:compose-bom:2024.10.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -216,6 +221,7 @@ dependencies {
     implementation("androidx.core:core:1.15.0")
     implementation("androidx.browser:browser:1.8.0")
     implementation("androidx.webkit:webkit:1.14.0")
+    implementation("androidx.javascriptengine:javascriptengine:1.1.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-process:2.8.7")
     implementation("androidx.work:work-runtime-ktx:2.10.1")

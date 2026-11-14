@@ -30,7 +30,7 @@ class HomeSwitchCompositionTest {
         val compositions = IntArray(20)
         compose.setContent {
             MaterialTheme {
-                val motion = rememberHomeSwitchMotion(secondary.value, "dense-test", renderedCardCount = { 20 })
+                val motion = rememberHomeSwitchMotion(secondary.value, "dense-test")
                 HomeSwitchPane(motion, false, Modifier.size(320.dp, 480.dp), retainContent = true) {
                     repeat(compositions.size) { DenseCard(it, compositions) }
                 }

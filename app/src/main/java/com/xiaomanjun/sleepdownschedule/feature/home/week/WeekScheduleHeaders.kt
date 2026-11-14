@@ -1,8 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import androidx.compose.foundation.layout.Spacer
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,42 +11,45 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.pager.PagerState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.graphics.ColorProducer
+import androidx.compose.ui.graphics.RenderEffect
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
-import com.kyant.backdrop.effects.blur
 import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.CourseEntity
 import com.xiaomanjun.sleepdownschedule.R
@@ -59,7 +63,10 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlp
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeHeaderGlassTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.drawContinuousRoundRect
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.excludeParentPullGesture
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.rememberMotionBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.text.AutoFitSingleLineText
+import com.xiaomanjun.sleepdownschedule.feature.home.homeHeaderBlur
+import com.xiaomanjun.sleepdownschedule.feature.home.homeHeaderTextLayer
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeReadableText
 import com.xiaomanjun.sleepdownschedule.feature.home.day.weekCourseBuckets
 import com.xiaomanjun.sleepdownschedule.glass.ui.BlueStatusGlassPill
@@ -70,8 +77,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
 import com.xiaomanjun.sleepdownschedule.scheduleWeekStartDate
 import com.xiaomanjun.sleepdownschedule.weekdayLabel
 import java.time.LocalDate
-import kotlin.math.abs
-import kotlin.math.min
+import kotlin.math.roundToInt
 
 @Composable
 fun WeekSwitchButton(direction: Int, config: ScheduleConfigEntity, backdrop: Backdrop?, enabled: Boolean, onClick: () -> Unit) {
@@ -139,7 +145,7 @@ internal val BoundlessWeekGridEndPadding = 4.dp
  * weekday/date labels stay crisp and are never covered by the gradient. It reuses the exact
  * course-column geometry: a rowHeaderWidth leading slot (same width as the timeline rail) plus
  * equal weekday columns with weekGridEndPadding trailing. The leading slot is fixed width so the
- * grid always stays aligned; the current-week caption stays hidden until the user swipes weeks.
+ * grid always stays aligned. The weekday columns keep their identity as their slots move.
  */
 @Composable
 internal fun BoundlessWeekdayHeaderRow(
@@ -158,256 +164,426 @@ internal fun BoundlessWeekdayHeaderRow(
             .height(BoundlessWeekHeaderRowHeight),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier
-                .width(rowHeaderWidth)
-                .fillMaxHeight(),
-            contentAlignment = Alignment.Center
-        ) {
-            AutoFitSingleLineText(
-                text = "第${displayWeek}周",
-                color = textColor,
-                style = MaterialTheme.typography.titleSmall.copy(
-                    fontWeight = FontWeight.Medium,
-                    textAlign = TextAlign.Center
-                ),
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 1.dp),
-                alignment = Alignment.Center,
-                candidateFontSizes = listOf(14.sp, 13.sp, 12.sp, 11.sp, 10.sp),
-                content = { fittedSize ->
-                    HomeReadableText(
-                        text = "第${displayWeek}周", color = textColor,
-                        style = MaterialTheme.typography.titleSmall,
-                        fontSize = fittedSize, fontWeight = FontWeight.Medium,
-                        textAlign = TextAlign.Center, maxLines = 1, softWrap = false,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
+        Spacer(Modifier.width(rowHeaderWidth))
+        Box(Modifier.weight(1f).fillMaxHeight()) {
+            val strip = rememberWeekdayStrip(courses, displayWeek, config, today)
+            WeekdayHeaderStrip(
+                transition = rememberWeekdayStripTransition(strip),
+                today = today,
+                textColor = textColor,
+                endPadding = weekGridEndPadding,
+                todayStyle = WeekdayTodayStyle.LIGHTWEIGHT,
+                backdrop = backdrop,
+                config = config,
+                enlargeWeekdayLabels = true,
+                clipEdges = false,
+                modifier = Modifier.fillMaxSize()
             )
         }
-        val displayedPage = (displayWeek - 1).coerceIn(0, config.totalWeeks.coerceAtLeast(1) - 1)
-        val displayedWeekdays = remember(courses, displayedPage, config, today) {
-            val buckets = weekCourseBuckets(courses, displayedPage + 1, config, today)
-            weekPresentationWeekdays(buckets, courses, config, displayedPage + 1)
-        }
-        WeekdayHeaderLabels(
-            weekdays = displayedWeekdays,
-            weekStart = scheduleWeekStartDate(config, displayedPage + 1, today),
-            today = today,
-            textColor = textColor,
-            endPadding = weekGridEndPadding,
-            todayStyle = WeekdayTodayStyle.LIGHTWEIGHT,
-            backdrop = backdrop,
-            config = config,
-            enlargeWeekdayLabels = true,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxHeight()
-        )
     }
 }
 
 @Composable
-internal fun WeekPagerHeaderLabels(
-    pagerState: PagerState,
+internal fun WeekdayHeaderLabels(
     displayWeek: Int,
     courses: List<CourseEntity>,
     config: ScheduleConfigEntity,
     today: LocalDate,
     textColor: ComposeColor,
     endPadding: Dp,
-    todayStyle: WeekdayTodayStyle = WeekdayTodayStyle.PILL,
     modifier: Modifier = Modifier
 ) {
-    val maxPage = (config.totalWeeks - 1).coerceAtLeast(0)
-    val currentPage = pagerState.currentPage.coerceIn(0, maxPage)
-    val settledPage = pagerState.settledPage.coerceIn(0, maxPage)
-    val adjacentPage by remember(pagerState, maxPage) {
-        derivedStateOf {
-            val page = pagerState.currentPage.coerceIn(0, maxPage)
-            when {
-                pagerState.currentPageOffsetFraction > 0f -> (page + 1).coerceAtMost(maxPage)
-                pagerState.currentPageOffsetFraction < 0f -> (page - 1).coerceAtLeast(0)
-                else -> page
-            }
-        }
-    }
+    val strip = rememberWeekdayStrip(courses, displayWeek, config, today)
+    WeekdayHeaderStrip(
+        transition = rememberWeekdayStripTransition(strip),
+        today = today,
+        textColor = textColor,
+        endPadding = endPadding,
+        todayStyle = WeekdayTodayStyle.PILL,
+        config = config,
+        modifier = modifier
+    )
+}
 
-    fun weekdaysForPage(page: Int): List<Int> {
-        val buckets = weekCourseBuckets(courses, page + 1, config, today)
-        return weekPresentationWeekdays(buckets, courses, config, page + 1)
-    }
+@Composable
+private fun rememberWeekdayStrip(
+    courses: List<CourseEntity>,
+    displayWeek: Int,
+    config: ScheduleConfigEntity,
+    today: LocalDate
+): WeekdayStrip = remember(courses, displayWeek, config, today) {
+    val week = displayWeek.coerceIn(1, config.totalWeeks.coerceAtLeast(1))
+    val buckets = weekCourseBuckets(courses, week, config, today)
+    WeekdayStrip(
+        weekStart = scheduleWeekStartDate(config, week, today),
+        weekdays = weekPresentationWeekdays(buckets, courses, config, week)
+    )
+}
 
-    val currentWeekdays = remember(courses, currentPage, config, today) {
-        weekdaysForPage(currentPage)
-    }
-    val adjacentWeekdays = remember(courses, adjacentPage, config, today) {
-        weekdaysForPage(adjacentPage)
-    }
-    val offsetVisible by remember(pagerState) {
-        derivedStateOf { abs(pagerState.currentPageOffsetFraction) > 0.0001f }
-    }
-    val slideHeader = offsetVisible && adjacentPage != currentPage && currentWeekdays != adjacentWeekdays
-
-    BoxWithConstraints(modifier = modifier.clipToBounds()) {
-        val widthPx = with(LocalDensity.current) { maxWidth.toPx() }
-        if (slideHeader) {
-            val pages = if (currentPage < adjacentPage) {
-                currentPage..adjacentPage
-            } else {
-                adjacentPage..currentPage
-            }
-            pages.forEach { page ->
-                key(page) {
-                    val pageWeekdays = if (page == currentPage) currentWeekdays else adjacentWeekdays
-                    WeekdayHeaderLabels(
-                        weekdays = pageWeekdays,
-                        weekStart = scheduleWeekStartDate(config, page + 1, today),
-                        today = today,
+/**
+ * Equal-width weekday columns placed from one strip to the other.
+ *
+ * The layout only decides the destination slots; every frame of the transition is drawn by the
+ * cells themselves, so no relayout or recomposition happens while the columns travel. A column
+ * that exists on both sides keeps its identity and moves, a column that only enters slides in
+ * from the nearest header edge while fading in, and a column that only leaves slides out.
+ */
+@Composable
+private fun WeekdayHeaderStrip(
+    transition: WeekdayStripTransition,
+    today: LocalDate,
+    textColor: ComposeColor,
+    endPadding: Dp,
+    todayStyle: WeekdayTodayStyle,
+    modifier: Modifier = Modifier,
+    backdrop: Backdrop? = null,
+    config: ScheduleConfigEntity? = null,
+    enlargeWeekdayLabels: Boolean = false,
+    clipEdges: Boolean = true
+) {
+    val from = transition.from
+    val to = transition.to
+    val progress = remember(transition) { { transition.progress.value } }
+    val blur = rememberMotionBlur(TileMode.Decal)
+    val targetDays = to.weekdays
+    val leavingDays = remember(from, to) { from.weekdays.filter { it !in to.weekdays } }
+    val endPaddingPx = with(LocalDensity.current) { endPadding.toPx() }
+    val lastTargetDay = targetDays.lastOrNull()
+    val lastFromDay = from.weekdays.lastOrNull()
+    Layout(
+        content = {
+            targetDays.forEachIndexed { index, day ->
+                key(day) {
+                    val targetState = weekdayCellState(day, to, config, today)
+                    val fromState = if (day in from.weekdays) weekdayCellState(day, from, config, today) else null
+                    WeekdayHeaderCell(
+                        motion = SlotMotion(
+                            fromIndex = from.weekdays.indexOf(day),
+                            fromCount = from.weekdays.size,
+                            toIndex = index,
+                            toCount = targetDays.size,
+                            leaving = false,
+                            progress = progress
+                        ),
+                        from = fromState,
+                        to = targetState,
+                        toCount = targetDays.size,
+                        lastTargetDay = lastTargetDay,
+                        lastFromDay = lastFromDay,
                         textColor = textColor,
-                        endPadding = endPadding,
                         todayStyle = todayStyle,
+                        backdrop = backdrop,
                         config = config,
-                        modifier = Modifier.graphicsLayer {
-                            translationX = ((page - pagerState.currentPage) -
-                                pagerState.currentPageOffsetFraction) * widthPx
-                        }
+                        enlargeWeekdayLabels = enlargeWeekdayLabels,
+                        blur = blur,
+                        endPadding = endPadding,
+                        modifier = Modifier
                     )
                 }
             }
-        } else {
-            val displayedPage = (displayWeek - 1).coerceIn(0, maxPage)
-            val displayedWeekdays = remember(courses, displayedPage, config, today) {
-                weekdaysForPage(displayedPage)
+            leavingDays.forEach { day ->
+                key(day) {
+                    WeekdayHeaderCell(
+                        motion = SlotMotion(
+                            fromIndex = from.weekdays.indexOf(day).coerceAtLeast(0),
+                            fromCount = from.weekdays.size,
+                            toIndex = -1,
+                            toCount = targetDays.size,
+                            leaving = true,
+                            progress = progress
+                        ),
+                        from = weekdayCellState(day, from, config, today),
+                        to = null,
+                        toCount = from.weekdays.size,
+                        lastTargetDay = lastFromDay,
+                        lastFromDay = lastFromDay,
+                        textColor = textColor,
+                        todayStyle = todayStyle,
+                        backdrop = backdrop,
+                        config = config,
+                        enlargeWeekdayLabels = enlargeWeekdayLabels,
+                        blur = blur,
+                        endPadding = endPadding,
+                        modifier = Modifier
+                    )
+                }
             }
-            WeekdayHeaderLabels(
-                weekdays = displayedWeekdays,
-                weekStart = scheduleWeekStartDate(config, displayedPage + 1, today),
-                today = today,
-                textColor = textColor,
-                endPadding = endPadding,
-                todayStyle = todayStyle,
-                config = config
+        },
+        modifier = if (clipEdges) modifier.clipToBounds() else modifier
+    ) { measurables, constraints ->
+        val width = constraints.maxWidth
+        // Cumulative rounding keeps the last column exactly on the course-grid boundary instead
+        // of leaving up to one pixel per column unused at the right edge.
+        val trackWidth = (width - endPaddingPx).coerceAtLeast(1f)
+        fun slotX(index: Int, count: Int): Int =
+            (trackWidth * index / count.coerceAtLeast(1)).roundToInt()
+        fun slotWidth(index: Int, count: Int): Int =
+            (slotX(index + 1, count) - slotX(index, count)).coerceAtLeast(1)
+        val boundedHeight = constraints.hasBoundedHeight
+        val height = if (boundedHeight) constraints.maxHeight else Constraints.Infinity
+        val placeables = measurables.mapIndexed { index, measurable ->
+            val column = if (index < targetDays.size) {
+                slotWidth(index, targetDays.size)
+            } else {
+                val day = leavingDays[index - targetDays.size]
+                slotWidth(from.weekdays.indexOf(day).coerceAtLeast(0), from.weekdays.size)
+            }
+            measurable.measure(
+                if (boundedHeight) {
+                    Constraints.fixed(column, height)
+                } else {
+                    Constraints(minWidth = column, maxWidth = column)
+                }
             )
+        }
+        val rowHeight = if (boundedHeight) height else placeables.maxOfOrNull { it.height } ?: 0
+        layout(width, rowHeight) {
+            targetDays.indices.forEach { index ->
+                placeables[index].place(slotX(index, targetDays.size), 0)
+            }
+            leavingDays.forEachIndexed { offset, day ->
+                val oldIndex = from.weekdays.indexOf(day).coerceAtLeast(0)
+                placeables[targetDays.size + offset].place(slotX(oldIndex, from.weekdays.size), 0)
+            }
+        }
+    }
+}
+
+private data class WeekdayCellState(
+    val weekday: Int,
+    val date: LocalDate,
+    val isToday: Boolean,
+    val adjusted: Boolean
+)
+
+private fun weekdayCellState(
+    weekday: Int,
+    strip: WeekdayStrip,
+    config: ScheduleConfigEntity?,
+    today: LocalDate
+): WeekdayCellState {
+    val offset = config?.let {
+        com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(it, weekday)
+    } ?: (weekday - 1).toLong()
+    val date = strip.weekStart.plusDays(offset)
+    return WeekdayCellState(
+        weekday = weekday,
+        date = date,
+        isToday = date == today,
+        adjusted = config != null &&
+            com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config, date) != null
+    )
+}
+
+/**
+ * Where one column starts, where the layout put it, and where it has to end up.
+ *
+ * Everything is derived from the column width the cell was measured with, so drawing a frame
+ * never needs another layout pass.
+ */
+private class SlotMotion(
+    private val fromIndex: Int,
+    private val fromCount: Int,
+    private val toIndex: Int,
+    private val toCount: Int,
+    private val leaving: Boolean,
+    private val progress: () -> Float
+) {
+    fun fraction(): Float = progress().coerceIn(0f, 1f)
+
+    /** True when this column keeps its slot and width, so it needs no layer at all. */
+    val motionless: Boolean
+        get() = !leaving && fromIndex == toIndex && fromCount == toCount
+
+    fun translation(cellWidth: Float): Float {
+        if (cellWidth <= 0f || fromCount <= 0 || toCount <= 0) return 0f
+        val trackWidth = if (leaving) cellWidth * fromCount else cellWidth * toCount
+        val fromWidth = if (leaving) cellWidth else trackWidth / fromCount
+        val toWidth = if (leaving) trackWidth / toCount else cellWidth
+        if (leaving) {
+            val start = fromIndex * fromWidth + fromWidth / 2f
+            val end = if (fromIndex * 2 < fromCount) -cellWidth / 2f else trackWidth + cellWidth / 2f
+            return (end - start) * progress()
+        }
+        val start = when {
+            fromIndex >= 0 -> fromIndex * fromWidth + fromWidth / 2f
+            toIndex * 2 < toCount -> -fromWidth / 2f
+            else -> trackWidth + fromWidth / 2f
+        }
+        val end = toIndex * toWidth + toWidth / 2f
+        return (start - end) * (1f - progress())
+    }
+
+    fun alpha(): Float = when {
+        leaving -> 1f - fraction()
+        fromIndex < 0 -> fraction()
+        else -> 1f
+    }
+}
+
+@Composable
+private fun WeekdayHeaderCell(
+    motion: SlotMotion,
+    from: WeekdayCellState?,
+    to: WeekdayCellState?,
+    toCount: Int,
+    lastTargetDay: Int?,
+    lastFromDay: Int?,
+    textColor: ComposeColor,
+    todayStyle: WeekdayTodayStyle,
+    backdrop: Backdrop?,
+    config: ScheduleConfigEntity?,
+    enlargeWeekdayLabels: Boolean,
+    blur: (Float) -> RenderEffect?,
+    endPadding: Dp,
+    modifier: Modifier
+) {
+    var cellWidth by remember { mutableFloatStateOf(0f) }
+    val placed = modifier
+        .fillMaxHeight()
+        .onSizeChanged { cellWidth = it.width.toFloat() }
+        .then(
+            // A column that keeps its slot and width is drawn straight into the frame, so the
+            // resting header owns no layer at all.
+            if (motion.motionless) {
+                Modifier
+            } else {
+                Modifier.graphicsLayer {
+                    translationX = if (cellWidth > 0f) motion.translation(cellWidth) else 0f
+                    alpha = motion.alpha()
+                }
+            }
+        )
+    val shown = to ?: checkNotNull(from)
+    val outgoing = from ?: shown
+    val incoming = to ?: shown
+    val marked = incoming.takeIf { it.isToday } ?: outgoing.takeIf { it.isToday }
+    val markerChanging = outgoing.isToday != incoming.isToday
+    fun markerOpacity(): Float = when {
+        !markerChanging -> 1f
+        incoming.isToday -> motion.fraction()
+        else -> 1f - motion.fraction()
+    }
+    val showTodayCapsule = marked != null && todayStyle == WeekdayTodayStyle.LIGHTWEIGHT &&
+        backdrop != null && config != null
+    val sampleForPagePalette = todayStyle == WeekdayTodayStyle.LIGHTWEIGHT && !showTodayCapsule
+    val adjustmentAccent = ComposeColor(0xFFFFB928)
+    val indicatorColor = if (marked?.adjusted == true) adjustmentAccent else MaterialTheme.colorScheme.primary
+    // The last visible day has a small trailing gutter so its pill can reach the outer header
+    // edge. Keep that extra width centered on the day cell; extending only to the right makes
+    // Friday/Sunday look visibly off-center when weekends are hidden or shown.
+    val extendsToHeaderEnd = if (incoming.isToday && to != null) {
+        incoming.weekday == lastTargetDay
+    } else {
+        outgoing.weekday == lastFromDay
+    }
+    fun weekdayInk(state: WeekdayCellState) =
+        if (showTodayCapsule && state.isToday) ComposeColor.White else textColor
+    fun dateInk(state: WeekdayCellState) =
+        weekdayInk(state).copy(alpha = if (showTodayCapsule && state.isToday) 0.92f else 0.72f)
+    Box(
+        modifier = placed.then(
+                if (marked != null && todayStyle == WeekdayTodayStyle.PILL) Modifier.drawWithContent {
+                    val horizontalInset = 1.dp.toPx()
+                    val verticalInset = 2.dp.toPx()
+                    val edgeExtension = if (extendsToHeaderEnd) {
+                        endPadding.toPx() + horizontalInset
+                    } else {
+                        0f
+                    }
+                    drawContinuousRoundRect(
+                        color = indicatorColor.copy(alpha = 0.22f * markerOpacity()),
+                        topLeft = Offset(
+                            horizontalInset - edgeExtension,
+                            verticalInset
+                        ),
+                        size = Size(
+                            width = (size.width - horizontalInset * 2f + edgeExtension * 2f)
+                                .coerceAtLeast(0f),
+                            height = (size.height - verticalInset * 2f).coerceAtLeast(0f)
+                        ),
+                        cornerRadius = CornerRadius(
+                            x = (size.height - verticalInset * 2f).coerceAtLeast(0f) / 2f,
+                            y = (size.height - verticalInset * 2f).coerceAtLeast(0f) / 2f
+                        )
+                    )
+                    drawContent()
+                } else Modifier
+            ),
+        contentAlignment = Alignment.Center
+    ) {
+        if (showTodayCapsule) {
+            BlueStatusGlassPill(
+                backdrop = backdrop,
+                config = config,
+                accentColor = if (marked.adjusted) adjustmentAccent else ComposeColor(0xFF0A84FF),
+                modifier = Modifier
+                    .widthIn(min = if (toCount >= 6) 64.dp else 92.dp)
+                    .heightIn(min = 34.dp)
+                    .then(if (markerChanging) Modifier.graphicsLayer { alpha = markerOpacity() } else Modifier)
+            ) {}
+        }
+        Column(
+            modifier = Modifier.padding(vertical = 2.dp, horizontal = 1.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            HomeReadableText(
+                text = "周${weekdayLabel(shown.weekday)}",
+                fontSize = if (enlargeWeekdayLabels) 13.sp else 11.sp,
+                lineHeight = if (enlargeWeekdayLabels) 14.sp else 12.sp,
+                fontWeight = FontWeight.ExtraBold,
+                color = weekdayInk(shown),
+                drawColor = if (showTodayCapsule && markerChanging) {
+                    ColorProducer { lerp(textColor, ComposeColor.White, markerOpacity()) }
+                } else null,
+                textAlign = TextAlign.Center,
+                maxLines = 1,
+                sampleForPagePalette = sampleForPagePalette
+            )
+            if (outgoing.date != incoming.date) {
+                Box(
+                    Modifier.graphicsLayer { homeHeaderBlur(motion.fraction(), 3.dp, blur) },
+                    contentAlignment = Alignment.Center
+                ) {
+                    WeekdayDateLabel(
+                        outgoing.date, dateInk(outgoing), enlargeWeekdayLabels,
+                        Modifier.homeHeaderTextLayer({ 1f - motion.fraction() }).clearAndSetSemantics {},
+                        sampleForPagePalette = false
+                    )
+                    WeekdayDateLabel(
+                        incoming.date, dateInk(incoming), enlargeWeekdayLabels,
+                        Modifier.homeHeaderTextLayer(motion::fraction),
+                        sampleForPagePalette = sampleForPagePalette
+                    )
+                }
+            } else {
+                WeekdayDateLabel(shown.date, dateInk(shown), enlargeWeekdayLabels,
+                    sampleForPagePalette = sampleForPagePalette)
+            }
         }
     }
 }
 
 @Composable
-private fun WeekdayHeaderLabels(
-    weekdays: List<Int>,
-    weekStart: LocalDate,
-    today: LocalDate,
-    textColor: ComposeColor,
-    endPadding: Dp,
-    todayStyle: WeekdayTodayStyle = WeekdayTodayStyle.PILL,
-    backdrop: Backdrop? = null,
-    config: ScheduleConfigEntity? = null,
-    enlargeWeekdayLabels: Boolean = false,
-    modifier: Modifier = Modifier
+private fun WeekdayDateLabel(
+    date: LocalDate,
+    color: ComposeColor,
+    enlarge: Boolean,
+    modifier: Modifier = Modifier,
+    sampleForPagePalette: Boolean,
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxSize()
-            .padding(end = endPadding),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        weekdays.forEachIndexed { index, day ->
-            val date = weekStart.plusDays(config?.let { com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(it, day) } ?: (day - 1).toLong())
-            val isToday = date == today
-            val extendsToHeaderEnd = isToday && index == weekdays.lastIndex
-            val adjusted = config != null && com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config, date) != null
-            val indicatorColor = (if (adjusted) ComposeColor(0xFFFFB928) else MaterialTheme.colorScheme.primary).copy(alpha = 0.22f)
-            val lightweightToday = isToday && todayStyle == WeekdayTodayStyle.LIGHTWEIGHT
-            val showTodayCapsule = lightweightToday && backdrop != null && config != null
-            val capsuleTextColor = ComposeColor.White
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxSize()
-                    .then(
-                        if (isToday && todayStyle == WeekdayTodayStyle.PILL) Modifier
-                            .drawWithContent {
-                                val horizontalInset = 1.dp.toPx()
-                                val verticalInset = 2.dp.toPx()
-                                // The last visible day has a small trailing gutter so its pill can
-                                // reach the outer header edge. Keep that extra width centered on
-                                // the day cell; extending only to the right makes Friday/Sunday
-                                // look visibly off-center when weekends are hidden or shown.
-                                val edgeExtension = if (extendsToHeaderEnd) {
-                                    endPadding.toPx() + horizontalInset
-                                } else {
-                                    0f
-                                }
-                                drawContinuousRoundRect(
-                                    color = indicatorColor,
-                                    topLeft = Offset(
-                                        horizontalInset - edgeExtension,
-                                        verticalInset
-                                    ),
-                                    size = Size(
-                                        width = (size.width - horizontalInset * 2f + edgeExtension * 2f)
-                                            .coerceAtLeast(0f),
-                                        height = (size.height - verticalInset * 2f).coerceAtLeast(0f)
-                                    ),
-                                    cornerRadius = CornerRadius(
-                                        x = (size.height - verticalInset * 2f).coerceAtLeast(0f) / 2f,
-                                        y = (size.height - verticalInset * 2f).coerceAtLeast(0f) / 2f
-                                    )
-                                )
-                                drawContent()
-                            }
-                        else Modifier
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                // Today in boundless mode: a blue glass capsule sits BEHIND the text as an outer
-                // container. The two-line weekday/date layout below stays byte-for-byte identical
-                // to the other days (same texts, fonts, spacing and centering) — only the color
-                // switches to white so it reads inside the blue glass container.
-                if (showTodayCapsule) {
-                    BlueStatusGlassPill(
-                        backdrop = backdrop,
-                        config = config,
-                        accentColor = if (adjusted) ComposeColor(0xFFFFB928) else ComposeColor(0xFF0A84FF),
-                        modifier = Modifier
-                            .widthIn(min = if (weekdays.size >= 6) 64.dp else 92.dp)
-                            .heightIn(min = 34.dp)
-                    ) {}
-                }
-                Column(
-                    modifier = Modifier.padding(vertical = 2.dp, horizontal = 1.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center
-                ) {
-                    HomeReadableText(
-                        text = "周${weekdayLabel(day)}",
-                        fontSize = if (enlargeWeekdayLabels) 13.sp else 11.sp,
-                        lineHeight = if (enlargeWeekdayLabels) 14.sp else 12.sp,
-                        fontWeight = if (isToday) FontWeight.Black else FontWeight.ExtraBold,
-                        color = if (showTodayCapsule) capsuleTextColor else textColor,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1
-                    )
-                    HomeReadableText(
-                        text = "${date.monthValue}/${date.dayOfMonth}",
-                        fontSize = if (enlargeWeekdayLabels) 11.sp else 9.sp,
-                        lineHeight = if (enlargeWeekdayLabels) 12.sp else 10.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = if (showTodayCapsule) {
-                            capsuleTextColor.copy(alpha = 0.92f)
-                        } else {
-                            textColor.copy(alpha = 0.72f)
-                        },
-                        textAlign = TextAlign.Center,
-                        maxLines = 1
-                    )
-                }
-            }
-        }
-    }
+    HomeReadableText(
+        text = "${date.monthValue}/${date.dayOfMonth}",
+        modifier = modifier,
+        fontSize = if (enlarge) 11.sp else 9.sp,
+        lineHeight = if (enlarge) 12.sp else 10.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = color,
+        textAlign = TextAlign.Center,
+        maxLines = 1,
+        sampleForPagePalette = sampleForPagePalette
+    )
 }
 
 @Composable

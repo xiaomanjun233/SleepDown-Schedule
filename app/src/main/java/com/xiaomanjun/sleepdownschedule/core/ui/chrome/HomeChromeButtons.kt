@@ -247,6 +247,16 @@ internal fun HomeIconButtonVisual(
 ) {
     val adaptiveGlass = LocalAdaptiveGlass.current
     val lightGlass = adaptiveGlass.lightGlass
+    val overflow = com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenu.current
+        ?.takeIf { iconRes == R.drawable.ic_more_horizontal }
+    if (overflow != null && LocalHomeMaterialControls.current.OverflowMenuButton(
+        !lightGlass, isInteractive, overflow.value, modifier) { open ->
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeOverflowMenu provides null) {
+            HomeIconButtonVisual(backdrop, config, iconRes, contentDescription, Modifier.fillMaxSize(),
+                selected, accentColor, isInteractive, pressSnapshot, onNativeClick = open, onClick = open)
+        }
+    }) return
     if (LocalHomeMaterialControls.current.IconButton(
             iconRes = iconRes,
             contentDescription = contentDescription,
@@ -269,6 +279,7 @@ internal fun HomeIconButtonVisual(
             modifier = modifier,
             height = 42.dp,
             tint = if (accentColor.isSpecified) accentColor else ComposeColor.Unspecified,
+            nativePrimaryColor = accentColor,
             surfaceColor = buttonSurfaceColor,
             contentPadding = PaddingValues(0.dp),
             blurRadius = homeChromeBlur(HomeHeaderGlassBlur, config),

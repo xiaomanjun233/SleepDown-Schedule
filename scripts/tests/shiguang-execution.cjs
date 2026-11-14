@@ -19,7 +19,9 @@ Object.assign(win, { window: win, AbortController, setTimeout: fn => {
 }, clearTimeout: id => timers.delete(id) });
 const context = vm.createContext(win);
 vm.runInContext(init, context);
-const execute = source => vm.runInContext(template.replace('${JSONObject.quote(source)}', JSON.stringify(source)), context);
+const render = (source, token = null) => template.replace('${JSONObject.quote(executionToken)}', JSON.stringify(token))
+  .replace('${JSONObject.quote(source)}', JSON.stringify(source));
+const execute = (source, token = null) => vm.runInContext(render(source, token), context);
 const drain = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 
 (async () => {
@@ -29,14 +31,35 @@ const drain = async () => { for (let i = 0; i < 20; i++) await Promise.resolve()
   assert.equal(messages.filter(it => it.action === 'showToast' && JSON.parse(it.payload).message === 'page').length, 2);
   const frame = vm.createContext({ window: { fetch: win.fetch, shiguangBridge: win.shiguangBridge },
     AbortController, setTimeout: () => 0, clearTimeout: () => {} });
-  assert.equal(vm.runInContext(template.replace('${JSONObject.quote(source)}', JSON.stringify(source)), frame), 'started');
+  assert.equal(vm.runInContext(render(source), frame), 'started');
   await drain();
   assert.equal(messages.filter(it => it.action === 'showToast' && JSON.parse(it.payload).message === 'page').length, 3);
+
+  // SCEMI and other official adapters use this non-returning IIFE shape. The native task
+  // must survive its first async prompt and subsequent network work until explicit completion.
+  const detachedStart = messages.length;
+  execute(`(function() {
+    async function runImportFlow() {
+      await window.shiguangBridgePromise.showAlert('SCEMI fixture', 'login');
+      await window.shiguangBridgePromise.saveImportedCourses('[]');
+      window.shiguangBridge.notifyTaskCompletion();
+    }
+    runImportFlow();
+  })();`);
+  await drain();
+  assert.equal(messages.at(-1).action, 'showAlert');
+  assert.equal(messages.slice(detachedStart).some(it => it.action === 'notifyExecutionFinished'), false);
+  win._shiguangNativeCallback(messages.at(-1).callbackId, true, true); await drain();
+  assert.equal(messages.at(-1).action, 'saveImportedCourses');
+  win._shiguangNativeCallback(messages.at(-1).callbackId, true, true); await drain();
+  assert.equal(messages.at(-1).action, 'notifyTaskCompletion');
+  assert.equal(messages.slice(detachedStart).some(it => it.action === 'notifyExecutionFinished'), false);
+  assert.equal(win.shiguangBridge._evaluateAdapterInput, undefined);
 
   const adapter = fs.readFileSync(path.join(__dirname,
     '../../app/src/main/assets/shiguang_warehouse-main/resources/HNSF/hnsf_01.js'), 'utf8');
   win.location = { href: 'https://jwc.htu.edu.cn/new/student/home' };
-  execute(adapter); await drain();
+  execute(adapter, 'hnsf-task'); await drain();
   assert.equal(messages.at(-1).action, 'showAlert');
   win._shiguangNativeCallback(messages.at(-1).callbackId, true, true);
   await drain();
@@ -87,12 +110,34 @@ const drain = async () => { for (let i = 0; i < 20; i++) await Promise.resolve()
   const framePrompt = vm.createContext({ window: {
     fetch: win.fetch, shiguangBridge: win.shiguangBridge, shiguangBridgePromise: win.shiguangBridgePromise
   }, AbortController, setTimeout: () => 0, clearTimeout: () => {} });
-  vm.runInContext(template.replace('${JSONObject.quote(source)}', JSON.stringify(promptSource('iframe'))), framePrompt);
+  vm.runInContext(render(promptSource('iframe')), framePrompt);
   await drain();
   const iframePrompt = messages.at(-1).callbackId;
   assert.equal(win._shiguangValidatePrompt(iframePrompt, 'bad'), 'iframe');
   win._shiguangNativeCallback(iframePrompt, true, null); await drain();
   assert.equal(win.shiguangBridge._evaluateAdapterInput, undefined);
+
+  // Async continuations retain their own native token after another adapter starts.
+  execute('(async()=>{await window.shiguangBridgePromise.showAlert("old", "");await window.shiguangBridgePromise.saveImportedCourses("old-courses");window.shiguangBridge.notifyTaskCompletion()})()', 'old-task');
+  await drain();
+  const oldAlert = messages.at(-1);
+  assert.equal(oldAlert.executionToken, 'old-task');
+  execute('(async()=>{await AndroidBridgePromise.showAlert("new", "");await shiguangBridgePromise.saveImportedCourses("new-courses");AndroidBridge.notifyTaskCompletion()})()', 'new-task');
+  await drain();
+  const newAlert = messages.at(-1);
+  assert.equal(newAlert.executionToken, 'new-task');
+  win._shiguangNativeCallback(oldAlert.callbackId, true, true); await drain();
+  const oldSave = messages.at(-1);
+  assert.equal(oldSave.executionToken, 'old-task');
+  assert.equal(JSON.parse(oldSave.payload).coursesJsonString, 'old-courses');
+  win._shiguangNativeCallback(newAlert.callbackId, true, true); await drain();
+  const newSave = messages.at(-1);
+  assert.equal(newSave.executionToken, 'new-task');
+  assert.equal(JSON.parse(newSave.payload).coursesJsonString, 'new-courses');
+  win._shiguangNativeCallback(oldSave.callbackId, false, 'stale task'); await drain();
+  win._shiguangNativeCallback(newSave.callbackId, true, true); await drain();
+  assert.equal(messages.at(-1).action, 'notifyTaskCompletion');
+  assert.equal(messages.at(-1).executionToken, 'new-task');
 
   execute('throw "真实错误"'); await drain();
   assert(messages.some(it => it.action === 'showToast' && JSON.parse(it.payload).message.includes('真实错误')));
@@ -106,5 +151,5 @@ const drain = async () => { for (let i = 0; i < 20; i++) await Promise.resolve()
   assert.match(await timeoutResult, /超时/);
   delete win._shiguangNativeBridge;
   assert.equal(execute(source), 'bridge_unavailable');
-  console.log('Passed: isolated adapters, HNSF year validation and semester handoff, per-prompt scope, iframe validation, cleanup, async/string errors, response metadata, bridge rejection and timeout.');
+  console.log('Passed: isolated adapters, HNSF year validation and semester handoff, per-prompt scope, iframe validation, execution tokens across old/new async scripts, cleanup, response metadata, bridge rejection and timeout.');
 })().catch(error => { console.error(error); process.exitCode = 1; });

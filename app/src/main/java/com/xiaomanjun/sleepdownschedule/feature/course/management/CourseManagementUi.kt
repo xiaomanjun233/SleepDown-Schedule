@@ -5,7 +5,6 @@ import com.xiaomanjun.sleepdownschedule.feature.course.editor.courseClockOrigin
 
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
-import com.xiaomanjun.sleepdownschedule.model.DefaultCourseCardPalette
 
 import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeCoursePeriodTimes
 
@@ -13,53 +12,31 @@ import android.graphics.Bitmap
 import android.graphics.drawable.BitmapDrawable
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.items as staggeredItems
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.LocationOn
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -67,7 +44,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -81,13 +58,11 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
@@ -95,51 +70,51 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.itos.coui.icons.CouiIcons
+import com.itos.coui.theme.CouiTheme
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.Capsule
-import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.performance.*
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.LightTopBarButtonShadow
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.animateScrollToTop
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.DetailActivityScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
 import com.xiaomanjun.sleepdownschedule.domain.course.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
 import com.xiaomanjun.sleepdownschedule.domain.schedule.isHiddenByPeriodAlignment
 import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
-import com.xiaomanjun.sleepdownschedule.domain.schedule.originalTimeSegments
 import com.xiaomanjun.sleepdownschedule.domain.schedule.previewCourseEdits
 import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
+import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
+import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.appPanelForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.legacy.*
 import java.time.LocalTime
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.abs
-import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
-import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.theme.MiuixTheme
-import top.yukonga.miuix.kmp.utils.overScrollVertical
-
-private val CourseManagementCardShape = RoundedRectangle(20.dp)
 
 @Composable
 internal fun CourseManagementColorProvider(
@@ -223,8 +198,8 @@ internal fun managedCourseGroupForCourseId(
 @Composable
 internal fun CourseManagementScreen(
     state: AppState,
-    backdrop: Backdrop?,
     onBack: () -> Unit,
+    onDelete: suspend (List<CourseEntity>) -> Unit,
     transitionActivity: ComponentActivity? = null,
     captureTransitionFrame: suspend () -> Bitmap? = { null },
     transitionRootPosition: Offset = Offset.Zero,
@@ -242,6 +217,13 @@ internal fun CourseManagementScreen(
     val foreground = appPanelForegroundColor(state.config)
     val scope = rememberCoroutineScope()
     val activity = transitionActivity
+    val selection = remember(state.config.id) { CardDeletionSelection() }
+    val pageConfig = settingsVisualConfig(state.config)
+    val pageColor = settingsPageBackground(pageConfig)
+    val listBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "course-management-list") {
+        drawRect(pageColor)
+        drawContent()
+    }
     var hiddenGroupKey by remember { mutableStateOf<String?>(null) }
 
     BackHandler(onBack = onBack)
@@ -253,14 +235,18 @@ internal fun CourseManagementScreen(
                 Text("当前课表还没有课程", color = foreground.copy(alpha = 0.62f))
             }
         } else {
+            val listState = rememberLazyStaggeredGridState()
             LazyVerticalStaggeredGrid(
                 columns = StaggeredGridCells.Fixed(2),
-                modifier = Modifier.fillMaxSize(),
+                state = listState,
+                modifier = Modifier.fillMaxSize().glassBackdropProducer(listBackdrop).animateScrollToTop {
+                    if (listState.canScrollBackward) listState.animateScrollToItem(0)
+                },
                 contentPadding = PaddingValues(
                     start = 12.dp,
                     top = detailContentTopPadding() + 8.dp,
                     end = 12.dp,
-                    bottom = 16.dp
+                    bottom = if (selection.active) detailContentBottomPadding() + CardDeleteBottomSpace else 16.dp
                 ),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalItemSpacing = 8.dp
@@ -270,11 +256,14 @@ internal fun CourseManagementScreen(
                         group = group,
                         config = state.config,
                         periods = state.periods,
+                        selection = selection,
+                        enabled = hiddenGroupKey == null,
                         sourceHidden = hiddenGroupKey == group.key,
                         onClick = { sourceBounds, currentBounds ->
-                            if (hiddenGroupKey != null) return@ManagedCourseListCard
+                            if (hiddenGroupKey != null || selection.active) return@ManagedCourseListCard
                             scope.launch {
                                 val fullFrame = captureTransitionFrame()
+                                if (selection.active || hiddenGroupKey != null) return@launch
                                 val sourceSnapshot = fullFrame?.cropToCourseManagementBounds(
                                     sourceBounds,
                                     transitionRootPosition
@@ -339,6 +328,15 @@ internal fun CourseManagementScreen(
                 }
             }
         }
+        CardSelectionChrome(
+            selection = selection,
+            cards = remember(groups) { groups.associateBy(ManagedCourseGroup::key) },
+            config = pageConfig,
+            backdrop = listBackdrop,
+            confirmationTitle = "删除课程？",
+            confirmationMessage = { count -> "将删除 ${count} 门课程及其全部安排。" },
+            onDelete = { selected -> onDelete(selected.flatMap(ManagedCourseGroup::courses)) }
+        )
     }
 
 }
@@ -348,6 +346,8 @@ private fun ManagedCourseListCard(
     group: ManagedCourseGroup,
     config: ScheduleConfigEntity,
     periods: List<PeriodEntity>,
+    selection: CardDeletionSelection,
+    enabled: Boolean,
     sourceHidden: Boolean,
     onClick: (Rect, () -> Rect?) -> Unit
 ) {
@@ -358,10 +358,8 @@ private fun ManagedCourseListCard(
         modifier = Modifier
             .fillMaxWidth()
             .onGloballyPositioned { coordinates = it; sourceBounds = it.boundsInWindow() }
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) {
+            .clip(CourseManagementCardShape)
+            .cardSelectionInteraction(selection, group.key, enabled, appUsesDarkTheme(config)) {
                 sourceBounds?.let { bounds ->
                     onClick(bounds) {
                         coordinates?.takeIf { it.isAttached }?.let { current ->
@@ -378,6 +376,8 @@ private fun ManagedCourseListCard(
             group = group,
             config = config,
             periods = periods,
+            checkedForDeletion = if (selection.active) group.key in selection.selectedKeys else null,
+            selectionEnabled = enabled && !selection.deleting,
             modifier = Modifier
                 .fillMaxWidth()
                 .graphicsLayer { alpha = if (sourceHidden) 0f else 1f }
@@ -421,14 +421,21 @@ internal fun ManagedCourseListCardContent(
     config: ScheduleConfigEntity,
     periods: List<PeriodEntity>,
     modifier: Modifier,
-    selected: Boolean = false
+    selected: Boolean = false,
+    checkedForDeletion: Boolean? = null,
+    selectionEnabled: Boolean = true,
 ) {
     val representative = group.representative
     val cardColor = courseCardBaseColor(config, representative)
     val textColor = appPanelForegroundColor(config)
     val summaryColor = textColor.copy(alpha = 0.78f)
     val locations = remember(group.courses) {
-        group.courses.mapNotNull { it.location?.trim()?.takeIf(String::isNotEmpty) }.distinct()
+        group.courses.mapNotNull { it.location?.trim()?.takeIf(String::isNotEmpty) }
+            .distinct().joinToString(" · ")
+    }
+    val teachers = remember(group.courses) {
+        group.courses.mapNotNull { it.teacher?.trim()?.takeIf(String::isNotEmpty) }
+            .distinct().joinToString(" · ")
     }
     val daySummaries = remember(group.courses, periods, config.weekStartsOnSunday) {
         buildManagedCourseDaySummaries(group.courses, periods, config.weekStartsOnSunday)
@@ -465,23 +472,28 @@ internal fun ManagedCourseListCardContent(
                     .weight(1f)
                     .padding(start = 8.dp)
             )
-            Icon(
-                painter = painterResource(R.drawable.ic_arrow_back),
-                contentDescription = null,
-                tint = textColor.copy(alpha = 0.70f),
-                modifier = Modifier
-                    .size(16.dp)
-                    .graphicsLayer { rotationZ = 180f }
-            )
+            if (checkedForDeletion != null) {
+                CardSelectionCheck(checkedForDeletion, selectionEnabled, appUsesDarkTheme(config))
+            } else {
+                Icon(
+                    painter = painterResource(R.drawable.ic_chevron_left),
+                    contentDescription = null,
+                    tint = textColor.copy(alpha = 0.70f),
+                    modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = 180f }
+                )
+            }
         }
-        if (locations.isNotEmpty()) {
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Outlined.LocationOn, contentDescription = "地点",
-                    tint = summaryColor.copy(alpha = 0.62f), modifier = Modifier.size(15.dp))
-                Text(locations.joinToString(" · "), color = summaryColor,
-                    style = MiuixTheme.textStyles.body2.copy(platformStyle = PlatformTextStyle(includeFontPadding = false)),
-                    lineHeight = 20.sp, maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f))
+        if (locations.isNotEmpty() || teachers.isNotEmpty()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                if (locations.isNotEmpty()) {
+                    ManagedCourseCardMetadata(CouiIcons.Filled.Location, "地点", locations, summaryColor)
+                }
+                if (teachers.isNotEmpty()) {
+                    ManagedCourseCardMetadata(CouiIcons.Filled.UserCircle, "教师", teachers, summaryColor)
+                }
             }
         }
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -492,6 +504,22 @@ internal fun ManagedCourseListCardContent(
                 ManagedCourseArrangementChip(null, listOf("+${daySummaries.size - 4} 天安排"), cardColor, summaryColor)
             }
         }
+    }
+}
+
+@Composable
+private fun ManagedCourseCardMetadata(icon: ImageVector, label: String, value: String, textColor: Color) {
+    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(icon, contentDescription = label, tint = textColor.copy(alpha = 0.62f), modifier = Modifier.size(15.dp))
+        Text(
+            value,
+            color = textColor,
+            style = MiuixTheme.textStyles.body2.copy(platformStyle = PlatformTextStyle(includeFontPadding = false)),
+            lineHeight = 20.sp,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis
+        )
     }
 }
 
@@ -585,9 +613,10 @@ private data class ManagedArrangementDraft(
 private data class PendingArrangementDelete(
     val localKey: Long,
     val arrangementNumber: Int,
-    val confirm: () -> Unit,
-    val cancel: () -> Unit
+    val answer: CompletableDeferred<Boolean>,
 )
+
+private data class DepartingArrangement(val index: Int, val draft: ManagedArrangementDraft)
 
 private data class PendingCourseManagementConflictSave(
     val replacements: List<CourseEntity>,
@@ -599,17 +628,18 @@ internal fun CourseManagementDetailPage(
     group: ManagedCourseGroup,
     state: AppState,
     onBack: () -> Unit,
-    onSave: (List<CourseEntity>) -> Unit,
-    onSaveAndThen: ((List<CourseEntity>, (Boolean) -> Unit) -> Unit)? = null,
+    onSave: (List<CourseEntity>, List<CourseEntity>, (Boolean) -> Unit) -> Unit,
     onExitHandlerChange: (((() -> Unit) -> Unit)?) -> Unit = {}
 ) {
+    val originalGroup = remember(group.key) { group }
+    val originalCourses = remember(originalGroup) { originalGroup.courses.map { it.originalArrangement() } }
     var pendingExitAction by remember(group.key) { mutableStateOf<(() -> Unit)?>(null) }
     var saving by remember(group.key) { mutableStateOf(false) }
-    var name by remember(group.key) { mutableStateOf(group.representative.name) }
-    var selectedColor by remember(group.key) { mutableStateOf(group.representative.customColorArgb) }
+    var name by remember(group.key) { mutableStateOf(originalGroup.representative.name) }
+    var selectedColor by remember(group.key) { mutableStateOf(originalGroup.representative.customColorArgb) }
     var nextLocalKey by remember(group.key) { mutableLongStateOf(-1L) }
     var arrangements by remember(group.key) {
-        mutableStateOf(group.courses.map { ManagedArrangementDraft(it.id, it.originalArrangement()) })
+        mutableStateOf(originalCourses.map { ManagedArrangementDraft(it.id, it) })
     }
     var pickerRequest by remember { mutableStateOf<CourseEditorPickerRequest?>(null) }
     var pickerVisible by remember { mutableStateOf(false) }
@@ -617,11 +647,20 @@ internal fun CourseManagementDetailPage(
     var showSaveChangesDialog by remember(group.key) { mutableStateOf(false) }
     var validationMessage by remember(group.key) { mutableStateOf<String?>(null) }
     var pendingDelete by remember(group.key) { mutableStateOf<PendingArrangementDelete?>(null) }
+    var revealedArrangement by remember(group.key) { mutableStateOf<Long?>(null) }
+    var departing by remember(group.key) { mutableStateOf<DepartingArrangement?>(null) }
+    val displayedArrangements = remember(arrangements, departing) {
+        val outgoing = departing
+        if (outgoing == null) arrangements else arrangements.toMutableList().apply {
+            add(outgoing.index.coerceAtMost(size), outgoing.draft)
+        }
+    }
     var pendingConflictSave by remember(group.key) {
         mutableStateOf<PendingCourseManagementConflictSave?>(null)
     }
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val density = LocalDensity.current
     val colorModeEnabled = courseCardAllowsCustomOverrides(state.config)
 
     fun replacementsForSave(): List<CourseEntity> {
@@ -634,8 +673,17 @@ internal fun CourseManagementDetailPage(
         }
     }
 
-    val replacements = replacementsForSave()
-    val hasChanges = name != group.representative.name || replacements != group.courses.map { it.originalArrangement() }
+    val remainingOriginals = remember(arrangements, originalCourses) {
+        val retainedKeys = arrangements.mapTo(hashSetOf()) { it.localKey }
+        originalCourses.filter { it.id in retainedKeys }
+    }
+    val hasConfirmedDeletion = remainingOriginals.size < originalCourses.size
+    val hasOtherChanges = arrangements.isNotEmpty() && (
+        name != originalGroup.representative.name ||
+            (colorModeEnabled && selectedColor != originalGroup.representative.customColorArgb) ||
+            arrangements.map { it.course } != remainingOriginals
+        )
+    val hasChanges = hasConfirmedDeletion || hasOtherChanges
 
     fun finishBack() {
         saving = false
@@ -647,18 +695,17 @@ internal fun CourseManagementDetailPage(
     fun commit(values: List<CourseEntity>) {
         if (saving) return
         val clockError = values.firstNotNullOfOrNull { edited -> manualCourseClockError(edited,
-            group.courses.firstOrNull { it.id == edited.id }?.originalArrangement(), state.periods) }
+            originalCourses.firstOrNull { it.id == edited.id }, state.periods) }
         if (clockError != null) { validationMessage = clockError; return }
-        if (onSaveAndThen != null) {
-            saving = true
-            onSaveAndThen(values) { success ->
-                saving = false
-                if (success) finishBack() else {
-                    pendingExitAction = null
-                    validationMessage = "保存失败，请重试"
-                }
+        validationMessage = null
+        saving = true
+        onSave(originalGroup.courses, values) { success ->
+            saving = false
+            if (success) finishBack() else {
+                pendingExitAction = null
+                validationMessage = "保存失败，请重试"
             }
-        } else onSave(values)
+        }
     }
 
     fun updateArrangement(localKey: Long, transform: (CourseEntity) -> CourseEntity) {
@@ -680,7 +727,7 @@ internal fun CourseManagementDetailPage(
             return
         }
         val conflictWeeks = conflictWeeksForEditedCourseGroup(
-            originals = state.previewCourseEdits(group.courses),
+            originals = state.previewCourseEdits(originalGroup.courses),
             edited = state.previewCourseEdits(replacementsToSave),
             courses = state.courses,
             periodDefinitions = state.periods
@@ -698,23 +745,66 @@ internal fun CourseManagementDetailPage(
 
     fun requestBack() {
         if (saving) return
-        if (hasChanges) {
-            showSaveChangesDialog = true
+        when {
+            hasOtherChanges -> showSaveChangesDialog = true
+            hasConfirmedDeletion -> commit(remainingOriginals)
+            else -> finishBack()
+        }
+    }
+
+    fun discardOtherChanges() {
+        if (hasConfirmedDeletion) {
+            name = originalGroup.representative.name
+            selectedColor = originalGroup.representative.customColorArgb
+            arrangements = remainingOriginals.map { ManagedArrangementDraft(it.id, it) }
+            showSaveChangesDialog = false
+            commit(remainingOriginals)
         } else {
             finishBack()
         }
     }
 
+    suspend fun requestArrangementDeletion(localKey: Long): Boolean {
+        if (saving || pendingDelete != null || departing != null) return false
+        val index = arrangements.indexOfFirst { it.localKey == localKey }
+        if (index == -1) return false
+        val pending = PendingArrangementDelete(localKey, index + 1, CompletableDeferred())
+        pendingDelete = pending
+        return try {
+            pending.answer.await()
+        } finally {
+            if (pendingDelete === pending) pendingDelete = null
+        }
+    }
+
+    fun confirmArrangementDeletion(pending: PendingArrangementDelete) {
+        if (pendingDelete !== pending || pending.answer.isCompleted) return
+        val index = arrangements.indexOfFirst { it.localKey == pending.localKey }
+        if (index == -1) {
+            pending.answer.complete(false)
+            return
+        }
+        departing = DepartingArrangement(index, arrangements[index])
+        arrangements = arrangements.filterNot { it.localKey == pending.localKey }
+        pending.answer.complete(true)
+    }
+
+    fun finishArrangementRemoval(localKey: Long) {
+        if (departing?.draft?.localKey == localKey) departing = null
+    }
+
     val latestExitHandler = rememberUpdatedState<(()->Unit)->Unit> { action ->
-        pendingExitAction = action
-        requestBack()
+        if (!saving) {
+            pendingExitAction = action
+            requestBack()
+        }
     }
     DisposableEffect(group.key) {
         onExitHandlerChange { action -> latestExitHandler.value(action) }
         onDispose { onExitHandlerChange(null) }
     }
 
-    BackHandler(enabled = hasChanges) { requestBack() }
+    BackHandler(enabled = hasChanges || saving) { requestBack() }
 
     Box(Modifier.fillMaxSize().then(if (saving) Modifier.clearAndSetSemantics {}.pointerInput(Unit) {
             awaitPointerEventScope {
@@ -725,14 +815,11 @@ internal fun CourseManagementDetailPage(
         title = name.ifBlank { "课程详情" },
         config = state.config,
         onBack = ::requestBack,
-        compactTopBar = true,
-        centerCompactTitle = true,
-        compactTitleMatchesSettings = true,
         topBarActions = { topBackdrop ->
-            DialogLiquidButton(
+            CouiSettingsToolbarButton(
                 backdrop = topBackdrop,
-                label = "添加安排",
                 onClick = {
+                    revealedArrangement = null
                     val template = arrangements.lastOrNull()?.course ?: group.representative
                     val added = newManagedCourseArrangement(template, state.config, state.periods).copy(
                         name = name.ifBlank { template.name },
@@ -741,104 +828,101 @@ internal fun CourseManagementDetailPage(
                     arrangements = arrangements + ManagedArrangementDraft(nextLocalKey--, added)
                     scope.launch { listState.animateScrollToItem(arrangements.lastIndex + 1) }
                 },
-                role = DialogButtonRole.Confirm,
-                iconRes = R.drawable.ic_add_course,
-                roundIcon = true,
-                blurRadius = 10.dp,
-                shadowEnabled = !appUsesDarkTheme(state.config),
-                shadowStyle = LightTopBarButtonShadow
-            )
+            ) {
+                Icon(CouiIcons.Add, "添加安排", Modifier.size(24.dp), tint = CouiTheme.colorScheme.onSurface)
+            }
         }
     ) { cardBackdrop ->
-        // DetailActivityScaffold records its scrolling content into
-        // LocalSettingsPopupBackdrop. A card inside that recorder must never sample that same
-        // producer: doing so creates a RenderNode cycle and crashes RenderThread with an
-        // unbounded prepareTreeImpl recursion. This is the same one-way arrangement used by the
-        // AI import history detail page: in-page controls sample the scaffold's plain background
-        // producer, while only the root-hosted picker samples the completed content producer.
+        // Only the root-hosted pickers sample the completed page.
         val pickerBackdrop = LocalSettingsPopupBackdrop.current ?: cardBackdrop
-        // Centered dialogs and their action capsules resolve LocalCenteredDialogSceneBackdrop.
-        // The Miuix scaffold hosts them as a sibling of the complete page producer, so every layer
-        // can be sampled without allowing the dialog subtree to feed itself back into RenderThread.
-        LazyColumn(
+        SleepDownSecondaryPageList(
             state = listState,
-            // The explicit modifier is the only Miuix path that still responds when a single
-            // arrangement fits entirely in the viewport; disable the theme factory to avoid a
-            // second spring once longer content becomes normally scrollable.
-            overscrollEffect = null,
-            modifier = Modifier
-                .fillMaxSize()
-                .imePadding()
-                .overScrollVertical(),
-            contentPadding = PaddingValues(
-                start = 16.dp,
-                // The centered compact title is wider/taller than the history-page title. Give
-                // the first card a real clear band below it instead of letting the top-gradient
-                // overlay visually crop the color heading.
-                top = detailContentTopPadding() + 24.dp,
-                end = 16.dp,
-                bottom = 30.dp
-            ),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+            modifier = Modifier.fillMaxSize(),
+            contentTopPadding = detailContentTopPadding(),
+            contentBottomPadding = detailContentBottomPadding(),
         ) {
             item(key = "course-identity") {
                 CourseIdentityCard(
                     name = name,
                     onNameChange = { name = it },
                     selectedColor = selectedColor,
-                    onColorSelected = { selectedColor = it },
-                    onOpenColorPicker = { colorPickerVisible = true },
+                    onOpenColorPicker = {
+                        revealedArrangement = null
+                        colorPickerVisible = true
+                    },
                     backdrop = cardBackdrop,
                     config = state.config
                 )
             }
-            itemsIndexed(arrangements, key = { _, item -> item.localKey }) { index, draft ->
-                SwipeDeleteArrangementCard(
-                    key = draft.localKey,
-                    onDelete = { arrangements = arrangements.filterNot { it.localKey == draft.localKey } },
-                    onDeleteRequest = { confirm, cancel ->
-                        pendingDelete = PendingArrangementDelete(
-                            localKey = draft.localKey,
-                            arrangementNumber = index + 1,
-                            confirm = confirm,
-                            cancel = cancel
-                        )
+            itemsIndexed(displayedArrangements, key = { _, item -> item.localKey }) { index, draft ->
+                val revealed = revealedArrangement == draft.localKey
+                var cardHeightPx by remember(draft.localKey) { mutableIntStateOf(0) }
+                DisposableEffect(draft.localKey) {
+                    onDispose {
+                        if (revealedArrangement == draft.localKey) revealedArrangement = null
+                        finishArrangementRemoval(draft.localKey)
                     }
+                }
+                GlassPreferenceSection(
+                    "上课安排 ${index + 1}",
+                    Modifier.animateItem(fadeInSpec = null, placementSpec = null),
                 ) {
-                    CourseArrangementEditorCard(
-                        localKey = draft.localKey,
-                        index = index,
-                        course = draft.course,
-                        periods = state.periods,
-                        totalWeeks = state.config.totalWeeks.coerceAtLeast(1),
-                        config = state.config,
-                        backdrop = cardBackdrop,
-                        onCourseChange = { changed -> updateArrangement(draft.localKey) { changed } },
-                        onOpenPicker = {
-                            pickerRequest = it
-                            pickerVisible = true
+                    SwipeDeleteRow(
+                        rowKey = draft.localKey,
+                        surfaceColor = CouiTheme.colorScheme.container,
+                        revealed = revealed,
+                        onRevealChange = { open ->
+                            if (open) revealedArrangement = draft.localKey
+                            else if (revealedArrangement == draft.localKey) revealedArrangement = null
+                        },
+                        onDelete = { finishArrangementRemoval(draft.localKey) },
+                        onDeleteFailed = {
+                            departing?.takeIf { it.draft.localKey == draft.localKey }?.let { outgoing ->
+                                arrangements = arrangements.toMutableList().apply {
+                                    add(outgoing.index.coerceAtMost(size), outgoing.draft)
+                                }
+                                finishArrangementRemoval(draft.localKey)
+                            }
+                            validationMessage = "无法删除安排，请重试"
+                        },
+                        swipeEnabled = !saving || departing?.draft?.localKey == draft.localKey,
+                        cardMotion = SwipeDeleteCardMotion.Slide,
+                        actionHeight = with(density) { (cardHeightPx.toDp() / 4f).coerceAtLeast(48.dp) },
+                        rowCorners = { SwipeDeleteCorners(24.dp) },
+                        confirmDelete = { requestArrangementDeletion(draft.localKey) },
+                    ) { slide, blocked, openOrClose ->
+                        Box(slide.onSizeChanged { cardHeightPx = it.height }) {
+                            CourseArrangementEditorCard(
+                                course = draft.course,
+                                periods = state.periods,
+                                totalWeeks = state.config.totalWeeks.coerceAtLeast(1),
+                                config = state.config,
+                                backdrop = cardBackdrop,
+                                enabled = !blocked && !revealed,
+                                onCourseChange = { changed -> updateArrangement(draft.localKey) { changed } },
+                                onOpenPicker = {
+                                    revealedArrangement = null
+                                    pickerRequest = it
+                                    pickerVisible = true
+                                }
+                            )
+                            if (revealed && !blocked) {
+                                Box(Modifier.matchParentSize().clickable(
+                                    interactionSource = null,
+                                    indication = null,
+                                    onClickLabel = "收起删除操作",
+                                    onClick = { openOrClose {} },
+                                ))
+                            }
                         }
-                    )
-                }
-            }
-            if (arrangements.isEmpty()) {
-                item(key = "empty-arrangements") {
-                    CourseManagementSettingsSection(title = "上课安排") {
-                        Text(
-                            "已移除全部安排，返回时可确认删除这门课程。",
-                            color = MiuixTheme.colorScheme.onSurface.copy(alpha = 0.66f),
-                            style = MiuixTheme.textStyles.body2,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                        )
                     }
                 }
             }
-            if (arrangements.size <= 1) {
-                item(key = "elastic-scroll-tail") {
-                    // Preserve a small physical scroll range on short detail pages. Combined with
-                    // Miuix overscroll this keeps the page responsive to a swipe even when there
-                    // is only one arrangement, without changing any visible business content.
-                    Spacer(Modifier.height(72.dp))
+            if (displayedArrangements.isEmpty()) {
+                item(key = "empty-arrangements") {
+                    CourseManagementSettingsSection("上课安排", state.config, cardBackdrop) {
+                        SettingsInfoRow("已移除全部安排", "返回时会删除这门课程。")
+                    }
                 }
             }
         }
@@ -874,7 +958,8 @@ internal fun CourseManagementDetailPage(
             LiquidAlertDialog(
                 title = "保存修改？",
                 message = validationMessage
-                    ?: "你修改了课程安排。保存完成后才会退出课程详情。",
+                    ?: if (hasConfirmedDeletion) "已确认的删除会提交。其余课程修改要一起保存吗？"
+                    else "你修改了课程安排。保存完成后才会退出课程详情。",
                 actions = listOf(
                     LiquidAlertAction(
                         label = "继续编辑",
@@ -886,9 +971,9 @@ internal fun CourseManagementDetailPage(
                         }
                     ),
                     LiquidAlertAction(
-                        label = "不保存",
+                        label = if (hasConfirmedDeletion) "放弃其他修改" else "不保存",
                         style = LiquidAlertActionStyle.Destructive,
-                        onClick = ::finishBack
+                        onClick = ::discardOtherChanges
                     ),
                     LiquidAlertAction(
                         label = "保存并退出",
@@ -897,7 +982,6 @@ internal fun CourseManagementDetailPage(
                         onClick = ::saveAndReturn
                     )
                 ),
-                backdrop = pickerBackdrop,
                 config = state.config,
                 onDismissRequest = {
                     validationMessage = null
@@ -914,26 +998,27 @@ internal fun CourseManagementDetailPage(
                     LiquidAlertAction(
                         label = "取消",
                         style = LiquidAlertActionStyle.Cancel,
-                        onClick = {
-                            pending.cancel()
-                            pendingDelete = null
-                        }
+                        onClick = { pending.answer.complete(false) }
                     ),
                     LiquidAlertAction(
                         label = "删除",
                         style = LiquidAlertActionStyle.Destructive,
-                        onClick = {
-                            pendingDelete = null
-                            pending.confirm()
-                        }
+                        onClick = { confirmArrangementDeletion(pending) }
                     )
                 ),
-                backdrop = pickerBackdrop,
                 config = state.config,
-                onDismissRequest = {
-                    pending.cancel()
-                    pendingDelete = null
-                }
+                onDismissRequest = { pending.answer.complete(false) }
+            )
+        }
+        if (!showSaveChangesDialog && !saving) validationMessage?.let { message ->
+            LiquidAlertDialog(
+                title = "课程操作未完成",
+                message = message,
+                actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary) {
+                    validationMessage = null
+                }),
+                config = state.config,
+                onDismissRequest = { validationMessage = null },
             )
         }
         pendingConflictSave?.let { pending ->
@@ -962,23 +1047,12 @@ internal fun CourseManagementDetailPage(
 @Composable
 private fun CourseManagementSettingsSection(
     title: String,
-    modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
+    config: ScheduleConfigEntity,
+    backdrop: Backdrop?,
+    content: @Composable ColumnScope.() -> Unit
 ) {
-    Column(
-        modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceContainerHigh, CourseManagementCardShape)
-            .padding(vertical = 6.dp)
-    ) {
-        Text(
-            title,
-            color = MiuixTheme.colorScheme.onSurface,
-            style = MiuixTheme.textStyles.title3,
-            fontWeight = FontWeight.SemiBold,
-            modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp)
-        )
-        content()
+    GlassPreferenceSection(title) {
+        SettingsGroup(backdrop, config, content = content)
     }
 }
 
@@ -987,12 +1061,11 @@ private fun CourseIdentityCard(
     name: String,
     onNameChange: (String) -> Unit,
     selectedColor: Long?,
-    onColorSelected: (Long?) -> Unit,
     onOpenColorPicker: () -> Unit,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity
 ) {
-    CourseManagementSettingsSection(title = "课程信息") {
+    CourseManagementSettingsSection("课程信息", config, backdrop) {
         SettingsTextFieldRow(
             title = "课程名称",
             value = name,
@@ -1000,73 +1073,33 @@ private fun CourseIdentityCard(
             placeholder = "输入课程名称"
         )
         if (courseCardAllowsCustomOverrides(config)) {
-            MiuixBasicComponent(
-                title = "课程颜色",
-                summary = "应用到全部安排",
+            SettingsDivider()
+            SettingsArrowPreference(
                 modifier = Modifier.fillMaxWidth(),
-                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
-            )
-            val palette = LocalCourseCardPalette.current.ifEmpty { DefaultCourseCardPalette }
-            val visiblePalette = palette.take(4)
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 10.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                visiblePalette.forEach { argb ->
-                    val selected = selectedColor == argb
-                    Box(
-                        Modifier
-                            .size(34.dp)
-                            .graphicsLayer {
-                                scaleX = if (selected) 1.12f else 1f
-                                scaleY = if (selected) 1.12f else 1f
-                            }
-                            .clip(Capsule())
-                            .background(Color(argb.toInt()))
-                            .then(
-                                if (selected) {
-                                    Modifier.border(
-                                        2.dp,
-                                        if (Color(argb.toInt()).luminance() > 0.55f) Color.Black else Color.White,
-                                        Capsule()
-                                    )
-                                } else {
-                                    Modifier
-                                }
-                            )
-                            .clickable { onColorSelected(argb) }
-                    ) {
-                        if (selected) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_check),
-                                contentDescription = "已选择课程颜色",
-                                tint = if (Color(argb.toInt()).luminance() > 0.55f) Color.Black else Color.White,
-                                modifier = Modifier.align(Alignment.Center).size(17.dp)
-                            )
-                        }
+                title = "课程颜色",
+                endActions = {
+                    if (selectedColor == null) {
+                        Text("自动", style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Box(Modifier.size(18.dp).background(Color(selectedColor.toInt()), Capsule())
+                            .semantics { contentDescription = "自定义颜色" })
                     }
-                }
-                CourseColorPaletteButton(
-                    backdrop = backdrop,
-                    selected = selectedColor != null && selectedColor !in visiblePalette,
-                    onClick = onOpenColorPicker,
-                    size = 34.dp
-                )
-            }
+                },
+                onClick = onOpenColorPicker,
+            )
         }
     }
 }
 
 @Composable
 private fun CourseArrangementEditorCard(
-    localKey: Long,
-    index: Int,
     course: CourseEntity,
     periods: List<PeriodEntity>,
     totalWeeks: Int,
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
+    enabled: Boolean,
     onCourseChange: (CourseEntity) -> Unit,
     onOpenPicker: (CourseEditorPickerRequest) -> Unit
 ) {
@@ -1074,19 +1107,11 @@ private fun CourseArrangementEditorCard(
     val matchingCustomClock = course.hasCustomTime() && course.customPeriodTimes.isNullOrBlank() &&
         !effective.hasCustomTime() && !effective.isHiddenByPeriodAlignment()
     val displayedPeriodIndices = effective.periods.ifEmpty { course.periods }
-    val hidden = effective.arrangementProjection?.hiddenPeriods.orEmpty()
-    CourseManagementSettingsSection(title = "上课安排 ${index + 1}") {
-        if (hidden.isNotEmpty()) {
-            val originalTimes = course.originalTimeSegments().joinToString("；") { "${it.start}–${it.end}" }
-            Text(buildString {
-                append("原始安排：${course.periods.joinToString("、")} 节")
-                if (originalTimes.isNotBlank()) append(" · $originalTimes")
-                append("\n${hidden.joinToString("、")} 节当前未显示。")
-            }, color = MiuixTheme.colorScheme.onSurfaceVariantSummary, style = MiuixTheme.textStyles.body2)
-        }
-        CourseManagementArrowRow(
+    SettingsGroup(backdrop, config, surfaceColorOverride = Color.Transparent) {
+        SettingsPickerValueRow(
             title = "上课星期",
             value = "周${weekdayLabel(course.weekday)}",
+            enabled = enabled,
             onClick = {
                 onOpenPicker(
                     CourseEditorPickerRequest.Grid(
@@ -1103,10 +1128,13 @@ private fun CourseArrangementEditorCard(
                 )
             }
         )
-        CourseManagementArrowRow(
+        SettingsDivider()
+        SettingsPickerValueRow(
             title = "上课节次",
             value = if (effective.hasCustomTime()) courseTimeLabel(effective, periods)
             else "第${displayedPeriodIndices.minOrNull() ?: 1}-${displayedPeriodIndices.maxOrNull() ?: 1}节",
+            enabled = enabled,
+            valueBelowTitle = effective.hasCustomTime(),
             onClick = {
                 val values = periods.map(PeriodEntity::periodIndex).distinct().sorted().ifEmpty { listOf(1) }
                 val displayedPeriods = if (matchingCustomClock) effective.periods else course.periods
@@ -1166,465 +1194,71 @@ private fun CourseArrangementEditorCard(
                 )
             }
         )
+        SettingsDivider()
+        SettingsPickerValueRow(
+            title = "上课周次",
+            value = compactWeekSelectionLabel(course.weeks),
+            enabled = enabled,
+            onClick = { onOpenPicker(arrangementWeeksPicker(course, totalWeeks, onCourseChange)) },
+        )
+        SettingsDivider()
         SettingsTextFieldRow(
             title = "地点",
             value = course.location.orEmpty(),
             onValueChange = { onCourseChange(course.copy(location = it.ifBlank { null })) },
+            enabled = enabled,
             placeholder = "未填写"
         )
+        SettingsDivider()
         SettingsTextFieldRow(
             title = "教师",
             value = course.teacher.orEmpty(),
             onValueChange = { onCourseChange(course.copy(teacher = it.ifBlank { null })) },
+            enabled = enabled,
             placeholder = "未填写"
         )
-        CourseManagementWeekFold(
-            localKey = localKey,
-            course = course,
-            totalWeeks = totalWeeks,
-            onCourseChange = onCourseChange
-        )
+        SettingsDivider()
         SettingsTextFieldRow(
             title = "备注",
             value = course.note.orEmpty(),
             onValueChange = { onCourseChange(course.copy(note = it.ifBlank { null })) },
+            enabled = enabled,
             placeholder = "未填写"
         )
     }
 }
 
-@Composable
-private fun CourseManagementArrowRow(
-    title: String,
-    value: String,
-    onClick: () -> Unit
-) {
-    MiuixBasicComponent(
-        title = title,
-        summary = value,
-        modifier = Modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-        endActions = {
-            Icon(
-                painter = painterResource(R.drawable.ic_arrow_back),
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 180f }
-            )
-        },
-        onClick = onClick
-    )
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun CourseManagementWeekFold(
-    localKey: Long,
+private fun arrangementWeeksPicker(
     course: CourseEntity,
     totalWeeks: Int,
-    onCourseChange: (CourseEntity) -> Unit
-) {
-    var expanded by remember(localKey, totalWeeks) { mutableStateOf(false) }
-    val expansionEasing = remember { CubicBezierEasing(0.20f, 0f, 0f, 1f) }
-    val arrowRotation by animateFloatAsState(
-        targetValue = if (expanded) -90f else 180f,
-        animationSpec = tween(280, easing = expansionEasing),
-        label = "course-management-week-arrow-$localKey"
+    onCourseChange: (CourseEntity) -> Unit,
+): CourseEditorPickerRequest.Grid {
+    val values = ((1..totalWeeks).toList() + course.weeks).distinct().sorted()
+    val current = course.weeks.toSet()
+    val presets = listOf(
+        "全部" to CourseWeekSelectionMode.EVERY,
+        "单周" to CourseWeekSelectionMode.ODD,
+        "双周" to CourseWeekSelectionMode.EVEN,
+    ).mapNotNull { (label, mode) ->
+        val weeks = weeksForCourseWeekSelectionMode(mode, current, totalWeeks)
+        val indices = values.indices.filterTo(linkedSetOf()) { values[it] in weeks }
+        indices.takeIf { it.isNotEmpty() }?.let { CourseEditorPickerRequest.GridPreset(label, it) }
+    }
+    return CourseEditorPickerRequest.Grid(
+        title = "选择上课周次",
+        labels = values.map(Int::toString),
+        selectedIndices = values.indices.filterTo(linkedSetOf()) { values[it] in current },
+        preferredColumns = 6,
+        presets = presets,
+        requireSelection = true,
+        onConfirm = { indices ->
+            val weeks = indices.sorted().map { values[it] }
+            if (weeks.toSet() != current) {
+                onCourseChange(course.copy(
+                    weeks = weeks,
+                    weekParity = inferCourseWeekSelectionMode(weeks).toWeekParity(),
+                ))
+            }
+        },
     )
-    val safeTotalWeeks = totalWeeks.coerceAtLeast(1)
-    val selectedWeeks = course.weeks.toSet()
-    val selectedMode = inferCourseWeekSelectionMode(selectedWeeks)
-    val haptic = LocalHapticFeedback.current
-    fun updateWeeks(nextWeeks: Set<Int>) {
-        if (nextWeeks.isEmpty() || nextWeeks == selectedWeeks) return
-        val sorted = nextWeeks.sorted()
-        onCourseChange(
-            course.copy(
-                weeks = sorted,
-                weekParity = inferCourseWeekSelectionMode(sorted).toWeekParity()
-            )
-        )
-    }
-    // Miuix's BasicComponent only measures its preference row. The expanding body must be a
-    // sibling in this Column, otherwise the grid looks present but is clipped and cannot receive
-    // touch events on certain devices.
-    Column(Modifier.fillMaxWidth()) {
-        MiuixBasicComponent(
-            title = "上课周次",
-            summary = compactWeekSelectionLabel(course.weeks),
-            modifier = Modifier.fillMaxWidth(),
-             insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-            endActions = {
-                Icon(
-                    painter = painterResource(R.drawable.ic_arrow_back),
-                    contentDescription = if (expanded) "收起周次" else "展开周次",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
-                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = arrowRotation }
-                )
-            },
-            onClick = { expanded = !expanded }
-        )
-        AnimatedVisibility(
-            visible = expanded,
-            enter = expandVertically(
-                animationSpec = tween(320, easing = expansionEasing),
-                expandFrom = Alignment.Top
-            ) + fadeIn(tween(190, delayMillis = 30)),
-            exit = shrinkVertically(
-                animationSpec = tween(240, easing = expansionEasing),
-                shrinkTowards = Alignment.Top
-            ) + fadeOut(tween(150))
-        ) {
-            Column(
-                Modifier.fillMaxWidth().padding(start = 14.dp, end = 14.dp, top = 4.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    listOf(
-                        CourseWeekSelectionMode.EVERY to "全部",
-                        CourseWeekSelectionMode.ODD to "单周",
-                        CourseWeekSelectionMode.EVEN to "双周"
-                    ).forEach { (mode, label) ->
-                        val selected = selectedMode == mode
-                        CourseManagementWeekChoice(
-                            label = label,
-                            selected = selected,
-                            modifier = Modifier.weight(1f).height(34.dp)
-                        ) {
-                            val weeks = weeksForCourseWeekSelectionMode(
-                                mode = mode,
-                                currentWeeks = selectedWeeks,
-                                totalWeeks = safeTotalWeeks
-                            ).toSet()
-                            if (weeks != selectedWeeks) {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                updateWeeks(weeks)
-                            }
-                        }
-                    }
-                }
-                CourseManagementWeekSelectionGrid(
-                    totalWeeks = safeTotalWeeks,
-                    selectedWeeks = selectedWeeks,
-                    onSelectionChange = { nextWeeks ->
-                        updateWeeks(nextWeeks)
-                    }
-                )
-            }
-        }
-    }
-}
-
-/** The week fold uses the editor's drag-select language, while keeping the detail-page layout. */
-@Composable
-private fun CourseManagementWeekSelectionGrid(
-    totalWeeks: Int,
-    selectedWeeks: Set<Int>,
-    onSelectionChange: (Set<Int>) -> Unit
-) {
-    val haptic = LocalHapticFeedback.current
-    val latestSelectedWeeks by rememberUpdatedState(selectedWeeks)
-    val latestOnSelectionChange by rememberUpdatedState(onSelectionChange)
-    val density = LocalDensity.current
-    val columns = 6
-    val gap = 8.dp
-    val cellHeight = 38.dp
-    BoxWithConstraints(Modifier.fillMaxWidth()) {
-        val rowCount = (totalWeeks + columns - 1) / columns
-        val gridHeight = cellHeight * rowCount + gap * (rowCount - 1).coerceAtLeast(0)
-        val gapPx = with(density) { gap.toPx() }
-        val cellHeightPx = with(density) { cellHeight.toPx() }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(gridHeight)
-                .pointerInput(totalWeeks, columns, gapPx, cellHeightPx) {
-                    var gestureSelection = mutableSetOf<Int>()
-                    var selectMode = true
-                    var lastWeek = -1
-
-                    fun weekAt(position: Offset): Int? {
-                        if (position.x < 0f || position.y < 0f) return null
-                        val cellWidth = (size.width - gapPx * (columns - 1)) / columns
-                        val columnStride = cellWidth + gapPx
-                        val rowStride = cellHeightPx + gapPx
-                        val column = (position.x / columnStride).toInt()
-                        val row = (position.y / rowStride).toInt()
-                        if (column !in 0 until columns || row !in 0 until rowCount) return null
-                        if (position.x - column * columnStride > cellWidth) return null
-                        if (position.y - row * rowStride > cellHeightPx) return null
-                        return (row * columns + column + 1).takeIf { it in 1..totalWeeks }
-                    }
-
-                    fun applyWeek(week: Int) {
-                        if (week == lastWeek) return
-                        lastWeek = week
-                        val next = gestureSelection.toMutableSet()
-                        if (selectMode) next.add(week) else next.remove(week)
-                        if (next.isEmpty() || next == gestureSelection) return
-                        gestureSelection = next
-                        latestOnSelectionChange(next)
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    }
-
-                    detectDragGestures(
-                        onDragStart = { position ->
-                            gestureSelection = latestSelectedWeeks.toMutableSet()
-                            lastWeek = -1
-                            weekAt(position)?.let { week ->
-                                selectMode = week !in gestureSelection
-                                applyWeek(week)
-                            }
-                        },
-                        onDrag = { change, _ ->
-                            change.consume()
-                            weekAt(change.position)?.let(::applyWeek)
-                        }
-                    )
-                }
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(gap)) {
-                (1..totalWeeks).toList().chunked(columns).forEach { rowWeeks ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(gap)
-                    ) {
-                        rowWeeks.forEach { week ->
-                            val selected = week in selectedWeeks
-                            CourseManagementWeekChoice(
-                                label = week.toString(),
-                                selected = selected,
-                                modifier = Modifier.weight(1f).height(cellHeight)
-                            ) {
-                                val next = if (selected) selectedWeeks - week else selectedWeeks + week
-                                if (next.isNotEmpty()) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    onSelectionChange(next)
-                                }
-                            }
-                        }
-                        repeat(columns - rowWeeks.size) { Spacer(Modifier.weight(1f)) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun CourseManagementWeekChoice(
-    label: String,
-    selected: Boolean,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit
-) {
-    val interactionSource = remember { MutableInteractionSource() }
-    val pressed by interactionSource.collectIsPressedAsState()
-    val baseColor = if (selected) {
-        MaterialTheme.colorScheme.primary
-    } else {
-        MaterialTheme.colorScheme.surfaceVariant
-    }
-    val pressedColor = baseColor.copy(
-        red = baseColor.red * 0.82f,
-        green = baseColor.green * 0.82f,
-        blue = baseColor.blue * 0.82f
-    )
-    val surfaceColor by animateColorAsState(
-        targetValue = if (pressed) pressedColor else baseColor,
-        animationSpec = tween(durationMillis = if (pressed) 70 else 150),
-        label = "course-management-week-choice-press"
-    )
-    Box(
-        modifier = modifier
-            .squircleSurface(color = surfaceColor, cornerRadius = 12.dp)
-            .clickable(
-                interactionSource = interactionSource,
-                indication = null,
-                onClick = onClick
-            ),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            label,
-            color = if (selected) MaterialTheme.colorScheme.onPrimary
-            else MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MiuixTheme.textStyles.body2,
-            fontWeight = FontWeight.SemiBold
-        )
-    }
-}
-
-@Composable
-private fun SwipeDeleteArrangementCard(
-    key: Long,
-    onDeleteRequest: (confirm: () -> Unit, cancel: () -> Unit) -> Unit,
-    onDelete: () -> Unit,
-    content: @Composable BoxScope.() -> Unit
-) {
-    val density = LocalDensity.current
-    val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
-    val offset = remember(key) { Animatable(0f) }
-    val removal = remember(key) { Animatable(0f) }
-    var revealThresholdCrossed by remember(key) { mutableStateOf(false) }
-    var deleteThresholdCrossed by remember(key) { mutableStateOf(false) }
-    var deleteRequested by remember(key) { mutableStateOf(false) }
-    var deletionStarted by remember(key) { mutableStateOf(false) }
-    var widthPx by remember(key) { mutableFloatStateOf(1f) }
-    var measuredHeightPx by remember(key) { mutableFloatStateOf(0f) }
-    val actionWidthPx = with(density) { 48.dp.toPx() }
-    val actionEndPaddingPx = with(density) { 12.dp.toPx() }
-    val actionGapPx = with(density) { 22.dp.toPx() }
-    val revealPx = actionWidthPx + actionEndPaddingPx + actionGapPx
-    val deleteTriggerPx = max(
-        revealPx + with(density) { 156.dp.toPx() },
-        widthPx * 0.78f
-    ).coerceAtMost(widthPx * 0.88f)
-    val maximumDragPx = (widthPx - with(density) { 16.dp.toPx() }).coerceAtLeast(revealPx)
-    val settleSpring = spring<Float>(dampingRatio = 0.52f, stiffness = 420f)
-
-    fun confirmDelete() {
-        if (deletionStarted) return
-        deletionStarted = true
-        scope.launch {
-            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            kotlinx.coroutines.coroutineScope {
-                launch { offset.animateTo(-widthPx * 1.08f, tween(300, easing = DetailExitEasing)) }
-                launch { removal.animateTo(1f, tween(360, easing = DetailExitEasing)) }
-            }
-            onDelete()
-        }
-    }
-
-    fun cancelDelete() {
-        if (deletionStarted) return
-        deleteRequested = false
-        revealThresholdCrossed = false
-        deleteThresholdCrossed = false
-        scope.launch { offset.animateTo(0f, settleSpring) }
-    }
-
-    fun requestDelete(performHaptic: Boolean = true) {
-        if (deletionStarted || deleteRequested) return
-        deleteRequested = true
-        if (performHaptic) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        scope.launch {
-            if (abs(offset.value) < deleteTriggerPx) {
-                offset.animateTo(-deleteTriggerPx, tween(180, easing = DetailExitEasing))
-            }
-            onDeleteRequest(::confirmDelete, ::cancelDelete)
-        }
-    }
-
-    val collapseProgress = ((removal.value - 0.82f) / 0.18f).coerceIn(0f, 1f)
-    val dragDistance = (-offset.value).coerceAtLeast(0f)
-    val removalStretch = (removal.value / 0.42f).coerceIn(0f, 1f)
-    val revealProgress = (dragDistance / revealPx).coerceIn(0f, 1f)
-    val measuredHeight = with(density) { measuredHeightPx.toDp() }
-    val collapsedHeight = with(density) {
-        (measuredHeightPx * (1f - collapseProgress)).coerceAtLeast(1f).toDp()
-    }
-    val outerHeightModifier = if (measuredHeightPx > 0f && removal.value > 0.001f) {
-        Modifier.height(collapsedHeight)
-    } else {
-        Modifier
-    }
-
-    Box(
-        Modifier.fillMaxWidth()
-            .then(outerHeightModifier)
-            .onSizeChanged { size ->
-                widthPx = size.width.toFloat().coerceAtLeast(1f)
-                if (removal.value <= 0.01f && size.height > 1) {
-                    measuredHeightPx = max(measuredHeightPx, size.height.toFloat())
-                }
-            }
-    ) {
-        val deleteModifier = Modifier
-            .align(Alignment.CenterEnd)
-            .padding(end = 12.dp)
-            .size(48.dp)
-            .graphicsLayer {
-                val vanish = ((removal.value - 0.66f) / 0.30f).coerceIn(0f, 1f)
-                alpha = max(revealProgress, removalStretch) * (1f - vanish)
-                val revealScale = 0.64f + 0.36f * max(revealProgress, removalStretch)
-                scaleX = revealScale * (1f - 0.24f * vanish)
-                scaleY = revealScale * (1f - 0.24f * vanish)
-                transformOrigin = TransformOrigin.Center
-                compositingStrategy = CompositingStrategy.Offscreen
-                renderEffect = platformBlurRenderEffect(10.dp.toPx() * vanish)
-            }
-        Box(
-            deleteModifier
-                .clip(Capsule())
-                .background(Color(0xFFFF3B30))
-                .clickable(onClick = ::requestDelete),
-            contentAlignment = Alignment.Center
-        ) {
-            val iconVanish = ((removal.value - 0.72f) / 0.24f).coerceIn(0f, 1f)
-            Image(
-                painter = painterResource(R.drawable.ic_delete_history),
-                contentDescription = "删除安排",
-                modifier = Modifier.size(20.dp).graphicsLayer {
-                    alpha = 1f - iconVanish
-                    scaleX = 1f - 0.22f * iconVanish
-                    scaleY = 1f - 0.22f * iconVanish
-                }
-            )
-        }
-    val foregroundHeightModifier = if (measuredHeightPx > 0f && removal.value > 0.001f) {
-        Modifier.height(measuredHeight)
-    } else {
-        Modifier
-    }
-        Box(
-            Modifier.fillMaxWidth()
-                .then(foregroundHeightModifier)
-                .offset { IntOffset(offset.value.roundToInt(), 0) }
-                .pointerInput(key, widthPx) {
-                    detectHorizontalDragGestures(
-                        onHorizontalDrag = drag@{ change, amount ->
-                            change.consume()
-                            if (deletionStarted || deleteRequested) return@drag
-                            val next = (offset.value + amount).coerceIn(
-                                -maximumDragPx,
-                                with(density) { 8.dp.toPx() }
-                            )
-                            val revealCrossed = abs(next) >= revealPx * 0.48f
-                            if (revealCrossed != revealThresholdCrossed) {
-                                revealThresholdCrossed = revealCrossed
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                            scope.launch { offset.snapTo(next) }
-                            val deleteCrossed = abs(next) >= deleteTriggerPx
-                            if (deleteCrossed && !deleteThresholdCrossed) {
-                                deleteThresholdCrossed = true
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                requestDelete(performHaptic = false)
-                            }
-                        },
-                        onDragEnd = dragEnd@{
-                            if (deletionStarted || deleteRequested) return@dragEnd
-                            scope.launch {
-                                val target = if (abs(offset.value) >= revealPx * 0.48f) -revealPx else 0f
-                                revealThresholdCrossed = target < 0f
-                                deleteThresholdCrossed = false
-                                offset.animateTo(target, settleSpring)
-                            }
-                        },
-                        onDragCancel = dragCancel@{
-                            if (deletionStarted) return@dragCancel
-                            revealThresholdCrossed = false
-                            deleteThresholdCrossed = false
-                            scope.launch { offset.animateTo(0f, settleSpring) }
-                        }
-                    )
-                },
-            content = content
-        )
-    }
 }

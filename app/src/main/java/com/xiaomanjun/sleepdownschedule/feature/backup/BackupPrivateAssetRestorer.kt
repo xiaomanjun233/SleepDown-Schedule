@@ -97,7 +97,11 @@ object BackupPrivateAssetRestorer {
                 BackupStableId.requireValid(owner, BackupStableId.HISTORY_PREFIX)
                 TargetFile(File(root, "ai_import_history/$owner.json"))
             }
-            BackupAssetPurpose.AI_IMPORT_SCREENSHOT,
+            BackupAssetPurpose.AI_IMPORT_SCREENSHOT -> {
+                val owner = asset.ownerId ?: error("AI history screenshot 缺少 ownerId")
+                BackupStableId.requireValid(owner, BackupStableId.HISTORY_PREFIX)
+                TargetFile(File(root, "ai_import_history/$owner-image-${asset.assetId}.img"))
+            }
             BackupAssetPurpose.OTHER -> TargetFile(
                 File(root, "sleepdown_restore_assets/${operationPrefix}${asset.assetId}.$extension")
             )

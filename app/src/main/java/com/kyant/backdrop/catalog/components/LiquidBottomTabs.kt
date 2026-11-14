@@ -11,10 +11,12 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
@@ -40,6 +42,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.clearAndSetSemantics
@@ -71,6 +74,28 @@ import com.xiaomanjun.sleepdownschedule.glass.sleepDownGlassSurface
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 import kotlin.math.sign
+
+internal val LiquidBottomTabsDarkSurface = Color(0xFF121212)
+
+internal fun liquidBottomTabsContainerMaterial(
+    blur: Dp,
+    lensHeight: Dp,
+    lensAmount: Dp,
+    chromaticAberration: Boolean,
+    shadowEnabled: Boolean,
+): GlassMaterialSpec = GlassMaterialSpec(
+    role = GlassMaterialRole.Control,
+    blur = blur,
+    lensHeight = lensHeight,
+    lensAmount = lensAmount,
+    surfaceAlpha = 1f,
+    borderAlpha = 0f,
+    highlightAlpha = 1f,
+    shadowAlpha = if (shadowEnabled) 1f else 0f,
+    innerShadowAlpha = 0f,
+    chromaticAberration = chromaticAberration,
+    depthEffect = false
+)
 
 @Composable
 fun LiquidBottomTabs(
@@ -104,6 +129,8 @@ fun LiquidBottomTabs(
     lightAccentColor: Color = Color(0xFF0088FF),
     useOfficialGlassParameters: Boolean = false,
     containerSurfaceEnabled: Boolean = true,
+    swipeFromAnyTab: Boolean = false,
+    tabInteractionEnabled: Boolean = true,
     leadingWidth: Dp = 0.dp,
     leadingContent: (@Composable RowScope.() -> Unit)? = null,
     content: @Composable RowScope.() -> Unit
@@ -129,7 +156,7 @@ fun LiquidBottomTabs(
         label = "LiquidBottomTabsAccentColor"
     )
     val lightContainerSurface = lightContainerColor.copy(alpha = animatedContainerAlpha)
-    val darkContainerSurface = Color(0xFF121212).copy(alpha = animatedContainerAlpha)
+    val darkContainerSurface = LiquidBottomTabsDarkSurface.copy(alpha = animatedContainerAlpha)
 
     val tabsBackdrop = rememberGlassLayerBackdrop(
         domain = GlassBackdropDomain.ChromeCombined,
@@ -142,19 +169,8 @@ fun LiquidBottomTabs(
         chromaticAberrationEnabled,
         containerShadowEnabled
     ) {
-        GlassMaterialSpec(
-            role = GlassMaterialRole.Control,
-            blur = blurRadius,
-            lensHeight = lensHeight,
-            lensAmount = lensAmount,
-            surfaceAlpha = 1f,
-            borderAlpha = 0f,
-            highlightAlpha = 1f,
-            shadowAlpha = if (containerShadowEnabled) 1f else 0f,
-            innerShadowAlpha = 0f,
-            chromaticAberration = chromaticAberrationEnabled,
-            depthEffect = false
-        )
+        liquidBottomTabsContainerMaterial(blurRadius, lensHeight, lensAmount,
+            chromaticAberrationEnabled, containerShadowEnabled)
     }
     val movingAccentMaterial = remember(
         containerMaterial,
@@ -240,11 +256,20 @@ fun LiquidBottomTabs(
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
         val selectedIndex = selectedTabIndex().fastCoerceIn(0, tabsCount - 1)
+        val currentSelectedIndex by rememberUpdatedState(selectedIndex)
         val currentOnTabSelected by rememberUpdatedState(onTabSelected)
         val currentTabWidth by rememberUpdatedState(tabWidth)
         val currentIsLtr by rememberUpdatedState(isLtr)
         val currentLeadingInset by rememberUpdatedState(with(density) { (horizontalPadding + leadingWidth).toPx() })
         var dragging by remember(tabsCount) { mutableStateOf(false) }
+        fun settleDrag(animation: DampedDragAnimation, targetIndex: Int, commit: Boolean) {
+            dragging = false
+            animation.animateToValue(targetIndex.toFloat())
+            if (commit) currentOnTabSelected(targetIndex)
+            animationScope.launch {
+                offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+            }
+        }
         val dampedDragAnimation = remember(animationScope, tabsCount) {
             DampedDragAnimation(
                 animationScope = animationScope,
@@ -256,17 +281,9 @@ fun LiquidBottomTabs(
                 onDragStarted = { dragging = true },
                 onDragStopped = {
                     val targetIndex = targetValue.fastRoundToInt().fastCoerceIn(0, tabsCount - 1)
-                    dragging = false
-                    animateToValue(targetIndex.toFloat())
                     // The Topbar is first composed during the sidebar morph, when navigation is
                     // disabled. Dispatch through the current callback, never that initial closure.
-                    currentOnTabSelected(targetIndex)
-                    animationScope.launch {
-                        offsetAnimation.animateTo(
-                            0f,
-                            spring(1f, 300f, 0.5f)
-                        )
-                    }
+                    settleDrag(this, targetIndex, commit = true)
                 },
                 onDrag = { _, dragAmount ->
                     updateValue(
@@ -299,6 +316,40 @@ fun LiquidBottomTabs(
                 }
             )
         }
+
+        val railInput = if (swipeFromAnyTab && tabInteractionEnabled) {
+            // The rail stays in place while the selection capsule moves under the pointer.
+            interactiveHighlight.gestureModifier.pointerInput(dampedDragAnimation) {
+                var active = false
+                var preview = currentSelectedIndex
+                try {
+                    detectHorizontalDragGestures(
+                        onDragStart = {
+                            active = true
+                            dragging = true
+                            dampedDragAnimation.press()
+                        },
+                        onDragEnd = {
+                            active = false
+                            settleDrag(dampedDragAnimation, preview, commit = preview != currentSelectedIndex)
+                        },
+                        onDragCancel = {
+                            active = false
+                            settleDrag(dampedDragAnimation, currentSelectedIndex, commit = false)
+                        }
+                    ) { change, delta ->
+                        val x = if (currentIsLtr) change.position.x else size.width - change.position.x
+                        val index = (x * tabsCount / size.width.coerceAtLeast(1) - 0.5f)
+                            .fastCoerceIn(0f, (tabsCount - 1).toFloat())
+                        preview = index.fastRoundToInt()
+                        dampedDragAnimation.updateValue(index)
+                        animationScope.launch { offsetAnimation.snapTo(offsetAnimation.value + delta) }
+                    }
+                } finally {
+                    if (active) settleDrag(dampedDragAnimation, currentSelectedIndex, commit = false)
+                }
+            }
+        } else Modifier
 
         Row(
             Modifier
@@ -356,7 +407,13 @@ fun LiquidBottomTabs(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             leadingContent?.invoke(this)
-            content()
+            if (swipeFromAnyTab) {
+                Row(Modifier.weight(1f).fillMaxHeight().then(railInput), verticalAlignment = Alignment.CenterVertically) {
+                    CompositionLocalProvider(LocalLiquidBottomTabInputEnabled provides tabInteractionEnabled) { content() }
+                }
+            } else {
+                content()
+            }
         }
 
         if (movingAccentContent && !superPerformance) {
@@ -423,8 +480,8 @@ fun LiquidBottomTabs(
                         if (isLtr) dampedDragAnimation.value * tabWidth + panelOffset - widthOverflowPx / 2f
                         else size.width - (dampedDragAnimation.value + 1f) * tabWidth + panelOffset + widthOverflowPx / 2f
                 }
-                .then(interactiveHighlight.gestureModifier)
-                .then(dampedDragAnimation.modifier)
+                .then(if (swipeFromAnyTab) Modifier else
+                    interactiveHighlight.gestureModifier.then(dampedDragAnimation.modifier))
                 .sleepDownGlassSurface(
                     backdrop = rememberGlassCombinedBackdrop(backdrop, tabsBackdrop),
                     descriptor = indicatorDescriptor,

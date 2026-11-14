@@ -1,6 +1,6 @@
 # 动效维护入口
 
-金标跨 Activity 动画的能力、路线门控、SDK 边界与资源释放见 [TRANSITION_FRAMEWORK.md](../TRANSITION_FRAMEWORK.md)。参数由 SDK 管理；应用内 Morph 仍使用下述维护入口。
+金标跨 Activity 动画的能力、路线门控、普通过渡曲线和资源释放见 [TRANSITION_FRAMEWORK.md](../TRANSITION_FRAMEWORK.md)。应用内的锚点降级使用 `transition/legacy/SharedViewFallbackMotion.kt`。
 
 通用主题判断位于 `core/ui/theme/AppTheme.kt`，纯色板/编解码/色差位于 `model/CourseCardPalette.kt`；玻璃计数与逐帧诊断位于 `glass/GlassPerformanceDiagnostics.kt`，通用帧统计、动画 Trace 和壁纸缓存仍位于 `core/performance/Performance.kt`。这些入口的归位不改变颜色、日志标签、帧计算或视觉参数。
 
@@ -15,18 +15,19 @@
 | 横屏侧栏中的页面缩放、模糊和淡入淡出 | `core/ui/interaction/PaneTransitions.kt` 的 `LandscapePageMotion` | 同文件 `LandscapePageTransition`；功能页只传目标和内容 |
 | 设置中的竖屏详情推进与返回 | `feature/settings/SettingsNavigationMotion.kt` 的 `settingsDetailTransition` | `SettingsScreen.kt` 提供方向；导航栈与 Saver 留在 `SettingsNavigationState.kt` |
 | 课程卡片到编辑器、背景缩放、表单逐行入场 | `feature/course/editor/CourseEditorMotion.kt` 的 `CourseEditorMotion` 与 `legacyCourseEditorMorphSpec` | `CourseEditorContainerOverlay.kt` 保留时钟、预热、内容交接和卸载；app 延迟移除也引用同一关闭时长 |
-| 首页切换、卡片跟随与中断反向 | `feature/home/HomeSwitchMotion.kt` 顶部的页面、弹簧与错峰参数 | 同文件 `HomeSwitchMotion`，包括速度续接、密集页面策略及坐标冻结 |
+| 首页切换、卡片跟随与中断反向 | `feature/home/HomeMotionSpec.kt` 的页面曲线、错峰弹簧和背景曲线 | `HomeSwitchMotion` 单时钟计算页面与六组跟随轨道，反向接续速度 |
 | 三点/加号菜单液滴体积和内容显隐 | `feature/home/HomeDropletMotion.kt`；附加参数在 `overlay/HomeMorphGeometry.kt` 的 `ThreeDotMenuMotion` | `overlay/HomeAnchoredMorphOverlay.kt` 与 `HomeLiquidMorphSpecs.kt` |
 | 个性化弹层、首页锚点轨迹 | `feature/home/overlay/HomeMorphGeometry.kt`；共享轨迹在 `transition/legacy/LegacySharedObjectGeometry.kt` | `HomeAnchoredMorphOverlay.kt`，材质适配在 `HomeLiquidMorphSpecs.kt` |
-| 菜单到目标表单/教务页 | `transition/legacy/LegacyMenuDestinationGeometry.kt` | 首页 `HomeMenuDestinationOverlay.kt` 与跨 Activity 的 `AnchoredDetailActivityMorph.kt` 各自播放 |
+| 首页菜单到同窗口表单 | `transition/legacy/LegacyMenuDestinationGeometry.kt` | `HomeMenuDestinationOverlay.kt` |
 | AI 助理卡片展开为会话 | `feature/agent/DayAgentMorphGeometry.kt` | `DayAgentConversationDialog.kt` |
-| 跨 Activity 详情、设置、课程管理卡片 | `transition/legacy/DetailMorphOverlay.kt` 与 `AnchoredDetailActivityMorph.kt` 的对应路线 | `ActivityTransitionCoordinator.kt`、`CrossActivityTransitionHost.kt` 及 Legacy host；业务从 `TransitionRoute` 接入 |
-| 中心 Dialog、Alert、Picker 与常规 Popup | 公共入口在 `core/ui/designsystem/SleepDownDialog.kt`、`core/ui/settings/GlassMiuixPopup.kt`；底层使用配置中的本地 Miuix 来源 | 公共 host 保留退出内容和 underlay；来源与补丁见 `settings.gradle.kts`、`patches/README.md` |
+| 跨 Activity 锚点降级，包含教务、课程管理、特殊课程和新增反馈 | `transition/legacy/SharedViewFallbackMotion.kt` | `ActivityTransitionCoordinator.kt`、`CrossActivityTransitionHost.kt` 与 `AnchoredDetailActivityMorph.kt` |
+| 普通 Dialog、Alert、Picker | `core/ui/designsystem/ControlDialogs.kt` 与 Kit Dialog | 共用窗口、退出和 IME；两种材质通过绘制接口注入 |
+| 常规 Popup | `core/ui/settings/GlassMiuixPopup.kt` | 保留真实锚点和退出交接，源排除消费者 |
 | 横屏表单飞入 | `core/ui/designsystem/LandscapeMenu.kt` | 同文件 `LandscapeMenuOverlay`，由表单明确接入 |
 | QuickSheet 内容切换与尺寸变化 | `core/ui/designsystem/SleepDownQuickSheet.kt` | 同文件公共 host |
 | 通用弹出缩放/淡入 | `core/ui/interaction/OverlayTransitions.kt` 的 `popEnterTransition` / `popExitTransition` | 各调用者的 AnimatedVisibility |
 | 周视图页尾与课程移除 | `feature/home/week/WeekPageTailMotion.kt`、`overlay/CourseRemovalMotion.kt` | 对应周视图/首页 host |
-| 凝光原生按钮/菜单按压形变 | `platform/coloros/ColorOsCapsuleMotion.kt`、`ColorOsMenuMotion.kt` | 订阅现有 COUI motion sink，生命周期由各 binding 释放 |
+| 公共按钮材质按压 | Kit `rememberCouiCapsuleMaterial` / `LiquidButton` | `CapsuleButtonLayout` 持有共同布局和点击；材质负责反馈 |
 
 ## 修改时一起看哪些部分
 
@@ -40,7 +41,9 @@
 
 彩色课程文字的软阴影在 `core/ui/text/CourseCardText.kt` 使用既有背景采样选择极性：亮背景为白色软阴影，暗背景为黑色软阴影；不增加采样次数或改变运动期冻结策略。普通单色文字仍沿用原逻辑。
 
-**课程光效有自己的绘制边界。** 凝光课程和拖动副本保留内部轮廓及 Dock 焦散，由 `platform/coloros/ColorOsCourseCardGlow.kt` 持有原生参数与开关；`ColorOsCourseCard.kt` 为该原生 View 提供有限的外扩容器，外扩量读取同一套 layout/SDF 资源，仍按真实卡片尺寸采样和布局。焦散不带普通暗色投影，文字单独裁切；不要重新让整个卡片父节点按轮廓裁掉外扩光，也不要移除整页滚动裁切。课程编辑大表单不拥有课程焦散。拖动副本不再接收跟手触摸，独立 halo 继续由 `WeekEditOverlayHost` 定位，`ColorOsFollowLight` 在 Compose 和原生 Canvas 裁切。detach/release、遮挡与系统开关均由原生表面的既有生命周期清理。
+**课程光效有自己的绘制边界。** `platform/coloros/CouiMaterialSurface.kt` 保留课程轮廓与焦散，静态壁纸从 `CourseMaterialSampling` 提供原图像素及裁切。投光几何由 `CardLightGeometry.kt` 维护。课程编辑大表单不拥有普通课程焦散；静态卡片共享预模糊纹理；编辑浮动副本消费真实下层场景，运动通过共同坐标规则补偿。
+
+**周视图用同一个容器移动卡片和自定义时间标签。** `WeekCourseLayout.kt` 的课程片段负责切周和首页切换跟随。快速编辑入场由页面共用一个弹簧，静止网格能在拖动时复用绘制结果。普通长按松手打开快捷菜单，长按移动由浮动卡接管。落位回弹由浮动卡完成，保存后交给已就位的真实卡。课程复制的邻卡波纹继续由复制路线驱动。
 
 **先区分时钟和可见进度。** Morph 的 `LinearEasing` 经常只是原始时钟，位置、尺寸、轮廓、内容交接随后分别应用曲线。要改路径节奏，应修改所属路线的纯计算；给时钟再叠一层 easing 会同时改变预热、交接和背景的时间关系。普通 `tween` / `spring` 路线则直接由 Compose 驱动。设置页的 Miuix 曲线包含原有阻尼计算，不用看起来相近的 cubic 替换。
 

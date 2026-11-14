@@ -16,13 +16,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -133,7 +133,8 @@ internal fun DayScheduleScreen(
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit,
     onAgentAction: AgentActionHandler,
-    onAgentImportFile: ((android.net.Uri) -> Unit)? = null
+    onAgentImportFile: ((List<android.net.Uri>) -> Unit)? = null,
+    versionWelcomeVisible: Boolean = false,
 ) {
     val centerPage = 10_000
     val anchorDate = remember { displayDate }
@@ -263,6 +264,7 @@ internal fun DayScheduleScreen(
                 }
             }
             val listState = rememberLazyListState()
+            TrackHomeWallpaperTextMotion { listState.isScrollInProgress || pagerState.isScrollInProgress }
             val contentUnderTopBar by remember {
                 derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 }
             }
@@ -295,6 +297,7 @@ internal fun DayScheduleScreen(
             }
             val agentContent: @Composable () -> Unit = {
                 if (isToday && abs(page - pagerState.currentPage) <= 1) {
+                    val active = paneVisible.value && page == pagerState.settledPage
                     Box(Modifier.homeSwitchGroup()) {
                     TodayAgentHost(
                         state = agentState,
@@ -302,12 +305,13 @@ internal fun DayScheduleScreen(
                         backdrop = dayAgentBackdrop,
                         textColor = textColor,
                         collapsed = agentCollapsed,
-                        isActive = paneVisible.value && page == pagerState.settledPage,
+                        isActive = active,
                         backgroundMotionState = dayAgentBackgroundMotionState,
                         onPrepareOpen = onAgentPrepareOpen,
                         onAgentDismissed = onAgentDismissed,
                         onAgentAction = onAgentAction,
-                        onImportFile = onAgentImportFile
+                        onImportFile = onAgentImportFile,
+                        showEnablePrompt = active && !versionWelcomeVisible,
                     )
                     }
                 }
@@ -395,7 +399,7 @@ internal fun DayScheduleScreen(
                             textColor = textColor
                         )
                     }
-                    itemsIndexed(coursesInPart, key = { _, it -> "primary-$targetDate-${it.id}" }) { _, course ->
+                    items(coursesInPart, key = { "primary-$targetDate-${it.id}" }) { course ->
                         val coursePeriods = course.periods.toSet()
                         val simultaneousCount = remainingDayCourses.count { other ->
                             other.id == course.id || other.periods.any(coursePeriods::contains)
@@ -416,7 +420,7 @@ internal fun DayScheduleScreen(
                             readOnly = targetAdjustment != null,
                             occurrenceDate = targetDate,
                             muted = targetCancelled,
-                            completed = hasDayCourseEnded(course, state.periods, targetDate, minuteClock)
+                            completed = hasDayCourseEnded(course, state.periods, targetDate, minuteClock),
                         ) }
                     }
                 }
@@ -443,10 +447,10 @@ internal fun DayScheduleScreen(
                                 textColor = textColor.copy(alpha = 0.82f)
                             )
                         }
-                        itemsIndexed(
+                        items(
                             coursesInPart,
-                            key = { _, course -> "secondary-$visibleDate-${course.id}" }
-                        ) { index, course ->
+                            key = { course -> "secondary-$visibleDate-${course.id}" }
+                        ) { course ->
                             val coursePeriods = course.periods.toSet()
                             val simultaneousCount = remainingSecondaryCourses.count { other ->
                                 other.id == course.id || other.periods.any(coursePeriods::contains)
@@ -467,7 +471,7 @@ internal fun DayScheduleScreen(
                                 readOnly = secondaryAdjustment != null,
                                 occurrenceDate = visibleDate,
                                 muted = secondaryCancelled,
-                                completed = hasDayCourseEnded(course, state.periods, visibleDate, minuteClock)
+                                completed = hasDayCourseEnded(course, state.periods, visibleDate, minuteClock),
                             ) }
                         }
                     }
@@ -488,7 +492,7 @@ internal fun DayScheduleScreen(
                             .width(adaptiveMetrics.daySidePaneWidth)
                             .fillMaxHeight()
                             .padding(top = adaptiveMetrics.dayContentTopPadding)
-                            .verticalScroll(rememberScrollState())
+                            .pageVerticalScroll(rememberScrollState())
                             // Bottom clearance belongs to the scroll content. Padding the viewport
                             // itself clips the assistant cards before they reach the window edge.
                             .padding(bottom = if (adaptiveMetrics.usesSidebar) 20.dp + adaptiveMetrics.safeBottom else DayDockScrollPadding),
@@ -497,7 +501,7 @@ internal fun DayScheduleScreen(
                         headerContent()
                         agentContent()
                     }
-                    LazyColumn(
+                    SleepDownLazyColumn(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxHeight(),
@@ -512,7 +516,7 @@ internal fun DayScheduleScreen(
                 }
             } else {
                 Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                    LazyColumn(
+                    SleepDownLazyColumn(
                         modifier = if (adaptiveMetrics.isLargeScreen) {
                             Modifier
                                 .widthIn(max = 760.dp)

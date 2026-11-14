@@ -38,11 +38,18 @@ class LayerBackdrop internal constructor(
     internal val onDraw: ContentDrawScope.() -> Unit
 ) : Backdrop {
 
+    // A plain content recording is also the visible frame. A custom recording may add
+    // sampling-only pixels and must keep its separate visible draw.
+    internal val recordsVisibleContent: Boolean = onDraw === DefaultOnDraw
+
     override val isCoordinatesDependent: Boolean = true
 
     internal var layerCoordinates: LayoutCoordinates? by mutableStateOf(null)
 
     internal var contentVersion: Int by mutableIntStateOf(0)
+
+    /** The coordinates of the recorded pixels, before the consumer's local transform. */
+    val sourceCoordinates: LayoutCoordinates? get() = layerCoordinates?.takeIf { it.isAttached }
 
     private var inverseLayerScope: InverseLayerScope? = null
 

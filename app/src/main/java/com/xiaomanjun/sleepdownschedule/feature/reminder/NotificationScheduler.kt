@@ -1,7 +1,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.reminder
 
 import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
-import com.xiaomanjun.sleepdownschedule.core.identity.refreshAppNotificationIcons
+import com.xiaomanjun.sleepdownschedule.core.identity.currentLiveUpdateIconResId
+import com.xiaomanjun.sleepdownschedule.core.identity.usesAppNotificationIcon
+import com.xiaomanjun.sleepdownschedule.core.identity.withUpdatedAppNotificationIcon
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseReminderSessions
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments
@@ -112,16 +114,15 @@ object NotificationScheduler {
 
     suspend fun refreshToday(
         context: Context,
-        courses: List<CourseEntity>,
-        config: ScheduleConfigEntity,
-        periods: List<PeriodEntity>,
+        state: AppState,
         forceReschedule: Boolean = false
     ) = refreshMutex.withLock {
-        CourseQuietScheduler.refresh(context, AppState(courses = courses, config = config, periods = periods), forceReschedule)
-        val effectiveConfig = ColorOSCourseExperiment.suppressLiveUpdate(context, config)
+        CourseQuietScheduler.refresh(context, state, forceReschedule)
+        val effectiveConfig = ColorOSCourseExperiment.suppressLiveUpdate(context, state.config)
+        val effectiveState = state.copy(config = effectiveConfig)
         val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val liveUpdatePreferences = LiveUpdatePreferences.read(context)
-        val signature = scheduleSignature(courses, effectiveConfig, periods, liveUpdatePreferences = liveUpdatePreferences) +
+        val signature = scheduleSignature(effectiveState, liveUpdatePreferences = liveUpdatePreferences) +
             "|exact=${canScheduleExactCourseAlarms(context)}"
         val todayIsInTerm = scheduleWeekForDateOrNull(
             effectiveConfig,
@@ -130,7 +131,7 @@ object NotificationScheduler {
         if (forceReschedule || !todayIsInTerm || prefs.getString(KEY_SCHEDULE_SIGNATURE, null) != signature) {
             // Always clear stale alarms outside the term, even if this process has
             // already seen today's signature before the boundary check was fixed.
-            scheduleToday(context, courses, effectiveConfig, periods, liveUpdatePreferences)
+            scheduleToday(context, effectiveState, liveUpdatePreferences)
             prefs.edit {putString(KEY_SCHEDULE_SIGNATURE, signature)}
         }
         LiveUpdateRecoveryWorker.updateSchedule(
@@ -142,38 +143,32 @@ object NotificationScheduler {
         ) {
             val zone = ZoneId.systemDefault()
             val now = System.currentTimeMillis()
-            val state = AppState(courses = courses, config = effectiveConfig, periods = periods)
             val payloads = (0L..1L).flatMap { dayOffset ->
                 val date = LocalDate.now(zone).plusDays(dayOffset)
-                coursesForDate(state, date)
-                    .flatMap { courseReminderSessions(it, periods) }
-                    .mapNotNull { course ->
-                        coursePayload(date, course, effectiveConfig, periods, liveUpdatePreferences, zone)
-                    }
+                coursePayloadsForDate(effectiveState, date, liveUpdatePreferences, zone)
             }
             LiveUpdateRecoveryWorker.scheduleIslandCheckpoint(
                 context, nextIslandRecoveryAt(now, payloads)
             )
         }
         withContext(Dispatchers.IO) {
-            checkImmediateLiveUpdate(context, courses, effectiveConfig, periods)
+            checkImmediateLiveUpdate(context, effectiveState)
         }
     }
 
     internal suspend fun scheduleToday(
         context: Context,
-        courses: List<CourseEntity>,
-        config: ScheduleConfigEntity,
-        periods: List<PeriodEntity>,
+        state: AppState,
         liveUpdatePreferences: LiveUpdatePreferencesSnapshot = LiveUpdatePreferences.read(context)
     ) {
+        val config = state.config
+        val periods = state.periods
         createChannel(context)
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         cancelPreviouslyScheduled(context, alarmManager)
         if (!config.notificationsEnabled) {
             return
         }
-        val state = AppState(courses = courses, config = config, periods = periods)
         val now = System.currentTimeMillis()
         val scheduleZone = ZoneId.systemDefault()
         val today = LocalDate.now(scheduleZone)
@@ -182,15 +177,8 @@ object NotificationScheduler {
         (0L..SCHEDULE_HORIZON_DAYS).forEach { dayOffset ->
             val scheduleDate = today.plusDays(dayOffset)
             val dayCourses = coursesForDate(state, scheduleDate)
-            dayCourses.flatMap { courseReminderSessions(it, periods) }.forEach { course ->
-                val payload = coursePayload(
-                    date = scheduleDate,
-                    course = course,
-                    config = config,
-                    periods = periods,
-                    preferences = liveUpdatePreferences,
-                    zone = scheduleZone
-                ) ?: return@forEach
+            val payloads = reminderPayloads(dayCourses, scheduleDate, config, periods, liveUpdatePreferences, scheduleZone)
+            payloads.forEach { (course, payload) ->
                 val firstStart = payload.startAtMillis() ?: return@forEach
                 val finalEnd = payload.endAtMillis() ?: firstStart
                 val reminderTrigger = firstStart - config.notificationLeadMinutes.coerceAtLeast(0) * 60_000L
@@ -285,13 +273,13 @@ object NotificationScheduler {
     }
 
     internal fun scheduleSignature(
-        courses: List<CourseEntity>,
-        config: ScheduleConfigEntity,
-        periods: List<PeriodEntity>,
+        state: AppState,
         today: LocalDate = LocalDate.now(),
         liveUpdatePreferences: LiveUpdatePreferencesSnapshot? = null
     ): String {
-        val coursePart = courses
+        val config = state.config
+        val periods = state.periods
+        val coursePart = state.courses
             .sortedBy { it.id }
             .joinToString(";") {
                 listOf(
@@ -303,19 +291,33 @@ object NotificationScheduler {
                     it.weeks.joinToString(","),
                     it.customStartTime.orEmpty(),
                     it.customEndTime.orEmpty(),
+                    it.independentPeriodSchemeId,
                     courseTimeSegments(it, periods).joinToString(",") { bell -> "${bell.index},${bell.start}-${bell.end}" },
                     it.weekParity.name
                 ).joinToString(":")
             }
         val periodPart = periods.joinToString(";") { "${it.periodIndex},${it.startTime},${it.endTime}" }
+        val catalog = state.timetableCatalog
+        val combo = catalog.combos.firstOrNull { it.id == config.activeTimetableComboId }
+        val rules = catalog.rules.filter { it.comboId == combo?.id }.sortedBy { it.position }
+        val usedSchemeIds = buildSet {
+            combo?.let { add(it.baseSchemeId) }
+            rules.forEach { add(it.schemeId) }
+            state.courses.mapNotNullTo(this) { it.independentPeriodSchemeId }
+        }
+        val rulesPart = rules.joinToString(";") { "${it.position},${it.schemeId},${it.startDate},${it.endDate}" }
+        val schemeTimesPart = catalog.times.filter { it.schemeId in usedSchemeIds }
+            .sortedWith(compareBy({ it.schemeId }, { it.periodIndex }))
+            .joinToString(";") { "${it.schemeId},${it.periodIndex},${it.startTime},${it.endTime}" }
         return listOf(
-            "live-update-boundaries-v4-system-timer",
+            "live-update-boundaries-v5-date-timetables",
             today.toString(),
             ZoneId.systemDefault().id,
             config.totalWeeks,
             config.currentWeek,
             config.termStartDate.orEmpty(),
             config.autoCurrentWeek,
+            config.weekStartsOnSunday,
             encodeScheduleAdjustments(decodeScheduleAdjustments(config.scheduleAdjustmentsJson)),
             config.notificationsEnabled,
             config.notificationLeadMinutes,
@@ -327,6 +329,10 @@ object NotificationScheduler {
             liveUpdatePreferences?.breakStatusEnabled,
             liveUpdatePreferences?.tomorrowReminderEnabled,
             liveUpdatePreferences?.tomorrowReminderTime,
+            config.activeTimetableComboId,
+            combo?.baseSchemeId,
+            rulesPart,
+            schemeTimesPart,
             coursePart,
             periodPart
         ).joinToString("|")
@@ -358,7 +364,8 @@ object NotificationScheduler {
         }
     }
 
-    fun checkImmediateLiveUpdate(context: Context, courses: List<CourseEntity>, config: ScheduleConfigEntity, periods: List<PeriodEntity>) {
+    private fun checkImmediateLiveUpdate(context: Context, state: AppState) {
+        val config = state.config
         if (ColorOSCourseExperiment.suppressesLiveUpdate(context)) {
             cancelLiveUpdateNotifications(context)
             stopLiveUpdateService(context)
@@ -379,12 +386,9 @@ object NotificationScheduler {
         val nowMillis = System.currentTimeMillis()
         val zone = ZoneId.systemDefault()
         val today = LocalDate.now(zone)
-        val state = AppState(courses = courses, config = config, periods = periods)
         val preferences = LiveUpdatePreferences.read(context)
         val cloudHandlesPreClass = ColorOSCourseExperiment.suppressesPreClassLiveUpdate(context)
-        val activePayload = coursesForDate(state, today)
-            .flatMap { courseReminderSessions(it, periods) }
-            .mapNotNull { course -> coursePayload(today, course, config, periods, preferences, zone) }
+        val activePayload = coursePayloadsForDate(state, today, preferences, zone)
             .filter { payload ->
                 !cloudHandlesPreClass ||
                     (payload.startAtMillis() ?: Long.MAX_VALUE) <= nowMillis
@@ -392,7 +396,6 @@ object NotificationScheduler {
             .let { selectImmediateCoursePayload(it, nowMillis, config.notificationLeadMinutes) }
             ?: immediateTomorrowPayload(
                 state = state,
-                periods = periods,
                 preferences = preferences,
                 nowMillis = nowMillis,
                 zone = zone
@@ -416,6 +419,25 @@ object NotificationScheduler {
         // Real courses and test previews use separate slots, so either can update independently.
         startLiveUpdateService(context, activePayload)
     }
+
+    internal fun coursePayloadsForDate(
+        state: AppState,
+        date: LocalDate,
+        preferences: LiveUpdatePreferencesSnapshot,
+        zone: ZoneId,
+    ): List<LiveUpdatePayload> =
+        reminderPayloads(coursesForDate(state, date), date, state.config, state.periods, preferences, zone)
+            .map { it.second }
+
+    private fun reminderPayloads(
+        courses: List<CourseEntity>,
+        date: LocalDate,
+        config: ScheduleConfigEntity,
+        periods: List<PeriodEntity>,
+        preferences: LiveUpdatePreferencesSnapshot,
+        zone: ZoneId,
+    ): List<Pair<CourseEntity, LiveUpdatePayload>> = courses.flatMap { courseReminderSessions(it, periods) }
+        .mapNotNull { course -> coursePayload(date, course, config, periods, preferences, zone)?.let { course to it } }
 
     internal fun selectImmediateCoursePayload(
         payloads: List<LiveUpdatePayload>,
@@ -603,7 +625,6 @@ object NotificationScheduler {
 
     private fun immediateTomorrowPayload(
         state: AppState,
-        periods: List<PeriodEntity>,
         preferences: LiveUpdatePreferencesSnapshot,
         nowMillis: Long,
         zone: ZoneId
@@ -617,10 +638,10 @@ object NotificationScheduler {
             targetDate = tomorrow,
             reminderTime = preferences.tomorrowReminderTime,
             previousDayCourses = coursesForDate(state, today),
-            periods = periods,
+            periods = state.periods,
             zone = zone
         )
-        val payload = tomorrowPayload(tomorrow, tomorrowCourses, periods, trigger, zone)
+        val payload = tomorrowPayload(tomorrow, tomorrowCourses, state.periods, trigger, zone)
         return payload.takeIf { nowMillis >= trigger && !it.shouldStop(nowMillis) }
     }
 
@@ -932,8 +953,32 @@ object NotificationScheduler {
         )
     }
 
+    @SuppressLint("MissingPermission")
     fun refreshLiveUpdateIcon(context: Context) {
-        refreshAppNotificationIcons(context)
+        val app = context.applicationContext as CourseScheduleApp
+        app.applicationScope.launch(Dispatchers.IO) {
+            synchronized(liveUpdatePostLock) {
+                val manager = app.getSystemService(NotificationManager::class.java)
+                if (manager == null || !manager.areNotificationsEnabled()) return@synchronized
+                for (active in manager.activeNotifications) {
+                    val notification = active.notification
+                    if (!notification.usesAppNotificationIcon() && notification.channelId != XiaomiSuperIsland.ChannelId) continue
+                    val updated = updatedLiveUpdateIcon(app, notification) ?: continue
+                    try {
+                        XiaomiSuperIsland.post(app, updated) { manager.notify(active.tag, active.id, updated) }
+                    } catch (error: SecurityException) {
+                        Log.w(TAG, "Notification permission changed during icon refresh", error)
+                        break
+                    }
+                }
+            }
+        }
+    }
+
+    internal fun updatedLiveUpdateIcon(context: Context, notification: Notification): Notification? {
+        val iconResId = currentLiveUpdateIconResId(context)
+        val islandExtras = XiaomiSuperIsland.refreshedIconExtras(context, notification, iconResId)
+        return notification.withUpdatedAppNotificationIcon(context, iconResId, islandExtras)
     }
 
     private fun refreshVisibleLiveUpdate(context: Context) {
@@ -1040,11 +1085,13 @@ object NotificationScheduler {
                 identity, LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID
             )
         }
-        logLiveUpdateIcon(context, notification)
+        // A notification built before the icon changed may reach this lock after the refresh.
+        val currentNotification = updatedLiveUpdateIcon(context, notification) ?: notification
+        logLiveUpdateIcon(context, currentNotification)
         // Post first. Reattach the running foreground service before removing its former slot.
-        val delivered = XiaomiSuperIsland.post(context, notification) {
-            manager.notify(id, notification)
-            attachForeground?.invoke(id, notification)
+        val delivered = XiaomiSuperIsland.post(context, currentNotification) {
+            manager.notify(id, currentNotification)
+            attachForeground?.invoke(id, currentNotification)
         }
         (if (preview) listOf(SUPER_ISLAND_TEST_ID, SUPER_ISLAND_TEST_ALTERNATE_ID)
             else listOf(LIVE_UPDATE_ID, LIVE_UPDATE_ALTERNATE_ID, SUPER_ISLAND_ID, SUPER_ISLAND_ALTERNATE_ID))
@@ -1145,7 +1192,7 @@ object NotificationScheduler {
                     withContext(Dispatchers.IO) {
                         if (forceReschedule) app.repository.ensureDefaults()
                         val snapshot = app.repository.activeSnapshot()
-                        refreshToday(app, snapshot.courses, snapshot.config, snapshot.periods, forceReschedule)
+                        refreshToday(app, snapshot, forceReschedule)
                     }
                 }
             } finally {

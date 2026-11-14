@@ -36,7 +36,9 @@ internal data class AiImportNetworkContext(
     val processImportanceProvider: () -> Int? = { null },
     val onReasoningUpdate: ((String) -> Unit)? = null,
     val interaction: AiImportInteraction? = null,
-    val assistantMemory: String = ""
+    val assistantMemory: String = "",
+    val materials: AiMaterialWorkspace? = null,
+    val supplementalFileContext: android.content.Context? = null
 )
 
 enum class StructuredOutputMode {
@@ -118,7 +120,8 @@ data class AiProviderProfile(
     val managedReasoningOptions: List<AiReasoningEffort>? = null,
     val managedReasoningLocked: Boolean = false,
     val managedModelDisplayName: String? = null,
-    @kotlinx.serialization.Transient val modelCatalog: List<AiModelOption> = emptyList()
+    @kotlinx.serialization.Transient val modelCatalog: List<AiModelOption> = emptyList(),
+    val contextWindowTokens: Int = com.xiaomanjun.sleepdownschedule.core.ai.DefaultAgentContextTokens
 )
 
 data class AiImportSettings(
@@ -148,7 +151,8 @@ data class AiProviderConfig(
     val authType: AiAuthType = AiAuthType.ApiKeyBearer,
     val responsesPath: String = "/responses",
     val chatCompletionsPath: String = "/chat/completions",
-    val managedReasoningControlled: Boolean = false
+    val managedReasoningControlled: Boolean = false,
+    val contextWindowTokens: Int = com.xiaomanjun.sleepdownschedule.core.ai.DefaultAgentContextTokens
 ) {
     /**
      * 解析实际请求端点。仅当显式配置了非空路径时才追加；路径为空时直接使用 baseUrl，
@@ -175,7 +179,8 @@ sealed interface AiScheduleInput {
 
     data class Images(
         val images: List<RenderedPageImage>,
-        val sourceName: String
+        val sourceName: String,
+        val text: String = ""
     ) : AiScheduleInput
 
     data class CapturedPage(
@@ -238,8 +243,13 @@ class AiServiceResponseException(
     message: String,
     val rawBody: String,
     cause: Throwable? = null,
-    val httpStatus: Int? = null
+    val httpStatus: Int? = null,
+    internal val contextWindowExceeded: Boolean = isAiContextWindowError(rawBody)
 ) : IllegalStateException(message, cause)
+
+internal fun isAiContextWindowError(body: String): Boolean =
+    Regex("context_length_exceeded|context_window_exceeded|maximum context length|context length exceeded|context window exceeded|context window is too small|input exceeds the context window",
+        RegexOption.IGNORE_CASE).containsMatchIn(body)
 
 fun Throwable.aiRawResponseBody(): String? {
     return when (this) {
@@ -290,6 +300,8 @@ data class AiImportFile(
         mimeType.equals("application/ics", ignoreCase = true) ||
         displayName.endsWith(".ics", ignoreCase = true) ||
         bytes.copyOfRange(0, minOf(bytes.size, 256)).toString(Charsets.UTF_8).contains("BEGIN:VCALENDAR", ignoreCase = true)
+    val isJson: Boolean get() = mimeType.equals("application/json", ignoreCase = true) ||
+        displayName.endsWith(".json", ignoreCase = true)
 
     override fun equals(other: Any?): Boolean {
         if (this === other) return true

@@ -2,7 +2,7 @@ package com.xiaomanjun.sleepdownschedule.feature.schedule.autorefresh
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -26,7 +26,8 @@ import kotlinx.coroutines.launch
 
 @Composable
 internal fun AutoRefreshReviewHost(config: ScheduleConfigEntity, backdrop: Backdrop?, schedules: List<ScheduleProfileEntity>,
-    enabled: Boolean = true, openRequest: Int = 0) {
+    enabled: Boolean = true, openRequest: Int = 0,
+    confirmReview: suspend (android.content.Context, String, Set<Int>, Boolean) -> String = AutoRefreshScheduleCoordinator::confirmReview) {
     val context = LocalContext.current
     val pending by AutoRefreshReviewStore.observe(context).collectAsState()
     val profile by AutoRefreshScheduleStore.observe(context).collectAsState()
@@ -50,31 +51,27 @@ internal fun AutoRefreshReviewHost(config: ScheduleConfigEntity, backdrop: Backd
         SleepDownPickerDialog(
             show = enabled && lifecycle == Lifecycle.State.RESUMED && deferredId != review.id,
             title = "课表有 ${review.count} 处不同",
-            onDismissRequest = { if (!saving) deferredId = review.id },
-            backdrop = backdrop, config = config,
-            bottomActions = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    error?.let { Text(it, color = MaterialTheme.colorScheme.error,
-                        style = MaterialTheme.typography.bodySmall) }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        QuickSheetLiquidAction("稍后", !saving, backdrop, config, Modifier.weight(1f),
-                            height = SleepDownDesignTokens.CenteredDialog.ActionHeight) { deferredId = review.id }
-                        QuickSheetLiquidAction(if (saving) "保存中…" else "确认选择", !saving, backdrop, config,
-                            Modifier.weight(1f), primary = true,
-                            height = SleepDownDesignTokens.CenteredDialog.ActionHeight) {
-                            saving = true
-                            error = null
-                            scope.launch {
-                                try {
-                                    AutoRefreshScheduleCoordinator.confirmReview(context, review.id, selected, useTerm)
-                                } catch (cancelled: CancellationException) { throw cancelled }
-                                catch (failure: Exception) { error = failure.message ?: "保存失败，请重试" }
-                                finally { saving = false }
-                            }
+            onDismissRequest = { if (!saving) deferredId = review.id }, config = config,
+            actions = listOf(
+                LiquidAlertAction("稍后",
+                    LiquidAlertActionStyle.Secondary, enabled = !saving,
+                    dismissOnClick = false, onClick = action@{
+                        deferredId = review.id
+                    }),
+                LiquidAlertAction(if (saving) "保存中…" else "确认选择",
+                    LiquidAlertActionStyle.Primary, enabled = !saving,
+                    dismissOnClick = false, onClick = action@{
+                        saving = true
+                        error = null
+                        scope.launch {
+                            try {
+                                confirmReview(context, review.id, selected, useTerm)
+                            } catch (cancelled: CancellationException) { throw cancelled }
+                            catch (failure: Exception) { error = failure.message ?: "保存失败，请重试" }
+                            finally { saving = false }
                         }
-                    }
-                }
-            }
+                    })
+            )
         ) {
             val scheduleName = schedules.firstOrNull { it.id == review.scheduleId }?.name ?: "已绑定课表"
             Text("$scheduleName · ${review.schoolName}\n更新尚未保存。稍后可在自动刷新设置中继续核对。",
@@ -89,7 +86,7 @@ internal fun AutoRefreshReviewHost(config: ScheduleConfigEntity, backdrop: Backd
             }
             Column(Modifier.fillMaxWidth().weight(1f, fill = false)
                 .heightIn(max = SleepDownDesignTokens.CenteredDialog.SelectionContentMaxHeight)
-                .verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                .pageVerticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (review.termChanged) {
                     ReviewItem("学期信息", review.beforeTerm.description(), review.afterTerm.description(),
                         useTerm, !saving, backdrop) { useTerm = it }

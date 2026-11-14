@@ -1,0 +1,50 @@
+package com.itos.coui.menu
+
+import android.graphics.RenderEffect
+import androidx.annotation.RequiresApi
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asComposeRenderEffect
+import com.itos.coui.effect.CouiEdge
+import com.itos.coui.effect.CouiEdgeStyle
+import com.itos.coui.effect.LocalCouiContourGlowEnabled
+
+@RequiresApi(33)
+@Composable
+internal fun rememberCouiMenuEdge(dark: Boolean, radiusPx: Float, cornerWeight: Float, mix: Color, blend: Color): CouiMenuEdge {
+    val contourGlowEnabled = LocalCouiContourGlowEnabled.current
+    val whiteContour = LocalCouiMenuStyle.current.contourStyle == CouiMenuContourStyle.White
+    return remember(dark, radiusPx, cornerWeight, mix, blend, contourGlowEnabled, whiteContour) {
+        CouiMenuEdge(
+            CouiEdge(
+                style = if (dark) CouiEdgeStyle.Dark else CouiEdgeStyle.Light,
+                radiusPx = radiusPx,
+                cornerWeight = cornerWeight,
+                mix = mix,
+                blend = blend,
+                innerGlowAlpha = 0.6f * if (dark) 0.1f else 0.9f,
+                contourGlowEnabled = contourGlowEnabled,
+                lineAlpha = if (whiteContour) { if (dark) .4f else .9f } else { if (dark) .60f else .66f },
+                whiteContour = whiteContour,
+            ),
+        )
+    }
+}
+
+/** 菜单只提供材质配色并缓存 Compose effect, 原始模糊图直接进入公共 Shader。 */
+@RequiresApi(33)
+internal class CouiMenuEdge(private val edge: CouiEdge) {
+    private var lastEdge: RenderEffect? = null
+    private var cachedEffect: androidx.compose.ui.graphics.RenderEffect? = null
+
+    fun renderEffect(size: Size, density: Float): androidx.compose.ui.graphics.RenderEffect {
+        val effect = edge.renderEffect(size, density)
+        cachedEffect?.let { if (lastEdge === effect) return it }
+        return effect.asComposeRenderEffect().also {
+            lastEdge = effect
+            cachedEffect = it
+        }
+    }
+}

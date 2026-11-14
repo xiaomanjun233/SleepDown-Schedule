@@ -1,12 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.settings
 
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -15,17 +11,16 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -33,51 +28,41 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color as ComposeColor
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
 import com.kyant.backdrop.shadow.Shadow
 import com.kyant.shapes.Capsule
-import com.kyant.shapes.RoundedRectangle
+import com.itos.coui.icons.CouiIcons
 import com.xiaomanjun.sleepdownschedule.LiveUpdateChipTextMode
 import com.xiaomanjun.sleepdownschedule.NotificationMode
-import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.controls.LiquidControlToggle
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogButtonRole
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogLiquidButton
-import kotlin.math.abs
 import kotlin.math.min
-import kotlin.math.roundToInt
 import kotlinx.coroutines.flow.map
-import kotlinx.coroutines.launch
-import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
 import top.yukonga.miuix.kmp.icon.MiuixIcons
 import top.yukonga.miuix.kmp.icon.basic.ArrowRight
-import top.yukonga.miuix.kmp.preference.ArrowPreference as MiuixArrowPreference
+import com.itos.coui.effect.couiButtonFeedback
+import com.itos.coui.input.CouiHapticFeedback
+import com.itos.coui.input.performCouiHapticFeedback
 
 @Composable
 internal fun SettingsFallbackChip(label: String, selected: Boolean, onClick: () -> Unit) {
@@ -107,38 +92,43 @@ fun SettingsNavigationRow(
     leadingIcon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     leadingIconTint: ComposeColor = MaterialTheme.colorScheme.primary,
     enabled: Boolean = true,
+    minHeight: Dp? = null,
+    badgeColor: ComposeColor = MaterialTheme.colorScheme.primary,
     onClick: () -> Unit
 ) {
     val neutralSelection = MaterialTheme.colorScheme.onSurface
-    val iconTint = if (MaterialTheme.colorScheme.background.luminance() < 0.5f)
-        androidx.compose.ui.graphics.lerp(leadingIconTint, ComposeColor.White, 0.18f) else leadingIconTint
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixArrowPreference(
+    val iconTint = if (leadingIconTint != ComposeColor.Unspecified &&
+        MaterialTheme.colorScheme.background.luminance() < 0.5f
+    ) {
+        androidx.compose.ui.graphics.lerp(leadingIconTint, ComposeColor.White, 0.18f)
+    } else leadingIconTint
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsArrowPreference(
             title = title,
             summary = subtitle,
             enabled = enabled,
-            startAction = {
-                leadingIcon?.let {
+            startAction = leadingIcon?.let { icon -> {
+                icon.let {
                     Icon(it, contentDescription = null, tint = iconTint,
-                        modifier = Modifier.padding(start = 4.dp, end = 8.dp).size(23.dp))
+                        modifier = Modifier.size(23.dp))
                 }
-            },
+            } },
             modifier = Modifier
                 .fillMaxWidth()
+                .then(minHeight?.let { Modifier.heightIn(min = it) } ?: Modifier)
                 .background(
                     neutralSelection.copy(alpha = if (selected) 0.10f else 0f)
                 ),
-            insideMargin = PaddingValues(start = 14.dp, end = if (leadingIcon != null) 22.dp else 14.dp,
-                top = 12.dp, bottom = 12.dp),
+            insideMargin = settingsPreferencePadding(),
             endActions = {
                 if (badgeText != null) {
                     Text(
                         badgeText,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = badgeColor,
                         style = MaterialTheme.typography.labelMedium,
                         modifier = Modifier
                             .clip(Capsule())
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                            .background(badgeColor.copy(alpha = 0.14f))
                             .padding(horizontal = 9.dp, vertical = 4.dp)
                     )
                 }
@@ -177,11 +167,11 @@ fun SettingsNavigationRow(
         if (badgeText != null) {
             Text(
                 badgeText,
-                color = MaterialTheme.colorScheme.primary,
+                color = badgeColor,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier
                     .clip(Capsule())
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
+                    .background(badgeColor.copy(alpha = 0.14f))
                     .padding(horizontal = 9.dp, vertical = 4.dp)
             )
             Spacer(Modifier.width(8.dp))
@@ -192,10 +182,17 @@ fun SettingsNavigationRow(
 
 /**
  * The unified forward indicator every row uses when it opens a secondary surface. Rows that cannot
- * be a plain [SettingsNavigationRow] still reuse this exact Miuix arrow so the affordance matches.
+ * be a plain [SettingsNavigationRow] still reuse the current settings family's arrow.
  */
 @Composable
 internal fun SettingsForwardIndicator(modifier: Modifier = Modifier) {
+    if (LocalCouiSettingsEnabled.current) {
+        CouiForwardIndicator(
+            modifier = modifier,
+            tint = ComposeColor(if (com.itos.coui.theme.CouiTheme.isDark) 0x4DFFFFFF else 0x42000000)
+        )
+        return
+    }
     Image(
         modifier = modifier.size(width = 10.dp, height = 16.dp),
         imageVector = MiuixIcons.Basic.ArrowRight,
@@ -207,8 +204,45 @@ internal fun SettingsForwardIndicator(modifier: Modifier = Modifier) {
 }
 
 @Composable
+internal fun CouiForwardIndicator(
+    tint: ComposeColor,
+    modifier: Modifier = Modifier,
+    contentDescription: String? = null
+) {
+    Icon(
+        imageVector = CouiIcons.Next,
+        contentDescription = contentDescription,
+        modifier = modifier.size(width = 12.dp, height = 24.dp),
+        tint = tint
+    )
+}
+
+@Composable
 fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdrop: Backdrop?, enabled: Boolean = true, badgeText: String? = null, compact: Boolean = false, onCheckedChange: (Boolean) -> Unit) {
-    if (LocalGlassMiuixEnabled.current) {
+    if (LocalCouiSettingsEnabled.current && !LocalCouiLiquidMaterial.current) {
+        val interaction = remember { MutableInteractionSource() }
+        val view = LocalView.current
+        val dark = com.itos.coui.theme.CouiTheme.isDark
+        // 原版由整行承担 48dp 命中区；子开关只测量 24dp 轨道，避免再叠一个 48dp 点击区。
+        SettingsBasicComponent(modifier = Modifier.fillMaxWidth()
+            .couiButtonFeedback(dark, interaction, enabled, list = true)
+            .toggleable(checked, interaction, null, enabled, Role.Switch) { target ->
+                view.performCouiHapticFeedback(CouiHapticFeedback.Switch)
+                onCheckedChange(target)
+            },
+            insideMargin = settingsPreferencePadding(compact), enabled = enabled,
+            endActions = {
+                com.itos.coui.switch.Switch(modifier = Modifier.padding(start = 16.dp),
+                    checked = checked, onCheckedChange = null, onDragCheckedChange = onCheckedChange,
+                    enabled = enabled, interactionSource = interaction,
+                    colors = com.itos.coui.switch.CouiSwitchDefaults.colors(
+                        com.itos.coui.theme.CouiTheme.colorScheme.accent,
+                        com.itos.coui.theme.CouiTheme.isDark).copy(
+                        focusOutline = com.itos.coui.theme.CouiTheme.colorScheme.accent.copy(alpha = .4f)))
+            }) { SettingsPreferenceText(title, subtitle, badgeText, enabled) }
+        return
+    }
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
         GlassMiuixInteractivePreference(
             title = title,
             summary = subtitle.takeIf { it.isNotBlank() },
@@ -247,18 +281,19 @@ fun SettingsToggleRow(title: String, subtitle: String, checked: Boolean, backdro
 @Composable
 fun SettingsActionRow(
     title: String,
-    subtitle: String,
+    subtitle: String?,
     buttonText: String,
     iconRes: Int,
     backdrop: Backdrop?,
     destructive: Boolean = false,
     badgeText: String? = null,
+    enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixBasicComponent(
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsBasicComponent(
             modifier = Modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+            insideMargin = settingsPreferencePadding(),
             endActions = {
                 DialogLiquidButton(
                     backdrop = backdrop,
@@ -266,7 +301,8 @@ fun SettingsActionRow(
                     onClick = onClick,
                     role = if (destructive) DialogButtonRole.Cancel else DialogButtonRole.Confirm,
                     iconRes = iconRes,
-                    destructiveFilled = destructive
+                    destructiveFilled = destructive,
+                    enabled = enabled,
                 )
             }
         ) { SettingsPreferenceText(title, subtitle, badgeText) }
@@ -286,7 +322,8 @@ fun SettingsActionRow(
             verticalArrangement = Arrangement.spacedBy(3.dp, Alignment.CenterVertically)
         ) {
             PreferenceLabel(title, badgeText)
-            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (!subtitle.isNullOrBlank()) Text(subtitle, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         Spacer(Modifier.width(12.dp))
         DialogLiquidButton(
@@ -295,15 +332,16 @@ fun SettingsActionRow(
             onClick = onClick,
             role = if (destructive) DialogButtonRole.Cancel else DialogButtonRole.Confirm,
             iconRes = iconRes,
-            destructiveFilled = destructive
+            destructiveFilled = destructive,
+            enabled = enabled,
         )
     }
 }
 
 @Composable
 fun SettingsValueRow(title: String, value: String, compact: Boolean = false, valueOnRight: Boolean = false) {
-    if (compact && !valueOnRight && LocalGlassMiuixEnabled.current) {
-        MiuixBasicComponent(title = title, summary = value, modifier = Modifier.fillMaxWidth(),
+    if (compact && !valueOnRight && (LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsBasicComponent(title = title, summary = value, modifier = Modifier.fillMaxWidth(),
             insideMargin = PaddingValues(horizontal = 4.dp, vertical = 8.dp))
         return
     }
@@ -316,11 +354,11 @@ fun SettingsValueRow(title: String, value: String, compact: Boolean = false, val
         }
         return
     }
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixBasicComponent(
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsBasicComponent(
             title = title,
             modifier = Modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = if (compact) 4.dp else 14.dp, vertical = if (compact) 8.dp else 12.dp),
+            insideMargin = settingsPreferencePadding(compact),
             endActions = {
                 Text(
                     value,
@@ -365,8 +403,8 @@ fun SettingsPickerValueRow(
     compact: Boolean = false,
     valueBelowTitle: Boolean = false
 ) {
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixArrowPreference(
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsArrowPreference(
             title = title,
             summary = value.ifBlank { "未设置" }.takeIf { valueBelowTitle },
             endActions = {
@@ -383,7 +421,7 @@ fun SettingsPickerValueRow(
             onClick = onClick,
             enabled = enabled,
             modifier = modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = if (compact) 4.dp else 14.dp, vertical = if (compact) 8.dp else 12.dp)
+            insideMargin = settingsPreferencePadding(compact)
         )
         return
     }
@@ -422,10 +460,10 @@ fun SettingsPickerValueRow(
 
 @Composable
 fun SettingsInfoRow(title: String, body: String, badgeText: String? = null) {
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixBasicComponent(
+    if ((LocalCouiSettingsEnabled.current || LocalGlassMiuixEnabled.current)) {
+        SettingsBasicComponent(
             modifier = Modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+            insideMargin = settingsPreferencePadding()
         ) { SettingsPreferenceText(title, body, badgeText) }
         return
     }
@@ -451,14 +489,14 @@ private fun GlassMiuixInteractivePreference(
     compact: Boolean = false,
     content: @Composable () -> Unit
 ) {
-    MiuixBasicComponent(
+    SettingsBasicComponent(
         enabled = enabled,
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer(alpha = if (enabled) 1f else 0.48f),
-        insideMargin = PaddingValues(horizontal = if (compact) 4.dp else 14.dp, vertical = if (compact) 8.dp else 12.dp),
+        insideMargin = settingsPreferencePadding(compact),
         endActions = {
-            // Let Miuix measure the multiline label and its control in the same row. A separate
+            // Measure the multiline label and its control in the same COUI Item. A separate
             // overlay could retain the first-pass center while the summary wrapped on entry.
             Box(Modifier.size(controlWidth, controlHeight),
                 contentAlignment = Alignment.Center) {
@@ -483,7 +521,7 @@ fun SettingsChoiceRow(title: String, selected: NotificationMode, backdrop: Backd
         backdrop = backdrop,
         config = config,
         modifier = Modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        insideMargin = settingsPreferencePadding(),
         maxHeight = 240.dp,
         onExpandedChange = {},
         onSelectedIndexChange = { index -> onSelected(modes[index.coerceIn(modes.indices)]) }
@@ -517,7 +555,7 @@ fun SettingsLiveUpdateChipTextRow(
         backdrop = backdrop,
         config = config,
         modifier = Modifier.fillMaxWidth(),
-        insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
+        insideMargin = settingsPreferencePadding(),
         maxHeight = 260.dp,
         onExpandedChange = {},
         onSelectedIndexChange = { index -> onSelected(options[index.coerceIn(options.indices)]) }
@@ -557,6 +595,8 @@ fun SettingsActionButton(
             modifier = if (badgeText == null) actionModifier else actionModifier.heightIn(min = 42.dp),
             height = if (badgeText == null) 42.dp else Dp.Unspecified,
             tint = tint,
+            nativePrimaryColor = if (monochrome) ComposeColor.Unspecified else tint,
+            nativeTranslucentAccent = glowing && !destructive,
             surfaceColor = tint.copy(
                 alpha = when {
                     destructive -> 0.86f
@@ -602,6 +642,20 @@ fun SettingsActionButton(
 
 @Composable
 private fun SettingsPreferenceText(title: String, summary: String?, badge: String?, enabled: Boolean = true) {
+    if (LocalCouiSettingsEnabled.current) {
+        val colors = com.itos.coui.theme.CouiTheme.colorScheme
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            com.itos.coui.text.Text(text = title, kind = com.itos.coui.text.CouiTextKind.PreferenceTitle,
+                color = if (enabled) colors.onSurface else colors.onSurface.copy(alpha = .3f),
+                modifier = Modifier.weight(1f, fill = false))
+            if (badge != null) Text(badge, style = MaterialTheme.typography.labelSmall,
+                color = colors.accent, modifier = Modifier.padding(start = 6.dp))
+        }
+        if (!summary.isNullOrEmpty()) com.itos.coui.text.Text(text = summary,
+            kind = com.itos.coui.text.CouiTextKind.PreferenceSummary,
+            color = if (enabled) colors.onSurfaceVariant else colors.onSurface.copy(alpha = .3f))
+        return
+    }
     val theme = top.yukonga.miuix.kmp.theme.MiuixTheme
     val titleColor = if (enabled) theme.colorScheme.onBackground else theme.colorScheme.disabledOnSecondaryVariant
     if (badge == null) {
@@ -613,118 +667,5 @@ private fun SettingsPreferenceText(title: String, summary: String?, badge: Strin
     if (summary != null) {
         top.yukonga.miuix.kmp.basic.Text(summary, fontSize = theme.textStyles.body2.fontSize,
             color = if (enabled) theme.colorScheme.onSurfaceVariantSummary else theme.colorScheme.disabledOnSecondaryVariant)
-    }
-}
-
-/**
- * Swipe a settings row left to reveal a delete action. The gesture, threshold haptics, elastic
- * action growth and spring settle follow the AI import history row; deleting is only requested so
- * the caller can confirm it first, and the row springs back while the dialog is up.
- */
-@Composable
-internal fun SettingsSwipeDeleteRow(
-    rowKey: Any?,
-    onRequestDelete: () -> Unit,
-    modifier: Modifier = Modifier,
-    softAppearance: Boolean = false,
-    content: @Composable () -> Unit
-) {
-    val density = LocalDensity.current
-    val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
-    val offset = remember(rowKey) { Animatable(0f) }
-    var revealCrossed by remember(rowKey) { mutableStateOf(false) }
-    var deleteCrossed by remember(rowKey) { mutableStateOf(false) }
-    var widthPx by remember { mutableStateOf(1f) }
-    val actionWidthPx = with(density) { 60.dp.toPx() }
-    val actionGapPx = with(density) { 12.dp.toPx() }
-    val revealPx = actionWidthPx + actionGapPx
-    val deleteTriggerPx = maxOf(revealPx + with(density) { 132.dp.toPx() }, widthPx * 0.72f)
-        .coerceAtMost(widthPx * 0.86f)
-    val maximumDragPx = (widthPx - with(density) { 16.dp.toPx() }).coerceAtLeast(revealPx)
-    val settleSpring = spring<Float>(dampingRatio = 0.52f, stiffness = 420f)
-    fun requestDelete() {
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        revealCrossed = false
-        deleteCrossed = false
-        scope.launch { offset.animateTo(0f, settleSpring) }
-        onRequestDelete()
-    }
-    val dragDistance = (-offset.value).coerceAtLeast(0f)
-    val revealProgress = (dragDistance / revealPx).coerceIn(0f, 1f)
-    val stretch = ((dragDistance - revealPx) / (deleteTriggerPx - revealPx).coerceAtLeast(1f)).coerceIn(0f, 1f)
-    val actionWidth = actionWidthPx +
-        (widthPx - with(density) { 32.dp.toPx() } - actionWidthPx).coerceAtLeast(0f) * stretch
-    val visibleActionWidth = minOf(actionWidth, (dragDistance - actionGapPx).coerceAtLeast(actionWidthPx))
-    Box(modifier.fillMaxWidth().onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }) {
-        Box(Modifier.matchParentSize(), contentAlignment = Alignment.CenterEnd) {
-            Box(
-                Modifier
-                    .fillMaxHeight()
-                    .width(with(density) { visibleActionWidth.toDp() })
-                    .padding(end = if (softAppearance) 12.dp else 16.dp, top = if (softAppearance) 8.dp else 0.dp,
-                        bottom = if (softAppearance) 8.dp else 0.dp)
-                    .graphicsLayer {
-                        alpha = revealProgress
-                        transformOrigin = TransformOrigin(1f, 0.5f)
-                    }
-                    .clip(RoundedRectangle(15.dp))
-                    .then(if (softAppearance) Modifier
-                        .background(androidx.compose.ui.graphics.Brush.verticalGradient(listOf(
-                            ComposeColor(0xFFFF6B61).copy(alpha = 0.22f), ComposeColor(0xFFFF453A).copy(alpha = 0.10f))))
-                        .border(0.7.dp, ComposeColor(0xFFFF665B).copy(alpha = 0.22f), RoundedRectangle(15.dp))
-                        else Modifier.background(ComposeColor(0xFFFF3B30)))
-                    .clickable(onClick = ::requestDelete),
-                contentAlignment = Alignment.Center
-            ) {
-                if (softAppearance) Column(horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Icon(painter = painterResource(R.drawable.ic_delete_history), contentDescription = null,
-                        tint = ComposeColor(0xFFFF453A), modifier = Modifier.size(18.dp))
-                    Text("删除", color = ComposeColor(0xFFFF453A), fontSize = 10.sp, lineHeight = 12.sp,
-                        fontWeight = FontWeight.Medium)
-                } else Image(
-                    painter = painterResource(R.drawable.ic_delete_history),
-                    contentDescription = "删除",
-                    modifier = Modifier.size(24.dp)
-                )
-            }
-        }
-        Box(
-            Modifier
-                .fillMaxWidth()
-                .offset { IntOffset(offset.value.roundToInt(), 0) }
-                .pointerInput(rowKey, widthPx) {
-                    detectHorizontalDragGestures(
-                        onHorizontalDrag = drag@{ change, dragAmount ->
-                            change.consume()
-                            val next = (offset.value + dragAmount).coerceIn(-maximumDragPx, 0f)
-                            val revealNow = abs(next) >= revealPx * 0.48f
-                            if (revealNow != revealCrossed) {
-                                revealCrossed = revealNow
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                            scope.launch { offset.snapTo(next) }
-                            if (abs(next) >= deleteTriggerPx && !deleteCrossed) {
-                                deleteCrossed = true
-                                requestDelete()
-                            }
-                        },
-                        onDragEnd = {
-                            scope.launch {
-                                val target = if (abs(offset.value) >= revealPx * 0.48f) -revealPx else 0f
-                                revealCrossed = target < 0f
-                                deleteCrossed = false
-                                offset.animateTo(target, settleSpring)
-                            }
-                        },
-                        onDragCancel = {
-                            revealCrossed = false
-                            deleteCrossed = false
-                            scope.launch { offset.animateTo(0f, settleSpring) }
-                        }
-                    )
-                }
-        ) { content() }
     }
 }

@@ -4,8 +4,10 @@ import android.app.Application
 import android.content.res.Configuration
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.TextView
 import androidx.room.Room
 import com.xiaomanjun.sleepdownschedule.AppDatabase
+import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.feature.widget.providers.*
 import com.xiaomanjun.sleepdownschedule.model.*
 import kotlinx.coroutines.runBlocking
@@ -22,6 +24,57 @@ import org.robolectric.annotation.GraphicsMode
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class WidgetRegressionTest {
     private val context get() = RuntimeEnvironment.getApplication()
+
+    @Test fun twoByTwoShowsTwoDistinctCoursesAtCompactHostHeights() = assertCompactCourseRows()
+
+    private fun assertCompactCourseRows() {
+        val target = java.time.LocalDateTime.now().let {
+            if (it.hour >= 22) it.toLocalDate().plusDays(1) else it.toLocalDate()
+        }
+        val config = defaultConfig().copy(termStartDate = target.minusDays(7).toString(), autoCurrentWeek = true)
+        val courses = listOf(
+            CourseEntity(1, "连堂课", null, "教学楼", target.dayOfWeek.value, listOf(1, 2), (1..4).toList(),
+                WeekParity.ALL, null, customPeriodTimes = "1,22:00-22:45;2,22:50-23:30"),
+            CourseEntity(2, "第二门课", null, "报告厅", target.dayOfWeek.value, listOf(3), (1..4).toList(),
+                WeekParity.ALL, null, customStartTime = "23:35", customEndTime = "23:59"),
+        )
+        val state = AppState(config = config, courses = courses)
+        for (dpi in listOf(160, 420)) for (font in listOf(1f, 1.3f, 1.5f)) {
+            val local = context.createConfigurationContext(Configuration(context.resources.configuration).apply {
+                densityDpi = dpi
+                fontScale = font
+            })
+            val density = local.resources.displayMetrics.density
+            for (heightDp in listOf(150, 153, 154)) {
+                val size = WidgetRenderSize(153, heightDp)
+                val remote = MiuixTodayWidgetRenderer.buildViews(
+                    local, state, TodayWidgetVariant.SQUARE,
+                    WidgetAppearanceEntity.defaults(WidgetAppearanceVariant.COURSES_SQUARE), size,
+                )
+                val view = remote.apply(local, FrameLayout(local))
+                val width = (size.widthDp * density).toInt()
+                val height = (size.heightDp * density).toInt()
+                view.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
+                view.layout(0, 0, width, height)
+                assertEquals("连堂课", view.findViewById<TextView>(R.id.widget_compact_name_1).text.toString())
+                assertEquals("Second course at $heightDp dp, $dpi dpi, font $font", "第二门课",
+                    view.findViewById<TextView>(R.id.widget_compact_name_2).text.toString())
+                val row = view.findViewById<View>(R.id.widget_compact_row_2)
+                val visible = android.graphics.Rect()
+                assertTrue("Second row is visible at $heightDp dp, $dpi dpi, font $font", row.getGlobalVisibleRect(visible))
+                assertEquals(row.height, visible.height())
+                for (id in listOf(R.id.widget_title, R.id.widget_compact_name_2, R.id.widget_compact_detail_2)) {
+                    val text = view.findViewById<TextView>(id)
+                    assertTrue(
+                        "${local.resources.getResourceEntryName(id)} layout=${text.layout.height} height=${text.height} " +
+                            "lines=${text.layout.lineCount} at $heightDp dp, $dpi dpi, font $font",
+                        text.layout.height <= text.height,
+                    )
+                }
+            }
+        }
+    }
 
     @Test fun legacyBoundsKeepPortraitAndLandscapePairsInsteadOfInventingAShortPortraitWidget() {
         val options = android.os.Bundle().apply {

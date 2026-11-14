@@ -7,6 +7,7 @@ internal object SharedViewKitContract {
     const val FallbackType = "sharedView.fallbackAnimType"
     const val Color = "sharedView.color"
     const val Bitmap = "sharedView.bitmap"
+    const val ViewWithAlpha = "sharedView.viewWithAlpha"
     const val Radius = "sharedView.radius"
     const val Open = 0
     const val Back = 1
@@ -16,7 +17,9 @@ internal data class SharedViewKitCapabilities(
     val windowCoordinates: Boolean,
     val missingTargetBackType: Int?,
     val fallbackType: Int?,
-    val returnBitmap: Boolean = false
+    val returnBitmap: Boolean = false,
+    val explicitBounds: Boolean = false,
+    val viewWithAlpha: Boolean = false
 ) {
     companion object {
         fun from(extras: Map<String, String>): SharedViewKitCapabilities {
@@ -31,7 +34,9 @@ internal data class SharedViewKitCapabilities(
                 windowCoordinates = window,
                 missingTargetBackType = returnType(extras[SharedViewKitContract.BackType]),
                 fallbackType = returnType(extras[SharedViewKitContract.FallbackType]),
-                returnBitmap = extras.containsKey(SharedViewKitContract.Bitmap)
+                returnBitmap = extras.containsKey(SharedViewKitContract.Bitmap),
+                explicitBounds = extras.containsKey(SharedViewKitContract.Bounds),
+                viewWithAlpha = extras.containsKey(SharedViewKitContract.ViewWithAlpha),
             )
         }
 

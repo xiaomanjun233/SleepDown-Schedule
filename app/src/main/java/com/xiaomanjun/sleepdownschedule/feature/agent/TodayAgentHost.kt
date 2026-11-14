@@ -35,7 +35,8 @@ fun TodayAgentHost(
     onPrepareOpen: suspend () -> Unit = {},
     onAgentDismissed: () -> Unit = {},
     onAgentAction: AgentActionHandler = { _, _ -> },
-    onImportFile: ((android.net.Uri) -> Unit)? = null
+    onImportFile: ((List<android.net.Uri>) -> Unit)? = null,
+    showEnablePrompt: Boolean = isActive,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -69,7 +70,7 @@ fun TodayAgentHost(
         hasApiKey = todayAgentHasUsableAi()
     }
 
-    if (!hasDecision) {
+    if (!hasDecision && showEnablePrompt) {
         LiquidAlertDialog(
             title = "启用 AI 助理？",
             message = "AI 助理会在日视图显示下一节课、实时倒计时与天气。课程和倒计时均在本地计算；绑定 API Key 后，点击卡片可以继续对话。你可以随时在 AI 助理设置中关闭。",
@@ -85,7 +86,6 @@ fun TodayAgentHost(
                     hasDecision = true
                 }
             ),
-            backdrop = backdrop,
             config = state.config,
             onDismissRequest = {
                 DayAgentPreferences.setEnabled(context, false)

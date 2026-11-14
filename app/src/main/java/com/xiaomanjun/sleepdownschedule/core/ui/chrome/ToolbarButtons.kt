@@ -21,12 +21,22 @@ import com.kyant.backdrop.catalog.components.LiquidButton
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsToolbarButton
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsToolbar
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsEnabled
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassPill
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.ui.glassUsesLightStyle
 
 @Composable
 fun TopBackButton(backdrop: Backdrop?, config: ScheduleConfigEntity, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    if (LocalCouiSettingsEnabled.current) {
+        CouiSettingsToolbarButton(backdrop, onClick, modifier) {
+            Icon(com.itos.coui.icons.CouiIcons.Back, "返回", Modifier.size(24.dp),
+                tint = com.itos.coui.theme.CouiTheme.colorScheme.onSurface)
+        }
+        return
+    }
     if (LocalHomeMaterialControls.current.IconButton(
             iconRes = R.drawable.ic_arrow_back, contentDescription = "返回",
             dark = appUsesDarkTheme(config), interactive = true, selected = false,
@@ -52,9 +62,18 @@ fun TopGlassIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     surfaceColorOverride: ComposeColor? = null,
-    buttonHeight: Dp = 42.dp
+    buttonHeight: Dp = 42.dp,
+    darkOverride: Boolean? = null,
+    foregroundOverride: ComposeColor? = null
 ) {
-    val lightGlass = glassUsesLightStyle(config)
+    if (LocalCouiSettingsToolbar.current) {
+        CouiSettingsToolbarButton(backdrop = backdrop, onClick = onClick) {
+            Icon(homeActionIconPainter(iconRes), contentDescription, Modifier.size(24.dp),
+                tint = foregroundOverride ?: com.itos.coui.theme.CouiTheme.colorScheme.onSurface)
+        }
+        return
+    }
+    val lightGlass = darkOverride?.not() ?: glassUsesLightStyle(config)
     if (LocalHomeMaterialControls.current.IconButton(iconRes, contentDescription, dark = !lightGlass,
             interactive = true, selected = false, modifier = modifier.size(buttonHeight), onClick = onClick)) return
     if (backdrop != null) {
@@ -77,7 +96,8 @@ fun TopGlassIconButton(
             shadowStyle = LightTopBarButtonShadow
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(homeActionIconPainter(iconRes), contentDescription = contentDescription, modifier = Modifier.size(22.dp))
+                Icon(homeActionIconPainter(iconRes), contentDescription = contentDescription, modifier = Modifier.size(22.dp),
+                    tint = foregroundOverride ?: androidx.compose.material3.LocalContentColor.current)
             }
         }
     } else {
@@ -88,7 +108,8 @@ fun TopGlassIconButton(
             onClick = onClick
         ) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Icon(homeActionIconPainter(iconRes), contentDescription = contentDescription, modifier = Modifier.size(22.dp))
+                Icon(homeActionIconPainter(iconRes), contentDescription = contentDescription, modifier = Modifier.size(22.dp),
+                    tint = foregroundOverride ?: androidx.compose.material3.LocalContentColor.current)
             }
         }
     }

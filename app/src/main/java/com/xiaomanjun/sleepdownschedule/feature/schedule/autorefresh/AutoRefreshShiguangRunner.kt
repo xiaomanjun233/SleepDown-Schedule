@@ -30,6 +30,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 internal data class AutoRefreshFetch(
     val draft: ImportDraft,
@@ -73,6 +76,7 @@ internal object AutoRefreshShiguangRunner {
         var sessionBridge: ShiguangBridgeHost? = null
         var target: WebView? = null
         var sessionRestore: AutoCloseable? = null
+        var startup: Job? = null
         var scriptStarted = false
         var finished = false
         var completing = false
@@ -83,6 +87,8 @@ internal object AutoRefreshShiguangRunner {
         val answers = profile.interactionAnswers.toMutableMap()
 
         fun release() {
+            startup?.cancel()
+            startup = null
             sessionBridge?.close()
             sessionBridge = null
             sessionRestore?.close()
@@ -97,11 +103,12 @@ internal object AutoRefreshShiguangRunner {
             target = null
         }
 
-        fun fail(message: String) {
+        fun fail(message: String, retryable: Boolean = false) {
             if (finished) return
             finished = true
             release()
-            if (continuation.isActive) continuation.resumeWithException(IllegalStateException(message))
+            if (continuation.isActive) continuation.resumeWithException(
+                if (retryable) java.io.IOException(message) else IllegalStateException(message))
         }
 
         fun complete(draft: ImportDraft) {
@@ -197,12 +204,6 @@ internal object AutoRefreshShiguangRunner {
             val webView = WebView(context)
             target = webView
             val cookieManager = CookieManager.getInstance().apply { setAcceptCookie(true) }
-            profile.cookies.forEach { cookie ->
-                cookie.value.split(';').map(String::trim).filter { it.contains('=') }.forEach { value ->
-                    cookieManager.setCookie(cookie.url, "$value; Path=/")
-                }
-            }
-            cookieManager.flush()
             webView.settings.javaScriptEnabled = true
             webView.settings.domStorageEnabled = true
             // Match the visible education browser: legacy portals load scripts over HTTP.
@@ -210,7 +211,6 @@ internal object AutoRefreshShiguangRunner {
             if (profile.desktopMode) webView.settings.userAgentString =
                 desktopWebUserAgent(WebSettings.getDefaultUserAgent(context))
             webView.configureEduImportSecurity()
-            sessionRestore = AutoRefreshWebSession.installStorage(webView, adapter.school.id, profile.webStorage)
             cookieManager.setAcceptThirdPartyCookies(webView, true)
             val interceptor = ShiguangWebRequestInterceptor()
             webView.webViewClient = object : WebViewClient() {
@@ -231,14 +231,33 @@ internal object AutoRefreshShiguangRunner {
                 }
 
                 override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                    if (request?.isForMainFrame == true) fail("教务页面加载失败，请检查校园网或 VPN 连接")
+                    if (request?.isForMainFrame == true) fail("教务页面加载失败，请检查校园网或 VPN 连接",
+                        retryable = error?.errorCode in setOf(ERROR_HOST_LOOKUP, ERROR_CONNECT, ERROR_TIMEOUT, ERROR_IO))
+                }
+
+                override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, response: WebResourceResponse?) {
+                    if (request?.isForMainFrame != true) return
+                    val status = response?.statusCode ?: return
+                    if (status == 401 || status == 403) fail("教务会话已失效，请重新登录")
+                    else if (status == 429 || status in 500..599) fail("教务系统暂时不可用，请稍后重试", retryable = true)
                 }
             }
             webView.installShiguangRuntime(bridge, interceptor)
             bridge.bindWebView(webView)
-            webView.loadUrl(
-                profile.authenticatedUrl ?: if (ShiguangApiAdapterCatalog.isSwuAdapter(adapter)) SwuAuthRoutes.CoursePageUrl else adapter.importUrl
-            )
+            startup = CoroutineScope(continuation.context).launch {
+                try {
+                    // Cookie writes are asynchronous. Navigate only after the shared restore
+                    // path has acknowledged every cookie and installed origin-scoped storage.
+                    sessionRestore = AutoRefreshWebSession.restore(webView, profile)
+                    if (!finished && continuation.isActive) webView.loadUrl(
+                        profile.authenticatedUrl ?: if (ShiguangApiAdapterCatalog.isSwuAdapter(adapter)) SwuAuthRoutes.CoursePageUrl else adapter.importUrl
+                    )
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    fail("登录态恢复失败，请重新完成学校登录后重试")
+                }
+            }
         } catch (error: Exception) {
             fail(error.message ?: "无法打开教务页面")
         }

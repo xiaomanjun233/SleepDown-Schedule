@@ -12,7 +12,9 @@ internal data class WeekTimeSlotBand(
     val slot: TimeSlotCourse, val top: Float, val height: Float,
     val collapsed: Boolean = false, val inGrid: Boolean = false
 )
-internal data class WeekClockBand(val start: LocalTime, val end: LocalTime, val top: Float, val height: Float)
+internal data class WeekClockBand(
+    val start: LocalTime, val end: LocalTime, val top: Float, val height: Float, val periodIndex: Int,
+)
 
 /** One lesson axis. Exact clocks never insert rows or change lesson numbers. */
 internal data class WeekTimeSlotGrid(
@@ -26,9 +28,19 @@ internal data class WeekTimeSlotGrid(
     val rowHeights: List<Float> = List(rowTops.size) { rowHeight },
     val collapsedRows: Set<Int> = emptySet()
 ) {
-    fun clockPosition(time: LocalTime): Float? {
+    fun withLessonClocks(periods: List<PeriodEntity>): WeekTimeSlotGrid {
+        val byIndex = periods.associateBy(PeriodEntity::periodIndex)
+        return copy(clockRows = clockRows.map { row ->
+            val period = byIndex[row.periodIndex] ?: return@map row
+            row.copy(start = LocalTime.parse(period.startTime), end = LocalTime.parse(period.endTime))
+        })
+    }
+
+    fun clockPosition(time: LocalTime, preferredPeriod: Int? = null): Float? {
         if (clockRows.isEmpty()) return null
-        val interval = clockRows.firstOrNull { time >= it.start && time <= it.end }
+        fun WeekClockBand.containsTime() = time >= start && time <= end
+        val interval = preferredPeriod?.let { index -> clockRows.firstOrNull { it.periodIndex == index && it.containsTime() } }
+            ?: clockRows.firstOrNull { it.containsTime() }
         if (interval != null) {
             val duration = java.time.Duration.between(interval.start, interval.end).toSeconds().coerceAtLeast(1)
             val elapsed = java.time.Duration.between(interval.start, time).toSeconds()
@@ -59,7 +71,8 @@ internal fun weekTimeSlotGrid(
     val visible = slots.filter { slot -> week >= slot.startWeek && (slot.endWeek == null || week <= slot.endWeek) &&
         slot.weekdays.any { it in visibleWeekdays } }
         .sortedWith(compareBy<TimeSlotCourse> { it.startTime }.thenBy { it.id })
-    val bells = periods.sortedBy { it.periodIndex }.map { LocalTime.parse(it.startTime) to LocalTime.parse(it.endTime) }
+    val orderedPeriods = periods.sortedBy { it.periodIndex }
+    val bells = orderedPeriods.map { LocalTime.parse(it.startTime) to LocalTime.parse(it.endTime) }
     fun covered(slot: TimeSlotCourse) = bells.indices.filter { index ->
         LocalTime.parse(slot.startTime) < bells[index].second && LocalTime.parse(slot.endTime) > bells[index].first
     }
@@ -81,7 +94,9 @@ internal fun weekTimeSlotGrid(
         }
         if (index < periodCount) {
             tops += cursor
-            bells.getOrNull(index)?.let { clockRows += WeekClockBand(it.first, it.second, cursor, rowHeight) }
+            bells.getOrNull(index)?.let {
+                clockRows += WeekClockBand(it.first, it.second, cursor, rowHeight, orderedPeriods[index].periodIndex)
+            }
             cursor += rowHeight
         }
     }

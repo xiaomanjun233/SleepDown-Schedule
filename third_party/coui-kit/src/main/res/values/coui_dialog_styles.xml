@@ -1,0 +1,10 @@
+<resources>
+    <style name="CouiDialogAnimation.Bottom" parent="@android:style/Animation.Dialog">
+        <item name="android:windowEnterAnimation">@anim/coui_dialog_bottom_enter</item>
+        <item name="android:windowExitAnimation">@anim/coui_dialog_bottom_exit</item>
+    </style>
+    <style name="CouiDialogAnimation.Center" parent="@android:style/Animation.Dialog">
+        <item name="android:windowEnterAnimation">@anim/coui_dialog_center_enter</item>
+        <item name="android:windowExitAnimation">@anim/coui_dialog_center_exit</item>
+    </style>
+</resources>

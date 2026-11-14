@@ -40,11 +40,14 @@
 | 根节点更新会话、生命周期、剩余循环与分支迁移 | [2026-10-21 根节点续作](reports/2026-10-21-root-and-workflow-followup.md) |
 | 金标官方能力调查及旧 Oplus 动画退役 | [接入调查](reports/2026-10-21-sharedviewkit-integration-audit.md)、[首批实现与验证](reports/2026-10-21-sharedviewkit-pilot.md) |
 | 页面、弹窗、选择器与公共控件 | [SLEEPDOWN_DESIGN_SYSTEM.md](architecture/SLEEPDOWN_DESIGN_SYSTEM.md) |
+| 2026-11-11 首页采样、公共材质与动效重构 | [架构梳理与验证](reports/2026-11-11-home-render-architecture.md) |
 | 玻璃采样、渲染和生命周期 | [LIQUID_GLASS_FRAMEWORK.md](performance/LIQUID_GLASS_FRAMEWORK.md) |
 | 可选凝光材质、公共控件协议与运行时门控 | [SLEEPDOWN_COLOROS_FRAMEWORK.md](architecture/SLEEPDOWN_COLOROS_FRAMEWORK.md) |
 | 跨 Activity 转场 | [TRANSITION_FRAMEWORK.md](TRANSITION_FRAMEWORK.md) |
 | 定位动效参数、播放与资源释放边界 | [动效维护入口](architecture/MOTION_MAINTENANCE.md) |
 | AI 文件导入 | [AI_FILE_IMPORT.md](ai/AI_FILE_IMPORT.md) |
+| AI 任务循环、材料／教务工作区、插嘴与排队 | [AGENT_HARNESS.md](ai/AGENT_HARNESS.md) |
+| 临时写脚本、精确编辑与教务注入的本地验证 | [AI_SCRIPT_SMOKE_TEST.md](ai/AI_SCRIPT_SMOKE_TEST.md) |
 | AI助理 | [DAY_AGENT_RUNTIME.md](architecture/DAY_AGENT_RUNTIME.md) |
 | 备份与升级 | [BACKUP_FORMAT_V1.md](migration/BACKUP_FORMAT_V1.md)、[1_2_0_PACKAGE_MIGRATION.md](migration/1_2_0_PACKAGE_MIGRATION.md) |
 | 节次设置 | [PERIOD_SCHEMES_GUIDE.md](PERIOD_SCHEMES_GUIDE.md) |

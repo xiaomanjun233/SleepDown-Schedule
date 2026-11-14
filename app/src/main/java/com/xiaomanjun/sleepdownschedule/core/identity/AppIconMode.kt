@@ -127,7 +127,7 @@ object AppIconManager {
     private const val FollowsSystemDarkModeKey = "follows_system_dark_mode"
     private const val DarkThemeKey = "dark_theme"
     private var lastAppliedIconResId: Int? = null
-    internal var onIconChanged: (() -> Unit)? = null
+    internal var onIconApplied: ((changed: Boolean) -> Unit)? = null
 
     fun currentDarkTheme(context: Context): Boolean = if (
         preferences(context).getBoolean(FollowsSystemDarkModeKey, true)
@@ -224,12 +224,10 @@ object AppIconManager {
                 setAliasEnabled(packageManager, context, alias, enabled = false)
             }
         setAliasEnabled(packageManager, context, desired, enabled = true)
-        refreshAppNotificationIcons(context)
         val iconResId = currentIconResId(context)
-        if (lastAppliedIconResId != iconResId) {
-            lastAppliedIconResId = iconResId
-            onIconChanged?.invoke()
-        }
+        val changed = lastAppliedIconResId != iconResId
+        lastAppliedIconResId = iconResId
+        onIconApplied?.invoke(changed)
     }
 
     private fun setAliasEnabled(

@@ -9,6 +9,88 @@ import org.junit.Test
 
 /** Synthetic provider fixtures only: no credentials, uploaded files or paid model calls. */
 class AiImportStreamActivityTest {
+    @Test fun publicProviderSummaryParagraphsRemainInTranscriptForBothProtocols() {
+        val chat = ChatCompletionSseAccumulator()
+        val first = "**已识别课程**"
+        val second = "**正在校验周次**"
+        chat.consume(buildJsonObject { put("choices", buildJsonArray { add(buildJsonObject {
+            put("delta", buildJsonObject { put("reasoning_content", "$first\n\n$second") })
+        }) }) }.toString())
+        fun modelTexts(activities: List<AiImportActivity>) = activities.filter { it.source == AiImportActivitySource.MODEL_PROGRESS }.map { it.text }
+        assertEquals(listOf(first), modelTexts(chat.activities))
+        chat.consume("""{"choices":[{"delta":{},"finish_reason":"tool_calls"}]}""")
+        assertEquals(listOf(second), modelTexts(chat.activities))
+        val responses = ResponsesSseAccumulator()
+        responses.consume(buildJsonObject { put("type", "response.reasoning_summary_text.done"); put("text", first) }.toString())
+        assertEquals(listOf(first), modelTexts(responses.activities))
+        responses.consume(buildJsonObject { put("type", "response.completed"); put("response", buildJsonObject {
+            put("status", "completed"); put("output", buildJsonArray { add(buildJsonObject {
+                put("type", "reasoning"); put("summary", buildJsonArray { add(buildJsonObject { put("type", "summary_text"); put("text", first) }) })
+            }) })
+        }) }.toString())
+        assertTrue(modelTexts(responses.activities).isEmpty())
+    }
+
+    @Test fun ordinaryMarkdownNarrationStreamsByParagraphAndCompletesBeforeToolsWithoutReplay() {
+        val stream = ChatCompletionSseAccumulator()
+        val first = "**已读取页面**\n- 核对课程\n- 核对周次"
+        val second = "**已定位课程**，开始编辑。"
+        val reports = mutableListOf<String>()
+        fun consume(content: String = "", finish: String? = null) {
+            stream.consume(buildJsonObject { put("choices", buildJsonArray { add(buildJsonObject {
+                put("delta", buildJsonObject { put("content", content) })
+                finish?.let { put("finish_reason", it) }
+            }) }) }.toString())
+            reports += stream.activities.filter { it.source == AiImportActivitySource.MODEL_PROGRESS }.map { it.text }
+        }
+        consume(first)
+        assertTrue(reports.isEmpty())
+        consume("\n\n$second")
+        assertEquals(listOf(first), reports)
+        consume(finish = "tool_calls")
+        assertEquals(listOf(first, second), reports)
+        consume(finish = "tool_calls")
+        assertEquals(listOf(first, second), reports)
+        assertEquals(reports, progressFromJson(progressToJson(AiEduImportProgress(activityReports =
+            reports.map { AiImportReport(it, AiImportReportKind.MODEL) })) ).activityReports.map { it.text })
+    }
+
+    @Test fun responsesFinalParagraphIsVisibleBeforeCompletionAndProtocolStaysExcluded() {
+        val stream = ResponsesSseAccumulator()
+        fun reports() = stream.activities.filter { it.source == AiImportActivitySource.MODEL_PROGRESS }.map { it.text }
+        val text = "**已核对作息**，接下来校验。"
+        stream.consume(buildJsonObject { put("type", "response.output_text.delta"); put("delta", text) }.toString())
+        assertTrue(reports().isEmpty())
+        stream.consume(buildJsonObject { put("type", "response.output_text.done"); put("text", text) }.toString())
+        assertEquals(listOf(text), reports())
+        stream.consume(buildJsonObject { put("type", "response.completed"); put("response", buildJsonObject {
+            put("status", "completed"); put("output_text", text)
+        }) }.toString())
+        assertTrue(reports().isEmpty())
+        assertTrue(completedImportAssistantReports("<think>私有内容\n\n尚未结束").isEmpty())
+        assertTrue(completedImportAssistantReports("{\"courses\":[]}").isEmpty())
+        assertTrue(completedImportAssistantReports("[1,2,3]").isEmpty())
+    }
+
+    @Test fun separateResponsesMessagesKeepTheirBoundariesAndCompletedSnapshotDoesNotJoinThemAgain() {
+        val stream = ResponsesSseAccumulator()
+        val collected = mutableListOf<String>()
+        val texts = listOf("**已读完图片**", "**正在调整课程**")
+        val items = texts.mapIndexed { index, text -> buildJsonObject {
+            put("id", "message-$index"); put("type", "message")
+            put("content", buildJsonArray { add(buildJsonObject { put("type", "output_text"); put("text", text) }) })
+        } }
+        items.forEachIndexed { index, item ->
+            stream.consume(buildJsonObject { put("type", "response.output_item.done"); put("output_index", index); put("item", item) }.toString())
+            collected += stream.activities.filter { it.source == AiImportActivitySource.MODEL_PROGRESS }.map { it.text }
+        }
+        stream.consume(buildJsonObject { put("type", "response.completed"); put("response", buildJsonObject {
+            put("status", "completed"); put("output", JsonArray(items))
+        }) }.toString())
+        collected += stream.activities.filter { it.source == AiImportActivitySource.MODEL_PROGRESS }.map { it.text }
+        assertEquals(texts, collected)
+    }
+
     @Test fun finalForcedReceiptsPrecedeTerminalLocalPhaseForBothProtocols() {
         val chat = ChatCompletionSseAccumulator().apply {
             consume("""{"choices":[{"delta":{"content":"final"},"finish_reason":"stop"}]}""")

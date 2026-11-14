@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.overlay
 
+import com.xiaomanjun.sleepdownschedule.transition.legacy.AnchoredPanelMotion
 import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredOpenSettleStartFraction
 import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredFallEasing
 import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredOpenPositionEasing
@@ -21,11 +22,11 @@ import androidx.compose.ui.unit.IntSize
 import com.kyant.backdrop.effects.blur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeInitialTopInset
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.HomeAddMenuSelectionCornerDp
+import com.xiaomanjun.sleepdownschedule.feature.course.editor.curvedCourseEditorRect
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeDropletCloseDurationMillis
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeDropletOpenDurationMillis
 import com.xiaomanjun.sleepdownschedule.feature.home.contentRectPx
-import com.xiaomanjun.sleepdownschedule.glass.GlassTransitionGeometry
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.min
@@ -33,8 +34,6 @@ import kotlin.math.pow
 import kotlin.math.sign
 import kotlin.math.sin
 import kotlinx.coroutines.flow.first
-internal const val HomePersonalizeMorphOpenDurationMillis = 340
-internal const val HomePersonalizeMorphCloseDurationMillis = 220
 
 /** Motion parameters for the three-dot first-level menu's shared-object trajectory. */
 internal object ThreeDotMenuMotion {
@@ -74,19 +73,6 @@ internal const val HomeAddMenuDividerHeightDp = 1f
 internal const val HomeAddMenuActionItemHeightDp = 40f
 internal const val HomeAddMenuActionGapDp = 0f
 internal const val CourseShortcutContentPaddingDp = 5f
-
-/**
- * Keeps the tablet personalization backdrop tied to both animation state and slider preview.
- * The preview progress is already animated by the caller, so this value can drive blur radius
- * and opacity without snapping when a drag starts or finishes.
- */
-internal fun personalizeBackdropBlurLayerProgress(
-    expansionProgress: Float,
-    previewProgress: Float
-): Float = (
-    homeMorphSmoothStep(0.12f, 0.46f, expansionProgress.coerceIn(0f, 1f)) *
-        (1f - previewProgress.coerceIn(0f, 1f))
-    ).coerceIn(0f, 1f)
 
 internal fun homeAddMenuTargetRect(
     source: Rect,
@@ -173,37 +159,44 @@ private fun threeDotQuadraticBezier(
     )
 }
 
-/** Personalization uses the exact same liquid-object trajectory as the three-dot menu. */
 internal fun homePersonalizationTrajectoryGeometry(
     source: Rect,
     target: Rect,
     rawProgress: Float,
-    pinchDiameterPx: Float,
-    minimumDropPx: Float,
-    maximumDropPx: Float,
-    maximumArcPx: Float,
     targetCornerRadiusPx: Float,
     sourcePressedScale: Float = 1f,
-    closing: Boolean = false,
-    verticalReboundAmplitudePx: Float = 0f,
-    closingSinkOffsetPx: Float = 0f,
-    closingControlDropPx: Float = 0f
-): HomeAnchoredMorphGeometry = homeThreeDotMenuTrajectoryGeometry(
-    source = source,
-    target = target,
-    rawProgress = rawProgress,
-    closing = closing,
-    sourceCornerRadiusPx = min(source.width, source.height) / 2f,
-    targetCornerRadiusPx = targetCornerRadiusPx,
-    sourcePressedScale = sourcePressedScale,
-    openingPinchDiameterPx = pinchDiameterPx,
-    openingMinimumDropPx = minimumDropPx,
-    openingMaximumDropPx = maximumDropPx,
-    openingMaximumArcPx = maximumArcPx,
-    verticalReboundAmplitudePx = verticalReboundAmplitudePx,
-    closingSinkOffsetPx = closingSinkOffsetPx,
-    closingControlDropPx = closingControlDropPx
-)
+    maximumArcPx: Float = Float.MAX_VALUE
+): HomeAnchoredMorphGeometry {
+    val raw = rawProgress.coerceIn(0f, 1f)
+    val position = AnchoredPanelMotion.OpenPositionEasing.transform(raw)
+    val size = AnchoredPanelMotion.OpenSizeEasing.transform(raw)
+    val pressedScale = sourcePressedScale.coerceIn(1f, 1.16f)
+    val insetX = source.width * (pressedScale - 1f) / 2f
+    val insetY = source.height * (pressedScale - 1f) / 2f
+    val pressedSource = Rect(source.left - insetX, source.top - insetY,
+        source.right + insetX, source.bottom + insetY)
+    val rect = curvedCourseEditorRect(
+        source = pressedSource,
+        target = target,
+        positionProgress = position,
+        sizeProgress = size,
+        pulseScale = 1f,
+        maxArcPx = maximumArcPx
+    )
+    val surfaceAlpha = homeMorphSmoothStep(0f, 0.32f, size)
+    return HomeAnchoredMorphGeometry(
+        rect = rect,
+        cornerRadiusPx = lerpHomeMorph(
+            min(source.width, source.height) * pressedScale / 2f, targetCornerRadiusPx, size
+        ),
+        sourceScale = lerpHomeMorph(pressedScale, 1f, size),
+        sourceAlpha = 1f - surfaceAlpha,
+        surfaceAlpha = surfaceAlpha,
+        contentAlpha = homeMorphSmoothStep(0.72f, 1f, size),
+        pathProgress = position,
+        expansionProgress = size
+    )
+}
 
 /**
  * Shared liquid-object trajectory used by the Home popups.
@@ -599,27 +592,6 @@ internal fun homePersonalizeTargetRect(
     )
     return clampHomeMorphTarget(proposed, rootSize, 12f * density)
 }
-
-internal fun homePersonalizationAuraGeometry(
-    geometry: HomeAnchoredMorphGeometry,
-    leftFeatherMaximumPx: Float,
-    rightFeatherPx: Float,
-    verticalFeatherPx: Float
-): GlassTransitionGeometry {
-    val leftFeather = leftFeatherMaximumPx.coerceAtLeast(0f) *
-        geometry.expansionProgress.coerceIn(0f, 1f)
-    val left = (geometry.rect.left - leftFeather).coerceAtLeast(0f)
-    val top = (geometry.rect.top - verticalFeatherPx.coerceAtLeast(0f)).coerceAtLeast(0f)
-    val width = geometry.rect.width + leftFeather + rightFeatherPx.coerceAtLeast(0f)
-    val height = geometry.rect.height + verticalFeatherPx.coerceAtLeast(0f) * 2f
-    return GlassTransitionGeometry(
-        rectInRoot = Rect(left, top, left + width, top + height),
-        cornerRadiusPx = 0f
-    )
-}
-
-internal fun HomeAnchoredMorphGeometry.asGlassTransitionGeometry(): GlassTransitionGeometry =
-    GlassTransitionGeometry(rectInRoot = rect, cornerRadiusPx = cornerRadiusPx)
 
 internal fun clampHomeMorphTarget(
     target: Rect,

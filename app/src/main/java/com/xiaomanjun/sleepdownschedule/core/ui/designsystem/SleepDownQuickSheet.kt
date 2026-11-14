@@ -1,6 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.core.ui.designsystem
 
-import android.os.Build
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateContentSize
@@ -10,7 +9,6 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -18,58 +16,35 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.MutableFloatState
-import androidx.compose.runtime.State
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.RectangleShape
-import androidx.compose.ui.graphics.Shape
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
-import com.kyant.backdrop.catalog.utils.InteractiveHighlight
-import com.kyant.backdrop.effects.blur
-import com.kyant.backdrop.effects.lens
 import com.kyant.shapes.Capsule
-import com.kyant.shapes.RoundedCornerStyle
-import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.glass.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.morphDialogMaterial
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
-import kotlin.math.max
 import top.yukonga.miuix.kmp.utils.MiuixPopupBackdropCapture
 
 internal val LocalCenteredDialogSceneBackdrop = compositionLocalOf<Backdrop?> { null }
@@ -104,7 +79,7 @@ internal fun <T> CenteredDialogContentTransition(
     smoothResize: Boolean = false,
     content: @Composable (T) -> Unit
 ) {
-    val nativeWindow = LocalNativeDialogSurface.current
+    val nativeWindow = LocalControlDialogSurface.current
     if (nativeWindow) {
         // One live picker only: AnimatedContent keeps both AndroidView trees mounted while
         // size changes, letting outgoing controls draw/measure over the newly selected mode.
@@ -142,319 +117,53 @@ fun SleepDownPickerDialog(
     show: Boolean,
     title: String,
     onDismissRequest: () -> Unit,
-    backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     onDismissFinished: (() -> Unit)? = null,
-    enableWindowDim: Boolean = false,
-    renderInRootScaffold: Boolean? = null,
     contentSpacing: Dp = SleepDownDesignTokens.QuickSheet.PickerContentSpacing,
-    contentPadding: PaddingValues = PaddingValues(0.dp),
-    blurRadius: Dp = 28.dp,
     titleAction: (@Composable () -> Unit)? = null,
     contentTransitionKey: Any? = null,
     contentForState: (@Composable ColumnScope.(Any?) -> Unit)? = null,
     scrollableContent: Boolean = false,
     smoothContentResize: Boolean = false,
     bottomActions: (@Composable () -> Unit)? = null,
+    actions: List<LiquidAlertAction>? = null,
+    adjustForIme: Boolean = false,
+    contentPadding: PaddingValues = PaddingValues(0.dp),
+    message: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val foreground = sleepDownPanelForegroundColor(config)
     val body: @Composable () -> Unit = {
-        val nativeStyle = LocalNativePickerStyle.current.takeIf { LocalNativeDialogSurface.current }
-        val titleStyle = nativeStyle?.let { MaterialTheme.typography.titleLarge.copy(
-            fontSize = it.titleSize, lineHeight = androidx.compose.ui.unit.TextUnit.Unspecified,
-            fontWeight = it.titleWeight
-        ) } ?: MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold)
-        androidx.compose.runtime.CompositionLocalProvider(
-            androidx.compose.material3.LocalContentColor provides foreground
+        val animatePadding = smoothContentResize && contentTransitionKey != null
+        Column(
+            modifier = if (animatePadding) Modifier else Modifier.padding(contentPadding),
+            verticalArrangement = Arrangement.spacedBy(contentSpacing)
         ) {
-            Column(
-                modifier = Modifier
-                    .padding(contentPadding)
-                    .padding(
-                        top = SleepDownDesignTokens.QuickSheet.PickerVerticalInset -
-                            SleepDownDesignTokens.CenteredDialog.AlertVerticalPadding
-                    ),
-                verticalArrangement = Arrangement.spacedBy(contentSpacing)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Spacer(Modifier.width(40.dp))
-                    if (contentTransitionKey == null) {
-                        Text(
-                            text = title,
-                            modifier = Modifier.weight(1f),
-                            style = titleStyle,
-                            color = foreground,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    } else {
-                        CenteredDialogContentTransition(
-                            targetState = title,
-                            modifier = Modifier.weight(1f),
-                            label = "picker-dialog-title"
-                        ) { displayedTitle ->
-                            Text(
-                                text = displayedTitle,
-                                modifier = Modifier.fillMaxWidth(),
-                                style = titleStyle,
-                                color = foreground,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                            )
-                        }
-                    }
-                    Box(Modifier.width(40.dp), contentAlignment = Alignment.Center) {
-                        titleAction?.invoke()
+            if (contentTransitionKey == null) {
+                content()
+            } else {
+                CenteredDialogContentTransition(
+                    targetState = contentTransitionKey,
+                    modifier = if (animatePadding) Modifier.fillMaxWidth() else Modifier,
+                    smoothResize = smoothContentResize,
+                    label = "picker-dialog-content"
+                ) { displayedState ->
+                    Column(
+                        modifier = if (animatePadding) Modifier.padding(contentPadding) else Modifier,
+                        verticalArrangement = Arrangement.spacedBy(contentSpacing)
+                    ) {
+                        if (contentForState != null) contentForState(displayedState) else content()
                     }
                 }
-                val bodyModifier = if (scrollableContent) {
-                    Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())
-                } else Modifier
-                if (contentTransitionKey == null) {
-                    if (scrollableContent) Column(bodyModifier, content = content) else content()
-                } else {
-                    CenteredDialogContentTransition(
-                        targetState = contentTransitionKey,
-                        modifier = bodyModifier,
-                        smoothResize = smoothContentResize,
-                        label = "picker-dialog-content"
-                    ) { displayedState ->
-                        Column(verticalArrangement = Arrangement.spacedBy(contentSpacing)) {
-                            if (contentForState != null) contentForState(displayedState) else content()
-                        }
-                    }
-                }
-                bottomActions?.invoke()
             }
         }
     }
-    if (NativePickerDialog(show, config, onDismissRequest, onDismissFinished, body)) return
-    val visuals = rememberCenteredDialogVisuals(
-        backdrop = backdrop,
-        config = config,
-        blurRadius = blurRadius,
-        enableForegroundHighlight = false
-    )
-    val resolvedRenderInRootScaffold = renderInRootScaffold
-        ?: LocalCenteredDialogRenderInRootScaffold.current
-    top.yukonga.miuix.kmp.overlay.OverlayDialog(
-        show = show,
-        title = null,
-        onDismissRequest = onDismissRequest,
-        onDismissFinished = onDismissFinished,
-        enableWindowDim = enableWindowDim,
-        backgroundColor = Color.Transparent,
-        forceCenter = true,
-        surfaceModifier = visuals.surfaceModifier,
-        backgroundModifier = visuals.backgroundModifier,
-        animationProgressState = visuals.animationProgress,
-        enablePredictiveBackAnimation = false,
-        excludeFromBackdropCapture = true,
-        renderInRootScaffold = resolvedRenderInRootScaffold,
-        outsideMargin = DpSize(
-            SleepDownDesignTokens.QuickSheet.HorizontalMargin,
-            SleepDownDesignTokens.QuickSheet.VerticalMargin
-        ),
-        insideMargin = DpSize(
-            SleepDownDesignTokens.CenteredDialog.ContentPadding,
-            SleepDownDesignTokens.CenteredDialog.AlertVerticalPadding
-        ),
-        content = body
-    )
+    ControlPickerDialog(PickerDialogRequest(
+        show, title, appUsesDarkTheme(config), onDismissRequest, onDismissFinished,
+        titleAction, actions, bottomActions, scrollableContent, adjustForIme, body, message))
+
 }
 
-/** Keep the native window alive for its own exit; business content still owns validation. */
-@Composable
-internal fun NativePickerDialog(
-    show: Boolean,
-    config: ScheduleConfigEntity,
-    onDismissRequest: () -> Unit,
-    onDismissFinished: (() -> Unit)?,
-    content: @Composable () -> Unit,
-    contentPadding: PaddingValues = PaddingValues(
-        horizontal = SleepDownDesignTokens.CenteredDialog.ContentPadding,
-        vertical = SleepDownDesignTokens.CenteredDialog.AlertVerticalPadding),
-    windowWidth: Dp? = null
-): Boolean {
-    val renderer = LocalNativeAlertRenderer.current ?: return false
-    var mounted by remember { mutableStateOf(show) }
-    var session by remember { mutableIntStateOf(0) }
-    if (show) mounted = true
-    if (!mounted) return true
-    val maxHeight = with(LocalDensity.current) {
-        (LocalNativeDialogHostSize.current ?: androidx.compose.ui.platform.LocalWindowInfo.current.containerSize)
-            .height.toDp() * 0.82f
-    }
-    return key(session) { renderer(NativeAlertRequest(
-        title = "",
-        message = "",
-        actions = emptyList(),
-        dark = appUsesDarkTheme(config),
-        onDismissRequest = onDismissRequest,
-        messageMaxHeight = maxHeight,
-        scrollableMessageContent = false,
-        messageContent = content,
-        visible = show,
-        deferDismissUntilHost = true,
-        onDismissFinished = {
-            mounted = false
-            session++
-            onDismissFinished?.invoke()
-        },
-        contentPadding = contentPadding,
-        windowWidth = windowWidth
-    )) }
-}
-
-internal class CenteredDialogVisuals(
-    val surfaceModifier: Modifier,
-    val backgroundModifier: Modifier,
-    val animationProgress: MutableFloatState
-)
-
-/**
- * Shared visual state for modified Miuix centered dialogs.
- *
- * The background pass deliberately uses one prebuilt plain-blur chain and no
- * lens/vibrancy/shadow chain. Only its opacity follows the dialog's animation progress, avoiding
- * effect reconstruction during the opening and closing frames.
- */
-@Composable
-internal fun rememberCenteredDialogVisuals(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    blurRadius: Dp,
-    maxWidth: Dp = SleepDownDesignTokens.CenteredDialog.Width,
-    enableForegroundHighlight: Boolean = true
-): CenteredDialogVisuals {
-    val animationProgress = remember { mutableFloatStateOf(0f) }
-    val completeUnderlayBackdrop = LocalCenteredDialogSceneBackdrop.current ?: backdrop
-    val density = LocalDensity.current
-    val highlightScope = rememberCoroutineScope()
-    val dark = appUsesDarkTheme(config)
-    val highlightRadiusPx = with(density) { 112.dp.toPx() }
-    val foregroundHighlight = remember(highlightScope, highlightRadiusPx, dark) {
-        InteractiveHighlight(
-            animationScope = highlightScope,
-            radius = { highlightRadiusPx },
-            ambientAlpha = 0f,
-            spotAlpha = if (dark) 0.11f else 0.16f,
-            fallbackAlpha = if (dark) 0.13f else 0.18f
-        )
-    }
-    val centeredShape = remember {
-        RoundedRectangle(
-            cornerRadius = SleepDownDesignTokens.CenteredDialog.Corner,
-            style = RoundedCornerStyle.Continuous
-        )
-    }
-    val highlightModifier = if (enableForegroundHighlight) {
-        Modifier
-            .then(foregroundHighlight.gestureModifier)
-            .then(foregroundHighlight.foregroundModifier)
-    } else {
-        Modifier
-    }
-    return CenteredDialogVisuals(
-        surfaceModifier = Modifier
-            .clip(centeredShape)
-            .then(highlightModifier)
-            .centeredDialogBackdropModifier(
-                backdrop = completeUnderlayBackdrop,
-                config = config,
-                blurRadius = blurRadius,
-                maxWidth = maxWidth
-            ),
-        backgroundModifier = Modifier.centeredDialogBackgroundBlur(
-            backdrop = completeUnderlayBackdrop,
-            animationProgress = animationProgress,
-            dark = dark
-        ),
-        animationProgress = animationProgress
-    )
-}
-
-@Composable
-internal fun Modifier.centeredDialogBackgroundBlur(
-    backdrop: Backdrop?,
-    animationProgress: State<Float>,
-    dark: Boolean
-): Modifier {
-    val blurRadius = SleepDownDesignTokens.CenteredDialog.BackgroundBlur
-    val material = remember { GlassMaterialSpec.simpleBlur(blurRadius) }
-    val descriptor = rememberGlassSurfaceDescriptor(
-        debugLabel = "CenteredDialogBackgroundBlur",
-        domain = GlassBackdropDomain.DialogBridge,
-        materialRole = GlassMaterialRole.SimpleBlur,
-        sceneKey = "centered-dialog-background"
-    )
-    val blurModifier = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && backdrop != null) {
-        Modifier
-            .graphicsLayer { alpha = animationProgress.value.coerceIn(0f, 1f) }
-            .sleepDownGlassSurface(
-                backdrop = backdrop,
-                descriptor = descriptor,
-                material = material,
-                shape = { RectangleShape },
-                // A full-window blur was still running at native resolution on this route.
-                // Use the same sampled material path as editors; dim remains full resolution.
-                usage = com.xiaomanjun.sleepdownschedule.core.performance.MaterialUsage.SCENE_BLUR,
-                effectFrame = GlassEffectFrame(blur = blurRadius),
-                backdropSampleScale = 0.5f
-            )
-    } else {
-        Modifier
-    }
-    val dimAlpha = if (dark) 0.24f else 0.16f
-    return this
-        .then(blurModifier)
-        .drawWithCache {
-            onDrawWithContent {
-                drawContent()
-                drawRect(
-                    Color.Black.copy(
-                        alpha = dimAlpha * animationProgress.value.coerceIn(0f, 1f)
-                    )
-                )
-            }
-        }
-}
-
-/**
- * Canonical SleepDown material for every modified Miuix centered dialog, including alerts and
- * selector/editor dialogs. Keeping this as a separate entry point prevents a centered picker from
- * silently falling back to the bottom-sheet material contract.
- */
-@Composable
-internal fun Modifier.centeredDialogBackdropModifier(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    blurRadius: Dp,
-    maxWidth: Dp = SleepDownDesignTokens.CenteredDialog.Width
-): Modifier = fillMaxWidth()
-    .widthIn(max = maxWidth)
-    .quickSheetBackdropModifier(
-        backdrop = backdrop,
-        config = config,
-        blurRadius = blurRadius,
-        centered = true
-    )
-
-/** Floating sheet background only; native buttons remain later siblings of this material. */
-@Composable
-internal fun QuickSheetDialogMaterial(
-    modifier: Modifier, shape: Shape, backdrop: Backdrop?, config: ScheduleConfigEntity
-) {
-    if (LocalNativeMaterialSurfaceRenderer.current?.invoke(NativeMaterialSurfaceRequest(
-        modifier = modifier, shape = shape, dark = appUsesDarkTheme(config),
-        role = NativeMaterialSurfaceRole.Dialog, edgeEffects = false
-    )) {} == true) return
-    Box(modifier.clip(shape).quickSheetBackdropModifier(backdrop, config, 28.dp, shapeOverride = shape))
-}
-
-/** Floating forms use an actual COUI window, so their background samples the complete page. */
+/** Floating forms keep the COUI window while sampling their owning page. */
 @Composable
 internal fun SleepDownFloatingSheet(
     show: Boolean,
@@ -463,29 +172,37 @@ internal fun SleepDownFloatingSheet(
     onDismissRequest: () -> Unit,
     onDismissFinished: (() -> Unit)? = null,
     allowDismiss: Boolean = true,
-    renderInPlace: Boolean = true,
-    cornerRadius: Dp,
-    backgroundColor: Color = Color.Transparent,
-    modifier: Modifier = Modifier,
     contentModifier: Modifier = Modifier,
-    surfaceModifier: Modifier = Modifier,
-    surfaceContent: (@Composable (Modifier) -> Unit)? = null,
+    actions: List<LiquidAlertAction>? = null,
+    materialScene: Backdrop? = null,
     startAction: @Composable () -> Unit,
     endAction: @Composable () -> Unit,
     content: @Composable () -> Unit
 ) {
+    if (actions != null) {
+        ControlPickerDialog(PickerDialogRequest(
+            show, title, appUsesDarkTheme(config), { if (allowDismiss) onDismissRequest() }, onDismissFinished,
+            null, actions, null, false, false, { Column(Modifier.fillMaxWidth()) { content() } }), materialScene)
+        return
+    }
     val body: @Composable () -> Unit = {
         val foreground = sleepDownPanelForegroundColor(config)
         androidx.compose.runtime.CompositionLocalProvider(
             androidx.compose.material3.LocalContentColor provides foreground
         ) {
-            Column(contentModifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(contentModifier.fillMaxWidth().padding(
+                vertical = com.itos.coui.dialog.CouiDialogDefaults.buttonBottomPadding),
+                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(Modifier.fillMaxWidth().padding(
+                    horizontal = com.itos.coui.dialog.CouiDialogDefaults.buttonEdgePadding),
+                    verticalAlignment = Alignment.CenterVertically) {
                     startAction()
                     BoxWithConstraints(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                         val density = LocalDensity.current
                         val measurer = rememberTextMeasurer()
-                        val titleStyle = MaterialTheme.typography.titleLarge.copy(fontSize = 20.sp, lineHeight = 24.sp)
+                        val titleSize = 18.sp
+                        val titleStyle = MaterialTheme.typography.titleLarge.copy(fontSize = titleSize,
+                            lineHeight = 22.sp)
                         val naturalWidth = remember(title, titleStyle, measurer) {
                             measurer.measure(title, style = titleStyle, softWrap = false, maxLines = 1).size.width
                         }
@@ -493,7 +210,7 @@ internal fun SleepDownFloatingSheet(
                         val fit = if (naturalWidth > 0) ((widthPx - 1f) / naturalWidth).coerceIn(0.01f, 1f) else 1f
                         Text(title, Modifier.fillMaxWidth(),
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                            style = titleStyle, fontSize = 20.sp * fit,
+                            style = titleStyle, fontSize = titleSize * fit,
                             maxLines = 1, softWrap = false, color = foreground)
                     }
                     endAction()
@@ -502,196 +219,10 @@ internal fun SleepDownFloatingSheet(
             }
         }
     }
-    // COUI's window already includes transparent horizontal insets around the material.
-    // Subtracting a second page gutter here shrinks the visible floating frame twice.
-    val windowWidth = with(LocalDensity.current) {
-        (LocalNativeDialogHostSize.current ?: androidx.compose.ui.platform.LocalWindowInfo.current.containerSize)
-            .width.toDp()
-            .coerceIn(1.dp, 600.dp)
-    }
-    if (NativePickerDialog(show, config, { if (allowDismiss) onDismissRequest() }, onDismissFinished, body,
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 16.dp), windowWidth = windowWidth)) return
-    top.yukonga.miuix.kmp.overlay.OverlayBottomSheet(
-        show = show, title = title, onDismissRequest = onDismissRequest,
-        onDismissFinished = onDismissFinished, allowDismiss = allowDismiss,
-        renderInPlace = renderInPlace, cornerRadius = cornerRadius,
-        backgroundColor = backgroundColor, modifier = modifier.then(contentModifier),
-        surfaceModifier = surfaceModifier, surfaceContent = surfaceContent,
-        startAction = startAction, endAction = endAction, content = content
-    )
-}
+    ControlPickerDialog(PickerDialogRequest(
+        show, "", appUsesDarkTheme(config), { if (allowDismiss) onDismissRequest() },
+        onDismissFinished, null, null, null, false, true, body), materialScene)
 
-/** Canonical glass/fallback surface for centered dialogs, bottom sheets and nested sheet cards. */
-@Composable
-internal fun Modifier.quickSheetBackdropModifier(
-    backdrop: Backdrop?,
-    config: ScheduleConfigEntity,
-    blurRadius: Dp,
-    inner: Boolean = false,
-    centered: Boolean = false,
-    shapeOverride: Shape? = null
-): Modifier {
-    val shape = shapeOverride ?: when {
-        inner -> RoundedRectangle(SleepDownDesignTokens.QuickSheet.InnerCorner)
-        centered -> RoundedRectangle(
-            cornerRadius = SleepDownDesignTokens.CenteredDialog.Corner,
-            style = RoundedCornerStyle.Continuous
-        )
-        else -> com.kyant.shapes.UnevenRoundedRectangle(
-            topStart = SleepDownDesignTokens.QuickSheet.BottomCorner,
-            topEnd = SleepDownDesignTokens.QuickSheet.BottomCorner
-        )
-    }
-    val dark = appUsesDarkTheme(config)
-    // Centered dialogs are the SleepDown v2 neutral shell with a slightly softer blur. Bottom
-    // sheets and their nested quick settings cards keep their original blur budget unchanged.
-    val effectiveBlurRadius = when {
-        centered -> SleepDownDesignTokens.CenteredDialog.MaxBlur
-        inner -> blurRadius.coerceAtMost(6.dp)
-        else -> blurRadius.coerceAtMost(12.dp)
-    }
-    if (!inner && !usesNativeMaterialMotion()) {
-        // Plain Gaussian material over the preceding scene, without lens or vibrancy.
-        val tint = when {
-            centered && dark -> Color(0xFF1A1A1A).copy(alpha = SleepDownDesignTokens.CenteredDialog.DarkSurfaceAlpha)
-            dark -> Color(0xFF111318).copy(alpha = 0.74f)
-            else -> Color(0xFFF8FAFD).copy(alpha = 0.72f)
-        }
-        return this.morphDialogMaterial(backdrop, shape, tint, blurRadius = effectiveBlurRadius,
-            domain = GlassBackdropDomain.DialogBridge)
-    }
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S || backdrop == null) {
-        val fallback = this
-            .clip(shape)
-            .background(
-                when {
-                    inner && dark -> Color(0xFF25272C)
-                    inner -> Color(0xFFF0F3F8)
-                    centered && dark -> Color(0xFF1A1A1A)
-                    centered -> Color(0xFFEDEEF3)
-                    // This is the pre-1.2.0 non-centered sheet fallback.  Keep it local to the
-                    // design-system shell so a settings-page helper is not needed in this core
-                    // UI layer.
-                    else -> if (dark) Color.Black else Color(0xFFEDEEF3)
-                }
-            )
-        return fallback
-    }
-    val surfaceAlpha = when {
-        inner && dark -> 0.88f
-        inner -> 0.86f
-        centered && dark -> SleepDownDesignTokens.CenteredDialog.DarkSurfaceAlpha
-        centered -> 0.72f
-        dark -> 0.74f
-        else -> 0.72f
-    }
-    val lensHeight = when {
-        centered -> SleepDownDesignTokens.CenteredDialog.LensHeight
-        inner -> 2.dp
-        else -> 4.dp
-    }
-    val lensAmount = when {
-        centered -> SleepDownDesignTokens.CenteredDialog.LensAmount
-        inner -> 4.dp
-        else -> 8.dp
-    }
-    val shellHighlightAlpha = when {
-        centered && dark -> 0.14f
-        centered -> 0.20f
-        else -> 0f
-    }
-    val material = GlassMaterialSpec.dialog().copy(
-        blur = effectiveBlurRadius,
-        lensHeight = lensHeight,
-        lensAmount = lensAmount,
-        surfaceAlpha = surfaceAlpha,
-        borderAlpha = 0f,
-        highlightAlpha = shellHighlightAlpha,
-        shadowAlpha = 0f,
-        innerShadowAlpha = 0f,
-        depthEffect = false,
-        useVibrancy = false
-    )
-    val descriptor = rememberGlassSurfaceDescriptor(
-        debugLabel = when {
-            inner -> "QuickSheetInner"
-            centered -> "CenteredDialog"
-            else -> "QuickSheet"
-        },
-        domain = GlassBackdropDomain.DialogBridge,
-        materialRole = GlassMaterialRole.Dialog
-    )
-    return sleepDownGlassSurface(
-        backdrop = backdrop,
-        descriptor = descriptor,
-        material = material,
-        shape = { shape },
-        backdropSampleScale = if (centered) 0.5f else 1f,
-        cacheDecorations = centered,
-        effectFrame = GlassEffectFrame(
-            blur = effectiveBlurRadius,
-            lensHeight = lensHeight,
-            lensAmount = lensAmount,
-            useVibrancy = false,
-            depthEffect = false,
-            chromaticAberration = false,
-            highlight = if (centered) {
-                GlassHighlightFrame(
-                    style = GlassHighlightStyle.Default,
-                    alpha = shellHighlightAlpha
-                )
-            } else {
-                null
-            },
-            shadowAlpha = null,
-            innerShadow = null
-        ),
-        // The 1.2.0 QuickSheet used Kyant's native lens defaults. Preserve that exact path for
-        // bottom sheets and nested sheet cards; forcing the unified frame's depthEffect=false
-        // flattened the material and made the same sheet change character across preview pages.
-        effectsOverride = {
-            blur(effectiveBlurRadius.toPx())
-            lens(
-                lensHeight.toPx(),
-                lensAmount.toPx(),
-                chromaticAberration = false
-            )
-        },
-        onDrawSurface = {
-            drawRect(
-                when {
-                    inner && dark -> Color(0xFF252B35).copy(alpha = 0.88f)
-                    inner -> Color(0xFFE7EDF7).copy(alpha = 0.86f)
-                    centered && dark -> Color(0xFF1A1A1A).copy(
-                        alpha = SleepDownDesignTokens.CenteredDialog.DarkSurfaceAlpha
-                    )
-                    dark -> Color(0xFF111318).copy(alpha = 0.74f)
-                    else -> Color(0xFFF8FAFD).copy(alpha = 0.72f)
-                }
-            )
-            if (!centered) {
-                drawRect(
-                    brush = Brush.radialGradient(
-                        colors = if (inner) {
-                            if (dark) {
-                                listOf(Color(0xFF8CB8FF).copy(alpha = 0.12f), Color.Transparent)
-                            } else {
-                                listOf(Color.White.copy(alpha = 0.28f), Color.Transparent)
-                            }
-                        } else {
-                            if (dark) {
-                                listOf(Color.White.copy(alpha = 0.14f), Color.Transparent)
-                            } else {
-                                listOf(Color.White.copy(alpha = 0.34f), Color.Transparent)
-                            }
-                        },
-                        center = center,
-                        radius = max(size.width, size.height) * if (inner) 0.66f else 0.74f
-                    )
-                )
-            }
-        }
-    )
 }
 
 @Composable
@@ -709,101 +240,57 @@ internal fun QuickSheetLiquidAction(
     val centeredAction = height == SleepDownDesignTokens.CenteredDialog.ActionHeight
     // Header actions keep the compact capsule dimensions; only full-size confirmation actions
     // inherit the system dialog button size, which otherwise crowds the sheet title.
-    val nativeStyle = LocalNativePickerStyle.current.takeIf { LocalNativeDialogSurface.current && centeredAction }
+    val nativeStyle = LocalControlPickerStyle.current.takeIf { LocalControlDialogSurface.current && centeredAction }
     val actionModifier = if (modifier != Modifier) modifier else nativeStyle?.let {
         Modifier.widthIn(min = it.buttonMinWidth)
     } ?: Modifier.width(84.dp)
-    if (LocalNativeCapsuleButtonRenderer.current?.invoke(NativeCapsuleButtonRequest(
-            onClick = onClick,
-            modifier = actionModifier,
-            height = nativeStyle?.buttonHeight ?: height,
-            contentPadding = PaddingValues(horizontal = 14.dp),
-            dark = appUsesDarkTheme(config),
-            enabled = enabled,
-            primaryColor = if (primary) MaterialTheme.colorScheme.primary else Color.Unspecified
-        )) {
-            Text(label, color = when {
-                primary -> Color.White
-                destructive -> Color(0xFFFF453A)
-                else -> MaterialTheme.colorScheme.onSurface
-            }, fontWeight = nativeStyle?.buttonWeight ?: FontWeight.SemiBold,
-                fontSize = nativeStyle?.buttonTextSize ?: 13.sp)
-        } == true) return
-    if (backdrop != null) {
-        val dark = appUsesDarkTheme(config)
-        val neutralSurface = if (centeredAction && dark) {
-            Color(0xFF363639)
-        } else if (centeredAction) {
-            Color(0xFFD6D9DF).copy(alpha = 0.80f)
-        } else if (dark) {
-            Color(0xFF272C36).copy(alpha = 0.92f)
-        } else {
-            Color(0xFFF3F6FB).copy(alpha = 0.90f)
-        }
-        val actionSurfaceColor = when {
-            primary && dark -> Color(0xFF099AFF)
-            primary -> Color(0xFF0A84FF).copy(alpha = 0.88f)
-            destructive && !centeredAction -> Color(0xFFFF453A).copy(alpha = 0.88f)
-            else -> neutralSurface
-        }
-        val actionTint = when {
-            primary && dark -> Color(0xFF099AFF)
-            primary -> Color(0xFF0A84FF)
-            destructive && !centeredAction -> Color(0xFFFF453A)
-            else -> Color.Unspecified
-        }
-        val actionTextColor = when {
-            primary -> Color.White
-            destructive -> Color(0xFFFF453A)
-            else -> MaterialTheme.colorScheme.onSurface
-        }
-        LiquidButton(
-            onClick = { if (enabled) onClick() },
-            enabled = enabled,
-            backdrop = backdrop,
-            modifier = actionModifier,
-            height = height,
-            blurRadius = 12.dp,
-            lensHeight = 4.dp,
-            lensAmount = 6.dp,
-            tint = actionTint,
-            surfaceColor = actionSurfaceColor,
-            contentPadding = PaddingValues(horizontal = 14.dp),
-            isInteractive = !centeredAction,
-            staticPressDimAlpha = if (centeredAction) 0.12f else 0f,
-            shape = Capsule(),
-            shadowEnabled = !centeredAction,
-            highlightEnabled = !centeredAction
-        ) {
-            Text(label, color = actionTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-        }
+    val dark = appUsesDarkTheme(config)
+    val neutralSurface = if (centeredAction && dark) {
+        Color(0xFF363639)
+    } else if (centeredAction) {
+        Color(0xFFD6D9DF).copy(alpha = 0.80f)
+    } else if (dark) {
+        Color(0xFF272C36).copy(alpha = 0.92f)
     } else {
-        val dark = appUsesDarkTheme(config)
-        val background = when {
-            destructive && !centeredAction -> Color(0xFFFF453A)
-            primary && dark -> Color(0xFF099AFF)
-            primary -> Color(0xFF0A84FF)
-            centeredAction && dark -> Color(0xFF363639)
-            centeredAction -> Color(0xFFE6E8EC)
-            dark -> Color(0xFF30343D)
-            else -> Color(0xFFE8ECF3)
-        }
-        val buttonTextColor = when {
-            primary -> Color.White
-            destructive -> Color(0xFFFF453A)
-            else -> MaterialTheme.colorScheme.onSurface
-        }
-        Box(
-            modifier = actionModifier
-                .height(height)
-                .clip(
-                    Capsule()
-                )
-                .background(background.copy(alpha = if (enabled) 0.94f else 0.46f))
-                .clickable(enabled = enabled, onClick = onClick),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(label, color = buttonTextColor, fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
-        }
+        Color(0xFFF3F6FB).copy(alpha = 0.90f)
+    }
+    val actionSurfaceColor = when {
+        primary && dark -> Color(0xFF099AFF)
+        primary -> Color(0xFF0A84FF).copy(alpha = 0.88f)
+        destructive && !centeredAction -> Color(0xFFFF453A).copy(alpha = 0.88f)
+        else -> neutralSurface
+    }
+    val actionTint = when {
+        primary && dark -> Color(0xFF099AFF)
+        primary -> Color(0xFF0A84FF)
+        destructive && !centeredAction -> Color(0xFFFF453A)
+        else -> Color.Unspecified
+    }
+    val actionTextColor = when {
+        primary -> Color.White
+        destructive -> Color(0xFFFF453A)
+        else -> MaterialTheme.colorScheme.onSurface
+    }
+    LiquidButton(
+        onClick = { if (enabled) onClick() },
+        enabled = enabled,
+        backdrop = backdrop,
+        modifier = actionModifier,
+        height = nativeStyle?.buttonHeight ?: height,
+        nativePrimaryColor = if (primary) MaterialTheme.colorScheme.primary else Color.Unspecified,
+        nativeDarkOverride = dark,
+        blurRadius = 12.dp,
+        lensHeight = 4.dp,
+        lensAmount = 6.dp,
+        tint = actionTint,
+        surfaceColor = actionSurfaceColor,
+        contentPadding = PaddingValues(horizontal = 14.dp),
+        isInteractive = !centeredAction,
+        staticPressDimAlpha = if (centeredAction) 0.12f else 0f,
+        shape = Capsule(),
+        shadowEnabled = !centeredAction,
+        highlightEnabled = !centeredAction
+    ) {
+        Text(label, color = actionTextColor, fontWeight = nativeStyle?.buttonWeight ?: FontWeight.SemiBold, fontSize = nativeStyle?.buttonTextSize ?: 13.sp)
     }
 }

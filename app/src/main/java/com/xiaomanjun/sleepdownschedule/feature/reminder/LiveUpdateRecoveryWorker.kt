@@ -18,7 +18,7 @@ class LiveUpdateRecoveryWorker(context: Context, parameters: WorkerParameters) :
         val app = applicationContext as CourseScheduleApp
         val snapshot = app.repository.activeSnapshot()
         NotificationScheduler.refreshToday(
-            app, snapshot.courses, snapshot.config, snapshot.periods,
+            app, snapshot,
             forceReschedule = !inputData.getBoolean(ISLAND_CHECKPOINT, false)
         )
         return Result.success()

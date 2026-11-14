@@ -1,5 +1,10 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.day
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Transition
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -23,9 +28,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.RenderEffect
+import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.graphics.get
@@ -46,6 +55,9 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColo
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlpha
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.excludeParentPullGesture
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.rememberMotionBlur
+import com.xiaomanjun.sleepdownschedule.feature.home.HomeHeaderMotionSpec
+import com.xiaomanjun.sleepdownschedule.feature.home.HomeHeaderText
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekHeaderWeather
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassLens
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassPill
@@ -55,64 +67,94 @@ import com.xiaomanjun.sleepdownschedule.toChineseWeekday
 import com.xiaomanjun.sleepdownschedule.weekdayLabel
 import java.time.LocalDate
 
+private data class HomeTitleFrame(
+    val mode: HomeMode,
+    val caption: String,
+    val dateLabel: String
+)
+
 @Composable
-fun HomeDateTitle(
+internal fun HomeDateTitle(
     state: AppState,
+    mode: HomeMode,
     displayDate: LocalDate,
     displayWeek: Int,
-    showTwoDays: Boolean,
+    dateRangeEnd: LocalDate?,
     beforeScheduleTerm: Boolean,
     afterScheduleTerm: Boolean,
-    showReturnToCurrentWeekHint: Boolean,
-    showWeather: Boolean = false,
-    onReturnCurrent: () -> Unit
+    onReturnToday: () -> Unit
 ) {
     val color = homeForegroundColor(state.config)
-    val interactionSource = remember { MutableInteractionSource() }
+    val caption = when {
+        beforeScheduleTerm -> "当前暂未开学"
+        afterScheduleTerm -> "学期已结束"
+        else -> "第${displayWeek}周"
+    }
+    val dateLabel = if (dateRangeEnd == null) {
+        "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}"
+    } else {
+        val endMonth = if (dateRangeEnd.month != displayDate.month) "${dateRangeEnd.monthValue}月" else ""
+        "${displayDate.monthValue}月${displayDate.dayOfMonth}日–$endMonth${dateRangeEnd.dayOfMonth}日"
+    }
+    val title = updateTransition(HomeTitleFrame(mode, caption, dateLabel), label = "home-title")
+    val blur = rememberMotionBlur(TileMode.Decal)
+    val interaction = remember { MutableInteractionSource() }
     Column(
-        modifier = Modifier
-            .excludeParentPullGesture()
-            .clickable(interactionSource = interactionSource, indication = null, onClick = onReturnCurrent),
+        modifier = if (mode == HomeMode.Day) Modifier.excludeParentPullGesture()
+            .clickable(interactionSource = interaction, indication = null, onClick = onReturnToday) else Modifier,
         verticalArrangement = Arrangement.Center
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+            title.HomeTitleLine(HomeTitleFrame::caption, blur, 3.5.dp, Modifier.weight(1f, fill = false)) { text ->
+                HomeReadableText(
+                    text, style = MaterialTheme.typography.labelMedium.copy(fontSize = 16.sp, lineHeight = 18.sp),
+                    fontWeight = FontWeight.Medium, color = color.copy(alpha = 0.68f),
+                    maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis
+                )
+            }
+            title.AnimatedVisibility(
+                visible = { it.mode == HomeMode.Week },
+                enter = fadeIn(HomeHeaderMotionSpec),
+                exit = fadeOut(HomeHeaderMotionSpec)
+            ) {
+                WeekHeaderWeather(color.copy(alpha = 0.68f))
+            }
+        }
+        title.HomeTitleLine(HomeTitleFrame::dateLabel, blur, 5.dp) { text ->
             HomeReadableText(
-                when {
-                    beforeScheduleTerm -> "当前暂未开学"
-                    afterScheduleTerm -> "学期已结束"
-                    showReturnToCurrentWeekHint -> "点击此处回到本周"
-                    else -> "第${displayWeek}周"
-                },
-                style = MaterialTheme.typography.labelMedium.copy(
-                    fontSize = 16.sp,
-                    lineHeight = 18.sp
+                text,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontSize = 19.sp,
+                    lineHeight = 21.sp
                 ),
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f, fill = false),
-                color = color.copy(alpha = 0.68f),
+                fontWeight = FontWeight.Bold,
+                color = color,
                 maxLines = 1,
                 softWrap = false,
                 overflow = TextOverflow.Ellipsis
             )
-            if (showWeather) com.xiaomanjun.sleepdownschedule.feature.home.week.WeekHeaderWeather(color.copy(alpha = 0.68f))
         }
-        HomeReadableText(
-            if (showTwoDays) {
-                val nextDate = displayDate.plusDays(1)
-                "${displayDate.monthValue}月${displayDate.dayOfMonth}日–${nextDate.monthValue}月${nextDate.dayOfMonth}日"
-            } else {
-                "${displayDate.monthValue}月${displayDate.dayOfMonth}日 周${weekdayLabel(displayDate.dayOfWeek.toChineseWeekday())}"
-            },
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = 19.sp,
-                lineHeight = 21.sp
-            ),
-            fontWeight = FontWeight.Bold,
-            color = color,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Ellipsis
-        )
+    }
+}
+
+/** The title rows share a transition; unchanged strings keep their node when the other row moves. */
+@Composable
+private fun Transition<HomeTitleFrame>.HomeTitleLine(
+    label: (HomeTitleFrame) -> String,
+    blur: (Float) -> RenderEffect?,
+    peakBlur: Dp,
+    modifier: Modifier = Modifier,
+    content: @Composable (String) -> Unit
+) {
+    HomeHeaderText(
+        modifier = modifier,
+        contentKey = label,
+        contentAlignment = Alignment.CenterStart,
+        origin = TransformOrigin(0f, 0.5f),
+        blur = blur,
+        peakBlur = peakBlur,
+    ) { frame ->
+        Box(Modifier.padding(vertical = 2.dp)) { content(label(frame)) }
     }
 }
 

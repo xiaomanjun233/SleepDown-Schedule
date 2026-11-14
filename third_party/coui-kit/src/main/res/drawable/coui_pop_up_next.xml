@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 移植 PJZ110 Settings 的 coui_pop_up_next_normal, 保留原始几何, 颜色由宿主 Icon 提供。 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:height="24dp"
+    android:width="14dp"
+    android:viewportWidth="14"
+    android:viewportHeight="24">
+    <path
+        android:pathData="M4.199,10L8.328,5.413C8.526,5.192 8.872,5.192 9.071,5.413L13.199,10"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M13.199,14L9.071,18.587C8.872,18.808 8.526,18.808 8.328,18.587L4.199,14"
+        android:strokeColor="#FF000000"
+        android:strokeWidth="1.4"
+        android:strokeLineCap="round" />
+</vector>

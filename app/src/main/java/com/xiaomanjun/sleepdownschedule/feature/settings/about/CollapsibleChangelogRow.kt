@@ -8,10 +8,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -31,18 +29,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.xiaomanjun.sleepdownschedule.BuildConfig
 import com.xiaomanjun.sleepdownschedule.R
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalGlassMiuixEnabled
-import com.xiaomanjun.sleepdownschedule.feature.settings.title
-import kotlinx.coroutines.flow.map
-import top.yukonga.miuix.kmp.basic.BasicComponent as MiuixBasicComponent
+import com.itos.coui.layout.CouiPageDefaults
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsBasicComponent
 
 private val changelogReleaseDates = mapOf(
-    "1.2.8_beta1" to "2026-10-27",
     "1.2.7.1" to "2026-10-20",
     "1.2.7-r1" to "2026-10-19",
     "1.2.7" to "2026-10-15",
@@ -103,6 +97,7 @@ internal fun CollapsibleChangelogRow(version: String, body: String) {
     val details: @Composable () -> Unit = {
         AnimatedVisibility(
             visible = expanded,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = CouiPageDefaults.rowPadding),
             enter = expandVertically(
                 animationSpec = tween(420, easing = gentleExpansionEasing),
                 expandFrom = Alignment.Top
@@ -113,7 +108,7 @@ internal fun CollapsibleChangelogRow(version: String, body: String) {
             ) + fadeOut(tween(220))
         ) {
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().padding(bottom = CouiPageDefaults.contentPadding),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 entries.forEach { entry ->
@@ -139,11 +134,9 @@ internal fun CollapsibleChangelogRow(version: String, body: String) {
             }
         }
     }
-    if (LocalGlassMiuixEnabled.current) {
-        MiuixBasicComponent(
+    Column(Modifier.fillMaxWidth()) {
+        SettingsBasicComponent(
             title = version,
-            modifier = Modifier.fillMaxWidth(),
-            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
             endActions = {
                 releaseDate?.let {
                     Text(
@@ -154,50 +147,14 @@ internal fun CollapsibleChangelogRow(version: String, body: String) {
                     Spacer(Modifier.width(8.dp))
                 }
                 Icon(
-                    painter = painterResource(R.drawable.ic_arrow_back),
+                    painter = painterResource(R.drawable.ic_chevron_left),
                     contentDescription = if (expanded) "折叠 $version" else "展开 $version",
                     tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .size(18.dp)
-                        .graphicsLayer(rotationZ = arrowRotation)
+                    modifier = Modifier.size(18.dp).graphicsLayer(rotationZ = arrowRotation),
                 )
             },
-            bottomAction = details,
-            onClick = { expanded = !expanded }
+            onClick = { expanded = !expanded },
         )
-    } else {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable { expanded = !expanded }
-                .padding(horizontal = 20.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    version,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium
-                )
-                releaseDate?.let {
-                    Text(
-                        it,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(Modifier.width(8.dp))
-                }
-                Icon(
-                    painter = painterResource(R.drawable.ic_arrow_back),
-                    contentDescription = if (expanded) "折叠 $version" else "展开 $version",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .size(18.dp)
-                        .graphicsLayer(rotationZ = arrowRotation)
-                )
-            }
-            details()
-        }
+        details()
     }
 }

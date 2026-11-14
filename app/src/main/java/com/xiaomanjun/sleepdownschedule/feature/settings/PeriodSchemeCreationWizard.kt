@@ -5,64 +5,92 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsMinutePickerContent
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDatePickerRow
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsPickerValueRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsToggleRow
 import com.xiaomanjun.sleepdownschedule.domain.schedule.*
 import com.xiaomanjun.sleepdownschedule.model.*
+import java.time.LocalDate
 
-private enum class CreationPickerPage(val title: String) {
-    FORM("新建作息"), TIMING("课程与课间时长"), COUNTS("节数分配"), STARTS("时段起点"), DURATION("每节课时长"), BREAK("课间时长")
+private enum class CreationPickerPage(val title: String, val step: Int? = null) {
+    DETAILS("新建作息", 1),
+    STRUCTURE("节次与分段", 2),
+    TIMING("上课时间", 3),
+    COUNTS("节数分配"),
+    DURATION("每节课时长"),
+    BREAK("课间时长"),
+}
+
+private fun creationStarts(session: PeriodTimelineSession): Map<PeriodDayPart, Int> {
+    val scheme = session.active.scheme
+    return PeriodDayPart.entries.associateWith { part ->
+        if (session.config.periodCount(part) > 0) timelinePartAnchorMinute(session.config, session.active, part)
+        else parseMinuteOfDay(when (part) {
+            PeriodDayPart.MORNING -> scheme.morningStartTime
+            PeriodDayPart.NOON -> scheme.noonStartTime
+            PeriodDayPart.AFTERNOON -> scheme.afternoonStartTime
+            PeriodDayPart.EVENING -> scheme.eveningStartTime
+        }) ?: 0
+    }
 }
 
 @Composable
 internal fun PeriodSchemeCreationWizard(
-    config: ScheduleConfigEntity,
-    draft: SchedulePeriodSchemesDraft,
+    source: ScheduleRoutines,
+    copying: Boolean,
+    sourceName: String?,
     backdrop: Backdrop?,
     visualConfig: ScheduleConfigEntity,
     onDismiss: () -> Unit,
-    onCreated: (PeriodTimelineSession) -> Unit,
-    standalone: Boolean = false
+    onCreated: (PeriodTimelineSession, List<TimetableDateRuleEntity>) -> Unit,
 ) {
-    val active = draft.schemes.first { it.scheme.id == draft.activeSchemeId }
-    var name by remember { mutableStateOf("新作息") }
+    val config = source.config
+    val today = remember { LocalDate.now() }
+    val startingSession = remember(source, copying) {
+        source.timeline(if (copying) source.regularId else source.routineOn(today))
+    }
+    val active = startingSession.active
+    var name by remember { mutableStateOf(if (copying) active.scheme.name else "新作息") }
+    var startDate by remember { mutableStateOf(today) }
+    var endDate by remember { mutableStateOf(today) }
     var allocation by remember {
         mutableStateOf(PeriodSchemeCreationState(PeriodDayPart.entries.associateWith { config.periodCount(it) }))
     }
     val enabledParts = allocation.enabledParts
     val counts = allocation.counts
-    var starts by remember {
-        mutableStateOf(PeriodDayPart.entries.associateWith {
-            parseMinuteOfDay(when (it) {
-                PeriodDayPart.MORNING -> active.scheme.morningStartTime
-                PeriodDayPart.NOON -> active.scheme.noonStartTime
-                PeriodDayPart.AFTERNOON -> active.scheme.afternoonStartTime
-                PeriodDayPart.EVENING -> active.scheme.eveningStartTime
-            }) ?: 0
-        })
-    }
-    var duration by remember { mutableIntStateOf(active.scheme.classDurationMinutes.coerceIn(1, 300)) }
-    var gap by remember { mutableIntStateOf(active.scheme.breakDurationMinutes.coerceIn(1, duration)) }
-    var page by remember { mutableStateOf(CreationPickerPage.FORM) }
+    var prepared by remember { mutableStateOf(startingSession) }
+    var defaultStarts by remember { mutableStateOf(creationStarts(startingSession)) }
+    val initialDuration = active.scheme.classDurationMinutes.coerceIn(1, 300)
+    val initialGap = active.scheme.breakDurationMinutes.coerceIn(0, initialDuration)
+    var starts by remember { mutableStateOf(defaultStarts) }
+    var duration by remember { mutableIntStateOf(initialDuration) }
+    var gap by remember { mutableIntStateOf(initialGap) }
+    var page by remember { mutableStateOf(CreationPickerPage.DETAILS) }
     var pendingCounts by remember { mutableStateOf(counts) }
     var pendingStarts by remember { mutableStateOf(starts) }
+    var startsPickerMounted by remember { mutableStateOf(false) }
+    var startsPickerVisible by remember { mutableStateOf(false) }
     var pendingMinutes by remember { mutableIntStateOf(duration) }
     var error by remember { mutableStateOf<String?>(null) }
     var visible by remember { mutableStateOf(true) }
-    var created by remember { mutableStateOf<PeriodTimelineSession?>(null) }
+    var created by remember {
+        mutableStateOf<Pair<PeriodTimelineSession, List<TimetableDateRuleEntity>>?>(null)
+    }
     val parts = PeriodDayPart.entries.filter { it in enabledParts }
     val targetConfig = PeriodDayPart.entries.fold(config) { next, part ->
         next.withTimelineCount(part, if (part in enabledParts) counts.getValue(part) else 0)
     }
     val total = targetConfig.totalPeriodCount()
-    val template = active.copy(
-        scheme = active.scheme.copy(classDurationMinutes = duration, breakDurationMinutes = gap),
+    val template = prepared.active.copy(
+        scheme = prepared.active.scheme.copy(classDurationMinutes = duration, breakDurationMinutes = gap),
         overriddenPeriods = emptySet(), specialBreaks = emptyMap()
     )
     fun changeParts(value: PeriodSchemeCreationState?) {
@@ -74,129 +102,261 @@ internal fun PeriodSchemeCreationWizard(
         error = null
     }
     fun back() {
-        page = when (page) {
-            CreationPickerPage.FORM -> { visible = false; CreationPickerPage.FORM }
-            CreationPickerPage.DURATION, CreationPickerPage.BREAK -> CreationPickerPage.TIMING
-            else -> CreationPickerPage.FORM
+        error = null
+        when (page) {
+            CreationPickerPage.DETAILS -> visible = false
+            CreationPickerPage.STRUCTURE -> page = CreationPickerPage.DETAILS
+            CreationPickerPage.TIMING, CreationPickerPage.COUNTS -> page = CreationPickerPage.STRUCTURE
+            else -> page = CreationPickerPage.TIMING
         }
     }
-    fun create() {
-        if (name.isBlank()) { error = "请填写作息名称"; return }
-        if (duration < gap) { error = "课时不能短于课间"; return }
-        val id = (draft.schemes.minOfOrNull { it.scheme.id } ?: 0L).coerceAtMost(0L) - 1
-        val times = mutableListOf<PeriodSchemeTimeEntity>()
-        parts.forEach { part ->
-            var cursor = starts.getValue(part)
-            repeat(counts.getValue(part)) {
-                val end = cursor + duration
-                if (end > LastMinuteOfDay) { error = "${part.timelineLabel()}结束时间超出当天，请调整起点或时长"; return }
-                times += PeriodSchemeTimeEntity(id, times.size + 1, timelineMinuteText(cursor), timelineMinuteText(end))
-                cursor = end + gap
-            }
+
+    fun advanceDetails() {
+        error = when {
+            name.isBlank() && (!copying || name != active.scheme.name) -> "请填写作息名称"
+            !copying && startDate > endDate -> "结束日期不能早于开始日期"
+            !copying && source.rules.any { it.startDate == startDate.toString() && it.endDate == endDate.toString() } ->
+                "该日期范围已有作息，请调整生效日期"
+            else -> null
         }
+        if (error == null) page = CreationPickerPage.STRUCTURE
+    }
+
+    fun advanceStructure() {
+        val resized = if (targetConfig.hasSamePeriodTopology(config)) startingSession
+            else if (source.canChangeStructure) resizeTimelineStructure(startingSession, targetConfig) else null
+        if (resized == null) {
+            error = "现有作息无法按所选节数排布，请调整节数或时长。"
+            return
+        }
+        val overrides = starts.filter { (part, start) -> start != defaultStarts[part] }
+        defaultStarts = creationStarts(resized)
+        starts = defaultStarts + overrides
+        prepared = resized
+        page = CreationPickerPage.TIMING
+    }
+
+    fun create() {
+        val id = if (copying) active.scheme.id else -1L
+        val seed = prepared.active
+        val timingChanged = parts.any { starts[it] != defaultStarts[it] } || duration != initialDuration || gap != initialGap
+        val times = if (timingChanged) {
+            buildList {
+                parts.forEach { part ->
+                    var cursor = starts.getValue(part)
+                    repeat(counts.getValue(part)) {
+                        val end = cursor + duration
+                        if (end > LastMinuteOfDay) {
+                            error = "${part.timelineLabel()}结束时间超出当天，请调整起点或时长"
+                            return
+                        }
+                        add(PeriodSchemeTimeEntity(id, size + 1, timelineMinuteText(cursor), timelineMinuteText(end)))
+                        cursor = end + gap
+                    }
+                }
+            }
+        } else seed.times.map { it.copy(schemeId = id) }
         val conflict = validateResolvedPeriodTimes(times)
-        if (conflict != null) { error = conflict; return }
-        val resized = if (standalone) null else resizeTimelineStructure(PeriodTimelineSession(config, draft), targetConfig)
-        if (!standalone && resized == null) { error = "现有作息没有足够的时间容纳新增节次，请减少总节数或先调整现有作息"; return }
-        val scheme = PeriodSchemeEntity(
-            id = id, scheduleId = config.id, name = name.trim(), mode = PeriodSchemeMode.MANUAL,
-            classDurationMinutes = duration, breakDurationMinutes = gap,
-            morningStartTime = timelineMinuteText(starts.getValue(PeriodDayPart.MORNING)),
-            noonStartTime = timelineMinuteText(starts.getValue(PeriodDayPart.NOON)),
-            afternoonStartTime = timelineMinuteText(starts.getValue(PeriodDayPart.AFTERNOON)),
-            eveningStartTime = timelineMinuteText(starts.getValue(PeriodDayPart.EVENING))
+        if (conflict != null) {
+            error = conflict
+            return
+        }
+        val requestedName = if (copying && name == active.scheme.name) name else name.trim()
+        val named = seed.scheme.copy(id = id, name = requestedName)
+        val createdDraft = if (!timingChanged) seed.copy(scheme = named, times = times) else PeriodSchemeDraft(
+            scheme = named.copy(
+                mode = PeriodSchemeMode.MANUAL,
+                classDurationMinutes = duration,
+                breakDurationMinutes = gap,
+                morningStartTime = timelineMinuteText(starts.getValue(PeriodDayPart.MORNING)),
+                noonStartTime = timelineMinuteText(starts.getValue(PeriodDayPart.NOON)),
+                afternoonStartTime = timelineMinuteText(starts.getValue(PeriodDayPart.AFTERNOON)),
+                eveningStartTime = timelineMinuteText(starts.getValue(PeriodDayPart.EVENING)),
+            ),
+            times = times,
         )
-        val createdDraft = PeriodSchemeDraft(scheme, times)
-        created = if (standalone) PeriodTimelineSession(targetConfig, SchedulePeriodSchemesDraft(listOf(createdDraft), id))
-        else resized!!.copy(draft = resized.draft.copy(
-            schemes = resized.draft.schemes + createdDraft, activeSchemeId = id
-        ))
+        val session = if (copying) prepared.updateActive(createdDraft)
+        else prepared.copy(draft = prepared.draft.copy(schemes = prepared.draft.schemes + createdDraft, activeSchemeId = id))
+        val rules = if (copying) source.rules else source.rules +
+            TimetableDateRuleEntity(0, source.rules.size, id, startDate.toString(), endDate.toString())
+        created = session to rules
         visible = false
     }
     SleepDownPickerDialog(
         visible, page.title,
-        onDismissRequest = ::back,
-        backdrop = backdrop, config = visualConfig,
-        onDismissFinished = { created?.let(onCreated) ?: onDismiss() },
-        contentPadding = PaddingValues(SleepDownDesignTokens.QuickSheet.PickerContentPadding),
+        onDismissRequest = ::back, config = visualConfig,
+        onDismissFinished = { created?.let { (session, rules) -> onCreated(session, rules) } ?: onDismiss() },
+        scrollableContent = true,
+        // Retain the input window's layout policy while the wizard changes pages.
+        adjustForIme = true,
+        contentPadding = if (page == CreationPickerPage.DURATION || page == CreationPickerPage.BREAK)
+            PaddingValues(0.dp) else CouiPickerFormPadding,
+        bottomActions = {
+            val shownPage = page
+            PeriodPickerActions(
+                backdrop, visualConfig,
+                onCancel = ::back,
+                cancelText = when (shownPage.step) {
+                    1 -> "取消"
+                    2, 3 -> "上一步"
+                    else -> "返回"
+                },
+                confirmText = when (shownPage.step) {
+                    1, 2 -> "下一步"
+                    3 -> "开始编辑"
+                    else -> "确定"
+                },
+                onConfirm = {
+                    error = null
+                    when (shownPage) {
+                        CreationPickerPage.DETAILS -> advanceDetails()
+                        CreationPickerPage.STRUCTURE -> advanceStructure()
+                        CreationPickerPage.TIMING -> create()
+                        CreationPickerPage.COUNTS -> {
+                            allocation = allocation.withCounts(pendingCounts)
+                            page = CreationPickerPage.STRUCTURE
+                        }
+                        CreationPickerPage.DURATION -> {
+                            duration = pendingMinutes
+                            page = CreationPickerPage.TIMING
+                        }
+                        CreationPickerPage.BREAK -> {
+                            gap = pendingMinutes
+                            page = CreationPickerPage.TIMING
+                        }
+                    }
+                },
+            )
+        },
         contentTransitionKey = page,
+        smoothContentResize = true,
         contentForState = { displayed ->
             val shownPage = displayed as CreationPickerPage
-            Column(verticalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.QuickSheet.PickerContentSpacing)) {
-                Column {
-                    when (shownPage) {
-                        CreationPickerPage.FORM -> {
-                            Text("第 1 步 · 节数与分段", fontSize = 12.sp,
-                                color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.66f))
-                            SettingsTextFieldRow("作息名称", name, { name = it; error = null })
-                            val split = PeriodDayPart.AFTERNOON in enabledParts
-                            SettingsToggleRow("上午 / 下午分段", "", split, backdrop) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                shownPage.step?.let { step ->
+                    Text(
+                        text = "第 ${step} 步，共 3 步",
+                        modifier = Modifier.fillMaxWidth(),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                when (shownPage) {
+                    CreationPickerPage.DETAILS -> SettingsGroup(backdrop = null, config = visualConfig, topSpacing = 0.dp) {
+                        if (copying && sourceName != null) {
+                            SettingsInfoRow("来源课表", sourceName)
+                            SettingsDivider()
+                        }
+                        SettingsTextFieldRow("作息名称", name, { name = it.take(60); error = null })
+                        if (!copying) {
+                            SettingsDivider()
+                            SettingsDatePickerRow("开始日期", formatScheduleDate(startDate), { value ->
+                                parseScheduleDate(value)?.let { day ->
+                                    if (endDate == startDate || endDate < day) endDate = day
+                                    startDate = day
+                                    error = null
+                                }
+                            }, backdrop, visualConfig)
+                            SettingsDivider()
+                            SettingsDatePickerRow("结束日期", formatScheduleDate(endDate), { value ->
+                                parseScheduleDate(value)?.let { day -> endDate = day; error = null }
+                            }, backdrop, visualConfig)
+                        }
+                    }
+                    CreationPickerPage.STRUCTURE -> {
+                        val split = PeriodDayPart.AFTERNOON in enabledParts
+                        val canChange = source.canChangeStructure
+                        SettingsGroup(backdrop = null, config = visualConfig, topSpacing = 0.dp) {
+                            SettingsToggleRow("上午 / 下午分段", "", split, backdrop, enabled = canChange) {
                                 changeParts(allocation.withSplitEnabled(it))
                             }
                             if (split) {
-                                SettingsToggleRow("启用中午分段", "", PeriodDayPart.NOON in enabledParts, backdrop) {
-                                    changeParts(allocation.withEnabledParts(if (it) enabledParts + PeriodDayPart.NOON else enabledParts - PeriodDayPart.NOON))
+                                SettingsDivider()
+                                SettingsToggleRow("启用中午分段", "", PeriodDayPart.NOON in enabledParts, backdrop, enabled = canChange) {
+                                    val part = PeriodDayPart.NOON
+                                    changeParts(allocation.withEnabledParts(if (it) enabledParts + part else enabledParts - part))
                                 }
-                                SettingsToggleRow("启用晚上分段", "", PeriodDayPart.EVENING in enabledParts, backdrop) {
-                                    changeParts(allocation.withEnabledParts(if (it) enabledParts + PeriodDayPart.EVENING else enabledParts - PeriodDayPart.EVENING))
+                                SettingsDivider()
+                                SettingsToggleRow("启用晚上分段", "", PeriodDayPart.EVENING in enabledParts, backdrop, enabled = canChange) {
+                                    val part = PeriodDayPart.EVENING
+                                    changeParts(allocation.withEnabledParts(if (it) enabledParts + part else enabledParts - part))
                                 }
                             }
-                            SettingsPickerValueRow("节数分配", "共 $total 节", onClick = {
-                                pendingCounts = counts; page = CreationPickerPage.COUNTS
+                            SettingsDivider()
+                            SettingsPickerValueRow("节数分配", "共 $total 节", enabled = canChange, onClick = {
+                                pendingCounts = counts
+                                page = CreationPickerPage.COUNTS
                             })
-                            SettingsPickerValueRow("时段起点", parts.joinToString(" · ") { timelineMinuteText(starts.getValue(it)) }, onClick = {
-                                pendingStarts = starts; page = CreationPickerPage.STARTS
-                            })
-                            if (!targetConfig.hasSamePeriodTopology(config)) Text(
-                                if (total == config.totalPeriodCount())
-                                    "分段分配会同步应用到其他作息，原有节次编号和时间保留"
-                                else "节数和分段由所有作息共用；总节数增减会从末尾添加或移除节次，保存时确认课程对应关系",
-                                fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(12.dp)
+                        }
+                        if (!canChange || !targetConfig.hasSamePeriodTopology(config)) {
+                            Text(
+                                if (canChange) "节次和分段应用于本课表的全部作息。"
+                                else "这张课表的原始节次不连续，可在时间轴调整已有节次的时间。",
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
                         }
-                        CreationPickerPage.TIMING -> {
-                            Text("第 2 步 · 确认课程与课间时长", fontSize = 12.sp,
-                                color = androidx.compose.material3.LocalContentColor.current.copy(alpha = 0.66f))
-                            SettingsPickerValueRow("每节课时长", "$duration 分钟", onClick = {
-                                pendingMinutes = duration; page = CreationPickerPage.DURATION
-                            })
-                            SettingsPickerValueRow("课间时长", "$gap 分钟", onClick = {
-                                pendingMinutes = gap; page = CreationPickerPage.BREAK
-                            })
-                        }
-                        CreationPickerPage.COUNTS -> PeriodQuickCountContent(parts, pendingCounts) { pendingCounts = it }
-                        CreationPickerPage.STARTS -> PeriodQuickStartsContent(targetConfig, template, pendingStarts) {
-                            pendingStarts = pendingStarts + it
-                        }
-                        CreationPickerPage.DURATION -> SettingsMinutePickerContent(
-                            pendingMinutes, { pendingMinutes = it }, gap.coerceAtLeast(1)..300, Modifier.fillMaxWidth()
-                        )
-                        CreationPickerPage.BREAK -> SettingsMinutePickerContent(
-                            pendingMinutes, { pendingMinutes = it }, 1..duration, Modifier.fillMaxWidth()
-                        )
                     }
-                }
-                error?.let { Text(it, color = MaterialTheme.colorScheme.error, fontSize = 12.sp) }
-                PeriodPickerActions(backdrop, visualConfig, onCancel = ::back,
-                    cancelText = if (shownPage == CreationPickerPage.TIMING) "上一步" else "取消",
-                    confirmText = when (shownPage) {
-                        CreationPickerPage.FORM -> "下一步"
-                        CreationPickerPage.TIMING -> "开始编辑"
-                        else -> "确定"
-                    }, onConfirm = {
-                        error = null
-                        when (shownPage) {
-                            CreationPickerPage.FORM -> page = CreationPickerPage.TIMING
-                            CreationPickerPage.TIMING -> create()
-                            CreationPickerPage.COUNTS -> allocation = allocation.withCounts(pendingCounts)
-                            CreationPickerPage.STARTS -> starts = starts + constrainAutomaticPartStarts(targetConfig, template, pendingStarts)
-                            CreationPickerPage.DURATION -> duration = pendingMinutes
-                            CreationPickerPage.BREAK -> gap = pendingMinutes
+                    CreationPickerPage.TIMING -> {
+                        SettingsGroup(backdrop = null, config = visualConfig, topSpacing = 0.dp) {
+                            SettingsPickerValueRow(
+                                "时段起点", parts.joinToString(" · ") { timelineMinuteText(starts.getValue(it)) },
+                                valueBelowTitle = parts.size > 2,
+                                onClick = {
+                                    pendingStarts = starts
+                                    startsPickerMounted = true
+                                    startsPickerVisible = true
+                                },
+                            )
+                            SettingsDivider()
+                            SettingsPickerValueRow("每节课时长", "$duration 分钟", onClick = {
+                                pendingMinutes = duration
+                                page = CreationPickerPage.DURATION
+                            })
+                            SettingsDivider()
+                            SettingsPickerValueRow("课间时长", "$gap 分钟", onClick = {
+                                pendingMinutes = gap
+                                page = CreationPickerPage.BREAK
+                            })
                         }
-                        if (shownPage == CreationPickerPage.DURATION || shownPage == CreationPickerPage.BREAK) page = CreationPickerPage.TIMING
-                        else if (shownPage == CreationPickerPage.COUNTS || shownPage == CreationPickerPage.STARTS) page = CreationPickerPage.FORM
-                    })
+                    }
+                    CreationPickerPage.COUNTS -> PeriodQuickCountContent(parts, pendingCounts) { pendingCounts = it }
+                    CreationPickerPage.DURATION -> PeriodQuickSingleWheel(
+                        pendingMinutes, { pendingMinutes = it }, gap.coerceAtLeast(1)..300, { "${it} 分钟" }
+                    )
+                    CreationPickerPage.BREAK -> PeriodQuickSingleWheel(
+                        pendingMinutes, { pendingMinutes = it }, 0..duration, { "${it} 分钟" }
+                    )
+                }
+                error?.let {
+                    Text(it, modifier = Modifier.padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        },
+    ) {}
+    // This picker owns an ordinary COUI window, independent of the wizard's input window.
+    if (startsPickerMounted) {
+        SleepDownPickerDialog(
+            show = startsPickerVisible,
+            title = "时段起点",
+            onDismissRequest = { startsPickerVisible = false },
+            onDismissFinished = { startsPickerMounted = false },
+            config = visualConfig,
+            contentPadding = CouiPickerFormPadding,
+            actions = listOf(
+                LiquidAlertAction("返回", LiquidAlertActionStyle.Cancel) { startsPickerVisible = false },
+                LiquidAlertAction("确定", LiquidAlertActionStyle.Primary) {
+                    starts = starts + constrainAutomaticPartStarts(prepared.config, template, pendingStarts)
+                    startsPickerVisible = false
+                },
+            ),
+        ) {
+            PeriodQuickStartsContent(prepared.config, template, pendingStarts) {
+                pendingStarts = pendingStarts + it
             }
         }
-    ) {}
+    }
 }

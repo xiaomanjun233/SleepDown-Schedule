@@ -112,8 +112,7 @@ internal class WeekTailTimeline(initialPosition: Float) {
 }
 
 @Stable
-internal class WeekPageTailMotion(val pager: PagerState, samplingEnabled: Boolean = true, tailEnabled: Boolean = true) {
-    var materialSamplingEnabled by mutableStateOf(samplingEnabled)
+internal class WeekPageTailMotion(val pager: PagerState, tailEnabled: Boolean = true) {
     var tailEnabled by mutableStateOf(tailEnabled)
     private val initial = pager.currentPage + pager.currentPageOffsetFraction
     private val timeline = WeekTailTimeline(initial)
@@ -121,7 +120,6 @@ internal class WeekPageTailMotion(val pager: PagerState, samplingEnabled: Boolea
     private var following by mutableStateOf(false)
     private var anchor by mutableIntStateOf(0)
     private var gestureDriven = false
-    private var settledSampleRevision by mutableIntStateOf(0)
     private var rootLeft = 0f
     private var rootTop = 0f
     private var rootWidth = 1f
@@ -129,7 +127,7 @@ internal class WeekPageTailMotion(val pager: PagerState, samplingEnabled: Boolea
     val position: Float get() = pager.currentPage + pager.currentPageOffsetFraction
     val moving: Boolean get() = pager.isScrollInProgress || (tailEnabled && following)
     val sampleKey: Any by derivedStateOf {
-        Pair(Triple(position, positions, anchor), settledSampleRevision)
+        Triple(position, positions, anchor)
     }
 
     fun setViewport(left: Float, top: Float, width: Float, height: Float) {
@@ -172,12 +170,7 @@ internal class WeekPageTailMotion(val pager: PagerState, samplingEnabled: Boolea
         launch {
             snapshotFlow { position to pager.isScrollInProgress }.collect { changes.send(Unit) }
         }
-        var lastObservedPosition = position
-        var needsSettledSample = false
         for (change in changes) {
-            val target = position
-            if (pager.isScrollInProgress || target != lastObservedPosition) needsSettledSample = true
-            lastObservedPosition = target
             do {
                 withFrameNanos { time ->
                     positions = timeline.advance(time, position, anchor, scale(),
@@ -185,27 +178,15 @@ internal class WeekPageTailMotion(val pager: PagerState, samplingEnabled: Boolea
                     following = positions.any { abs(it - position) > 0.00001f }
                 }
             } while (following)
-            if (needsSettledSample && !pager.isScrollInProgress) {
-                // A fast swipe can finish placement after the last follower's recording.
-                // Refresh once on the following frame at the final layout coordinates.
-                if (materialSamplingEnabled) {
-                    withFrameNanos { }
-                    if (materialSamplingEnabled) {
-                        settledSampleRevision++
-                        if (com.xiaomanjun.sleepdownschedule.glass.MaterialSamplingDiagnostics.enabled)
-                            com.xiaomanjun.sleepdownschedule.glass.MaterialSamplingDiagnostics.dedicatedRefreshes++
-                    }
-                }
-                needsSettledSample = false
-            }
+
         }
     }
 }
 
 @Composable
-internal fun rememberWeekPageTailMotion(pager: PagerState, samplingEnabled: Boolean = true, tailEnabled: Boolean = true): WeekPageTailMotion {
-    val motion = remember(pager) { WeekPageTailMotion(pager, samplingEnabled, tailEnabled) }
-    SideEffect { motion.materialSamplingEnabled = samplingEnabled; motion.tailEnabled = tailEnabled }
+internal fun rememberWeekPageTailMotion(pager: PagerState, tailEnabled: Boolean = true): WeekPageTailMotion {
+    val motion = remember(pager) { WeekPageTailMotion(pager, tailEnabled) }
+    SideEffect { motion.tailEnabled = tailEnabled }
     LaunchedEffect(motion, tailEnabled) {
         motion.snapTo(motion.position)
         if (!tailEnabled) return@LaunchedEffect
@@ -292,22 +273,10 @@ internal fun WeekPageSamplingScope(
         }
     }
     if (!mounted) return
-    val mountedSampleRevision = remember(page) { mutableIntStateOf(0) }
-    val materialEnabled = motion.materialSamplingEnabled
-    LaunchedEffect(page, materialEnabled) {
-        if (!materialEnabled) return@LaunchedEffect
-        // The first visible frame can precede the shared wallpaper recorder. Refresh once
-        // after its layer and this page have both reached a stable placement.
-        withFrameNanos { }
-        withFrameNanos { }
-        mountedSampleRevision.intValue++
-        if (com.xiaomanjun.sleepdownschedule.glass.MaterialSamplingDiagnostics.enabled)
-            com.xiaomanjun.sleepdownschedule.glass.MaterialSamplingDiagnostics.dedicatedRefreshes++
-    }
     val key = remember(motion, parentKey, hd) {
         derivedStateOf {
-            if (hd && motion.moving) movingSample to mountedSampleRevision.intValue
-            else Triple(parentKey(), motion.sampleKey, mountedSampleRevision.intValue)
+            if (hd && motion.moving) movingSample
+            else parentKey() to motion.sampleKey
         }
     }
     val sampleKey = remember(key) { { key.value } }

@@ -83,6 +83,8 @@ dependencyResolutionManagement {
 
 rootProject.name = "CourseSchedule"
 include(":app")
+include(":sleepdown-coui")
+project(":sleepdown-coui").projectDir = file("third_party/coui-kit")
 include(":benchmark")
 include(":coloros-wakeup-proxy")
 include(":kyant-backdrop")

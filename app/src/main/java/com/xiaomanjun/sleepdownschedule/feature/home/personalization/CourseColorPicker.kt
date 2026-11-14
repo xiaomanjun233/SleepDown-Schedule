@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.personalization
 
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -28,6 +31,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -47,9 +52,8 @@ import com.kyant.shapes.Capsule
 import com.xiaomanjun.sleepdownschedule.CourseCardColorMode
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.QuickSheetLiquidAction
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
+import com.xiaomanjun.sleepdownschedule.glass.ui.CoursePaletteGrid
 import com.xiaomanjun.sleepdownschedule.core.ui.material.controlAccentColor
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseColorPaletteButton
 import com.xiaomanjun.sleepdownschedule.model.DefaultCourseCardPalette
@@ -258,15 +262,23 @@ internal fun CourseColorEditorDialog(
     onConfirm: () -> Unit
 ) {
     val foreground = appPanelForegroundColor(config)
+    var wallpaperReady by remember(show, config.wallpaperUri, config.defaultWallpaperStyle) { mutableStateOf(false) }
+    val returnToPicker = { onStageChange(CourseColorDialogStage.Picker) }
     SleepDownPickerDialog(
         show = show,
         title = if (stage == CourseColorDialogStage.Picker) "选择颜色" else "从壁纸取色",
-        onDismissRequest = onDismiss,
-        backdrop = backdrop,
+        onDismissRequest = if (stage == CourseColorDialogStage.Wallpaper) returnToPicker else onDismiss,
         config = config,
         contentSpacing = 14.dp,
-        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp),
-        blurRadius = 10.dp,
+        scrollableContent = true,
+        contentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
+        actions = if (stage == CourseColorDialogStage.Picker) listOf(
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismiss),
+            LiquidAlertAction("确认", LiquidAlertActionStyle.Primary, enabled = colors.isNotEmpty(), onClick = onConfirm)
+        ) else listOf(
+            LiquidAlertAction("返回", LiquidAlertActionStyle.Cancel, onClick = returnToPicker),
+            LiquidAlertAction("确认", LiquidAlertActionStyle.Primary, enabled = wallpaperReady, onClick = onConfirm)
+        ),
         contentTransitionKey = stage,
         titleAction = {
             if (stage == CourseColorDialogStage.Picker) {
@@ -368,52 +380,17 @@ internal fun CourseColorEditorDialog(
                         }
                     }
                 }
-                top.yukonga.miuix.kmp.basic.ColorPalette(
-                    color = ComposeColor(colors.getOrElse(selectedIndex) { colors.firstOrNull() ?: 0xFFD6E9FFL }.toInt()),
-                    onColorChanged = { color ->
-                        onColorChange(selectedIndex, color.copy(alpha = 1f).toArgb().toLong() and 0xFFFFFFFFL)
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    rows = 7,
-                    hueColumns = 12,
-                    includeGrayColumn = true,
-                    showPreview = true,
-                    cornerRadius = 16.dp,
-                    indicatorRadius = 10.dp
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    QuickSheetLiquidAction(
-                        label = "取消",
-                        enabled = true,
-                        backdrop = backdrop,
-                        config = config,
-                        modifier = Modifier.weight(1f),
-                        height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
-                        onClick = onDismiss
-                    )
-                    QuickSheetLiquidAction(
-                        label = "确认",
-                        enabled = colors.isNotEmpty(),
-                        backdrop = backdrop,
-                        config = config,
-                        modifier = Modifier.weight(1f),
-                        primary = true,
-                        height = SleepDownDesignTokens.CenteredDialog.ActionHeight,
-                        onClick = onConfirm
-                    )
-                }
+                CoursePaletteGrid(
+                    ComposeColor(colors.getOrElse(selectedIndex) { colors.firstOrNull() ?: 0xFFD6E9FFL }.toInt())
+                ) { color -> onColorChange(selectedIndex, color.toArgb().toLong() and 0xFFFFFFFFL) }
+
             } else {
                 WallpaperPaletteSampler(
                     mode = mode,
                     colors = colors,
                     config = config,
                     onColorChange = onColorChange,
-                    onCancel = { onStageChange(CourseColorDialogStage.Picker) },
-                    onConfirm = onConfirm,
-                    backdrop = backdrop
+                    onWallpaperReady = { wallpaperReady = it }
                 )
             }
         },

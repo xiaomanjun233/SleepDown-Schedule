@@ -129,6 +129,8 @@ manifest 的必需字段：
 | `filesDir/ai_import_history` | `schedules` | `ai_import_history_context` | 进度 JSON 由 Phase D 转换为不含旧路径的内容 |
 | 导入历史中的截图 | `schedules` | `ai_import_screenshot` | 推荐单独 asset；不把大段 base64 继续嵌在 data rows 中 |
 
+普通助手多图消息复用 `attachmentAssetIds` 数组，按原消息顺序导出全部附件，恢复时逐一核对 owner／purpose 并重新生成私有图片 marker。旧单 marker 消息兼容；不再在 ImportPlan 或 Room 恢复阶段强制数组最多一项。清理附件时必须遍历同一消息的全部 marker，避免误删第二张及后续图片。协议版本与 Room 表结构保持不变。
+
 ## 4. stable ID 模型
 
 stable ID 只在一个 `.sleepdown` 文件内承担关系和引用稳定性；它不要求与源设备下一次导出的 ID 相同，也不要求能直接插入目标 Room。
@@ -268,6 +270,8 @@ AI provider DTO 可以包含 provider ID、展示名、provider type、非敏感
 `courseQuietSettings` 为可选的应用全局设置，不按课表 ID 保存；勿扰与声音开关及时间偏移由所有课表共用。系统勿扰规则、权限和恢复运行态不进入该字段。
 
 AI import history 保留用户主动保存的导入记录；`aiImportHistoryRetentionDays` 显式保存现有 `retention_days`（允许 7、30、90、0），最多 10 条上限作为导出边界。历史 context JSON 中的截图应转为 asset ID，不应携带旧临时 URI。
+
+2026-11-01 已接入历史原图：`ai_import_screenshot` 使用所属 history stable ID 作为 owner，context 的 `screenshotPreviews` 保留页号、MIME 与 asset ID；恢复到该记录专属的私有图片文件，读取时解析引用。偏好应用不改写已落地的 context asset，保证资源准备与偏好提交均可幂等重放。旧内联 base64 上下文仍兼容读取，导出时转为独立图片资产。
 
 ## 7. checksums.json
 

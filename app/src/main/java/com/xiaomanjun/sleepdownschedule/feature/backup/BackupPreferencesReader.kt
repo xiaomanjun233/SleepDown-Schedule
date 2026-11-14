@@ -35,7 +35,7 @@ object BackupPreferencesReader {
 
         val historyAssets = mutableListOf<BackupAsset>()
         val backupHistories = histories.map { entry ->
-            val contextAssetId = historyContextAsset(context, entry, historyIds.getValue(entry.id))
+            val contextAssetId = historyContextAsset(context, entry, historyIds.getValue(entry.id), historyAssets)
                 ?.also { historyAssets += it }
                 ?.assetId
             BackupAiImportHistoryEntry(
@@ -67,13 +67,34 @@ object BackupPreferencesReader {
     private fun historyContextAsset(
         context: Context,
         entry: AiImportHistoryEntry,
-        ownerId: String
+        ownerId: String,
+        images: MutableList<BackupAsset>
     ): BackupAsset? {
         val safeId = entry.id.takeIf { safeHistoryId.matches(it) }
         val file = safeId?.let { File(context.filesDir, "$HistoryContextDirectory/$it.json") }
         val exists = file?.isFile == true
         if (!exists && entry.context == null) return null
-        val bytes = file?.takeIf(File::isFile)?.let { runCatching { it.readBytes() }.getOrNull() }
+        var bytes = file?.takeIf(File::isFile)?.let { runCatching { it.readBytes() }.getOrNull() }
+        bytes?.let { raw ->
+            val root = org.json.JSONObject(raw.toString(Charsets.UTF_8))
+            val references = root.optJSONArray("screenshotPreviews") ?: org.json.JSONArray()
+            for (index in 0 until references.length()) {
+                val image = references.optJSONObject(index) ?: continue
+                val assetId = BackupStableId.new(BackupStableId.ASSET_PREFIX)
+                val imageBytes = AiImportHistoryImages.file(checkNotNull(file?.parentFile), entry.id, image)?.readBytes()
+                    ?: image.optString("base64").takeIf(String::isNotBlank)?.let {
+                        android.util.Base64.decode(it, android.util.Base64.DEFAULT)
+                    }
+                images += BackupAsset(assetId = assetId, category = BackupAssetCategory.SCHEDULES,
+                    purpose = BackupAssetPurpose.AI_IMPORT_SCREENSHOT, mediaType = image.optString("mimeType", "image/jpeg"),
+                    bytes = imageBytes, optional = true, ownerId = ownerId,
+                    missingReason = if (imageBytes == null) "原始课表图片不可读取" else null)
+                image.remove("fileName")
+                image.remove("base64")
+                image.put("assetId", assetId)
+            }
+            bytes = root.toString().toByteArray(Charsets.UTF_8)
+        }
         return BackupAsset(
             assetId = BackupStableId.new(BackupStableId.ASSET_PREFIX),
             category = BackupAssetCategory.OTHER,

@@ -37,7 +37,6 @@ internal fun AppUpdateDialogHost(
             title = "正在检查更新",
             message = "正在读取 Gitee 上最新的 SleepDown-Schedule Release。",
             actions = listOf(LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismiss)),
-            backdrop = backdrop,
             config = config,
             onDismissRequest = onDismiss
         )
@@ -51,7 +50,6 @@ internal fun AppUpdateDialogHost(
                     LiquidAlertAction("稍后", LiquidAlertActionStyle.Cancel, onClick = onDismiss),
                     LiquidAlertAction("下载并安装", LiquidAlertActionStyle.Primary) { onDownload(release) }
                 ),
-                backdrop = backdrop,
                 config = config,
                 onDismissRequest = onDismiss
             )
@@ -60,7 +58,6 @@ internal fun AppUpdateDialogHost(
             title = "已是最新版本",
             message = "当前安装版本已不低于 Gitee 最新 Release（${dialog.latestTag}）。",
             actions = listOf(LiquidAlertAction("知道了", LiquidAlertActionStyle.Primary, onClick = onDismiss)),
-            backdrop = backdrop,
             config = config,
             onDismissRequest = onDismiss
         )
@@ -74,7 +71,6 @@ internal fun AppUpdateDialogHost(
                     onClick = onDismiss
                 )
             ),
-            backdrop = backdrop,
             config = config,
             onDismissRequest = onDismiss
         )
@@ -85,7 +81,6 @@ internal fun AppUpdateDialogHost(
                 LiquidAlertAction("备用下载", LiquidAlertActionStyle.Secondary, onClick = onOpenBackup),
                 LiquidAlertAction("查看发行版", LiquidAlertActionStyle.Primary) { onOpenRelease(dialog.release) }
             ),
-            backdrop = backdrop,
             config = config,
             onDismissRequest = onDismiss
         )
@@ -96,7 +91,6 @@ internal fun AppUpdateDialogHost(
                 LiquidAlertAction("备用下载", LiquidAlertActionStyle.Secondary, onClick = onOpenBackup),
                 LiquidAlertAction("重试", LiquidAlertActionStyle.Primary, onClick = onRetry)
             ),
-            backdrop = backdrop,
             config = config,
             onDismissRequest = onDismiss
         )
@@ -107,7 +101,6 @@ internal fun AppUpdateDialogHost(
                 LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, onClick = onDismiss),
                 LiquidAlertAction("去授权", LiquidAlertActionStyle.Primary, onClick = onRequestInstallPermission)
             ),
-            backdrop = backdrop,
             config = config,
             onDismissRequest = onDismiss
         )

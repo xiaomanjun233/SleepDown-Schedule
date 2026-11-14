@@ -5,26 +5,32 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.resolvedCoursesForPrevie
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 
 import android.content.Intent
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.util.Base64
+import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
-import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -32,17 +38,17 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.layout.widthIn
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.SleepDownLazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -54,10 +60,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import com.xiaomanjun.sleepdownschedule.core.ui.layout.rememberFloatingInputInsets
 import com.xiaomanjun.sleepdownschedule.core.ui.layout.floatingInputPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.softBlurEnter
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
@@ -71,20 +77,18 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.boundsInWindow
@@ -93,15 +97,16 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.positionOnScreen
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.components.LiquidButton
@@ -124,12 +129,14 @@ import com.xiaomanjun.sleepdownschedule.feature.home.day.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
+import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
-import com.xiaomanjun.sleepdownschedule.glass.ui.glassForegroundColor
 import com.xiaomanjun.sleepdownschedule.transition.ActivityTransitionCoordinator
-import com.xiaomanjun.sleepdownschedule.transition.StaticTransitionAnchorProvider
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionButton
+import com.xiaomanjun.sleepdownschedule.transition.liveTransitionBoundsInActivity
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
@@ -137,13 +144,12 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
 import com.xiaomanjun.sleepdownschedule.transition.attachOpeningSourceSnapshotHandoff
 import com.xiaomanjun.sleepdownschedule.transition.legacy.*
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import top.yukonga.miuix.kmp.squircle.squircleSurface
 import top.yukonga.miuix.kmp.utils.MiuixPopupUtils.Companion.MiuixPopupHost
 
 open class AiEduImportProgressActivityHost : ComponentActivity() {
@@ -165,6 +171,7 @@ open class AiEduImportProgressActivityHost : ComponentActivity() {
                     withContext(Dispatchers.IO) {
                         AiImportHistoryStore.load(this@AiEduImportProgressActivityHost)
                             .firstOrNull { it.context?.taskId == displayedTaskId }
+                            ?.let { AiImportHistoryStore.loadEntry(this@AiEduImportProgressActivityHost, it.id) }
                     }
                 } else null
             }
@@ -210,7 +217,7 @@ open class AiEduImportProgressActivityHost : ComponentActivity() {
 }
 
 @Composable
-internal fun AiEduImportProgressPage(
+internal fun AiEduImportConversationPane(
     config: ScheduleConfigEntity,
     onClose: () -> Unit,
     taskId: String? = null,
@@ -220,8 +227,10 @@ internal fun AiEduImportProgressPage(
     historicalDraft: ImportDraft? = null,
     historicalEntryId: String? = null,
     showHistoryAction: Boolean = true,
-    onImportRequested: ((ImportDraft, Boolean) -> Unit)? = null
+    onImportRequested: ((ImportDraft, Boolean) -> Unit)? = null,
+    embedded: Boolean = false,
 ) {
+    AiImportConversationTheme(config) {
     val context = LocalContext.current
     val observedSessionProgress by AiEduImportProgressSession.progress.collectAsStateWithLifecycle()
     val historicalMode = historicalProgress != null && historicalDraft != null
@@ -249,6 +258,18 @@ internal fun AiEduImportProgressPage(
         )
     }
     val ownsLiveTask = ownedRevisionProgress != null || (!historicalMode && sessionProgress != null)
+    val saveProposal by EduAdapterSaveProposals.current.collectAsStateWithLifecycle()
+    val verifiedScript by EduVerifiedScripts.current.collectAsStateWithLifecycle()
+    val eduInteraction by EduAiInteractions.current.collectAsStateWithLifecycle()
+    var saveAdapterError by remember(saveProposal?.id) { mutableStateOf<String?>(null) }
+    var saveAdapterBusy by remember(saveProposal?.id) { mutableStateOf(false) }
+    var saveAdapterName by remember(saveProposal?.id) { mutableStateOf(saveProposal?.name.orEmpty()) }
+    var saveAdapterUrl by remember(saveProposal?.id) { mutableStateOf(saveProposal?.url.orEmpty()) }
+    var showScriptSource by remember(saveProposal?.id) { mutableStateOf(false) }
+    val scriptForCurrentPreview = verifiedScript?.takeIf {
+        ownsLiveTask && it.proposal.taskId == current.taskId && current.finished && !current.awaitingUserInput && current.error == null
+    }
+    val showLiveStatus = ownsLiveTask && !current.finished && current.error == null && !current.awaitingConfirmation && current.taskId.isNotBlank()
     val selectedWorkspaceDraft = remember(current.checkpoints, current.selectedCheckpointId, current.taskId, config) {
         current.checkpoints.firstOrNull { it.id == current.selectedCheckpointId && it.taskId == current.taskId }
             ?.restore(config)?.getOrNull()
@@ -260,6 +281,20 @@ internal fun AiEduImportProgressPage(
     } else {
         selectedWorkspaceDraft.takeIf { sessionProgress != null }
     }
+    // Keep each immutable result at its first appearance in the conversation. A revision
+    // inherits the selected draft as input; that must not append the old preview again.
+    val archivedPreviews = remember(current.conversationTurns) {
+        val seen = HashSet<String>()
+        current.conversationTurns.map { turn ->
+            turn.artifactPayload.takeIf { it.isNotBlank() && seen.add(it) }
+        }
+    }
+    // Continue from the latest validated result; older previews remain fixed to their own turns.
+    val latestDraft = remember(current.checkpoints, historicalDraft, config) {
+        current.checkpoints.lastOrNull()?.restore(config)?.getOrNull() ?: historicalDraft
+    }
+    val previewPayload = remember(latestDraft) { latestDraft?.let { draftToPayload(it).toString() } }
+    val currentPreview = latestDraft?.takeIf { !current.awaitingConfirmation && previewPayload !in archivedPreviews }
     fun updateProgress(next: AiEduImportProgress) {
         if (historicalMode) localProgress = next else AiEduImportProgressSession.update(next)
     }
@@ -278,9 +313,12 @@ internal fun AiEduImportProgressPage(
         onImportSubmitted()
     }
     val listState = rememberLazyListState()
-    val textColor = glassForegroundColor(settingsVisualConfig(config))
+    val inputInsets = rememberFloatingInputInsets()
+    var followingLatest by rememberAiImportFollowingLatest(listState, current.taskId) {
+        inputInsets.isKeyboardRaised
+    }
+    val textColor = LocalAiImportTextColors.current.primary
     val pageTitle = current.routeLabel.takeIf { it.isNotBlank() } ?: "AI 教务导入"
-    var executionExpanded by remember { mutableStateOf(false) }
     var previewAttachment by remember { mutableStateOf<AiEduAttachmentPreviewRequest?>(null) }
     var previewSourceHidden by remember { mutableStateOf(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
@@ -308,68 +346,67 @@ internal fun AiEduImportProgressPage(
         rootPositionOnScreen = { rootPositionOnScreen },
         rootSize = { rootSize }
     )
+    val conversationScope = rememberCoroutineScope()
     var conversationInput by remember { mutableStateOf("") }
+    var supplementalFiles by remember { mutableStateOf<List<AiImportFile>>(emptyList()) }
+    var attachmentReading by remember { mutableStateOf(false) }
+    var attachmentError by remember { mutableStateOf<String?>(null) }
+    val canAttach = ownsLiveTask && AiImportTaskManager.canSupplementFiles(current.taskId) &&
+        !current.awaitingConfirmation && (!current.finished || selectedWorkspaceDraft == null)
+    val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty() || !canAttach || attachmentReading) return@rememberLauncherForActivityResult
+        attachmentReading = true
+        attachmentError = null
+        conversationScope.launch {
+            try {
+                val selected = loadAiImportFiles(context, uris)
+                val combined = (supplementalFiles + selected).distinctBy(AiImportFile::uri)
+                require(combined.size <= MaxAiImportFiles && combined.sumOf { it.sizeBytes.toLong() } <= MaxAiImportBatchBytes) {
+                    "这组附件最多 20 个、合计 40 MB，请移除部分文件再选择"
+                }
+                supplementalFiles = combined
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                attachmentError = error.message ?: "读取附件失败，请重新选择"
+            } finally {
+                attachmentReading = false
+            }
+        }
+    }
+    val queuedInputs by remember(current.taskId) { AiImportTaskManager.observeInputs(current.taskId) }.collectAsStateWithLifecycle()
+    var editingInputId by remember(current.taskId) { mutableStateOf<String?>(null) }
+    fun clearComposer() {
+        conversationInput = ""
+        supplementalFiles = emptyList()
+        attachmentError = null
+        editingInputId = null
+    }
+    fun submitPending(
+        mode: com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode,
+        prompt: String = conversationInput.trim()
+    ) {
+        if (prompt.isBlank() && supplementalFiles.isEmpty()) return
+        val input = AgentTaskInput(prompt, files = supplementalFiles)
+        val accepted = editingInputId?.let { AiImportTaskManager.replaceInput(current.taskId, it, input) }
+            ?: if (supplementalFiles.isEmpty()) AiImportTaskManager.submitInput(current.taskId, input, mode)
+            else AiImportTaskManager.submitSupplementalFiles(current.taskId, input)
+        if (accepted) clearComposer()
+        else {
+            val message = if (editingInputId != null) "该候选已开始处理，修改保留在输入框中"
+                else if (AiImportTaskManager.observeInputs(current.taskId).value.size >= 16) "最多保留 16 条候选，请先处理或删除，输入内容已保留"
+                else "任务状态已变化，输入内容已保留，请重新发送"
+            editingInputId = null
+            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+        }
+    }
     var conversationSending by remember { mutableStateOf(false) }
     var composerHeightPx by remember { mutableStateOf(0) }
     val runtimePickerState = rememberAiRuntimePickerState()
     var historySourceHidden by remember { mutableStateOf(false) }
     var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
-    // Cache the top-bar frame while the history button is idle; onClick captures would include
-    // the native press/deformation state and produce a warped source for the system animation.
-    var cleanHistoryFrame by remember { mutableStateOf<Bitmap?>(null) }
-    LaunchedEffect(historyButtonBounds, historySourceHidden) {
-        if (!historySourceHidden &&
-            historyButtonBounds.width > 1f && historyButtonBounds.height > 1f
-        ) {
-            historySnapshotRequested.set(true)
-            historySnapshotRequestVersion += 1
-            withFrameNanos { }
-            withFrameNanos { }
-            cleanHistoryFrame = runCatching {
-                historySnapshotLayer.toImageBitmap().asAndroidBitmap()
-            }.getOrNull()
-        }
-    }
+    var historyOpening by remember { mutableStateOf(false) }
     val density = LocalDensity.current
-    val inputInsets = rememberFloatingInputInsets()
-    val conversationScope = rememberCoroutineScope()
-    fun persistWorkspace(previousDraft: ImportDraft?, next: AiEduImportProgress, draft: ImportDraft) {
-        (context.applicationContext as CourseScheduleApp).applicationScope.launch(Dispatchers.IO) {
-            if (historicalEntryId != null) AiImportHistoryStore.update(context, historicalEntryId, draft, next)
-            else AiImportHistoryStore.updateMatching(context, previousDraft ?: draft, draft, next)
-        }
-    }
-    fun selectCheckpoint(id: String): Result<Unit> = runCatching {
-        if (historicalMode && ownedRevisionProgress == null) {
-            val (next, draft) = selectImportCheckpoint(current, id, config).getOrThrow()
-            val branch = forkImportCheckpointHistory(next)
-            localProgress = branch
-            localPreviewDraft = draft
-            persistWorkspace(previewDraft, branch, draft)
-        } else {
-            val draft = AiEduImportProgressSession.selectCheckpoint(current.taskId, id).getOrThrow()
-            val next = AiEduImportProgressSession.progress.value?.takeIf { it.taskId == current.taskId }
-                ?: error("导入任务已切换")
-            persistWorkspace(previewDraft, next, draft)
-        }
-    }
-    fun saveCheckpointJson(id: String, json: String): Result<Unit> = runCatching {
-        if (historicalMode && ownedRevisionProgress == null) {
-            val (next, checkpoint) = editImportCheckpoint(current, id, json, config).getOrThrow()
-            val draft = checkpoint.restore(config).getOrThrow()
-            val branch = forkImportCheckpointHistory(next)
-            localProgress = branch
-            localPreviewDraft = draft
-            persistWorkspace(previewDraft, branch, draft)
-        } else {
-            val checkpoint = AiEduImportProgressSession.editCheckpointJson(current.taskId, id, json).getOrThrow()
-            // Do not let the model continue editing an obsolete workspace after a local change.
-            if (!current.finished) AiImportTaskManager.pauseImport(context, current.taskId)
-            val next = AiEduImportProgressSession.progress.value?.takeIf { it.taskId == current.taskId }
-                ?: error("导入任务已切换")
-            persistWorkspace(previewDraft, next, checkpoint.restore(config).getOrThrow())
-        }
-    }
     LaunchedEffect(
         historicalMode,
         ownedRevisionTaskId,
@@ -385,18 +422,7 @@ internal fun AiEduImportProgressPage(
     }
     LaunchedEffect(current.taskId, current.finished) {
         if (current.finished) {
-            executionExpanded = false
             conversationSending = false
-        }
-        // Enter every task at its latest result, including an already running task.
-        withFrameNanos { }
-        val last = listState.layoutInfo.totalItemsCount - 1
-        if (last >= 0) {
-            listState.scrollToItem(last)
-            val layout = listState.layoutInfo
-            layout.visibleItemsInfo.lastOrNull()?.let { item ->
-                listState.scrollBy((item.offset + item.size + layout.afterContentPadding - layout.viewportEndOffset).coerceAtLeast(0).toFloat())
-            }
         }
     }
     BackHandler(enabled = current.awaitingConfirmation) {
@@ -440,80 +466,70 @@ internal fun AiEduImportProgressPage(
             onBack = onClose,
             compactTopBar = true,
             centerCompactTitle = true,
+            avoidIme = false,
+            avoidHomeTabBar = embedded,
             topBarActions = { topBarBackdrop ->
                 if (showHistoryAction) {
-                    if (historySourceHidden) {
-                        Spacer(Modifier.size(42.dp))
-                    } else {
-                        AiEduHistoryButton(
-                            config = config,
-                            backdrop = topBarBackdrop,
-                            onBoundsChanged = { historyButtonBounds = it },
-                             onClick = { sourceBounds ->
-                                 conversationScope.launch {
-                                     // Use the idle frame cached before press-down; capturing here
-                                     // would bake the native button's press/deformation into the
-                                     // system source bitmap.
-                                     val sourceFrame = cleanHistoryFrame ?: run {
-                                         historySnapshotRequested.set(true)
-                                         historySnapshotRequestVersion += 1
-                                         withFrameNanos { }
-                                         withFrameNanos { }
-                                         runCatching {
-                                             historySnapshotLayer.toImageBitmap().asAndroidBitmap()
-                                         }.getOrNull()
-                                     }
-                                     val sourceSnapshot = sourceFrame?.cropToWindowBounds(
-                                         sourceBounds,
-                                         rootPositionInWindow
-                                     ) ?: return@launch
-                                     val activity = context as? ComponentActivity
-                                         ?: return@launch
-                                     val anchor = TransitionAnchorFrame(
-                                         boundsInWindow = sourceBounds,
-                                         cornerRadiusPx = with(density) { 21.dp.toPx() },
-                                         bitmap = sourceSnapshot
-                                     )
-                                     val releaseOpeningSource =
-                                         activity.attachOpeningSourceSnapshotHandoff(anchor)
-                                             ?: return@launch
-                                     historySourceHidden = true
-                                     historySnapshotRequested.set(true)
-                                     historySnapshotRequestVersion += 1
-                                     withFrameNanos { }
-                                     withFrameNanos { }
-                                     val backgroundSnapshot = runCatching {
-                                         historySnapshotLayer.toImageBitmap().asAndroidBitmap()
-                                     }.getOrNull() ?: run {
-                                         releaseOpeningSource()
-                                         historySourceHidden = false
-                                         return@launch
-                                     }
-                                     val intent = Intent(context, AiImportHistoryActivity::class.java)
-                                     val launchResult = ActivityTransitionCoordinator.open(
-                                         activity = activity,
-                                         routeId = TransitionRouteId.AiProgressToHistory,
-                                         intent = intent,
-                                         payload = TransitionPayload(
-                                             openingAnchor = anchor,
-                                             returnAnchorProvider =
-                                                 StaticTransitionAnchorProvider(anchor),
-                                             backgroundBitmap = backgroundSnapshot,
-                                             backgroundColor = conversationPageColor.toArgb(),
-                                             onOpeningSourceHandoff = releaseOpeningSource,
-                                             onSourceReleased = {
-                                                 historySourceHidden = false
-                                             }
-                                         )
-                                     )
-                                     if (launchResult is TransitionLaunchResult.Failed) {
-                                         releaseOpeningSource()
-                                         historySourceHidden = false
-                                     }
+                    AiEduHistoryButton(
+                        config = config,
+                        backdrop = topBarBackdrop,
+                        show = !historySourceHidden,
+                        onBoundsChanged = { historyButtonBounds = it },
+                        onClick = { sourceBounds, sourceView ->
+                            if (!historyOpening) {
+                                historyOpening = true
+                                conversationScope.launch {
+                                    var releaseCover: (() -> Unit)? = null
+                                    var sessionOwnsSource = false
+                                    try {
+                                        val activity = context as? ComponentActivity ?: return@launch
+                                        val bounds = sourceView?.liveTransitionBoundsInActivity(activity)
+                                            ?: historyButtonBounds.takeUnless { it.isEmpty } ?: sourceBounds
+                                        val anchor = TransitionAnchorFrame(bounds, minOf(bounds.width, bounds.height) / 2f, bitmap = null)
+                                        fun returnAnchor(frame: TransitionAnchorFrame) = TransitionAnchorProvider {
+                                            val current = sourceView?.liveTransitionBoundsInActivity(activity, coveredWindow = true)
+                                                ?: historyButtonBounds
+                                            frame.copy(boundsInWindow = current).takeIf { it.hasBounds }
+                                        }
+                                        val result = ActivityTransitionCoordinator.open(
+                                            activity, TransitionRouteId.AiProgressToHistory,
+                                            Intent(context, AiImportHistoryActivity::class.java),
+                                            TransitionPayload(
+                                                openingAnchor = anchor,
+                                                returnAnchorProvider = returnAnchor(anchor),
+                                                backgroundColor = conversationPageColor.toArgb(),
+                                                onOpeningSourceHandoff = { releaseCover?.invoke() },
+                                                onSourceReleased = { historySourceHidden = false; historyOpening = false },
+                                                openingSourceView = sourceView
+                                            ),
+                                            prepareLegacy = { pending ->
+                                                withFrameNanos { }
+                                                val captured = anchor.copy(bitmap = captureGlassWindowRegion(activity.window, bounds))
+                                                releaseCover = activity.attachOpeningSourceSnapshotHandoff(captured)
+                                                val background = if (releaseCover != null) {
+                                                    historySourceHidden = true
+                                                    historySnapshotRequested.set(true)
+                                                    historySnapshotRequestVersion += 1
+                                                    withFrameNanos { }
+                                                    withFrameNanos { }
+                                                    runCatching { historySnapshotLayer.toImageBitmap().asAndroidBitmap() }.getOrNull()
+                                                } else null
+                                                pending.copy(openingAnchor = captured, returnAnchorProvider = returnAnchor(captured),
+                                                    backgroundBitmap = background)
+                                            }
+                                        )
+                                        sessionOwnsSource = result !is TransitionLaunchResult.Failed
+                                    } finally {
+                                        if (!sessionOwnsSource) {
+                                            releaseCover?.invoke()
+                                            historySourceHidden = false
+                                            historyOpening = false
+                                        }
+                                    }
                                 }
                             }
-                        )
-                    }
+                        }
+                    )
                 }
             }
         ) { backdrop ->
@@ -523,9 +539,9 @@ internal fun AiEduImportProgressPage(
                         .fillMaxSize()
                         .glassBackdropProducer(conversationContentBackdrop)
                 ) {
-                    LazyColumn(
+                    SleepDownLazyColumn(
                         state = listState,
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier.align(Alignment.TopCenter).widthIn(max = 840.dp).fillMaxSize(),
                         contentPadding = PaddingValues(
                             start = 16.dp,
                             end = 16.dp,
@@ -543,16 +559,30 @@ internal fun AiEduImportProgressPage(
                             showAttachment = !previewSourceHidden,
                             onPreview = { previewAttachment = it }
                         )
+                    }
+                    itemsIndexed(groupAiImportReports(turn.activityReports), key = { _, group -> "turn-$index-report-${group.first}" }) { _, group ->
+                        if (group.second.first().kind == AiImportReportKind.EXECUTION) AiImportToolGroup(group.second, active = false)
+                        else AiImportTranscriptEntry(group.second.first())
+                    }
+                    item(key = "conversation-turn-$index-reply") {
                         AiEduConversationTurnReply(turn, textColor)
-                        current.checkpoints.lastOrNull { it.payload == turn.artifactPayload }?.let { checkpoint ->
-                            Text("查看此轮课表 · ${checkpoint.courseCount} 门课程",
-                                modifier = Modifier.clickable { selectCheckpoint(checkpoint.id) }.padding(vertical = 8.dp),
-                                color = MaterialTheme.colorScheme.primary,
-                                style = MaterialTheme.typography.labelLarge)
+                    }
+                    archivedPreviews[index]?.let { payload ->
+                        item(key = "conversation-turn-$index-preview") {
+                            val restored = remember(payload, config) { parseCheckpointDraft(payload, config) }
+                            restored.fold(onSuccess = { draft ->
+                                AiEduInlineImportPreview(draft, textColor, config, backdrop,
+                                    modifier = Modifier.semantics { contentDescription = "第${index + 1}轮导入预览" },
+                                    onCreateNew = { requestImport(draft, true) },
+                                    onOverwrite = { requestImport(draft, false) })
+                            }, onFailure = {
+                                Text("此轮课表无法恢复：${it.message.orEmpty()}", color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodyMedium)
+                            })
                         }
                     }
                 }
-                item {
+                item(key = "current-user-message") {
                     AiEduUserMessage(
                         progress = current,
                         textColor = textColor,
@@ -563,29 +593,16 @@ internal fun AiEduImportProgressPage(
                         onPreview = { previewAttachment = it }
                     )
                 }
-                val summary = if (current.finished || current.awaitingConfirmation) current.reasoningOutput.ifBlank {
-                    current.liveSummary
-                } else ""
-                val completedWithPreview = current.finished && current.error == null && previewDraft != null && !current.awaitingUserInput
-                if (completedWithPreview) item(key = "finished-process") {
-                    AiEduModelSummary(if (executionExpanded) summary else "", textColor, title = "处理过程") {
-                        AgentRunTrace(
-                            statuses = aiEduAgentRunStatuses(current), expanded = executionExpanded,
-                            foreground = textColor, active = false, onToggle = { executionExpanded = !executionExpanded }
-                        )
+                val reportGroups = groupAiImportReports(current.activityReports)
+                itemsIndexed(reportGroups, key = { _, group -> "current-${current.taskId}-report-${group.first}" }) { index, group ->
+                    if (group.second.first().kind == AiImportReportKind.EXECUTION) AiImportToolGroup(group.second, active = !current.finished && current.error == null && index == reportGroups.lastIndex)
+                    else AiImportTranscriptEntry(group.second.first())
+                }
+                if (!current.awaitingConfirmation) item(key = "process-details") {
+                    androidx.compose.runtime.key(current.taskId) {
+                    AiImportLegacyProgress(current.activityReports, current.reasoningOutput, current.steps,
+                        active = !current.finished && current.error == null)
                     }
-                }
-                if (!completedWithPreview && summary.isNotBlank()) item(key = "model-summary") {
-                    AiEduModelSummary(summary = summary, textColor = textColor)
-                }
-                if (!completedWithPreview && current.steps.isNotEmpty()) item {
-                    AgentRunTrace(
-                        statuses = aiEduAgentRunStatuses(current),
-                        expanded = executionExpanded,
-                        foreground = textColor,
-                        active = !current.finished && current.error == null,
-                        onToggle = { executionExpanded = !executionExpanded }
-                    )
                 }
                 current.error?.let { message ->
                     item {
@@ -607,54 +624,45 @@ internal fun AiEduImportProgressPage(
                         )
                     }
                 }
-                if (!current.awaitingConfirmation && current.activityReports.isNotEmpty()) {
-                    item(key = "live-activity-reports") {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            current.activityReports.takeLast(if (executionExpanded) 12 else 3).forEach { report ->
-                                Text(
-                                    "${if (report.kind == AiImportReportKind.MODEL) "AI" else "操作"} · ${report.text}",
-                                    color = textColor.copy(alpha = if (report.kind == AiImportReportKind.MODEL) 0.9f else 0.62f),
-                                    style = if (report.kind == AiImportReportKind.MODEL) MaterialTheme.typography.bodyMedium
-                                        else MaterialTheme.typography.bodySmall
-                                )
-                            }
-                        }
-                    }
-                }
-                if (!current.finished && current.error == null && !current.awaitingConfirmation && current.taskId.isNotBlank()) {
+                if (ownsLiveTask && !current.finished && current.error == null && !current.awaitingConfirmation && current.taskId.isNotBlank()) {
                     item(key = "live-model-reasoning") {
-                        AiImportReasoningPanel(taskId = current.taskId, textColor = textColor,
-                            summary = current.liveSummary)
+                        AiImportReasoningPanel(taskId = current.taskId, reports = current.activityReports)
                     }
                 }
                 if (current.awaitingUserInput) item(key = "model-questions") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("需要你补充", color = textColor, style = MaterialTheme.typography.titleMedium)
-                        Text(current.liveSummary, color = textColor.copy(alpha = 0.75f), style = MaterialTheme.typography.bodyMedium)
                         current.clarificationQuestions.forEachIndexed { index, question ->
-                            Text("${index + 1}. $question", color = textColor, style = MaterialTheme.typography.bodyMedium)
+                            Text("${index + 1}. $question", color = textColor, style = AiImportTextStyles.Body)
                         }
                     }
                 }
-                if (current.checkpoints.isNotEmpty()) item(key = "checkpoint-workspace") {
-                    AiImportCheckpointPanel(current, textColor, config, backdrop, ::selectCheckpoint, ::saveCheckpointJson)
+                if (current.assistantMessage.isNotBlank()) item(key = "assistant-reply") {
+                    AgentMarkdownText(current.assistantMessage, textColor, AiImportTextStyles.Body)
                 }
-                previewDraft?.takeIf { !current.awaitingConfirmation }?.let { draft ->
-                    item {
-                        if (current.assistantMessage.isNotBlank()) {
-                            AgentMarkdownText(current.assistantMessage, textColor, MaterialTheme.typography.bodyMedium)
-                            Spacer(Modifier.height(12.dp))
-                        }
+                if (current.finished && !current.awaitingUserInput && current.error == null && latestDraft == null &&
+                    current.assistantMessage.isBlank() && current.liveSummary.isNotBlank()) item(key = "recovery-notice") {
+                    Text(current.liveSummary, color = LocalAiImportTextColors.current.secondary, style = AiImportTextStyles.Progress)
+                }
+                current.checkpointNotice?.let { notice -> item(key = "checkpoint-notice") {
+                    Text(notice, color = MaterialTheme.colorScheme.error, style = AiImportTextStyles.Secondary)
+                } }
+                currentPreview?.let { draft ->
+                    item(key = "current-preview") {
                         AiEduInlineImportPreview(
                             draft = draft,
                             textColor = textColor,
                             config = config,
                             backdrop = backdrop,
+                            modifier = Modifier.semantics { contentDescription = "第${current.conversationTurns.size + 1}轮导入预览" },
                             onCreateNew = {
                                 requestImport(draft, true)
                             },
                             onOverwrite = {
                                 requestImport(draft, false)
+                            },
+                            scriptSaveLabel = scriptForCurrentPreview?.let { if (it.saved) "已保存到我的适配" else "保存当前脚本" },
+                            onSaveScript = scriptForCurrentPreview?.takeUnless { it.saved }?.let { script ->
+                                { EduAdapterSaveProposals.offer(script.proposal) }
                             }
                         )
                     }
@@ -662,10 +670,63 @@ internal fun AiEduImportProgressPage(
                     }
                 }
 
+                if (!followingLatest) {
+                    DialogLiquidButton(
+                        backdrop = backdrop, label = "回到最新",
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                            .padding(bottom = with(density) { composerHeightPx.toDp() } + 12.dp).size(44.dp).softBlurEnter(),
+                        height = 44.dp, horizontalPadding = 0.dp, monochromeNeutral = true,
+                        onClick = {
+                            followingLatest = true
+                            conversationScope.launch { listState.scrollToAiImportEnd() }
+                        }) {
+                        Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "回到最新",
+                            tint = textColor, modifier = Modifier.size(22.dp).rotate(-90f))
+                    }
+                }
             }
         }
         // A full-page sibling of the scaffold, like the school search dock. Keep it within the
         // page recorder so history and attachment transitions still include the input.
+                Column(Modifier.align(Alignment.BottomCenter)
+                    .widthIn(max = 840.dp)
+                    .onSizeChanged { composerHeightPx = it.height }.floatingInputPadding(inputInsets)) {
+                AnimatedVisibility(showLiveStatus, modifier = Modifier.align(Alignment.CenterHorizontally),
+                    enter = expandVertically(spring(dampingRatio = 0.9f, stiffness = 420f), expandFrom = Alignment.Bottom, clip = false),
+                    exit = shrinkVertically(spring(dampingRatio = 0.9f, stiffness = 420f), shrinkTowards = Alignment.Bottom, clip = false) + fadeOut(tween(160))) {
+                    AiImportStatusCapsule(current.taskId, config, conversationContentBackdrop,
+                        Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                }
+                attachmentError?.let { message ->
+                    Text(message, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                AgentInputCapsules(
+                    inputs = queuedInputs,
+                    attachment = when {
+                        attachmentReading -> "正在读取附件…"
+                        supplementalFiles.isNotEmpty() -> supplementalFiles.joinToString("、") { it.displayName }
+                        !current.requestSent && (current.pageText.isNotBlank() || current.screenshotPreviews.isNotEmpty()) -> "已附加课表资料"
+                        else -> null
+                    },
+                    config = config, backdrop = conversationContentBackdrop, foreground = textColor,
+                    onRemoveAttachment = if (supplementalFiles.isNotEmpty() && !attachmentReading)
+                        ({ supplementalFiles = emptyList(); attachmentError = null }) else null,
+                    onEdit = { editingInputId = it.id; conversationInput = it.value.text; supplementalFiles = it.value.files },
+                    onRemove = { AiImportTaskManager.removeInput(current.taskId, it); if (editingInputId == it) editingInputId = null },
+                    onGuide = { next ->
+                        if (!current.finished) AiImportTaskManager.steerInput(current.taskId, next.id)
+                        else {
+                            val hasFiles = next.value.files.isNotEmpty()
+                            if (hasFiles && !AiImportTaskManager.steerInput(current.taskId, next.id)) return@AgentInputCapsules
+                            val resumed = AiImportTaskManager.continueImport(context, current.taskId,
+                                next.value.text.ifBlank { "核对补充的材料" })
+                            if (resumed != null) {
+                                if (!hasFiles) AiImportTaskManager.removeInput(current.taskId, next.id)
+                                ownedRevisionTaskId = resumed
+                            }
+                        }
+                    })
                 AiEduConversationComposer(
                     value = conversationInput,
                     sending = conversationSending || (!current.finished && !current.awaitingConfirmation),
@@ -678,28 +739,41 @@ internal fun AiEduImportProgressPage(
                     textColor = textColor,
                     attachmentVisible = !current.requestSent &&
                         (current.pageText.isNotBlank() || current.screenshotPreviews.isNotEmpty()),
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        // Reserve the whole occupied area, including the manual IME/nav inset.
-                        // Measuring inside padding only reserved the capsule, leaving the last
-                        // message and import buttons behind it when the keyboard opened.
-                        .onSizeChanged { composerHeightPx = it.height }
-                        .floatingInputPadding(inputInsets),
-                    onValueChange = { conversationInput = it.take(600) },
+                    hasSupplementalFiles = supplementalFiles.isNotEmpty(),
+                    onAddAttachment = if (canAttach && !attachmentReading)
+                        ({ attachmentPicker.launch(arrayOf("*/*")) }) else null,
+                    modifier = Modifier,
+                    onValueChange = { conversationInput = it.take(6_000) },
                     onSend = send@{
+                        if (attachmentReading) return@send
                         val prompt = conversationInput.trim().ifBlank {
-                            if (current.awaitingConfirmation) current.userPrompt else return@send
+                            when {
+                                supplementalFiles.isNotEmpty() -> "请核对补充的材料。"
+                                current.awaitingConfirmation -> current.userPrompt
+                                else -> return@send
+                            }
+                        }
+                        if (editingInputId != null) {
+                            submitPending(com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode.QUEUE, prompt)
+                            return@send
                         }
                         if (current.awaitingConfirmation) {
                             conversationInput = ""
                             updateProgress(current.copy(userPrompt = prompt))
                             AiEduImportProgressSession.confirm()
+                        } else if (ownsLiveTask && !current.finished) {
+                            submitPending(com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode.QUEUE, prompt)
                         } else if (ownsLiveTask && AiImportTaskManager.canInterrupt(current.taskId)) {
-                            ownedRevisionTaskId = AiImportTaskManager.continueImport(context, current.taskId, prompt)
-                            if (ownedRevisionTaskId != null) conversationInput = ""
+                            ownedRevisionTaskId = AiImportTaskManager.continueImport(context, current.taskId, prompt, supplementalFiles)
+                            if (ownedRevisionTaskId != null) clearComposer()
+                            else if (supplementalFiles.isNotEmpty()) attachmentError = "当前无法继续解析，已保留所选附件"
                         } else {
+                            if (supplementalFiles.isNotEmpty()) {
+                                attachmentError = "原教务任务已结束，请重新打开教务页面导入"
+                                return@send
+                            }
                             if (conversationSending || !current.finished) return@send
-                            val baseDraft = previewDraft ?: return@send
+                            val baseDraft = latestDraft ?: previewDraft ?: return@send
                             conversationInput = ""
                             conversationSending = true
                             val settings = AiImportSettingsStore.loadForRuntime(context)
@@ -708,18 +782,66 @@ internal fun AiEduImportProgressPage(
                                 context = context,
                                 baseDraft = baseDraft,
                                 instruction = prompt,
-                                baseProgress = current,
+                                baseProgress = if (latestDraft != null) current.copy(
+                                    selectedCheckpointId = current.checkpoints.lastOrNull()?.id,
+                                    checkpointSelectionLocked = false) else current,
                                 settings = settings,
                                 historicalEntryId = historicalEntryId
                             )
                         }
                     }
                 )
+                }
                 // The composer is a full-page sibling of the scaffold, so its cascading menus fall
                 // back to the process-wide popup registry. Without a root host in this Activity the
                 // model picker toggles `expanded` but nothing ever renders the popup.
                 MiuixPopupHost()
             }
+        }
+        AiEduBrowserWindow(current.taskId.takeIf { ownsLiveTask }, config, conversationContentBackdrop,
+            Modifier.fillMaxSize().padding(top = detailContentTopPadding() + 4.dp,
+                bottom = with(density) { composerHeightPx.toDp() } + 8.dp))
+        eduInteraction?.takeIf { ownsLiveTask && it.taskId == current.taskId }?.let { pending ->
+            EduBridgeInteractionDialog(pending.request, pending.bridge, config, conversationContentBackdrop,
+                onFinished = { EduAiInteractions.clear(pending.bridge) })
+        }
+        saveProposal?.takeIf { scriptForCurrentPreview?.proposal?.id == it.id && latestDraft != null }?.let { proposal ->
+            com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog(
+                title = "保存为我的适配？",
+                message = "此脚本已在当前网页运行成功并通过格式校验。确认课程、学校名称与登录入口后，可按拾光格式保存在本机，下次直接导入。" +
+                    saveAdapterError?.let { "\n$it" }.orEmpty(),
+                config = config,
+                onDismissRequest = { if (!saveAdapterBusy) EduAdapterSaveProposals.clear(proposal.id) },
+                messageContent = {
+                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        DialogCapsuleField(saveAdapterName, { saveAdapterName = it.take(80) }, "学校或入口名称", config, enabled = !saveAdapterBusy)
+                        DialogCapsuleField(saveAdapterUrl, { saveAdapterUrl = it.take(4096) }, "教务登录地址", config,
+                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri, enabled = !saveAdapterBusy)
+                        Text(if (showScriptSource) "收起脚本" else "查看脚本", style = AiImportTextStyles.Action,
+                            color = textColor, modifier = Modifier.clip(Capsule()).clickable { showScriptSource = !showScriptSource }.padding(10.dp))
+                        if (showScriptSource) SelectionContainer {
+                            Text(proposal.source, color = textColor, style = AiImportTextStyles.Operation,
+                                modifier = Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState()))
+                        }
+                    }
+                },
+                scrollableMessageContent = true,
+                actions = listOf(
+                    LiquidAlertAction("暂不保存", LiquidAlertActionStyle.Cancel, enabled = !saveAdapterBusy, onClick = { EduAdapterSaveProposals.clear(proposal.id) }),
+                    LiquidAlertAction(if (saveAdapterBusy) "保存中…" else "保存", LiquidAlertActionStyle.Primary,
+                        enabled = !saveAdapterBusy, dismissOnClick = false, onClick = saveScript@{
+                        if (saveAdapterBusy) return@saveScript
+                        saveAdapterBusy = true
+                        val name = saveAdapterName
+                        val loginUrl = saveAdapterUrl
+                        conversationScope.launch {
+                            runCatching { withContext(Dispatchers.IO) { LocalEduAdapterStore.save(context, name, loginUrl, proposal.source) } }
+                                .onSuccess { EduVerifiedScripts.markSaved(proposal.id); EduAdapterSaveProposals.clear(proposal.id) }
+                                .onFailure { saveAdapterError = it.message ?: "保存失败，请重试" }
+                            saveAdapterBusy = false
+                        }
+                    }))
+            )
         }
         previewAttachment?.let { request ->
             AiEduAttachmentMorphOverlay(
@@ -738,17 +860,7 @@ internal fun AiEduImportProgressPage(
         }
     }
 }
-
-private fun Bitmap.cropToWindowBounds(
-    bounds: androidx.compose.ui.geometry.Rect,
-    rootPosition: Offset
-): Bitmap? = runCatching {
-    val left = (bounds.left - rootPosition.x).roundToInt().coerceIn(0, width - 1)
-    val top = (bounds.top - rootPosition.y).roundToInt().coerceIn(0, height - 1)
-    val cropWidth = bounds.width.roundToInt().coerceIn(1, width - left)
-    val cropHeight = bounds.height.roundToInt().coerceIn(1, height - top)
-    Bitmap.createBitmap(this, left, top, cropWidth, cropHeight)
-}.getOrNull()
+}
 
 @Composable
 private fun AiEduConversationTurnReply(
@@ -756,35 +868,14 @@ private fun AiEduConversationTurnReply(
     textColor: Color
 ) {
     Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 11.dp),
+        modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        Text(turn.status,
-            modifier = Modifier.padding(vertical = 8.dp),
-            color = textColor.copy(alpha = 0.64f), style = MaterialTheme.typography.labelMedium)
-        if (turn.reasoningOutput.isNotBlank()) AiEduModelSummary(turn.reasoningOutput, textColor)
-        if (turn.assistantMessage.isNotBlank()) AgentMarkdownText(turn.assistantMessage, textColor, MaterialTheme.typography.bodyMedium)
-        if (turn.artifactPayload.isNotBlank()) Text("课表已通过本地校验",
-            color = textColor.copy(alpha = 0.64f), style = MaterialTheme.typography.bodySmall)
-    }
-}
-
-@Composable
-private fun AiEduModelSummary(
-    summary: String, textColor: Color, title: String = "模型摘要",
-    details: (@Composable () -> Unit)? = null
-) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Text(title, modifier = Modifier.padding(vertical = 8.dp), color = textColor.copy(alpha = 0.58f), style = MaterialTheme.typography.labelMedium)
-        if (summary.isNotBlank()) AgentMarkdownText(summary, textColor.copy(alpha = 0.86f), MaterialTheme.typography.bodyMedium)
-        details?.invoke()
+        AiImportLegacyProgress(turn.activityReports, turn.reasoningOutput)
+        if (turn.status != "已完成") Text(turn.status,
+            color = if (turn.status == "已停止，等待补充") LocalAiImportTextColors.current.secondary else MaterialTheme.colorScheme.error,
+            style = AiImportTextStyles.Secondary)
+        if (turn.assistantMessage.isNotBlank()) AgentMarkdownText(turn.assistantMessage, textColor, AiImportTextStyles.Body)
     }
 }
 
@@ -820,7 +911,7 @@ private fun AiEduCaptureConfirmation(
             } else {
                 "当前模型无法使用高清视觉截取。请切换到支持视觉输入的模型，或返回可复制文字的课表页面。"
             } },
-            color = textColor.copy(alpha = 0.66f),
+            color = LocalAiImportTextColors.current.secondary,
             style = MaterialTheme.typography.bodyMedium
         )
         val actions = if (!hasCapturedText && !hasCapturedVisual && hasVisualCaptureAction) {
@@ -896,218 +987,28 @@ private data class AiEduAttachmentPreviewRequest(
 private fun AiEduHistoryButton(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
-    onClick: (Rect) -> Unit,
-    modifier: Modifier = Modifier,
-    onBoundsChanged: (Rect) -> Unit = {}
+    show: Boolean,
+    onClick: (Rect, View?) -> Unit,
+    onBoundsChanged: (Rect) -> Unit,
 ) {
     var bounds by remember { mutableStateOf(Rect.Zero) }
-    TopGlassIconButton(
-        backdrop = backdrop,
-        config = config,
-        iconRes = R.drawable.ic_history,
-        contentDescription = "历史记录",
-        onClick = { if (bounds.width > 0f) onClick(bounds) },
-        modifier = modifier
-            .size(42.dp)
-            .onGloballyPositioned {
-                val next = it.boundsInWindow()
-                if (next != bounds) {
-                    bounds = next
-                    onBoundsChanged(next)
-                }
-            },
-        surfaceColorOverride = if (appUsesDarkTheme(config)) {
-            Color.White.copy(alpha = 0.10f)
-        } else {
-            Color.White.copy(alpha = 0.08f)
-        }
-    )
-}
-
-@Composable
-internal fun AiEduHistorySwipeRow(
-    entry: AiImportHistoryEntry,
-    textColor: Color = Color.White,
-    showSource: Boolean = true,
-    onDelete: () -> Unit,
-    onOpen: (Rect) -> Unit,
-    onBoundsChanged: (Rect) -> Unit = {}
-) {
-    val density = LocalDensity.current
-    val haptic = LocalHapticFeedback.current
-    val scope = rememberCoroutineScope()
-    val offset = remember(entry.id) { Animatable(0f) }
-    val removal = remember(entry.id) { Animatable(0f) }
-    var revealThresholdCrossed by remember(entry.id) { mutableStateOf(false) }
-    var deleteThresholdCrossed by remember(entry.id) { mutableStateOf(false) }
-    var deletionStarted by remember(entry.id) { mutableStateOf(false) }
-    var widthPx by remember { mutableStateOf(1f) }
-    var cardBounds by remember(entry.id) { mutableStateOf(Rect.Zero) }
-    val actionWidthPx = with(density) { 64.dp.toPx() }
-    val actionGapPx = with(density) { 14.dp.toPx() }
-    val revealPx = actionWidthPx + actionGapPx
-    val deleteTriggerPx = maxOf(
-        revealPx + with(density) { 156.dp.toPx() },
-        widthPx * 0.78f
-    ).coerceAtMost(widthPx * 0.88f)
-    val maximumDragPx = (widthPx - with(density) { 16.dp.toPx() }).coerceAtLeast(revealPx)
-    val settleSpring = spring<Float>(dampingRatio = 0.52f, stiffness = 420f)
-    fun deleteWithMorph(performHaptic: Boolean = true) {
-        if (deletionStarted) return
-        deletionStarted = true
-        scope.launch {
-            if (performHaptic) haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            if (abs(offset.value) < revealPx * 0.9f) {
-                offset.animateTo(-revealPx, settleSpring)
-            }
-            if (abs(offset.value) < deleteTriggerPx) {
-                offset.animateTo(-deleteTriggerPx, tween(180, easing = DetailExitEasing))
-            }
-            kotlinx.coroutines.coroutineScope {
-                launch { offset.animateTo(-widthPx * 1.08f, tween(300, easing = DetailExitEasing)) }
-                launch { removal.animateTo(1f, tween(360, easing = DetailExitEasing)) }
-            }
-            onDelete()
-        }
-    }
-    val collapseProgress = ((removal.value - 0.82f) / 0.18f).coerceIn(0f, 1f)
-    val dragDistance = (-offset.value).coerceAtLeast(0f)
-    val gestureStretch = (
-        (dragDistance - revealPx) / (deleteTriggerPx - revealPx).coerceAtLeast(1f)
-        ).coerceIn(0f, 1f)
-    val removalStretch = (removal.value / 0.42f).coerceIn(0f, 1f)
-    val actionExpansion = maxOf(gestureStretch, removalStretch)
-    val renderedActionWidthPx = actionWidthPx +
-        (widthPx - with(density) { 32.dp.toPx() } - actionWidthPx)
-        .coerceAtLeast(0f) * actionExpansion
-    val overlapSafeActionWidthPx = minOf(
-        renderedActionWidthPx,
-        (dragDistance - actionGapPx).coerceAtLeast(actionWidthPx)
-    )
-    val revealProgress = (dragDistance / revealPx).coerceIn(0f, 1f)
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height((78 * (1f - collapseProgress)).coerceAtLeast(1f).dp)
-            .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
-    ) {
-        val deleteModifier = Modifier
-             .align(Alignment.CenterEnd)
-             .padding(end = 16.dp)
-             .fillMaxHeight()
-             .width(with(density) { overlapSafeActionWidthPx.toDp() })
-             .graphicsLayer {
-                  val elasticStretch = (removal.value / 0.28f).coerceIn(0f, 1f)
-                  val verticalSquash = ((removal.value - 0.16f) / 0.46f).coerceIn(0f, 1f)
-                  val vanish = ((removal.value - 0.66f) / 0.30f).coerceIn(0f, 1f)
-                  alpha = maxOf(revealProgress, removalStretch) * (1f - vanish)
-                  scaleX = (1f + 0.09f * elasticStretch) * (1f - 0.27f * vanish)
-                  scaleY = (1f - 0.26f * verticalSquash) * (1f - 0.20f * vanish)
-                  transformOrigin = TransformOrigin(1f, 0.5f)
-                  compositingStrategy = CompositingStrategy.Offscreen
-                  renderEffect = platformBlurRenderEffect(10.dp.toPx() * vanish)
-              }
-         Box(
-             deleteModifier
-                 .squircleSurface(color = Color(0xFFFF3B30), cornerRadius = 15.dp)
-                 .clickable(onClick = ::deleteWithMorph),
-             contentAlignment = Alignment.Center
-         ) {
-             val iconVanish = ((removal.value - 0.72f) / 0.24f).coerceIn(0f, 1f)
-             Image(
-                 painter = painterResource(R.drawable.ic_delete_history),
-                 contentDescription = "删除",
-                 modifier = Modifier
-                     .size(26.dp)
-                     .graphicsLayer {
-                         alpha = 1f - iconVanish
-                         scaleX = 1f - 0.22f * iconVanish
-                         scaleY = 1f - 0.22f * iconVanish
-                     }
-             )
-         }
-        Box(
-            Modifier
-                .fillMaxSize()
-                .offset { IntOffset(offset.value.roundToInt(), 0) }
-                .pointerInput(entry.id, widthPx) {
-                    detectHorizontalDragGestures(
-                        onHorizontalDrag = drag@{ change, dragAmount ->
-                            change.consume()
-                            if (deletionStarted) return@drag
-                            val next = (offset.value + dragAmount).coerceIn(
-                                -maximumDragPx,
-                                with(density) { 8.dp.toPx() }
-                            )
-                            val revealCrossed = abs(next) >= revealPx * 0.48f
-                            if (revealCrossed != revealThresholdCrossed) {
-                                revealThresholdCrossed = revealCrossed
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            }
-                            scope.launch { offset.snapTo(next) }
-                            val deleteCrossed = abs(next) >= deleteTriggerPx
-                            if (deleteCrossed && !deleteThresholdCrossed) {
-                                deleteThresholdCrossed = true
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                deleteWithMorph(performHaptic = false)
-                            }
-                        },
-                        onDragEnd = dragEnd@{
-                            if (deletionStarted) return@dragEnd
-                            scope.launch {
-                                 val target = if (abs(offset.value) >= revealPx * 0.48f) -revealPx else 0f
-                                 revealThresholdCrossed = target < 0f
-                                 deleteThresholdCrossed = false
-                                 offset.animateTo(target, settleSpring)
-                             }
-                         },
-                         onDragCancel = dragCancel@{
-                             if (deletionStarted) return@dragCancel
-                             revealThresholdCrossed = false
-                             deleteThresholdCrossed = false
-                             scope.launch { offset.animateTo(0f, settleSpring) }
-                         }
-                    )
-                }
-        ) {
-            if (showSource) {
-                Box(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp)
-                        .clip(RoundedRectangle(18.dp))
-                        .background(MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = 0.42f))
-                        .onGloballyPositioned {
-                            val bounds = it.boundsInWindow()
-                            if (bounds != cardBounds) {
-                                cardBounds = bounds
-                                onBoundsChanged(bounds)
-                            }
-                        }
-                ) {
-                    AiImportHistoryRowContent(
-                         entry = entry,
-                         textColor = textColor,
-                         modifier = Modifier.fillMaxSize().clickable(
-                             interactionSource = remember { MutableInteractionSource() },
-                             indication = null
-                         ) {
-                             if (abs(offset.value) > with(density) { 2.dp.toPx() }) {
-                                 scope.launch { offset.animateTo(0f, settleSpring) }
-                             } else if (cardBounds.width > 0f) {
-                                 onOpen(cardBounds)
-                             }
-                         }
-                    )
-                }
-            } else {
-                Spacer(
-                    Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp)
-                )
-            }
-        }
+    LiveTransitionButton(
+        modifier = Modifier.size(42.dp).onGloballyPositioned {
+            bounds = it.boundsInWindow()
+            onBoundsChanged(bounds)
+        },
+        show = show,
+    ) { sourceView ->
+        TopGlassIconButton(
+            backdrop = backdrop,
+            config = config,
+            iconRes = R.drawable.ic_history,
+            contentDescription = "历史记录",
+            onClick = { if (show && !bounds.isEmpty) onClick(bounds, sourceView) },
+            modifier = Modifier.fillMaxSize(),
+            darkOverride = appUsesDarkTheme(config),
+            foregroundOverride = LocalAiImportTextColors.current.primary
+        )
     }
 }
 
@@ -1169,19 +1070,21 @@ private fun AiEduUserMessage(
                 )
             }
         }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(0.86f)
-                .wrapContentWidth(Alignment.End)
-                .clip(UnevenRoundedRectangle(22.dp, 22.dp, 6.dp, 22.dp))
-                .background(Color(0xFF0A84FF))
-        ) {
-            Text(
-                progress.userPrompt,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                color = Color.White,
-                style = MaterialTheme.typography.bodyLarge,
-            )
+        if (progress.userPrompt.isNotBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.86f)
+                    .wrapContentWidth(Alignment.End)
+                    .clip(UnevenRoundedRectangle(22.dp, 22.dp, 6.dp, 22.dp))
+                    .background(if (appUsesDarkTheme(config)) Color(0xFF142D49) else Color(0xFFDCEBFF))
+            ) {
+                Text(
+                    progress.userPrompt,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    color = textColor,
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+            }
         }
     }
 }
@@ -1205,14 +1108,14 @@ private fun AiEduAttachmentCardContent(
             Text(
                 attachment.title,
                 color = textColor,
-                fontWeight = FontWeight.SemiBold,
+                style = AiImportTextStyles.SmallTitle,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
             Text(
                 if (attachment.images.isNotEmpty()) "${attachment.images.size} 页 · 点击预览" else "${attachment.text.length} 字 · 点击预览",
-                color = textColor.copy(alpha = 0.58f),
-                style = MaterialTheme.typography.bodySmall,
+                color = LocalAiImportTextColors.current.muted,
+                style = AiImportTextStyles.Caption,
                 maxLines = 1
             )
         }
@@ -1423,13 +1326,13 @@ private fun AiEduAttachmentMorphOverlay(
                     Text(request.attachment.title, modifier = Modifier.weight(1f), color = textColor, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Text("完成", modifier = Modifier.clickable(onClick = ::dismiss).padding(12.dp), color = controlAccentColor(Color(0xFF0A84FF)), fontWeight = FontWeight.SemiBold)
                 }
-                LazyColumn(
+                SleepDownLazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
                     if (request.attachment.text.isNotBlank()) item(key = "attachment-text") {
-                        Text(request.attachment.text, color = textColor.copy(alpha = 0.88f), style = MaterialTheme.typography.bodyMedium, lineHeight = 21.sp)
+                        Text(request.attachment.text, color = textColor, style = AiImportTextStyles.Progress)
                     }
                     itemsIndexed(
                         items = request.attachment.images,
@@ -1486,10 +1389,13 @@ private fun AiEduInlineImportPreview(
     textColor: Color,
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
+    modifier: Modifier = Modifier,
     onCreateNew: () -> Unit,
-    onOverwrite: () -> Unit
+    onOverwrite: () -> Unit,
+    scriptSaveLabel: String? = null,
+    onSaveScript: (() -> Unit)? = null
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text(
             "导入预览",
             color = textColor,
@@ -1498,8 +1404,8 @@ private fun AiEduInlineImportPreview(
         )
         Text(
             "${draft.courses.size} 门课程 · ${draft.config.totalWeeks} 周 · ${draft.periods.size} 个节次",
-            color = textColor.copy(alpha = 0.58f),
-            style = MaterialTheme.typography.bodySmall
+            color = LocalAiImportTextColors.current.muted,
+            style = AiImportTextStyles.Caption
         )
         remember(draft) { draft.resolvedCoursesForPreview() }.forEach { course ->
             ImportPreviewCourseCard(course, draft.periods, draft.config)
@@ -1507,11 +1413,6 @@ private fun AiEduInlineImportPreview(
         remember(draft) { importConflictNotice(draft) }?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
         }
-        Text(
-            "如果内容不对，直接在下方告诉 AI 怎么修改。确认导入后会打开该课表，并引导你设置开学周。",
-            color = textColor.copy(alpha = 0.62f),
-            style = MaterialTheme.typography.bodySmall
-        )
         LiquidAlertActions(
             actions = listOf(
                 LiquidAlertAction("创建新课表", LiquidAlertActionStyle.Primary, onClick = onCreateNew),
@@ -1519,6 +1420,11 @@ private fun AiEduInlineImportPreview(
             ),
             backdrop = backdrop,
             config = config
+        )
+        if (scriptSaveLabel != null) LiquidAlertActions(
+            actions = listOf(LiquidAlertAction(scriptSaveLabel, LiquidAlertActionStyle.Secondary,
+                enabled = onSaveScript != null, onClick = { onSaveScript?.invoke() })),
+            backdrop = backdrop, config = config
         )
     }
 }
@@ -1535,40 +1441,47 @@ private fun AiEduConversationComposer(
     runtimePickerState: AiRuntimePickerState,
     textColor: Color,
     attachmentVisible: Boolean,
+    hasSupplementalFiles: Boolean,
+    onAddAttachment: (() -> Unit)?,
     modifier: Modifier = Modifier,
     onValueChange: (String) -> Unit,
     onSend: () -> Unit
 ) {
-    AiEduLiquidPanel(
+    val showStop = sending && canInterrupt && value.isBlank() && !hasSupplementalFiles
+    AgentInputLiquidCapsule(
         backdrop = backdrop,
         config = config,
+        foreground = textColor,
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        shape = if (attachmentVisible) RoundedRectangle(26.dp) else Capsule(),
-        accent = Color(0xFF8E8E93)
+            .padding(horizontal = 14.dp, vertical = 10.dp).softBlurEnter(),
+        shape = Capsule(),
+        expanded = false,
+        heightOverride = 56.dp,
+        wrapContentHeight = true,
+        tokens = GlassTokens.dialog().copy(surfaceAlpha = if (glassUsesLightStyle(config)) 0.14f else 0.08f),
+        baseSurfaceColorOverride = Color.White,
+        interactionEnabledAt = { _, _ -> true }
     ) {
         Column(
             Modifier
                 .padding(start = 8.dp, end = 8.dp, top = 6.dp, bottom = 8.dp)
         ) {
-            if (attachmentVisible) {
-                Text(
-                    "已附加当前课表资料 · 发送前不会调用模型",
-                    modifier = Modifier.padding(start = 12.dp, end = 8.dp, bottom = 6.dp),
-                    color = textColor.copy(alpha = 0.62f),
-                    style = MaterialTheme.typography.labelMedium
-                )
-            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                if (onAddAttachment != null) {
+                    Box(Modifier.size(40.dp).clip(CircleShape).clickable(role = Role.Button, onClick = onAddAttachment),
+                        contentAlignment = Alignment.Center) {
+                        Icon(painterResource(R.drawable.ic_add_course), "添加附件", tint = textColor, modifier = Modifier.size(24.dp))
+                    }
+                }
                 BasicTextField(
                     value = value,
                     onValueChange = onValueChange,
                     modifier = Modifier.weight(1f).padding(horizontal = 10.dp),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = textColor),
+                    textStyle = AiImportTextStyles.Input.copy(color = textColor),
                     cursorBrush = SolidColor(Color(0xFF0A84FF)),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
                     keyboardActions = KeyboardActions(onSend = { onSend() }),
@@ -1580,14 +1493,14 @@ private fun AiEduConversationComposer(
                                     text = if (awaitingUserInput) {
                                         "回答问题，或补充导入要求…"
                                     } else if (sending && canInterrupt) {
-                                        "可停止解析，或补充要求…"
+                                        "发送补充要求，加入待处理消息…"
                                     } else if (attachmentVisible) {
                                         "帮我按规则导入…"
                                     } else {
                                         "告诉 AI 哪里需要修改…"
                                     },
-                                    color = textColor.copy(alpha = 0.48f),
-                                    style = MaterialTheme.typography.bodyLarge
+                                    color = LocalAiImportTextColors.current.muted,
+                                    style = AiImportTextStyles.Input
                                 )
                             }
                             inner()
@@ -1602,7 +1515,7 @@ private fun AiEduConversationComposer(
                 )
                 if (backdrop != null) {
                     LiquidButton(
-                        onClick = { if (sending && canInterrupt && value.isBlank()) onStop() else onSend() },
+                        onClick = { if (showStop) onStop() else onSend() },
                         backdrop = backdrop,
                         modifier = Modifier.size(40.dp),
                         height = 40.dp,
@@ -1615,16 +1528,16 @@ private fun AiEduConversationComposer(
                         chromaticAberration = false
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(if (sending && canInterrupt && value.isBlank()) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text(if (showStop) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     }
                 } else {
                     Box(
                         Modifier.size(40.dp).clip(CircleShape).background(controlAccentColor(Color(0xFF0A84FF))).clickable {
-                            if (sending && canInterrupt && value.isBlank()) onStop() else onSend()
+                            if (showStop) onStop() else onSend()
                         },
                         contentAlignment = Alignment.Center
-                    ) { Text(if (sending && canInterrupt && value.isBlank()) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold) }
+                    ) { Text(if (showStop) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold) }
                 }
             }
         }

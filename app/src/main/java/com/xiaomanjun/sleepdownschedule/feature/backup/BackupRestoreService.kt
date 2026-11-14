@@ -378,7 +378,7 @@ class BackupRestoreService(
         }
         guarded("Agent 附件清理失败") {
             val referenced = database.agentDao().getAllMessageContents()
-                .mapNotNull { parseAgentMessageContent(it).attachmentFileName }
+                .flatMap { parseAgentMessageContent(it).attachmentFileNames }
                 .toSet()
             val directory = File(appContext.filesDir, "agent_attachments")
             val existing = directory.listFiles().orEmpty().filter(File::isFile).mapTo(linkedSetOf()) { it.name }
@@ -402,12 +402,7 @@ class BackupRestoreService(
         guarded("课程提醒刷新失败") {
             ScheduleRepository(database).ensureDefaults()
             val snapshot = ScheduleRepository(database).activeSnapshot()
-            NotificationScheduler.refreshToday(
-                appContext,
-                snapshot.courses,
-                snapshot.config,
-                snapshot.periods
-            )
+            NotificationScheduler.refreshToday(appContext, snapshot)
         }
         guarded("桌面小组件刷新失败") {
             TodayCoursesWidgetProvider.refreshAll(appContext)

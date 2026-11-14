@@ -9,15 +9,27 @@ import java.time.LocalDateTime
 
 internal enum class AgentLessonPhase { BEFORE, IN_CLASS, BREAK }
 
+/** The assistant switches from a plain countdown to the read-bar layout at ten minutes. */
+internal const val AgentCountdownWindowSeconds = 600L
+
 internal data class AgentLessonFocus(
     val slot: AgentCourseSlot,
     val phase: AgentLessonPhase,
     val segment: CoursePeriodTime,
+    val phaseStartAt: LocalDateTime,
     val transitionAt: LocalDateTime,
     val finalLesson: Boolean
 ) {
     fun secondsRemainingAt(now: LocalDateTime): Long =
         (Duration.between(now, transitionAt).toMillis().coerceAtLeast(0L) + 999L) / 1000L
+
+    /** Elapsed fraction of the current lesson or break, for the whole phase. */
+    fun progressAt(now: LocalDateTime): Float {
+        val total = Duration.between(phaseStartAt, transitionAt).toMillis().toFloat()
+        if (total <= 0f) return 0f
+        val elapsed = Duration.between(phaseStartAt, now).toMillis().toFloat()
+        return (elapsed / total).coerceIn(0f, 1f)
+    }
 
     val transitionKey: String
         get() = "${slot.course.scheduleId}:${slot.course.id}:${slot.date}:$phase:$transitionAt"
@@ -42,10 +54,11 @@ internal fun agentLessonFocus(
             val continuous = previous != null && (slot.course.hasCustomTime() ||
                 positionByPeriod[previous.index]?.plus(1) == positionByPeriod[segment.index])
             val phase = if (continuous) AgentLessonPhase.BREAK else AgentLessonPhase.BEFORE
-            return@mapNotNull AgentLessonFocus(slot, phase, segment, start, false)
+            val phaseStart = if (continuous) slot.date.atTime(previous!!.end) else start
+            return@mapNotNull AgentLessonFocus(slot, phase, segment, phaseStart, start, false)
         }
         if (now.isBefore(end)) {
-            return@mapNotNull AgentLessonFocus(slot, AgentLessonPhase.IN_CLASS, segment, end,
+            return@mapNotNull AgentLessonFocus(slot, AgentLessonPhase.IN_CLASS, segment, start, end,
                 index == segments.lastIndex)
         }
     }
@@ -61,11 +74,12 @@ internal fun agentCountdownText(seconds: Long): String {
     return "%02d:%02d".format(safe / 60L, safe % 60L)
 }
 
-internal fun agentNextBoundaryWithinTenMinutes(
+internal fun agentNeedsSecondTick(
     slots: List<AgentCourseSlot>,
     periods: List<PeriodEntity>,
     now: LocalDateTime
 ): Boolean {
     val focus = agentLessonFocus(slots, periods, now) ?: return false
-    return focus.secondsRemainingAt(now) <= 600L
+    return focus.phase != AgentLessonPhase.BEFORE ||
+        focus.secondsRemainingAt(now) <= AgentCountdownWindowSeconds
 }

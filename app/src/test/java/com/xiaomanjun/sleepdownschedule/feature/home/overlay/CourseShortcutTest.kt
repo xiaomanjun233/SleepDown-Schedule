@@ -72,6 +72,26 @@ class CourseShortcutTest {
         assertEquals(smallWindow, result.bounds)
     }
 
+    @Test fun glowActionRunsBeforeVisualCleanupAndCannotBeSubmittedTwice() = runBlocking {
+        val clock = BroadcastFrameClock()
+        val controller = CourseShortcutController(CoroutineScope(coroutineContext + clock))
+        var finishWindow: (() -> Unit)? = null
+        var commits = 0
+        controller.open(CourseShortcutRequest(course, 3, Rect(0f, 200f, 80f, 300f), 12f, 1f) {})
+        repeat(30) { clock.sendFrame(it * 16_666_667L); yield() }
+        controller.dismissNativeMenu = { finishWindow = it }
+        controller.close(dispatchImmediately = true) { commits++ }
+        controller.close(dispatchImmediately = true) { commits++ }
+        assertEquals(1, commits)
+        assertNotNull(controller.request)
+        repeat(30) { clock.sendFrame((30 + it) * 16_666_667L); yield() }
+        assertNotNull(controller.request)
+        checkNotNull(finishWindow).invoke()
+        yield()
+        assertNull(controller.request)
+        assertEquals(1, commits)
+    }
+
     @Test fun editActionWaitsForMenuToRetract() = runBlocking {
         val clock = BroadcastFrameClock()
         val controller = CourseShortcutController(CoroutineScope(coroutineContext + clock))
@@ -87,7 +107,7 @@ class CourseShortcutTest {
         assertEquals(0f, controller.progress.value, 0f)
     }
 
-    @Test fun pressSinksBeforeMenuThenLiftAndMenuAdvanceTogether() = runBlocking {
+    @Test fun pressAndMenuStartBeforeTheBackgroundDepth() = runBlocking {
         val clock = BroadcastFrameClock()
         val controller = CourseShortcutController(CoroutineScope(coroutineContext + clock))
         controller.open(CourseShortcutRequest(course, 3, Rect(0f, 200f, 80f, 300f), 12f, 0.5f) {})
@@ -96,26 +116,12 @@ class CourseShortcutTest {
         repeat(90) { frame ->
             clock.sendFrame(frame * 8_333_333L)
             yield()
-            if (controller.cardScale.value < 0.995f && controller.progress.value == 0f) sawPress = true
+            if (controller.cardScale.value < 0.995f && controller.progress.value > 0f &&
+                controller.backgroundProgress == 0f) sawPress = true
             if (controller.cardScale.value > 1f && controller.progress.value > 0f) sawSharedLift = true
         }
         assertTrue(sawPress)
         assertTrue(sawSharedLift)
-    }
-
-    @Test fun dragTakeoverCancelsPendingMenuAction() = runBlocking {
-        val clock = BroadcastFrameClock()
-        val controller = CourseShortcutController(CoroutineScope(coroutineContext + clock))
-        var actionCalled = false
-        controller.open(CourseShortcutRequest(course, 3, Rect(0f, 200f, 80f, 300f), 12f, 0.5f) {})
-        repeat(30) { clock.sendFrame(it * 16_666_667L); yield() }
-        controller.close { actionCalled = true }
-        controller.takeOverDrag()
-        assertNull(controller.request)
-        repeat(30) { clock.sendFrame((30 + it) * 16_666_667L); yield() }
-        assertFalse(actionCalled)
-        assertNull(controller.copyRequest)
-        assertEquals(0f, controller.progress.value, 0f)
     }
 
     @Test fun nativeExitAndBackgroundExitBothFinishBeforeAction() = runBlocking {

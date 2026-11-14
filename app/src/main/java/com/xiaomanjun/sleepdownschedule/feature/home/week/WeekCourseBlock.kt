@@ -1,20 +1,18 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import android.os.SystemClock
 import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
-import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -31,9 +29,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Text
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
@@ -98,7 +98,6 @@ import com.xiaomanjun.sleepdownschedule.feature.home.currentWindowSizeDp
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeCourseTextColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.homeForegroundColor
 import com.xiaomanjun.sleepdownschedule.feature.home.day.occurrenceOverrideKey
-import com.xiaomanjun.sleepdownschedule.feature.home.homeSwitchGroup
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseBoundsSource
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.CourseShortcutRequest
 import com.xiaomanjun.sleepdownschedule.feature.home.overlay.LocalCourseCopy
@@ -117,7 +116,6 @@ import kotlin.math.abs
 import kotlin.math.min
 import kotlin.math.roundToInt
 import kotlin.math.sin
-import kotlin.math.sqrt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.map
@@ -171,9 +169,9 @@ fun WeekCourseBlock(
     course: CourseEntity,
     periods: List<PeriodEntity>,
     height: Dp,
+    topInGrid: Dp,
     cardColor: ComposeColor,
     backdrop: Backdrop?,
-    floatingBackdrop: Backdrop? = backdrop,
     config: ScheduleConfigEntity,
     shortcutPivotX: Float,
     weekMotionDirection: Int = 0,
@@ -194,13 +192,13 @@ fun WeekCourseBlock(
     conflictUnderlyingSpan: Int = 0,
     onResolveConflict: (CourseEntity) -> Unit = {},
     editMode: Boolean = false,
+    editActivation: State<Float>,
     editingAllowed: Boolean = true,
     /** A cancelled occurrence uses neutral light; clicking still edits its original course. */
     muted: Boolean = false,
     editWeek: Int = 1,
     allWeekCourses: List<CourseEntity> = emptyList(),
     weekdayCount: Int = 7,
-    editScrollState: ScrollState? = null,
     onEnterEditMode: () -> Unit = {},
     onUpdateSingleWeekCourse: (CourseEntity, CourseEntity) -> Unit = { _, _ -> },
     onDeleteSingleWeekCourse: (CourseEntity) -> Unit = {},
@@ -214,7 +212,6 @@ fun WeekCourseBlock(
     onFinishMoveOverlay: (Velocity) -> Unit = {},
     onFinishResizeOverlay: (Velocity) -> Unit = {},
     onCancelWeekEditOverlay: () -> Unit = {},
-    occlusionMaterialMounted: Boolean = true
 ) {
     val personalizationPreview = LocalPersonalizationPreview.current
     val locationText = course.location.orEmpty()
@@ -254,16 +251,6 @@ fun WeekCourseBlock(
         activeOverlayTargetWeek == editWeek &&
         activeOverlayTargetWeek in course.weeks &&
         course.occurrenceOverrideKey() == activeOverlayTargetKey
-    val editControlHandoffTarget = when {
-        isOverlayTarget -> if (weekEditMotionState?.realCardVisible == true) 1f else 0f
-        activeOverlayCourseId == course.id -> 1f - (weekEditMotionState?.revealProgress ?: 1f)
-        else -> 1f
-    }.coerceIn(0f, 1f)
-    val editControlHandoffProgress by animateFloatAsState(
-        targetValue = editControlHandoffTarget,
-        animationSpec = spring(dampingRatio = 0.56f, stiffness = 620f),
-        label = "week-edit-controls-handoff-${course.id}"
-    )
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
     val timeGrid = LocalWeekTimeSlotGrid.current
     val gridDensity = LocalDensity.current
@@ -298,32 +285,10 @@ fun WeekCourseBlock(
      * lifted card is rendered by WeekEditOverlayHost outside that recorder.
      */
     val activeCardBackdrop = backdrop
-    // Only the edit jiggle needs this composition-time flag. Observing hidden-page state
-    // while not editing restarted every WeekCourseBlock when Day/Settings revealed Week.
-    val backgroundFrozen = editMode &&
-        com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeBackgroundFrozen.current.value
-    val editJitterMotion = remember { Animatable(0f) }
-    LaunchedEffect(editMode, backgroundFrozen) {
-        if (backgroundFrozen) return@LaunchedEffect
-        if (editMode) {
-            editJitterMotion.snapTo(-0.35f)
-            editJitterMotion.animateTo(
-                0.35f,
-                infiniteRepeatable(tween(durationMillis = 115), RepeatMode.Reverse)
-            )
-        } else {
-            editJitterMotion.snapTo(0f)
-        }
-    }
     val pressScale by animateFloatAsState(
         targetValue = if (bodyDragging || handleDragging) WeekEditLiftedScale else 1f,
         animationSpec = spring(dampingRatio = 0.60f, stiffness = 470f),
         label = "week-edit-press-scale-${course.id}"
-    )
-    val editActivationProgress by animateFloatAsState(
-        targetValue = if (editMode) 1f else 0f,
-        animationSpec = spring(dampingRatio = 0.68f, stiffness = 420f),
-        label = "week-edit-activation-${course.id}"
     )
     val displayedHeight = height
     val windowSize = currentWindowSizeDp()
@@ -352,7 +317,7 @@ fun WeekCourseBlock(
         }
         copyMotion?.reportTarget(course, editWeek)
         if (isOverlayTarget) {
-            weekEditMotionState?.updateRealLandingCenter(bounds.center)
+            weekEditMotionState?.onRealCardPositioned(bounds.center)
         }
         return bounds
     }
@@ -418,17 +383,17 @@ fun WeekCourseBlock(
     val adjustedEditor = LocalAdjustedCourseEditor.current
     val adjustedOccurrenceDate = if (editingAllowed) null else
         scheduleWeekStartDate(config, editWeek).plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, dayIndex))
-    val openShortcut by rememberUpdatedState<() -> Unit> {
-        if (editingAllowed) refreshOwnBounds()?.let { bounds ->
-            shortcuts?.open(CourseShortcutRequest(course, editWeek, bounds,
-                with(density) { cardCorner.toPx() }, shortcutPivotX, onEnterEditMode))
+    val openShortcut by rememberUpdatedState<() -> CourseShortcutRequest?> {
+        if (!editingAllowed || shortcuts == null) null else refreshOwnBounds()?.let { bounds ->
+            CourseShortcutRequest(course, editWeek, bounds, with(density) { cardCorner.toPx() },
+                shortcutPivotX, onEnterEditMode).also(shortcuts::open)
         }
     }
-    val startBodyDrag by rememberUpdatedState<(Offset) -> Boolean> { position ->
+    val startBodyDrag by rememberUpdatedState<(Offset, CourseShortcutRequest?) -> Boolean> { position, shortcut ->
         val request = buildWeekEditOverlayRequest(WeekEditOverlayMode.Move, position)
         if (request != null && !customTimeLocked) {
-            shortcuts?.takeOverDrag()
-            onEnterEditMode()
+            if (shortcut != null) shortcuts?.cancel(shortcut)
+            if (!currentEditMode) onEnterEditMode()
             bodyDragging = true
             onStartWeekEditOverlay(request)
             true
@@ -470,15 +435,29 @@ fun WeekCourseBlock(
                 return@awaitEachGesture
             }
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-            if (!currentEditMode) openShortcut()
+            val shortcutGesture = !currentEditMode
+            var heldShortcut: CourseShortcutRequest? = null
+            // A held card gets immediate feedback. Give a moving finger a short chance
+            // to claim the gesture before allocating the menu window and home blur.
+            var shortcutDeadline = if (shortcutGesture) SystemClock.uptimeMillis() + 80L else 0L
+            val shortcutDrift = minOf(viewConfiguration.touchSlop, 1.5.dp.toPx())
             val velocityTracker = VelocityTracker()
             velocityTracker.addPosition(longPress.uptimeMillis, longPress.position)
             var accumulated = Offset.Zero
-            var dragging = currentEditMode && !customTimeLocked && startBodyDrag(longPress.position)
+            var dragging = !shortcutGesture && !customTimeLocked && startBodyDrag(longPress.position, null)
             var released = false
             try {
                 while (true) {
-                    val event = awaitPointerEvent()
+                    val event = if (shortcutDeadline == 0L) {
+                        awaitPointerEvent()
+                    } else {
+                        withTimeoutOrNull(shortcutDeadline - SystemClock.uptimeMillis()) { awaitPointerEvent() }
+                    }
+                    if (event == null) {
+                        shortcutDeadline = 0L
+                        heldShortcut = openShortcut()
+                        continue
+                    }
                     val change = event.changes.firstOrNull { it.id == longPress.id } ?: break
                     if (event.changes.any { it.id != longPress.id && it.pressed } || change.isConsumed) break
                     if (!change.pressed) {
@@ -488,10 +467,11 @@ fun WeekCourseBlock(
                     }
                     val delta = change.positionChange()
                     accumulated += delta
+                    if (shortcutDeadline != 0L && accumulated.getDistance() > shortcutDrift) shortcutDeadline = 0L
                     velocityTracker.addPosition(change.uptimeMillis, change.position)
                     change.consume()
                     if (!dragging && !customTimeLocked && accumulated.getDistance() > viewConfiguration.touchSlop) {
-                        dragging = startBodyDrag(longPress.position)
+                        dragging = startBodyDrag(longPress.position, heldShortcut)
                         if (dragging) dragBody(accumulated)
                     } else if (dragging) {
                         dragBody(delta)
@@ -507,7 +487,10 @@ fun WeekCourseBlock(
                         finishBodyDrag(velocityTracker.calculateVelocity())
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                     } else cancelBodyDrag()
-                } else if (!released) shortcuts?.close()
+                } else if (shortcutGesture) {
+                    if (released && heldShortcut == null) openShortcut()
+                    if (!released) heldShortcut?.let { shortcuts?.cancel(it) }
+                }
             }
         }
     }
@@ -516,13 +499,10 @@ fun WeekCourseBlock(
     val baseModifier = Modifier
         .fillMaxWidth()
         .height(height)
-        .homeSwitchGroup(cardOrderFraction)
-    val realLandingLiftPx = with(density) { 8.dp.toPx() }
+    val landingRipple = weekEditMotionState?.landingRipple?.takeIf { it.week == editWeek }
     val tailTransformActive =
         layerOffset?.isRunning == true || (layerOffset?.value ?: 0f) != 0f ||
-            weekEditMotionState?.request != null ||
-            weekEditMotionState?.landingRippleCenter != null ||
-            weekEditMotionState?.realCardLandingActive == true ||
+            landingRipple != null ||
             copyMotion?.active == true || copyMotion?.rippleCenter != null ||
             copyMotion?.landed == true
     val tailTransformModifier = if (tailTransformActive) Modifier.graphicsLayer {
@@ -550,47 +530,33 @@ fun WeekCourseBlock(
                 tailBase * delayedProgress * tailDirection
             } ?: 0f
             val copyRippleCenter = copyMotion?.rippleCenter?.takeIf { copyMotion.target?.week == editWeek }
-            val rippleCenter = copyRippleCenter ?: weekEditMotionState?.landingRippleCenter
-            val rippleRadius = if (copyRippleCenter != null) copyMotion.rippleRadius else weekEditMotionState?.landingRippleRadius ?: 1f
-            val rippleProgress = if (copyRippleCenter != null) copyMotion.ripple.value else weekEditMotionState?.landingRippleProgress ?: 1f
+            val rippleRadius = if (copyRippleCenter != null) copyMotion.rippleRadius else landingRipple?.radiusPx ?: 0f
             val bounds = ownBoundsRef[0]
-            val ripple = if (
-                rippleCenter != null &&
-                bounds != null &&
+            val rippleScale = if (
+                rippleRadius > 0f && bounds != null && !bounds.isEmpty &&
                 copyMotion?.isTarget(course, editWeek) != true &&
                 !isOverlayTarget &&
                 activeOverlayCourseId != course.id
             ) {
-                val deltaX = bounds.center.x - rippleCenter.x
-                val deltaY = bounds.center.y - rippleCenter.y
-                weekEditNeighborRippleTransform(
-                    distancePx = sqrt(deltaX * deltaX + deltaY * deltaY),
-                    radiusPx = rippleRadius,
-                    progress = rippleProgress,
-                    horizontalDirection = deltaX / rippleRadius.coerceAtLeast(1f)
-                )
-            } else {
-                WeekEditNeighborRippleTransform(0f, 1f, 0f)
-            }
-            val realLanding = if (isOverlayTarget && weekEditMotionState?.realCardLandingActive == true) {
-                weekEditRealCardLandingTransform(weekEditMotionState.realCardLandingProgress)
-            } else {
-                WeekEditRealCardLandingTransform(liftFactor = 0f, scale = 1f)
-            }
+                val distance = if (copyRippleCenter != null) (bounds.center - copyRippleCenter).getDistance()
+                    else weekEditMotionState?.landingRippleDistance(bounds.center) ?: Float.POSITIVE_INFINITY
+                if (distance < rippleRadius) {
+                    weekEditNeighborRippleTransform(
+                        distancePx = distance,
+                        radiusPx = rippleRadius,
+                        progress = if (copyRippleCenter != null) copyMotion.ripple.value
+                            else weekEditMotionState?.landingRippleProgress ?: 1f
+                    ).scale
+                } else 1f
+            } else 1f
             val landingImpact = if (copyMotion?.isTarget(course, editWeek) == true && copyMotion.landed) {
                 weekEditLandingImpactTransform(copyMotion.impact.value)
-            } else if (isOverlayTarget && weekEditMotionState?.realCardLandingActive == true) {
-                weekEditLandingImpactTransform(weekEditMotionState.impactProgress)
             } else {
                 WeekEditLandingImpactTransform(translationFactor = 0f, scaleX = 1f, scaleY = 1f)
             }
             translationX = tailX
-            // Landing happens on the repository-backed card at its new logical bounds. Only Z
-            // depth is animated; its timetable X/Y never diverges from the persisted target.
-            translationY = -realLandingLiftPx * realLanding.liftFactor
-            scaleX = ripple.scale * realLanding.scale * landingImpact.scaleX
-            scaleY = ripple.scale * realLanding.scale * landingImpact.scaleY
-            rotationZ = ripple.rotationFactor
+            scaleX = rippleScale * landingImpact.scaleX
+            scaleY = rippleScale * landingImpact.scaleY
         } else Modifier
     val tailModifier = tailTransformModifier.onGloballyPositioned { coordinates ->
             ownCoordinatesRef[0] = coordinates
@@ -607,15 +573,15 @@ fun WeekCourseBlock(
                 refreshOwnBounds()
             }
         }
-    val visibilityModifier = if (
-        shortcuts?.request != null || copyMotion?.active == true ||
-        copyMotion?.hides(course, editWeek) == true
-    ) Modifier.graphicsLayer {
-        val shortcut = shortcuts?.request
-        alpha = if (copyMotion?.hides(course, editWeek) == true ||
-            (shortcut?.course?.id == course.id && shortcut.week == editWeek &&
-                shortcut.bounds == ownBoundsRef[0])) 0f else 1f
-    } else Modifier
+    val hiddenByShortcut by remember(shortcuts, course.id, editWeek, ownBoundsRef) {
+        derivedStateOf {
+            shortcuts?.request?.let {
+                it.course.id == course.id && it.week == editWeek && it.bounds == ownBoundsRef[0]
+            } == true
+        }
+    }
+    val hiddenByOverlay = hiddenByShortcut || copyMotion?.hides(course, editWeek) == true
+    val visibilityModifier = if (hiddenByOverlay) Modifier.graphicsLayer { alpha = 0f } else Modifier
     CourseBoundsSource(
         courseId = course.id,
         visible = editingId != course.id && course.id !in
@@ -632,7 +598,7 @@ fun WeekCourseBlock(
                 .semantics {
                     if (copyMotion?.active != true) {
                         onClick(if (editingAllowed) "查看课程" else "查看调休课程") { clickBody(); true }
-                        if (editingAllowed) onLongClick("课程快捷操作") { openShortcut(); true }
+                        if (editingAllowed) onLongClick("课程快捷操作") { openShortcut() != null }
                     }
                 }
                 .then(visibilityModifier)
@@ -733,23 +699,33 @@ fun WeekCourseBlock(
                 }
             }
             val showConflictBadge = conflictWarning && !editMode && !customTimeLocked
-            val cardTransformActive =
-                bodyDragging || handleDragging || pressScale != 1f ||
-                    editActivationProgress != 0f || editJitterMotion.value != 0f ||
-                    conflictActionResolving || isOverlayTarget ||
-                    activeOverlayCourseId == course.id
+            // The page owns the entry spring. Cards observe its value only in their layer.
+            val cardTransformActive by remember(bodyDragging, handleDragging, conflictActionResolving,
+                isOverlayTarget, activeOverlayCourseId, course.id, editActivation, editingAllowed) {
+                derivedStateOf {
+                    bodyDragging || handleDragging || pressScale != 1f ||
+                        (editingAllowed && editActivation.value != 0f) ||
+                        conflictActionResolving || isOverlayTarget ||
+                        activeOverlayCourseId == course.id
+                }
+            }
             val cardTransformModifier = if (cardTransformActive) Modifier.graphicsLayer {
+                val activation = if (editingAllowed) editActivation.value.coerceIn(0f, 1f) else 0f
                 val activeScale = if (bodyDragging) {
                     WeekEditLiftedScale
                 } else {
-                    pressScale * (1f + editActivationProgress * 0.006f)
+                    pressScale * (1f + activation * 0.006f)
                 }
                 transformOrigin = if (handleDragging) {
                     TransformOrigin(0.5f, 0f)
                 } else {
                     TransformOrigin.Center
                 }
-                rotationZ = if (bodyDragging || handleDragging) 0f else editJitterMotion.value * editActivationProgress
+                if (!bodyDragging && !handleDragging && activation > 0f && activation < 1f) {
+                    // Let the edit cue settle before the stationary grid is sampled during drag.
+                    val envelope = 4f * activation * (1f - activation)
+                    rotationZ = 0.35f * envelope * sin(4.0 * Math.PI * activation).toFloat()
+                }
                 scaleX = activeScale
                 scaleY = activeScale
                 val departureAlpha = if (conflictActionResolving) {
@@ -759,8 +735,9 @@ fun WeekCourseBlock(
                 }
                 alpha = when {
                     isOverlayTarget -> if (weekEditMotionState?.realCardVisible == true) 1f else 0f
-                    activeOverlayCourseId == course.id ->
-                        1f - (weekEditMotionState?.revealProgress ?: 1f)
+                    // The overlay starts at the source bounds and owns the entire lift.
+                    // Switching owners once also keeps the sampled grid stable under it.
+                    activeOverlayCourseId == course.id -> 0f
                     else -> departureAlpha
                 }
             } else Modifier
@@ -783,9 +760,10 @@ fun WeekCourseBlock(
                     .fillMaxWidth()
                     .height(displayedHeight),
                 shape = cardShape,
-                mountMaterial = occlusionMaterialMounted,
                 // Pager owns lifetime; scrolling never toggles a card's material nodes.
-                viewportMaterialVisible = true,
+                viewportMaterialVisible = !hiddenByOverlay &&
+                    ((activeOverlayCourseId != course.id && !isOverlayTarget) ||
+                        weekEditMotionState?.realCardVisible == true),
                 muted = subdued,
                 followTouch = !editMode,
                 onClick = null
@@ -890,18 +868,17 @@ fun WeekCourseBlock(
                     )
                 }
             }
+            val floatingCardOwnsVisual = (isOverlayTarget || activeOverlayCourseId == course.id) &&
+                weekEditMotionState?.realCardVisible != true
+            val showEditControls = editMode && !floatingCardOwnsVisual
             AnimatedVisibility(
-                visible = editMode,
+                visible = showEditControls,
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .offset(x = (-5).dp, y = (-5).dp)
+                    // The first ordinary course may begin right at the header when there is
+                    // no special slot before it. Keep the badge and its entrance inside the grid.
+                    .offset(x = (-5).dp, y = maxOf((-5).dp, 2.dp - topInGrid))
                     .size(22.dp)
-                    .graphicsLayer {
-                        alpha = editControlHandoffProgress.coerceIn(0f, 1f)
-                        val handoffScale = 0.42f + editControlHandoffProgress * 0.58f
-                        scaleX = handoffScale
-                        scaleY = handoffScale
-                    }
                     .zIndex(7f),
                 enter = fadeIn(tween(125, delayMillis = (editControlOrder % 7) * 9)) +
                     scaleIn(
@@ -945,77 +922,17 @@ fun WeekCourseBlock(
                     )
                 }
             }
-            val resizeHandleModifier = Modifier
-                .fillMaxSize()
-                .then(
-                    if (resizeHandleInputEnabled) {
-                        Modifier.pointerInput(course.id, editWeek, currentSpan) {
-                            val velocityTracker = VelocityTracker()
-                            detectDragGestures(
-                                onDragStart = {
-                                    velocityTracker.resetTracking()
-                                    buildWeekEditOverlayRequest(
-                                        WeekEditOverlayMode.Resize,
-                                        Offset(measuredCardWidthPx, baseHeightPx)
-                                    )?.let { request ->
-                                        handleDragging = true
-                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        onStartWeekEditOverlay(request)
-                                    }
-                                },
-                                onDrag = { change, dragAmount ->
-                                    if (handleDragging) {
-                                        change.consume()
-                                        velocityTracker.addPosition(change.uptimeMillis, change.position)
-                                        onDragWeekEditOverlay(dragAmount)
-                                    }
-                                },
-                                onDragEnd = {
-                                    if (handleDragging) {
-                                        onFinishResizeOverlay(velocityTracker.calculateVelocity())
-                                        handleDragging = false
-                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    }
-                                },
-                                onDragCancel = {
-                                    if (handleDragging) {
-                                        handleDragging = false
-                                        onCancelWeekEditOverlay()
-                                    }
-                                }
-                            )
-                        }
-                    } else {
-                        Modifier
-                    }
-                )
-            @Composable
-            fun renderResizeHandle(modifier: Modifier) {
-                WeekResizeCornerHandle(
-                    config = config,
-                    backdrop = activeCardBackdrop,
-                    cardSize = androidx.compose.ui.unit.DpSize(cardLayoutWidth, displayedHeight),
-                    cardCorner = cardCorner,
-                    selected = handleDragging,
-                    modifier = modifier.then(resizeHandleModifier)
-                )
-            }
+            val resizeHandleBounds = Modifier
+                .align(Alignment.BottomEnd)
+                .offset(x = 4.dp, y = 4.dp)
+                .size(44.dp)
+                .zIndex(6f)
             // Keep every resize control in the week grid's own layer. The edit-mode gutter above
             // already provides the four drawing pixels used by this handle; promoting only the
             // final-row handle to a window Popup made it render above the app's bottom dock.
             AnimatedVisibility(
-                visible = editMode && !customTimeLocked,
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .offset(x = 4.dp, y = 4.dp)
-                    .size(44.dp)
-                    .graphicsLayer {
-                        alpha = editControlHandoffProgress.coerceIn(0f, 1f)
-                        val handoffScale = 0.42f + editControlHandoffProgress * 0.58f
-                        scaleX = handoffScale
-                        scaleY = handoffScale
-                    }
-                    .zIndex(6f),
+                visible = showEditControls && !customTimeLocked,
+                modifier = resizeHandleBounds,
                 enter = fadeIn(tween(135, delayMillis = 45 + (editControlOrder % 7) * 8)) +
                     scaleIn(
                         animationSpec = spring(dampingRatio = 0.52f, stiffness = 470f),
@@ -1025,7 +942,54 @@ fun WeekCourseBlock(
                 exit = fadeOut(tween(90)) +
                     scaleOut(tween(125), targetScale = 0.55f, transformOrigin = TransformOrigin(0f, 0f))
             ) {
-                renderResizeHandle(Modifier.fillMaxSize())
+                WeekResizeCornerHandle(
+                    config = config,
+                    backdrop = activeCardBackdrop,
+                    cardSize = androidx.compose.ui.unit.DpSize(cardLayoutWidth, displayedHeight),
+                    cardCorner = cardCorner,
+                    selected = false,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+            // The floating card takes over drawing the handle. Keep the hit target in the grid
+            // until the same finger releases, even after the original handle has faded out.
+            if (resizeHandleInputEnabled) {
+                Box(resizeHandleBounds.pointerInput(course.id, editWeek, currentSpan) {
+                    val velocityTracker = VelocityTracker()
+                    detectDragGestures(
+                        onDragStart = {
+                            velocityTracker.resetTracking()
+                            buildWeekEditOverlayRequest(
+                                WeekEditOverlayMode.Resize,
+                                Offset(measuredCardWidthPx, baseHeightPx)
+                            )?.let { request ->
+                                handleDragging = true
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onStartWeekEditOverlay(request)
+                            }
+                        },
+                        onDrag = { change, dragAmount ->
+                            if (handleDragging) {
+                                change.consume()
+                                velocityTracker.addPosition(change.uptimeMillis, change.position)
+                                onDragWeekEditOverlay(dragAmount)
+                            }
+                        },
+                        onDragEnd = {
+                            if (handleDragging) {
+                                onFinishResizeOverlay(velocityTracker.calculateVelocity())
+                                handleDragging = false
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                            }
+                        },
+                        onDragCancel = {
+                            if (handleDragging) {
+                                handleDragging = false
+                                onCancelWeekEditOverlay()
+                            }
+                        }
+                    )
+                })
             }
             }
         }

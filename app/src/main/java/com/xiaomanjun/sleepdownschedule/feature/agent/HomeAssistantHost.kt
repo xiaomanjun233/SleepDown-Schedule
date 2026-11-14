@@ -1,13 +1,19 @@
 package com.xiaomanjun.sleepdownschedule.feature.agent
 
+import android.Manifest
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Path
+import android.graphics.RectF
 import android.net.Uri
+import android.os.Build
+import android.view.View
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -19,6 +25,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -70,7 +77,7 @@ internal fun HomeAssistantHost(
     backdrop: Backdrop?,
     backgroundMotion: DayAgentBackgroundMotionState,
     onAgentAction: AgentActionHandler,
-    onImportFile: (Uri) -> Unit
+    onImportFile: (List<Uri>) -> Unit
 ) {
     val context = LocalContext.current
     val density = LocalDensity.current
@@ -89,6 +96,10 @@ internal fun HomeAssistantHost(
     val weatherEnabled = remember(preferencesVersion) { DayAgentPreferences.isWeatherEnabled(context) }
     val repository = remember(context) { DayAgentRepository(context.applicationContext) }
     val weatherRepository = remember(context) { DayAgentWeatherRepository(context.applicationContext) }
+    var weatherPermissionGranted by remember(weatherRepository) { mutableStateOf(weatherRepository.hasLocationPermission()) }
+    val requestWeatherPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        weatherPermissionGranted = granted
+    }
     var weather by remember(weatherEnabled) { mutableStateOf(if (weatherEnabled) DayAgentWeatherStore.load(context) else null) }
     val aiVersion by AiImportSettingsStore.changes.collectAsStateWithLifecycle()
     val hasAi = remember(aiVersion) { AiImportSettingsStore.resolveAvailableSettings(context) != null ||
@@ -98,6 +109,7 @@ internal fun HomeAssistantHost(
             if (event == Lifecycle.Event.ON_RESUME) {
                 foreground = true
                 now = LocalDateTime.now()
+                weatherPermissionGranted = weatherRepository.hasLocationPermission()
                 clockVersion++
             }
             if (event == Lifecycle.Event.ON_STOP) {
@@ -147,7 +159,7 @@ internal fun HomeAssistantHost(
         DayAgentRenderCache.facts(state, date, weather, state.schedules.firstOrNull { it.id == state.config.id }?.name, context)
             .copy(now = now)
     }
-    LaunchedEffect(controller.visible, weatherEnabled, date) {
+    LaunchedEffect(controller.visible, weatherEnabled, weatherPermissionGranted, date) {
         if (controller.visible && weatherEnabled) weather = weatherRepository.getWeather()
         if (controller.visible && DayAgentRenderCache.shouldCleanup(date)) repository.cleanup(date)
     }
@@ -175,12 +187,7 @@ internal fun HomeAssistantHost(
             delay(Duration.between(current, next).toMillis().coerceAtLeast(1L))
         }
     }
-    var hideStatusBar by remember { mutableStateOf(false) }
-    LaunchedEffect(controller.visible, controller.closing, foreground) {
-        if (controller.closing) delay(320)
-        hideStatusBar = controller.visible && !controller.closing && foreground
-    }
-    if (controller.visible) TopAssistantSystemBars(hidden = hideStatusBar)
+    if (controller.visible) TopAssistantSystemBars(hidden = foreground)
 
     if (controller.stage == HomeAssistantStage.Conversation && !decided) {
         LiquidAlertDialog(
@@ -191,29 +198,29 @@ internal fun HomeAssistantHost(
                     DayAgentPreferences.setEnabled(context, false); controller.reset()
                 },
                 LiquidAlertAction("启用", LiquidAlertActionStyle.Primary) { DayAgentPreferences.setEnabled(context, true) }
-            ),
-            backdrop = backdrop, config = state.config,
+            ), config = state.config,
             onDismissRequest = { controller.reset() }
         )
     }
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val safeTop = WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding()
-        val insets = ViewCompat.getRootWindowInsets(view)
-        val topCutout = insets?.displayCutout?.boundingRects?.filter {
-            it.top <= (insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars()).top)
-        }?.firstOrNull()
         // Capture the physical cutout before hiding system bars. Some OEMs report no cutout
         // while immersive, which otherwise moves the closing target halfway up the status bar.
-        val anchor = remember(controller.visible, maxWidth, maxHeight, density.density) { with(density) {
-            val centerX = topCutout?.exactCenterX() ?: maxWidth.toPx() / 2f
-            val centerY = topCutout?.exactCenterY() ?: safeTop.toPx() / 2f
-            val halfWidth = maxOf(topCutout?.width()?.toFloat() ?: 0f, 36.dp.toPx()) / 2f
-            Rect(centerX - halfWidth, (centerY - 12.dp.toPx()).coerceAtLeast(0f), centerX + halfWidth, centerY + 12.dp.toPx())
-        } }
-        val closingAnchor = with(density) {
-            // A fuller, slightly lower docking cap keeps the final return leg visible.
-            Rect(anchor.left - 4.dp.toPx(), anchor.top + 1.dp.toPx(),
-                anchor.right + 4.dp.toPx(), anchor.bottom + 7.dp.toPx())
+        val cameraDock = remember(controller.visible, view, maxWidth, maxHeight, density.density) {
+            val cutout = topAssistantCutoutBounds(view)
+            with(density) {
+                val center = cutout?.center ?: Offset(maxWidth.toPx() / 2f, safeTop.toPx() / 2f)
+                val width = cutout?.let { it.width + 8.dp.toPx() } ?: 36.dp.toPx()
+                val height = cutout?.height ?: 12.dp.toPx()
+                val halfSize = Offset(width, height.coerceIn(1f, width)) / 2f
+                Rect(center - halfSize, center + halfSize)
+            }
+        }
+        val anchor = with(density) {
+            val center = cameraDock.center
+            val halfWidth = maxOf(cameraDock.width, 36.dp.toPx()) / 2f
+            Rect(center.x - halfWidth, (center.y - 12.dp.toPx()).coerceAtLeast(0f),
+                center.x + halfWidth, center.y + 12.dp.toPx())
         }
         if (controller.stage == HomeAssistantStage.Hidden && controller.pullPixels > 0f) {
             Text(
@@ -226,7 +233,7 @@ internal fun HomeAssistantHost(
             )
         }
         val presentation = rememberDayAgentPresentation(
-            facts, false, true, weatherEnabled, weatherRepository.hasLocationPermission(), hasAi, !hasAi,
+            facts, false, true, weatherEnabled, weatherPermissionGranted, hasAi, !hasAi,
             focusOverride = controller.reminder?.slot
         )
         val edgeInset = 8.dp
@@ -239,25 +246,29 @@ internal fun HomeAssistantHost(
             Rect((maxWidth - width).toPx() / 2f, edgeInset.toPx(), (maxWidth + width).toPx() / 2f, (height + edgeInset).toPx())
         }
         val noticeMotion = rememberTopAssistantMotion()
-        val dockFade = remember { Animatable(1f) }
+        val returnProgress = remember { Animatable(0f) }
+        var reminderReturnFrom by remember { mutableStateOf<Rect?>(null) }
         var reminderTouched by remember { mutableStateOf(false) }
         fun reminderGeometry(): Rect {
+            reminderReturnFrom?.let { return topAssistantCameraReturnRect(it, cameraDock, returnProgress.value) }
             val rect = topAssistantMorphRect(anchor, target, noticeMotion.drop.value, noticeMotion.spread.value)
             return rect.copy(bottom = rect.bottom + if (controller.pullingHome) 0f else controller.pullPixels)
         }
         LaunchedEffect(controller.stage, controller.closing, controller.reminderGeneration) {
             if (controller.stage == HomeAssistantStage.Reminder) {
                 if (controller.closing) {
-                    noticeMotion.animateTo(0f, overshoot = false)
-                    dockFade.animateTo(0f, tween(90))
+                    reminderReturnFrom = reminderGeometry()
+                    returnProgress.animateTopAssistantCameraReturn()
                     controller.reset()
                 } else {
-                    dockFade.snapTo(1f)
+                    reminderReturnFrom = null
+                    returnProgress.snapTo(0f)
                     noticeMotion.animateTo(1f)
                 }
             } else if (controller.stage == HomeAssistantStage.Hidden) {
+                reminderReturnFrom = null
                 noticeMotion.snapTo(0f)
-                dockFade.snapTo(1f)
+                returnProgress.snapTo(0f)
             }
         }
         val accessibility = LocalAccessibilityManager.current
@@ -275,14 +286,11 @@ internal fun HomeAssistantHost(
             BackHandler(controller.stage == HomeAssistantStage.Reminder) { controller.closing = true }
             TopAssistantSurface(
                 backdrop, state.config, RoundedRectangle(with(density) { (screenCornerPx - edgeInset.toPx()).coerceAtLeast(16.dp.toPx()).toDp() }),
-                nativeMaterial = true,
+                useGlowMaterial = true,
                 modifier = Modifier.offset {
                     val rect = reminderGeometry()
                     IntOffset(rect.left.roundToInt(), rect.top.roundToInt())
                 }.assistantMorphBounds(::reminderGeometry)
-                    .graphicsLayer {
-                        alpha = dockFade.value
-                    }
                     .onGloballyPositioned { controller.reminderBounds = it.boundsInRoot() }
                     .pointerInput(Unit) {
                         awaitEachGesture {
@@ -313,7 +321,8 @@ internal fun HomeAssistantHost(
                 Column(Modifier.fixedAssistantContentWidth(width, reminderMaxHeight)
                     .onSizeChanged { reminderContentHeightPx = it.height }
                     .padding(top = (safeTop - edgeInset - 14.dp).coerceAtLeast(0.dp)).graphicsLayer {
-                    alpha = ((noticeMotion.drop.value - 0.20f) / 0.55f).coerceIn(0f, 1f)
+                    val opening = ((noticeMotion.drop.value - 0.20f) / 0.55f).coerceIn(0f, 1f)
+                    alpha = opening * (1f - (returnProgress.value / 0.4f).coerceIn(0f, 1f))
                 }) {
                     DayAgentCardVisualContent(presentation.visual.copy(collapsed = true), Color.White,
                         presentation.accent, decorated = false)
@@ -337,14 +346,36 @@ internal fun HomeAssistantHost(
                     onAgentAction = onAgentAction,
                     onOverlayReady = { controller.reminderHidden = true },
                     onPrepareDismiss = { controller.closing = true },
-                    onSourceHandoff = {},
                     onDismiss = controller::reset,
                     homePresentation = true,
-                    homeAnchorBounds = closingAnchor,
+                    homeCameraDock = cameraDock,
                     homeInitiallyFullScreen = controller.conversationStartsFullScreen,
+                    onWeatherClick = if (weatherEnabled && weather == null && !weatherPermissionGranted) {
+                        { requestWeatherPermission.launch(Manifest.permission.ACCESS_COARSE_LOCATION) }
+                    } else null,
                     onImportFile = onImportFile
                 )
             }
         }
     }
+}
+
+private fun topAssistantCutoutBounds(view: View): Rect? {
+    val insets = ViewCompat.getRootWindowInsets(view) ?: return null
+    val statusTop = insets.getInsetsIgnoringVisibility(WindowInsetsCompat.Type.statusBars()).top
+    val cutout = insets.displayCutout?.boundingRects?.firstOrNull { it.top <= statusTop } ?: return null
+    val origin = IntArray(2)
+    view.getLocationInWindow(origin)
+    val bounds = RectF(cutout).apply { offset(-origin[0].toFloat(), -origin[1].toFloat()) }
+    if (Build.VERSION.SDK_INT >= 31) {
+        view.rootWindowInsets?.displayCutout?.cutoutPath?.let { displayPath ->
+            // A hole punch's safe inset can extend up to the display edge. The path gives
+            // the outline of the actual hole and keeps the last fold centered on it.
+            view.getLocationOnScreen(origin)
+            val path = Path(displayPath).apply { offset(-origin[0].toFloat(), -origin[1].toFloat()) }
+            val topRegion = Path().apply { addRect(bounds, Path.Direction.CW) }
+            if (path.op(topRegion, Path.Op.INTERSECT) && !path.isEmpty) path.computeBounds(bounds, true)
+        }
+    }
+    return Rect(bounds.left, bounds.top, bounds.right, bounds.bottom)
 }

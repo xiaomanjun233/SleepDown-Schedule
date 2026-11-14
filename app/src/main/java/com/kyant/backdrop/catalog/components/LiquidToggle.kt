@@ -64,14 +64,16 @@ fun LiquidToggle(
     backdrop: Backdrop,
     modifier: Modifier = Modifier,
     compact: Boolean = false,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    accentTint: Color? = null,
+    lightStyle: Boolean? = null
 ) {
     if (com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeSwitchRenderer.current?.invoke(
             com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeSwitchRequest(
                 selected(), onSelect, modifier, enabled, compact
             )) == true) return
-    val isLightTheme = !isSystemInDarkTheme()
-    val accentColor = if (isLightTheme) Color(0xFF34C759) else Color(0xFF30D158)
+    val isLightTheme = lightStyle ?: !isSystemInDarkTheme()
+    val accentColor = accentTint ?: if (isLightTheme) Color(0xFF34C759) else Color(0xFF30D158)
     val trackColor =
         if (isLightTheme) Color(0xFF787878).copy(0.2f)
         else Color(0xFF787880).copy(0.36f)

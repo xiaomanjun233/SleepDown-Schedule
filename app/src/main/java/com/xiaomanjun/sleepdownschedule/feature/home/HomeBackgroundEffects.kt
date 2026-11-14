@@ -20,8 +20,10 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.BlurEffect
 import androidx.compose.ui.graphics.Color as ComposeColor
 import androidx.compose.ui.graphics.TileMode
+import androidx.compose.ui.graphics.drawscope.ContentDrawScope
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.platform.LocalDensity
@@ -30,8 +32,6 @@ import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.effects.blur
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.roundToInt
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
 
 @Composable
 internal fun HomeBackgroundZoomLayer(
@@ -60,130 +60,82 @@ internal fun HomeBackgroundZoomLayer(
     )
 }
 
+/**
+ * The source is recorded independently of the animation. A retained blur surface changes
+ * radius in the layer phase; only the near-zero radius blends with the clear scene.
+ */
 @Composable
 internal fun HomeBackgroundBlurLayer(
     blurProgress: () -> Float,
     useFrozenHomeScene: () -> Boolean,
-    closing: () -> Boolean,
-    sceneKey: Any,
+    retainedScene: GraphicsLayer,
+    prepareScene: ContentDrawScope.(frozen: Boolean) -> Boolean,
     modifier: Modifier = Modifier,
+    replayUnblurredScene: Boolean = false,
+    sceneVisible: () -> Boolean = { true },
     content: @Composable BoxScope.() -> Unit
 ) {
-    val density = LocalDensity.current
-    // Auto composition: this is just a display-list wrapper, never another full-screen texture.
-    // Its alpha can hide the sharp pass without changing the scene shared by foreground glass.
-    val clearSceneLayer = rememberGraphicsLayer()
-    val frozenBlurLayer = rememberGraphicsLayer()
-    val liveSceneLayer = rememberGraphicsLayer()
-    val latestBlurProgress = rememberUpdatedState(blurProgress)
-    val latestUseFrozenScene = rememberUpdatedState(useFrozenHomeScene)
-    val recordLiveScene by remember {
-        derivedStateOf { !latestUseFrozenScene.value() && latestBlurProgress.value() > 0f }
-    }
-    val frozenRecordKey = remember { AtomicReference<Any?>(null) }
-    val frozenRecordSize = remember { AtomicReference(IntSize.Zero) }
-    val sampleScale = HomeFrozenBlurSampleScale
-    val maximumBlurPx = with(density) { 22.dp.toPx() }
-    val frozenBlurEffects = remember(maximumBlurPx, sampleScale) {
-        List(HomeLiveBlurStepCount + 1) { index ->
-            if (index == 0) null else {
-                val radius = maximumBlurPx * sampleScale * index / HomeLiveBlurStepCount.toFloat()
-                BlurEffect(radius, radius, TileMode.Clamp)
+    val latestProgress = rememberUpdatedState(blurProgress)
+    val active by remember { derivedStateOf { latestProgress.value() > 0f } }
+    val sampling = if (active) {
+        val liveScene = rememberGraphicsLayer()
+        val clear = rememberGraphicsLayer()
+        val blurred = rememberGraphicsLayer()
+        val sampleScale = HomeFrozenBlurSampleScale
+        val radius = with(LocalDensity.current) { 22.dp.toPx() } * sampleScale
+        val effects = remember(radius) {
+            List(HomeSceneBlurSteps + 1) { step ->
+                val r = radius * step.coerceAtLeast(HomeSceneMinimumBlurStep) / HomeSceneBlurSteps
+                BlurEffect(r, r, TileMode.Clamp)
             }
         }
-    }
-    // The live path is kept for idle Home and per-frame personalization preview. Reuse a small
-    // bounded set of RenderEffect instances so those exceptional paths no longer compile a new
-    // full-screen blur effect for every animation frame.
-    val liveBlurEffects = remember(maximumBlurPx) {
-        List(HomeLiveBlurStepCount + 1) { index ->
-            if (index == 0) null else {
-                val radius = maximumBlurPx * index / HomeLiveBlurStepCount.toFloat()
-                BlurEffect(radius, radius, TileMode.Clamp)
+        val recordedSize = remember { AtomicReference(IntSize.Zero) }
+        val recordedSource = remember { AtomicReference<GraphicsLayer?>(null) }
+        Modifier.graphicsLayer {
+            val progress = latestProgress.value().coerceIn(0f, 1f)
+            val step = (progress * HomeSceneBlurSteps).roundToInt().coerceIn(0, HomeSceneBlurSteps)
+            val blend = (progress * HomeSceneBlurSteps / HomeSceneMinimumBlurStep).coerceIn(0f, 1f)
+            clear.alpha = if (blend < 1f) 1f else 0f
+            blurred.alpha = blend
+            blurred.renderEffect = effects[step]
+        }.drawWithContent {
+            if (!sceneVisible()) {
+                prepareScene(false)
+                return@drawWithContent
             }
-        }
-    }
-    Box(
-        modifier = modifier
-            .graphicsLayer {
-                val frozenHomeScene = useFrozenHomeScene()
-                val progress = blurProgress().coerceIn(0f, 1f)
-                val isClosing = closing()
-                val step = quantizeHomeBackgroundBlurStep(progress, isClosing)
-                if (frozenHomeScene) {
-                    renderEffect = null
-                    liveSceneLayer.renderEffect = null
-                    val blurAlpha = homeFrozenBlurAlpha(progress)
-                    clearSceneLayer.alpha = if (blurAlpha < 1f) 1f else 0f
-                    frozenBlurLayer.alpha = blurAlpha
-                    frozenBlurLayer.renderEffect =
-                        frozenBlurEffects[step.coerceAtLeast(HomeFrozenBlurMinimumStep)]
-                } else {
-                    // Keep native Views under a neutral parent while personalization is live.
-                    // Blur a full-size recorded layer, as the frozen path already does, instead
-                    // of repeatedly changing the ancestor effect used by COUI's own sampling.
-                    renderEffect = null
-                    liveSceneLayer.renderEffect = liveBlurEffects[step]
-                    clearSceneLayer.alpha = 0f
-                    frozenBlurLayer.alpha = 0f
-                    frozenBlurLayer.renderEffect = null
-                }
+            val scene = if (prepareScene(useFrozenHomeScene())) retainedScene else {
+                liveScene.record { this@drawWithContent.drawContent() }
+                liveScene
             }
-            .drawWithContent {
-                // Animation state is read only by graphicsLayer above. A zoom/blur/alpha tick
-                // changes RenderNode properties without invalidating this display list.
-                val frozenHomeScene = useFrozenHomeScene()
-                if (!frozenHomeScene) {
-                    frozenRecordKey.set(null)
-                    if (recordLiveScene) {
-                        liveSceneLayer.record { this@drawWithContent.drawContent() }
-                        drawLayer(liveSceneLayer)
-                    } else {
-                        drawContent()
-                    }
-                    return@drawWithContent
-                }
-
-                val fullSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
-                val reducedSize = IntSize(
-                    width = (size.width * sampleScale).roundToInt().coerceAtLeast(1),
-                    height = (size.height * sampleScale).roundToInt().coerceAtLeast(1)
+            val fullSize = scene.size
+            if (fullSize.width <= 0 || fullSize.height <= 0) return@drawWithContent
+            if (recordedSize.get() != fullSize || recordedSource.get() !== scene) {
+                val reduced = IntSize(
+                    (fullSize.width * sampleScale).roundToInt().coerceAtLeast(1),
+                    (fullSize.height * sampleScale).roundToInt().coerceAtLeast(1)
                 )
-                // Both wrappers refer to the same retained scene. Record in Preparing, including
-                // at zero blur, rather than doing this work on the first moving frame. The blur
-                // has one fixed allocation from Opening through Closing; no bitmap readback or
-                // blur pyramid is created. Rounded sample dimensions map back to exact source
-                // dimensions so the sharp/blurred layers stay aligned on odd-sized windows.
-                if (
-                    frozenRecordKey.get() != sceneKey ||
-                    frozenRecordSize.get() != fullSize
-                ) {
-                    val scaleX = reducedSize.width / size.width
-                    val scaleY = reducedSize.height / size.height
-                    clearSceneLayer.record(size = fullSize) {
-                        this@drawWithContent.drawContent()
-                    }
-                    frozenBlurLayer.record(size = reducedSize) {
-                        withTransform({
-                            scale(
-                                scaleX = scaleX,
-                                scaleY = scaleY,
-                                pivot = Offset.Zero
-                            )
-                        }) {
-                            this@drawWithContent.drawContent()
-                        }
-                    }
-                    frozenBlurLayer.pivotOffset = Offset.Zero
-                    frozenBlurLayer.scaleX = 1f / scaleX
-                    frozenBlurLayer.scaleY = 1f / scaleY
-                    frozenRecordKey.set(sceneKey)
-                    frozenRecordSize.set(fullSize)
+                val sx = reduced.width.toFloat() / fullSize.width
+                val sy = reduced.height.toFloat() / fullSize.height
+                clear.record(size = fullSize) { drawLayer(scene) }
+                blurred.record(size = reduced) {
+                    withTransform({ scale(sx, sy, Offset.Zero) }) { drawLayer(scene) }
                 }
-
-                drawLayer(clearSceneLayer)
-                drawLayer(frozenBlurLayer)
-            },
-        content = content
-    )
+                blurred.pivotOffset = Offset.Zero
+                blurred.scaleX = 1f / sx
+                blurred.scaleY = 1f / sy
+                recordedSize.set(fullSize)
+                recordedSource.set(scene)
+            }
+            // Do not read the animation here: a radius update must not re-record the source.
+            drawLayer(clear)
+            drawLayer(blurred)
+        }
+    } else Modifier.drawWithContent {
+        val visible = sceneVisible()
+        val retained = prepareScene(visible && replayUnblurredScene && useFrozenHomeScene())
+        if (visible) {
+            if (retained) drawLayer(retainedScene) else drawContent()
+        }
+    }
+    Box(modifier.then(sampling), content = content)
 }

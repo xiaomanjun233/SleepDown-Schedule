@@ -225,10 +225,7 @@ object BackupImportPlanBuilder {
             schedule.courses.forEach { strictEnum<WeekParity>(it.weekParity, "weekParity") }
             schedule.periodSchemes.forEach { strictEnum<PeriodSchemeMode>(it.mode, "period scheme mode") }
             schedule.agentMessages.forEach { message ->
-                require(message.attachmentAssetIds.size <= 1) {
-                    "一个 Agent message 不能包含多个 attachment marker: ${message.id}"
-                }
-                message.attachmentAssetIds.singleOrNull()?.let {
+                message.attachmentAssetIds.forEach {
                     assetReference(it, BackupAssetCategory.SCHEDULES, BackupAssetPurpose.AGENT_ATTACHMENT, message.id)
                 }
             }
@@ -262,6 +259,12 @@ object BackupImportPlanBuilder {
             history.contextAssetId?.let {
                 assetReference(it, BackupAssetCategory.OTHER, BackupAssetPurpose.AI_IMPORT_HISTORY_CONTEXT, history.id)
             }
+        }
+        val historyIds = archive.preferences.aiImportHistory.mapTo(hashSetOf()) { it.id }
+        archive.assets.filter { it.purpose == BackupAssetPurpose.AI_IMPORT_SCREENSHOT }.forEach { image ->
+            require(image.ownerId in historyIds) { "AI history screenshot 没有所属记录" }
+            assetReference(image.assetId, BackupAssetCategory.SCHEDULES, BackupAssetPurpose.AI_IMPORT_SCREENSHOT,
+                checkNotNull(image.ownerId))
         }
     }
 

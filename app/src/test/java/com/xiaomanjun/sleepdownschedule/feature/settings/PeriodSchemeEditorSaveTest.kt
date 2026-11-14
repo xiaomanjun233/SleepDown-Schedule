@@ -7,14 +7,11 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.applySavedPeriodScheme
 import com.xiaomanjun.sleepdownschedule.domain.schedule.materializeForTimeline
 import com.xiaomanjun.sleepdownschedule.domain.schedule.savePeriodSchemeSnapshot
 import com.xiaomanjun.sleepdownschedule.model.PeriodSchemeEntity
-import com.xiaomanjun.sleepdownschedule.model.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.model.PeriodSchemeMode
 import com.xiaomanjun.sleepdownschedule.model.PeriodSchemeTimeEntity
 import com.xiaomanjun.sleepdownschedule.model.defaultConfig
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
-import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PeriodSchemeEditorSaveTest {
@@ -77,10 +74,6 @@ class PeriodSchemeEditorSaveTest {
             PeriodSchemeTimeEntity(7, 1, "08:03", "08:49")
         ))
 
-        assertEquals(listOf(
-            PeriodEntity(1, "08:03", "08:49", 23),
-            PeriodEntity(2, "09:12", "10:00", 23)
-        ), storedPeriodSchemePeriods(23, stored))
         assertEquals(stored.times.sortedBy { it.periodIndex }, periodSchemeTimelineTimes(original.config, stored))
         assertEquals(PeriodSchemeMode.AUTO_MATCH, stored.scheme.mode)
     }
@@ -90,25 +83,6 @@ class PeriodSchemeEditorSaveTest {
         val original = original()
         assertEquals(original.active.times,
             periodSchemeTimelineTimes(original.config, original.active.copy(times = emptyList())))
-    }
-
-    @Test
-    fun unrelatedTermChangesDoNotPreventDetachedSelection() {
-        val original = original()
-        assertFalse(hasPendingPeriodSchemeEdits(original.config.copy(totalWeeks = 30), original.draft))
-    }
-
-    @Test
-    fun pendingBellAndDurationEditsBlockSelectionWithoutChangingTheDraft() {
-        val original = original()
-        val edited = original.updateActive(original.active.copy(times = original.active.times.map {
-            if (it.periodIndex == 1) it.copy(endTime = "08:46") else it
-        }))
-
-        assertTrue(hasPendingPeriodSchemeEdits(edited.config, edited.draft))
-        assertEquals("08:46", edited.active.times.first().endTime)
-        assertEquals("08:45", original.active.times.first().endTime)
-        assertTrue(hasPendingPeriodSchemeEdits(original.config.copy(classDurationMinutes = 50), original.draft))
     }
 
     @Test
@@ -123,10 +97,9 @@ class PeriodSchemeEditorSaveTest {
             .copy(storedDraft = target)
 
         val selectedB = applySavedPeriodScheme(savedB, original.config, original.draft)
-        assertFalse(hasPendingPeriodSchemeEdits(selectedB.config, selectedB.draft))
+        assertEquals(8L, selectedB.draft.activeSchemeId)
         val selectedA = applySavedPeriodScheme(savedA, selectedB.config, selectedB.draft)
 
-        assertFalse(hasPendingPeriodSchemeEdits(selectedA.config, selectedA.draft))
         assertEquals(original.config, selectedA.config)
         assertEquals(original.draft, selectedA.draft)
         assertEquals(7L, original.draft.activeSchemeId)

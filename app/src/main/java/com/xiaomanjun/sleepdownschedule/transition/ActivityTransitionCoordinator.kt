@@ -56,7 +56,9 @@ object ActivityTransitionCoordinator {
         activity: Activity,
         routeId: TransitionRouteId,
         intent: android.content.Intent,
-        payload: TransitionPayload? = null
+        payload: TransitionPayload? = null,
+        prepareLegacy: (suspend (TransitionPayload) -> TransitionPayload)? = null,
+        launchActivity: (android.content.Intent, Bundle?) -> Unit = activity::startActivity,
     ): TransitionLaunchResult = withContext(Dispatchers.Main.immediate) {
         val route = TransitionRouteCatalog.get(routeId)
         validateDestination(route, intent)
@@ -71,22 +73,30 @@ object ActivityTransitionCoordinator {
         val landscape = activity.resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
         val normalizedPayload = if (landscape) payload?.copy(
             openingAnchor = null, returnAnchorProvider = null,
-            backgroundBitmap = null, parentSessionId = parentId
+            backgroundBitmap = null, parentSessionId = parentId, openingSourceView = null, openingSourceWindow = null,
         ) else payload?.copy(parentSessionId = parentId)
         val session = TransitionPayloadStore.create(routeId, normalizedPayload, parentId)
         intent.putTransitionIdentity(session)
-        val legacyRequest = TransitionOpenRequest(activity, intent, route, session, normalizedPayload)
+        val legacyRequest = TransitionOpenRequest(activity, intent, route, session, normalizedPayload, launchActivity)
+        val hasLiveSource = normalizedPayload?.openingSourceView?.isLiveTransitionSource(activity) == true
         val returnAnchorReady = if (!route.requiresReturnAnchor) {
             true
         } else {
-            runCatching { normalizedPayload?.returnAnchorProvider?.resolve()?.isValid == true }
+            runCatching {
+                normalizedPayload?.returnAnchorProvider?.resolve()?.let {
+                    it.isValid || (hasLiveSource && it.hasBounds)
+                } == true
+            }
                 .getOrDefault(false)
         }
         val nativeDestination = route.nativeDestinationClassName
-        val nativeEligible = !landscape && TransitionFeatureGate.allowsSharedViewKit(route) &&
-            (!route.requiresOpeningAnchor || normalizedPayload?.openingAnchor?.isValid == true) &&
-            returnAnchorReady &&
-            nativeDestination != null
+        val nativeAllowed = TransitionFeatureGate.allowsSharedViewKit(route)
+        val openingAnchorReady = !route.requiresOpeningAnchor || normalizedPayload?.openingAnchor?.let {
+            it.isValid || (hasLiveSource && it.hasBounds)
+        } == true
+        val nativeEligible = !landscape && nativeAllowed &&
+            (!route.requiresLiveSourceView || hasLiveSource) &&
+            openingAnchorReady && returnAnchorReady && nativeDestination != null
         if (nativeEligible) {
             session.moveTo(TransitionSessionState.SourceReady)
             val nativeIntent = android.content.Intent(intent).setClassName(
@@ -107,8 +117,30 @@ object ActivityTransitionCoordinator {
                     }
                 }
             }
+        } else if (route.requiresLiveSourceView) {
+            val reason = when {
+                landscape -> "landscape"
+                !nativeAllowed -> "routeDisabled"
+                !hasLiveSource -> "liveSourceUnavailable"
+                !openingAnchorReady -> "openingAnchorUnavailable"
+                !returnAnchorReady -> "returnAnchorUnavailable"
+                else -> "nativeDestinationUnavailable"
+            }
+            log(session, nativeBackend.name, "fallback", reason)
         }
-        launchLegacy(legacyRequest)
+        val request = if (normalizedPayload != null && !landscape &&
+            (prepareLegacy != null || normalizedPayload.floatingAddSource)) {
+            val prepared = try {
+                if (normalizedPayload.floatingAddSource) normalizedPayload.captureLegacyFloatingAdd(activity)
+                else checkNotNull(prepareLegacy)(normalizedPayload)
+            } catch (error: Exception) {
+                TransitionPayloadStore.remove(session.id)
+                throw error
+            }
+            TransitionPayloadStore.replaceOpeningVisuals(session.id, prepared)
+            legacyRequest.copy(payload = prepared)
+        } else legacyRequest
+        launchLegacy(request)
     }
 
     /** Non-native routes can use an Activity Result launcher while keeping the catalog policy. */
@@ -154,16 +186,36 @@ object ActivityTransitionCoordinator {
     }
 
     fun markOpen(sessionId: TransitionSessionId?) {
-        TransitionPayloadStore.session(sessionId)?.moveTo(TransitionSessionState.Open)
+        val session = TransitionPayloadStore.session(sessionId) ?: return
+        if (session.moveFrom(TransitionSessionState.LegacyRunning, TransitionSessionState.Open)) {
+            finishOneWayOpen(session)
+        }
+    }
+
+    internal fun finishOneWayOpen(session: TransitionSession) {
+        if (TransitionRouteCatalog.get(session.routeId).oneWay && session.moveTo(TransitionSessionState.Finished)) {
+            TransitionPayloadStore.remove(session.id)
+        }
     }
 
     fun finishAfterLegacy(activity: Activity, sessionId: TransitionSessionId?) {
+        val sourcePayload = TransitionPayloadStore.payload(sessionId)
+        val source = sourcePayload?.takeIf { it.floatingAddSource }?.openingSourceView
+            as? LiveTransitionSourceView
+        val owner = (source?.context as? Activity)?.takeUnless { it.isFinishing || it.isDestroyed }
+        val releaseReturnCover = if (source?.hiddenForLegacyMorph == true && owner != null) {
+            runCatching { sourcePayload?.returnAnchorProvider?.resolve() }.getOrNull()
+                ?.let(owner::attachOpeningSourceSnapshotHandoff)
+        } else null
         val routeId = TransitionPayloadStore.session(sessionId)?.routeId
             ?: activity.intent.transitionRouteIdOrNull()
         val profile = routeId?.let(TransitionRouteCatalog::get)?.legacyProfile
         TransitionPayloadStore.session(sessionId)?.moveTo(TransitionSessionState.Finished)
         TransitionPayloadStore.remove(sessionId)
         activity.finish()
+        if (owner != null && releaseReturnCover != null) {
+            ReturnCoverHandoff(owner.window.decorView, releaseReturnCover).start()
+        }
         if (profile == LegacyTransitionProfile.PlatformDefault || profile == LegacyTransitionProfile.TaskReturn) return
         if (profile is LegacyTransitionProfile.Depth) {
             if (Build.VERSION.SDK_INT < 34) {
@@ -190,16 +242,16 @@ object ActivityTransitionCoordinator {
         }
         if (session == null) return false
         val payload = TransitionPayloadStore.payload(session.id)
-        // Snapshot-free anchored Morphs intentionally keep the source Activity as the live
-        // underlay. Select the translucent window before super.onCreate so Android never inserts
-        // an opaque preview frame between the two Activities. Bitmap-backed and native-candidate
-        // routes retain their existing window policy.
-        if (route.legacyProfile is LegacyTransitionProfile.Anchored &&
-            route.nativePolicy == TransitionNativePolicy.Never &&
-            payload?.openingAnchor != null &&
-            payload.backgroundBitmap == null
+        if (session.currentState == TransitionSessionState.LegacyRunning &&
+            (profile is LegacyTransitionProfile.Anchored || profile == LegacyTransitionProfile.Page)
         ) {
-            activity.setTheme(R.style.AppTheme_TranslucentMorph)
+            if (payload?.openingAnchor != null && payload.backgroundBitmap == null) {
+                activity.setTheme(R.style.AppTheme_TranslucentMorph)
+            }
+            if (Build.VERSION.SDK_INT >= 34) {
+                activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_OPEN, 0, 0)
+                activity.overrideActivityTransition(Activity.OVERRIDE_TRANSITION_CLOSE, 0, 0)
+            }
         }
         val candidate = route.destinationWindowPolicy ==
             TransitionDestinationWindowPolicy.OpaqueNativeCandidate &&
@@ -230,6 +282,7 @@ object ActivityTransitionCoordinator {
         ) return
         val payload = TransitionPayloadStore.payload(id) ?: return
         val background = payload.backgroundBitmap
+        if (routeUsesNativeWindow(session) && session.currentState != TransitionSessionState.LegacyRunning) return
         if (background != null) {
             activity.window.setBackgroundDrawable(BitmapDrawable(activity.resources, background))
             return
@@ -242,6 +295,34 @@ object ActivityTransitionCoordinator {
 
         activity.window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
         activity.window.decorView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+        if (route.oneWay && Build.VERSION.SDK_INT >= 30) activity.setTranslucent(true)
+    }
+
+    private fun routeUsesNativeWindow(session: TransitionSession): Boolean =
+        TransitionRouteCatalog.get(session.routeId).destinationWindowPolicy ==
+            TransitionDestinationWindowPolicy.OpaqueNativeCandidate &&
+            (session.hasReachedNativeRunning || session.currentState == TransitionSessionState.NativeRegistered)
+
+    internal fun exposeLegacyUnderlay(activity: Activity, id: TransitionSessionId?) {
+        if (Build.VERSION.SDK_INT >= 30) activity.setTranslucent(true)
+        val bitmap = TransitionPayloadStore.payload(id)?.backgroundBitmap
+        activity.window.setBackgroundDrawable(
+            bitmap?.let { BitmapDrawable(activity.resources, it) } ?: ColorDrawable(android.graphics.Color.TRANSPARENT)
+        )
+        activity.window.decorView.setBackgroundColor(android.graphics.Color.TRANSPARENT)
+    }
+
+    /** Keep the backdrop of an in-flight page intact when Compose applies the theme. */
+    internal fun usesLegacyMorphWindow(activity: Activity): Boolean {
+        val session = TransitionPayloadStore.session(activity.intent.transitionSessionIdOrNull()) ?: return false
+        return TransitionRouteCatalog.get(session.routeId).legacyProfile is LegacyTransitionProfile.Anchored &&
+            (!routeUsesNativeWindow(session) || session.currentState == TransitionSessionState.LegacyRunning ||
+                session.currentState == TransitionSessionState.Closing)
+    }
+
+    internal fun hasAnchoredMorphSession(activity: Activity): Boolean {
+        val session = TransitionPayloadStore.session(activity.intent.transitionSessionIdOrNull()) ?: return false
+        return TransitionRouteCatalog.get(session.routeId).legacyProfile is LegacyTransitionProfile.Anchored
     }
 
     private suspend fun launchLegacy(request: TransitionOpenRequest): TransitionLaunchResult {

@@ -12,11 +12,13 @@ import com.kyant.backdrop.catalog.components.LiquidBottomTab
 import com.kyant.backdrop.catalog.components.LiquidBottomTabs
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockGlassBlur
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockGlassLensAmount
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeDockGlassLensHeight
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSelectedAccentColor
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.HomeLightGlassSurfaceColor
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeBlur
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlpha
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.glass.ui.GlassPill
 
 /** Both phone modes use the same Dock cells and material; parallel mode adds one cell. */
@@ -34,8 +36,6 @@ internal fun HomeDockTabs(
     val tabs = if (parallel) listOf(
         R.drawable.ic_day_view to "今日", R.drawable.ic_week_view to "课程表", R.drawable.ic_settings to "设置"
     ) else listOf(R.drawable.ic_week_view to "课程", R.drawable.ic_settings to "设置")
-    if (LocalHomeMaterialControls.current.Dock(tabs, selectedIndex, dark = !lightGlass,
-            modifier = modifier, onSelect = onSelect)) return
     if (backdrop == null) {
         GlassPill(backdrop = null, config = config, modifier = modifier) {
             Row(Modifier.height(54.dp).padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -50,8 +50,9 @@ internal fun HomeDockTabs(
         selectedTabIndex = { selectedIndex }, onTabSelected = onSelect,
         backdrop = backdrop, tabsCount = tabs.size, modifier = modifier,
         containerHeight = 54.dp, indicatorHeight = 46.dp,
-        blurRadius = homeChromeBlur(1.3.dp, config),
-        containerAlpha = homeChromeGlassSurfaceAlpha(lightGlass), lensHeight = 10.dp, lensAmount = 40.dp,
+        blurRadius = homeChromeBlur(HomeDockGlassBlur, config),
+        containerAlpha = homeChromeGlassSurfaceAlpha(lightGlass),
+        lensHeight = HomeDockGlassLensHeight, lensAmount = HomeDockGlassLensAmount,
         indicatorWidthOverflow = 8.dp, indicatorHeightOverflow = 4.dp,
         indicatorLensHeight = 12.dp, indicatorLensAmount = 17.dp,
         officialHighlightAlpha = 0.07f, officialShadowAlpha = 0.05f, officialInnerShadowAlpha = 0.08f,
@@ -61,7 +62,8 @@ internal fun HomeDockTabs(
     ) {
         tabs.forEachIndexed { index, (icon, label) ->
             LiquidBottomTab(onClick = { onSelect(index) }) {
-                DockTabContent(icon, label, if (icon == R.drawable.ic_settings) 24.dp else 23.dp)
+                DockTabContent(icon, label, if (icon == R.drawable.ic_settings) 24.dp else 23.dp,
+                    selected = selectedIndex == index)
             }
         }
     }

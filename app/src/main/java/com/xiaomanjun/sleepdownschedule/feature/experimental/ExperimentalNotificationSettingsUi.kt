@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -19,11 +20,15 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceSection
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsToggleRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsValueRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdownPreference
@@ -65,151 +70,109 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
     var focusPermissionChecked by remember { mutableStateOf(false) }
     var restoring by remember { mutableStateOf(false) }
     var requestingShizuku by remember { mutableStateOf(false) }
+    var requestingRoot by remember { mutableStateOf(false) }
+    var showAuthorization by remember { mutableStateOf(false) }
+    var showHelp by remember { mutableStateOf(false) }
+    var diagnosticRefresh by remember { mutableIntStateOf(0) }
+    var refreshingDiagnostics by remember { mutableStateOf(false) }
     val permissionRequest = remember { arrayOfNulls<() -> Unit>(1) }
     var options by remember { mutableStateOf(XiaomiSuperIsland.options(context)) }
 
-    fun refresh() {
-        shizukuRunning = XiaomiSuperIsland.isShizukuRunning()
-        shizukuAuthorized = XiaomiSuperIsland.isShizukuAuthorized()
-        rootAuthorized = XiaomiSuperIsland.isRootAuthorized(context)
-        scope.launch {
+    fun refresh() { diagnosticRefresh++ }
+
+    LaunchedEffect(diagnosticRefresh) {
+        refreshingDiagnostics = true
+        try {
+            shizukuRunning = XiaomiSuperIsland.isShizukuRunning()
+            shizukuAuthorized = XiaomiSuperIsland.isShizukuAuthorized()
+            rootAuthorized = XiaomiSuperIsland.isRootAuthorized(context)
             focusPermission = withContext(Dispatchers.IO) { XiaomiSuperIsland.focusPermission(context) }
             focusPermissionChecked = true
+        } finally {
+            refreshingDiagnostics = false
         }
     }
-    LaunchedEffect(Unit) { refresh() }
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { refresh() }
     DisposableEffect(context) {
-        val stop = XiaomiSuperIsland.observeShizukuState { refresh() }
+        val stop = XiaomiSuperIsland.observeShizukuState { scope.launch { refresh() } }
         onDispose { permissionRequest[0]?.invoke(); stop() }
     }
 
-    GlassPreferenceSection("实验功能") {
+    val shizukuDownload = Uri.parse("https://shizuku.rikka.app/download/")
+    val authorizationBusy = requestingShizuku || requestingRoot || restoring
+    val authorizationStatus = when {
+        restoring -> "正在检查网络状态…"
+        requestingShizuku -> "等待 Shizuku 授权…"
+        requestingRoot -> "正在验证 root…"
+        shizukuAuthorized -> "Shizuku 已授权"
+        rootAuthorized -> "root 已授权"
+        else -> "选择 Shizuku 或 root"
+    }
+    val focusStatus = when {
+        !focusPermissionChecked -> "检测中…"
+        focusPermission == true -> "已开启"
+        focusPermission == false -> "未开启"
+        else -> "系统未返回状态"
+    }
+
+    suspend fun finishAuthorization() {
+        restoring = true
+        try {
+            withContext(Dispatchers.IO) { XiaomiSuperIsland.restoreInterruptedBypass(context) }
+        } finally {
+            restoring = false
+        }
+        NotificationScheduler.requestReschedule(context)
+        refresh()
+    }
+
+    fun authorizeShizuku() {
+        if (authorizationBusy) return
+        if (!XiaomiSuperIsland.isShizukuRunning()) {
+            val launch = context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
+                ?: Intent(Intent.ACTION_VIEW, shizukuDownload)
+            context.startActivity(launch)
+            return
+        }
+        requestingShizuku = true
+        permissionRequest[0] = XiaomiSuperIsland.requestShizukuPermission { granted ->
+            scope.launch {
+                requestingShizuku = false
+                shizukuAuthorized = granted
+                if (granted) finishAuthorization()
+                else android.widget.Toast.makeText(context,
+                    "未获得 Shizuku 授权，请确认服务正在运行并允许 SleepDown。",
+                    android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    fun authorizeRoot() {
+        if (authorizationBusy) return
+        requestingRoot = true
+        scope.launch {
+            try {
+                rootAuthorized = withContext(Dispatchers.IO) { XiaomiSuperIsland.requestRootAuthorization(context) }
+                if (rootAuthorized) finishAuthorization()
+            } finally {
+                requestingRoot = false
+            }
+        }
+    }
+
+    GlassPreferenceSection("超级岛") {
         SettingsGroup(backdrop, config, Modifier.fillMaxWidth()) {
-            SettingsInfoRow(
-                "小米超级岛",
-                "可自定义左右内容、息屏文字和展开光效。使用前须选择 Shizuku 或 root 完成授权；未授权时会使用普通实时活动。"
-            )
-            SettingsDivider()
-            SettingsInfoRow(
-                "配置步骤",
-                "1. 选择 Shizuku 或 root，完成下方授权。\n" +
-                    "2. 在系统设置中搜索“超级岛”，开启总开关及 SleepDown 的显示权限，并允许通知。\n" +
-                    "3. 允许 SleepDown 自启动和后台运行，避免课程提醒延迟。\n" +
-                    "4. 回到通知设置底部点“测试超级岛”；课程约 21～22 分钟后开始，持续 5 分钟。"
-            )
-            SettingsDivider()
-            SettingsInfoRow(
-                "Shizuku 授权方法",
-                "从 Shizuku 官网下载安装；在系统开发者选项打开无线调试，在 Shizuku 内按提示配对并启动服务，再返回这里授权 SleepDown。已 root 的设备也可以在 Shizuku 内通过 root 启动服务。"
-            )
-            SettingsDivider()
-            SettingsValueRow("系统超级岛", if (systemSupported) "已检测到" else "未检测到，请确认系统版本")
-            SettingsDivider()
-            SettingsValueRow("焦点通知权限", when {
-                !focusPermissionChecked -> "检测中…"
-                focusPermission == true -> "已开启"
-                focusPermission == false -> "未开启"
-                else -> "系统未返回状态"
-            })
-            if (focusPermissionChecked && focusPermission != true) {
-                SettingsDivider()
-                SettingsActionRow(
-                    title = "打开通知权限设置",
-                    subtitle = "检查 SleepDown 的通知和焦点通知显示权限。",
-                    buttonText = "打开",
-                    iconRes = R.drawable.ic_settings,
-                    backdrop = backdrop,
-                    onClick = { context.startActivity(NotificationScheduler.notificationSettingsIntent(context)) }
-                )
+            SettingsNavigationRow("授权方式", authorizationStatus, enabled = !authorizationBusy) {
+                showAuthorization = true
             }
             SettingsDivider()
-            SettingsActionRow(
-                title = "重新显示当前超级岛",
-                subtitle = "课中没有显示时，立即按当前课程重新发送。",
-                buttonText = "重试",
-                iconRes = R.drawable.ic_settings,
-                backdrop = backdrop,
-                onClick = { NotificationScheduler.reopenCurrentIsland(context) }
-            )
-            SettingsDivider()
-            SettingsValueRow("授权状态", if (shizukuAuthorized || rootAuthorized) "已就绪" else "需选择 Shizuku 或 root")
-            SettingsDivider()
-            SettingsValueRow("Shizuku 状态", when {
-                !shizukuRunning -> "未运行"
-                !shizukuAuthorized -> "未授权"
-                else -> "已授权"
-            })
-            if (!shizukuRunning) {
-                SettingsDivider()
-                SettingsActionRow(
-                    title = "下载 Shizuku",
-                    subtitle = "打开官网下载安装，并按上方步骤完成配对与启动。",
-                    buttonText = "下载",
-                    iconRes = R.drawable.ic_settings,
-                    backdrop = backdrop,
-                    onClick = { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/download/"))) }
-                )
+            SettingsNavigationRow("焦点通知", focusStatus) {
+                context.startActivity(NotificationScheduler.notificationSettingsIntent(context))
             }
             SettingsDivider()
-            SettingsActionRow(
-                title = "Shizuku 授权",
-                subtitle = if (shizukuRunning) "授权 SleepDown 使用 Shizuku。" else "先下载、配对并启动 Shizuku。",
-                buttonText = if (requestingShizuku) "等待授权" else if (shizukuRunning) "申请授权" else "打开",
-                iconRes = R.drawable.ic_settings,
-                backdrop = backdrop,
-                onClick = {
-                    if (requestingShizuku) return@SettingsActionRow
-                    if (XiaomiSuperIsland.isShizukuRunning()) {
-                        requestingShizuku = true
-                        permissionRequest[0] = XiaomiSuperIsland.requestShizukuPermission { granted ->
-                            scope.launch {
-                                requestingShizuku = false
-                                shizukuAuthorized = granted
-                                if (!granted) android.widget.Toast.makeText(context,
-                                    "未获得 Shizuku 授权，请确认服务正在运行并允许 SleepDown。",
-                                    android.widget.Toast.LENGTH_LONG).show()
-                                if (granted) {
-                                    restoring = true
-                                    withContext(Dispatchers.IO) { XiaomiSuperIsland.restoreInterruptedBypass(context) }
-                                    restoring = false
-                                    NotificationScheduler.requestReschedule(context)
-                                }
-                            }
-                        }
-                    } else {
-                        val launch = context.packageManager.getLaunchIntentForPackage("moe.shizuku.privileged.api")
-                            ?: Intent(Intent.ACTION_VIEW, Uri.parse("https://shizuku.rikka.app/download/"))
-                        context.startActivity(launch)
-                    }
-                }
-            )
-            SettingsDivider()
-            SettingsValueRow("root 状态", if (rootAuthorized) "已授权" else "未授权")
-            SettingsDivider()
-            SettingsActionRow(
-                title = "root 授权",
-                subtitle = "有 root 的设备可直接授予 SleepDown 权限，与 Shizuku 二选一。",
-                buttonText = if (rootAuthorized) "重新验证" else "验证",
-                iconRes = R.drawable.ic_settings,
-                backdrop = backdrop,
-                onClick = {
-                    scope.launch {
-                        rootAuthorized = withContext(Dispatchers.IO) {
-                            XiaomiSuperIsland.requestRootAuthorization(context)
-                        }
-                        if (rootAuthorized) {
-                            restoring = true
-                            withContext(Dispatchers.IO) { XiaomiSuperIsland.restoreInterruptedBypass(context) }
-                            restoring = false
-                            NotificationScheduler.requestReschedule(context)
-                        }
-                    }
-                }
-            )
-            if (restoring) {
-                SettingsDivider()
-                SettingsValueRow("网络状态恢复", "正在检查…")
+            SettingsNavigationRow("教程与诊断") {
+                showHelp = true
+                refresh()
             }
         }
     }
@@ -266,6 +229,88 @@ internal fun XiaomiSuperIslandSettingsSection(config: ScheduleConfigEntity, back
                 XiaomiSuperIsland.setExpandGlow(context, enabled)
                 options = XiaomiSuperIsland.options(context)
                 NotificationScheduler.requestRefresh(context)
+            }
+        }
+    }
+
+    if (showAuthorization) {
+        LiquidAlertDialog(
+            title = "授权方式",
+            message = "选择一种方式为 SleepDown 授权。已有 root 的设备可以直接验证。",
+            actions = listOf(
+                LiquidAlertAction("Shizuku", LiquidAlertActionStyle.Primary) {
+                    showAuthorization = false
+                    authorizeShizuku()
+                },
+                LiquidAlertAction("root", LiquidAlertActionStyle.Secondary) {
+                    showAuthorization = false
+                    authorizeRoot()
+                },
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showAuthorization = false },
+            ),
+            config = config,
+            onDismissRequest = { showAuthorization = false },
+        )
+    }
+
+    ExperimentalNotificationHelpSheet(
+        visible = showHelp,
+        config = config,
+        refreshing = refreshingDiagnostics,
+        onRefresh = ::refresh,
+        onDismiss = { showHelp = false },
+    ) { sheetBackdrop ->
+        item("tutorial") {
+            GlassPreferenceSection("使用教程") {
+                SettingsGroup(sheetBackdrop, config) {
+                    SettingsInfoRow(
+                        "开启超级岛",
+                        "通过「授权方式」完成 Shizuku 或 root 授权。在系统设置中开启超级岛总开关及 SleepDown 的显示权限，并允许应用自启动和后台运行。" +
+                            "授权未生效时，课程提醒会使用实时活动。"
+                    )
+                    SettingsDivider()
+                    SettingsInfoRow(
+                        "启动 Shizuku",
+                        "安装 Shizuku 后，在系统开发者选项中打开无线调试。按 Shizuku 内的提示配对并启动服务，再返回通知设置授权。已 root 的设备也可通过 root 启动 Shizuku。"
+                    )
+                    if (!shizukuRunning) {
+                        SettingsDivider()
+                        SettingsNavigationRow("下载 Shizuku") {
+                            context.startActivity(Intent(Intent.ACTION_VIEW, shizukuDownload))
+                        }
+                    }
+                    SettingsDivider()
+                    SettingsInfoRow(
+                        "测试超级岛",
+                        "点击通知设置底部的「测试超级岛」，立即发送一条预览。若没有显示，检查焦点通知权限和授权状态。"
+                    )
+                }
+            }
+        }
+        item("diagnostics") {
+            GlassPreferenceSection("当前诊断") {
+                SettingsGroup(sheetBackdrop, config) {
+                    SettingsValueRow("系统超级岛", if (systemSupported) "已检测到" else "未检测到，请确认系统版本")
+                    SettingsDivider()
+                    SettingsValueRow("焦点通知权限", focusStatus)
+                    SettingsDivider()
+                    SettingsValueRow("Shizuku", when {
+                        !shizukuRunning -> "未运行"
+                        !shizukuAuthorized -> "未授权"
+                        else -> "已授权"
+                    })
+                    SettingsDivider()
+                    SettingsValueRow("root", if (rootAuthorized) "已授权" else "未授权")
+                    SettingsDivider()
+                    SettingsActionRow(
+                        title = "重新显示当前超级岛",
+                        subtitle = "按当前课程重新发送。",
+                        buttonText = "重试",
+                        iconRes = R.drawable.ic_refresh,
+                        backdrop = sheetBackdrop,
+                        onClick = { NotificationScheduler.reopenCurrentIsland(context) },
+                    )
+                }
             }
         }
     }

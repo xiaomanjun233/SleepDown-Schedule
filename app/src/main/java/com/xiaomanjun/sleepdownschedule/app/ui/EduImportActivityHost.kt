@@ -79,6 +79,7 @@ open class EduImportActivityHost : ComponentActivity() {
                 domain = GlassBackdropDomain.Content,
                 providerId = "edu-import-web-content"
             )
+            val webToolbarColor = remember(browserAdapter) { mutableStateOf<androidx.compose.ui.graphics.Color?>(null) }
             CourseScheduleTheme(config = state.config) {
                 if (pendingDraft == null) {
                     CompositionLocalProvider(LocalLegacyProgressiveBlur provides true) {
@@ -91,7 +92,8 @@ open class EduImportActivityHost : ComponentActivity() {
                         centerCompactTitle = true,
                         compactTitleMatchesSettings = true,
                         preserveStatusBarSpace = true,
-                        topBarBackdropOverride = eduWebContentBackdrop
+                        topBarBackdropOverride = eduWebContentBackdrop,
+                        topBarBackgroundColor = webToolbarColor
                     ) { backdrop ->
                         if (adapter == null) {
                             Box(
@@ -107,6 +109,7 @@ open class EduImportActivityHost : ComponentActivity() {
                                 adapter = checkNotNull(browserAdapter),
                                 backdrop = backdrop,
                                 webContentBackdrop = eduWebContentBackdrop,
+                                webToolbarColor = webToolbarColor,
                                 useDetailTopPadding = true,
                                 prepareWebView = { webView ->
                                     retainedSession?.let {
@@ -166,7 +169,8 @@ open class EduImportActivityHost : ComponentActivity() {
                                         }
                                         return@ConfirmScheduleScreen
                                     }
-                                    viewModel.importDraft(previewDraft, createNewSchedule, onFailure = {
+                                    viewModel.importDraft(previewDraft, createNewSchedule,
+                                        historySource = adapter.school.name, onFailure = {
                                         submitting = false
                                         saveError = it.message ?: "保存失败，请重试"
                                     }) { scheduleId ->

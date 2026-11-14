@@ -1,5 +1,1310 @@
 # 当前工作交接
 
+## 2026-11-14 2.0 正式发布
+
+用户确认以 `codex/v2-onboarding-2.0` 当前成果正式发布 `v2.0`，开启 GitHub 包的 SharedViewKit 金标门控，并在发版时同步 `main`、处理上下游相关 PR。合入前 `origin/main` 为 `3792fdba`。应用版本 2.0／36，课程组件沿用 6.0.19／259。
+
+将 1.2.7 至 2.0 仍生效的变化归并到应用内及仓库各一份 `v2.0.md`，保留用户删改与历史 Beta 独立说明。金标签名构建使用 `assembleGithubRelease`。发布结果以 Release、合并 PR 和附件 SHA-256 为准。
+
+`caf348c8` 补齐非金标返回动画的曲线采样验证。设置日志、加号转场与 Dock 定向回归 7 项通过，架构检查通过。用户随后要求暂缓改写 README，改用与小组件页相同的备份分页控件，并让教务导入支持中途补充附件、按上下文窗口压缩及无固定步数运行。合并与双平台发版见 [#105](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/105) 及对应 Release。此前安装的是金标关闭的验收包；发版以包含本轮修订的金标开启签名 APK 为准。
+
+## 2026-11-14 加号返回与两处旧箭头
+
+`b2b51306` 从 `19fc63d5` 的父提交逐行恢复历史更新日志和课程管理列表卡片所用的细箭头矢量。日志沿用展开折叠的旋转，课程卡仍指向详情，独立引用 `ic_chevron_left`。
+
+`0383df93` 将非金标加号收回接到「导入历史」圆形按钮实际使用的 285 ms 尺寸与纵向曲线。打开沿用个性化的曲线。中途按返回，从当下可见的外壳、圆角与内容交接开始缩回，以当下源按钮为终点。回归分别比较完整开合、中途返回和源图标终态。
+
+`assembleGithubRelease` 通过（6m30s），含 R8、资源压缩和发布 lint。2.0／36 验收包关闭金标，V2 正式签名。归档 `tmp/review-apks/SleepDown-2.0-GitHub-gold-off-7472EAC4.apk`，SHA-256 `7472EAC457A99A210923301B25A29829558115121270EB388F98B628B45B4480`。19:53:15 经 Android SDK ADB 37.0.1、USB 5539 覆盖安装至 OPPO PLJ110（Android 17／API 37）；设备包版本及 SHA-256 回读一致。安装保留原数据，未主动打开应用。
+
+## 2026-11-14 AI 设置标准控件与个性化同款转场
+
+`a3b4a3ad` 修复 AI 设置首次绘制闪退。旧包的真机堆栈为“顶栏按钮需要显式 backdrop 或顶栏效果作用域”。刷新、连接测试、清除和删除改为课程同步及备份页共用的 `SettingsActionRow`。账号切换、用量用标准箭头行，登录和取消复用设置主按钮，退出复用自动刷新页的底部危险操作样式，保留原退出回调。服务商、模型和思考强度沿用二级偏好选择器，分隔线和行内距用标准设置参数。
+
+`35601296` 让首页导入、特殊课程和反馈的非金标加号与个性化共用 `AnchoredPanelMotion`。打开 380 ms，位置用 Compose `CubicBezierEasing(0.18, 0.72, 0.18, 1)`，尺寸用 `FastOutSlowInEasing`。位置先行限制在按钮尺度内，预排版内容按展开量叠化。收回沿与个性化相同的 260 ms 节奏落回锚点。金标验收门控沿用构建参数 `-Psleepdown.disableSharedViewKit=true`。
+
+`92b2ef55` 将普通欢迎页放进主页窗口，提前准备课表和壁纸，点「继续」由按钮圆角遮罩揭开已经排好的课表。旧包由系统记录到一次「继续」后新建主页 Activity 的首帧耗时 238 ms。
+
+最终 `assembleGithubRelease` 通过（6m40s），APK 为 2.0／36，V2 正式签名，构建时关闭金标。归档 `tmp/review-apks/SleepDown-2.0-GitHub-gold-off-684055F0.apk`，SHA-256 `684055F04D7CD29588A91E586F30B6A690B5E71686404F38C021C1C294ED8E62`。19:40:01 经 Android SDK ADB 37.0.1 客户端和服务端、USB 5539 覆盖安装至 OPPO PLJ110（Android 17／API 37），设备包版本及 SHA-256 回读一致。安装保留原数据，未主动打开应用。
+
+定向回归 52 项通过，包含标准二级页打开 AI 设置、凝光正文按钮和禁用态、欢迎标题与预准备、个性化几何与加号开场。已查看浅色 AI 设置整页和操作组的 Compose 测试截图。
+
+## 2026-11-14 反馈系统转场、欢迎页与设置细节
+
+用户明确要求反馈普通二级页使用系统默认效果。`59676b7b` 将设置进反馈列表及列表进反馈详情都接到普通 Activity 转场。详情沿用标准二级页，返回保留列表位置、分类和搜索。详情的删除使用特殊课程同款 COUI 图标，列表长按本人反馈进入公共多选，支持勾选、全选当前页及确认删除。
+
+`e77d4242` 微调欢迎页两行文字的渐清和间隔，在播放欢迎动画时提前准备主页壁纸，由全尺寸页面上的移动遮罩完成「继续」展开。非金标的首页导入、特殊课程和反馈加号都先按原大小上移，再展开，收回沿同一条路径回到按钮。构建沿用关闭金标的验收参数。
+
+`007d2674` 按当天黄标上显示的实际作息计算对应课程卡的上下边缘，绘制、空位命中和相邻占位共用卡片边界。`a62f1e46` 统一 AI 设置组内分隔和操作按钮、缩小 ChatGPT 模型刷新按钮、为备份与恢复加入 COUI 页签、移除捐赠领奖台下第一条线，并加宽浅色下拉和动作菜单的软阴影。
+
+`assembleGithubRelease` 单独执行通过（7m29s），包含 R8、资源压缩、发布 lint 和 V2 签名。归档 `tmp/review-apks/SleepDown-2.0-GitHub-gold-off-6D19BC79.apk`，2.0／36，SHA-256 `6D19BC7939180DD8CDCE8ECC54058A267B433807ECF86C27796ABCACE3613B77`。18:25:45 由 SDK ADB 37.0.1 客户端及服务端经 USB 5038 覆盖安装至 OPPO PLJ110（Android 17／API 37），设备包版本和 SHA-256 回读一致。未主动启动应用，动画与外观留待真机验收。
+
+8 组共 47 项定向回归通过，覆盖反馈系统入口和多选删除、欢迎两行字、加号先位移再展开与显隐交接、周视图实际作息以及动作菜单。架构检查通过。Gradle 单次运行调试和签名两套 Kotlin 编译时触及 2 GiB 堆上限，拆分后用临时 4 GiB 参数通过。
+
+## 2026-11-14 2.0 反馈详情、普通加号转场及后端上线
+
+继续在 `tmp/v2-onboarding-2.0` 的 `codex/v2-onboarding-2.0` 工作树开发，保留 2.0 基线。问题反馈整条（含进度条）可按，进入标准二级详情看完整正文。自己的反馈在列表长按或点详情顶栏都可确认删除；服务器按设备反馈凭据校验所有权，公开过的条目也会撤下。新增反馈保留原表单样式，同步说明原文经审核后可能公开。
+
+反馈后端与管理台已部署。用户确认新反馈提交后先保持私有，管理员发布时默认带入原始标题和正文，可以先编辑；联系方式和私下回复属于私有字段。隔离生产库副本验证了迁移后历史记录、权限、分类、发布和本人删除。管理台构建、Go 测试和公网健康、分类查询、鉴权及管理台资源回读均通过。具体记录在私有后端文档，源代码、数据库和配置不进 Git。
+
+首页导入、反馈、特殊课程三个跨页加号共用普通展开和收回路线，动画期间由移动的裁切层接管源按钮，原 View 保留几何只是暂时不画。仅抓取按钮像素，目的页从一开始就按全屏尺寸排版，转场用同一条曲线驱动轮廓和位置。欢迎页调整为两行依次入场，每行的逐字模糊渐清稍慢。验收构建按用户要求关闭金标，只用真机。
+
+第一次真机安装后，用户指出普通二级页滑入缺失。设置到反馈列表沿用已有 Activity 滑入与回退资源；列表到详情复用设置二级页横向进退曲线，回到列表保留分类、搜索及滚动位置。此前 21 项定向回归已通过：反馈点击与删除、加号显隐、欢迎页节奏和窄屏大字号、壁纸主色调、提醒作息、2×2／4×2 小组件。
+
+`assembleGithubRelease` 通过（7m07s，含 R8、资源压缩、发布 lint 和 V2 签名）。归档 `tmp/review-apks/SleepDown-2.0-GitHub-gold-off-2F7E5B37.apk`，版本 2.0／36，SHA-256 `2F7E5B373BDDAC738AF65FEC14ADB31299965AC86B9F7F143C7372D32FAB1DC0`。16:38:35 通过 SDK ADB 客户端及 OPPO 互联 ADB 36.0.1 服务端，经 USB 5037 覆盖安装至 OPPO PLJ110（`3B15AE023YL00000`，Android 17／API 37），设备 `base.apk` 回读一致。保留应用数据，未主动启动应用。
+
+补回滑入后的签名构建通过（6m45s），归档 `tmp/review-apks/SleepDown-2.0-GitHub-gold-off-F9B7911B.apk`，版本 2.0／36，SHA-256 `F9B7911BDED774524B751751B2FC0C612182B3B8035704A1B0ADA901FB6A94FA`。17:10:21 通过 Android SDK ADB 37.0.1 客户端及服务端，经 USB 5038 覆盖安装至同一台 OPPO，回读一致。系统窗口、过渡和 Animator 倍率均为 1.0，未修改设备设置。用户可从「设置 → 问题反馈」验收滑入；未主动打开应用。
+
+最终 `FeedbackUiTest` 与 `TransitionRouteCatalogTest` 共 11 项通过，包含点进度条进入公开反馈、返回列表、删除本人反馈和二级页转场路线；真机动画观感待用户验收。普通加号修复单独保存在 `ad51c441`。
+
+## 2026-11-13 2.0 关闭金标的真机验收包
+
+用户要求本次能直接看到普通无缝动画。按 `-Psleepdown.disableSharedViewKit=true` 构建，构建产物的金标关闭字段为 true。欢迎页恢复底部淡紫、暖杏、浅蓝氛围光，停留时约 5.6 秒缓慢呼吸一轮。「继续」用半透明 COUI Button 对下面的真实彩光采样。两行标题分别整行入场，字形约 260ms 内错开从模糊变清楚。按实际字宽和系统字号选一个能同时容纳两行的字号。
+
+首页主色调依旧由无框文字的可见面积加权。新壁纸、保存的裁剪、亮度或模糊变化后，在首页稳定时计算并记住结果。回到今天、切周及列表滚动沿用已保存的深浅色，局部阴影继续跟随文字背景。相关提交为 `388ffd94`、`5e78f253`、`f0be4354`。
+
+`assembleGithubRelease` 在 6m54s 完成，含 R8、资源压缩、发布 lint 和 V2 签名。19:54:29 经 Android SDK ADB 客户端及 OPPO 互联 ADB 36.0.1 服务端，通过 USB 5037 覆盖安装至 OPPO PLJ110（`3B15AE023YL00000`，Android 17／API 37，用户 0）。归档 `tmp/review-apks/SleepDown-2.0-GitHub-gold-off-550F9D58.apk`，版本 2.0／36，9,957,660 字节，SHA-256 `550F9D58B9CA269DF176DE5DABEB74F3B3FF8431AD3A8E3A24A385528889BFD9`，设备回读一致。通过「软件更新 → 查看亮点功能」进入真机验收。
+
+## 2026-11-13 2.0 真机验收轮
+
+继续在 `codex/v2-onboarding-2.0` 的 `tmp/v2-onboarding-2.0` 工作树完成。用户本轮起直接装真机验收，停止使用 Android 模拟器。欢迎页白球两圈带缩放呼吸，暖冷光随球移动，约 1.82 秒铺白，再接原有黑幕和看板娘。「继续」用 COUI Kit 按钮，从真实 View 启动主 Activity，金标开场完成即结束欢迎页。普通路线按 Nexio 的缩放、纵向位移和内容交接节奏调整。课表中的课程卡取消单独飞入。更新菜单首项「查看亮点功能」继续用于重播。
+
+问题反馈列表沿标准二级页工具栏，搜索与分类下方保留渐隐。分类图标使用 COUI ChipTabButton，菜单与软件更新共享 GlowOverflowMenuButton，多选实时更新并在设备上记忆，隐藏当前分类回到「全部」。新增反馈沿用居中标题、两侧胶囊和滑动分段，标题、描述、选填联系方式各是直接摆放的单层输入框。
+
+`bb29e772` 修复课前提醒、实时活动及课程勿扰调度丢失作息目录。使用同一份完整课表快照解析每天的实际铃声，重排签名包含当前组合、日期规则和引用节次。回归场景覆盖 08:00 基准、09:00 日期方案及 11:00 独立作息。`1b44e739` 按 2×2 宿主高度和 Android 字体实际行高决定课程数，使用连堂课和第二门不同课程验证 150／153／154dp 的排布。反馈原始报告见 [#99](https://github.com/xiaomanjun233/SleepDown-Schedule/issues/99)。
+
+## 2026-11-13 2.0 欢迎页、反馈与跨页面降级
+
+用户指定参考原版 ColorOS 17。欢迎页按 E 盘 UpgradeGuide 的 60fps 启动素材及 `ColorOtaGuideFragment` 时序实现，单个白球发光铺满画面，黑幕用 540／180／180 ms 下落回弹，看板娘随后出场。「继续」用原按钮 900 ms 的时长与展开曲线作为遮罩，露出已排版的首页，已有课程卡依次落位。软件更新的「查看亮点功能」继续可重播。个性化的面板内容以固定的圆角外框裁切，超出外框的滚动部分不会绘制出来。
+
+已从 ColorOS 17 的 `oplus-framework.jar` 追到 `ViewAnimationManager → OplusViewSeamlessRemoteManager → ViewSeamlessRemoteTransition → ViewSeamlessSpringImpl`，确认几何弹簧默认启用。Legacy 主弹簧按卡片／圆形和窗口尺寸选取，背景与无锚点返回用对应独立弹簧；系统金标仍通过公开 SharedViewKit 接入。用户要求这几次签名包在构建时关闭金标，使用 `-Psleepdown.disableSharedViewKit=true`。
+
+反馈移到设置一级页最后一张卡。顶栏背景覆盖搜索、横向 ChipTab 与下方渐隐区；分类使用当前强调色。新增反馈用真实加号 View 进入独立 Activity，采用公共跨页路线，标题、描述、选填联系方式独立布局。私有后端增加分类与状态查询和迁移 010，联系方式仅本人及管理员接口返回；本地 API、repository 和管理端构建通过。Linux amd64 候选位于私有后端 `build/sleepdown-feedback-filters-2.0-linux-amd64`，SHA-256 `5BB3D73926A72DCFC03EDB34E5FC6D37A3055E7491173EE039B2F82CBF37E8B7`，待线上部署。
+
+用户要求先安装，稍后再继续。17:11:27 经 SDK ADB 37.0.1、5038 USB 覆盖安装本轮先行签名包到 OPPO PLJ110（Android 17／API 37，`3B15AE023YL00000`，用户 0）。归档为主工作区 `tmp/review-apks/SleepDown-2.0-GitHub-gold-off-E80320FD.apk`，2.0／36，9,957,500 字节，V2 签名一致，实机 `base.apk` 回读 SHA-256 `E80320FD0C5FDB7024C968C2DA56EA8993C43E9B6924CA96FE96042491F46F3D`。该包包含欢迎页、个性化裁切、反馈界面及跨 Activity 弹簧，构建时已关闭金标；正式包安装后未自动启动。后续源码微调、补跑定向测试和线上反馈仍待续做，先行 APK 已单独保全。
+
+## 2026-11-13 2.0 反馈列表与新增反馈
+
+「问题反馈」首页使用 COUI Kit 的搜索栏与 ChipTab 切换「开发进度」「我的反馈」。反馈行箭头旁显示状态胶囊，下方的六段锥光进度跟随后台状态。右下角沿特殊课程入口的材质和位置放置加号，从按钮轮廓展开到居中标题的反馈表单。表单复用导入课表的滑动分段控件，可填写标题、描述和可选功能分类。分类随反馈原文进入现有控制台，提交后返回「我的反馈」。日志本轮未接入。
+
+私有后端增加 `q` 搜索参数，沿用反馈迁移 009、分页和管理员处理入口。公开结果只匹配公开标题、公开说明和版本，私有搜索继续按提交者凭据过滤。API 与 repository 全量测试通过，本地 Linux amd64 候选为 `SleepDown-Server/build/sleepdown-feedback-search-2.0-linux-amd64`，SHA-256 `195AA3D1BCBDCCE51D349058E45B0D7F6AB709248F07C96BF5354EFA3F96DA1D`。线上反馈接口仍为 HTTP 404，候选待部署。
+
+Android 18 项定向测试通过，包含 COUI 反馈界面的搜索、展开与收回、提交和我的反馈导航，以及 HTTP 查询编码、反馈凭据复用和壁纸配色回归。与上一提交比较，架构检查没有新增违规，2.0 欢迎入口已有的循环依赖记录待另行处理。
+
+完整 `assembleGithubRelease` 通过，APK 为 SleepDown课程表 2.0／36，9,975,620 字节，V2 证书与上一包一致，SHA-256 `B64123A3E58209963AE1F80B10483CFA2D956543B087D1E6820F7E252F57E637`。归档路径为主工作区 `tmp/review-apks/SleepDown-2.0-GitHub-feedback-B64123A3.apk`，对应源码 `58c9f713`。
+
+2026-11-13 15:15:39 经 Android SDK ADB 37.0.1 客户端与本机 5038 服务端的 USB 通道，覆盖安装到 OPPO PLJ110（`3B15AE023YL00000`，Android 17／API 37，用户 0）。设备回读为 2.0／36，`base.apk` 的 SHA-256 与归档一致。沿用原应用数据，未主动启动应用，界面留给用户验收。
+
+## 2026-11-13 2.0 壁纸配色取样
+
+按用户确定的规则，以实际可见的无框文字面积为权重，从已裁剪并应用亮度的壁纸上采样。亮区占多数时，首页统一使用浅色材质与深色字，反之亦然。日期、普通星期及节次时间参与；有胶囊背景的星期和课程卡片不参与。课程卡文字继续跟随整页深浅，沿用局部阴影。页面运动期间保持当前配色，停稳后更新。无取样时使用既有配置。
+
+壁纸、首页文字和课程卡对比度共 16 项定向用例通过，完整签名 GitHub Release 构建通过。APK 回读为 SleepDown课程表 2.0／36，V2 证书与上一包一致。已检查 SDK 5038、OPPO 互联 5037、USB 与 mDNS，当时均无目标设备。
+
+## 2026-11-13 2.0 欢迎动画与反馈接入
+
+用户指出最初动画包取了旧工作树。已核对最新安装记录和 APK，真实基线为 `codex/home-render-architecture` 的 `a4ab0528`，最近一次手机包源码 `c44afa11`，版本 `2.0`／36。新独立分支 `codex/v2-onboarding-2.0` 从 `a4ab0528` 派生，工作树在主仓库 `tmp/v2-onboarding-2.0`。旧 `codex/v2-onboarding` 的 `1.2.8_beta2` 包停止作为验收和安装候选。构建采用基线安装包同一 `miuix-local` 源码。
+
+`6023afa6` 保留「SleepDown课程表／已焕然一新」，黑底开场改绘日历图形，白色轮廓流到下方收成「继续」。欢迎层覆盖已经排版的首页，从实际按钮矩形向全屏扩大圆角裁切，日／周视图里的真实课程卡错峰落位。重播在最新软件更新的「更多选项」菜单首项，沿用原更新状态、日志、下载与安装界面。用户关闭动画时直接进入课表，通知等既有提示在过渡之后显示。
+
+`1a50b093` 将 Android「问题反馈」接到 2.0 关于页和设置搜索，复用已实现的公开开发进度、我的反馈及提交接口。控制台和 SQLite 迁移位于主工作区私有 `SleepDown-Server/`，线上部署待办。
+
+`b99f2462` 将欢迎页首行绑定到正式产品名称「SleepDown课程表」。此前 Debug 截图取到了该渠道的桌面名称。最终 `assembleGithubRelease`、APK 版本 2.0／36、正式名称资源和 V2 签名均核对通过。归档为 `tmp/review-apks/SleepDown-2.0-GitHub-b99f2462.apk`，9,926,468 字节，SHA-256 `161FC87451C68AF6FE08096BC4032A7048CA8B9F5BAA461CE7083A966CBE6618`。
+
+4 项定向 Robolectric 用例通过，核对 Debug 首屏正式名称、遮罩中间帧与落位、首开标记和更新菜单顺序。Android 16 Pixel 10 Pro 只读模拟器经 SDK 5038 覆盖安装，验证空课表首开／复开和最终包「查看亮点功能」重播；最终包截图为主工作区 `tmp/v2-onboarding-tour/SleepDown-2.0-welcome-b99f2462.png`。单节示例课程已在模拟器保存，带课程重播中模拟器宿主退出，实际课程卡飞入仍待实机验收。SDK 5038、OPPO 互联 5037 与 mDNS 未发现目标手机，真机覆盖安装待连接。
+
+## 每轮实机安装
+
+2026-11-12 用户要求「现在开始每轮测完都装到实机」。后续每轮应用验证完成后，
+将同一签名包覆盖安装到用户当前指定的已授权设备，并核对安装结果。HD 这轮改为
+先装小米平板，由用户直接实机验收。
+
+## 2026-11-13 COUI 图标替换与手机安装
+
+用户选择[图标清单](reports/2026-11-13-coui-icon-audit.md)官网表的第 1、2、4–15 项。
+`19fc63d5` 接入对应的 COUI 矢量，日视图使用 `Filled.Certificate`，周视图使用
+`Calendar`。两种材质的手机底栏按选中状态切换实心和线框齿轮，其他设置入口用实心。
+现有动作 ID 通过 drawable 别名继续使用，AI 设置保留原渐变。原始资源 Git blob 见
+[图标来源](../third_party/coui-kit/ICON_SOURCES.md)。
+
+Release 构建通过（6m23s，含发布 lint、R8、资源压缩与 V2 签名）。
+归档 `tmp/material-device-qa/coui-icon-rollout.apk`，SHA-256
+`5D4BA3E6AC8E428215029D5A19F689840F5AEF8B35F7E1CF67E4C4FB5B61BFF5`。
+用户本轮指定只安装手机。00:44:34 经 SDK ADB 37.0.1、5038 的 USB 通道
+覆盖安装到 OPPO PLJ110（3B15AE023YL00000、Android 17 / API 37、用户 0），
+回读一致。APK 内已核对日视图、周视图与两种齿轮资源。手机界面留给用户验收。
+
+用户补充后，`32013731` 将多课表管理换为 `Filled.MultiPhone`，设置里的
+AI 助理换为 `Filled.Headset`，日视图助手展开后标题旁使用彩色 `Filled.AI`。
+编辑弹窗选择行复用 COUI 列表右箭头。`3934f794` 恢复手机周视图课程卡的
+8dp 默认圆角和原滑条映射。`c44afa11` 接入实机 ColorOS 日历 17.6.30 底栏的
+24dp 矢量，未选中用线框，选中用实心。来源、原始资源哈希和对照图位置见
+[图标清单](reports/2026-11-13-coui-icon-audit.md)。
+
+最终 Release 构建通过（6m01s，含发布 lint、R8、资源压缩与 V2 签名）。
+归档 `tmp/material-device-qa/coui-calendar-states.apk`，SHA-256
+`31B5252F223D4D0DE96D0538FAE45E7237935198E81FB76BF16551933F9686B5`。
+01:10:37 经 SDK ADB 5038 USB 覆盖安装到 OPPO PLJ110（3B15AE023YL00000、
+Android 17 / API 37、用户 0）。回读哈希一致，已核对 APK 内两枚日历矢量的路径和透明度。
+按用户本轮要求留给手机界面验收。
+
+## 2026-11-13 平板通用设置与 COUI 图标选型
+
+`b01475ec` 修复平板左栏从其他设置分类点回「通用设置」无效。旧回调捕获首次组合的
+页面枚举，后续点击被当成重复选择。左栏选择、离页保存判断和子页返回改为读取当前
+分栏导航状态，课表草稿提交沿原入口。Release 构建通过（5m18s，发布 lint、R8、
+资源压缩和 V2 签名通过）。归档 `tmp/material-device-qa/hd-settings-reopen.apk`，
+SHA-256 `EC71A2C4AD0312C2633E86D618E2749E10013B3EBD91A762DB8BDCEB2F63F7A3`。
+00:11:31 经 SDK ADB 37.0.1、5038 的已配对无线通道覆盖安装到小米平板 7S Pro 12.5
+（25053RP5CC、0A84E43049A40540、Android 17 / API 37、用户 0），回读一致。
+设置切换留给用户操作验收。
+
+按用户给出的 COUI Kit 官网图标图库，对照工程内置版本和实际页面调用，形成
+[功能图标替换清单](reports/2026-11-13-coui-icon-audit.md)。清单标注官网样式名、
+工程内可用的图标与各处图标含义。此项交付为选型，图标迁移留待后续实施。
+
+## 2026-11-12 导航收展、更新页和周视图课程卡片
+
+在 `codex/home-render-architecture` 接续。大屏导航参考用户提供的 Nexio APK
+`com.haooz.chedule` 1.7.0-1103 / 170 中的 `TabletNavMorphMotion`：横纵两组弹簧、
+收展方向切换阻尼和节奏，条目依次跟随。SleepDown 保留现有导航目的地与固定内容测量，
+使用一个材质表面贯穿侧栏与顶部标签栏，凝光描边读取同一圆角；顶部胶囊保留弹性按压。
+
+软件更新页发现新版本后展开该版本的发布说明，同一会话内返回状态页不会重复弹开。
+下载与进度共用 COUI 悬浮胶囊，保留原下载、安装授权和重试路径。浅色宽屏的说明卡片
+带轮廓，历史列表居中，更新页工具栏按钮加强软阴影。
+
+用户补充快速编辑要提前相邻课程的涟漪起振时间。现由浮层第一次压缩触发，
+原传播范围和动画时长保留。手机周视图的默认课程圆角与新增单节课框共用 13dp，
+文字边距内收 1dp，现有滑条百分比按新范围映射。宽窗口沿用原圆角映射。
+
+最终源码 `81dbc5fc`，`assembleGithubRelease` 通过（6m33s，含发布 lint、
+R8、资源压缩与 V2 签名）。归档 `tmp/material-device-qa/hd-update-navigation-final.apk`，
+SHA-256 `13126BDDCE0AA7D21A106A63CCD95E70479BEA664886333BE594EBDDAFA78CA8`。
+23:31:24 经 SDK ADB 37.0.1、5038 的 USB 通道覆盖安装到小米平板 7S Pro 12.5
+（25053RP5CC、0A84E43049A40540、Android 17 / API 37、用户 0），回读一致。
+按用户要求留给实机操作验收，未启动应用或使用模拟器。
+
+## 2026-11-12 宽屏导入历史、导航材质和 Sheet
+
+`codex/home-render-architecture` 的运行时基线为 `782472a5`。宽屏导入右栏加 16dp 两侧留白，
+导入页、历史列表和记录详情共用淡入淡出，新的导入请求回到表单。侧栏和顶部导航复用手机
+底栏的凝光及液态材质参数。多课表管理与小组件的下投光从卡片下沿取色，浅色 COUI 和 Miuix
+Popup 加强外侧软阴影。
+
+ColorOS 17 Settings APK 的 `design_bottom_sheet_dialog.xml` 指定六列和内容高度，
+`COUIPanelPercentFrameLayout` 先走窗口网格，再以 540dp 封顶。`sw600dp` 资源高度
+上限 800dp。12 列横屏网格的边距为 40dp、列距为 12dp。小米平板横屏全宽约
+1280dp，六列计算约 594dp，默认上限下得到 540dp。尺寸依据 APK 的 HD 分支，
+实际设备为小米平板。调休预览与灵动岛教程在大屏按内容测高，作息编辑使用可用高度。
+
+`assembleGithubRelease` 通过（7m14s），APK v2 签名验证通过。归档
+`tmp/material-device-qa/hd-pane-polish-final.apk`，SHA-256
+`F6D4D8FECF7D24966CD8A0FE2F4201B01ADBB3FC536EEF220A2C87A2DAB62D8F`。
+22:43:42 经 SDK ADB 37.0.1、5038 的序列号通道覆盖安装至小米平板 7S Pro 12.5
+（25053RP5CC，0A84E43049A40540，Android 17 / API 37，用户 0），回读哈希一致。
+页面与材质效果等待用户实机验收。
+
+## 2026-11-12 HD 右栏、课程编辑和课表回弹
+
+`codex/home-render-architecture` 的运行时基线为 `6570e8f1`。右栏共用口令／文件与教务的
+切换式导入页，预览确认留在同页。主设置里的调休课表和特殊课程列表沿右栏的子页转场打开，
+调休事务独立提交，保留父页草稿。课程管理与设置共用底色。侧栏选中项沿用侧栏圆角，
+TabBar 的两种材质共用外框和弹性按压。
+
+平板日志中的 `QuickSheetToSettingsDetail` 在横屏同步入口抛出
+`IllegalArgumentException`，`1986bbbe` 移除该分支，复用保存后异步打开的路线。
+`04077646` 让日／周课表在零滚动范围也接收纵向回弹，课程拉伸继续独占纵向手势。
+`0a51dc9c` 让横屏编辑器从课程卡片展开，在扣除侧栏和安全区后居中。周视图新增卡片
+使用单节课几何，取消后接回原位，三秒后缩小淡出。按本地 ColorOS 17 Settings
+反编译资源，COUI 大屏 Dialog 采用 840×480dp 窗口门槛，底部 Sheet 居中、
+最大宽度 540dp，大屏高度上限 800dp。
+
+`assembleGithubRelease` 通过（5m11s），APK v2 签名验证通过。归档
+`tmp/material-device-qa/hd-unified-pane.apk`，SHA-256
+`05732CE700F30108D045C476683A134DEF08B58E13D0EDF6363D14BC7E4DACCA`。
+21:59:38 经 SDK ADB 37.0.1、5038 的已配对无线端点覆盖安装到小米平板 7S Pro 12.5
+（25053RP5CC，序列号 0A84E43049A40540，Android 17 / API 37，用户 0），
+回读哈希一致。回弹、转场和布局等待用户实机操作验收。
+
+## 2026-11-12 HD 设置、导航、Dialog 与导入
+
+`codex/home-render-architecture` 中，设置分类在右栏内复用原缩放、淡入淡出与模糊；
+分类内的子页才横滑进入及返回，绘制裁切在右栏。浅色设置全窗口共用 COUI 底色，
+主侧栏使用白色表面。移除了只输出同色的「关于」渐变链路。版本首卡标题和版本号
+按栏内实际宽度换行及测高。参照本地 ColorOS 17 Settings 的 Activity Embedding
+分栏和 OTA `version_layout.xml` 的内容测量；Dialog 采用同资源的大屏居中 470dp
+高度上限，并同时受当前安全区与 IME 约束。
+
+首页壁纸上的 HD 侧栏与顶部胶囊加深模糊并增大圆角。「口令/文件导入」及助手、
+外部文件的旧弹窗入口改为统一导入页，清理了旧导入 overlay 及专用几何测试，
+导入预览确认后写入的语义保留。手机和平板的公共列表与特殊课程网格共用稳定
+滚动入口；顶栏不再与刚铺满的列表同时起回弹。
+
+`assembleGithubRelease` 通过（5m16s），APK v2 验证通过。签名归档
+`tmp/material-device-qa/hd-settings-adaptive-final.apk`，SHA-256
+`0DCCC6D7F03D2D31E5BC8CDFECDA16534222B1C3901045664E9476FDC7CCBAED`。
+21:03:08 经 SDK ADB 37.0.1、5038、USB 覆盖安装到小米平板 7S Pro 12.5
+（25053RP5CC，Android 17 / API 37，用户 0），回读哈希一致。用户要求直接在平板
+验收，最终包未运行模拟器验收；未主动启动平板应用。
+
+## 2026-11-12 日视图「今」、表头和个性化动效
+
+`dc1e2fec` 让日视图翻到其他日期时显示同一枚「今」。按钮文字使用当前强调色，
+点击回到今天。左上角、普通周视图日期范围和两种周视图表头共用 420 ms 曲线。
+星期名保留各列的绘制节点，日期交叉淡入淡出并使用瞬态模糊，今日标记单独过渡。
+`a9fb7321` 去掉个性化面板从课程卡片借来的拉伸形变，材质以普通圆角绘制，表单等比缩放。
+
+签名归档 `tmp/material-device-qa/home-date-header-motion.apk`，SHA-256
+`85436A5A0E58F9734B37696128A2C64CDA4CA976B14DEAAAE2FD5C2C7D9417A0`。
+API 36 模拟器用户 10 通过两种材质的前后翻日、回今天、个性化开合和普通、无界周视图切换。
+19:26:46 经 SDK ADB 37.0.1、5038 覆盖到 USB OPPO PLJ110，Android 17 / API 37、
+用户 0，回读 APK 哈希与模拟器一致。见[验收记录](reports/2026-11-11-home-render-architecture.md)。
+
+## 2026-11-12 顶栏、今字按钮与助手排版复修
+
+`codex/home-render-architecture` 中，`2bfe8f11` 改为原位缩放淡入淡出，并在跨到另一周时开始
+播放「今」的融球展开。按钮接上 ColorOS 日历深浅两套材质参数和完整触摸反馈。
+`7a86a08d` 复用底栏的展开时钟和两种材质路径。凝光共用底栏弹簧与双轮廓混合，
+液态沿用 460 ms 曲线和加号轮廓裁切。`b3b60b4e` 让分离后跳过已由底栏绘制的加号材质。
+`89c2b106` 让添加小卡在关闭及超时时缩小淡出。`8a411d84` 固定今日助手与周视图助手的文字
+排版宽度，在正文不可见时切换小窗和全屏布局。
+`a281f4a7` 和 `fca33967` 让周视图助手按关闭瞬间的几何收回。先用 320 ms 抵达开孔
+中心，开孔左右各留 4dp，再用 190 ms 沿水平方向收窄。提交 1 像素末帧后卸载。
+提醒与对话共用该路径。
+
+最终签名 `assembleGithubRelease` 通过（6m54s），APK v2 签名验证通过。
+归档 `tmp/material-device-qa/home-motion-camera-fold.apk`，
+SHA-256 `1A1F4512DB5C080D5919E2944B042475196C284E6DA78F5736EF36AF802EEB06`。
+API 36 模拟器用户 10 已覆盖并核对哈希。两种材质的常速录屏均确认外壳抵达开孔后横向收窄，
+凝光同机两次换周 P95 为 157.45 ms 和 113.94 ms，仍有长帧。
+18:34:22 经 SDK ADB 37.0.1 的 5038 通道覆盖安装至 USB OPPO PLJ110，Android 17 / API 37、
+用户 0。真机回读 APK 哈希与模拟器验收包一致。
+系统材质参数见[验收记录](reports/2026-11-11-home-render-architecture.md)。
+
+## 2026-11-12 空白格添加、顶栏和回到本周
+
+`codex/home-render-architecture` 的 `29ee929d` 将单课新增移到周视图空白格：点按出现凝光
+小卡，三秒超时，再点用已有转场打开预填表单；旧三点菜单入口和专用路由已删除。
+`1def0481` 将周数收在左上角，标题共享移动、缩放、淡入淡出及运动模糊。普通手机上
+「今」从底栏加号融出，按加号实测圆面等大、水平居中，停在其正上方 20dp，点击回到本周。
+参考来自本地 ColorOS 日历 17.3.70 的普通竖屏手势导航布局，推导见[验收记录](reports/2026-11-11-home-render-architecture.md)。
+
+## 2026-11-12 快速编辑与快捷菜单转场
+
+运行时提交为 `139cb3d4`，分支 `codex/home-render-architecture`，工作树
+`tmp/home-render-architecture`。拉伸把手的输入节点留在网格中，浮动卡接管绘制期间
+手势仍由原触点驱动，直到松手或取消。拉伸中暂停纵向滚动，保存后恢复。
+长按后直接移动会进入快编，静止长按仍打开快捷菜单。落位完成后，附近课程沿用原来的
+900 ms 扩散曲线；波纹期间暂停为浮动卡录制网格。
+
+「编辑单节课」在菜单退场时预备表单，保留源卡和背景景深，表单完成布局后接手展开。
+两种材质的录屏均未出现先闪回清晰课表再展开。凝光的同机 Perfetto 单次对照仍有长帧，
+且准备阶段包含等待原生菜单退出的时间，不能标记为流畅。详见[验收记录](reports/2026-11-11-home-render-architecture.md)。
+
+完整签名 `assembleGithubRelease` 通过（5m46s），归档 `tmp/material-device-qa/quick-edit-handoff.apk`，
+SHA-256 `D882FA6D8C8B915BCBC301EE77498821F6FCE6A361BC2708ED019193CAEDAAEC`。
+经 SDK ADB 37.0.1、5038 → `127.0.0.1:5557` 覆盖安装并回读，目标为
+`sdk_gphone64_x86_64`、API 36、隔离用户 10。凝光与液态均验证直接进快编、拉长、
+缩短、持久化节次、落位涟漪、空白区滚动和单节编辑转场。合成课表已还原。本轮未安装真机。
+
+## 2026-11-12 今日助手与个性化开合
+
+当前运行时提交为 `aa068cb4`，分支 `codex/home-render-architecture`，工作树
+`tmp/home-render-architecture`。今日助手同步交接原卡与对话外壳，原卡浅色装饰随外壳移动。
+对话从原卡模糊量起步，展开后到 24dp，外层课表的景深模糊为 12dp。
+
+个性化面板的位置沿用上半区课卡展开的贝塞尔曲线和下移弧线，尺寸采用 Material 标准曲线。
+展开 380 ms，收起 260 ms。外壳在运动中复用课卡的拉伸轮廓，模糊按屏幕坐标采样，
+前景表单等比缩放。每次展开使用本次表单放置完成的信号开始动画。
+
+签名 `assembleGithubRelease` 通过（6m48s），归档 `tmp/material-device-qa/animation-taper.apk`，
+SHA-256 `8A7B8456C52325D452642CB0289831A1D143727ABBB403CA1D86F01EF39ED1CD`。
+经 SDK ADB 5038 → `127.0.0.1:5557` 覆盖安装并回读，设备为 Pixel_10_Pro、API 36.1、隔离用户 10。
+凝光和液态均录制了个性化展开、收起和复位。今日助手在包含相同助手代码的 `animation-polish.apk`
+上完成两种材质的开合与录屏检查。详见[验收记录](reports/2026-11-11-home-render-architecture.md)。
+
+## 2026-11-12 周视图助手统一凝光背景
+
+运行时提交 `cdba8816` 位于 `codex/home-render-architecture`。周视图下拉助手的小窗、全屏和提醒
+共用凝光背景渲染器，背景从小窗展开到全屏稳定再收起沿用这套材质。前景控件跟随所选模式。
+教务悬浮窗通过同一组件按当前模式选材质。
+
+完整 `assembleGithubRelease` 通过（4m50s），签名包为 `tmp/material-device-qa/unified-agent.apk`，
+SHA-256 `E29D993F1D9C69910E7881F1A85B5B5B5CF1E2D845B50B55E61CFFCEAC756424`。
+已在 Pixel_10_Pro（API 36.1、隔离用户 10）经 SDK ADB 5038 → `127.0.0.1:5557` 覆盖安装并核对哈希。
+两种模式均点验展开、退出全屏和全屏四角覆盖。各录制三次展开与收起，应用帧 P95 液态
+174.79 → 56.18 ms，凝光 78.72 → 56.87 ms。对照取自同台模拟器上一签名包，见[验收报告](reports/2026-11-11-home-render-architecture.md)。
+本轮安装及帧验证均在模拟器执行。
+
+## 2026-11-12 周视图交互与助手全屏
+
+本阶段实现位于 `codex/home-render-architecture` 的 `b608b7b5`，工作树
+`tmp/home-render-architecture`。长按静止可在松手前打开快捷菜单，移动时接管为单卡拖动，
+浮动卡恢复落位压缩与回弹。无首行特殊课程时，第一节普通课的删除浮标留在网格内。
+多课表设置采样预模糊的多课表背景。周视图助手展开时复用已录制首页，
+转场结束切为铺满窗口的材质，天气位于课程数同一行的右侧。
+
+最新签名候选为 `tmp/material-device-qa/interaction-weather.apk`，完整 `assembleGithubRelease`
+通过（6m16s），已在 SDK ADB 5038 → `127.0.0.1:5557`、Pixel_10_Pro / API 36.1、
+隔离用户 10 上覆盖安装，回读 SHA-256
+`E77ADDD2BB520C50D01EF68C7F4A1D42F83C04C89A997037783DF362C0372398`。
+最新包的两种材质均验证天气位置和全屏边缘，定位授权点验选择不允许。
+凝光复测多课表设置进出及调课移动后恢复原位。实测助手全屏及收起的 P95
+凝光 126.24 → 78.72 ms、液态 228.72 → 174.79 ms。液态模拟器仍有长帧。
+拖动和多课表设置的成组数据及比较条件见[验收报告](reports/2026-11-11-home-render-architecture.md)。
+用户要求安装到真机后，11 月 12 日 11:33:25 将同一签名包覆盖安装到 OPPO PLJ110
+（Android 17 / API 37，USB `3B15AE023YL00000`，用户 0）。客户端和 5038 服务均为
+`D:/Android studio/AndroidSDK/platform-tools/adb.exe` 37.0.1。安装返回 Success，系统报告
+2.0 / 36，设备回读 SHA-256 与上文一致。此次验证为安装回读，未启动应用。
+
+## 2026-11-12 首页材质与调课拖动的模拟器验收及真机安装
+
+用户先要求“先修性能”，随后以同一模拟器 Nexio 真实拖动调课的 P95 为对照。
+两种材质都有发黑反馈。灰阶壁纸下凝光新旧包暗部读数基本一致，本轮未复现整卡异常黑，
+按用户要求暂缓调色。这里的有限对照不能标记黑卡已解决。
+
+运行时修订保存为 `d48eeb47`，分支 `codex/home-render-architecture`，工作树
+`tmp/home-render-architecture`。原开发工作树及 `codex/perf-baseline-20261111`
+仍为 `b779dd55`。未推送。
+验收在后台 Pixel_10_Pro（API 36.1、隔离用户 10、SDK ADB 5038 → `127.0.0.1:5557`）
+使用 25 门合成课程完成。本轮只做签名 Release 构建和实际界面验证。
+
+Nexio 对照是用户提供的 `D:/QQ/2308530675/FileRecv/Nexio课程表.apk (5).1`，
+`com.haooz.chedule` / `1.7.0-1103` / 170，SHA-256
+`3ECB25D93644A4DE152462868134DFEC436118CA8570A82729B9A9CA88C17FCD`。
+源码机制参考 Nexio `d6744fbb` 和 SoftGlass `a4a06b1`，APK 未证明对应精确提交。
+
+签名包 `tmp/material-device-qa/aligned-drag.apk` 完整 Release 构建通过（5m47s），
+模拟器安装后回读 SHA-256
+`D22EBE7A032D7B3A306446D46CBBF183EAFC5AB895B49E5A270C1019511EEFFE`。
+用户随后要求安装，11 月 12 日 09:53:08 使用同一个签名包覆盖 OPPO PLJ110（Android 17 /
+API 37，USB `3B15AE023YL00000`，用户 0）。客户端与 5038 服务均为
+`D:/Android studio/AndroidSDK/platform-tools/adb.exe` 37.0.1。安装返回 Success，
+真机回读 SHA-256 与归档一致，系统版本为 2.0 / 36。覆盖安装保留应用数据，尚未做真机界面复测。
+最终同批三次拖动的 P95 为普通入口凝光 40.38、液态 46.89、Nexio 46.25 ms，
+快速编辑凝光 35.08、液态 37.72 ms。Nexio 跨轮 P95 在 26.27–46.25 ms，
+以相邻实测为对照。采集条件、阶段结果和撤回实验见[本轮报告](reports/2026-11-11-home-render-architecture.md)。
+
+静止网格独立复用，快速编辑提示收成一次入场弹簧。浮动卡接管后独立移动和回弹。
+原拖动邻卡波纹引发 900 ms 网格反复重绘，已从拖动路线移除。普通长按松手打开快捷菜单，
+拖开直接移动，浮动卡采样实际下层。凝光底栏采样可见壁纸和正文，Sheet 两侧按钮采样滚动正文。
+实际检查了调课保存和回退、缩短及恢复节次、切页甩尾及标签跟随、课程展开背景模糊和快速返回。
+液态模式的删除确认使用凝光弹窗，验收操作选择取消。
+
+系统设置清缓存至 0 byte 后直接返回，进程仍存活，课表壁纸和切周正常。
+保留/清缓存的热返回加两次切周 P95 为 65.87/58.22 ms。强制冷启动仍存在长帧，
+保留/清缓存的同场景 P95 为 132.96/137.80 ms。现有对照未发现清缓存额外拖慢凝光，
+冷启动和真机长帧仍需单独定位。
+
+## 2026-11-12 候选回归、真机恢复与模拟器续作
+
+`db84b625` 的共享纹理／动效和 `2421bc49` 的 Sheet／弹窗修正虽然通过 35 项定向测试，
+签名 Release 也通过，但 00:15 安装后出现严重实机回归：普通课程卡整片不可见，
+点击空白仍可展开对应课程；部分仍可见表面外观不对，编辑仍卡。
+用户明确指出不能用单测代替真实界面验收，要求停止追加无意义单测，后台模拟器自测。
+用户观察：背景卡片消失时，课程展开动画很流畅，支持继续调查背景持续绘制开销。
+这版绝不能当作交付完成。失败 APK 已保存在 `tmp/material-device-qa/regression-2421bc49.apk`，
+SHA-256 `DA90BC78E530961B090A41493C9CEBCFC5828C8AFF50DB7CC0F144436C486A98`。
+
+按用户要求已用现有归档 `SleepDown-2.0-GitHub-6bcbc93e.apk` 覆盖恢复 USB OPPO 真机，
+安装 Success，实机回读 SHA-256 `CEFAA2786ABFED93F8F11457DC213E14B919117C8A6BBCA650764E358B16B240` 一致。
+这是重构前归档包，非 `24c887b2`；后者没有独立归档。临时重建已中止，已返回
+`codex/home-render-architecture` 的 `2421bc49` 并恢复全部文档改动。手机保留恢复包，
+后续候选先在模拟器完成完整显示、视觉、拖动／拉伸／打断及 Sheet 采样验收。
+本轮没有清手机缓存、数据或修改课程内容。
+
+已隐藏启动现有 `Pixel_10_Pro` AVD（Android 16），无清库，`-no-window -no-snapshot -memory 2048 -cores 2 -gpu host`。
+它自动注册在 OPPO 的 5037；已用 SDK 5038 连到已知本机端点 `127.0.0.1:5557`，
+后续明确使用 `-P 5038 -s 127.0.0.1:5557`。须核对现有隔离用户 10 后继续。
+真机当前不再出现在 ADB 列表中。文档曾用本任务 stash 暂存并已 apply，尚保留备份 stash；不要误删其他 stash。
+
+实机缺卡截图与 UI XML 在 `tmp/material-device-qa/regression-*`。XML 中有课程文本和有效坐标，
+截图不可见，说明应检查绘制／裁剪／材质装配，不能清库或改数据绕过。
+用户操作的旧版编辑 trace 为 `edit-before.perfetto-trace`：64 MB 环形缓冲保留 11.753 秒，
+354 帧、258 帧 app deadline missed，P95 78.82 ms；RenderThread Running 10.35 秒，
+同步平均 15.24 ms、绘制平均 15.31 ms。后补 `edit-before-full` 是空闲段，无可用帧，不能当对照。
+此前下节的“正在验证／尚未安装”是更早阶段记录，以本节为准。
+
+## 2026-11-12 首页材质、甩尾与 Sheet 采样续作
+
+用户要求保留最新开发修改后重写两种材质的公共采样与首页动效，尽量保持视觉。
+最新要求：普通弹窗连材质一起统一为凝光；课程卡参考 Nexio 当前的共享纹理机制，
+保留凝光轮廓／焦散、液态折射／按压；其他小组件、滑条和开关保持原路径。
+Sheet 顶栏按钮必须保留正文模糊采样。用户已要求“安装查看”，并授权卡顿时抓 Perfetto。
+“清除缓存”指系统设置里的应用缓存；本轮没有清除设备缓存或数据。
+
+实际最新开发基线为 `tmp/nav3-baseline-37212b91` 的 `b779dd55`；
+保留分支 `codex/perf-baseline-20261111` 指向该提交。
+当前为 `codex/home-render-architecture`，工作树 `tmp/home-render-architecture`。
+原开发分支及主工作区的未提交修改未动，没有推送或 PR。
+
+首轮 `24c887b2` 已通过签名 Release 和 76 项定向测试，11 月 11 日 22:56
+覆盖安装 USB OPPO PLJ110。用户实际指出甩尾丢失、背景模糊不对、凝光动画打断、
+两种材质拖动卡顿及 Sheet 按钮采样缺失；首轮测试不能作为这些问题已解决的证据。
+旧包 SHA-256 为 `AD439C9BD3D5CF86E776346D8F98936B937EEB59AB04DE8634083EBE6463959E`。
+
+当前修正：页面拥有预模糊纹理、采样与光学程序；普通课程卡直接绘制，
+焦散与主体共用坐标。编辑浮动副本仍消费实际下层，静止课表在编辑期离屏复用。
+拖动连续值移至布局／绘制阶段。单时钟恢复六组错峰弹簧及反向速度接续；
+整页模糊恢复真实半径变化，凝光冻结场景共用离屏结果。
+普通弹窗删除液态皮肤分支。Sheet 左右按钮消费独立正文源与透明模糊配方，
+调休预览正文和顶栏改为同级节点。极致性能模式沿用原无正文采样策略。
+
+新代码的定向验证和签名打包进行中，尚未覆盖安装修正版。
+12 张共享纹理在平移、旋转、缩放下的硬件截图对齐测试已通过；
+追加不依赖外部逐帧刷新及两种折射 shader 的验证正在跑。
+架构检查通过：663 个生产文件，0 项违规，既有 41 条循环边未放宽。
+Kyant 完整差异通过独立应用和 44 个运行时文件比较。
+
+设备证据在本工作树 `tmp/material-device-qa/`，不得提交。
+SDK ADB 37.0.1 的 5038 服务连接 OPPO PLJ110（Android 17 / API 37，
+USB `3B15AE023YL00000`，用户 0）；5037 是 OPPO Connect 服务，未停止。
+先前模拟器 `emulator-5556` 当前已离线。用户已解锁真机允许验证。
+旧包 12 秒 Perfetto 为 `before.perfetto-trace`；同场景四次周滑动和三组设置／课表切换，
+353 帧，gfxinfo deadline miss 42 帧（11.90%），P95 31 ms。
+trace 最长主线程帧 88.8 ms，测量／布局 55.91 ms；尚未形成新版同场景对照，
+不能据此宣称已经解决或量化收益。
+
+完整架构与分轮验证见[本轮报告](reports/2026-11-11-home-render-architecture.md)。
+
+## 2026-11-11 通知教程 Sheet 顶栏渐变模糊
+
+OPPO 19:44 的截图确认 `f99b7dea` 的诊断列表已延伸到小白条下。教程 Sheet 的滚动列表复用作息编辑的渐变模糊做法，顶栏独立绘制，列表按实测顶栏高度留出初始间距。渐变只覆盖顶栏，末项继续按实际手势区高度加 16dp 留白。
+
+签名包源码为 `6bcbc93e`。GitHub 2.0、版本代码 36，`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 10 分 16 秒。归档包 `tmp/review-apks/SleepDown-2.0-GitHub-6bcbc93e.apk` 为 8,074,898 字节，SHA-256 为 `CEFAA2786ABFED93F8F11457DC213E14B919117C8A6BBCA650764E358B16B240`。
+
+20:21 通过 SDK ADB 37.0.1 的 5038 服务覆盖 USB OPPO PLJ110（Android 17 / API 37，`3B15AE023YL00000`，用户 0）和后台 Pixel 10 Pro AVD（Android 16，`emulator-5556`，用户 10），两处 APK 回读一致。修正后的厂商 Sheet 滚动效果待 OPPO 复看。构建日志为 `tmp/sleepdown-notification-sheet-blur-6bcbc93e-build.log`，安装日志为 `tmp/nav3-qa/sleepdown-6bcbc93e-install.log`。
+
+## 2026-11-11 通知教程 Sheet 的手势区适配
+
+通过 SDK ADB 37.0.1 的 5038 服务读取 USB OPPO PLJ110 19:25 的最新截图。`1b385aae` 的流体云「教程与诊断」列表在 1256×2760 图像的 y=2563 处截断，距离屏幕底部 197px。共用教程 Sheet 采用 COUI 边到边正文布局，滚动末尾留出导航栏实际高度和 16dp 间距。
+
+签名包源码为 `f99b7dea`。GitHub 2.0、版本代码 36，`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 10 分 42 秒。归档包 `tmp/review-apks/SleepDown-2.0-GitHub-f99b7dea.apk` 为 8,074,898 字节，SHA-256 为 `9DDAC698516AA923CDDD4F0B3476C0E157C9B1B56AF3932A126F347E10D14E3A`。19:41 经同来源 ADB 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读一致。Pixel 仅提供普通通知与实时活动入口，修复后的厂商 Sheet 待 OPPO 复看。构建日志和安装日志分别为 `tmp/sleepdown-notification-sheet-edge-f99b7dea-build.log` 与 `tmp/nav3-qa/sleepdown-f99b7dea-avd-install.log`。
+
+19:43 按用户要求覆盖同一 `f99b7dea` 签名包到 USB OPPO PLJ110（Android 17 / API 37，`3B15AE023YL00000`，用户 0）。客户端与 5038 服务均为 `D:/Android studio/AndroidSDK/platform-tools/adb.exe` 37.0.1。实机回读 GitHub 2.0、版本代码 36，APK 哈希与归档一致。日志为 `tmp/nav3-qa/sleepdown-f99b7dea-phone-install.log`。
+
+## 2026-11-11 厂商通知教程 Sheet 与滑删拉伸
+
+课程安排整卡滑动接回公共删除按钮的拉伸。按钮露出后，继续拖动会增加宽度，图标跟随按钮居中。流体云、YOYO 建议与超级岛复用「教程与诊断」COUI Sheet，分为使用教程和当前诊断，顶栏支持关闭、刷新。流体云页保留组件和重新同步，超级岛页通过一行选择 Shizuku 或 root，并提供焦点通知与显示设置。超级岛的教程说明即时发送预览，流体云的教程说明临时课程和观察时间。
+
+签名包源码为 `1b385aae`。GitHub 2.0、版本代码 36，`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 9 分 24 秒。归档包 `tmp/review-apks/SleepDown-2.0-GitHub-1b385aae.apk` 为 8,074,898 字节，SHA-256 为 `DB921DF631A0FC8262A7FD3081F24F0790C5A5DB64665B8385FD95E594E51A3D`。构建日志为 `tmp/sleepdown-notification-sheet-1b385aae-build.log`。
+
+19:20 经 SDK ADB 37.0.1 的 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读一致。点验整卡滑动、深拖后取消回位及通知设置入口。删除按钮高 72.5dp，截图中的底色宽度随拖动从 116px 增至 191px。Pixel 使用普通通知设置，厂商 Sheet 和系统授权流程待对应机型点验。日志及截图在主工作区 `tmp/nav3-qa/sleepdown-1b385aae-avd-*`。
+
+18:57 先按用户要求将 `38f56444` 整卡滑动包覆盖到 USB OPPO PLJ110。19:22 同一手机覆盖 `1b385aae`，Android 17 / API 37，`3B15AE023YL00000`，用户 0。客户端和 5038 服务均来自 `D:/Android studio/AndroidSDK/platform-tools/adb.exe`，版本 37.0.1。两次回读的版本均为 GitHub 2.0、版本代码 36，base APK 哈希分别与对应归档一致。日志在主工作区 `tmp/nav3-qa/sleepdown-38f56444-phone-install.log` 和 `tmp/nav3-qa/sleepdown-1b385aae-phone-install.log`。
+
+## 2026-11-11 课程安排整卡滑删与厂商通知设置梳理
+
+课程安排的底色轮廓、分割线和表单一起横移。删除按钮随手势露出，高度为安排卡片的四分之一。共享滑删组件按入口选择卡片运动。用户确认采用当前效果。
+
+签名包源码为 `38f56444`。GitHub 2.0、版本代码 36，`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 7 分 17 秒。归档包为主工作区 `tmp/review-apks/SleepDown-2.0-GitHub-38f56444.apk`，SHA-256 为 `429327CB9D0F76C3BFA0852D1FB125EB95AB2D656A9E6F0F76E76CC14D77BAEB`。18:47 经 SDK ADB 37.0.1 的 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读一致。
+
+在合成课表的高等数学详情点验浅滑、删除确认和取消回位。删除按钮实测 60 × 72.5dp。对比截图，卡片右侧轮廓左移 141～142px，星期和地点文字左移 140px。截图、安装及点验日志在主工作区 `tmp/nav3-qa/sleepdown-38f56444-avd-*`，构建日志为 `tmp/sleepdown-course-slide-38f56444-build.log`。
+
+通知设置梳理聚焦流体云和超级岛。建议由通知样式下的状态入口打开厂商配置页，首卡显示当前状态和下一步。流体云按组件、系统设置、同步与测试组织，超级岛按授权方式、焦点通知权限、显示内容与测试组织。源码核对发现超级岛测试会直接请求发送预览，现有配置说明沿用了流体云创建临时课程的等待时间。
+
+## 2026-11-11 课程管理卡片与安排编辑
+
+在独立工作树 `codex/restore-activity-navigation` 从 `6455e510` 续作。课程管理卡片在地点旁显示教师图标和姓名，宽度不足时换行。详情移除「原始安排」说明行，原始节次仍参与作息换算。课程颜色和周次由普通设置行打开调色板及周次弹窗，全部、单周和双周在周次网格上方独立排列。
+
+上课安排复用融合滑删，按钮宽 60dp，高度为安排卡片的四分之一，最小点击高度 48dp。删除确认后移出草稿，单独删除时返回直接提交。另有编辑时可单独放弃其他修改，已确认的删除仍会提交。仅删除的写入在事务内校验原课程组并保留其余安排原记录。
+
+签名包源码为 `be1d23e4`。GitHub 2.0、版本代码 36，`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 11 分 37 秒。归档包为主工作区 `tmp/review-apks/SleepDown-2.0-GitHub-be1d23e4.apk`，8,074,898 字节，SHA-256 为 `BFDDEEC9FF7BDCD74C9EFF3321ED174A5CE7285A5E0E44CD2078F618BF2C0894`。构建日志为 `tmp/sleepdown-course-detail-be1d23e4-build.log`。
+
+18:19 经 SDK ADB 37.0.1 同来源的 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读 APK 哈希一致。最终包用完整合成课表核对教师和地点同排、无「原始安排」行，582px 安排卡片的删除按钮高 145px，点击取消保留安排。`5427edf7` 验证周次快捷项位于网格上方，确定更新草稿，放弃后保留原周次。`f1c8ef9b` 的合成课表验证滑删取消、一次确认后手势返回、放弃周次修改仍提交删除，以及删除最后一条安排只移除对应课程。截图及日志在主工作区 `tmp/nav3-qa/sleepdown-be1d23e4-avd-*`、`tmp/nav3-qa/sleepdown-5427edf7-avd-*` 和 `tmp/nav3-qa/sleepdown-f1c8ef9b-avd-*`。本轮以模拟器流程验证为主。
+
+18:33 按用户要求将同一 `be1d23e4` 签名包覆盖到 USB OPPO PLJ110（Android 17 / API 37，`3B15AE023YL00000`，用户 0）。客户端和 5038 服务均来自 `D:/Android studio/AndroidSDK/platform-tools/adb.exe`，版本 37.0.1。实机回读 GitHub 2.0、版本代码 36，base APK 的 SHA-256 与归档包一致。日志在主工作区 `tmp/nav3-qa/sleepdown-be1d23e4-phone-install.log`。
+
+## 2026-11-11 调休即时保存与课程管理详情
+
+在独立工作树 `codex/restore-activity-navigation` 从 `1c84678a` 续作。调休新增、编辑和确认删除直接提交当前课表的调休字段，预览 Sheet 点「采用」成功后自动关闭。首页顶栏保留返回与标题，取消 Sheet 或删除确认时保留原安排。写入由 Activity ViewModel 持有，并沿用原事务的并发检查。保存失败时保留对应编辑或预览，删除行回拢。课表设置中作息副标题为「编辑课表作息和上课时间」。
+
+获取调休使用 COUI 标准弹窗副标题及按钮槽。调休表单与日历切换时，正文留白计入同一尺寸插值，外部窗口保持固定底边。Pixel 10 Pro AVD 两段 432×928 录屏各操作两次展开和收起。旧版上沿采样一度越出稳定端点，新版 46 个可读采样均在 404–555px 的稳定范围内，录像和采样记录在主工作区 `tmp/nav3-qa/`。
+
+课程管理内页采用 COUI 标准顶栏、分组、字段及周次选择反馈。用完整合成课表点验课程名称和颜色显示、星期及节次选择器、周次展开、新增安排和「删除安排」弹窗取消。删除操作纳入课程编辑的既有提交路径。截图为 `tmp/nav3-qa/sleepdown-8c6a88dd-avd-course-*.png`。
+
+签名包源码为 `8c6a88dd`。GitHub 2.0，版本代码 36，`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 9 分 55 秒。主工作区归档包 `tmp/review-apks/SleepDown-2.0-GitHub-8c6a88dd.apk` 为 8,074,898 字节，SHA-256 为 `00C040571F90FF62049638032AE442D3A4E3F904DC6BCBAF92ED2BDE519E689C`。日志为 `tmp/sleepdown-instant-adjustments-course-detail-build.log`。
+
+15:23 通过 SDK ADB 37.0.1 的 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读 SHA-256 一致。调休新增和编辑后关闭重进仍可见，取消删除保留原条目，确认删除后重新进入已移除。实际获取 2026 年中秋、国庆，预览取消保留原 12 天，采用后直接退出重进可见 13 天。日志和截图在 `tmp/nav3-qa/sleepdown-8c6a88dd-avd-*`，本轮以设备流程验证为主。
+
+按用户要求将 AVD 保持为全面屏手势。模拟器系统服务恢复后回到隔离用户 10，重新确认手势覆盖启用。此用户的系统初始化标记原为 0，导致系统强制显示返回键并拒绝边缘手势。补齐初始化标记后，调休页从左侧滑动可以返回课表设置，系统记录手势获准。桌面和应用底部均只显示手势条。[Android 手势设置实现](https://android.googlesource.com/platform/frameworks/base/+/master/core/java/com/android/internal/policy/GestureNavigationSettingsObserver.java)
+
+## 2026-11-11 调休表单、预览和侧滑删除
+
+在独立工作树 `codex/restore-activity-navigation` 从 `8fc2db8d` 续作，签名包源码为 `379b9ecb`。新增和编辑调休沿用 COUI 弹窗、停课／补课分段和中文日期选择器。调休日期与原课程日期同组排列，补课与对应的原课程日期之间去掉分割线。获取节假日后以节日分组预览，可勾选停课、补课并修改原课程日期，摘要显示选中及覆盖的天数。预览和作息编辑复用同一 COUI Sheet 顶栏，左侧「取消」、居中标题、右侧「采用」。采用先写入草稿，主页面顶栏「保存」应用到当前课表。
+
+调休列表和导入历史共用 COUI 融合滑删。拖动行脱离分组时，上下各让开 7dp，三段按手势过渡到完整圆角。日期留在原来的左边距，行内容裁在卡片内，删除区居中显示垃圾桶。浅滑闭盖，越过删除阈值先请求触觉反馈再开盖，取消后回拢。调休删除仍需确认及保存。
+
+GitHub 2.0，版本代码 36。`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 9 分 20 秒。主工作区归档包 `tmp/review-apks/SleepDown-2.0-GitHub-379b9ecb.apk` 为 8,074,898 字节，SHA-256 为 `C92B8CC8302C6965C3C89D0D406A7670AD29BE8FEE4AD71AEA885B6DC379A0D4`，构建日志在 `tmp/sleepdown-adjustments-final-build.log`。14:40 通过 SDK ADB 37.0.1 同来源的 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读 SHA-256 一致。OPPO 真机保持上一轮安装的 `68b3d148`。
+
+模拟器通过实际 2026 节假日请求获取中秋、国庆。`ac044e40` 跑过预览取消、修改补课对应日期、采用和保存，以及确认滑删后保存并重开。`b9d99fb3` 核对预览与作息编辑两个顶栏的三个元素中心均为 `(92,152)`、`(432,152)`、`(772,152)`，点验勾选更新天数、采用更新草稿及取消保留原 12 天。`379b9ecb` 回测日期分组、预览取消、浅滑闭盖、越过阈值只发一次触觉请求且开盖，两个状态的删除区均无箭头。导入历史的露出、收回和打开原记录通过。模拟器记录了触觉请求，实际震感待真机点验。本轮以设备流程验证为主。日志及截图在主工作区 `tmp/nav3-qa/sleepdown-379b9ecb-avd-*` 和 `tmp/nav3-qa/sleepdown-b9d99fb3-avd-*`。
+
+## 2026-11-11 课表作息、开启新学期和中文日期
+
+在独立工作树的 `codex/restore-activity-navigation` 从 `b15c945b` 续作，签名包源码为 `68b3d148`。特殊课程、调休课表和作息合为课表设置的一组。作息按课表管理，保留常规作息和日期作息。新建与跨表复制都通过三步向导进入现有时间轴 Sheet，最终点完成才保存。跨表复制包括节次分段、常规作息和所有日期作息，使用目标课表的独立副本。
+
+向导步骤居中，节数轮盘复用 COUI 分隔线，设置项使用 Kit 标准分组和整行按压反馈。时段起点使用独立的标准底部选择器窗口。复制来源说明走标准 COUI 弹窗。多选删除共用的顶栏标题居中。课表设置恢复「周日作为周首日」，并按用户原句显示非本周课程的说明。
+
+「开启新学期」在学期开始日期下方。确认日期后，在同一事务内创建并激活「原课表名 · 新学期」。新表复制作息、调休和外观等课表设置，日期作息和调休保留原来的绝对日期。新表从空的普通课程与特殊课程开始，原表保留两类课程及原有作息。返回沿用首页的周视图切换路径，避免设置页在侧栏转场中重复挂载。课表共用日期选择器用简体中文配置和资源显示月份、星期和无障碍标签。
+
+`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名，耗时 8 分 53 秒。GitHub 2.0，版本代码 36。签名包为主工作区 `tmp/review-apks/SleepDown-2.0-GitHub-68b3d148.apk`，8,074,898 字节，SHA-256 为 `C623D08C70CB5A6BBF23D504BABC674931E0637DB157A6C71CF115E8AAF42250`。构建日志在 `tmp/sleepdown-new-term-68b3d148-build.log`。
+
+12:19 使用 SDK ADB 37.0.1 客户端及同来源的 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读 APK SHA-256 一致。此前用户要求同步的 `187f2c4a` 已覆盖同一 AVD 和 USB OPPO PLJ110（Android 17，`3B15AE023YL00000`，用户 0）。最新包的后续点验使用模拟器。安装日志分别在主工作区 `tmp/nav3-qa/sleepdown-68b3d148-avd-install.log` 与 `tmp/nav3-qa/sleepdown-187f2c4a-install.log`。
+
+12:31 按用户要求将同一 `68b3d148` 签名包覆盖到 USB OPPO PLJ110（Android 17 / API 37，`3B15AE023YL00000`，用户 0）。SDK ADB 37.0.1 客户端与服务端均来自 `D:/Android studio/AndroidSDK/platform-tools/adb.exe`，使用 5038。实机回读为 2.0、版本代码 36，base APK SHA-256 与签名包一致。安装日志在主工作区 `tmp/nav3-qa/sleepdown-68b3d148-phone-install.log`，实机界面留给用户试用。
+
+签名包实测英文系统环境下月份、七个星期标题、月份切换按钮和日期读屏文本均为中文。取消后再次选择 2026-11-18 并确认，自动回到「凝光阅读验收 · 新学期」的第一周。新表保留 4 套作息和壁纸，课程管理显示空态，特殊课程为零。切回原表仍可见高等数学、3 条特殊课程和原开学日期 2026-11-09。
+
+同包点验第三步三个设置行及其选择器。列表按压覆盖整行且放开后恢复。864×1856 截图里时段起点与复制弹窗底边同为 1737px，第三步打开子选择器前后同为 1697px。过程日志在 `tmp/nav3-qa/sleepdown-68b3d148-avd-new-term.log`，截图使用同名的 `new-term-*` 与 `placement-*` 后缀。前一份 `b42959d6` 签名包已跑过创建到时间轴保存、跨表复制、原表作息独立及周首日切换，日志在 `tmp/nav3-qa/sleepdown-b42959d6-avd-routines.log`。
+
+`:app:testGithubDebugUnitTest` 的 3 项 Room 定向用例全部通过，覆盖新学期无效总周数不写入、空课程的新表激活、作息与调休复制、原表数据保留及已有跨表作息复制。测试日志在 `tmp/sleepdown-new-term-68b3d148-tests.log`。最终模拟器点验期间无新增应用崩溃。
+
+## 2026-11-11 Nexio 作息编辑交互调查
+
+用户将调查范围收口到编辑和保存的界面操作。GitHub 与 Gitee 的公开基线为 `d6744fbb`。[Nexio 作息编辑与保存交互](reports/2026-11-11-nexio-routine-edit-interaction.md) 按中文界面记录单套与多套显示、添加、弹窗确定、批量应用、保存与退出、删除和跨表复制。结论来自固定提交源码与文案核对。
+
+## 2026-11-11 多选删除胶囊与作息归属方案
+
+在 `codex/restore-activity-navigation` 从 `acf1046d` 续作，签名源码为 `b15c945b`。对照 ColorOS 17 便签的 `COUIBottomFloatingEditToolbar` 竖排单项宽度和图标间距。导入历史、课程管理及特殊课程共用的删除胶囊改为上方 24dp 图标、下方文字，宽度 148dp，高度跟随对应材质的 Dock。整颗胶囊保留原有点击和确认操作。
+
+`assembleGithubRelease` 完成 R8、资源压缩、lintVital、打包和 V2 签名。GitHub 2.0 版本代码 36，主工作区归档包为 `tmp/review-apks/SleepDown-2.0-GitHub-b15c945b.apk`，8,107,666 字节，SHA-256 为 `A656AA4158C6373B0D10EB2A82E26B1796E75EDC53BFEC587C8072530D26A281`。构建日志在 `tmp/sleepdown-vertical-delete-build.log`。
+
+02:59 经 SDK ADB 37.0.1 的 5038 服务覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，隔离用户 10），回读 SHA-256 一致。导入历史入场结束后长按多选两条合成记录，点击确认并取消，验证可点击区域 148 × 56dp、两条仍选中、退出多选后记录仍在。截图和日志在主工作区 `tmp/nav3-qa/sleepdown-b15c945b-avd-*`。
+
+用户明确认可现有单套作息时间轴，要求整改多作息和跨表复用。以 Nexio 两个公开仓库一致的 `d6744fbb` 核对了节次归属、生效选择和整套复制行为。[多作息与跨课表复用整改方案](reports/2026-11-11-period-settings-simplification.md) 记录常规与当前生效的区分、复制单套和整套的边界、旧共享与备份兼容。本轮作息部分交付方案。
+
+## 2026-11-11 2.0 课程多选与系统页面细节
+
+接续独立工作树的 `codex/restore-activity-navigation`，从 `92b7b5ac` 到签名包源码 `b27dcd6b`。GitHub 版 2.0、版本代码 36。
+
+特殊课程对照 ColorOS 17 便签的 `grid_item_note`、`main_activity_2` 和 `menu_edit_mode`。恢复双列瀑布流及时间、星期、位置胶囊，右下角按钮 56dp，距边和底部安全区 16dp。特殊课程和课程管理共用 20dp 卡片形状。两处长按进入同一多选界面，取消和全选使用 COUI 顶栏文字胶囊，删除操作高度和当前材质的 Dock 对齐。普通课程确认后在同一事务内删除选中课程的所有安排。特殊课程按稳定 ID 和原记录校验后在同一事务内更新。
+
+用户手机相册里的日历「新建」截图与本机 `CreateEventOrTaskActivity` 的居中标题布局一致。新增特殊课程标题居中，两颗 60×40dp 胶囊距左右各 16dp。左侧取消，右侧完成，缺少名称或有效位置时禁用。已有课程编辑的右上角是删除图标，底部保存键在键盘之下，表单独立避让键盘。
+
+设置首页状态栏回顶时，从列表实际位置同步展开大标题。取消搜索后，页面进度回到 5% 即恢复列表拖动，搜索胶囊的宽度和取消按钮仍可完成各自的动效。系统状态栏触发走受保护的 ColorOS 事件。金标的原 View 从按压前的画面开始形变，局部控件仍有跟手反馈。源 View 继续在原位置挂载，供开合复用。
+
+作息 Sheet 去掉底部模糊。软件更新状态页在内容放得下时保持静止，日志仍可滚动。捐赠图与前卡间距 16dp，按主题选择赞赏码，浅色图使用用户从微信保存的 PNG 原件。导入页浅色轨道取 SecurityPermission 的 `color_segment_button_background`（`#E2E3E4`），以现有材质着色。
+
+导入历史沿用 COUI-Kit 融合滑删，删除区宽度随手势扩展，图标与触区同步居中。对照 ColorOS 17 SystemUI `NotificationMenuRowItemLottieView` 的进度处理和原厂垃圾桶动画，使用应用图标的上下两个区域，桶盖绕右侧铰点开合 18°。长按历史卡片进入同一多选界面。多选时关闭滑删区，确认后一次提交历史索引并清理所选会话关联资源。单条滑删遇到写入失败会恢复卡片。
+
+`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 与 V2 签名。按用户要求以设备点验为主，跳过单测。主工作区的签名包为 `tmp/review-apks/SleepDown-2.0-GitHub-b27dcd6b.apk`，8,107,666 字节，SHA-256 为 `EF6D0BC8328ED5E88A44536BD973E4B40D5634EEF273F991678C8084826A4ADD`。构建日志在 `tmp/sleepdown-history-selection-build.log`。
+
+02:04 通过 SDK ADB 37.0.1 和同来源的 5038 服务，先将 `68f06da2` 通过 USB 覆盖到 OPPO PLJ110（`3B15AE023YL00000`，ColorOS 17 / Android 17，用户 0），APK 回读 SHA-256 为 `289EFE72FCDE291722065E709789E0E72A1650011F8A636D8C69B5CAAD618CDD`，与归档相同。随后手机断开，复查 5038、5037、USB 和 mDNS 均没有可用手机通道。ColorOS 金标开合及系统状态栏回顶待真机复测。
+
+02:18 最新 `b27dcd6b` 覆盖后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10），回读 APK SHA-256 与归档相同。实测搜索展开后以 120ms 间隔输入可以收到文字，取消后立即拖动时搜索框位置误差不超过 4px，间隔 350ms 后的拖动会折叠顶栏。导入历史用隔离测试记录验证滑动融合和图标居中、长按多选、取消和确认批删、进程重启后仍保留删除结果、单条滑删，以及其余记录详情与 AI 输入框可用。日志和截图在主工作区 `tmp/nav3-qa/sleepdown-b27dcd6b-avd-*`。
+
+同一 AVD 的先装包点验了完整合成课表上的课程多选、特殊课程新增和批删、编辑键盘盖住保存键、明暗赞赏码、导入滑块浅灰底和快甩切换。关键截图在主工作区 `tmp/nav3-qa/sleepdown-68f06da2-avd-*`，AVD 当前是独立测试课表配置。
+
+## 2026-11-11 2.0 金标形变、导入边缘与作息卡片
+
+在独立工作树的 `codex/restore-activity-navigation` 从 `df9461dc` 续作，签名包源码为 `a5b63a7f`。保留 GitHub 版 2.0 与版本代码 36。
+
+实机确认早期 `b454fac0` 的加号、导入历史已进入原生宿主，关闭时却把被遮住的源窗口判为找不到按钮，显式选了系统横滑。修正后用持续附着的按钮 View 返回，稳定位置沿用原生注册，尺寸一致的位置变动才刷新 bounds。原生打开只取按钮区域，整页兼容转场截图延后到需要时准备。
+
+复查 E 盘 ColorOS 17 日历与通讯录。日历 `MainCalendarFragment.n5` 传被点击 View、半宽圆角与实际底色。通讯录 `COUIFloatingButtonSeamlessImpl.setSeamlessBundle` 同样用原 View 和圆角，另有系统专用的弹簧参数。框架对 `viewWithAlpha` 源交叉淡化页面和按钮蒙层。SleepDown 的按钮像素已与底层合成，改为以实测按钮色走实色形变，由 SDK 从同一个 View 绘制。公开 SharedViewKit 路线继续使用设备的弹簧参数。现有按钮样式和兼容转场保留。
+
+常规导入的分段保留跟手拖动、松手提交，快速滑动按 Kit 速度和减速距离预测落点。核对 COUI-Kit 已同步的 PR #21 与随后上游提交，未发现后续分段实现需要回接。口令预览延伸到手势栏底部，底部渐变模糊采样滚动内容。ColorOS 状态栏实际点击事件接到前台 Compose 纵向滚动列表。公共短页增加 Kit 的零滚动范围回弹。
+
+更新说明一张卡随日志整体滚到顶栏下，展开高度随完整内容，滚动时渐变保护顶栏文字。作息 Sheet 的卡片采用蓝紫实色，时长文字按明暗调对比度，保留彩色时间条。最后一节和添加按钮按实际手势栏高度留白。通用设置恢复主题预览与「跟随系统」之间原有分割线。
+
+`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 与 V2 签名。Windows 锁住原 Kit 中间产物，构建用临时 init script 指向同工作树的独立输出目录。构建日志在主工作区 `tmp/sleepdown-gold-solid-timeline-build.log`。本轮按用户要求以设备点验为主。APK 为 `tmp/review-apks/SleepDown-2.0-GitHub-a5b63a7f.apk`，7,921,518 字节，SHA-256 为 `C062F952FF7930FAEA5BF217686ADF06AF8748910607DD78C7C25406BF97F541`。
+
+2026-11-11 00:08 经 SDK ADB 37.0.1 客户端及同来源 5038 服务，覆盖安装至 USB 连接的 OPPO PLJ110（`3B15AE023YL00000`，ColorOS 17 / Android 17，用户 0）与后台 Pixel 10 Pro Android 16 AVD（`emulator-5556`，用户 10）。两端回读 APK SHA-256 一致。安装日志在主工作区 `tmp/nav3-qa/sleepdown-a5b63a7f-install.log`。
+
+后台模拟器以签名包点验主题分割线、蓝紫实色作息卡片、彩色时间条、Sheet 下拉保持打开、最后一节与添加按钮、节次及日期选择器。更新说明整卡滚过顶栏，展开、收起、再展开通过，短卡下拉有位移并回到原位。导入在分段交界线前快甩双向切换，慢拖保持当前分段。18 门合成课程预览滚动到手势栏下方，截图确认渐变。日志及截图位于主工作区 `tmp/nav3-qa/sleepdown-a5b63a7f-avd-*`。
+
+OPPO 上已覆盖安装最终包。手机当时在使用其他应用，最终实色金标开合、快速设置及特殊课程原生路径、系统状态栏回顶留待真机点验。下一次可复用主工作区 `tmp/nav3-qa/Trace-PhoneNativeHandoff.ps1 -Source a5b63a7f`，同时记录真机开关中间帧与 SharedViewKit 日志。
+
+## 2026-11-10 2.0 导入与课表设置精修
+
+在 `codex/restore-activity-navigation` 的 `98514df7` 上续作，签名源码为 `d7bbc50d`。常规导入生成预览后，输入区与分段滑块作为列表头随课程一起滚动。短表单和历史空态、短列表使用 Kit 的零滚动范围回弹。分段拖动过程中持续跟手，松手后提交落点。历史卡片等宽，两侧边缘与右侧进入箭头分别对齐，高度由内容决定。日期、时间、来源分别使用课程管理的胶囊几何，长来源自动换行。详情仍用原对话。
+
+AI 导入只在输入框上沿上升后覆盖内容时调整对话。长对话在中段以原阅读位置为锚点，短对话保留多余空白。Pixel 10 Pro 的 20 门课合成预览里，三处课程标题和输入提示均上移 568px。单门课历史详情的输入提示上移 568px，课程标题位移为 0。
+
+通用设置移除明暗预览与跟随系统之间的线。小组件移除两颗操作按钮的照射阴影与两个滑块间的线。课表设置仅下移作息组标题 8dp，编辑按钮位置一致，节次列表保留时段和特殊课间标签。节次编辑接入 E 盘 COUI-Kit `8e64196c` 的 Sheet，关闭下拖和外部点按退出，移除原按钮飞入与页面缩沉。系统返回、取消及完成仍走作息草稿确认，退场完成后交接草稿。日期作息使用公共 COUI 分组、选择器与固定操作区。详细页标题为「课表设置」，设置首页入口为「当前课表设置」。快速设置弹窗统一上下内容留白。课程快捷弹层关闭提升卡片的轮廓光和跟手高光。
+
+进入关于页主动检查版本，确认已是最新后更新卡内文案。整个版本卡能进入软件更新页，按住时沿用 Kit 弹簧的轻微缩放。模拟器已实际取得「已是最新版本」，点卡片空白处能进入更新页。
+
+加号、统一导入和 AI 的历史按钮、快速设置详细按钮及特殊课程入口，使用已挂载的 View 向 SharedViewKit 注册。Compose 内容沿用原材质坐标，View 绘制实际控件图层，溢出的光影仍用同一层在原位置绘制。后台 AOSP 模拟器覆盖兼容路线，金标系统开合待支持设备验收。
+
+`assembleGithubRelease` 完成 Kotlin、R8、资源压缩、lintVital 和 V2 签名。按用户要求本轮以模拟器实测为准，跳过单测。GitHub 2.0 版本代码 36，包为主工作区 `tmp/review-apks/SleepDown-2.0-GitHub-d7bbc50d.apk`，7,937,902 字节，SHA-256 为 `3DD0B3A59064E3291B8B6C733BEA2B65D459DE7E25A44482A2C8AAA5C44244B4`。构建日志 `tmp/sleepdown-history-aligned-2.0-build.log`。
+
+SDK ADB 37.0.1 使用 5038，在 Pixel 10 Pro Android 16 AVD（`emulator-5556`，同机本地端点 `127.0.0.1:5557`）测试用户 10 覆盖安装，回读 SHA 一致。`d7bbc50d` 点验历史外壳和箭头对齐、胶囊换行、滑删露出与反向收回、打开详情，截图位于主工作区 `tmp/nav3-qa/sleepdown-20-d7bbc50d-history-*.png`。本轮还点验了 18 门课预览整页滚动、短页拖动回弹、导入按钮阴影、作息 Sheet 下拉保持打开和系统返回、节次时长与日期作息选择器、快速设置弹窗留白和详细设置入口、特殊课程入口、首页课程长按菜单。其余截图位于 `tmp/nav3-qa/sleepdown-20-import-settings-*` 和 `tmp/nav3-qa/sleepdown-20-bd78145c-*`。
+
+2026-11-10 22:40 按用户要求将同一 `d7bbc50d` 签名包覆盖安装到 OPPO PLJ110（Android 17、API 37、ColorOS V17.0.0、用户 0）。使用 `D:/Android studio/AndroidSDK/platform-tools/adb.exe` 37.0.1 客户端及同来源的 5038 服务，经 USB 定向到 `3B15AE023YL00000`。安装返回 Success，手机回读版本 2.0、版本代码 36，base APK SHA-256 与归档包一致。实机操作留给用户试用。
+
+## 2026-11-10 2.0 教务列表与二级页细节
+
+在 `codex/restore-activity-navigation` 的 `ec4c6749` 上续作，签名包源码为 `86f3a6fd`。GitHub 渠道版本 2.0、版本代码 36。教务列表复用公共设置分组、行距和分隔线。对照 E 盘 ColorOS 17 Settings 的 `COUIAppListFastScroller`，采用 26 × 38dp 浮动滑柄，按住时放大并显示分组字母，停滚 2 秒后淡出。导入滑块到常规输入区为 16dp，教务悬浮搜索在安全区内下移 6dp。关于首图到 GitHub 分组及下个分组均为 16dp。
+
+软件更新在同一张壁纸上用静态模糊渐变，模糊从底卡后方向上衰减。更新说明卡去掉内框。历史日志按版本独立布局，每行标题处理点击，展开状态按版本保存。模拟器重复展开和收起 1.2.7.1、1.2.7-r1，补测从列表顶端拖动右侧滑柄至 K–M 段，按住时截到 F 分组提示。
+
+凝光和液态玻璃的首页 Dock 把已显示的原加号 View 交给 `home_dock_to_import`，软件 Canvas 取样用该 View 当前画面。单测验证了点击前已挂载的 View 与交接对象是同一实例。模拟器走 Legacy，ColorOS 真机金标效果待验收。通知预览等二级页悬浮按钮在跟手变形期间刷新材质取样，按变形后的坐标补偿底层位置。模拟器点验使用凝光，并截取通知按钮实际拉伸画面。
+
+`assembleGithubRelease` 完成 R8、资源压缩、lintVital 和 V2 签名。原加号 View、SharedViewKit 后端和关于更新页合计 27 项定向测试通过。归档包 `tmp/review-apks/SleepDown-2.0-GitHub-86f3a6fd.apk` 为 7,921,518 字节，SHA-256 为 `81228141428FECECEAA93F6C2965F88A95477B71B421ACCC6D97C86280D8CDA5`。构建和测试日志位于主工作区 `tmp/sleepdown-2.0-coui-detail-polish-build.log` 与 `tmp/sleepdown-2.0-coui-detail-polish-tests.log`。
+
+后台 Pixel 10 Pro AVD 使用 Android 16、SDK ADB 5038、`emulator-5556` 的隔离用户 10。签名包覆盖安装后回读 SHA 一致。截图和点验日志位于主工作区 `tmp/nav3-qa/sleepdown-20-polish-86f3a6fd-*`。
+
+## 2026-11-10 2.0 版本候选与界面细节
+
+在 `codex/restore-activity-navigation` 的 `584b284e` 上续作，源码候选为 `3dccfe22`。GitHub 渠道应用版本名改为 2.0，版本代码为 36。有效的 1.2.8 Beta 内容和后续改动归并到 [2.0 更新日志](../release-notes/v2.0.md)，与包内资源逐字节一致。仓库中的旧 Beta 说明保留。
+
+关于首卡复用软件更新的蓝紫壁纸，按 ColorOS 17 Settings 的 `RoundRectDrawable` 使用 34dp 平滑圆角。开发者和仓库改为列表，GitHub 图标跟随副标题。致谢采用设置首页的前置图标列表。软件更新在同一壁纸上衔接状态卡和当前版说明卡，说明卡内可展开与折叠。两种卡共用 Kit 默认高光描边，操作按钮使用 Kit 触摸反馈。右上角菜单以原 196dp 扣去前置 20dp 图标和 12dp 间距，保留尾部留白及位置，点选即切页。
+
+导入滑块按 ColorOS 17「隐私与安全」核查。Settings 入口通过 `oplus.intent.action.permission.PRIVACY_SETTINGS` 到 SecurityPermission 的 `PrivacySecuritySettingsDashboardActivity`。对应布局使用铺满宽度的 `COUISegmentButtonLayout`，`SegmentButton` 样式是 40dp 高、4dp 内边距，布局上下各留 6dp。导入页采用同一尺寸的材质分段条，两边与输入区和教务列表对齐。教务分段条随列表滚动，搜索维持悬浮。
+
+导入历史滑删沿用 Kit Demo 的融合渲染与跟手位移。对照本地 ColorOS 17 SystemUI 17.99.02 的 `NotificationMenuRowItemViewParam`，删除操作按标准通知按钮的 60 × 68dp 和 24dp 静态图标实现。短滑露出，反向滑动收回，长滑在松手时提交，取消手势恢复原位。
+
+17 项定向测试通过。签名构建在客户端断开后复用已完成的 Kotlin 产物，完整完成 GitHub Release、R8、资源压缩与 lintVital。V2 签名证书与上一版一致。归档包 `tmp/review-apks/SleepDown-2.0-GitHub-3dccfe22.apk` 为 7,921,518 字节，SHA-256 为 `D468AF606225B506FFD726386681DDDB83F492FAE3E47DCB2B77D26DF8EF4702`。构建日志为主工作区的 `tmp/sleepdown-2.0-privacy-swipe-resumed-build.log`。
+
+后台 Pixel 10 Pro AVD 使用 Android 16、SDK ADB 37.0.1 的 5038 通道及隔离用户 10。通过本机 AVD 端点 `127.0.0.1:5557` 覆盖安装并回读相同 SHA，随后用 `emulator-5556` 点验。首次启动出现一次 MainActivity 焦点事件超时，重启应用后通过导入滑选、教务竖滚、历史短滑露出及收回、关于与致谢、当前说明展开与收起、菜单进入历史日志。864 × 1856、密度 320 的截图确认菜单从 x=440–832 收到 x=504–832，右缘一致。最终截图和实测日志位于主工作区 `tmp/nav3-qa/sleepdown-20-3dccfe22-*`。ColorOS 真机材质和系统动画待验收。
+
+## 2026-11-10 COUI-Kit、统一导入与软件更新
+
+在 `codex/restore-activity-navigation` 的 `0387d8f9` 上续作，候选源码为 `584b284e`。用 GitHub 插件核对 ItosEO/COUI-Kit 的 `main`，同步到 [`3463800`](https://github.com/ItosEO/COUI-Kit/commit/3463800923d62f5b8c3156f0ad96265a24170aa1)，包含分段控件 PR #21。合并实际 Kit 模块差异，保留宿主的融合采样优化、HD 指示器模式、整排起滑与松手提交。提交 `058f4f02`。
+
+ColorOS framework 的 SharedViewKit View 重载要求 Activity Context。注册期间会用 `View.draw(Canvas(bitmap))` 取样。旧加号投影只有 Compose 硬件绘制指令，软件取样无法得到完整帧。凝光沿用已有加号 PixelCopy，将剪圆后的同一帧交给软件画布和 Legacy，保留硬件画布的实时 View。液态玻璃从原加号图层准备软件帧。源仍从 View 重载提交，返回读取该 View 的窗口坐标。增加路线的拒绝原因日志和软件 Canvas 回归。提交 `302a8f12`。
+
+统一导入使用 Kit 的 32dp 紧凑样式，越过分段即切换，教务侧滑块作为列表头随内容滚动。普通和教务在列表顶部的起始位置一致，学校索引计入列表头。更新页共用首页凝光三点菜单的 196dp 宽度、轮廓、文字、跟手光及退场行为，保留「自动更新设置」「历史日志」两项，待退场完成后切页。提交 `666361dd`、`ca7582cf`、`584b284e`。
+
+软件更新壁纸以 ColorOS OTA 17 的 `kv_bg_17` 为参考，通过内置 imagegen 改色。编码后的应用资源为 `app/src/main/res/drawable-nodpi/software_update_wallpaper.webp`，841×1870、24,646 字节。最终提示词如下。
+
+```text
+Use case: style-transfer. Recolor the supplied full-bleed portrait ColorOS wallpaper for the SleepDown software update screen. Preserve the original extremely tall portrait framing, the single translucent orb clipped by the right edge, its scale and exact position in the lower half, the smooth low wave, the dark diagonal band and all their silhouettes and negative space. Preserve the nearly black midnight navy upper 38 percent and dark navy at the bottom for legible white UI. Replace the saturated orange and yellow of the luminous ribbon and orb with luminous icy cornflower blue and a pale periwinkle edge, with lavender transitions. Keep subtle blue-purple gradients and an elegant moderately saturated blue glow. Preserve contrast and the velvety soft edges of the original, with a restrained dark cool SleepDown palette. Full bleed, no UI, text, typography, logos, extra shapes, ornaments, grain or borders.
+```
+
+最终候选的 48 项定向测试通过，其中应用 34 项、Kit 14 项。GitHub Release、R8、资源压缩、lintVital 和 V2 签名核对通过。包为 `tmp/review-apks/SleepDown-1.2.8-beta2-COUI-Import-OTA-584b284e.apk`，7,910,601 字节，SHA-256 为 `0AACD7292CA2F594C591FA6D42A2A5083D89A89694DECE52A48FA5673E597AB9`。构建日志在主工作区 `tmp/coui-3463800-import-ota-final-build.log`。
+
+后台 Pixel 10 Pro AVD 使用 Android 16、SDK ADB 5037、`emulator-5556` 的隔离用户 10。最终包覆盖安装并回读相同 SHA。确认凝光下两个入口的滑块起始位置一致，滑选和竖滚可用，滑块滚出后悬浮搜索仍在。两个更新菜单项及返回通过。此前同 Kit 版本在宽屏通过整排起滑、反滑、竖拖和点击，在液态玻璃通过加号、切换教务和返回。设备恢复 864×1856 与凝光。截图与点验日志在主工作区 `tmp/nav3-qa/compact-*` 及 `tmp/nav3-qa/coui-3463800-hd-smoke.log`。模拟器记录 `supportedProtocol=0` 后走 Legacy，ColorOS 真机的金标开合待验收。
+
+## 2026-11-10 软件更新底卡和关于页细节
+
+以 `2de39897` 为基线。用户的 ColorOS 实机图显示手机软件更新使用全屏背景、居中品牌和底部状态卡。重新反编译本地保留的真机 OTA 17.0.3 APK，`FragmentBusy` 的 WebView 接收版本状态及两项操作，包内原生 `logo_area` 和 `version_layout` 属于其他布局分支。底卡以用户实机图测量，左右边距 16dp、内边距 24dp、底部安全区外留 20dp、按钮 44dp 高且相隔 8dp。宽屏保留独立头卡。手机品牌区把短版本号缩为 22sp，底卡保留完整版本。主操作是重新检查，查看更新说明打开安装版本对应的发布页。
+
+按钮使用 COUI-Kit 胶囊、描边和跟手光。透明按钮按原版 `TYPE_CONTENT_TRANSPARENT_BUTTON` 的 25px 采样、叠加与明度混合实现。状态卡沿用 APK 内 `MaterialLoadingView` 的 20px 两层混色，在同一张应用头图上采样。壁纸、底卡与按钮分层绘制。左侧 GitHub 卡片改为「关于开发者」。
+
+头图通过内置 imagegen 调整原图的银蓝和蓝紫。工作区资源为 `app/src/main/res/drawable-nodpi/about_sleepdown_hero.webp`，1280×640、23,676 字节。最终提示词如下。
+
+```text
+Use case: style-transfer. Edit the supplied original SleepDown card background with a restrained color grade only. Preserve its exact wide 2:1 framing, ribbon shapes and positions, soft gradients, highlights, fine detail and overall lightness. Keep the original calm silver-blue and muted periwinkle-lavender palette. Increase saturation very slightly in the existing blue and lavender midtones, roughly ten percent, and shift the deepest blue areas gently toward periwinkle. Keep whites and the pale center almost identical for interface readability. No added shapes, new lights, warm accents, bright purple, text, logo, or border. The result should be recognizably the same image at a glance, just a little more colorful within the existing cool palette.
+```
+
+最终 GitHub Debug 定向测试 4 项通过，覆盖底卡 44dp 高按钮、8dp 间距、当前版本说明回调、菜单与搜索。在本地渲染图确认底卡暗底和两颗按钮同帧显示。GitHub Release 完整构建、R8、lintVital 和 V2 签名核对通过，签名证书与前版一致。归档 `tmp/review-apks/SleepDown-1.2.8-beta2-OtaStatusCard-df6ba53e.apk`，SHA-256 为 `DF6BA53E3305610666E13E6B302D83B48912D3C111D1927693AF49E889526141`。预览与日志位于主工作区 `tmp/c17-about-device-20261110/`，最终设备材质观感待 ColorOS 真机验收。
+
+## 2026-11-10 关于应用与软件更新
+
+在 `codex/restore-activity-navigation` 的 `f23bba81` 上续做。对照 E 盘 PMX110 ColorOS 17.0.0.115 的 Settings（SHA-256 前缀 `D97DF8A92275`）及 OTA 17.0.3（`02D0A839B457`）。关于首卡以 `AboutDeviceOtaUpdatePreference` 的运行时布局为准，手机高 328dp、28dp 圆角，宽屏高 240dp、24dp 圆角。两侧各 16dp。40dp 胶囊随文字宽度，左右各 16dp，版本号和按钮文字分别为 16dp 与 14dp。头图和应用名使用 SleepDown 原素材与排版文本。
+
+关于页并列个人 GitHub 与仓库入口，项目致谢行带 GitHub 图标。原独立更新日志行及重复源代码行取消。软件更新按 OTA `FragmentIdle`、`FragmentBusy` 与下载按钮的运行时设置对照，窄窗口为沉浸背景，宽窗口为 240dp 头卡。更新说明滚动，44dp 下载胶囊固定在底部，宽度按窗口为 296dp 或 280dp。下载进度读取当前发布版本的既有下载状态。
+
+软件更新右上角的两项进入「自动更新设置」和「更新日志」。通用设置移出的自动检查与 Beta 渠道沿用原配置保存与偏好存储。手机从设置页返回时按实际 Beta 偏好变更重新检查，宽屏进入新详情时沿用对应详情栈。
+
+GitHub Release 的 `compileGithubReleaseKotlin` 通过。GitHub Debug 的 AboutSettingsUiTest 与 SettingsSearchTest 共 4 项通过，覆盖两张卡的并排布局、40dp 检查按钮、菜单两条路线、搜索定位、296×44dp 下载按钮及单次下载回调。360dp 的本地渲染测得首卡 328dp 高、两侧 16dp。截图和构建日志在主工作区 `tmp/c17-about-device-20261110/`。ColorOS 真机视觉及真实下载待验收。
+
+## 2026-11-10 助理卡轻模糊与巡检跟进
+
+核对 E 盘流体云的 `CardBackgroundView` 和 `BackgroundUtils`。轻效果由 `livealert_effect_light.enable` 选中，原厂在系统窗口模糊中使用 100 档，再叠渐变蒙版，旧档为 540。两个系统档位和应用的局部 Backdrop 半径使用不同的渲染链路。按轻档思路调低今日助理卡的采样半径，凝光收起态 14 → 9 dp，展开态 18 → 12 dp。液态玻璃深浅卡片分别为 8 → 5 dp 和 10 → 6 dp。提交 `bd82530e`。
+
+巡检以当前分支为准。手动浏览器和后台刷新均调用 `AutoRefreshWebSession.restore`，HTTPS 的缺失 Cookie 等待带 `Secure` 的写入结果再加载页面，恢复使用 `Path=/` 和仅当前域名的 Cookie。此路径已包含在 `dc252420`。教务胶囊的纯黑条件为 `geometryProgress < 0.04f`，修正已包含在 `3cb7285f`。学校真实首请求及 [#104 黑白屏](https://github.com/xiaomanjun233/SleepDown-Schedule/issues/104) 仍待带设备和日志复现。
+
+[#103](https://github.com/xiaomanjun233/SleepDown-Schedule/issues/103) 由 `45609f7e` 修复。在同一条通知更新内刷新 smallIcon、超级岛深浅色的四个图片键及更新序号。使用原通知 ID 和 tag，保留课程、计时和其它图片元数据。刷新与课程通知发布共用锁，发布前也会核对当前图标，避免较早构造的通知在切换后覆盖新图。启动、离开应用、备份恢复和主题变化均使用相同入口。
+
+`45609f7e` 的 GitHub Release 和 12 项图标定向测试通过。测试包括小图标已更新时修复四张旧图、深浅色、序号以及普通通知扩展字段。V2 签名包为 `tmp/review-apks/SleepDown-1.2.8-beta2-FluidCloud-45609f7e.apk`，7,853,520 字节，SHA-256 `1E37B3598400566B09428DA026C081A9A24E23ABBA4FEDA257293270BC233544`。构建日志 `tmp/assistant-surface-inspection-build.log`。小米系统上的超级岛显示待真机验收。
+
+后台 Pixel 10 Pro 的 SDK ADB 5037、隔离用户 10 已覆盖安装并回读相同 SHA。使用完整的凝光阅读验收课表和同一张壁纸复核凝光与液态玻璃，测试后切回凝光。同壁纸下凝光卡片的背景差异较轻。截图在 `tmp/nav3-qa/assistant-blur-before.png`、`assistant-blur-after.png` 和 `assistant-blur-alternate.png`，日志为 `tmp/nav3-qa/assistant-blur-smoke.log`。
+
+在同一后台模拟器从统一导入页进入 AI 教务浏览器，地址框取得焦点并接收了完整的测试地址。此用例停在输入阶段，日志为 `tmp/nav3-qa/edu-inspection-smoke.log`。
+
+## 2026-11-10 统一导入与今日助理进度条
+
+在 `codex/restore-activity-navigation` 的 `4003db61` 上完成。右下角加号打开统一导入页，左上返回、右上导入历史。「常规导入」和「教务系统导入」采用可点击或滑选的分段控件。教务沿用学校列表和悬浮搜索。添加单节课在首页「更多」菜单。
+
+`home_dock_to_import` 的 SharedViewKit 注册使用窗口中已挂载的加号 View。原生 Dock 直接传按钮，Compose Dock 重放加号的现有绘制指令，返回时读取实际位置。缺少可用 View 或设备能力时走 Legacy。两种后端使用同一导入页及现有教务组件。
+
+可在本地识别的口令粘贴后直接预览。通过文件选择器选择规范 JSON 或可本地读取的 ICS 会自动进入解析页并显示已校验结果。需交给 AI 的资料在解析页内确认后发送。写入课表沿用新建或覆盖的确认入口。普通导入成功后和 AI 导入共用历史，详情可用 AI 继续修改。历史最多保留十条，过期按已有设置。普通导入从此版开始记录。
+
+进度条按用户指定的流体云播放器核对 E 盘 PMX110 `17.0.0.115` 的 `SystemUIPlugin.apk`（插件 `17.000.002`，SHA-256 前缀 `43FC34F7D4AA`）。解码 `res/OG.xml` 并追踪 `MediaPlayerSection`、`DirectionAwareSeekBar`、`Sc` 和 `C0361m7`。XML 写入 6dp 背景和 4dp 进度，构造函数统一使用默认 4dp。填充裁剪在轨道内，白色渐变最多覆盖轨道五分之一，圆头比锥光中心向前延伸 2dp。锥光在进度绘制后用 SCREEN 合成，低进度时收窄。插件的锥光 shader 与项目逐项核对，项目保留分母下限以处理透明像素。
+
+深底按插件的滤色绘制锥光和 15% 白色底轨。浅底采用系统对应的 8% 黑色轨道，轨道内同样滤色，轨道外对同形尾光增加低透明度反差，以便在接近白色时也可见。低版本的径向近似收在光头后方。诊断使用的反编译输出放在工作区 `tmp/nav3-qa/coloros-progress-reference`。
+
+导入提交 `3bff3630`、`7f44022a`、`d711d81e`，进度条提交 `a3b44b54`、`e390f7fb`、`f9b55a97`。导入链路的会话、历史与预览 36 项定向测试通过，实际 View 的 SDK 入参与回退由 SharedViewKit 后端测试覆盖。后台 Pixel 10 Pro AVD 使用 Android 16、SDK ADB 5037、`emulator-5556` 的隔离用户 10。已点验加号、滑选、悬浮搜索、口令自动预览和保存、普通历史的 AI 输入框、本地 JSON 预览与保存、历史重开，以及非标准 JSON 到达发送确认页。日志在工作区 `tmp/unified-import-verified-build.log` 与 `tmp/nav3-qa/unified-import-verified-smoke.log`。
+
+`f9b55a97` 的 `assembleGithubRelease`、R8、资源压缩、lintVital 和 V2 签名通过。签名包为 `tmp/review-apks/SleepDown-1.2.8-beta2-UnifiedImport-f9b55a97.apk`，7,853,520 字节，SHA-256 `D850D1D9D39BD646C01D8FC15294067B601F77DF9F7C8BF8EBFD8943B846A20B`。后台模拟器覆盖安装后回读相同 SHA。核对普通历史已无空对话气泡，约 18% 的浅底进度可见圆头和轨外尾光。恢复完整课表后看到普通课、冲突课和特殊课程。构建和点验日志在 `tmp/unified-import-fluid-cloud-build.log` 与 `tmp/nav3-qa/unified-import-fluid-cloud-smoke.log`。ColorOS 实机的金标开合和进度条观感待验收。
+
+## 2026-11-10 凝光设置顶栏性能
+
+在 `codex/restore-activity-navigation` 以 `77ef05ee` 签名包对照。设置页大标题展开、未滚动时，渐变不透明度为零，旧包仍提交全分辨率横纵模糊。在两段各 1.25 秒的采样窗口中，课表进设置和设置回课表分别有 134、94 次 966×570 模糊图层绘制，最长渲染同步等待分别为 96.9、54.9 ms。
+
+设置顶栏在背景透明时跳过整组绘制，并保持搜索胶囊从同一个父级采样。把折叠偏移、标题透明度和搜索进度读取移到测量、放置和图层阶段。渐变可见时仍按原半径、曲线和像素尺寸绘制，沿用现有标题、搜索弹簧和输入流程。
+
+在同一次 Android 16 Pixel 10 Pro 模拟器启动中，使用 SDK ADB 5037、`emulator-5556`、隔离用户 10、864×1856、密度 320、有壁纸的凝光模式。沿用完整课表夹具，含 25 门普通课、3 项特殊课程及重叠课。按 `53bb2c6d → 77ef05ee → 53bb2c6d` 轮换同签名包，每包每个方向测四次。以下为 `gfxinfo framestats` 的 P95 毫秒数。
+
+| 场景 | 原包 | 首个优化包两轮 |
+| --- | ---: | ---: |
+| 课表 → 设置 | 101.4 | 51.0／50.7 |
+| 设置 → 课表 | 167.2 | 51.5／50.5 |
+| 设置实际滚动并折叠顶栏，单轮 | 51.5 | 33.7 |
+| 清应用着色器缓存后首次 Dock 切页，单轮 | 163.6 | 81.2 |
+
+设置往返的 966×570 图层绘制均为零，最长同步等待分别为 21.7、24.3 ms。两包在未滚动顶栏状态的界面主体截图逐像素一致。高视口内的列表未实际滚动，相关日志行不计入滚动对照。将隔离模拟器视口临时缩至 864×1320 后，确认搜索胶囊中心由 y388 移至 y156，两包折叠态截图逐像素一致。搜索键盘、输入「AI」、结果和逐次返回通过，复测后恢复正常视口。
+
+Dock 首开的 FrameTimeline 帧耗时 P95 为 115.2 → 56.5 ms，同轮触摸到首次呈现为 58.0 → 96.8 ms。两项指标分别记录。
+
+在 864×1856 下，清应用着色器缓存再启动后，设置搜索首开 P95 原包为 61.2／58.9／50.3 ms，`53bb2c6d` 为 80.7／109.1／65.1／87.6 ms。慢帧出现在渐变首次提交，最慢样本有 64.9 ms 的 RenderThread 图层提交、100.5 ms 的主线程渲染同步等待及后续的驱动链接。恢复渐变输出的独立 Offscreen 图层对照包为 86.8／64.5 ms，与同次模拟器启动中的 `53bb2c6d` 65.1／87.6 ms 交叉，未稳定改善首开，因此保留 `53bb2c6d`。对照脚本首轮的额外切页回合未逐次验证实际页面，相关数字不计入对照。
+
+同一个 `53bb2c6d` 包在 864×1320 下补测预先滚动显示渐变并恢复到顶，搜索首开 P95 为 179.0／56.2 ms，对照组为 70.9／76.5 ms。两次预先显示均在搜索点击前实际提交了渐变图层，点击后 350 ms 内的驱动链接降到 8／10 次，未显示渐变的一轮有效对照为 14 次。驱动工作提前仍未稳定降低搜索帧耗时。首开搜索留作独立待查项。
+
+原始记录在工作区 `tmp/nav3-qa/glow-next-same-boot.log`、`glow-next-validated-scroll.log`、`glow-next-cold-repeat.log`、`glow-isolated-cold-rest.log`、`glow-gradient-exposure.log` 与同名前缀的 Perfetto 文件。
+
+`53bb2c6d` 的 `assembleGithubRelease`、R8、资源压缩、lintVital 和 V2 签名通过。签名包 `tmp/review-apks/SleepDown-1.2.8-beta2-GlowToolbar-53bb2c6d.apk`，SHA-256 `1A77577667D9BBA40426FC95F7D2D4421D8590D36D4AA62E9B3B2C41E47BC999`，构建日志 `tmp/glow-next-53bb2c6d-build.log`。
+
+后台模拟器覆盖安装后回读相同 SHA，液态玻璃的设置搜索、输入、结果和返回也已点验，完成后恢复凝光与完整课表。
+
+2026-11-10 10:56 按用户要求，通过 Android SDK ADB 37.0.1 的 5038 USB 通道将 `53bb2c6d` 覆盖安装到 PLJ110（Android 17、API 37、ColorOS V17.0.0、用户 0）。安装返回成功，实机回读 APK 的 SHA-256 与签名候选一致。实机体验由用户试用。
+
+## 2026-11-10 恢复 Activity 导航与凝光性能
+
+用户已取消 Navigation 3 迁移并要求删除迁移分支。实施在 `tmp/nav3-baseline-37212b91` 的 `codex/restore-activity-navigation`，从 `37212b91` 恢复多 Activity。已带回教务列表逐校独立行、浮动搜索和底部渐变、HD 标签栏滑选及软阴影、右栏顶栏避让与渐变延伸。已删除 `codex/single-activity-nav3` 本地分支和工作树，GitHub 精确分支搜索为空。原 `codex/couikit-dialog` 的未提交修改保留。
+
+浅色无壁纸在两种视效里使用更鲜亮的浅色底和单独计算的高对比度文字，特殊课程保持中性色并加软外阴影。凝光有壁纸课程卡恢复旧版下沿渐变，底端使用原滑杆强度，顶部为底端的 20%。对照用户提供的多课表截图仅检查课程卡样式。
+
+液态和凝光在首页共用一个壁纸生产者及预滤采样器，采样键只包含实际位图、裁剪、壁纸模糊及亮度。液态继续绘制折射，凝光单独绘制原混色与泛光。凝光的稳定壁纸泛光用共享位图的仿射坐标直接采样，过渡和自定义实时源走原录制路径，浅色无壁纸泛光直接读底色。参考 Nexio 公开开发头 `master@8b767ed4` 的静态壁纸及实时浮层分流。COUI-Kit 公共 `main` 核对为已接入的 `261658dc`，PLJ110 上实装的 Demo 是 `0.0.1-alpha7`。参考 [Nexio 采样链路](https://github.com/HaoZai000/NexioSchedule/blob/8b767ed474c89be15edf9e0c14625971ed3e47c1/ui-shared/src/commonMain/kotlin/com/haooz/chedule/ui/components/SoftGlassSurface.kt#L146-L193) 和 [COUI-Kit 上游](https://github.com/ItosEO/COUI-Kit/commit/261658dc200c143c5ea883591662479344d25ba1)。
+
+首页和 Dock 读取同一目的地。旧课表切页追踪的 Dock 选择回调不足 0.02 ms，RenderThread 图层提交及同步等待为主要开销。搜索和 Dock 改用双主体采样区并集，保留融球关系、混色、前景和投影，移除同步离屏预绘读回。中间包 `46bddc5f` 清应用 shader 缓存后 A/B 中，设置搜索跳过预绘的首开 P95 为 156.4→79.4 ms，RenderThread 驱动链接均小于 8 ms。
+
+### 验证
+
+使用 Android 16 的后台 Pixel 10 Pro AVD，SDK ADB 5037、`emulator-5556`、隔离用户 10、864×1856 与密度 320。经正常备份预览和恢复载入 18 周、12 节次、25 门普通课和 3 项特殊课程，包含重叠课与独立早读、午休及智能晚自习。课程、地点、教师和晚自习完整时段均已点验。
+
+下表是同场景每条路线两轮 `gfxinfo framestats` 的 P95 毫秒数。凝光原包为 `bab944cb`，共享采样包为 `9dd12fad`。液态浅色特殊课程在 `77ef05ee` 单独复测。
+
+| 模式与背景 | 课表 → 设置 | 设置 → 课表 | 课表 → 今日 | 今日 → 课表 |
+| --- | ---: | ---: | ---: | ---: |
+| 凝光，无壁纸 | 368.5 → 51.6 | 561.6 → 34.7 | 351.9 → 34.5 | 452.6 → 51.2 |
+| 凝光，有壁纸 | 419.9 → 118.4 | 450.9 → 151.7 | 367.8 → 35.4 | 584.0 → 48.4 |
+| 液态，无壁纸，特殊课程调整 | 85.4 → 69.1 | 123.4 → 85.6 | 67.6 → 67.8 | 104.0 → 85.2 |
+| 液态，有壁纸，共享采样包 | 166.5 | 204.3 | 124.3 | 222.9 |
+
+冷路径在测试用户内清应用 shader 缓存后启动。旧 `46bddc5f` 预绘开启与新 `9dd12fad` 的 `gfxinfo` 首开 P95，搜索 156.4 → 95.7 ms，Dock 126.0 → 113.2 ms。新包复开 43.3／96.2 ms，追踪中的预绘读回由每路 4 次降为 0。单轮触摸到首呈现未显示稳定提速。有壁纸设置往返的后续追踪仍有最长 97.4 ms 渲染同步等待。上述数字为模拟器结果，ColorOS 手感与帧指标待实机复测。
+
+液态默认浅色无壁纸的特殊课程改成中性白至浅灰渐变、淡边光和软外阴影，纯色背景直接绘制，无需逐条模糊和折射。最终包复核早读、午休和晚自习，后者的时段在滚动后完整显示于 Dock 上方。关于 → 更新日志验证为独立 Activity，连续返回到关于、设置。HD 已验证从未选标签开始滑选、反向滑选和点击，右栏标题在折叠标签栏下方，展开侧栏后恢复普通顶端位置。教务列表向下滚到湖南师范大学可打开教务 Activity，浮动搜索随键盘抬升并接收输入，返回先收键盘。
+
+原始记录位于 `tmp/nav3-qa/activity-final-glow-switches.log`、`activity-final-liquid-switches.log`、`activity-polished-liquid-light.log`、`activity-final-cold-9dd12fad.log` 与同目录 Perfetto 文件。
+
+### 交付
+
+`77ef05ee` 的 GitHub Release 构建、R8、资源压缩、lintVital 与 V2 签名通过。APK 为 `tmp/review-apks/SleepDown-1.2.8-beta2-Activity-GitHub-77ef05ee.apk`，7,837,136 字节，SHA-256 `30A62E9828E59F5516E608F933BF8EB33A95AF9ACD6A775518B38971F5288D53`。已在后台模拟器覆盖安装并回读相同 SHA，完成后切回凝光。
+
+PLJ110 早先经 SDK ADB 5038 的 USB 通道覆盖安装了 `7e02ed33`。最终包签名后核对现有 5038、5037 的 USB、无线设备和 mDNS，只有后台模拟器在线，最终包尚未覆盖到 PLJ110。
+
+## 2026-11-09 当前：凝光首开与融球拆解
+
+在 `codex/couikit-dialog` 接续现有未提交迁移。按用户要求直接核查 E 盘 PMX110 完整包。设置与 Launcher 组件、Framework 和 `libhwui.so` 的反编译表明融球经 RenderNode 写入主体关系和材质，参数变化后再更新，原生材质滤镜按节点复用。应用内 Kit 分开记录融球材质、焦散、投影和采样，复用静态材质配置与 Mesh 规格。Dock 跳过隐藏附件预绘，保留可见主体预绘。首页背景共用一份场景记录，弹窗复用相同 Kawase 配方，窗口语义保持独立。
+
+签名候选 `tmp/review-apks/SleepDown-1.2.8-beta2-COUIKit-cold-20261109-e1a9b810.apk`。完整 GitHub Release、V2 签名、Kit 13 项和应用 37 项回归均通过。Android 16 的 Pixel 10 Pro AVD 在 SDK ADB `5037 / emulator-5556` 上复测。Dock 同包连续点击 P95 从首开 258.6 ms 降到后五次 31.6–65.6 ms，后 3 次无驱动链接。搜索保留缓存重启 65.6 ms，清应用 shader 缓存后重启 121.6 ms。同机换包样本中搜索与 Dock 首开改善，Dock 复开和编辑器首开仍有慢帧。ColorOS 真机的 50 ms 指标待验收。见[报告](reports/2026-11-09-couikit-cold-animation.md)。
+
+## 2026-11-09 当前：同步 Kit 上游并补齐编辑器页点和课程染色
+
+用户反馈上一包卡顿仍未缓解，追加编辑器切页圆点、凝光课程卡渐变和助理收起态降低模糊，并要求先同步上游。GitHub 插件核对 `ItosEO/COUI-Kit` 的 `main` 到 `261658dc200c143c5ea883591662479344d25ba1`，较旧基线 22 个提交。临时克隆位于 `tmp/coui-upstream-261658dc`，核心 Kotlin 三方合并保留现有宿主差异。已接入 DynamicAnimation 1.1.0、滑条松手恢复、搜索主题染色和独立图标、色板及大标题／FAB／底栏 API。宿主仍使用旧图标兼容入口，可选图标模块及上游网站／Demo 未引入。详见[接入说明](../third_party/coui-kit/SLEEPDOWN_INTEGRATION.md)。
+
+编辑器直绘和独立入口为公共页点传入表单下层 Backdrop。凝光课程卡复用现有底部染色渐变，课程色与峰值透明度仍受原滑杆控制。日视图助理收起态凝光 18→14 dp，展开为 18 dp。凝光编辑器的首页冻结层试验以指令回放代替整屏 Offscreen，设置搜索将 IME 避让限制在结果视口。同步后 Release Kotlin 已通过，正在执行签名包与同机对照。保留旧私有源码、用户改动及 `output/`。
+
+## 2026-11-09 当前：融球整窗绘制、编辑器背景和 ART 冷路径
+
+继续优化设置搜索、Dock 首次融球和首页打开／打断动效。内置 Kit 允许不透明根正文和 Dock 的完整背景重放录制指令，移除这两条路线的整窗离屏绘制。首页冻结清晰与模糊背景共用一次录制，模糊每轴三分之一采样且保留 22 dp 半径。融球预绘按窗口和材质配方复用。周数弹窗同窗试验中，窗口缓冲分配消失，但中位帧耗时上升，已撤回该试验。保留旧私有源码供比对、原工作树和 `output/`。
+
+硬件加速 Pixel 10 Pro AVD 追踪确认搜索和 Dock 首次整窗离屏绘制 42／57 次降至 0。搜索捕获一次 195.1 ms 的 Kit `SearchBar` 即时编译，Kit 加入三条针对已测方法的基线规则。最终包强制处理包内配置前后，搜索首开 P95 94.7→54.8 ms，复开仍有慢帧。Dock 首开／复开 P95 43.8／20.6 ms，编辑器打断后重开最长 RenderThread 同步等待 19.3 ms。编辑器与周数弹窗首开 P95 仍为 132.6／129.7 ms，真机性能和观感待验收。
+
+Kit 13 项、应用 32 项定向测试、商店 Release Kotlin 和 GitHub 完整签名 Release 均通过。APK `tmp/review-apks/SleepDown-1.2.8-beta2-COUIKit-perfprofile-20261109-45d09ec3.apk` 的 SHA-256 为 `45D09EC35D4A0F373ACD549D520986AE5F55AC3A5167F6B206573F313A54E280`，7,820,604 字节，V2 证书与上一包一致。R8 保留三条热路径规则，ProfileInstaller 和系统 `speed-profile` 对照通过。已上传 APK 并回读名称、MIME 与大小。[签名 APK](https://drive.google.com/file/d/1G5WvI1eH-B9lr5YeAB-_hqbY8Ti0fVus/view?usp=drivesdk) · [追踪记录](reports/2026-11-08-coui-glow-visual-followup.md)
+
+## 2026-11-09 当前：凝光直绘、实景预绘和助理样式
+
+用户指出凝光打断慢于液态、融球仍卡，追加日视图助理展开材质、锥光进度条还原和课程卡泛光横宽纵窄。编辑器在两种模式共用直接绘制和点击路由，个性化与编辑器共用原液态的内容交接比例。内置 Kit 精简双球 shader，并在空闲期用实际采样尺寸、下层场景和焦散预绘。助理展开使用收起态的 18 dp，锥光补齐原厂三条弹簧和低进度调制，课程卡泛光两侧各外扩 2 dp、底部外延收至 7.5 dp。
+
+最新签名包 `tmp/review-apks/SleepDown-1.2.8-beta2-COUIKit-livewarm-20261109-f0cde239.apk`，SHA-256 `F0CDE239FA84AF9A611570E0645ABB06FB73986B2D09ADCD66EBB760D21A8547`，7,820,604 字节。GitHub Release、商店 Release Kotlin、Kit 13 项测试、V2 签名与 DEX 标记核对通过。已上传 Drive 并回读，仅上传 APK。硬件加速 AVD 上，两种模式均可打断重开，凝光编辑器最长等待 108.1→27.0 ms，搜索／Dock 首次 P95 为 95.9／67.7 ms。日视图已点验课时进度条和助理展开，返回先收键盘再回到卡片。搜索仍有个别慢帧，ColorOS 真机性能与视觉待复核。[签名 APK](https://drive.google.com/file/d/1hVHmQ9R7BicoxojkrDzLaD92N9EBKT3q/view?usp=drivesdk) · [追踪记录](reports/2026-11-08-coui-glow-visual-followup.md)
+
+## 2026-11-09 当前：教务底部触摸与首页弹窗动效
+
+用户澄清首页掉帧指打开弹窗和打断动画，融球入口为搜索与 Dock。列表视口退出浮动搜索框的触摸区域，模拟器点验最后一行打开教务浏览器及双适配入口。融球空闲期分两帧预绘真实材质，Dock 的动画值在布局与绘制时读取；Kit Dialog 反向从当前帧继续，编辑器用四档过渡模糊。Android 16 硬件加速 AVD 验证打开和打断重开，搜索与 Dock 首次 P95 从 456.2／395.5 ms 降至 122.4／58.5 ms，编辑器打断重开最长 RenderThread 等待从 90.5 ms 降至 41.9 ms。节次弹窗首次仍受缓冲分配和全屏图层提交影响。真机的 GPU 效果和性能待验收。详见[续修与追踪](reports/2026-11-08-coui-glow-visual-followup.md)。
+
+签名候选 `tmp/review-apks/SleepDown-1.2.8-beta2-COUIKit-motion-20261109-c5d3312b.apk`，SHA-256 `C5D3312B51D98DBD8FB293B0A740305240553ED12187980971DEBAC0A4E1219B`，7,820,604 字节。GitHub Release V2 签名、APK 版本和私有材质标记扫描通过。融球、Dock 和共用窗口改动在项目内置 Kit，E 盘参考工作区仅核对。保留原私有实现供核对及未提交工作树，按用户要求仅上传 APK。[签名 APK](https://drive.google.com/file/d/1RzPzMi0MLLqpk-DUDj8SO0Qn0yiEew-q/view?usp=drivesdk)
+
+## 2026-11-09 当前：文件夹材质、三处取色和融球冷路径
+
+用户要求课程卡的模糊与描边参照桌面文件夹、底部泛光参照 Dock 加号，同时复查课程与个性化的两个调色盘及「从壁纸取色」，并追搜索框和 Dock 首次融球。源码已接入 Launcher 小文件夹混色和描边、加号泛光、共用色板与固定的壁纸取色动作区。Kit 双材料槽共用 shader 源码。硬件加速 AVD 的旧包搜索追踪记录到 RenderThread 的驱动链接尖峰，Dock 切页追踪主要是图层提交及部分即时编译。详见[续修与追踪](reports/2026-11-08-coui-glow-visual-followup.md)。
+
+本轮 Kotlin、GitHub 签名 Release、商店 Kotlin 与 56 项定向测试通过。材质候选 `238dfae1` 已上传 Google Drive 并回读核对 7,820,604 字节，仅上传 APK。硬件加速 AVD 上，搜索和 Dock 首次驱动链接分别约 322 与 289 ms，再次约 20 与 6 ms。共享 shader 后冷路径仍可复现。个性化彩色调色盘及真实壁纸取色已覆盖点验。
+
+## 2026-11-08 当前：凝光实装细节复查
+
+用户追查描边与底部泛光、三处模糊、公共与菜单跟手光、编辑器／内层弹窗／首次融球掉帧、色板与分享排版、教务 WebView 顶栏与灵动岛，追加小组件设置页的分页点。保持 `codex/couikit-dialog` 原未提交改动与 `output/`。核对 E 盘系统描边类型和参数，修复透明轮廓输出、焦散合成、场景模糊和手势接线。课程编辑器恢复降采样，Dialog 保持开场采样网格；融合材质把屏幕光照计算移出绘制缓存回调。详见[视觉和交互复查](reports/2026-11-08-coui-glow-visual-followup.md)。
+
+## 2026-11-08 当前：凝光运行路线迁移与审查
+
+接续 `e2f1fe57` 与原有未提交适配。用户要求全版本退出凝光私有系统调用，并明确允许保留旧实现源码供核对。Android 14+ 改由 Kit 和公开 API 装配，API 26–33 用已有 Compose 路线，原偏好保留。E 盘已恢复并用于核对完整系统包与本地 Kit。用户授权将校验通过的本轮签名 APK 上传 Google Drive，本机只保留同次构建的 mapping 一份。详见[凝光迁移审查](reports/2026-11-08-coui-glow-migration-review.md)。
+
+- 定向回归 Kit 13 项、应用 37 项均通过。GitHub 完整签名 Release 和商店 Kotlin 编译均通过。交付 `tmp/review-apks/SleepDown-1.2.8-beta2-COUIKit-20261108-54f6fbac.apk`，已从 Drive 回读核对文件名和 7820604 字节。构建日志为 `tmp/coui-migration-final-verification.log`。ADB 两服务无设备，实机光效和帧耗时仍待验收。
+
+## 2026-11-08 当前：按钮渐变与菜单跟手光核查
+
+接续 `95ab3c00`。用户提供多课表管理截图，追问按钮深色渐变及课程卡片迁移状态，追加菜单应有跟手光。保留 `output/`、版本与本地交付边界，不安装／推送／发布，不使用协作Agent。
+
+- 普通主按钮恢复 Kit 默认填色；兼容请求显式 `translucentAccent` 才为有色浮动按钮采样，管理页分享／新建和 Dock 加号保留半透明模糊。管理页课表设置在 Kit 路线不再带旧纵向白色洗光／绕回旧原生按钮；黑底与投光纳入同一 underlay，预览和按钮留在源外。TextureView 投光是否进入真实硬件采样仍待设备确认。
+- shortcut／三点菜单已有 Kit `TranslucentLarge1` 跟手光，没有证据支持调大强度或另加弹出闪光。本轮使用 Menu 现有诊断验证两主题按下、绘制请求、滑移后 CANCEL 和 UP；Robolectric不能验证真实GPU亮度，也未证明长按原触点跨Popup交接。课程卡片及通用材质仍未整体迁移Kit，不能声称替换完成。
+- `1baf103f`：Release Kotlin 编译和 `GlowSystemMenusTest` 6项通过（5m33s，0失败／错误／跳过），日志 `tmp/coui-button-spotlight-tests-20261108.log`。完整签名Release通过（3m15s，R8／资源压缩／lintVital／V2签名），日志 `tmp/coui-button-spotlight-release-20261108.log`。详见[本轮报告](reports/2026-11-08-coui-button-material-spotlight-audit.md)。未再次同步上游，固定基线仍为 `520478b9`。
+- 最新本地包 `tmp/review-apks/SleepDown-1.2.8-beta2-coui-button-material-20261108-96dd64b3.apk`，7,891,084字节、SHA-256 `96DD64B3E256D89D2AA6E852D63251903110E5C745D0D39AC45EC094B59DF98B`；同名mapping 163,127,483字节、SHA-256 `B6326AA4790921CD054FFE739FDBA0712BAF5660A09A9D3E453C3ACF2888977B`。原输出／副本一致，证书／版本／SDK已核对，源码 `1baf103f`。按授权删除上一份 `e4428ad8` 归档mapping，只保留本包对应mapping；旧APK及 `output/` 保留。未安装／启动／推送／发布。
+
+## 2026-11-08 当前：右侧shortcut、菜单立即响应、共用卡顿调查
+
+接续 `8d77ee47`。用户要求右侧课程shortcut右对齐、菜单点击不等待收回；追加无界首页顶栏模糊覆盖过大，并要求分别梳理AI输入／发送、教务搜索／底栏／灵动岛、周视图全屏AI及表头材质。随后明确掉帧与视效模式无关，要求检查此前是否归因错误。用户“继续”授权继续当前工作，未新增安装／发布／协作Agent授权。
+
+- `0b5fffc4`：传递原 `request.pivotX`，Kit Menu新增AnchorEnd以保留课程左／中／右锚点和RTL；两个动作菜单立即提交一次，课程Controller为凝光动作跳过业务等待并在关闭时让出输入，但保留退出清理与取消语义。`f118f77a`：无界渐变正文尾部36→12dp，强模糊不再越过表头底部。
+- 静态引用与diff检查通过，定向30项通过（Kit13＋应用17，4m25s，0失败／错误／跳过），日志 `tmp/coui-shortcut-immediate-tests-20261108.log`。包括右列锚点传递、立即执行且仅一次、取消和源卡材质恢复。完整签名Release通过（6m12s，R8／资源压缩／lintVital／V2签名），日志 `tmp/coui-shortcut-immediate-release-20261108.log`；保留 `output/`。
+- 材质盘点见[本轮调查](reports/2026-11-08-glow-material-entry-audit.md)：通用NativeSurface仍只有旧ColorOS实现，非ColorOS凝光下不少表面会回退液态；设置骨架也由两种模式共用。不能把切换模式等同于切换全部渲染路径。已记录AI／教务／表头的材质、源、触控owner与分批接入顺序，尚未整体迁移这些入口。
+- 共用性能线索包括Kyant生产源重复遍历、未冻结坐标回调使采样重录、32点渐进模糊后备链、整页快照／共享Morph。它们是源码调查结果，尚无本轮CPU／GPU耗时证据，不得声称主因或掉帧已修复；上一轮Kit测试不能代替共用路径验证。
+- 本轮ADB首次提权枚举因自动审批额度用尽被拦截；上海时间08:31核对时间后重新审核成功，定向测试已启动。随后重新核对5037／5038均为SDK37.0.1服务，无USB或无线mDNS设备、未发现其他ADB服务。用户明确回复“暂时无法连接，先交付修正和材质梳理”；按此继续本地验证交付，本轮不再追问设备，不安装。未来设备可用时再比较同APK两种模式的FrameTimeline。
+- 最新包 `tmp/review-apks/SleepDown-1.2.8-beta2-coui-shortcut-audit-20261108-e4428ad8.apk`，7,891,084字节、SHA-256 `E4428AD8B0399874F3E67846225F3B002D964F1B452E92368DE9D73F4AF70879`；同名 `-mapping.txt` 163,103,386字节、SHA-256 `C3A29CC8D0C29CECC2A05FE40B099BD0A139B074DEF94D3F0F73D54231EFFC51`。原输出／副本哈希及V2签名一致，内嵌源码 `a6163bc8`。已按授权删除上一份 `d5cf727f` 归档mapping，仅保留本包一份；旧APK保留。未安装／启动／推送／发布。
+
+## 2026-11-08 当前续修：菜单字体／锚点与动画采样开销
+
+用户继续反馈字体、外观、弹出锚点均不对，Dialog和动画严重卡顿。接续 `ac81aed0`，保留分支、版本、原尺寸、无分割线及仅本地签名APK／精确mapping边界。没有新增上游同步，GitHub固定基线仍为 `520478b9`；本轮直接核对本机上游装配和目标系统APK调用／资源。
+
+- `350f6715`：两个入口继续用Kit Menu，通过样式恢复原生白光轮廓；普通字体实际为 `DefaultAdapter → couiTextBodyL` 的15sp regular。旧报告16sp对应固定字体分支，不能继续当普通默认。工具栏居中避让、课程逻辑起始边、上下8dp间隔，结合可见窗口／RTL／IME及长菜单滚动。
+- `a8642f23`：完整窗口显式不隔离时，消费期间也使用Auto指令源，去除开窗额外整屏纹理；源／浮动材质／Dialog采样锚点只在实际几何改变时失效。Window属性实际变化才合并写入，背景Drawable随窗口建立；去除Menu重复离屏层。原模糊、混色、融球、阴影与运动算法不删改。
+- 最终定向29项通过（Kit12＋应用17，4m20s），日志 `tmp/coui-menu-geometry-final-tests-20261108.log`；首次仅新增诊断断言误用了Compose策略字符串，已更正后通过。完整签名Release通过（5m50s，R8／资源压缩／lintVital／V2签名），日志 `tmp/coui-menu-geometry-release-20261108.log`。
+- 最新本地包 `tmp/review-apks/SleepDown-1.2.8-beta2-coui-menu-geometry-20261108-d5cf727f.apk`，7,891,084字节、SHA-256 `D5CF727F636FF2212639B65BA190DB2765E70D7B922D5A7F53E59AE08345AC44`；同名 `-mapping.txt` 163,103,350字节、SHA-256 `65000215C70C719B46E51B820D4E3A7E538238F1F8909914DBCE810E873DAE87`。内嵌源码 `b9a34058`，原输出／副本哈希及签名核对一致。已按授权删除上一份 `b0c89f55` 归档mapping，当前归档仅保留本包的一份；旧APK保留。
+- 5037／5038均核对为SDK37.0.1服务，无USB设备、无线设备或mDNS端点；无法测量本轮真机帧耗时，未安装／启动／推送／发布。不得把测试或Robolectric排版图当流畅度、GPU模糊或1:1视觉验收。详见[续修报告](reports/2026-11-08-coui-menu-geometry-render-cost.md)。保留未跟踪 `output/`。
+
+## 2026-11-08 当前：恢复Kit菜单、原生遮罩与弹窗进入开销
+
+接续 `c9108a33`，分支不变。用户明确纠正：使用COUIKit菜单，只改原版选中／遮罩行为，课程shortcut与右上角菜单没有分割线；追加课表设置顶栏太大、弹窗进入掉帧、“继续”以及“把多余的mapping删掉”。版本、minSdk和仅本地签名产物边界不变，不自动安装、推送或发布。
+
+- 已删除自造 `SystemPopupMenu` 和旧定位测试，两个入口直接使用Kit `Menu`，保留196dp宽度和Kit外壳／材质。普通动作不设置divider或持久selected；沿用原图标和危险颜色，真实退场后再交接。
+- 原生共享遮罩不是前轮8dp圆角近似：TouchRecyclerView在子项之后绘制；普通单行项整行高、水平8dp内缩、weight1。使用Kit胶囊Shape与共享进度，增加显式前景遮罩样式，仅用于这两个入口；抬手重新核对命中，移出／CANCEL不提交。
+- 课表设置恢复84×38dp顶部按钮，凝光顶部留白12dp、标题18sp／下间距8dp；左取消／右完成及现有保存回调保持。Dialog动画值改为图层／绘制阶段读取，避免每帧重组窗口并写Window策略；模糊后端和时序不删减。
+- 回退提交：`46e999aa`菜单／遮罩，`404bb5c2`紧凑顶栏，`e9c6410b`Dialog动画；19项功能回归通过，新增窗口动画诊断单独1项通过（1m40s）。前次诊断时序断言已修正为区分一次策略交接与每帧写入。截图已查看无分割线／前景遮罩和紧凑顶栏；完整签名Release通过（5m55s，R8／资源压缩／lintVital／V2签名），详见[本轮报告](reports/2026-11-08-coui-action-menu-dialog-correction.md)。设备GPU和帧耗时尚未验收。
+- 最新包 `tmp/review-apks/SleepDown-1.2.8-beta2-coui-menu-mask-dialog-20261108-b0c89f55.apk`，7,891,084字节、SHA-256 `B0C89F55B79AAE499597C849F0D53603B35341146E0A926DBFB685FC0E32C9E1`；同名 `-mapping.txt` 163,130,863字节、SHA-256 `0CAC40D82680D308D26DCF391529134E4489B43121DD992615DD98F1A73F69CA`。内嵌源码 `e5c96943`，副本与原输出一致，身份／签名不变，未安装或发布。
+- 用户明确授权删除多余mapping：先删除 `tmp/review-apks` 内10份旧mapping，新包成功校验后再删除上一份 `cb6af347` mapping，累计11份、约1.62GiB。归档目录仅保留本次新包对应一份精确mapping；旧APK保留，其他目录与桌面未清理。下方历史“mapping全部保留”记录已被该新指令取代。
+
+## 2026-11-07 当前续修：顶栏材质、两个系统菜单与本地 Kit 分段
+
+接续 `8821f771`，仍在 `codex/couikit-dialog`。用户明确“弹出菜单就是shortcut和右上角那个”，随后要求尺寸保留本应用原值，其他按系统调整，并指出本地Kit已新增滑块（本会话已明确指胶囊分段选择器）。本轮仅本地修改、提交和签名APK／精确mapping，不自动安装、推送或发布；版本 `1.2.8_beta2 / 36` 不变。保留 `output/`、其他工作树与stash。
+
+- 修正下节首次接入方案：首页42dp／20dp图标保留，普通填色胶囊改为 Kit `TopAppBarButton`，使用系统20px模糊、混色、轮廓和工具栏反馈。新增局部背景条采样，包含页面前缀与原渐进模糊，文字／按钮在后绘制同级节点；不读取含自身的Dock整页源。
+- 直接核对相册／天气实际 `RoundFrameLayout` 后纠正下节12dp结论：运行时覆盖XML，凝光最终28dp／2.5。系统菜单独立装配原白光描边与明暗线宽／透明度，196dp宽和原行尺寸、退出交接保持。
+- 按用户指定补入本地 Kit 新增 `SegmentedControl` 三文件与依赖的弹簧边界API。来源HEAD `f8423c3`，组件当时未提交；来源哈希见接入说明。不是再次同步远端main，GitHub固定基线仍为 `520478b9`。旧组件缩为兼容门面，保留原宽高、仅指示器与抬手提交，不维护第二套输入和运动。E盘工作区只读。
+- 回退提交：`a1c4614f` 顶栏／菜单，`09f0004b` 本地Kit分段；中间 Release Kotlin 编译通过（3m19s），最终21项定向回归全部通过（2m35s，0失败／错误／跳过）。顶栏诊断确认源录制、保留和采样；Robolectric未呈现浮动GPU表面，不能当作视觉验收。独立完整签名Release通过（6m56s，R8／资源压缩／lintVital／V2签名）。详见[修正报告](reports/2026-11-07-coui-toolbar-popup-correction.md)。
+- 最新本地包 `tmp/review-apks/SleepDown-1.2.8-beta2-coui-toolbar-segment-20261107-cb6af347.apk`，7,857,748字节、SHA-256 `CB6AF34700A07364D9075730D442CBED28EBE49B66589AB6B17B5BCDFAB31F57`；同名 `-mapping.txt` 162,570,398字节、SHA-256 `143B931E7BCAAF67F6A13C84AC8CD147AA81551469D2F211386E98A9C7E323F0`。副本与同次原输出一致，内嵌源码 `888d5baf`，版本不变、V2证书 `0f2b50df…`；未安装、推送或发布。
+- 本轮可见原用户指令只明确本地APK／精确mapping；下节桌面交付偏好未从工具回读的原消息中检索到，因此本轮先交付仓库忽略目录内产物，不自动删除或覆盖外部桌面文件。
+
+## 2026-11-07 续：首页顶栏 COUI 图标按钮、系统菜单与桌面交付
+
+接续 `d80a210e`，仍在 `codex/couikit-dialog`。用户要求继续收首页/课表顶栏图标按钮，并明确从本轮开始只把签名 APK 放桌面、mapping 留仓库；桌面只保留最新一个包，打下一个包后删除上一个（构建失败时保留旧包）。随后要求检查顶栏按钮采样源，并按相册/天气右上角菜单修复两个弹出菜单。版本、minSdk、签名和授权边界不变；未安装、推送、PR 或发布。
+
+- `5a505ec8`：首页 `AppTopBar` 内独立图标按钮改走 `CouiHomeIconButton`，复用 `CouiCapsuleButton` 的 42dp 圆形表面、轮廓、按压、跟手光和禁用材质；浅色表面 `0x99F5F5F5`，深色 `0xCC262626`，选中态使用宿主主色图标。
+- `LocalCouiHomeTopBarActive` 只在 `AppTopBar` 外层提供，添加/个性化复合胶囊、页面源卡和其他图标按钮保持原路线；液态/旧系统仍回退原生或液态。
+- 顶栏采样源复核：`CouiCapsuleButton` 不接收 `CouiBackdrop`，只绘制自身 surface/contour/spotlight；顶栏按钮没有采样源，也不读取 Dock 整页源或形成自采样。顶栏背景仍由 `HomeTopGradientBlur` 消费 `chromeBackdrop`；未引入 `TopAppBarButton` 的额外整页源。
+- `e43ab2ee`：按 `OppoGallery2`／`OppoWeather2` 的 `COUIPopupListWindow` 复核两个菜单。面板圆角由 28dp 改为 12dp（API35 系统布局为 9dp 半径变体），条目遮罩 8dp，顶部屏障 12dp；菜单宽 196dp／最大 256dp、条目 40dp、上下 8dp、左右 20dp、图标 20dp+12dp、正文 16sp regular、0.5dp 分隔线保持。课程 shortcut 改为菜单实际退出后再执行动作；溢出菜单取消选中触觉。详细证据见[系统菜单报告](reports/2026-11-07-system-popup-menu.md)。
+- 验证：`GlowSystemMenusTest` 4 项通过（含顶栏按钮、shortcut 退出交接、overflow 退出提交）；正式 `assembleGithubRelease` 通过（8m31s，R8、资源压缩、lintVital、V2 签名）。APK `E5D9E435F2B2972298A150106679F173E4E6F95F814A47E511DE16542382C330`，7,841,364 字节；mapping `0134D29343C63AC6EEC0F238A707E747B24838B6BFAD556E7389C9BE6AB6CC8F`，162,254,434 字节；内嵌源码 `e43ab2ee`。
+- 桌面（只保留 APK）：`D:\个人资料\桌面\SleepDown-1.2.8-beta2-couikit-menu-topbar-20261107-e5d9e435.apk`。上一套 `e60f0bee` APK 已删除；桌面没有 mapping。mapping 仅保留在 `tmp/review-apks`。下一轮构建成功并校验后删除桌面上的上一个 `SleepDown*.apk`。
+- 详细记录见[首页顶栏报告](reports/2026-11-07-coui-home-top-bar.md)、[系统菜单报告](reports/2026-11-07-system-popup-menu.md)与[适配进度盘点](reports/2026-11-07-coui-adaptation-audit.md)。
+
+## 2026-11-07 当前：凝光系统菜单、特殊选择器与详细设置布局
+
+接续 `4e7a30c5`，仍在 `codex/couikit-dialog`。用户要求课程长按shortcut和右上角三点菜单接凝光系统原样式，明确不采用COUIKit Demo菜单外观与液态行为；追加详细设置按钮错位、胶囊分段系统对齐、课程编辑器/星期/调色板间距修复，以及月历不要标题。保持 `1.2.8_beta2 / 36`、minSdk26；继续仅本地提交和签名APK／精确mapping交付，不自动安装、推送、PR或发布。保留原有 `output/`、其他工作树与stash。
+
+- 菜单用本地 `SystemPopupMenu`，独立装配系统196dp面板、28dp轮廓、16sp regular条目和锚点避让，只共享Kit基础材质／投影／弹簧，不依赖Demo样式默认值。三点菜单冻结本次动作列表，实际退出后提交，后台停止清理待执行动作；大屏保留完整动作集与真实矩形交接。课程shortcut继续原controller的源卡恢复／退出屏障。液态保留原菜单与Morph路线。
+- 详细设置按钮已经实际复现并修复：16dp操作区留白、固定在正文滚动区之外；顶部取消／完成保持位置，真实按钮继续作为详细设置转场锚点。上轮隐藏按钮的测试已改为包含真实按钮。
+- 公共Picker新增 `couiContentPadding`，自定义正文共用 `CouiPickerFormPadding`（24/12/16dp），清除旧微边距重复；星期默认一行七项，大字体按宽度换行，课程调色板自动按钮44dp。完整月历只保留自身年月导航，共享日期、课表开始日期和调休日期页均去掉外层标题。
+- 胶囊分段普通表单用系统regular40dp，复合导航保留显式尺寸。补齐运动中指示器起拖命中、非拖动态标签缩放释放及已选无障碍点击；位置/宽高/橡皮筋弹簧和提交／取消语义保留。
+- 回退提交：`58e7b911` 详细设置／课表月历；`ee16de53` 系统菜单；`f2a13030` 特殊选择器留白／其他月历；`82015f8e` 分段与迁移回归；`cd25da11` 菜单外观独立于Demo默认值；`5d7f7235` 主编辑器布局与星期交接核对。完整证据见[本轮报告](reports/2026-11-07-system-popup-menu.md)。
+- 中间26项定向回归全部通过（4m24s），主编辑器／星期／调色板3项补充通过（1m40s），相关新布局图均已查看。最终源码 `5d7f7235` 的菜单／编辑器6项再次通过（1m34s），完整签名Release通过（5m52s），保留R8、资源压缩、lintVital与V2签名。构建/状态测试不能替代系统动态像素、模糊、触觉与真机性能验收；本轮未安装。
+- 最新本地包：`tmp/review-apks/SleepDown-1.2.8-beta2-glow-popup-pickers-20261107-031cf109.apk`，7,857,748字节，SHA-256 `031CF109840BBC8319D44F598FFC93CAE4D3EAEDF75630BEF804219F1C09D08C`；同目录 `SleepDown-1.2.8-beta2-glow-popup-pickers-20261107-031cf109-mapping.txt`，162,147,478字节，SHA-256 `0CA22E87BD10EDFA98624CF231615765025E4F8F451015D4752E2C286CB8C9BC`。副本与原输出一致，内嵌源码 `5d7f7235`，版本 `1.2.8_beta2 / 36`，V2证书 `0f2b50df…`。前轮 `dad316ce`、`2a481549` 均为旧包，保留但不再作为当前交付。
+- 适配进度已按实际代码盘点：公共控件与设置体系基本收口；剩余可见缺口集中在首页/课表顶栏图标按钮、学校搜索框、首页添加菜单/侧栏，QuickSheet 和卡片/页面指示器属于外壳或材质层，需先确认是否要求统一。完整矩阵和建议顺序见[适配进度盘点](reports/2026-11-07-coui-adaptation-audit.md)。
+
+## 2026-11-07 前轮续作：以 COUI Demo 统一弹窗与采样开销
+
+接续 `977e82f2`，仍在 `codex/couikit-dialog`。本地源码提交为 `a881c2fb`（分段回弹与逐帧开销）、`3287ea8b`（Demo 弹窗／选择器、按需采样与按钮材质）。用户要求 Dialog 尺寸、模糊、行为、普通选择器均以 Demo 为基准，修复导入按钮采样、导航区遮挡、分段还原度与 Dock／搜索／Switch 形变卡顿，并将强调按钮改为半透明模糊。最新明确例外是“课表设置弹窗可以保留原来的取消、完成按钮位置”：已保留顶部左取消／右完成及其既有保存语义。授权边界与版本不变：仅本地提交及签名 APK／精确 mapping，不自动安装、推送、PR 或发布。
+
+- 以固定上游 `520478b9` 的 Demo 装配核对。普通 Picker 直接走 `Dialog`，特殊表单复用 Kit 标题和固定操作区；数字轮120dp居中，时分两列各62dp、高135dp、上下12dp，完整日期用 CalendarPicker。课表设置正文单独滚动、行反馈裁剪为胶囊。
+- 撤销首轮 Dialog 纯表面源和内部按钮二次模糊，恢复上游 DialogButton；内部普通按钮／分段不再读取旧页面 Backdrop，完整窗口源仅供下一层弹窗。整窗源无消费者时直接绘制，凝光设置页移除多余 Kyant 正文录制；保留 SDF 融合、跟手光等视觉能力。输入表单独立处理 IME 与导航区交集，下层设置页失焦时不跟随键盘重排。
+- 分段弹簧读取移至布局／绘制，补回高度回弹、边缘／中间项橡皮筋及触点标签反馈。Dock 加号与独立强调按钮用可选半透明材质，标准 Dialog 主操作保持 Demo 默认。
+- 中间 Release Kotlin 编译通过；23项定向测试通过，0失败／错误／跳过（`tmp/coui-demo-alignment-tests-20261107.log`）。恢复顶部操作、行内距与诊断关闭后，13项迁移UI／保存交接回归通过（4m07s）；根据新布局图补齐顶部留白后，最终源码 `3287ea8b` 的4项嵌套日期／课表设置回归再次通过（3m03s），新图已查看。完整签名Release构建通过（5m55s），R8、资源压缩、lintVital及V2签名齐全；各命令与日志见[续作报告](reports/2026-11-07-couikit-demo-alignment.md)。
+- 最新交付：`tmp/review-apks/SleepDown-1.2.8-beta2-couikit-demo-20261107-dad316ce.apk`，7,824,980字节，SHA-256 `DAD316CE5FDC7F0247D5F5611E9D38EE236425A6DF5C0DBD6C5EA1B732A2CD2A`；同目录 `SleepDown-1.2.8-beta2-couikit-demo-20261107-dad316ce-mapping.txt`，161,026,929字节，SHA-256 `BF4D87956C536AAD8C90EAA2E02F86590D54A8AD776E3384C9565CC83D823A5C`。两份副本与同次Release原输出一致，内嵌源码 `3287ea8b`，版本 `1.2.8_beta2 / 36`，V2证书 `0f2b50df…`。下面首轮的 `2a481549` 包为旧产物。
+- 本轮 SDK ADB 5038／5037 均无设备、mDNS无端点；没有安装或真机帧耗时验收，Robolectric 图仅用于检查布局与状态。保留 `output/`、所有其他工作树与 stash。
+
+## 2026-11-07 首轮：COUI 上游同步、Dialog／Picker 与颜色修复
+
+本轮用户明确要求实现 Dialog 迁移计划，并追加采样层级审查、通知悬浮按钮布局、按钮主题色、首页长按管理按钮模糊、课程管理／导入历史深色卡片修复。基线 `61246c07`，当前分支 `codex/couikit-dialog`；版本保持 `1.2.8_beta2` / 36、minSdk 26。授权仅本地实现、提交及签名 APK／精确 mapping 交付，不自动安装、推送、PR 或发布。保留原有未跟踪 `output/`、其他工作树与 stash。
+
+- 上游实际从 GitHub `ItosEO/COUI-Kit main` 获取并固定 `520478b9305780b078bed1096ce68f727c594f14`，以 `af952eb6` 三方同步运行源码、资源与许可证，保留宿主兼容及 Dock/Button 扩展，没有用 E 盘开发工作区代替上游。
+- 本地回退提交：`a815ad9b` 上游同步；`5a43a77a` 胶囊分段组件；`f730e802` 按钮采样、布局、主题色与深色卡片；`3013f7b1` Dialog／Picker、命名草稿及宿主接入；`c6e62a5c` 首页和课表强调按钮显式主色角色；`e240e16d` 分段纵向手势取消。没有远端写入。
+- 公共 Dialog 按所选模式分发：凝光 Android 14+ 跨品牌使用 Kit；液态保留原外壳和选择器。移除设置作用域强制 COUI 分支，标准 Alert、Input 和自定义内容均委托 Kit 窗口；操作区固定、实际退出完成交接，命名草稿由业务入口持有。凝光滚轮／完整日期使用 WheelPicker／CalendarPicker，保留原范围和保存语义。
+- 采样审查：Dock 仍使用完整页面源和后绘制同级消费者，保留已验收参数；Switch／Slider 不增加页面采样。普通按钮使用调用方背景；Dialog 消费下层完整窗口，内部按钮／分段只消费纯表面 sibling 源，完整 Dialog 窗口源供下一层弹窗。同窗口源去重，空闲 Auto，Kit retain 管理实际消费。
+- 已修复通知带徽标按钮异常撑高、按钮主色透明度及灰色主题角色、长按首页管理按钮漏采样。设置的透明 container 先合成到页面底色，再作为不透明 M3 卡片角色传出；导入历史去掉错误的二次透明度。课程管理与导入历史深色底色均走公共修复。
+- 上游同步及中间接入 Release Kotlin 编译通过；19 项定向回归通过，命名草稿补充后 7 项迁移 UI 回归通过。最终 `e240e16d` 的首次串行验证在应用测试前因 Gradle daemon JVM 内存抖动中止，不是代码失败；随后以 `--no-daemon --max-workers=1` 完成正式构建（5m52s）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-dialog-20261107-2a481549.apk`，7,808,596 字节，SHA-256 `2A48154923EDADA0E1BEE72BDE13AB577200D48875B397E96F601CB2ABD49C8D`，V2 证书 `0f2b50df…`；精确 mapping 同目录 `-mapping.txt`，160,979,778 字节，SHA-256 `1865F2C845510C1C83E07F34625BDD71800006356A32B4C62D67E3357C779302`。构建内嵌 revision `e240e16d`。最终 `CouiMigrationUiTest` 7 项通过（含纵向手势交接用例），0 失败／错误／跳过。细节与实际命令／日志见[本轮报告](reports/2026-11-07-couikit-dialog-migration.md)。
+- 尚需真机验收本轮 Dialog／Picker、嵌套采样、按钮模糊、深浅卡片、分段动态效果，以及大字体／横屏／IME。Robolectric 图已核对通知按钮位置和高度，不能代替 GPU 像素、OEM 振动或性能验收。未安装或连接设备验收。
+- 用户“继续”后已核对现有最终包，APK／精确 mapping 与 Release 原输出哈希一致，内嵌源码为 `e240e16d`，V2 签名及版本身份正确；完整定向集合 20 项再次通过（应用 17 + Kit 3，59s，`tmp/coui-dialog-final-tests-20261107.log`）。源码未变化，不重复构建。mapping 实际文件名为 `SleepDown-1.2.8-beta2-couikut-dialog-20261107-2a481549.apk-mapping.txt`。
+
+## 2026-11-06 当前：COUI 组合底栏、Button 与深色跟手光
+
+用户要求在 COUI Dock 迁移基础上，把底栏 FAB 加号键也换到 COUI-Kit，并降低深色模式跟手光浓度；随后要求按 Demo 写法把胶囊与 FAB 合成一个组合控件、接入 button 型控件，并把默认 Dock 略缩短。已从 `5ad124a9` 建立 `codex/couikit-dock-fab`；只做本地构建，不自动安装、推送、PR 或发布；未改课程数据或数据库。
+
+- 新增 `third_party/coui-kit/.../navigation/CouiDockBar.kt`：胶囊 + FAB 双主体，`CouiFloatingRenderer.pair()`、`CouiFabDefaults`、`couiFloatingPair`；FAB 槽位 68dp→0、淡出、点击 bounds 和菜单返回由宿主管理。菜单内容抽取为 `CouiDockMenuContent`，独立胶囊与融合底栏共用。
+- `CouiHomeDockChrome` 的加号不再创建原生 `NativeFab` 或 Compose 加号，改用 `CouiDockBar` 的 COUI FAB；点击仍用 PixelCopy 生成圆形返回层，菜单锚点/隐藏/返回交接保持。
+- 融合：FAB 随 slot 左移进入胶囊，pair shader 在重叠时融合；本步恢复双主体融合，不改变既有菜单 host。
+- 跟手光拆为浅/深：菜单 2.0/0.3，FAB 1.2/0.5（COUI 预设 `OpaqueSmall2` 1.0/0.15，`OpaqueSmall1` 0.6/0.5）。修正旧实现 `intensity=2f` 同时覆盖深色导致菜单深色为 2.0 的问题。
+- 微调：FAB 采样模糊与胶囊一致（25px）；`CouiDockBar` 改为 Demo 式组合控件，宿主只传可见/启用/宽度和回调，槽位、淡出、0.5 隐藏缩放和 0.55s/0.65 弹簧都在组件内部；默认三项菜单 232dp。
+- 新增 COUI Button：`button/CouiButton.kt` 提供文本 `CouiButton` 和内容槽 `CouiCapsuleButton`；`CouiTextKind.Button` 补齐；`CouiCapsuleButtonRenderer` 在凝光 + Android 14+ 接现有胶囊按钮，先 COUI、再原生、再液态；保留原生投光请求。
+- 新增 `CouiValueSlider` / `CouiValueSwitch`：滑条保留 preview/commit/cancel、1.5% snap 吸附、14dp 轨道 marker 和垂直滚动让位；开关使用 Kit 44×24、宿主强调色和 compact 0.8 缩放。分发为 COUI → ColorOS → 液态。
+- 参数和来源记录在 [本轮报告](reports/2026-11-06-couikut-dock-fab.md)；开关/滑条记录在 [Switch/Slider 报告](reports/2026-11-06-couikut-switch-slider.md)；Kit 哈希和接入说明在 `third_party/coui-kit/SLEEPDOWN_INTEGRATION.md`。
+- 验证：`compileGithubReleaseKotlin` 通过；`:sleepdown-coui:testDebugUnitTest` 通过；定向 `ColorOsDockCompositionTest`、`VisualEffectsCapabilityTest`、`CouiValueControlsRouteTest` 通过。最终 `assembleGithubRelease` 通过（5m37s，R8、资源压缩、lintVital、打包与签名）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-switch-slider-20261106-cb0b1670.apk`，7,692,584 字节，SHA-256 `CB0B16705491FE33C668B6BC163773B0BE07A19D0A322E170E8BC14E948EF7C5`，V2 证书 `0f2b50df…`；精确 mapping 同目录 `-mapping.txt`，156,296,338 字节，SHA-256 `5EC5CB90FD49054361D8BC2D04E0FD978F4A50098AE79C7D902CE34192AD688E`。构建内嵌 revision 为 `652ac337`（Switch/Slider 代码提交），其后的交接/报告文档提交不改变 APK。
+- 尚未完成：真机核对双主体融合、0.5 缩放与 0.55s 弹簧、FAB 阴影、菜单返回位置、设置页收放、深色跟手光、232dp 菜单宽度、COUI Button 内容槽/轮廓/禁用态，以及开关/滑条的拖动、fling、snap、垂直滚动让位和 compact。没有安装、推送、PR、标签或发布。
+
+## 2026-11-06 此前：COUI Dock 迁移与默认凝光
+
+用户要求从 `d5176dc5` 建立独立分支 `codex/couikit-dock`，保留当前交接修改和本地素材；把反射加载的系统 `COUIBottomFloatingNavigationBar` 迁到 `third_party/coui-kit` 的独立导航胶囊，Android 14+ 使用新 Dock，加号保留现有实现、菜单和位置联动，本轮不绘制融合连接；同时开放跨品牌凝光模式、未保存偏好默认凝光、已保存选择保持不变，并交付本地构建产物。只做本地构建，不自动安装、推送或发布；未修改课程数据或数据库。
+
+- 已从 `d5176dc5` 建立 `codex/couikit-dock`，包含 `Dock 迁移` 与 `默认模式调整` 两个提交；工作树仅余未跟踪 `output/`，不提交它。
+- 新增 `third_party/coui-kit/.../navigation/CouiDockCapsule.kt`，来源为 E 盘 `CouiBottomBar.kt` 中间菜单主体，使用 `CouiFloatingRenderer.standalone()`、`CouiBackdrop`、`CouiFloatingSurfaces`、`CouiTouchMotion`/`CouiPressMotion` 和跟手光；不含附件、融合或安全区。文件哈希与来源见 `third_party/coui-kit/SLEEPDOWN_INTEGRATION.md`。
+- `CouiFloatingMaterial` 增加 `sampleBrightness`，只压暗采样输入，颜色层保持；浅色壁纸 0.94，深色 1。`couiNavigationReleaseTarget` 修正为系统 CANCEL 不提交，拖回当前项不重复提交。
+- 新增 `glass/HomeDockBackdrop.kt`：完整页面作为单一 COUI 采样源，Dock 是同级后绘制消费者；源位于既有 `screenGraphicsLayer` 录制范围，因此继续进入整页快照和转场。
+- 新增 `feature/home/CouiHomeDockChrome.kt`：独立 Dock 宿主；加号优先使用现有 ColorOS 原生 FAB，否则使用现有 Compose 加号；设置页收起槽位、菜单打开时淡出并保留锚点。`NativeHomeDockChrome` 的路由为 COUI Dock → 既有原生 → 既有液态。
+- 视效状态拆为凝光启用、COUI 可用（Android 14+）、私有 ColorOS 控件可用；模式选择不再依赖品牌、ColorOS 版本或实验渠道。默认凝光，已保存 `liquid_glass` / `coloros_glow` 原值保留。设置说明改为“凝光材质与触摸反馈”。
+- 参数对照、系统/应用覆盖来源、Kit 映射和验证记录在 [本轮报告](reports/2026-11-06-couikut-dock-migration.md)。
+- 验证：`compileGithubReleaseKotlin` 通过；`:sleepdown-coui:testDebugUnitTest` 通过；定向 `VisualEffectsPreferencesTest`、`VisualEffectsCapabilityTest`、`VisualEffectModeTest`、`ColorOsDockCompositionTest`、`SettingsHomeVisualTest`、`AboutSettingsUiTest`、`ScheduleDetailPageUiTest` 通过。最终 `assembleGithubRelease` 通过（1m57s，R8、资源压缩、lintVital、打包与签名）。APK `tmp/review-apks/SleepDown-1.2.8-beta2-couikut-dock-20261106-dbcd182c.apk`，7,676,200 字节，SHA-256 `DBCD182C9432E29B93E59F4F5580EAC0425F7CE3BDF8712BD8D3EF4B4903C7C6`，V2 证书 `0f2b50df…`；精确 mapping 同目录 `-mapping.txt`，SHA-256 `3119CF778BF941AE4F3C61DD15F062C055DC7567D1D6BFAEE88F5E01393378CA`。构建基于 `codex/couikit-dock` 两个提交，最终代码树与 APK 一致。
+- 尚未完成：真机 GPU/阴影/跟手光验收；加号与胶囊的融合连接留待下一步；非 ColorOS 设备未迁移控件仍走液态材质。没有安装、推送、PR、标签或发布。
+
+## 2026-11-06 此前：用户取消统一渲染迁移，回退并清理
+
+用户明确要求“回到`d5176dc5`”，保留该提交已有的二级界面；随后要求撤回内容全部删除，并清理无用文件、中间包和日志。统一渲染、着色器及本轮COUI迁移任务已取消，不沿下方历史计划续做。当前分支仍为`codex/unified-coui-rendering`，HEAD为`d5176dc5c63133050905d17317f98b8c26751e4a`；除本交接记录外，受版本管理的源码和暂存区与该提交一致，没有提交或远端写入。
+
+按用户“先装回去基线最后一个包”的要求，已重新覆盖安装`326fde9c`，即`tmp/review-apks/SleepDown-1.2.8-beta2-c17-about-widget-20261106-326fde9c.apk`。SHA-256为`326fde9cc64de04b41ed6a49f3a1a21304a39c663cdcf19f79cd5e98af5e1fa6`，V2签名通过，`1.2.8_beta2 / versionCode36`。SDK37.0.1客户端及SDK来源5038服务，USB目标`3B15AE023YL00000 / PLJ110 / Android17 / API37`，覆盖安装Success，手机实际APK哈希一致，更新时间2026-11-06 17:51:44（上海时间），保留应用数据、未启动。当前设备通道须下次重新发现，不能沿历史5037硬编码。基线APK、精确mapping和本地交付元数据保留。
+
+用户明确不要恢复副本：本轮stash `27a2433894e209084587023404e554574968bdc6`、其独有的450个松散对象、两份回滚补丁目录、实验脚本、探测输入和失败包均已删除，不再有这轮恢复快照。第一阶段清理106个中间APK、463份日志、对应旧mapping、构建输出和旧缓存，文件总量约16.8GiB。其他stash、现用依赖、私有后端、签名/配置、用户素材以及基线包与正式包保留；未清空整个tmp，未改现用依赖源码。一次批量清理因自动审批担心rendering仍为源码模块而被拦截，核对当前settings已无该模块、目录只剩build后，采用仅删除构建产物的较窄方案完成。没有重新构建或运行测试。
+
+用户追加清理确认废弃的旧分支、文件夹并检查C盘。第二阶段删除40个本地分支：39个提交均已进入d5176dc5，贡献流程分支的5个补丁均有等价实现；删除13个无独有修改的旧工作树（其中4个在C盘）和9个孤立名称目录。main、当前分支、rescue-import-materials和chrome-wallpaper-dark保留；未改远端分支。仍有独有提交的工作树保留，C盘coui-settings-min26的2项修改、native-card-light的1项修改核对仍在。另清理C盘29个构建/缓存目录、41345个文件和4998个旧空临时目录，3个占用中的临时项跳过。C盘可用从约5.14GiB升至7.24GiB。
+
+用户曾要求把Codex图片、聊天及缓存迁往D盘，随后明确“先不迁移”。仅做过只读目录/进程与官方文档检查，没有创建D盘迁移目录、目录联接、后台迁移脚本或改变CODEX_HOME。保持暂停，不自行续迁。之后用户明确“图片可以直接删”：已删除`C:/Users/23085/.codex/generated_images`的1324个文件，约1.767GiB，C盘可用约9.02GiB；聊天数据库、sessions/archived_sessions、插件、现用运行时，以及项目`output/imagegen/sleepdown-about-hero-c17.png`和应用资源保留。截图存储页“其他”包含这些独立本地文件，不能把它整体认作可删缓存；本机大项还包括约3.4GiB的thread_history_1.sqlite。
+
+全库Git校验曾发现历史提交56f7dde8的交接文档对象6320afc4a760bf1641327bf4c5afd54840061a25缺失。已用`git fetch --no-tags --no-write-fetch-head origin <精确对象哈希>`从现有远端取回原对象，不写分支或猜测文档内容；随后`git fsck --connectivity-only --no-dangling`通过。当前d5176dc5源码比对通过，唯一受版本管理的差异是本交接记录。
+
+## 2026-11-06 此前计划（已取消）：保存 PR 基线并迁移统一渲染框架
+
+用户在本轮明确要求：安装完成后保留现有更改并上传 PR，再以该基线建立可回滚的独立分支；统一 Kyant 液态玻璃与最新 COUI-Kit 的采样渲染链路，保留现有玻璃观感，布局共用、材质和触摸反馈区分；逐项核对凝光现有系统类，按 COUI 最新指南移植并推广到其他机型，缺失组件参考 E 盘 ColorOS 完整反编译包。用户最后明确覆盖了即时删除要求：原实现保留，等其明早核验后才逐步删除无用旧代码；已借用 Miuix 按实际用途保留。没有合并或发布授权，没有协作 Agent 授权。
+
+当前已完成安装（见下节），正在将此前所有现有源码、测试和相关记录保存为 `codex/rescue-import-materials` 的 Draft PR，目标 main。原图 output、tmp、APK/mapping、设备截图、缓存、私有后端与凭据留本地。当前会话无 GitHub 插件工具，因此已向用户说明能力缺口，使用 Git credential helper 已有凭据和 GitHub 官方 API 处理 PR，不使用 gh，凭据只在内存。已 fetch origin/main，现有 HEAD `3cb7285f` 比 main 多一笔首页修复，作为当前基线保留。
+
+后续分支计划 `codex/unified-coui-rendering`，必须从已保存 PR head 派生，先阅读 E 盘最新 COUI 文档/源码、当前 glass 与原生 ColorOS 调用。保留可回滚旧实现和切换能力；完成后交付新包与真实验证，不用纯本地渲染结果冒充跨机型 GPU 验收。
+
+## 2026-11-06 续作：全称、GitHub 与全屏更新内页（已安装）
+
+用户追加截图要求：关于头图写全称，下方不再使用应用名称/开发者双列，直接放个人 GitHub，正常纵向排版；查看日志与新版本使用全屏内页。现头图为“SleepDown课程表”，下方普通 COUI 行显示 `github.com/xiaomanjun233` 并打开个人主页；保留项目源码等其他入口。检查更新进入新增 `SettingsPage.SoftwareUpdate`，历史日志由 `SettingsPage.Changelog` 单独全屏呈现。已同时接入手机 SettingsDetailActivityHost 和宽窗口 SettingsScreen，保留原转场/返回栈；代理协议 ABOUT/CHANGELOG/DOWNLOAD 分别指向对应页面。
+
+新版本页使用纯底、可滚动版本说明和固定在底部安全区上方的 220×44dp 主题色按钮，复用原 AppUpdateSession 与底部安装权限窗口。最终定向 About/Home 5 项通过，已查看真实 Native Graphics 栅格，日志 `tmp/c17-about-fullscreen-tests-20261106.log`。没有重跑无关套件。下方 21 项是这次全屏追加前的验证。
+
+本轮重新枚举设备：SDK 37 客户端；5038 为 SDK 服务但无设备；5037 为 `D:\Oppo Connect\daemon\bin\adb.exe` 36.0.1 服务，USB 连接同一台 `3B15AE023YL00000 / PLJ110 / Android 17 / SDK 37`。两通道 mDNS 均无端点。未停止互联服务；隔离 ART 和覆盖安装均显式使用 SDK 客户端 `-P 5037 -s 3B15AE023YL00000`。新 Release `326fde9c` 已通过 ART（nd4，43 方法），覆盖安装返回 Success，设备 base APK 哈希核对一致，未启动应用。完整元数据 `tmp/c17-about-widget-delivery-20261106.json`。
+
+本轮报告：[C17 关于、更新与投光修订](reports/2026-11-06-c17-about-widget-refinement.md)。18 项生产文件与资源构建前后哈希一致。完整 assembleGithubRelease 6 分 49 秒通过，APK 与精确 mapping 已保存于 `tmp/review-apks/SleepDown-1.2.8-beta2-c17-about-widget-20261106-326fde9c*`。新视觉与小组件投光尚待用户实机验收，未发布。
+
+## 2026-11-06 C17 关于/软件更新、深色预览与组件光效（当前轮，验证中）
+
+上一轮 `beb9347f` 已按用户“安装”要求，在 11 月 5 日 22:50 经 SDK 5038 / USB 覆盖安装到 PLJ110（Android 17 / SDK 37），Success 后读取已安装 APK SHA256 与交付包一致，未自动启动。元数据 `tmp/settings-art-crash-delivery-20261105.json` 已标记 installed=true。下方交付前“未安装”是历史状态。
+
+用户新要求：读取相册截图对齐深色排版；视效说明用普通副标题样式；分隔线恢复系统原色；检查更新与关于页合并，参考 ColorOS 17 关于本机与软件更新页及按钮；生成头图；组件光效仍有问题并给出新截图。已读取手机最近相关截图与 E 盘 Settings 17 资源，另外只读拉取当前 com.oplus.ota APK 到 tmp 并解码资源。没有把截图、系统 APK 或反编译源码加入应用资源。
+
+已完成源码（尚未通过本轮最终构建）：预览按原始 210×425px / xxhdpi 的 70×141.67dp 比例缩小并恢复选中强调色；Dropdown 说明显式使用 PreferenceSummary + onSurfaceVariant；分隔线恢复 outlineVariant（浅 #1F000000、深 #33FFFFFF）；首页关于行进入统一 About，移除单独检查更新行，搜索改“搜索设置项”及统一结果组/路径说明。原 About/Changelog 路由兼容保留，所有历史日志提取保留；新关于页为版本头图、40dp 检查入口、应用信息、日志、项目/隐私/许可/致谢。检查结果和版本说明在本页呈现，原下载/安装会话复用，下载按钮按 OTA 原始 220×44dp、14sp 和胶囊组织，安装权限仍走底部窗口。
+
+用户已明确允许 API/CLI 并指定当前 custom 的 gpt-image-2.5-sunburst。已通过本机配置的服务确认模型并使用 imagegen 官方 CLI 生成成功（45s）；凭据仅在进程内存使用，没有输出。生成原图 `output/imagegen/sleepdown-about-hero-c17.png`（1774×887），项目资源 `app/src/main/res/drawable-nodpi/about_sleepdown_hero.webp`（1280×640，24,984 字节）；提示词 `tmp/imagegen-about-hero-prompt.txt`，日志 `tmp/imagegen-sunburst-about-20261105.log`。
+
+组件截图显示圆角外露光与屏幕右缘硬切。原代码 cornerRadius 没有用于投光输入，AndroidView 软件截图又不包含 Compose 外层 squircle；渐隐矩形还延伸到屏幕外。现仅给投光输入加与预览相同的 squircle 掩码，并按实际窗口约束渐隐范围；显式固定横向变换中心。不修改原 RemoteViews、用户壁纸、预览保存或课程快照流，COE 本体与原版动效继续复用。增加对应像素/边界回归。
+
+当前运行 `testGithubDebugUnitTest`，筛选 SettingsHomeVisualTest / AboutSettingsUiTest / ColorOsCardLightTest / ScheduleDetailPageUiTest / SettingsSearchTest，日志 `tmp/c17-settings-and-widget-ui-tests-20261106.log`。需要检查输出 `tmp/coui-visual-review-20261106/` 的真实栅格，通过后再 assembleGithubRelease、保存 APK+mapping 并复核 ART；本轮还没有新交付包。保留此前 PeriodSchemeEditor 的定向 R8 保护。当前仍是 codex/rescue-import-materials 大量未提交工作树，未暂存或推送。
+
+## 2026-11-05 详细设置真实 VerifyError 与通知单行开关（当前轮）
+
+用户要求先读取真实崩溃栈再修详细设置闪退，并按原版调整通知设置单行开关。已通过 SDK ADB 5038 / USB 连接 PLJ110（Android 17 / SDK 37），服务端来源和当前用户密钥核对通过。手机安装的仍是 `c9705f18`，读取的 21:31、22:06、22:09 三次崩溃均为 `VerifyError`：作息编辑器 `PeriodSchemeEditor` 的顶部间距加法将 Modifier 引用当作 Float，非此前本地测试的 Mesh 异常。
+
+用同一手机上的隔离 DEX 验证器强制初始化作息编辑器类，旧包 `c9705f18`（bg4）与上一轮交付 `d83a1b0c`（jd4）分别稳定复现 `0xC5F/v0` 与 `0xC5B/v2` 类型错误。通过准确 APK、方法参数和 Compose 源标记定位；未用新 mapping 还原旧包。只在 `/data/local/tmp` 验证，没有安装、启动主应用或读取课程数据库。修复在 app/proguard-rules.pro 中仅禁止 `PeriodSchemeEditor-*` 方法优化，允许混淆和裁剪，未全局关闭 R8。后续 APK 须连同精确 mapping 本地保存，并通过同一手机的强制初始化校验后交付。
+
+通知开关此前子 Switch 自带最小 48dp 点击区，再加父行 20dp 内距，单行被撑到 68dp。已按 E 盘实际 Demo 和 Settings 17 反编译改为整行唯一点击/无障碍 owner，共享反馈源，子开关只测量 24dp 轨道并保留拖动；目标普通单行 48dp，多行说明自适应，液态路径及绿色不变。
+
+固定源码后，4 项 ScheduleDetailPageUiTest（包含真实通知页渲染、48dp 行高和标题/右侧点击各提交一次）与完整签名 Release 顺序通过（7m40s，244 项中 22 执行），日志 `tmp/settings-art-crash-and-notification-package-20261105.log`。已打开查看 `tmp/coui-visual-review-20261105/notification-settings-native.png`。最终 APK 在同一 PLJ110 的隔离 ART 强制初始化通过：`VERIFIED class=kd4 methods=43`，`tmp/settings-art-active-verify-fixed-20261105.txt`；不是只凭 Robolectric 或构建结果宣称修复。
+
+新包 `tmp/review-apks/SleepDown-1.2.8-beta2-settings-crash-notification-20261105-beb9347f.apk`，8,180,451 字节，SHA256 `beb9347faff27011f5acf34ac796eabf6d86cba5d01ea5aab66c5a7315c35f43`，`com.xiaomanjun.sleepdownschedule / 1.2.8_beta2 / 36`、minSdk 26。复制后哈希一致，V2 证书仍为 `0f2b50df…`，保留 R8、资源压缩、lintVital。精确 mapping 与 APK 同目录同名 `-mapping.txt`，map id `7f43fffc…`，摘要 `tmp/settings-art-crash-delivery-20261105.json`。已清理手机本轮五个 /data/local/tmp 测试文件；没有覆盖安装、启动主应用、访问课程数据、上传、暂存或推送。原始诊断、APK 单类反编译和验证器均在忽略的 tmp 中。详见 [本轮报告](reports/2026-11-05-settings-art-verify-crash-and-switch-height.md)。`d83a1b0c` 已确认仍存在同一 VerifyError，不能再作为闪退修复包；本轮通过的是设备字节码校验，尚未覆盖安装后点击整条路线验收。
+
+## 2026-11-05 首页分类与 Popup 细节续修（当前轮）
+
+用户在 `c9705f18` 包后要求：关于应用入口下方线右移、分隔线更淡；Popup 恢复原改版 Miuix；液态开关保留原绿色；深色模式参考系统设置；设置弹窗不居中；首页不写分类名。已按这些要求完成源码：保留 COUI 页面和 Item，下拉面板恢复 `miuix-local` 原 Morph / 玻璃 / 滑选并补齐透明本地 host；首页去掉三个分类标题保留分组，头部线 88dp、其他图标行线 56dp、全部设置线 12% 前景；液态开关恢复默认绿色；预览按系统节奏和可用列宽排布、改 COUI Radio；ContentDialog / Alert 改 Bottom，关闭交接等 250ms 系统倍率动画。未改其他活动功能、数据或 E 盘资料，也未继续猜调 Widget 光区。
+
+9 项定向回归已通过（2m25s，0 失败/错误/跳过），包括 SDK 26/35 详情、作息下拉、日期底部 Window gravity、Popup 重开/点击空白关闭/再选择，以及首页颜色/轮廓/行高/分类消失/首条线新缩进与淡色、预览手动选择保存。已实际打开原生/液态首页、通用设置预览及原 Miuix Popup 的 Compose Native Graphics 栅格，仍不作为手机 ROM 字体和硬件材质验收。图在 `tmp/coui-visual-review-20261105/`，验证日志 `tmp/settings-refinements-verification-final-20261105.log`。详见 [本轮报告](reports/2026-11-05-settings-popup-and-home-refinements.md)。
+
+最后核查将首页“检查更新”弹窗 host 移入设置内容作用域，独立首页也读取该页主题和 Backdrop；中间 Release 已停止，补齐后固定源码顺序重跑上述 9 项回归和完整签名 `assembleGithubRelease`，全部通过（11m12s，244 项中 27 执行），日志 `tmp/settings-refinements-final-package-20261105.log`。构建前后 10 个设置源码哈希一致，保留 R8、资源压缩、lintVital、GitHub 金标与既有 V2 签名。
+
+新交付 `tmp/review-apks/SleepDown-1.2.8-beta2-settings-refinements-20261105-d83a1b0c.apk`，8,164,067 字节，SHA256 `d83a1b0cc96d67de63d452a853286674741bb1fecdf9bc5ff826e8e2910c9b5f`，`com.xiaomanjun.sleepdownschedule / 1.2.8_beta2 / 36`、minSdk 26。复制后哈希一致，V2 校验通过，证书仍为 `0f2b50df…`；摘要 `tmp/settings-refinements-delivery-20261105.json`。`c9705f18` 为本轮修改前的历史包，不应作为本轮交付。包来自完整工作树，当前仍是 `codex/rescue-import-materials` 大量未提交改动，未安装、启动、上传、暂存、提交或推送。手机实际字体、玻璃效果及旧闪退同源结论仍未实机确认。
+
+## 2026-11-05 用户截图纠正（当前轮）
+
+用户已否定 `51121cf6` 包并给出三张截图，明确指出圆角、布局仍不对，要求按各页面用途分析，必要时反编译 ColorOS。此前仅通用容器与测试结果不足以证明视觉正确。已读取 E 盘实际 Demo 的 Settings 专用装配和现有 Settings 17 完整反编译资源/Java；没有修改 E 盘或上传系统源码、用户截图。
+
+本轮纠正：设置卡片从通用 #333 容器改为 #1AFFFFFF 叠黑；卡片原生/液态共用普通 COUI 24dp/2.5 轮廓，库 Group 只增加 Shape 参数，默认 Demo 的权重 3 不变；首页行 52dp、二级普通行 48dp，首页分隔线起点 56dp；头部图标槽恢复 56dp、版本在标题下方；数字字段收为 64dp，液态搜索补回真实 16dp 边距，首组间距 12dp。原业务功能图标、保存、导航和主题强调色保留。
+
+已输出并实际查看 Compose 首页（原生/液态）及二级页栅格；渲染结果揭示了搜索边距和数字字段挤压，已继续修复。固定最终源码后，5 项页面/栅格回归及完整签名 `assembleGithubRelease` 顺序执行通过（8m58s，244 项中 35 执行）。验证涵盖卡片 RGB、普通轮廓内外采样点、首页 52dp、图标/版本排版、数字标题单行、详细设置滚动和作息/日期提交。图在 `tmp/coui-visual-review-20261105/`，对照明确标注非实机；ROM 字体/硬件材质及手机整体视觉尚未验收。新报告见 [截图纠正](reports/2026-11-05-settings-screenshot-correction.md)。
+
+新交付 `tmp/review-apks/SleepDown-1.2.8-beta2-settings-visual-20261105-c9705f18.apk`，8,230,175 字节，SHA256 `c9705f182de18d878bcc911e24975b4e6ed442a2be2ad7d97a5a18eec52f7385`，`com.xiaomanjun.sleepdownschedule / 1.2.8_beta2 / 36`、minSdk 26。保留 R8、资源压缩、lintVital 与既有 V2 证书 `0f2b50df…`，新旧 APK 和 classes.dex 哈希均已区分，复制后校验一致。构建日志 `tmp/coui-screenshot-final-package-20261105.log`，摘要 `tmp/coui-settings-visual-delivery-20261105.json`。包来自完整工作树；未安装、启动、上传、暂存或推送。`51121cf6` 不再作为当前交付或验收结果。
+
+## 2026-11-05 全面 COUI 设置替换与详情崩溃排查（优先于下方旧记录）
+
+用户否定下方 `be9e2fa2` 包，明确“直接移除原来的 miuix 二级页，全面换用 coui”，并报告当前课表详细设置闪退，要求先看代码。后续要求：液态设置搜索使用教务样式但位置不变，COUI 控件跟随应用主题色；保留业务功能、保存语义、首页悬浮搜索和 Rounded 功能图标。
+
+本轮已删除旧设置首页/平板详情/Activity 详情的 Miuix 页面实现及嵌套 Scaffold，直接使用 COUI Scaffold、Item、Menu、Dialog、WheelPicker。设置搜索与教务共用 `LiquidSearchStyle`；强调色接入宿主主题。小组件已修正“传入 receiverBounds 却仍按卡片 1.2 倍裁切”的实际边界缺口，继续使用系统 COE 光效。保留设置以外功能的 Miuix 依赖及兼容主题，不修改用户数据。仍在 `codex/rescue-import-materials` 大量未提交工作树中续作，没有暂存、推送或修改 E 盘源码。
+
+扩展详情测试后复现 COUI Mesh 阴影创建异常。Robolectric 4.16.1 缺少 MeshSpecification 原生 shadow，因此不能认定与手机闪退同源；内部组件入口已定向保护初始化的 IllegalArgumentException，记录诊断并保留按钮/菜单交互，支持 Mesh 的设备继续原 renderer。14 项定向回归及 Release Kotlin 编译通过（8m10s），日志 `tmp/coui-shadow-guard-verification-20261105.log`。此前 USB/5038/5037/mDNS 均无目标，用户明确要求先看代码，本轮未继续等待设备、安装或启动。详情见 [本轮报告](reports/2026-11-05-coui-full-settings-replacement.md)。
+
+最终完整 `assembleGithubRelease` 已通过（8m04s，195 项中 34 执行），保留 R8、资源压缩、lintVital、GitHub 金标与既有 V2 签名。交付 `tmp/review-apks/SleepDown-1.2.8-beta2-coui-full-20261105-51121cf6.apk`，8,230,175 字节，SHA256 `51121cf6be116aef0c544fdb6a67cc5bae63d6de0ed213e1caabb78650faffde`，`com.xiaomanjun.sleepdownschedule / 1.2.8_beta2 / 36`、minSdk 26，证书仍为 `0f2b50df…`。复制后哈希一致，构建日志 `tmp/coui-full-release-package-20261105.log`、摘要 `tmp/coui-full-release-delivery-20261105.json`。该包来自完整工作树，包含此前活动功能；未安装、上传或发布，手机闪退与视觉尚待实机确认。不要再将下方 `be9e2fa2` 旧包作为当前交付或验收结果。
+
+## 2026-11-05 COUI 设置签名 Release 已打包交付
+
+用户在本地修复交付后追问“包呢”，已基于当前完整工作树完成 `assembleGithubRelease`，包含本轮设置 / Popup / 小组件投光修复以及此前已有活动功能，不是独立 PR 验证包。没有新增安装、发布或上传指令。
+
+首轮 4GB 堆构建在 R8 阶段发生 JVM native malloc 内存不足，未生成新包；原 12:57 APK 已保全为 `tmp/review-apks/SleepDown-before-coui-audit-20261105-125721-d531348b.apk`，不得当作本轮结果。诊断确认只有一个 2GB Gradle 守护进程处于 IDLE，已正常停止以释放内存。重试使用单 worker、`android.r8.maxWorkers=1`、3GB 堆、`ActiveProcessorCount=2` 和一次性进程，保留 R8、资源压缩、lintVital、GitHub 金标与既有正式签名；没有修改持久构建配置。完整构建 3m51s 成功，日志 `tmp/coui-settings-release-package-retry-20261105.log`。
+
+交付包 `tmp/review-apks/SleepDown-1.2.8-beta2-coui-settings-20261105-be9e2fa2.apk`，8,110,423 字节，`1.2.8_beta2 / 36`、`com.xiaomanjun.sleepdownschedule`，SHA-256 `be9e2fa20ca590f5aa29dc36505efa0f4edf0c2f66a0970974f79997c187c675`。apksigner 已确认 V2 签名有效，新旧包证书 SHA-256 均为 `0f2b50dfb7e10c6f5981ab966f1f4ebd76af81a7ad9ba31663284eaa88c0181a`；复制后的完整文件哈希一致。摘要 `tmp/coui-settings-release-delivery-20261105.json`。未安装、启动、上传或发布。
+
+## 2026-11-05 COUI 设置布局 / Popup / 小组件投光本地修复完成
+
+用户本轮连续要求：仔细阅读 E 盘最新 COUI 文档与 Demo，首页和二级页的布局、表面颜色、字体与返回图标全部按 COUI 规范统一，保留原有功能、分组与保存语义，首页保留悬浮搜索；同时报告 Popup 消失、小组件光效位置或照射范围不对。没有新增发布或安装指令。
+
+已核对实际源码：主工作树已存在 COUI 兼容接入，并非下节记录的“尚未迁移”。上游 main 为 c35a652；实际固定的最新 Demo 分支为 af952eb，与接入副本一致，E 盘源码及本地开发改动未覆盖。当前继续在 `codex/rescue-import-materials` 未提交工作树内修复公共设置入口与相关页面，保留所有其他活动任务。
+
+已修正混用主题的颜色 / 字体角色、组间距和内边距、返回与右向矢量、普通二级页安全区；补回独立 Miuix Popup/Dialog 宿主，并接入首页折叠悬浮搜索。小组件改为分类型读取未裁剪预览边界，投光终点随实际按钮行计算。用户随后明确“选项行大小图标先用原来的”，已恢复原行测量及 Rounded 功能图标，保留 COUI 页面 / 分组 / 配色 / 字体和此前明确的 COUI 返回图标。
+
+首轮 Release Kotlin 编译通过（3m12s），随后 Release 编译和 8 项定向回归通过（7m05s）。保留原行尺寸与图标后，Release 编译和 8 项回归再次通过（6m45s，0 失败 / 0 跳过，`tmp/coui-settings-final-verification-20261105.log`）；最后的 Insets 与玻璃 Shape 兼容收口后，最终 Release Kotlin 编译通过（2m19s，`tmp/coui-settings-final-compile-20261105.log`）。审批额度曾短暂阻断末轮验证，用户要求继续后已恢复并完成，没有遗留审批阻塞。
+
+液态路径不能直接把 COUI Generic Shape 交给 Lens，分组使用支持 Lens 的玻璃形状及对应半径，搜索保留玻璃 Capsule；原生路径仍使用 COUI Shape。实机视觉尚未验收。详情见 [本轮核查](reports/2026-11-05-coui-settings-layout-popup-audit.md)，后续打包结果见上节。未安装、暂存、提交或推送，保留已有其他活动任务改动。
+
+## 2026-11-05 光效独立分支已推送，COUI-Kit 设置迁移待两项选择
+
+用户追加：分页条同步桌面的震动反馈；组件光区从偏短状态折中；完成光效 PR 后，在可回滚的独立分支/PR 将设置首页和二级页迁往 COUI-Kit。用户已确认“耳机页”为“二级设置页”，并要求先同步 E 盘克隆上游，使用库现有完整接入方法，液态玻璃保留材质。开光效 PR 已授权提交/推送/维护，不含合并或 Release；设置迁移另用分支或 PR，不能混入光效 PR。
+
+已在托管工作树 `C:/Users/23085/.codex/worktrees/native-card-light/CourseSchedule` 创建 `codex/native-card-light-pages`，基于最新 `origin/main`（原救援分支额外的扁黑色岛提交也未夹带）。通过逐文件/逐 hunk 抽取，仅含原生投光、按钮受光、有限分页条、组件投光及其测试/专项报告共 22 文件；AI 导入、分享协议、助手外描边和首页材质等原工作树改动保留原处。不要将原救援工作树全部提交。
+
+真实 Launcher 17.3.11 的 PageIndicatorTouchHelper → VibrationUtils 已核实：只跨页触发，线性马达 WaveformEffect type 0，普通马达 65ms，遵循系统触感开关。原生调用失败与桌面一样在边界捕获。组件深度改为高度×0.65、上限112dp，宽度贴合/渐隐保留。课表仍为原 v4/原实时截图及保存流程，软件转换仅在 COE 上传入口。
+
+独立工作树 7 项光效与 4 项分页/震动去重用例通过，完整签名 Release 8m26s 成功，日志 `tmp/native-light-pr-isolated-20261105.log`。补齐震动异常边界后，最终完整签名 Release 4m06s 成功，日志 `tmp/native-light-pr-final-20261105.log`，构建 session 已结束。功能提交 `6b480f9865162600fa40aab87c8510d749f8880a`，随后交接提交 `01c77e12eb9f629ffb101ba3fc7d97a66f7a2407`，两者已推送 origin/codex/native-card-light-pages，远端首轮功能 SHA 已回读一致，工作树干净。**PR 尚未创建**，官方 API 问题仍待用户回复。正文 `tmp/native-light-pr-body-20261105.md` 已更新实际通过结果；公开报告 `docs/reports/2026-11-05-native-card-light-and-launcher-indicator.md` 随功能提交。
+
+独立 PR 验证包保全 `tmp/review-apks/SleepDown-1.2.8-beta2-native-light-pr-validation-20261105-54581da0.apk`，7,774,615字节，SHA256 `54581da0732ca040329cae62840532a90d1997f3fd7f436e4405ebf2c2fda769`，既有V2证书。汇总 `tmp/native-light-pr-delivery-20261105.json`。该包基于 main+本PR，不含主工作树其他未提交活动功能，**仅用于独立 PR 验证，不自动覆盖现有完整工作树安装包**。旧恢复快照流程的4m57s完整构建也通过，日志 `tmp/native-light-original-snapshots-20261105.log`，不是新增震动的验收结果。
+
+E:/COUI/COUI-Kit 有大量本地未提交开发改动，未触碰。干净 E:/COUI/COUI-Kit-upstream 已 fetch 上游 main，建立 codex/sleepdown-settings-integration-20261105 并检出 c35a652。已读取最新 getting-started / appearance / secondary-pages / compatibility / settings / collapsing-app-bar / top-app-bar / icons 接入说明及 Demo 入口；迁移预检见 [COUI-Kit 设置迁移准备](reports/2026-11-05-coui-kit-settings-migration-preflight.md)。尚未开始迁移源码。
+
+两条异步问题尚未收到回复，不能将时间经过视为许可：① 最新 COUI-Kit minSdk31，宿主26，是否允许独立迁移分支提高到 Android12（未改 minSdk，不使用 overrideLibrary）；② 会话没有任何可调用的 GitHub 插件工具，是否允许仅为已授权光效 PR 复用本机 Git 凭据、通过官方 API 创建（不使用 gh、凭据仅在内存）。用户目前只回复了“二级设置页”澄清，没有回复这两项。Git 提交/推送已由开 PR 授权，可在验证和 diff 审查后完成；API 建 PR 及最低系统变更须等相应答复。创建 PR 后必须 attach_artifact；没有合并/Release/COUI-Kit 上游投稿授权。
+
+最新 ADB SDK5038/OPPO5037 USB、设备表、mDNS 均为空，无其他 ADB 监听端口，尚未安装新增震动版本。云盘权限阻断没有解除证据，本轮未重复触发扩展/原生应用授权。
+
+## 2026-11-05 恢复原快照流程，仅保留光效范围微调（修订包构建中）
+
+用户纠正：“我上次关于快照的提示词似乎让你误入歧途，请先回复原来的那个快照流，只微调光效范围”。按“恢复原来的快照流”执行，已撤回上节 9d49be96 中未证实根因的快照改造：`ScheduleSnapshotStore.kt` 恢复到 Git 基线内容（v4 目录、原 decodeFile/JPEG 临时文件保存），两处截图去掉 freeze，竖屏恢复 `snapshotFallbackOnly = !landscape`，删除只验证已撤回 v5/freeze 行为的新增测试。实时截图、内存复用、磁盘持久化和缺图表现回到原路线；不删除任何设备缓存或课程数据。
+
+只在光效入口保留软件纹理转换与 Surface 首帧门控以防原生闪退；不改变作为卡片/持久缓存使用的原始快照。光区仍保留上轮按组件宽度收束、有限深度、圆角覆盖及角度/横向范围调整，没有追加快照生命周期、方向判断或缓存协议。上一轮已完成的按钮颜色、按钮投影和分页条未改。
+
+沿用未提交工作树和既有打包/安装授权，修订完整签名 Release 构建中，日志 `tmp/native-light-original-snapshots-20261105.log`。最新查验 SDK 5038 与 OPPO Connect 5037 的 USB/设备/mDNS 均为空，两 adb 进程只分别监听 5038、5037。云盘上传的扩展本地文件权限/原生应用授权阻断尚无解除证据，本轮不重复触发授权。下节 9d49be96 只作历史产物，**不可继续当作用户当前要求的交付包**。完成后补记构建及修订 APK；未提交、推送或发布。
+
+## 2026-11-05 桌面分页条、按钮投影与持久快照（历史包；快照改造已按上节撤回）
+
+用户在 355e 闪退修复版后追加：恢复两个圆形按钮颜色；“项目里所有的带表示滑动进度的页签栏”改为可交互 ColorOS 原生组件；组件设置页也加光效、删除操作提示行；动画速率对齐系统，渐进照亮并覆盖圆角、照亮按钮。后续指定桌面 APK 的分页条完整材质/交互、按钮下原版投影、组件光宽更贴合且下沿缩短、更大投射角，并报告久未打开的持久快照颠倒。用户明确“这次做完放云盘”；此前“做完安装到adb”授权持续有效。继续保留 `codex/rescue-import-materials` 未提交工作树；未提交/推送/发布。
+
+第一版 `a32975f3…`（7,909,657 字节、1.2.8_beta2 / 36）已通过完整签名构建和 8 项回归，2026-11-05 00:57:57 由 SDK 5038 USB 向 PLJ110 / Android 17 / SDK 37 覆盖安装 Success，设备 APK 哈希一致；保全 `tmp/review-apks/SleepDown-1.2.8-beta2-native-light-pages-20261105-a32975f3.apk`。包含恢复圆按钮颜色、组件投光/删除提示、650ms 原生展开和独立 1000ms alpha、圆角覆盖和按钮受光映射。
+
+第二版新增 Wallpapers 原资源按钮投影、uAngleX=99、组件按宽度映射/有限深度与左右渐隐。分页条已从 COUIPageIndicator 改为桌面 OplusPageIndicator 绘制边界 + Launcher 原生 TouchAnimatorHelper + COUI 模糊/描边/跟手光；整类依赖 Launcher ActivityContext，未直接实例化，不能对用户声称直接加载整类。支持连续拖动选页、抬手吸附、取消恢复、RTL、禁用取消原生按压。
+
+快照捕获先冻结为不可变软件 ARGB_8888，显示与 JPEG 使用同组像素，AtomicFile 串行写；缓存 v5，旧 v4 保留但不读，无缓存用课程数据预览。不碰课程/Room/备份；尚未在手机重现“久未打开颠倒”，不盲目旋转旧图。实机 native 已证实 JNI malloc/memcpy，不可再断言光效会修改源 Bitmap。
+
+第二版 14 项定向回归通过（光效7、分页4、快照3），完整签名 Release 8m10s 成功；补齐缓存文件打开失败的日志/返回后，快照3项复测及最终完整 Release 6m36s 成功（R8、资源压缩、lintVital、GitHub 金标、既有 V2 签名），最终日志 `tmp/native-light-launcher-snapshot-final-20261105.log`，单 worker/临时 4GB 堆。
+
+最终 APK `tmp/review-apks/SleepDown-1.2.8-beta2-launcher-light-snapshot-20261105-9d49be96.apk`，1.2.8_beta2 / 36，7,909,685 字节，SHA-256 `9d49be96f1aea1c35c809a79e0ebc2a4198cba7ae3d0e9387809918590d656c0`，证书 SHA-256 `0f2b50df…`。汇总 `tmp/native-light-launcher-snapshot-delivery-20261105.json`。最终重查 SDK 37.0.1 的 5038 与 OPPO Connect 36.0.1 的 5037：USB/设备表/mDNS 均为空，两 adb 进程只分别监听 5038、5037；**本包未安装、未启动，实机输出与长期冷缓存颠倒仍待验证**。手机最后确认安装的是 a32975f3，不能混淆。
+
+**云盘未上传成功**。已登录 Edge 打开原 Drive 目录 `1NyxeLWGlDNmHmh2aqTgs4hwkB6O_Hnb4`（当前用户所有、未改私有权限）。浏览器文件选择器 `setFiles` 明确要求 Edge ChatGPT 扩展启用 Allow access to file URLs；随后依 computer-use 技能尝试原生文件选择器，`get_window_state` 返回 `Computer Use app approval timed out`，未操作或改变扩展/系统安全权限。回读云盘无 9d49be96 文件或上传完成状态，页签已标记 handoff。待用户完成必要工具/扩展授权后，只上传上述最终 APK；不要报告已上云。用户上传及安装授权持续有效，无需再问业务授权。详见[本轮报告](reports/2026-11-05-native-page-indicators-and-card-light.md)。全仓架构检查既存 DayAgentProgressBar 的 feature→platform 未改。
+
+## 2026-11-04 多课表管理页原厂卡片投光接手（355e 闪退修复已安装，后续见上节）
+
+用户本轮原话：“帮我接手，让多课表管理页正确调用这个光效”，随后“做完安装到adb”，安装后反馈“这个光效打开闪退，看看日志”。安装及必要的修复更新已获授权。当前仍在 `codex/rescue-import-materials`，保留已有未提交工作树；未提交、推送、开 PR 或发布。
+
+已将上一轮 Compose 压缩/模糊/扇形光带替换为真实系统调用：新增 `platform/coloros/ColorOsCardLight.kt`，从已安装且经系统标志校验的 `com.oplus.wallpapers` 加载 `com.oplus.wallpapers.personal.views.WallpaperShadowView`，使用原厂 COE、native 库和 `shadow_card.coz`。View 与 applicationContext 的 assets/resources/classLoader 成对指向系统 APK，保留宿主身份；高度读 `wallpaper_shadow_height`（原厂 136dp）、宽度由原生 View 测量。无系统组件时记录诊断并省略附加光效，不打包系统二进制，也不再用切片模拟。注意临时反编译 Java 顶部的包名被改写过，实际类名以原始 dex descriptor 核实。
+
+公共 `NativeCardLightRequest` / `ControlMaterialRenderers.cardLight` 只由凝光 provider 提供。`ScheduleCardGlow` 改为转发，不再直接读偏好或引用 platform。接入仍只在首页实际打开的 `SchedulePickerOverlay`，不是遗留 `ScheduleManagerActivity`；native host 覆盖整个浮层并位于卡片/按钮之前，按真实卡片底边定位，避免 pager 裁掉光带。切页停稳且选中目标匹配后渐亮，拖动/编辑/删除/退出淡出；图片仅来源改变时上传，生命周期及显隐调用原厂 `d()/e()`。detach 后释放且不复用已销毁的 COE，不回收课表快照。
+
+底部三按钮新增显式 `nativeLightBackdrop` 请求，调用 `OplusViewBackgroundRenderEffect.setBackgroundRenderEffect(createBlurEffect(30f,30f,MIRROR), view)`，清掉会挡光的普通 COUI 模糊/颜色层，再保留原有描边、跟手光、触摸和内容。白色 `#4DFFFFFF → #1AFFFFFF` 着色在投光淡出时仍保留，保证滑动时按钮可见。普通胶囊不进入此分支。Manifest 增加壁纸包可见性查询。详情及历史实现见[报告](reports/2026-11-04-schedule-manager-card-glow.md)。
+
+首包 4 项定向测试、完整签名 Release 均通过（10m10s，单 worker/临时 4GB 堆，无构建配置改动），`1.2.8_beta2 / 36`、7,893,273 字节、SHA-256 `7bab36cc1458863bd3395764a736d5b0da6f1704608b2d1229f98e94e0e277c5`，既有 V2 签名。按新指令通过 SDK 客户端/同来源 5038 USB 服务（37.0.1 / 15733141）向 PLJ110 / Android 17 / SDK 37 / `3B15AE023YL00000` `install -r` 返回 Success；未清数据、未由助手启动应用。已同时核查 OPPO Connect 5037（36.0.1），无设备；两通道 mDNS 均无端点。首包保全 `tmp/review-apks/SleepDown-1.2.8-beta2-native-picker-light-20261104-7bab36cc.apk`，**该包打开光效会崩溃，不可作为验收包**。
+
+用户打开后真实堆栈：23:23 多次 `COE_Render` / SIGSEGV / `Material::setTexture` / 空地址 0x54，落在系统 Wallpapers APK 的 `libnaiveEngine.so`。该原生崩溃不受 Java try/catch 保护。手机壁纸组件为 `17.04.0034 / 17040034`，本机原调查样本为 `17.04.0037_sp3`；已只读拉取手机系统 APK 到忽略目录，原始 dex 核对类、构造器、六个入口均匹配，`shadow_card.coz` SHA-256 两者相同（`22fe9bca…`）。实机 `.so` 只导入 `AndroidBitmap_getInfo/lockPixels/unlockPixels`，不支持 HardwareBuffer。课表快照源为 Compose `GraphicsLayer.toImageBitmap()`，直接传入 HARDWARE Bitmap 不符合这版纹理入口。
+
+软件 `ARGB_8888` 转换和 Surface 首帧门控已修复本次原生闪退：6 项定向测试通过，完整签名 Release 8m21s 成功，日志 `tmp/schedule-picker-native-light-crash-fix-20261104.log`。`355e15d7bfa2f0ac5c1d301d91b50355b0f24dba68f3907d4bea4ff104d9f969` / 7,893,273 字节 / `1.2.8_beta2 / 36`，既有 V2 证书；已通过同一 SDK 5038 USB 向 PLJ110 覆盖安装 Success，设备 APK 哈希一致，lastUpdateTime=2026-11-04 23:55:10。为复测已启动原 App，实机原浮层能正常显示真实光带，用户反馈“可以不赖”。APK 保全 `tmp/review-apks/SleepDown-1.2.8-beta2-native-light-crash-fix-20261104-355e15d7.apk`，用户询问包位置时已提供链接。上节追加项尚未包含在该包中。未清数据、未提交/推送/发布；其他任务记录保留。
+
+## 2026-11-04 周视图顶栏切周动效与助手卡片伸缩（已打包，未安装）
+
+用户要求周视图滑动切周时，顶栏变化内容使用轻微缩放、叠化、动态模糊淡入淡出；今日助手卡片切换高度时无缝伸缩。随后多轮纠正：左上角“第 X 周”后面的矩形黑框要去掉；缩放只作用于变化的文字，不能缩放整个表头；5 天↔7 天要带模糊平移；叠化+模糊会闪烁、黑框在动画途中仍会闪；顶栏所有文字都要当共享元素——字一样但位置不同做非线性平移，字不一样做叠化，两者同时发生就一边平移一边叠化。
+
+最新实现：`WeekHeaderCrossfade` 保留第一版观感（280ms 立方缓动、alpha 叠化、文字 2% 缩放），旧内容改为组合期同步取（`remember(target)` 读上一次已提交的 target，进度随 target 重新置 0，`SideEffect` 提交），消除“新字先满透明度闪一帧”；两层副本统一 `LocalHomeTextShadowScale = 0.5`，避免阴影翻倍在左上角压出半透明暗矩形；单条小文字不再挂 `RenderEffect`。星期列改为 `WeekdayStrip`／`WeekdayStripTransition` 共享元素：一次变化由 from/to 两个 strip 和 0..1 进度描述，进度只在布局/绘制 lambda 读取；自定义 `Layout` 用累计取整给出目标槽位，列在绘制期按自身宽度算位移，两态都有的列平移、列内文字叠化，只在新态的列从最近顶栏边缘滑入淡入（5→7 时周六、周日从右侧进入），只在旧态的列反向滑出；整行在第一版位置再挂一层 `4dp × (1 - |2f - 1|)` 动态模糊，端点 0。`WeekPagerHeaderLabels` 按 `pagePosition - basePage` 跟手插值，不再叠两整行或整行 20dp 平移。`HomeDateHeader` 的日期大标题也走同一叠化。（上一版的方向性拖影 `990d69e4` 观感不可用，已删除。）
+
+`DayAgentCard.kt` 当前内容的高度动画从 320ms tween 改为 `spring(dampingRatio = 0.9f, stiffness = 380f)`；旧内容的 1.25s 爆发副本从 `fillMaxWidth` 改为 `matchParentSize`，只作为淡出/模糊覆盖层，不再把旧高度保留 1.25s 后突然掉高。卡片外壳、`dayAgentCardSurface`、原生/液态玻璃和文字裁切继续随内容尺寸伸缩。
+
+`compileGithubReleaseKotlin` 通过；最终完整签名 `assembleGithubRelease` 通过（4m23s，R8、资源压缩、lintVital、GitHub 金标），`1.2.8_beta2 / 36`，7,893,241 字节，SHA-256 `4d1fad21b817cb50d6bb634c388526a1ccee3498759e02f1d175b858c7e16ba1`，签名证书沿用既有 `0f2b50df…`；保全 `tmp/review-apks/SleepDown-1.2.8-beta2-week-header-move-20261104-4d1fad21.apk`（与下方锥光外描边／扩散修正同包）。当前 5038、5037 与 mDNS 均无设备，未安装；闪烁、左上角黑框、列平移手感、整行模糊强度和卡片伸缩均待真机确认。未提交、推送或发布，保留现有未提交工作树。详见[本轮报告](reports/2026-11-04-week-header-motion-and-agent-card-resize.md)。
+
+## 2026-11-04 液态玻璃锥光进度条（已打包，未安装）
+
+用户先澄清昨晚接入的是 `COUIIntentSeekBar` 的锥光（conic light）效果，不是普通 `COUISeekBar` 的 Glitter 拖动闪光，并明确可复用 `E:/COUI` 的反编译框架。本轮读取 `E:/COUI/work/src7/sources/com/coui/appcompat/seekbar/` 的 `COUIIntentSeekBar`、`IntentConicProgressRenderer`、`ConicLightEffectRenderer`、`ConicLightShaderParams`、`ConicLightPaintHostDrawer` 与 `plugin-resources.txt`，原厂调用点为 `setUseMaterialEffect(1)` + `setConicLightEnabled(true)` + `setConicLightColor(accent)` + `setPlaybackState(PLAYING)` + `setShowThumb(false)` + `setProgress`。
+
+新增 `feature/agent/AgentConicLight.kt`：逐 token 搬运原厂 AGSL（2767 个非空白字符核对一致），使用 `RuntimeShader` + `SCREEN`，复刻 450px 高、300px 水平留白、500px 光斑、height 0.6 / falloff 0.6 / coneK 0.2 / w0 0.008 / alpha1 1.0 / alpha2 0.6，以及形状 900ms、透明度 300ms 的入场；API < 33 或 shader 构造失败使用紧凑径向光。修改 `feature/agent/DayAgentProgressBar.kt`：凝光模式继续用原生 `COUIIntentSeekBar`；液态玻璃模式用 Compose 复刻 4dp 轨道、2dp 圆角、15% 前景轨道色、强调色实心进度、整条轨道 1/5 宽的透明→白亮边（进度 >20% 才出现）；无进度仍回到 1dp 分割线；RTL 镜像；不改卡片布局高度。液态模式的锥光与亮边采用与凝光原生相同的数值，按用户要求统一。
+
+用户随后澄清“光感描边”指今日助手**外卡片**，不是进度条头部亮边；并反馈复刻进度条的光尾被布局裁切。已新增 `NativeStrokeOverlayRequest`／`LocalNativeStrokeOverlayRenderer`，在液态模式仍只提供 `strokeOverlay`：`ColorOsCardOuterStroke` 复用 `NativeMaterialSurface` 的 Dock 样式，只开 `TYPE_FRAMEWORK_CIRCLE_2` 原生外描边，关闭模糊、着色和跟手光；`rememberColorOsStrokeContext` 不依赖凝光模式。`DayAgentCard` 在液态 + ColorOS 可用时绘制该原生描边并关闭 Kyant 高光，保留共享 `verticalGlassAccent`；非 ColorOS 继续用 Kyant。进度条删除轨道中心上下 12dp 的显式 `clipRect`，并把卡片 `expandVertically`/`shrinkVertically` 改为 `clip = false`，锥光只受卡片圆角约束，可向轨道上下弥散。
+
+`compileGithubReleaseKotlin` 通过；最终完整签名 `assembleGithubRelease` 通过（4m15s，R8、资源压缩、lintVital、GitHub 金标），`1.2.8_beta2 / 36`，7,893,241 字节，SHA-256 `f35047aaf51048f76b095fad8ce58a1d1dfd9f7a6a579714def976038369c2b5`；保全 `tmp/review-apks/SleepDown-1.2.8-beta2-week-header-card-motion-20261104-f35047aa.apk`（与上方周视图／卡片伸缩同包）。当前 SDK 5038、默认 5037 与 mDNS 均无设备，未安装、未做真机截图对比；液态模式外描边、锥光扩散与凝光一致性待实机验收。未提交、推送或发布，保留现有未提交工作树。详见[本轮报告](reports/2026-11-04-liquid-glass-conic-progress.md)。
+
+## 2026-11-03 云端短口令、JSON 分享与后端更新（后端已部署，APK 未安装）
+
+用户要求保留现有工作树，先调查短口令，随后改为“去掉第二个口令，唯一云端解密短口令”，并明确“后端利用本机阿里云cli更新”。已移除分享面板的“课表口令”，只保留云端短口令、JSON、ICS 三项：短口令为十位 Crockford Base32（展示 `SD-XXXXX-XXXXX`），上传紧凑 canonical JSON 到 `POST /api/v1/short-codes`，服务端主密钥加密落盘、15 分钟后删除，接收端 `POST /api/v1/short-codes/resolve`（口令在 JSON body，避免代理日志记录） 由云端解密后本地预览，不调用 AI。旧 `SDCT1`/canonical/ICS 导入兼容保留；上一版本地 `ShortScheduleCode` 已删除。
+
+私有后端新增 `internal/shortcode/` 文件存储（默认数据库目录 `short-codes`，0700，AES-256-GCM 主密钥，创建/读取按 IP 限流，无数据库迁移），已用本机阿里云 CLI 部署候选 `0b8730b2…`，标签 `sleepdown-platform-20261103-195130-44fb29`，备份 `/var/backups/sleepdown-server/sleepdown-platform-20261103-195130-44fb29`；远程校验候选哈希、schema 8、真实库副本未变化，服务 active；生产接口创建/读取/404 与 `/healthz` 实测通过。客户端 `compileGithubReleaseKotlin` 通过，`CloudShortCodeTest` 5 项通过；`go vet`/`go test ./...` 通过。口令部分已按开发流程提交 PR [#100](https://github.com/xiaomanjun233/SleepDown-Schedule/pull/100)（head `3478522e`，PR checks 全部 success）；PR 只含短口令，JSON 文件分享仍留在当前未提交工作树，待后续独立 PR。
+
+已从当前未提交工作树执行完整签名 `assembleGithubRelease`（3m45s），包 `1.2.8_beta2 / 36`，7,876,857 字节，SHA-256 `0d78955519a7863d8a4da060d8f2ce280efe18ab032ed3d788a824fb9a01f9af`；经 SDK 5038 / 唯一设备 PLJ110（Android 17 / SDK 37 / `3B15AE023YL00000`）`install -r` 返回 Success。设备 `base.apk` SHA-256 与本地一致，`lastUpdateTime=2026-11-03 22:28:57`，未清数据、未启动应用。该安装包包含短口令与 JSON 分享，不能用 PR #100 的 head 直接对应；PR 仍只含口令部分。保全 `tmp/review-apks/SleepDown-1.2.8-beta2-cloud-short-code-20261103-0d789555.apk`。未提交其他工作树改动、未推送/发布，真机分享面板验收待用户操作。详见[报告](reports/2026-11-03-short-passcode-and-json-share.md)。
+
+随后将分享弹窗改为四项等间距（`SleepDownPickerDialog`：分享短口令 / 分享 JSON 文件 / 分享 ICS 文件 / 取消，50dp 等高、10dp 等距、无长说明），`compileGithubReleaseKotlin` 通过；按用户要求本轮**未打包、未安装**，手机仍是上述 `0d789555` 旧包，改动留在未提交工作树。
+
+## 2026-11-03 当前脚本保存与小窗惯性（已打包上传，待手机重连安装）
+
+870dd666 包已按下节安装上传后，用户要求查看最新截图。已仅拉取 13:04:19、13:04:26、13:05:06 三张同 App 已保存截图：能看到真实“编辑本次任务脚本”工具行与最终 2 门课／4 节作息／18 周预览，运行码 BFCCE0、时间和周次与本机样本一致；没有脚本源码或完整运行工具结果，尚不能逐行认定脚本正确。前台为 Launcher，未启动应用、未展开其他 UI 或操作保存课程。截图只在忽略的 tmp 下。
+
+最新要求：预览下增加“保存当前脚本”入口，并严格按拾光仓库格式保存；小窗在顶栏／输入区间内拖动有轻微滞后，松手惯性滑行、碰边衰减回弹。关于推理显示，用户最终澄清为“国内模型与现在 GPT 展示对齐”，摘要保留，取消旧独立走字框；不要误作删除全部思考摘要或改 transport。当前导入已统一用普通进度文本，不应重引入特殊框。
+
+本轮重新完整读取 shiguang-edu-adapter skill／仓库契约，通过 GitHub plugin 回读 pending README（78bcc8b6691d23bc9eeb2a42a2c2e6b8a7b14f2c）、adapters schema（54ce1ee80dc6e92008765608f989e835c2a6d480）、root schema（281e316942114ac51f91854d11caa28090e8bc3b）和官方 proto（99c8da34f6e220ae0171e1e0622313c36b7ac6b1）。root 四字段／initial 单大写字母、adapter 七字段、v2 proto 字段／枚举已核实；不提交学校或推送仓库。
+
+已完成预览下显式保存／查看源码、确认名称与登录入口、实际 RUN_SCRIPT 成功后的任务／路径／哈希候选保留、编辑失效与旧任务隔离。保存独立于课程写库，成功后禁用重复操作；候选仅当前进程保留，旧历史未记录的源码需重新执行。新增 LocalEduAdapterPackage，原子写单校仓库 ZIP（index/root_index.yaml、resources/LOCAL_…/adapters.yaml、原样 adapter.js、school_index.pb），复用 v2 parser，旧 JSON 适配兼容读取。D 盘忽略目录内的 Python 验证环境已安装；真实 Kotlin 测试生成包通过官方 YAML schemas，并用官方 build_data.py／生成 proto 验证索引字节完全一致。小窗已接入有界弹簧跟随、惯性／碰边衰减回弹与键盘／窗口改变时停止旧运动。摘要共用当前 GPT 对话组件，保留 transport 和历史，没有删除思考摘要。
+
+最终 10 类 40 项回归全部通过，0 失败／错误／跳过，完整签名 assembleGithubRelease 同次 7m32s 成功，日志 tmp/ai-script-save-window-motion-final-20261103.log。首轮 39/40 的真实问题为公共玻璃确认按钮未暴露禁用语义，已给 LiquidAlertActionButton 传递 enabled；未弱化测试。架构 631 文件／0 违规依赖，diff 通过。新包 1.2.8_beta2 / 36，7,876,857 字节，SHA-256 ad5da225aaa33250d63e497c6b83b1703c10fa8ee5d3f445c7a11057ef99711f，既有 V2 证书；保全 tmp/review-apks/SleepDown-1.2.8-beta2-script-save-motion-20261103-ad5da225.apk 与同名 JSON，汇总 tmp/ai-script-save-motion-delivery.json。[本轮新包](https://drive.google.com/file/d/1Z-RA0sKNarXoQqujQewrV-xpI0eLufMS/view?usp=drivesdk) 已上传并回读名称／大小／父目录；首次自动审核要求核对目录归属，随后通过 me-in-owners 搜索确认原目录为当前用户私有且 shared=false，再原工具上传成功，未改共享权限。详见[本轮报告](reports/2026-11-03-ai-script-save-window-motion.md)。
+
+本轮尚未安装：14:20 左右重查 SDK 5038 与 OPPO Connect 5037、全部现有 adb 监听、USB 和两端 mDNS，均无设备；已异步请用户接回原 PLJ110。安装授权来自此前“打包装 adb”，重连无需再问授权，需重新核对实际服务端和目标，覆盖安装后比对设备 APK 哈希，不启动或清数据。当前手机仍是下节 870dd666 包，不能写成 ad5da225 已装。测试服务此前 PID76024／BFCCE0 为用户保留，接续核对实际进程及重建 reverse；手机断连后不要沿用旧连接结论。未提交、推送或公开发布，未以真实学校／付费模型端到端验收新改动，也未实机评估新惯性手感。
+
+## 2026-11-03 AI 教务轻量 DevTools（已安装与上传）
+
+用户要求看最新报错截图，后续明确增加可拖动／收起的网页小窗、胶囊退出占位平移、已适配学校直接导入，以及去掉网页预抓长图和截图／文本选择，交给模型按需浏览；要求保持轻量，无整套 harness／CLI。已从真实后台入口复现并修复 READ_PAGE 构造读取器时在后台访问 WebView.url：现在 UI 绑定、后台调用、Main 执行，保留原文档与任务约束。
+
+同一个已登录 WebView 可借入当前会话小窗，收起仍保留非零视口，退出归还，源释放撤销，旧宿主和旧源不能影响新任务。统计／附件／候选退出收缩实际占位，候选按稳定 id 做删除／平移。网页点击直接启动调查，删除材料选择和自动批量截图；已适配学校直接执行原适配，AI 入口放更多操作且继续优先本机适配。EDU_WORKSPACE 新增 PROBE_SCRIPT（最新文件哈希、异步函数体、20s、受限结果／日志）、SCROLL（可选区域）和仅视觉模型的 VIEW_PAGE（单视口／裁切）。复用现有循环与 Bridge，无新框架／CLI／依赖；不是被动保存所有请求正文的完整 DevTools。预览与用户确认写库、文件图片导入兼容保留。
+
+最终 6 类 26 项 Android 回归全部通过，0 失败／错误／跳过，完整签名 Release 同次 7m05s 成功，日志 tmp/ai-edu-devtools-final-20261103.log。Robolectric WebView 的测量／隐藏 setFrame 委托在测试 shadow 中补齐，保留真实非零视口、拖动、归还及撤销断言；未修改生产渲染来绕过测试。5 项新 JS 检查和既有 Bridge／loopback 合成教务检查通过；架构 628 文件／0 违规，diff 通过。未执行真实模型／学校端到端，详细过程见[报告](reports/2026-11-03-ai-edu-webview-thread.md)。
+
+1.2.8_beta2 / 36，7,844,089 字节，SHA-256 870dd666bd87bb1cfb0f498c5caedcccf609178b13114b4171613a560f82bd5f，既有 V2 证书。2026-11-03 13:00:12 经 SDK 37.0.1 客户端与同来源 5038 USB 服务向原 PLJ110／Android 17／SDK 37／3B15AE023YL00000 覆盖安装 Success，手机 APK 哈希一致，未清数据或启动应用。此前无设备时已查 5037／5038／mDNS；用户随后重连，实时发现设备在 SDK 5038，未沿用旧 OPPO 5037 通道。保全 tmp/review-apks/SleepDown-1.2.8-beta2-edu-devtools-20261103-870dd666.apk 与同名 JSON，汇总 tmp/ai-edu-devtools-delivery.json。[新包](https://drive.google.com/file/d/1B3vtldC8n-x_jQ2NTrlM1Hm3fPEXpDZR/view?usp=drivesdk) 已上传原 Drive 测试目录并回读名称／大小／父目录，未改共享权限。未提交、推送或公开发布。
+
+本机测试服务 PID 76024 与命令行已复核，运行码 BFCCE0；恢复当前手机 USB reverse 后实际回读 HTTP 200、2 门课／4 节作息／18 周。App 地址栏使用完整 http://127.0.0.1:18765/，点击 AI 导入直接开始；不再有开始检查／截图文本选择。服务为用户复测保留，结束时按[验证说明](ai/AI_SCRIPT_SMOKE_TEST.md)核对精确进程并移除本端口转发；接续必须重查 PID、服务端来源与设备通道。下方 9b6e849b 为旧包，不能混作本次结果。
+
+## 2026-11-03 胶囊入场与临时脚本验证（已安装、测试服务就绪）
+
+用户要求底部胶囊／按钮轻微放大、动态模糊入场，并需要临时写脚本的验证方法；随后指定平板统计胶囊也移到输入框上方，两端统一。已新增 `softBlurEnter`（260ms、94%→100%、6dp→0 模糊／渐显，稳定后移除 layer 与 effect），接入统计／附件／候选／输入胶囊及“回到最新”按钮，内容刷新不重入场。已移除统计位置的宽窗口分支，并调整既有平板断言。
+
+新增仅供本地的 `scripts/ai-edu-smoke-server.py`、参考脚本与 Node 真实 loopback／生产 Bridge JS 检查，以及[验证说明](ai/AI_SCRIPT_SMOKE_TEST.md)。页面不显示课程和随机运行码，模型必须查询实际接口、写／读／编辑文件再运行标准拾光脚本；合成数据不代表真实学校通过。两组 Node 检查通过；3 类 11 项 Android 定向检查及完整签名 Release 同次 8m50s 通过，0 失败／错误／跳过，日志 `tmp/ai-capsule-enter-and-script-smoke-20261103.log`。架构 625 文件、0 违规依赖，diff 检查通过。
+
+版本 `1.2.8_beta2 / 36`，7,844,089 字节，SHA-256 `9b6e849b8d9aed551e5664eaff42e3941678d3bc623a864f74ff443b32dafdaa`，既有 V2 证书。已按此前授权经 SDK → OPPO Connect 5037 USB → 原 PLJ110／Android 17／SDK 37／`3B15AE023YL00000` 覆盖安装 Success，手机 APK 哈希一致，未清数据或主动启动应用；5038、5037 与 mDNS 均已检查。保全 `tmp/review-apks/SleepDown-1.2.8-beta2-ai-capsule-enter-20261103-9b6e849b.apk` 及同名 JSON；[新包](https://drive.google.com/file/d/1NrZV9lxcQyNyygxTtiA3O1B5_O0ywPzR/view?usp=drivesdk) 已上传原 Drive 测试目录并回读名称、大小、父目录，未改共享权限。未提交、推送或公开发布，未调用真实模型或学校作端到端验收。完整记录见[报告](reports/2026-11-03-ai-capsule-enter-and-script-smoke.md)。
+
+测试服务特意保留供用户验证：后台 Python PID `76024`（接续须核实），本机 `http://127.0.0.1:18765/`，运行码 `BFCCE0`，`tmp/ai-edu-smoke-server.pid` 与对应 out/err 日志；通过上述 PLJ110 的 USB reverse 转发，已从手机实际读取 HTTP 200、2 门课／4 节作息／18 周。结束时只停止核对过命令行的本仓库测试进程并移除此端口转发，步骤见验证说明。用户反馈在 App 教务地址栏打不开，诊断读取到当前实际地址为 `https://127.0.0.1:18765/`；服务和转发正常，已告知改为完整 `http://127.0.0.1:18765/`。没有为测试服务改动 App 全局默认 HTTPS 行为。诊断 UI 树只在设备临时文件和进程内处理，已删除，未保存用户页面原始数据。
+
+## 2026-11-02 手机统计胶囊位置更正（已安装）
+
+用户纠正：手机统计胶囊应在输入框上方，平板继续在下方。`AiImportAdaptivePage` 将已有宽窗口判断传给会话组件，同一统计胶囊按布局放在 composer 前／后；高度继续计入滚动避让与键盘占位。此次只改位置，不追加机械测试；完整签名 `assembleGithubRelease` 5m27s 通过，日志 `tmp/ai-mobile-capsule-position-release-20261102.log`，架构与 diff 检查通过。
+
+沿用本聊天打包／ADB 安装授权，已经 SDK 客户端 → 原 OPPO Connect 5037 USB 服务 → PLJ110／Android 17／SDK 37／`3B15AE023YL00000` 覆盖安装，返回 Success，手机 APK 哈希一致；5038 与两条 mDNS 也已重查，无其他设备，未清数据或启动应用。版本仍 `1.2.8_beta2 / 36`，7,844,089 字节，SHA-256 `77a5cc454265a05a1329fe4bc7396c55ae62ef866de4ac452a4dcb6a3b057774`，签名证书与前批一致。保全 `tmp/review-apks/SleepDown-1.2.8-beta2-mobile-capsule-20261102-77a5cc45.apk` 与同名 JSON；[位置修正版 APK](https://drive.google.com/file/d/1ncToPdnezscnEmEkoVovKY-RVBzuqoqA/view?usp=drivesdk) 已上传原 Drive 测试目录并回读名称、大小与父目录，未改共享权限。下方 `229798ca` 为更正前已安装包，60 项测试为此前整合验证，本次未重复运行。未提交、推送或公开发布。
+
+## 2026-11-02 胶囊、多选、平板布局与教务入口修正（已打包安装）
+
+用户最新明确：信息合为一条图标胶囊并启用柔性反馈；发送中的补充直接进入候选胶囊，内含编辑／删除／引导三个图标，去掉发送前两个模式选项；附件居中并启用柔性反馈。又反馈教务入口直接发文本，无法试接口。以上已接线：教务入口只发送脱敏地址／标题，点击“开始检查教务”后由模型主动调查；`EduImportEvidence` 阻止未调查直接交课表，可由模型说明 PAGE_FALLBACK 依据。详情见[本轮记录](reports/2026-11-02-ai-capsules-and-edu-entry.md)。
+
+用户继续追加的多图、多文件与平板布局均已接线：`AiImportBatch`／多文件材料目录与 file 参数，多图候选与完整 marker 历史、备份的全附件数组；宽窗口左侧常驻历史，右侧正文与输入居中，选中后才读取该历史完整图片；统计胶囊移到输入框下方。停止后候选编辑和容量边界也已修正，连续追加图片不能绕过 20 张／40 MiB 上限。详情及实现边界见[本轮记录](reports/2026-11-02-ai-capsules-and-edu-entry.md)。
+
+最终 13 类 60 项定向测试通过，0 失败／错误／跳过，3m36s；含平板实际切换历史再回当前运行任务与统计位置验证。完整签名 `assembleGithubRelease` 5m30s 通过，保留 R8／资源压缩／lintVital／金标 true；日志分别为 `tmp/ai-multi-adaptive-tests-complete-20261102.log`、`tmp/ai-multi-adaptive-release-final-20261102.log`。长期 JVM 曾原生内存不足，后改用 2560m／4 核／单 worker 的独立进程；没有进行清库或设备清理。所有构建已结束，架构 624 文件、0 违规依赖，diff 检查通过。
+
+用户明确“打包装 adb”后，已通过 SDK 客户端 → OPPO Connect 5037 USB 服务 → 原 OPPO PLJ110／Android 17／SDK 37／`3B15AE023YL00000` 覆盖安装，ADB 返回 Success，手机 base.apk SHA-256 与本地候选一致。此前已检查 SDK 5038 与两条服务 mDNS，无其他可用设备；未抢占其他服务、清数据或主动启动应用。版本 `1.2.8_beta2 / 36`，7,844,089 字节，SHA-256 `229798ca58614a057c0db830f85bdcc3018afdc7539e0b8a905b19d93ef857bd`，V2 证书与前批一致。保全 `tmp/review-apks/SleepDown-1.2.8-beta2-ai-multi-tablet-20261102-229798ca.apk` 及同名 JSON。[本轮 APK](https://drive.google.com/file/d/1Te_S8YHPt6WHvMq3PdoEwtwkVdZ7K06N/view?usp=drivesdk) 已用 Drive 插件上传原测试目录，回读确认名称、大小和父目录，未改共享权限。尚未真实学校／付费模型／ChatGPT 账号端到端或手机视觉／触觉验收，未提交、推送或公开发布。下方 d4f95ae2 为上轮产物。
+
+## 2026-11-02 AI 工作区整合（最新进度，覆盖下方阶段待办）
+
+当前仍为 `codex/rescue-import-materials` 未提交救援树，保留其他所有既有改动。已实际接线统一循环、插嘴／队列／编辑撤回及停止恢复、默认 256k 上下文、材料分页／原图裁切、任务文件编辑与隔离 JS、当前教务页面／同源接口／标准拾光脚本工作区、本地自用适配保存管理、AI 入口本机适配优先，以及特殊课程局部补丁。下方“尚未实现”的文字为本轮前期状态，不能据此重做。当前实现与边界见 [整合报告](reports/2026-11-02-ai-harness-workspaces.md) 和 [架构](ai/AGENT_HARNESS.md)。
+
+新增 `AiTaskWorkspace`／`AiEduWorkspace`：普通数据 JS 与当前 WebView 的标准拾光脚本分开；只有用户确认材料且开放 DOM 的教务任务具有网页工具，只发截图不开放。生成脚本的 Bridge 输出先返回模型复核，最终仍需预览确认；成功且源码哈希不变才可建议保存自用适配。保存由用户点击，学校页单列本地来源、可编辑／测试／删除。已有官方／自用适配匹配在模型请求之前，按确切 origin，多个候选本机选择；重新加载目录以涵盖刚更新和刚保存的适配。
+
+最终验证：21 类 142 项回归通过（3m02s，0 失败／错误／跳过）。随后为本地适配补了 AtomicFile 中断恢复，并追加脚本到 Native 的 executionToken，阻止停止后的旧异步脚本污染新任务；标准 Bridge 协议不变。三组 Node 检查（含 HNSF 学年校验、新旧异步标识、POST 桥接、自动刷新会话脚本）通过。最终 Bridge 8 项／存储 2 项及完整签名 `assembleGithubRelease` 同次通过（6m54s，192 个任务），保留 R8、资源压缩、lintVital 和默认金标 true，日志 `tmp/ai-harness-final-package-20261102.log`。架构 621 文件、0 违规依赖，diff 检查通过。所有构建均已结束。
+
+已交付：`1.2.8_beta2 / 36`，7,825,484 字节，SHA-256 `d4f95ae211c37bdd7995f24194bd1963d355b4ac96e67cd93c66c34f825dd183`，V2 证书与前批一致。保全 `tmp/review-apks/SleepDown-1.2.8-beta2-ai-harness-20261102-d4f95ae2.apk`；[下载最新 APK](https://drive.google.com/file/d/15gaclGmROhdN2NSD_5ITCSowzanKb0JQ/view?usp=drivesdk)。Drive 插件上传后已回读名称、大小和原父目录；未改共享权限。未调用真实学校／付费模型／当前 ChatGPT 账号做端到端验证，未实机验收、安装、提交、推送或公开发布。此前打包／上传授权已完成，保留源码供继续验收。
+
+## 2026-11-02 全 App AI harness 与材料工具（进行中）
+
+最新追加与执行边界：用户接受“参考成熟框架设计后 Kotlin 重写”，不要求移入 Codex／DSH 的所有功能；同时明确希望多借鉴插嘴、排队／覆盖、上下文管理，并指定默认 256k。`AgentMailbox.kt`、`AgentContextPolicy.kt` 已新增，当前收件箱尚未接入所有执行与 UI。上下文已接入 Chat／Responses 投影、恢复被压缩只读结果的工具可见性；默认容量已加到兼容配置。新增 `AgentTaskFiles.kt`（任务相对路径、版本哈希、精确编辑）和 `AgentJavaScript.kt`（AndroidX JavaScriptEngine 隔离进程），`app` 新依赖 `androidx.javascriptengine:javascriptengine:1.1.1`，依赖解析成功；文件／JS 工具目前尚未向模型开放。不要将这些骨架误写成已完成工作流。
+
+新增完整待办：
+- AI 导入与今日助手都支持插嘴／排队、编辑覆盖与撤回，消息／附件／操作用输入框外独立材质胶囊。核心 mailbox 需要实际接线与测试，保留历史中用户追加内容；失败／停止不得丢弃待处理消息。
+- 核对 ChatGPT 账号 OAuth、模型能力、原生工具、上下文与文件流程，避免假定账号支持 Files 上传。增加 `ChatGptLocalToolsTest` 等针对性验证。
+- 工具覆盖现有新功能，已确认“特殊课程”实际为 `domain/schedule/TimeSlotCourses.kt` 的 `TimeSlotCourse`，保存于 `ScheduleConfigEntity.timeSlotCoursesJson`，不是仅普通课程的自定义时间；当前 AgentSettingRegistry 没有它。可沿 SET_SETTING 的读取／规范化／预览／确认写入链路扩展并保留未改项，需核对最新编辑器字段。
+- 教务流程让模型自主选择识别类型、复用官方拾光适配器、调用真实接口、现场写／编辑 JS、执行并结合 DOM/结果复核；现有“本机 DOM＋截图工具”尚不等于完整教务脚本工作流。请求不猜接口，不执行远端内联脚本，不泄露 Cookie。计划使用独立 JS 环境处理任务材料，接口由 App 当前登录态代理；最终脚本必须符合拾光 Bridge 协议，不能另造不兼容的 main(input) 适配格式。当前 AgentJavaScript 仍只是通用纯转换 runner，尚待适配这一点。
+- 模型试运行脚本成功、结果经本地校验后，可以建议用户保存为本地自用适配器，由用户确认后落盘；适配列表单列“我的适配”，标明本地来源，并支持编辑／再试／删除。尚未实现存储／UI。
+- 点击 AI 教务导入，先用本机更新后的仓库索引与自用适配明确匹配，提示后直接运行本机适配以省额度；多个候选先选，不明确或明确失败后才用 AI，不让同一教务反复付费解析。尚未实现新增匹配策略。
+
+已实现追加：导入预览节次已复用连续区间合并（`compactPeriodsLabel`），只影响该预览；新增了周次／节次测试。
+
+技能：本轮已读 PDF 两份技能参考其本地提取／渲染／分页思路。用户最新明确调用 `C:/Users/23085/.codex/skills/shiguang-edu-adapter/SKILL.md`，已完整读及 `references/warehouse-contract.md`，并已告知用户使用。已用 GitHub 插件核对官方仓库最新 README、Schema `scripts/schemas/adapters.schema.json`、`proto/school_index.proto` 及官方 Tester 的 `CourseImporterTestTool/shiguang-bridge.d.ts`。最新 Bridge 为 `window.shiguangBridgePromise`（异步 showAlert/showPrompt/showSingleSelection/saveCourseConfig/savePresetTimeSlots/saveImportedCourses/saveComboSchedule）和同步 `window.shiguangBridge.notifyTaskCompletion()`；旧 AndroidBridge 别名兼容。saveComboSchedule 需先成功保存基础作息；失败／取消不能宣称成功。元数据按官方字段，默认维护者“小漫君”，保留来源和 MIT 声明。本轮没有 GitHub 提交／PR／发布授权。
+
+验证状态更新：首轮 Release Kotlin + Debug 109 项测试跑完，3 失败：AgentTaskLoopTest 的有界修复、AiInteractiveImportTest 的不可变请求历史和 Responses 摘要消息表示。已经按根因修正：请求 `JsonArray(history.toList())` 冻结、普通摘要续接维持 tool_choice 策略、保留原生消息并修正测试的多模态取文、格式自修复仍最多六次。随后当前会话 `78677` 正执行第二轮 Release Kotlin + 17 类定向测试，日志 `tmp/ai-harness-regression2-20261102.log`，包括新 mailbox/context/files/usage 与 ChatGPT、节次测试，尚未读到最终结果。此期间不要修改生产文件造成编译快照混杂。之前段落的 43706 会话已完成并失败，不再运行。架构扫描最近为 611 生产文件、0 违规依赖；新增文件后需重扫。
+
+用户已授权尝试替换整个 App 的 AI 执行循环，参考 Codex／DSH 开源设计，并要求临时克隆仓库且不要放 C 盘。已浅克隆到本项目 `tmp/upstream-codex`（`3026a8e54e0f48c4d8074cd700f35b0697abc329`）和 `tmp/upstream-dsh`（`ce7073d51254c26cd63b22a60835b8f948deb447`），只检出循环／工具／会话及文档。未安装 Node/Rust 运行环境，也未提交外部源码。
+
+当前未提交代码新增 `core/ai/AgentHarness.kt`、`AiUsage.kt`、`AgentProtocolHistory.kt`，已接入今日助手 Chat／Responses 与初次导入循环，统一步数／取消、同 call ID 重放和参数冲突处理。新增 `AiMaterialWorkspace`，提供 `READ_IMPORT_MATERIAL`（分段／PDF 分页文字）和 `VIEW_IMPORT_DETAIL`（原页 0–1000 坐标裁切）；初次导入及今日助手／导入修订都可使用材料工具。原始图片保留像素，预览单独压缩；PDF 在 Android 35+ 使用系统文本解码及区域渲染，旧系统保留既有文字提取与视觉路线。教务网页用固定本地 DOM 读取器按需取内容并核对文档版本，不开放模型 JS、Cookie 或任意网页请求。用户明确文件读取不写白名单、无需依赖上传，支持格式除图片均参考 PDF skill 在本地处理，必要时可评估手机终端；当前能力已用 Android 本地工具实现，尚未使用手机终端。原生文件发送仅为显式 `RESPONSES_FILE` 且配置能力支持的可选路线，移除原 NativeResponsesDocumentExtensions 名单；`AUTO` 优先本地。
+
+同轮 UI：已将导入总读秒／识别提示接成输入框上方的独立材质胶囊，约每十秒在状态与可用 token／平均吞吐／上下文用量／缓存统计间轮换，容器伸缩、文字模糊淡入叠化；只展示接口实际统计，未提供容量不编造上下文上限。历史按钮增加显式明暗及前景取色、主题变化重录快照。以上实现尚在验证；首编译仅缺 `json.put` 导入已修正。当前 Gradle 会话 `43706` 正执行 Release Kotlin + 十二类定向 Debug 回归，日志 `tmp/ai-harness-regression-20261102.log`，尚无最终结果。
+
+新增待做：①导入预览节次也合并连续区间；②整个 App AI 增加插嘴／消息排队，排队可查看撤回，附件和插嘴／队列操作做输入框外独立悬浮胶囊，不挤输入区域；③对照最新领域模型／编辑器补齐工具能力，重点特殊课程的读取、定位、修改和预览，不丢字段。这些追加请求尚未实现，不能在交付中写为完成。仍需定向测试、文档基线更新、正式打包／上传（此前“做完打包／网盘”授权持续）；未安装、推送或公开发布。以下链接均是本轮 harness 改造之前的已交付包。
+
+## 2026-11-02 AI 导入步骤统一与预览精简
+
+用户追加工具展开图标像字符、按压未裁胶囊、删除“课表选项”、连续周次合并，以及统一各类步骤显示。已实现矢量展开／工具标记和胶囊裁剪、结构化消息的就地分组与相邻重复去除、旧摘要／步骤仅补缺失渠道、底部仅展示未收录公开片段。预览移除阶段与 JSON 选单，继续对话使用最新可见结果；旧轮快照导入和历史格式保留。周次显示抽到领域层并复用编辑器既有连续区间规则，不改课程数据。六类 42 项回归通过（5m12s，0 失败／错误／跳过），完整签名 `assembleGithubRelease` 通过（5m23s，R8、资源压缩、lintVital 与金标 true），架构 605 文件、0 违规依赖，diff 检查通过。详见[步骤规则记录](reports/2026-11-02-ai-import-step-rules.md)，日志 `tmp/ai-import-step-rules-{regression,package}-20261102.log`。
+
+新包 `1.2.8_beta2 / 36`，7,759,239 字节，SHA-256 `da209591eb6d9713a4331d2b16022c651fd653f974c1a74dcf65706135e8a136`，V2 证书与前批一致。保全 `tmp/review-apks/SleepDown-1.2.8-beta2-ai-step-rules-20261102-da209591.apk`；[下载最新 APK](https://drive.google.com/file/d/1TlkdhOSA1Zu_l8tYzMX-lQD-3SW-aVnR/view?usp=drivesdk)，已回读名称、大小与父目录，未改共享权限。上传前两次连接失败、浏览器备用通道也超时，最终第三次 Drive 插件上传成功。未安装、推送或公开发布，手机尚未验收。以下为前批产物。
+
+交付期间用户进一步询问复用 DSH／Codex agent loop／harness、Codex 是否开源可复制。已用 GitHub 插件核对官方源码和许可：Codex Apache 2.0，DSH MIT／开发预览；对照现有循环，建议优先引入统一回合／工具事件、调用账本、取消／失败恢复和日志派生上下文，保留课表工具及本地校验。本轮为只读可行性评估，尚未执行 harness 替换，当前 APK 不含此改造。细节与来源见[初步评估](reports/2026-11-02-agent-harness-assessment.md)。
+
+## 2026-11-02 AI 导入状态与中间消息
+
+用户继续反馈状态的 Markdown 星号外露、中间信息不留在下方、字号层级与工具缩进不清、等待读秒应改为本次导入总用时。已修正实时 Markdown（包括流式未闭合加粗），补齐普通助手正文与公开原生摘要的完整段落记录、Chat／Responses 完成回放去重及分段边界。状态 13sp、工具 12sp 等宽、正文 16sp，预览元数据仍为 14sp；状态和执行文字统一 24dp 标记列。执行事件就地分组，最新运行组默认展开，完成默认折叠。单调任务总计时不随 token、工具或回调重绑重置；旧历史不显示伪实时计时。最终七类 77 项回归通过（2m56s，0 失败／错误／跳过），完整签名 `assembleGithubRelease` 3m54s 通过，保留 R8、资源压缩、lintVital 和金标 true；架构 606 文件、0 违规依赖，diff 检查通过。日志分别为 `tmp/ai-import-status-regression-20261102.log`、`tmp/ai-import-status-package-20261102.log`，详情见[状态与对话记录](reports/2026-11-02-ai-import-status-timeline.md)。
+
+最新包 `1.2.8_beta2 / 36`，7,774,531 字节，SHA-256 `8eaf3cb8c44981268dd257f81a5fd5ef600d9cc2d455422eb44277aebd2d2500`，V2 证书与前批一致。保全 `tmp/review-apks/SleepDown-1.2.8-beta2-ai-status-timeline-20261102-8eaf3cb8.apk`；沿用此前做完打包／网盘交付要求，已上传既有目录：[下载最新 APK](https://drive.google.com/file/d/140CBY-xzvKL_JadJ7NCRyZvCBXMuyRKp/view?usp=drivesdk)，回读名称、大小和父目录，未改共享权限。包含本轮及前批救援／历史图片修改。源码保持 `codex/rescue-import-materials` 未提交工作树，没有安装、推送或公开发布；手机尚未验收。
+
+## 2026-11-01 AI 教务导入连续对话与预览
+
+最新交付：用户要求精简信息、恢复蓝色气泡、取消阶段卡片，每轮对话附原图，并明确历史也保留／重发图片，“做完打包”；随后追加输入框柔性反馈、日视图今日助手关闭末尾闪烁，最后要求“继续”。已完成，完整 `assembleGithubRelease` 与十类 63 项回归同轮通过（5m24s，0 失败／错误／跳过），保留 R8、资源压缩、lintVital 和金标 true。历史图片独立私有保存并接通 V1 资产备份恢复，详情与通知恢复按需加载；旧预览选择不移动后续结果，技术记录默认折叠。输入框复用公共弹性控件，隐藏源卡同时关闭其原生材质，待弹层完整退出再交还，并统一末帧圆角。架构 606 文件、0 违规依赖，diff 检查通过。详情及测试命令见[本轮记录](reports/2026-11-01-ai-import-history-and-feedback.md)，日志 `tmp/ai-import-history-feedback-delivery.log`。
+
+新包 `1.2.8_beta2 / 36`，7,774,531 字节，SHA-256 `af9592df816d4320d05d8ff7d59ffd0b9b4f6b6451903f2d3d276ce2e3199246`，V2 证书与此前候选一致。保全 `tmp/review-apks/SleepDown-1.2.8-beta2-ai-history-feedback-20261101-af9592df.apk`；已上传既有测试包目录：[下载最新 APK](https://drive.google.com/file/d/1HYEvlCoA0lt7_74EMB8SW0tHRxd3np9q/view?usp=drivesdk)，回读名称、大小及父目录，未改共享权限。包含本轮全部修改与早前救援；未做手机 ROM 视觉验收，旧历史已经丢弃的图片无法补回。沿用 `codex/rescue-import-materials` 未提交工作树，无安装／推送／公开发布操作。
+
+前批交付：用户明确要求“打包上传”。完整签名 `assembleGithubRelease` 2m23s 通过，保留 R8、资源压缩、lintVital 与金标 true；`1.2.8_beta2 / 36`，7,758,147 字节，SHA-256 `3bec5084c56d854513bb61a191a422cd67c02fc3f72a497e652e069c62f844e6`，V2 证书与此前候选一致。APK 保全于 `tmp/review-apks/SleepDown-1.2.8-beta2-ai-typography-picker-20261101-3bec5084.apk`，上传既有“SleepDown 测试包”目录：[前批 APK](https://drive.google.com/file/d/1WVVoSEdGqC-2FSgCeMmK4KG-4aXMdpB6/view?usp=drivesdk)。已回读文件名、大小、父目录，未改共享权限。包含下述字体层级、模型选单位置/动画、居中圆形箭头、预览所属轮次及全部前批救援修复；没有安装、推送或公开发布。
+
+当前追加：用户要求按 Codex 梳理本页字体层级，并确认模型 Popup 问题为“弹出位置或缩放方向不对”。已新增局部 `AiImportTypography`：系统字体 16sp 正文、14sp 中间进度、13sp 等宽执行/JSON、12sp 状态/脚注，16/18sp 半粗体标题；明暗主/次/弱灰色统一且校验对比度。模型选单修复提前隐藏/归还触发胶囊、选择后源文字变宽及完整关闭后重开复用旧测量坐标；中途反向打开保留弹簧会话。最终 Release Kotlin 与 4 类 8 项回归同轮通过（4m49s，0 失败/错误/跳过），含真实 Miuix Popup 底部向上、顶部移位后向下展开、退出保持源状态、Activity 暂停释放，以及既有对话/键盘用例。架构 605 文件、0 违规依赖，diff 检查通过。详情见[文字与选单记录](reports/2026-11-01-ai-import-typography-and-picker.md)。已包含本段最新云盘交付，尚未做手机视觉验收。
+
+上一批源码：用户要求“回到最新”使用居中圆形向下箭头，并让下一句话接在所属轮次的导入预览下方。已将按钮改为输入框上方居中的 44dp 圆形，仅显示向下箭头并保留无障碍名称；每个不可变课表快照固定在首次产生它的轮次后，继承的相同结果不在新消息末尾重复追加，阶段选择/JSON 入口跟随最近预览。新回复独立显示，后续新课表追加为新的预览，旧预览导入仍使用其对应快照。Release Kotlin 和 5 类 38 项定向回归同轮通过（5m37s），含真实页面跨轮次/历史恢复/旧快照导入及圆形箭头点击；架构 604 文件、0 违规依赖。现已包含本段最新云盘交付，下方旧 `06b416e1` 不包含圆形按钮与预览位置修改。
+
+前批交付：用户再次明确“内容要被输入框顶起，是的话就打包放云盘”。已确认行为为到底时内容随输入框实际占位上移，完成完整签名 `assembleGithubRelease`（2m20s，R8、资源压缩、lintVital、金标 true），并上传既有“SleepDown 测试包”目录。包为 `1.2.8_beta2 / 36`，7,758,147 字节，SHA-256 `06b416e18d2944569a634a5cdba867befc6ec30e5fe9c99dd0b7a7550bc48257`，V2 证书与既有 Release 一致。本地保全 `tmp/review-apks/SleepDown-1.2.8-beta2-ai-dialog-shortcut-20261101-06b416e1.apk`；[前批网盘 APK](https://drive.google.com/file/d/1hLSe4pKGkM6v0rPSGGKVWEZViVqj9RnC/view?usp=drivesdk)，已回读文件名、字节数及父目录，未更改共享权限。包含当次打包前的连续对话、浅色预览、键盘与 shortcut 修复及前批救援，不包含后续圆形箭头与预览位置修改。没有安装或公开发布。
+
+后续用户追加“已到底时点输入框内容应顶起”和“凝光长按 shortcut 闪烁”。已将列表 viewport 边界、composer 实际底部 padding 纳入贴底跟随；原先上滑查看旧消息仍保持位置。shortcut 源卡隐藏时同时关闭原生材质可见性，关闭菜单后恢复原节点；浮层 host 提前测量，避免打开时等待首次定位的一帧空档。新增键盘回归在修复前明确失败，修复后 Release Kotlin 与 4 类 16 项回归同轮通过（4m54s），涵盖逐步键盘避让/窗口缩小、阅读位置保持、真实源卡及 overlay 的材质交接、连续开关和既有退出屏障/拖动。厂商 renderer 用测试替身，尚未做实际 ROM 视觉验收。详情并入下方界面记录，前批 69 项验证记录保留。
+
+用户追加要求教务 AI 导入界面更接近 Codex，持续显示中间对话，并改善浅色模式预览彩字。沿用 `codex/rescue-import-materials`，没有覆盖此前救援改动。公开模型进度与执行消息按顺序进入 LazyColumn，每轮保留至多 128 条，跨轮次和历史恢复一起保留；旧 JSON 缺少新增字段可正常读取，仍沿用最近 8 轮与 2 MiB 上下文边界。当前状态可换行，停止水平追字；上滑查看旧消息后不再被流式更新或任务完成强制拉到底部，并提供“回到最新”。预览独立使用稳定主题底色、可读的课程色标题与面板正文色，文字对比度至少 4.5:1，不改首页课程卡片。
+
+Release Kotlin 与 7 类 69 项定向测试同轮通过（2m42s），0 失败/错误/跳过；架构 604 文件、0 违规依赖，diff 检查通过。详见[界面优化记录](reports/2026-11-01-ai-import-conversation-ui.md)。代码尚未提交、推送或实机验收，最新打包上传见本段首条；下方旧 Drive 链接是此前救援包。其他活动任务记录保留。
+
+## 2026-11-01 教务、凝光与自动刷新救援
+
+本轮用户要求修复教务灵动岛黑色收拢/渐变展开及返回键层级、特殊课程与校区作息表头、教务底栏凝光、首页白色与默认菜单参数、拖动光效闪烁和震动；补充四川机电读取登录态提示“没有正在执行的拾光任务”，并要求检索 GitHub 自动刷新案例、验证差异弹窗与逐项覆盖。工作位于主目录新分支 `codex/rescue-import-materials`，基于原干净 HEAD `3cb7285f`，保留原有提交和其他工作树。
+
+上述实现已本地修改；四川机电根因是普通 IIFE 启动异步流程但不返回 Promise，被包装器提前结束任务。旧包装器对新增回归明确失败，修复后的生产包装器通过本机四川机电三组模拟响应。统一 Cookie 恢复并保留较新凭证，后台按实际结果成功/失败/有界退避重试。差异核对模拟覆盖自动提醒、默认保留、全选后逐项取消，以及 Room 中只应用选中新增/删除、保留本地修改和防止旧快照覆盖。
+
+最终同一轮 Release 编译与 15 类 96 项定向回归全部通过（4m48s，0 失败/错误/跳过），包含 2 项真实 Compose 弹窗操作和 6 项内存 Room 核对落库。Node 执行包装器/会话脚本、四川机电生产包装器三组模拟响应、603 文件架构扫描通过。此前混合变体构建的 2GB 堆不足已取消，最终使用单 worker 和 3GB 堆串行验证。详见[救援记录](reports/2026-11-01-import-material-rescue.md)。
+
+用户随后明确要求“打个包放谷歌网盘”。完整签名 `assembleGithubRelease` 3m02s 通过，保留 R8、资源压缩、lintVital 与默认金标 true。包为 `1.2.8_beta2 / 36`、7,758,147 字节，SHA-256 `a109dc95ad599c7e5390f39f4ecfef7063c11de131e1dfdd56c2498941275751`，V2 证书与既有 Release 一致。本地保全 `tmp/review-apks/SleepDown-1.2.8-beta2-rescue-20261101-a109dc95.apk`，已上传既有“SleepDown 测试包”文件夹并回读文件名、大小与父目录：[网盘 APK](https://drive.google.com/file/d/1QxIgbixBC1iSXJ3RD3j3UD3l41jLfjjt/view?usp=drivesdk)。未更改共享权限。
+
+代码和记录目前未提交、未推送；本轮没有新增 PR、公开发布或安装授权。已检查 5038、5037、5039 的 USB/无线设备和 mDNS 均为空，没有实机视觉或真实账号验收。原有活动任务记录保留。
+
 ## 2026-10-29 返回尾段衔接纠正
 
 用户明确纠正“不是一直垫按钮，等返回动画快结束再垫”。本批替代此前 `bada208c` 的全程预铺：返回请求只准备圆角像素；系统在 BACK 尾段将已隐藏的源 View alpha 从 0 恢复时才挂载落点图，再沿用真实业务源恢复帧的 pre-draw 交接。仅处理 BACK 已开始的当前会话，忽略迟到 OPEN 恢复；无 alpha 信号的设备在结束回调交接，不猜固定时长。Release Kotlin 及四类 30 项原生图形/会话回归通过（5m52s），包含返回前段无垫图、尾段才出现、迟到 OPEN、无恢复信号与销毁释放。实际 ROM 观感尚未验证；#88 同轮修复 HD、节次上限与显示调用链，联合包由其报告维护。尚未发布或合并 #88/#89。

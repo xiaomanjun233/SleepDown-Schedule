@@ -17,7 +17,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
@@ -32,6 +31,7 @@ import com.kyant.shapes.Capsule
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.performance.LocalGlassQuality
+import com.xiaomanjun.sleepdownschedule.core.wallpaper.LocalHomeReadability
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.hasAnyWallpaper
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.GlassEffectFrame
@@ -49,6 +49,13 @@ typealias GlassTokens = GlassMaterialSpec
 
 @Composable
 fun glassUsesLightStyle(config: ScheduleConfigEntity): Boolean {
+    val homeLightStyle = LocalHomeWallpaperLightStyle.current
+    if (homeLightStyle != null && config.hasAnyWallpaper()) {
+        val home = LocalHomeReadability.current.config
+        if (home?.id == config.id && home.wallpaperUri == config.wallpaperUri &&
+            home.defaultWallpaperStyle == config.defaultWallpaperStyle
+        ) return homeLightStyle
+    }
     if (config.wallpaperUri.isNullOrBlank()) return !appUsesDarkTheme(config)
     return when {
         config.wallpaperBrightness < 0.72f -> false
@@ -79,9 +86,13 @@ fun GlassSurface(
     nativeMaterial: Boolean = false,
     nativeDark: Boolean? = null,
     nativeBlurRadiusScale: Float = 1f,
+    nativeBlurRadius: androidx.compose.ui.unit.Dp? = null,
     nativeTintAlphaScale: Float = 1f,
     nativeDockMaterial: Boolean = false,
     nativeFollowLightIntensityScale: Float = 1f,
+    nativeMaterialVisible: Boolean = true,
+    nativeElasticTouchFeedback: Boolean = false,
+    backdropSampleScale: Float = 1f,
     content: @Composable () -> Unit
 ) {
     if (nativeMaterial) {
@@ -92,12 +103,17 @@ fun GlassSurface(
             // only clips its default capsule; it cannot relocate the stroke inside an envelope.
             modifier = if (morphAllocation != null) modifier.glassMorphContent(morphAllocation) else modifier,
             shape = shape, dark = nativeDark ?: !glassUsesLightStyle(config),
+            materialVisible = nativeMaterialVisible,
             blurRadiusScale = nativeBlurRadiusScale,
+            blurRadius = nativeBlurRadius,
             tintAlphaScale = nativeTintAlphaScale,
             followLightIntensityScale = nativeFollowLightIntensityScale,
             role = if (nativeDockMaterial) com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.HomeDock
                 else com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRole.Content,
             onClick = onClick,
+            backdrop = backdrop,
+            backdropSampleScale = backdropSampleScale,
+            elasticTouchFeedback = nativeElasticTouchFeedback,
             shapeProvider = if (morphAllocation != null) {
                 { RoundedRectangle(with(nativeDensity) { morphAllocation.geometry().cornerRadiusPx.toDp() }) }
             } else shapeProvider,
@@ -161,7 +177,7 @@ fun GlassSurface(
         ),
         // Passive glass never receives press events. An identity graphics layer here can
         // retain the previous pixels of a badge while its parent pager layer moves.
-        layerScale = if (onClick == null) null else 1f + 0.055f * pressProgress
+        layerScale = if (onClick == null && !nativeElasticTouchFeedback) null else 1f + 0.055f * pressProgress
     )
     val contentModifier = if (useGlass) {
         modifier.sleepDownGlassSurface(
@@ -174,6 +190,7 @@ fun GlassSurface(
             placementLayer = placementLayer,
             renderBounds = { morphAllocation?.localBounds() },
             allocationPaddingPx = morphAllocation?.paddingPx,
+            backdropSampleScale = backdropSampleScale,
             onDrawSurface = {
                 if (bottomLitTint) {
                     drawBottomLitGlassTint(surfaceColor, topTintFloor = bottomLitTintFloor)
@@ -183,10 +200,11 @@ fun GlassSurface(
                 // An explicit finished tint (such as the Dock material) already owns its color.
                 if (surfaceColorOverride == null) {
                     if (lightGlass) {
-                        drawRect(Color.White.copy(alpha = 0.014f + 0.018f * pressProgress), blendMode = BlendMode.Screen)
+                        // White Screen and white SrcOver produce the same lift.
+                        drawRect(Color.White.copy(alpha = 0.014f + 0.018f * pressProgress))
                     } else {
                         drawRect(Color.Black.copy(alpha = 0.014f + 0.018f * pressProgress))
-                        drawRect(Color.White.copy(alpha = 0.006f + 0.010f * pressProgress), blendMode = BlendMode.Screen)
+                        drawRect(Color.White.copy(alpha = 0.006f + 0.010f * pressProgress))
                     }
                 }
             }
@@ -210,11 +228,11 @@ fun GlassSurface(
             }
     }
         .then(
-            if (onClick == null) Modifier else Modifier.clickable(
+            if (onClick == null && !nativeElasticTouchFeedback) Modifier else Modifier.clickable(
                 interactionSource = interactionSource,
                 indication = null,
-                role = Role.Button,
-                onClick = onClick
+                role = if (onClick != null) Role.Button else null,
+                onClick = onClick ?: {}
             )
         )
 
@@ -292,10 +310,10 @@ fun GlassLens(
             onDrawSurface = {
                 drawRect(surfaceColor)
                 if (lightGlass) {
-                    drawRect(Color.White.copy(alpha = 0.014f), blendMode = BlendMode.Screen)
+                    drawRect(Color.White.copy(alpha = 0.014f))
                 } else {
                     drawRect(Color.Black.copy(alpha = 0.014f))
-                    drawRect(Color.White.copy(alpha = 0.006f), blendMode = BlendMode.Screen)
+                    drawRect(Color.White.copy(alpha = 0.006f))
                 }
             }
         )
@@ -364,7 +382,7 @@ fun BlueStatusGlassPill(
     val nativeSurface = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LocalNativeMaterialSurfaceRenderer.current
     if (nativeSurface?.invoke(com.xiaomanjun.sleepdownschedule.core.ui.designsystem.NativeMaterialSurfaceRequest(
         modifier = modifier, shape = shape, dark = !glassUsesLightStyle(config),
-        onDrawTint = nativeTint, blurRadiusScale = 0.6f
+        onDrawTint = nativeTint, blurRadiusScale = 0.6f, backdrop = backdrop
     ), content) == true) return
     Box(modifier = modifier) {
         GlassSurface(

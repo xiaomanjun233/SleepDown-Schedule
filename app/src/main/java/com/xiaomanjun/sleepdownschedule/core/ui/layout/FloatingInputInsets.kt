@@ -28,6 +28,7 @@ internal class FloatingInputInsets(
     private var closedBottom by mutableIntStateOf(0)
     private var currentBottom by mutableIntStateOf(0)
 
+    val isKeyboardRaised: Boolean get() = ime.getBottom(density) > navigation.getBottom(density)
     val bottomPx: Int get() = floatingInputBottomInsetPx(
         ime.getBottom(density), navigation.getBottom(density), closedBottom, currentBottom
     )
@@ -36,7 +37,7 @@ internal class FloatingInputInsets(
     val viewportModifier: Modifier = Modifier.onGloballyPositioned { coordinates ->
         val bottom = (coordinates.positionOnScreen().y + coordinates.size.height).roundToInt()
         currentBottom = bottom
-        if (ime.getBottom(density) <= navigation.getBottom(density)) closedBottom = bottom
+        if (!isKeyboardRaised) closedBottom = bottom
     }
 }
 

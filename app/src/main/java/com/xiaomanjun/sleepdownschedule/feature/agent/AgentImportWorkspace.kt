@@ -204,7 +204,7 @@ class AgentImportWorkspace internal constructor(
 
     internal companion object {
         const val TaskStage = """[导入工作区任务]
-只使用本轮提供的 READ_IMPORT_JSON 和 PATCH_IMPORT_JSON。先读取完整 JSON 及 revision，再根据用户目标分阶段编辑；每次补丁必须形成完整可用课表。成功后可以继续下一阶段，不能把成功补丁当作任务结束。
+使用本轮提供的 READ_IMPORT_JSON 和 PATCH_IMPORT_JSON 编辑草稿；材料不清晰时可使用已提供的 READ_IMPORT_MATERIAL、VIEW_IMPORT_DETAIL 读取原文、裁切放大细节。先读取完整 JSON 及 revision，再根据用户目标分阶段编辑；每次补丁必须形成完整可用课表。成功后可以继续下一阶段，不能把成功补丁当作任务结束。
 operationsJson 是 JSON 数组字符串，每项为 {"op":"replace|add|remove","path":"/courses/0/location","value":"新地点"}。路径相对于 draft；数组索引从 0 开始。revision 必须等于读取或上次成功补丁返回的版本。
 可改 scheduleConfig 的 totalWeeks、periodAlignmentMode、periods 及每节 index/startTime/endTime；可改课程 name、teacher、location、weekday、periods、weeks、weekParity、note、customStartTime、customEndTime、customColorArgb。新增课程用 add /courses/-，删除用 remove /courses/索引；只改需要的字段，不整体覆盖课程列表。课程真实起止时间必须同时提供或同时置 null。
 拆分周次可用 {"op":"copy","from":"/courses/0","path":"/courses/-"} 复制已有课程，再在同一批补丁里调整原行和新行的 weeks、目标字段；本地会保留真实来源铃声并分配新 ID。

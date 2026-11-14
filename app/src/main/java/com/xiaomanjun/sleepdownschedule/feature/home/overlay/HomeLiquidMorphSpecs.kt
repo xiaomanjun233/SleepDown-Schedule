@@ -128,33 +128,20 @@ internal fun legacyThreeDotMenuMorphSpec(
 internal fun legacyPersonalizationMorphSpec(
     source: Rect,
     target: Rect,
-    pinchDiameterPx: Float,
-    minimumDropPx: Float,
-    maximumDropPx: Float,
-    maximumArcPx: Float,
     targetCornerRadiusPx: Float,
     sourcePressedScale: Float,
-    verticalReboundAmplitudePx: Float,
-    closingSinkOffsetPx: Float,
-    closingControlDropPx: Float,
     preloadedContent: Boolean = false,
     earlyContentHandoff: Boolean = false,
-    earlyOpeningContentHandoff: Boolean = earlyContentHandoff
+    earlyOpeningContentHandoff: Boolean = earlyContentHandoff,
+    maximumArcPx: Float = Float.MAX_VALUE
 ): LegacyHomeLiquidMorphSpec = LegacyHomeLiquidMorphSpec("home-personalization") { input ->
     val geometry = homePersonalizationTrajectoryGeometry(
         source = source,
         target = target,
         rawProgress = input.rawProgress,
-        pinchDiameterPx = pinchDiameterPx,
-        minimumDropPx = minimumDropPx,
-        maximumDropPx = maximumDropPx,
-        maximumArcPx = maximumArcPx,
         targetCornerRadiusPx = targetCornerRadiusPx,
         sourcePressedScale = sourcePressedScale,
-        closing = input.direction == LiquidMorphDirection.Closing,
-        verticalReboundAmplitudePx = verticalReboundAmplitudePx,
-        closingSinkOffsetPx = closingSinkOffsetPx,
-        closingControlDropPx = closingControlDropPx
+        maximumArcPx = maximumArcPx
     )
     if (preloadedContent) {
         val alpha = com.xiaomanjun.sleepdownschedule.glass.liquidPreloadedContentAlpha(

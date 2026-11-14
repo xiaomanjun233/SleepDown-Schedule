@@ -8,14 +8,13 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material3.CircularProgressIndicator
@@ -42,7 +41,7 @@ import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.core.identity.AppIdentity
-import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceSection
@@ -52,7 +51,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
-import com.xiaomanjun.sleepdownschedule.feature.course.editor.*
 import java.io.File
 import java.text.SimpleDateFormat
 import java.time.Instant
@@ -76,7 +74,7 @@ private data class BackupGuidePage(
     val iconRes: Int,
     val title: String,
     val message: String,
-    val tint: Color? = null
+    val tint: Color? = null,
 )
 
 /** Settings-facing SAF bridge. Selecting and previewing a backup never mutates app data. */
@@ -159,14 +157,9 @@ fun BackupRestoreSettingsScreen(
         source?.let(onOpenPreview)
     }
 
-    LazyColumn(
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
-            top = topPadding,
-            bottom = DockScrollPadding
-        ),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    SleepDownSecondaryPageList(
+        contentTopPadding = topPadding,
+        contentBottomPadding = detailContentBottomPadding(),
     ) {
         item(key = "backup-scope") {
             BackupGuideCarousel(
@@ -176,25 +169,25 @@ fun BackupRestoreSettingsScreen(
                         R.drawable.ic_material_event,
                         "全部课表与课程",
                         "保存全部课表、课程、上课周数、节次时间，以及你调整过的作息。",
-                        tint = Color(0xFF4B8DFF)
+                        tint = Color(0xFF4B8DFF),
                     ),
                     BackupGuidePage(
                         R.drawable.ic_material_settings_backup_restore,
                         "个性化设置",
                         "保存卡片样式、深色模式、首页、课程提醒、AI 助理、AI 服务选项和小组件样式。",
-                        tint = Color(0xFF8C78E8)
+                        tint = Color(0xFF8C78E8),
                     ),
                     BackupGuidePage(
                         R.drawable.ic_material_photo_library,
                         "图片与导入记录",
                         "保存正在使用的课表和小组件壁纸、助手图片，以及 AI 导入记录。",
-                        tint = Color(0xFF39A89A)
+                        tint = Color(0xFF39A89A),
                     ),
                     BackupGuidePage(
                         R.drawable.ic_material_verified_user,
                         "敏感信息留在本机",
                         "API Key、教务登录状态和系统权限不会进入备份。备份文件没有加密，请不要发送给他人。",
-                        tint = Color(0xFFE09B3F)
+                        tint = Color(0xFFE09B3F),
                     )
                 ),
                 backdrop = backdrop,
@@ -374,14 +367,9 @@ fun BackupRestorePreviewScreen(
         }
     }
 
-    LazyColumn(
-        contentPadding = PaddingValues(
-            start = 16.dp,
-            end = 16.dp,
-            top = topPadding,
-            bottom = DockScrollPadding
-        ),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    SleepDownSecondaryPageList(
+        contentTopPadding = topPadding,
+        contentBottomPadding = detailContentBottomPadding(),
     ) {
         if (busyLabel != null || statusMessage != null) {
             item(key = "backup-preview-status") {
@@ -437,7 +425,6 @@ fun BackupRestorePreviewScreen(
                     restorePreview(previewState)
                 }
             ),
-            backdrop = backdrop,
             config = state.config,
             onDismissRequest = { showReplaceConfirmation = false }
         )
@@ -551,7 +538,7 @@ private fun BackupPreviewContent(
                 } else {
                     "课表和设置可以恢复；其余提示请左右滑动查看。"
                 },
-                tint = Color(0xFF43A36F)
+                tint = Color(0xFF43A36F),
             )
         )
         if (report.missingAssets.isNotEmpty()) {
@@ -573,7 +560,7 @@ private fun BackupPreviewContent(
                     R.drawable.ic_material_settings_backup_restore,
                     "恢复提示",
                     userFacingBackupWarning(warning),
-                    tint = Color(0xFFD99A36)
+                    tint = Color(0xFFD99A36),
                 )
             )
         }
@@ -583,7 +570,7 @@ private fun BackupPreviewContent(
                     R.drawable.ic_material_verified_user,
                     "恢复后需要重新设置",
                     item,
-                    tint = if (index % 2 == 0) Color(0xFF5A86D6) else Color(0xFF7B72D2)
+                    tint = if (index % 2 == 0) Color(0xFF5A86D6) else Color(0xFF7B72D2),
                 )
             )
         }
@@ -681,10 +668,11 @@ private fun BackupGuideCarousel(
                         )
                     }
                 }
-                ProjectPagerIndicator(
+                SleepDownPagerIndicator(
                     pagerState = pagerState,
                     pageCount = pages.size,
-                    modifier = Modifier.padding(bottom = 12.dp)
+                    modifier = Modifier.padding(bottom = 12.dp),
+                    backdrop = backdrop,
                 )
             }
         }

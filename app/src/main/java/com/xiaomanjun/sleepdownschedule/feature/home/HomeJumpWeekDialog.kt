@@ -1,7 +1,5 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.material3.MaterialTheme
@@ -63,9 +61,22 @@ internal fun HomeJumpWeekDialog(
         onDismissFinished = {
             latestDismissFinished(confirmedWeek)
         },
-        backdrop = backdrop,
         config = config,
-        enableWindowDim = true,
+
+        actions = listOf(
+            LiquidAlertAction("取消",
+                LiquidAlertActionStyle.Cancel, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    confirmedWeek = null
+                    onDismissRequest()
+                }),
+            LiquidAlertAction("跳转",
+                LiquidAlertActionStyle.Primary, enabled = true,
+                dismissOnClick = false, onClick = action@{
+                    confirmedWeek = selectedWeek
+                    onDismissRequest()
+                })
+        )
     ) {
         Text(
             text = "选择要查看的教学周",
@@ -74,7 +85,7 @@ internal fun HomeJumpWeekDialog(
             style = MaterialTheme.typography.bodySmall,
             textAlign = TextAlign.Center
         )
-        top.yukonga.miuix.kmp.basic.NumberPicker(
+        com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNumberPicker(
             value = selectedWeek,
             onValueChange = { selectedWeek = it },
             range = 1..boundedTotalWeeks,
@@ -89,35 +100,9 @@ internal fun HomeJumpWeekDialog(
             itemHeight = 46.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(138.dp)
+                .height(if (com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects.current.usesCouiControls)
+                    com.itos.coui.picker.CouiPickerDefaults.height + com.itos.coui.picker.CouiPickerDefaults.padding * 2 else 138.dp)
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ActionSpacing)
-        ) {
-            QuickSheetLiquidAction(
-                label = "取消",
-                enabled = true,
-                backdrop = backdrop,
-                config = config,
-                modifier = Modifier.weight(1f),
-                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
-                confirmedWeek = null
-                onDismissRequest()
-            }
-            QuickSheetLiquidAction(
-                label = "跳转",
-                enabled = true,
-                backdrop = backdrop,
-                config = config,
-                modifier = Modifier.weight(1f),
-                primary = true,
-                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
-            ) {
-                confirmedWeek = selectedWeek
-                onDismissRequest()
-            }
-        }
+
     }
 }

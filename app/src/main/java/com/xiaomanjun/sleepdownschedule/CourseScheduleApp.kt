@@ -67,7 +67,10 @@ class CourseScheduleApp : Application() {
         super.onCreate()
         AppMaterialPreferences.load(this)
         com.xiaomanjun.sleepdownschedule.feature.importing.chatgpt.ChatGptAuthManager.initialize(this)
-        AppIconManager.onIconChanged = { TodayCoursesWidgetProvider.refreshAll(this) }
+        AppIconManager.onIconApplied = { changed ->
+            NotificationScheduler.refreshLiveUpdateIcon(this)
+            if (changed) TodayCoursesWidgetProvider.refreshAll(this)
+        }
         AppIconManager.applyStoredMode(this)
         AutoRefreshScheduleWorker.ensureSchedule(this, AutoRefreshScheduleStore.load(this))
         com.xiaomanjun.sleepdownschedule.feature.backup.webdav.WebDavAutomation.schedule(this)
@@ -137,12 +140,7 @@ class CourseScheduleApp : Application() {
                             homeChromeBlurScale = next.third
                         )
                         val snapshot = repository.activeSnapshot()
-                        NotificationScheduler.refreshToday(
-                            this@CourseScheduleApp,
-                            snapshot.courses,
-                            snapshot.config,
-                            snapshot.periods
-                        )
+                        NotificationScheduler.refreshToday(this@CourseScheduleApp, snapshot)
                         TodayCoursesWidgetProvider.refreshAll(this@CourseScheduleApp)
                     }.onFailure { error ->
                         Log.w("CourseScheduleApp", "Global settings save failed", error)

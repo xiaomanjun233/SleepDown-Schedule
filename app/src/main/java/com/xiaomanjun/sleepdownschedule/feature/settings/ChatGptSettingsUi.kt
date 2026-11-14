@@ -3,14 +3,11 @@ package com.xiaomanjun.sleepdownschedule.feature.settings
 import android.text.format.DateFormat
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -18,14 +15,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogLiquidButton
-import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceCategory
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.GlassPreferenceSection
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionButton
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsActionRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsDivider
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SleepDownLiquidDropdownPreference
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.settingsPreferencePadding
 import com.xiaomanjun.sleepdownschedule.feature.importing.AiReasoningEffort
 import com.xiaomanjun.sleepdownschedule.feature.importing.ChatGptUsageStatus
 import com.xiaomanjun.sleepdownschedule.feature.importing.chatGptReasoningEfforts
@@ -103,57 +101,45 @@ internal fun ChatGptSettingsPanel(
                         else -> null
                     }
                 )
-                Column(
-                    Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    if (auth.isSigningIn) {
-                        DialogLiquidButton(label = "取消登录", backdrop = backdrop,
-                            onClick = { ChatGptAuthManager.cancelLogin() })
-                    } else if (!planEnabled) {
-                        DialogLiquidButton(
-                            label = "使用 ChatGPT 继续", backdrop = backdrop,
-                            modifier = Modifier.fillMaxWidth(), height = 48.dp,
-                            highContrast = true, enabled = !signingOut,
+                if (auth.isSigningIn || !planEnabled) {
+                    Column(Modifier.fillMaxWidth().padding(settingsPreferencePadding()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        SettingsActionButton(
+                            label = if (auth.isSigningIn) "取消登录" else "使用 ChatGPT 继续",
+                            backdrop = backdrop,
+                            modifier = Modifier.fillMaxWidth(), enabled = !signingOut,
+                            monochrome = auth.isSigningIn,
                             onClick = {
-                                actionMessage = null
-                                onBeforeLogin()
-                                ChatGptAuthManager.startLogin(context, requestConsent = signedIn)
+                                if (auth.isSigningIn) {
+                                    ChatGptAuthManager.cancelLogin()
+                                } else {
+                                    actionMessage = null
+                                    onBeforeLogin()
+                                    ChatGptAuthManager.startLogin(context, requestConsent = signedIn)
+                                }
                             }
                         )
-                        Text("将在浏览器安全窗口中完成授权。登录信息仅加密保存在此设备。",
+                        if (!auth.isSigningIn) Text("将在浏览器安全窗口中完成授权。登录信息仅加密保存在此设备。",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    if (account != null && !auth.isSigningIn) {
-                        DialogLiquidButton(
-                            label = "使用其他账号", backdrop = backdrop,
-                            modifier = Modifier.fillMaxWidth(), enabled = !signingOut,
-                            onClick = {
-                                actionMessage = null
-                                onBeforeLogin()
-                                ChatGptAuthManager.startLogin(context, addAccount = true, requestConsent = true)
-                            }
-                        )
-                    }
-                    (actionMessage ?: auth.errorMessage)?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                (actionMessage ?: auth.errorMessage)?.let {
+                    Text(it, modifier = Modifier.padding(settingsPreferencePadding()),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                }
+                if (account != null && !auth.isSigningIn) {
+                    SettingsDivider()
+                    SettingsNavigationRow(title = "使用其他账号", enabled = !signingOut) {
+                        actionMessage = null
+                        onBeforeLogin()
+                        ChatGptAuthManager.startLogin(context, addAccount = true, requestConsent = true)
                     }
                 }
             }
         }
         if (planEnabled) {
-            Column {
-                Row(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    GlassPreferenceCategory("模型与思考", Modifier.weight(1f))
-                    DialogLiquidButton(
-                        label = if (auth.isLoadingModels) "刷新中…" else "刷新模型",
-                        backdrop = backdrop, iconRes = R.drawable.ic_refresh,
-                        monochromeNeutral = true, height = 40.dp, horizontalPadding = 12.dp,
-                        enabled = !auth.isLoadingModels && !auth.isSigningIn && !signingOut,
-                        onClick = { scope.launch { refreshModels() } }
-                    )
-                }
+            GlassPreferenceSection("模型与思考") {
                 SettingsGroup(backdrop = backdrop, config = config, modifier = Modifier.fillMaxWidth()) {
                     if (models.isNotEmpty()) {
                         SleepDownLiquidDropdownPreference(
@@ -161,14 +147,9 @@ internal fun ChatGptSettingsPanel(
                             selectedIndex = models.indexOfFirst { it.slug == selectedModel }.coerceAtLeast(0),
                             title = "当前模型", backdrop = backdrop, config = config,
                             modifier = Modifier.fillMaxWidth(),
-                            insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                            maxHeight = 318.dp, onExpandedChange = {},
+                            enabled = !signingOut,
                             onSelectedIndexChange = { index -> models.getOrNull(index)?.let { onModelsChanged(models, it) } }
                         )
-                    } else {
-                        SettingsInfoRow("可用模型", if (auth.isLoadingModels) "正在读取…" else "暂未获取到模型，请刷新后重试。")
-                    }
-                    if (models.isNotEmpty()) {
                         SettingsDivider()
                         val efforts = chatGptReasoningEfforts(selectedModel)
                         if (efforts.isNotEmpty()) {
@@ -177,14 +158,25 @@ internal fun ChatGptSettingsPanel(
                                 selectedIndex = efforts.indexOf(reasoningEffort).coerceAtLeast(0),
                                 title = "思考强度", backdrop = backdrop, config = config,
                                 modifier = Modifier.fillMaxWidth(),
-                                insideMargin = PaddingValues(horizontal = 14.dp, vertical = 12.dp),
-                                maxHeight = 318.dp, onExpandedChange = {},
+                                enabled = !signingOut,
                                 onSelectedIndexChange = { index -> efforts.getOrNull(index)?.let(onReasoningChanged) }
                             )
                         } else {
                             SettingsInfoRow("思考强度", "当前模型使用默认强度，暂未提供可调档位。")
                         }
+                        SettingsDivider()
                     }
+                    SettingsActionRow(
+                        title = "模型列表",
+                        subtitle = when {
+                            auth.isLoadingModels -> "正在刷新…"
+                            models.isEmpty() -> "暂未获取到模型，请刷新后重试。"
+                            else -> null
+                        },
+                        buttonText = "刷新", iconRes = R.drawable.ic_refresh, backdrop = backdrop,
+                        enabled = !auth.isLoadingModels && !auth.isSigningIn && !signingOut,
+                        onClick = { scope.launch { refreshModels() } },
+                    )
                 }
             }
         }
@@ -204,13 +196,12 @@ internal fun ChatGptSettingsPanel(
                     badgeText = if (planEnabled && usage.limitReached) "用量受限" else null
                 )
                 SettingsDivider()
-                SettingsActionRow(
-                    title = "管理用量", subtitle = "打开 ChatGPT 用量设置", buttonText = "查看",
-                    iconRes = R.drawable.ic_ai_import, backdrop = backdrop,
+                SettingsNavigationRow(
+                    title = "管理用量", subtitle = "打开 ChatGPT 用量设置",
                     onClick = {
                         try { ChatGptBrowser.open(context, "https://chatgpt.com/settings/usage") }
                         catch (error: ChatGptAuthException) { actionMessage = error.message }
-                    }
+                    },
                 )
             }
         }

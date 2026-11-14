@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.overlay
 
+import com.xiaomanjun.sleepdownschedule.transition.legacy.AnchoredPanelMotion
 import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredMorphOpenDurationMillis
 import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredOpenSettleStartFraction
 import com.xiaomanjun.sleepdownschedule.transition.legacy.HomeAnchoredMorphPinchFraction
@@ -431,35 +432,17 @@ class HomeAnchoredMorphGeometryTest {
     }
 
     @Test
-    fun personalizationWrapperDelegatesToTheThreeDotLiquidGeometry() {
-        val helper = homePersonalizationTrajectoryGeometry(
-            source = source,
-            target = destination,
-            rawProgress = 0.47f,
-            pinchDiameterPx = 18f,
-            minimumDropPx = 36f,
-            maximumDropPx = 72f,
-            maximumArcPx = 88f,
-            targetCornerRadiusPx = 28f,
-            sourcePressedScale = 1.04f
-        )
-        val explicit = homeThreeDotMenuTrajectoryGeometry(
-            source = source,
-            target = destination,
-            rawProgress = 0.47f,
-            closing = false,
-            sourceCornerRadiusPx = minOf(source.width, source.height) / 2f,
-            targetCornerRadiusPx = 28f,
-            sourcePressedScale = 1.04f,
-            openingPinchDiameterPx = 18f,
-            openingMinimumDropPx = 36f,
-            openingMaximumDropPx = 72f,
-            openingMaximumArcPx = 88f
-        )
+    fun personalizationDescendsFromItsPressedAnchorBeforeFinishingExpansion() {
+        val start = homePersonalizationTrajectoryGeometry(source, destination, 0f, 28f, 1.04f)
+        val middle = homePersonalizationTrajectoryGeometry(source, destination, 0.5f, 28f, 1.04f)
+        val end = homePersonalizationTrajectoryGeometry(source, destination, 1f, 28f, 1.04f)
 
-        assertRectEquals(explicit.rect, helper.rect)
-        assertEquals(explicit.sourceAlpha, helper.sourceAlpha, Tolerance)
-        assertEquals(explicit.contentAlpha, helper.contentAlpha, Tolerance)
+        assertEquals(source.width * 1.04f, start.rect.width, Tolerance)
+        assertEquals(start.rect.width + (end.rect.width - start.rect.width) * middle.expansionProgress,
+            middle.rect.width, Tolerance)
+        assertTrue(middle.rect.center.y > start.rect.center.y +
+            (end.rect.center.y - start.rect.center.y) * middle.expansionProgress)
+        assertRectEquals(destination, end.rect)
     }
 
     @Test
@@ -487,11 +470,6 @@ class HomeAnchoredMorphGeometryTest {
                 isFullScreen = false,
                 closing = false
             ),
-            Tolerance
-        )
-        assertEquals(
-            0f,
-            homeMenuDestinationOpeningContentBlurMix(rawProgress = 0.62f, isFullScreen = false),
             Tolerance
         )
     }
@@ -560,7 +538,7 @@ class HomeAnchoredMorphGeometryTest {
     @Test
     fun bothOverlayCloseDurationsAreShorterThanOpening() {
         assertTrue(HomeAddMenuMorphCloseDurationMillis < HomeAnchoredMorphOpenDurationMillis)
-        assertTrue(HomePersonalizeMorphCloseDurationMillis < HomeAnchoredMorphOpenDurationMillis)
+        assertTrue(AnchoredPanelMotion.CloseDurationMillis < HomeAnchoredMorphOpenDurationMillis)
     }
 
     @Test
@@ -746,43 +724,6 @@ class HomeAnchoredMorphGeometryTest {
         assertEquals(content.right, personalize.right, Tolerance)
         assertTrue(personalize.top >= content.top)
         assertTrue(personalize.bottom <= content.bottom)
-    }
-
-    @Test
-    fun personalizationBackdropBlurFollowsMorphAndSliderPreview() {
-        assertEquals(0f, personalizeBackdropBlurLayerProgress(0f, 0f), Tolerance)
-        assertEquals(1f, personalizeBackdropBlurLayerProgress(1f, 0f), Tolerance)
-        assertEquals(0f, personalizeBackdropBlurLayerProgress(1f, 1f), Tolerance)
-
-        val opening = personalizeBackdropBlurLayerProgress(0.30f, 0f)
-        val dragging = personalizeBackdropBlurLayerProgress(1f, 0.45f)
-        assertTrue(opening in 0f..1f)
-        assertTrue(opening > 0f && opening < 1f)
-        assertEquals(0.55f, dragging, Tolerance)
-    }
-
-    @Test
-    fun personalizationAuraGeometryPreservesLegacyOffsetAndMeasuredSize() {
-        val geometry = HomeAnchoredMorphGeometry(
-            rect = Rect(40f, 80f, 240f, 380f),
-            cornerRadiusPx = 28f,
-            sourceScale = 1f,
-            sourceAlpha = 0f,
-            surfaceAlpha = 1f,
-            contentAlpha = 1f,
-            pathProgress = 0.5f,
-            expansionProgress = 0.25f
-        )
-
-        val aura = homePersonalizationAuraGeometry(
-            geometry = geometry,
-            leftFeatherMaximumPx = 104f,
-            rightFeatherPx = 56f,
-            verticalFeatherPx = 56f
-        )
-
-        assertRectEquals(Rect(14f, 24f, 296f, 436f), aura.rectInRoot)
-        assertEquals(0f, aura.cornerRadiusPx, Tolerance)
     }
 
     private fun geometry(

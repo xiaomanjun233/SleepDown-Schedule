@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
+import com.xiaomanjun.sleepdownschedule.transition.LiveTransitionSourceView
+import com.xiaomanjun.sleepdownschedule.transition.captureTransitionPress
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -16,11 +19,9 @@ import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.rememberGraphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -28,8 +29,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import com.xiaomanjun.sleepdownschedule.core.ui.chrome.LiquidHomeDockHeight
+import androidx.compose.ui.viewinterop.AndroidView
+import com.xiaomanjun.sleepdownschedule.core.ui.material.DockImportSource
+import com.xiaomanjun.sleepdownschedule.core.ui.interaction.findActivity
 import androidx.compose.ui.util.lerp
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.catalog.utils.InteractiveHighlight
@@ -39,9 +45,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.homeChromeGlassSurfaceAlp
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownFloatingAddButton
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.dockImeCompensationPx
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.excludeParentPullGesture
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeButtonAccent
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialStyle
 import com.xiaomanjun.sleepdownschedule.glass.ui.LocalAdaptiveGlass
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.withRecordingDensity
@@ -64,50 +67,19 @@ internal fun homeDockImportButtonGlassColor(light: Boolean): Color {
         1f else homeChromeGlassSurfaceAlpha(light))
 }
 
-/** The return endpoint is the resting button, without the captured press deformation. */
-@Composable
-internal fun HomeImportButtonReturnVisual(
-    backdrop: Backdrop?, config: ScheduleConfigEntity, modifier: Modifier = Modifier,
-    sourceLayer: GraphicsLayer? = null
-) {
-    if (sourceLayer != null && LocalHomeMaterialStyle.current != null) {
-        Box(modifier.drawWithContent {
-            if (sourceLayer.size.width > 0 && sourceLayer.size.height > 0) {
-                scale(size.width / sourceLayer.size.width, size.height / sourceLayer.size.height, pivot = Offset.Zero) {
-                    drawLayer(sourceLayer)
-                }
-            }
-        })
-        return
-    }
-    if (LocalHomeMaterialControls.current.FloatingButtonVisual(dark = !LocalAdaptiveGlass.current.lightGlass, modifier = modifier)) return
-    SleepDownFloatingAddButton(
-        backdrop = backdrop,
-        contentDescription = "添加与导入",
-        onClick = {},
-        surfaceColor = homeDockImportButtonGlassColor(LocalAdaptiveGlass.current.lightGlass),
-        blurRadius = homeChromeBlur(1.3.dp, config),
-        enabled = false,
-        modifier = modifier
-    )
-}
-
-/** Owns only the Dock split. Menus and their destinations use the shared anchored overlay host. */
+/** Owns the Dock split and supplies the live plus source to the page transition. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ParallelHomeDock(
     selectedIndex: Int, config: ScheduleConfigEntity, backdrop: Backdrop,
-    onSelect: (Int) -> Unit, onOpenMenu: (Rect, GraphicsLayer) -> Unit,
+    onSelect: (Int) -> Unit, onOpenMenu: (DockImportSource) -> Unit,
     buttonHidden: Boolean = false,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onPlusPositioned: (Rect) -> Unit = {}
 ) {
     val homeSelected = selectedIndex < 2
     val adaptiveGlass = LocalAdaptiveGlass.current
     val light = if (homeSelected) adaptiveGlass.lightGlass else !appUsesDarkTheme(config)
-    if (LocalHomeMaterialControls.current.ParallelDock(
-            selectedIndex = selectedIndex, dark = !light, buttonHidden = buttonHidden,
-            modifier = modifier, onSelect = onSelect, onOpenMenu = onOpenMenu
-        )) return
     val ink by animateColorAsState(
         if (homeSelected) adaptiveGlass.contentColor else if (light) Color.Black else Color.White,
         tween(220), label = "ParallelDockInk")
@@ -118,7 +90,7 @@ internal fun ParallelHomeDock(
     LaunchedEffect(homeSelected) {
         val target = if (homeSelected) 1f else 0f
         if (split.value == target) return@LaunchedEffect
-        split.animateTo(target, tween(460, easing = HomeDropletEasing))
+        split.animateTo(target, HomeDockSplitSpec)
     }
     var buttonBounds by remember { mutableStateOf(Rect.Zero) }
     val returnButtonLayer = rememberGraphicsLayer()
@@ -126,6 +98,11 @@ internal fun ParallelHomeDock(
     val plusInteraction = remember(interactionScope) { InteractiveHighlight(interactionScope) }
     val density = LocalDensity.current
     val recordingDensity = density
+    val direction = androidx.compose.ui.platform.LocalLayoutDirection.current
+    val activity = androidx.compose.ui.platform.LocalContext.current.findActivity()
+    val plusView = remember(activity, returnButtonLayer) {
+        activity?.let { LiveTransitionSourceView(it, returnButtonLayer, density, direction) }
+    }
     val systemBottom = WindowInsets.navigationBarsIgnoringVisibility.getBottom(density)
     val bottomInset = with(density) { systemBottom.toDp() }
     val imeCompensation = dockImeCompensationPx(WindowInsets.ime.getBottom(density), systemBottom)
@@ -139,12 +116,20 @@ internal fun ParallelHomeDock(
             derivedStateOf { with(density) {
                 val s = split.value.coerceIn(0f, 1f)
                 val dockX = ((groupWidth - dockWidth) / 2).toPx() * (1f - s)
-                Rect(dockX, dockTop.toPx(), dockX + dockWidth.toPx(), dockTop.toPx() + 54.dp.toPx())
+                Rect(dockX, dockTop.toPx(), dockX + dockWidth.toPx(), dockTop.toPx() + LiquidHomeDockHeight.toPx())
             } }
         }
         val buttonInteractive = homeSelected && splitReady && !buttonHidden
+        val buttonOffset: Density.() -> IntOffset = {
+            val s = split.value.coerceIn(0f, 1f)
+            val body = dockBounds.value
+            IntOffset(
+                lerp(body.right - 54.dp.toPx(), (groupWidth - 54.dp).toPx(), s).roundToInt(),
+                (body.top - 3.dp.toPx() * sin(PI * s).toFloat()).roundToInt()
+            )
+        }
         Box(Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset + 8.dp)
-            .width(groupWidth).height(dockTop + 54.dp).graphicsLayer { translationY = imeCompensation.toFloat() }) {
+            .width(groupWidth).height(dockTop + LiquidHomeDockHeight).graphicsLayer { translationY = imeCompensation.toFloat() }) {
             // Keep the original LiquidButton mounted throughout the split. Its glass, shadow,
             // refraction and press response use the same renderer at rest and while travelling.
             // Clip its returning part behind the Dock even though the Dock itself is translucent.
@@ -153,33 +138,42 @@ internal fun ParallelHomeDock(
                 val mask = Path().apply { addRoundRect(RoundRect(body, CornerRadius(body.height / 2f))) }
                 clipPath(mask, ClipOp.Difference) { this@drawWithContent.drawContent() }
             }) {
+                if (plusView != null) AndroidView(
+                    factory = { plusView },
+                    modifier = Modifier.offset(buttonOffset).size(54.dp),
+                    update = { it.updatePresentation(density, direction, render = !buttonHidden) },
+                )
                 SleepDownFloatingAddButton(onClick = {
                     if (buttonBounds.width > 1f && buttonBounds.height > 1f) {
-                        onOpenMenu(buttonBounds, returnButtonLayer)
+                        onOpenMenu(DockImportSource(
+                            buttonBounds, returnButtonLayer, plusView
+                        ))
                     }
-                }, backdrop = backdrop, contentDescription = "添加与导入", enabled = buttonInteractive,
-                    modifier = Modifier.offset {
-                        val s = split.value.coerceIn(0f, 1f)
-                        val body = dockBounds.value
-                        IntOffset(
-                            lerp(body.right - 54.dp.toPx(), (groupWidth - 54.dp).toPx(), s).roundToInt(),
-                            (body.top - 3.dp.toPx() * sin(PI * s).toFloat()).roundToInt()
-                        )
-                    }.size(54.dp)
-                        .onGloballyPositioned { buttonBounds = it.boundsInRoot() }
+                }, backdrop = backdrop, contentDescription = "导入课表", enabled = buttonInteractive,
+                    modifier = Modifier.offset(buttonOffset).size(54.dp)
+                        .onGloballyPositioned {
+                            buttonBounds = it.boundsInRoot()
+                            if (homeSelected) onPlusPositioned(buttonBounds)
+                        }
                         .drawWithContent {
-                            // Hidden disables LiquidButton's press transform. Record that resting
-                            // endpoint for an eventual Activity handoff, without reading a bitmap
-                            // (or recording the cropped pressed button) on the opening tap.
+                            if (buttonHidden || plusView?.hiddenForLegacyMorph == true) return@drawWithContent
+                            // The attached View presents the actual button layer.
                             returnButtonLayer.record {
                                 // Pin LocalDensity: record's delegated density otherwise recurses.
                                 withRecordingDensity(recordingDensity) {
                                     this@drawWithContent.drawContent()
                                 }
                             }
-                            if (!buttonHidden) drawLayer(returnButtonLayer)
+                            if (!buttonHidden && (plusView == null || !plusView.isAttachedToWindow || plusView.width <= 0)) {
+                                drawLayer(returnButtonLayer)
+                            } else if (!buttonHidden && plusView?.showsOverflow == true) {
+                                clipRect(0f, 0f, size.width, size.height, ClipOp.Difference) {
+                                    drawLayer(returnButtonLayer)
+                                }
+                            }
                         }
-                        .then(if (buttonInteractive) plusInteraction.gestureModifier else Modifier)
+                        .then(if (buttonInteractive) Modifier.captureTransitionPress(plusView, activity?.window)
+                            .then(plusInteraction.gestureModifier) else Modifier)
                         .excludeParentPullGesture()
                         .then(if (buttonInteractive) Modifier.semantics { testTag = "parallel_import_button" }
                             else Modifier.clearAndSetSemantics {}),

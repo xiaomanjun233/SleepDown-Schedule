@@ -5,6 +5,9 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RectF
 import android.net.Uri
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -17,10 +20,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.dp
 import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.DialogLiquidButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.WallpaperCropState
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.calculateFocusCropRect
@@ -54,19 +55,14 @@ internal fun AutoRefreshAvatarCropDialog(
         if (bitmap == null) error = "图片读取失败，请重新选择"
     }
     SleepDownPickerDialog(
-        show = show, title = "裁切头像", backdrop = backdrop, config = config,
+        show = show, title = "裁切头像", config = config,
         onDismissRequest = { if (!saving) onDismiss() },
         onDismissFinished = onDismissFinished,
         scrollableContent = true,
-        bottomActions = {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                DialogLiquidButton(
-                    backdrop, "取消", { if (!saving) onDismiss() }, Modifier.weight(1f),
-                    monochromeNeutral = true
-                )
-                DialogLiquidButton(
-                    backdrop, if (saving) "保存中…" else "完成",
-                    onClick = {
+        actions = listOf(
+            LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel, enabled = !saving, onClick = onDismiss),
+            LiquidAlertAction(if (saving) "保存中…" else "完成", LiquidAlertActionStyle.Primary,
+                enabled = bitmap != null && !saving, dismissOnClick = false, onClick = {
                         val source = bitmap
                         if (source != null && !saving) {
                             saving = true
@@ -106,11 +102,8 @@ internal fun AutoRefreshAvatarCropDialog(
                                 }
                             }
                         }
-                    },
-                    modifier = Modifier.weight(1f), monochromeNeutral = true
-                )
-            }
-        }
+                    })
+        )
     ) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(1f).clip(CircleShape)

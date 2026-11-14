@@ -3,6 +3,9 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.overlay
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import com.xiaomanjun.sleepdownschedule.transition.legacy.AnchoredPanelMotion
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -27,7 +30,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,8 +84,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.morphDismissSwipe
 
@@ -109,12 +111,10 @@ internal fun HomeAnchoredMorphOverlayHost(
     sourceContent: @Composable BoxScope.(HomeAnchoredOverlayKind, Modifier) -> Unit,
     personalizeContent: @Composable (Modifier) -> Unit
 ) {
-    val preloadContent = true
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
     var renderedRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
-    var panelContentPrepared by remember { mutableStateOf(false) }
-    var panelContentLaidOut by remember { mutableStateOf(false) }
+    var panelLayout by remember { mutableStateOf<CompletableDeferred<Unit>?>(null) }
     val addMenuSurfacePrepared = remember { AtomicBoolean(false) }
     var rootSize by remember { mutableStateOf(IntSize.Zero) }
     val latestOnDismissRequest by rememberUpdatedState(onDismissRequest)
@@ -129,10 +129,12 @@ internal fun HomeAnchoredMorphOverlayHost(
             if (!resuming) {
                 motionState.retarget.reset()
                 motionState.backgroundRetarget.reset()
+                val layout = if (request.kind == HomeAnchoredOverlayKind.Personalize) {
+                    CompletableDeferred<Unit>()
+                } else null
+                panelLayout = layout
                 renderedRequest = request
                 addMenuSurfacePrepared.set(false)
-                panelContentPrepared = request.kind != HomeAnchoredOverlayKind.Personalize || preloadContent
-                panelContentLaidOut = false
                 motionState.renderedKind = request.kind
                 motionState.phase = HomeAnchoredOverlayPhase.Preparing
                 motionState.progress.snapTo(0f)
@@ -143,9 +145,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                     waitedFrames++
                 }
                 latestAwaitOpeningGate()
-                if (request.kind == HomeAnchoredOverlayKind.Personalize && preloadContent) {
-                    snapshotFlow { panelContentLaidOut }.first { it }
-                }
+                layout?.await()
                 if (request.kind == HomeAnchoredOverlayKind.Add) {
                     // Prepare the retained panel before the first visible motion frame.
                     var surfaceFrames = 0
@@ -156,25 +156,24 @@ internal fun HomeAnchoredMorphOverlayHost(
                 }
             }
             motionState.phase = HomeAnchoredOverlayPhase.Opening
+            val personalizing = request.kind == HomeAnchoredOverlayKind.Personalize
             coroutineScope {
                 launch {
                     motionState.retarget.animate(motionState.progress, 1f,
-                        if (request.kind == HomeAnchoredOverlayKind.Personalize) HomePersonalizeMorphOpenDurationMillis
-                        else HomeAddMenuMorphOpenDurationMillis, continuation = motionState.curveContinuity)
+                        if (personalizing) AnchoredPanelMotion.OpenDurationMillis else HomeAddMenuMorphOpenDurationMillis,
+                        continuation = motionState.curveContinuity.takeUnless { personalizing })
                 }
-                if (request.kind == HomeAnchoredOverlayKind.Personalize && !adaptiveMetrics.isLargeScreen) {
+                if (personalizing && !adaptiveMetrics.isLargeScreen) {
                     launch {
                         motionState.backgroundRetarget.animate(motionState.backgroundZoom, HomeAnchoredMorphBackgroundScale,
-                            HomePersonalizeMorphOpenDurationMillis, HomeAnchoredBackgroundEasing,
-                            if (resuming) 0 else HomeAnchoredMorphBackgroundDelayMillis)
+                            AnchoredPanelMotion.OpenDurationMillis, FastOutSlowInEasing)
                     }
                 }
             }
             motionState.phase = HomeAnchoredOverlayPhase.Open
-            if (request.kind == HomeAnchoredOverlayKind.Personalize && !preloadContent) withFrameNanos { }
-            panelContentPrepared = true
         } else if (renderedRequest != null) {
-            if (preloadContent && renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize) {
+            val personalizing = renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize
+            if (personalizing) {
                 focusManager.clearFocus(force = true)
                 keyboard?.hide()
             }
@@ -186,37 +185,34 @@ internal fun HomeAnchoredMorphOverlayHost(
                 motionState.progress.snapTo(0f)
                 motionState.backgroundZoom.snapTo(1f)
                 motionState.phase = HomeAnchoredOverlayPhase.Disposing
-                panelContentPrepared = false
                 renderedRequest = null
+                panelLayout = null
                 motionState.renderedKind = null
                 motionState.phase = HomeAnchoredOverlayPhase.Idle
                 latestOnSilentDisposed()
             } else {
-                if (renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize && !preloadContent) {
-                    panelContentPrepared = false
-                }
                 motionState.phase = HomeAnchoredOverlayPhase.Closing
                 coroutineScope {
                     launch {
                         motionState.retarget.animate(motionState.progress, 0f,
-                            if (renderedRequest?.kind == HomeAnchoredOverlayKind.Personalize) HomePersonalizeMorphCloseDurationMillis
-                            else HomeAddMenuMorphCloseDurationMillis, continuation = motionState.curveContinuity)
+                            if (personalizing) AnchoredPanelMotion.CloseDurationMillis else HomeAddMenuMorphCloseDurationMillis,
+                            easing = if (personalizing) AnchoredPanelMotion.CloseEasing else LinearEasing,
+                            continuation = motionState.curveContinuity.takeUnless { personalizing })
                     }
                     if (motionState.backgroundZoom.value > 1.0001f) {
                         launch {
                             motionState.backgroundRetarget.animate(motionState.backgroundZoom, 1f,
-                                HomePersonalizeMorphCloseDurationMillis, HomeAnchoredBackgroundEasing)
+                                AnchoredPanelMotion.CloseDurationMillis, FastOutSlowInEasing)
                         }
                     }
                 }
                 motionState.phase = HomeAnchoredOverlayPhase.Disposing
-                panelContentPrepared = false
                 renderedRequest = null
+                panelLayout = null
                 motionState.renderedKind = null
                 motionState.phase = HomeAnchoredOverlayPhase.Idle
             }
         } else {
-            panelContentPrepared = false
             motionState.progress.snapTo(0f)
             motionState.backgroundZoom.snapTo(1f)
             motionState.renderedKind = null
@@ -279,20 +275,18 @@ internal fun HomeAnchoredMorphOverlayHost(
             }
         }
         if (shown.kind == HomeAnchoredOverlayKind.Personalize) {
-            key(shown, adaptiveMetrics.profile) {
+            val layout = panelLayout ?: return@Box
+            key(shown, adaptiveMetrics.profile, layout) {
                 HomePersonalizationAnimatedOverlay(
                     sourceBounds = shown.sourceBoundsInRoot,
                     sourcePressedScale = shown.sourcePressedScale,
                     targetRect = targetRect,
-                    rootSize = rootSize,
+                    maximumArcPx = with(density) { adaptiveMetrics.animationArc.toPx() },
                     motionState = motionState,
                     backdrop = backdrop,
                     config = config,
-                    adaptiveMetrics = adaptiveMetrics,
                     previewProgress = personalizePreviewProgress,
-                    contentMounted = panelContentPrepared,
-                    contentDuringMotion = preloadContent,
-                    onContentLaidOut = { panelContentLaidOut = true },
+                    onContentLaidOut = { layout.complete(Unit) },
                     onDismissRequest = { latestOnDismissRequest() },
                     sourceContent = { sourceModifier ->
                         sourceContent(HomeAnchoredOverlayKind.Personalize, sourceModifier)
@@ -396,7 +390,7 @@ internal fun HomeAnchoredMorphOverlayHost(
             val innerY = targetPosition.y - menuContentTopPaddingPx
             // The divider/section spacing is visual only. Fold its hit area into the
             // nearest action so sliding through them never drops gesture ownership. In particular,
-            // the full strip below the mode switch belongs to the first "添加单节课" action.
+            // the full strip below the mode switch belongs to the first action.
             return homeAddMenuHitIndex(
                 y = innerY,
                 modeHeight = menuModeHeightPx,
@@ -524,7 +518,7 @@ internal fun HomeAnchoredMorphOverlayHost(
                     shape = settledSurfaceShape,
                     shapeProvider = { RoundedRectangle(with(density) { geometry.value.cornerRadiusPx.toDp() }) },
                     dark = LocalHomeMaterialStyle.current?.dark ?: !glassUsesLightStyle(config),
-                    followTouch = true
+                    followTouch = true, backdrop = backdrop
                 ), neutral = LocalHomeMaterialStyle.current?.weatherMaterial == true,
                     touchSource = nativeMenuTouch, motion = nativeMenuMotion)
             ) {} == true

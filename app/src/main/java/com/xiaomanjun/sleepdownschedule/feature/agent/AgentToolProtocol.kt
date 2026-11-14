@@ -76,6 +76,10 @@ internal fun decodeAgentToolCall(id: String, rawName: String, input: JsonElement
         AgentToolName.GET_ACTION_GUIDE -> setOf("area")
         AgentToolName.PROPOSE_ACTIONS -> setOf("actionsJson", "summary")
         AgentToolName.PATCH_IMPORT_JSON -> setOf("revision", "operationsJson", "summary")
+        AgentToolName.READ_IMPORT_MATERIAL -> setOf("file", "offset", "page")
+        AgentToolName.VIEW_IMPORT_DETAIL -> setOf("file", "page", "left", "top", "right", "bottom")
+        AgentToolName.TASK_WORKSPACE -> setOf("operation", "path", "text", "expectedHash", "oldText", "newText", "inputJson")
+        AgentToolName.EDU_WORKSPACE -> setOf("operation", "adapterKey", "url", "method", "body", "path", "expectedHash", "name", "reason")
         else -> emptySet()
     }
     val error = when {
@@ -96,21 +100,26 @@ internal fun decodeAgentToolCall(id: String, rawName: String, input: JsonElement
 /** A turn executes each normalized call at most once, including failures and memory writes. */
 internal class AgentTurnToolSession(
     cached: Map<String, AgentToolResult> = emptyMap(),
+    private val harness: com.xiaomanjun.sleepdownschedule.core.ai.AgentHarness = com.xiaomanjun.sleepdownschedule.core.ai.AgentHarness(6),
     private val execute: (AgentToolCall) -> AgentToolResult
 ) {
     private val results = cached.toMutableMap()
     private var memoryAttempted = false
-    fun run(call: AgentToolCall): AgentToolResult {
+    fun run(call: AgentToolCall): AgentToolResult = harness.tool(call.id, call.name.name, call.cacheKey(),
+        conflict = { AgentToolResult(call.id, call.name, false, "同一个工具调用 ID 的参数发生变化，请使用新的调用 ID。") },
+        execute = { executeOnce(call) })
+
+    private fun executeOnce(call: AgentToolCall): AgentToolResult {
         // Import reads are mutable workspace reads; patches carry an optimistic revision. Never
         // replay an earlier success or stale read across a validated editing checkpoint.
-        if (call.name == AgentToolName.READ_IMPORT_JSON || call.name == AgentToolName.PATCH_IMPORT_JSON) {
+        if (call.name in setOf(AgentToolName.READ_IMPORT_JSON, AgentToolName.PATCH_IMPORT_JSON,
+                AgentToolName.READ_IMPORT_MATERIAL, AgentToolName.VIEW_IMPORT_DETAIL,
+                AgentToolName.TASK_WORKSPACE, AgentToolName.EDU_WORKSPACE)) {
             return call.validationError?.let { AgentToolResult(call.id, call.name, false, it) } ?: execute(call)
         }
         val key = call.cacheKey()
         results[key]?.let { previous ->
-            return previous.copy(callId = call.id, content = if (previous.success) {
-                "复用此前 ${previous.callId} 的同一查询结果；数据未变化，无需再次调用。"
-            } else previous.content)
+            return previous.copy(callId = call.id, content = if (previous.success) "复用此前查询的完整结果：\n${previous.content}" else previous.content)
         }
         val result = when {
             call.validationError != null -> AgentToolResult(call.id, call.name, false, call.validationError)

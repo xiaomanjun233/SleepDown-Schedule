@@ -11,6 +11,12 @@ import com.xiaomanjun.sleepdownschedule.domain.agent.prepareAgentCoursePlan
 import com.xiaomanjun.sleepdownschedule.domain.agent.verifyAgentPlan
 import com.xiaomanjun.sleepdownschedule.domain.course.conflictsWith
 import com.xiaomanjun.sleepdownschedule.domain.schedule.CourseAlignmentImpact
+import com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodTimelineSession
+import com.xiaomanjun.sleepdownschedule.domain.schedule.ScheduleRoutines
+import com.xiaomanjun.sleepdownschedule.domain.schedule.alignedRoutineTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.hasSamePeriodTopology
+import com.xiaomanjun.sleepdownschedule.domain.schedule.mapCoursesForRoutineCopy
+import com.xiaomanjun.sleepdownschedule.domain.schedule.materializeForTimeline
 import com.xiaomanjun.sleepdownschedule.domain.schedule.arrangementForWrite
 import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
 import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeCoursePeriodTimes
@@ -24,14 +30,22 @@ import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
 import com.xiaomanjun.sleepdownschedule.domain.schedule.schemeConfig
 import com.xiaomanjun.sleepdownschedule.domain.schedule.withEffectiveCourseArrangements
 import com.xiaomanjun.sleepdownschedule.domain.schedule.timingPreviewState
+import com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotCourse
+import com.xiaomanjun.sleepdownschedule.domain.schedule.decodeTimeSlotCourses
+import com.xiaomanjun.sleepdownschedule.domain.schedule.editTimeSlotCourse
+import com.xiaomanjun.sleepdownschedule.domain.schedule.encodeTimeSlotCourses
 import com.xiaomanjun.sleepdownschedule.domain.schedule.resolveCourseOccurrence
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments
 import com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset
 import com.xiaomanjun.sleepdownschedule.model.PeriodAlignmentMode
+import com.xiaomanjun.sleepdownschedule.model.TimetableComboEntity
+import com.xiaomanjun.sleepdownschedule.model.TimetableDateRuleEntity
+import com.xiaomanjun.sleepdownschedule.model.courseNameGroupKey
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentActionScope
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedAction
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedActionType
 import com.xiaomanjun.sleepdownschedule.model.withImportedCourseCardDefaults
+import java.time.LocalDate
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -118,6 +132,182 @@ class ScheduleRepository(private val database: AppDatabase) {
     private suspend fun readSchemeDraft(scheme: PeriodSchemeEntity) = PeriodSchemeDraft(
         scheme, periodSchemeDao.getTimes(scheme.id), decodeSpecialBreaks(scheme.specialBreaksJson),
         decodeOverrides(scheme.overridesJson))
+
+    internal suspend fun loadScheduleRoutines(scheduleId: Int): ScheduleRoutines = database.withTransaction {
+        ensureScheduleData(scheduleId)
+        readScheduleRoutines(scheduleId)
+    }
+
+    private suspend fun readScheduleRoutines(scheduleId: Int): ScheduleRoutines {
+        val config = configDao.getConfig(scheduleId) ?: error("课表已不存在")
+        val gridId = requireNotNull(config.activePeriodSchemeId) { "课表缺少基准作息" }
+        val combo = config.activeTimetableComboId?.let { id ->
+            timetableDao.getCombos().firstOrNull { it.id == id } ?: error("课表的日期作息已不存在")
+        }
+        val rules = if (combo == null) emptyList() else timetableDao.getRules().filter { it.comboId == combo.id }
+        val ids = (listOfNotNull(gridId, combo?.baseSchemeId) + rules.map { it.schemeId }).distinct()
+        val schemes = ids.map { id ->
+            readSchemeDraft(periodSchemeDao.getScheme(id) ?: error("课表引用的作息已不存在"))
+        }
+        return ScheduleRoutines(config, combo, rules, schemes, courseDao.getCourses(scheduleId).sortedBy { it.id })
+    }
+
+    internal suspend fun saveScheduleRoutine(
+        original: ScheduleRoutines,
+        edited: PeriodTimelineSession,
+        rules: List<TimetableDateRuleEntity>,
+        copyTarget: ScheduleRoutines? = null,
+    ): ScheduleRoutines = database.withTransaction {
+        val source = checkScheduleRoutines(original)
+        val target = copyTarget?.let { checkScheduleRoutines(it) } ?: source
+        val copying = source.config.id != target.config.id
+        val editedById = edited.draft.schemes.associateBy { it.scheme.id }
+        val originalIds = source.schemes.map { it.scheme.id }.toSet()
+        require(editedById.keys.containsAll(originalIds)) { "作息列表已有变化，请重新打开" }
+        val addedIds = editedById.keys - originalIds
+        val addedId = addedIds.singleOrNull()
+        require(addedIds.isEmpty() || !copying && addedId != null && addedId < 0 &&
+            addedId == edited.draft.activeSchemeId) { "新作息无效，请重新添加" }
+        val ruleLinks = source.rules.map { it.position to it.schemeId } +
+            listOfNotNull(addedId?.let { source.rules.size to it })
+        require(rules.map { it.position to it.schemeId } == ruleLinks) { "日期安排已变化，请重新打开作息" }
+        if (addedId != null) require(rules.size <= 24) { "最多支持 24 条日期安排" }
+        rules.forEachIndexed { index, rule ->
+            require(rule == source.rules.getOrNull(index) || rules.none {
+                it.position != rule.position && it.startDate == rule.startDate && it.endDate == rule.endDate
+            }) { "该日期范围已有作息，请调整生效日期" }
+        }
+
+        val structureChanged = !source.config.hasSamePeriodTopology(edited.config) ||
+            hasNetPeriodTopologyChange(source.grid.times.size, edited.draft.topologyOperations)
+        require(!structureChanged || source.canChangeStructure) {
+            "此课表含不连续的原始节次，只能调整已存在节次的时间"
+        }
+        val openingId = edited.draft.activeSchemeId.takeUnless { it == addedId } ?: source.regularId
+        val opening = source.timeline(openingId)
+        val originalById = opening.draft.schemes.associateBy { it.scheme.id }
+        val updatedDrafts = source.schemes.map { raw ->
+            val id = raw.scheme.id
+            val before = originalById.getValue(id).materializeForTimeline(opening.config)
+            val editedDraft = editedById.getValue(id).materializeForTimeline(edited.config)
+            val after = if (editedDraft.scheme.name == before.scheme.name) editedDraft
+                else editedDraft.withValidatedName()
+            when {
+                !structureChanged && before == after -> raw
+                !structureChanged && before.copy(scheme = before.scheme.copy(name = after.scheme.name)) == after ->
+                    raw.copy(scheme = raw.scheme.copy(name = after.scheme.name))
+                else -> {
+                    // Retain unedited sparse overrides and their original fallback behavior.
+                    val times = if (structureChanged || id == source.gridId || id == source.regularId) after.times
+                    else {
+                        val old = before.times.associateBy { it.periodIndex }
+                        val changed = after.times.filter { it != old[it.periodIndex] }
+                        (raw.times.associateBy { it.periodIndex } + changed.associateBy { it.periodIndex })
+                            .values.sortedBy { it.periodIndex }
+                    }
+                    after.withRoutineCounts(edited.config).copy(times = times)
+                }
+            }
+        } + listOfNotNull(addedId?.let {
+            editedById.getValue(it).materializeForTimeline(edited.config).withValidatedName().withRoutineCounts(edited.config)
+        })
+        val proposed = source.copy(config = edited.config, rules = rules, schemes = updatedDrafts)
+        validateRoutineBindings(proposed.grid, proposed.regular, rules, updatedDrafts)
+        val mapped = when {
+            copying -> mapCoursesForRoutineCopy(target, proposed)
+            structureChanged -> coursesAfterSchemeEdit(target.courses, target.config, edited.config, target.gridPeriods(),
+                proposed.grid.times, edited.draft.topologyOperations)
+            else -> target.courses
+        }
+
+        val storedById = source.schemes.associateBy { it.scheme.id }
+        val replacements = updatedDrafts.associate { draft ->
+            val id = draft.scheme.id
+            id to if (!copying && draft == storedById[id]) draft else insertRoutineCopy(draft)
+        }
+        val grid = replacements.getValue(source.gridId)
+        val regular = replacements.getValue(source.regularId)
+        val updatedRules = rules.map { rule -> rule.copy(schemeId = replacements.getValue(rule.schemeId).scheme.id) }
+        if (mapped != target.courses) courseDao.insertCourses(mapped)
+        saveRoutineBindings(target.config, grid, regular.scheme.id, updatedRules, source.combo?.name)
+    }
+
+    private fun PeriodSchemeDraft.withValidatedName(): PeriodSchemeDraft {
+        val name = scheme.name.trim()
+        require(name.isNotEmpty() && name.length <= 60) { "作息名称须为 1 至 60 个字符" }
+        return copy(scheme = scheme.copy(name = name))
+    }
+
+    private fun PeriodSchemeDraft.withRoutineCounts(config: ScheduleConfigEntity): PeriodSchemeDraft =
+        copy(scheme = scheme.copy(
+            morningPeriodCount = config.morningPeriodCount,
+            noonPeriodCount = config.noonPeriodCount,
+            afternoonPeriodCount = config.afternoonPeriodCount,
+            eveningPeriodCount = config.eveningPeriodCount,
+        ))
+
+    internal suspend fun deleteScheduleRoutine(original: ScheduleRoutines, schemeId: Long): ScheduleRoutines =
+        database.withTransaction {
+            val current = checkScheduleRoutines(original)
+            require(schemeId != current.regularId && schemeId != current.gridId) { "请保留课表的常规作息" }
+            require(current.rules.any { it.schemeId == schemeId }) { "这套作息已从课表移除" }
+            saveRoutineBindings(current.config, current.grid, current.regularId,
+                current.rules.filterNot { it.schemeId == schemeId }, current.combo?.name)
+        }
+
+    private suspend fun checkScheduleRoutines(expected: ScheduleRoutines): ScheduleRoutines {
+        val current = readScheduleRoutines(expected.config.id)
+        require(current == expected) { "课表或作息已有变化，请重新打开后确认" }
+        return current
+    }
+
+    private suspend fun insertRoutineCopy(draft: PeriodSchemeDraft): PeriodSchemeDraft {
+        val scheme = draft.scheme.copy(id = 0, scheduleId = 0, isActive = false,
+            publicId = java.util.UUID.randomUUID().toString(),
+            specialBreaksJson = encodeSpecialBreaks(draft.specialBreaks),
+            overridesJson = encodeOverrides(draft.overriddenPeriods))
+        val id = periodSchemeDao.upsertScheme(scheme)
+        val times = draft.times.map { it.copy(schemeId = id) }
+        periodSchemeDao.upsertTimes(times)
+        return draft.copy(scheme = scheme.copy(id = id), times = times)
+    }
+
+    private fun validateRoutineBindings(
+        grid: PeriodSchemeDraft,
+        regular: PeriodSchemeDraft,
+        rules: List<TimetableDateRuleEntity>,
+        schemes: Collection<PeriodSchemeDraft>,
+    ) {
+        require(grid.times.isNotEmpty() && regular.times.isNotEmpty()) { "常规作息缺少节次时间" }
+        validateResolvedPeriodTimes(grid.times)?.let { error(it) }
+        validateResolvedPeriodTimes(regular.times)?.let { error(it) }
+        val byId = schemes.associateBy { it.scheme.id }
+        for (rule in rules) {
+            require(LocalDate.parse(rule.startDate) <= LocalDate.parse(rule.endDate)) { "结束日期不能早于开始日期" }
+            val alternate = byId.getValue(rule.schemeId)
+            require(alternate.times.isNotEmpty()) { "“${alternate.scheme.name}”缺少节次时间" }
+            validateResolvedPeriodTimes(alignedRoutineTimes(regular.times, alternate.times))?.let {
+                error("“${alternate.scheme.name}”的日期作息有冲突，$it")
+            }
+        }
+    }
+
+    private suspend fun saveRoutineBindings(
+        config: ScheduleConfigEntity,
+        grid: PeriodSchemeDraft,
+        regularId: Long,
+        rules: List<TimetableDateRuleEntity>,
+        comboName: String?,
+    ): ScheduleRoutines {
+        val comboId = if (rules.isEmpty() && regularId == grid.scheme.id) null else {
+            val id = timetableDao.putCombo(TimetableComboEntity(name = comboName ?: "日期作息", baseSchemeId = regularId))
+            timetableDao.putRules(rules.mapIndexed { index, rule -> rule.copy(comboId = id, position = index) })
+            id
+        }
+        bindPublicScheme(config.id, grid.scheme, grid.times, config.copy(activeTimetableComboId = comboId))
+        retireUnusedCombo(config.activeTimetableComboId)
+        return readScheduleRoutines(config.id)
+    }
 
     private suspend fun schemeUsages(schemeId: Long): List<com.xiaomanjun.sleepdownschedule.domain.schedule.PeriodSchemeUsageSnapshot> {
         val independentOwners = courseDao.getAllCourses().filter { it.independentPeriodSchemeId == schemeId }.map { it.scheduleId }.toSet()
@@ -425,10 +615,11 @@ class ScheduleRepository(private val database: AppDatabase) {
         courseDao.insertCourse(normalizeCoursesForSchedule(listOf(course.copy(id = 0)), scheduleId).single())
     }
 
-    suspend fun addCourses(courses: List<CourseEntity>) {
+    suspend fun addCourses(courses: List<CourseEntity>, expectedScheduleId: Int? = null) {
         if (courses.isEmpty()) return
         database.withTransaction {
             val scheduleId = activeScheduleId()
+            require(expectedScheduleId == null || expectedScheduleId == scheduleId) { "课表已切换，请重新选择添加位置" }
             courseDao.insertCourses(
                 normalizeCoursesForSchedule(courses.map { it.copy(id = 0) }, scheduleId)
             )
@@ -568,6 +759,22 @@ class ScheduleRepository(private val database: AppDatabase) {
             val ids = courses.map(CourseEntity::id).filter(currentIds::contains).distinct()
             require(ids.isNotEmpty()) { "课程记录已失效，请重新打开" }
             ids.forEach { courseDao.deleteCourse(it) }
+        }
+    }
+
+    suspend fun deleteManagedCourses(
+        scheduleId: Int,
+        courses: List<CourseEntity>,
+        retainedIds: Set<Long> = emptySet(),
+    ) {
+        if (courses.isEmpty()) return
+        database.withTransaction {
+            require(activeScheduleId() == scheduleId) { "当前课表已变化，请重新选择课程" }
+            val expected = courses.map { it.originalArrangement() }.toSet()
+            val keys = expected.map(::courseNameGroupKey).toSet()
+            val current = courseDao.getCourses(scheduleId).filter { courseNameGroupKey(it) in keys }
+            require(current.toSet() == expected) { "所选课程的安排已变化，请重新确认" }
+            current.filterNot { it.id in retainedIds }.forEach { courseDao.deleteCourse(it.id) }
         }
     }
 
@@ -894,6 +1101,17 @@ class ScheduleRepository(private val database: AppDatabase) {
         ))
     }
 
+    suspend fun deleteTimeSlotCourses(scheduleId: Int, originals: List<TimeSlotCourse>) {
+        if (originals.isEmpty()) return
+        database.withTransaction {
+            val current = requireNotNull(configDao.getConfig(scheduleId)) { "课表已不存在，请重新打开" }
+            val remaining = originals.fold(decodeTimeSlotCourses(current.timeSlotCoursesJson)) { courses, original ->
+                editTimeSlotCourse(courses, original, updated = null)
+            }
+            configDao.upsertConfig(current.copy(timeSlotCoursesJson = encodeTimeSlotCourses(remaining)))
+        }
+    }
+
     suspend fun saveConfigChanges(original: ScheduleConfigEntity, updated: ScheduleConfigEntity) {
         val scheduleId = updated.id
         database.withTransaction {
@@ -976,6 +1194,45 @@ class ScheduleRepository(private val database: AppDatabase) {
             }
             id
         }
+    }
+
+    internal suspend fun createNewTerm(
+        original: ScheduleConfigEntity,
+        draft: ScheduleConfigEntity,
+        startDate: LocalDate,
+    ): Int = database.withTransaction {
+        require(original.id == draft.id) { "课表设置已变化，请重新打开" }
+        require(draft.totalWeeks in 1..60) { "总周数必须在 1 到 60 之间" }
+        val profiles = profileDao.getProfiles()
+        val origin = profiles.firstOrNull { it.id == original.id } ?: error("来源课表已不存在")
+        ensureScheduleData(origin.id)
+        val source = readScheduleRoutines(origin.id)
+        validateRoutineBindings(source.grid, source.regular, source.rules, source.schemes)
+
+        val usedNames = profiles.mapTo(hashSetOf()) { it.name }
+        val stem = "${origin.name} · 新学期"
+        val name = (1..(usedNames.size + 1)).asSequence()
+            .map { number -> if (number == 1) stem else "$stem $number" }
+            .first { it !in usedNames }
+        val id = profileDao.upsertProfile(ScheduleProfileEntity(name = name)).toInt()
+        val copiedConfig = source.config.withChangesFrom(original, draft).copy(
+            id = id,
+            currentWeek = 1,
+            autoCurrentWeek = true,
+            termStartDate = startDate.toString(),
+            timeSlotCoursesJson = "",
+            activePeriodSchemeId = null,
+            activeTimetableComboId = null,
+        )
+        val config = normalizeConfigForSchedule(copiedConfig, id)
+        configDao.upsertConfig(config)
+        val copies = source.schemes.associate { it.scheme.id to insertRoutineCopy(it) }
+        val grid = copies.getValue(source.gridId)
+        val regularId = copies.getValue(source.regularId).scheme.id
+        val rules = source.rules.map { it.copy(schemeId = copies.getValue(it.schemeId).scheme.id) }
+        saveRoutineBindings(config, grid, regularId, rules, source.combo?.name)
+        activateSchedule(id)
+        id
     }
 
     suspend fun activateSchedule(scheduleId: Int) {

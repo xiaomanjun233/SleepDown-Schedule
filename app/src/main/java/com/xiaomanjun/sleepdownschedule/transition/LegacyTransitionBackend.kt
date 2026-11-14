@@ -17,7 +17,7 @@ internal class LegacyTransitionBackend : TransitionBackend {
 
     fun openImmediate(
         request: TransitionOpenRequest,
-        launchActivity: (android.content.Intent) -> Unit = { request.activity.startActivity(it) }
+        launchActivity: (android.content.Intent) -> Unit = { request.launchActivity(it, null) }
     ): TransitionBackendOpenResult {
         // A business-owned cover may bridge asynchronous native registration. Legacy owns its
         // own source placeholder, so exchange the two synchronously before starting the Activity.
@@ -67,6 +67,7 @@ private data class LegacySourcePlaceholder(
 }
 
 private fun TransitionOpenRequest.attachAnchoredSourcePlaceholder(): LegacySourcePlaceholder? {
+    if (payload?.floatingAddSource == true) return null
     val profile = route.legacyProfile as? LegacyTransitionProfile.Anchored ?: return null
     val removalDelayMillis = when (profile.profileId) {
         AnchoredLegacyProfileId.Parabolic -> ParabolicSourcePlaceholderMillis
@@ -80,7 +81,7 @@ private fun TransitionOpenRequest.attachAnchoredSourcePlaceholder(): LegacySourc
             CourseManagementDetailSourcePlaceholderMillis
         AnchoredLegacyProfileId.DetailSettings ->
             CourseManagementDetailSourcePlaceholderMillis
-        AnchoredLegacyProfileId.Liquid -> return null
+        AnchoredLegacyProfileId.Liquid, AnchoredLegacyProfileId.Welcome -> return null
     }
     val anchor = payload?.openingAnchor?.takeIf(TransitionAnchorFrame::isValid) ?: return null
     val bitmap = anchor.bitmap ?: return null

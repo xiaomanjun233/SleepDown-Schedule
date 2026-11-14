@@ -17,7 +17,6 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.fadeIn
@@ -29,7 +28,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -51,7 +49,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -84,8 +81,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.zIndex
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
@@ -99,7 +94,6 @@ import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.R
 import com.xiaomanjun.sleepdownschedule.feature.schedule.ScheduleScreenViewModel
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
-import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalHomeMaterialControls
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.wallpaper.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
@@ -347,6 +341,7 @@ fun ScheduleManagerScreen(
                 lensAmount = 34.dp,
                 surfaceColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.24f),
                 tint = MaterialTheme.colorScheme.primary,
+                nativePrimaryColor = MaterialTheme.colorScheme.primary,
                 contentPadding = PaddingValues(horizontal = 16.dp)
             ) {
                 Text("设为", color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold)
@@ -431,33 +426,21 @@ fun ScheduleManagerScreen(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            profiles.forEachIndexed { index, profile ->
-                val active = profile.id == selectedProfileId
-                val dotSize by animateDpAsState(
-                    targetValue = if (active) 9.dp else 7.dp,
-                    animationSpec = spring(dampingRatio = 0.78f, stiffness = 520f),
-                    label = "schedule-dot-size-${profile.id}"
-                )
-                val dotAlpha by animateFloatAsState(
-                    targetValue = if (active) 0.92f else 0.36f,
-                    animationSpec = spring(dampingRatio = 0.82f, stiffness = 520f),
-                    label = "schedule-dot-alpha-${profile.id}"
-                )
-                Box(
-                    modifier = Modifier
-                        .size(dotSize)
-                        .clip(Capsule())
-                        .background(Color.White.copy(alpha = dotAlpha))
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = {
-                                selectedProfileId = profile.id
-                                scope.launch { listState.animateScrollToItem(index) }
-                            }
-                        )
-                )
-            }
+            SleepDownPageIndicator(
+                pageCount = profiles.size,
+                backdrop = chromeBackdrop,
+                position = {
+                    val info = listState.layoutInfo
+                    val center = (info.viewportStartOffset + info.viewportEndOffset) / 2f
+                    val item = info.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2f - center) }
+                    item?.let { it.index + (center - it.offset - it.size / 2f) / it.size.coerceAtLeast(1) } ?: 0f
+                },
+                selectedPage = { profiles.indexOfFirst { it.id == selectedProfileId }.coerceAtLeast(0) },
+                onSelect = { index ->
+                    selectedProfileId = profiles[index].id
+                    scope.launch { listState.animateScrollToItem(index) }
+                }
+            )
         }
 
         BoxWithConstraints(
@@ -519,6 +502,7 @@ fun ScheduleManagerScreen(
                     .size(buttonSize),
                 height = buttonSize,
                 tint = MaterialTheme.colorScheme.primary,
+                nativePrimaryColor = MaterialTheme.colorScheme.primary,
                 surfaceColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
                 blurRadius = 10.dp,
                 lensHeight = 30.dp,
@@ -547,7 +531,6 @@ fun ScheduleManagerScreen(
                     deleteReveal = 0f
                 }
             ),
-            backdrop = sceneBackdrop,
             config = settingsVisualConfig(state.config),
             onDismissRequest = { deleteCandidate = null }
         )
@@ -566,54 +549,135 @@ fun ScheduleManagerScreen(
         )
     }
 
-    if (showShareOptions) {
-        LiquidAlertDialog(
-            title = "分享课表",
-            message = "选择分享 SleepDown 课表口令，或导出可被日历应用识别的 ICS 文件。随后可在系统分享器中选择发送或保存。",
-            actions = listOf(
-                LiquidAlertAction("分享课表口令", LiquidAlertActionStyle.Primary) {
-                    showShareOptions = false
-                    runCatching { buildSleepDownScheduleToken(centeredConfig, centeredPeriods, centeredCourses, state.timetableCatalog) }
-                        .onSuccess { shareScheduleToken(context,centeredProfile.name,it) }
-                        .onFailure { Toast.makeText(context,it.message ?: "课表分享失败",Toast.LENGTH_SHORT).show() }
-                },
-                LiquidAlertAction("分享 ICS 文件", LiquidAlertActionStyle.Secondary) {
-                    showShareOptions = false
-                    scope.launch {
-                        runCatching {
-                            withContext(Dispatchers.IO) {
-                                IcsScheduleCodec.writeShareFile(
-                                    context = context,
-                                    calendarName = centeredProfile.name,
-                                    config = centeredConfig,
-                                    periods = centeredPeriods,
-                                    courses = centeredCourses,
-                                    catalog = state.timetableCatalog
-                                )
-                            }
-                        }.onSuccess { file ->
-                            shareScheduleIcs(context, centeredProfile.name, file)
-                        }.onFailure { error ->
-                            Toast.makeText(context, error.message ?: "ICS 文件生成失败", Toast.LENGTH_SHORT).show()
+    val shareConfig = settingsVisualConfig(state.config)
+    SleepDownPickerDialog(
+        show = showShareOptions,
+        title = "分享课表",
+        onDismissRequest = { showShareOptions = false },
+        config = shareConfig,
+        contentPadding = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CouiPickerFormPadding,
+        scrollableContent = true,
+        contentSpacing = 12.dp) {
+        Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            QuickSheetLiquidAction(
+                label = "分享短口令",
+                enabled = true,
+                backdrop = sceneBackdrop,
+                config = shareConfig,
+                modifier = Modifier.fillMaxWidth(),
+                primary = true,
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                showShareOptions = false
+                Toast.makeText(context, "正在生成短口令…", Toast.LENGTH_SHORT).show()
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            val payload = CloudShortCode.buildPayload(
+                                centeredConfig, centeredPeriods, centeredCourses,
+                                state.timetableCatalog
+                            )
+                            CloudShortCode.create(payload)
                         }
+                    }.onSuccess { created ->
+                        shareScheduleShortCode(context, centeredProfile.name, created.code)
+                    }.onFailure { error ->
+                        Toast.makeText(
+                            context,
+                            error.message ?: "短口令生成失败",
+                            Toast.LENGTH_SHORT
+                        ).show()
                     }
-                },
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { showShareOptions = false }
-            ),
-            backdrop = sceneBackdrop,
-            config = settingsVisualConfig(state.config),
-            onDismissRequest = { showShareOptions = false }
-        )
+                }
+            }
+            QuickSheetLiquidAction(
+                label = "分享 JSON 文件",
+                enabled = true,
+                backdrop = sceneBackdrop,
+                config = shareConfig,
+                modifier = Modifier.fillMaxWidth(),
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                showShareOptions = false
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            ScheduleJsonShare.writeShareFile(
+                                context = context,
+                                scheduleName = centeredProfile.name,
+                                config = centeredConfig,
+                                periods = centeredPeriods,
+                                courses = centeredCourses,
+                                catalog = state.timetableCatalog
+                            )
+                        }
+                    }.onSuccess { file ->
+                        shareScheduleJson(context, centeredProfile.name, file)
+                    }.onFailure { error ->
+                        Toast.makeText(
+                            context,
+                            error.message ?: "JSON 文件生成失败",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+            QuickSheetLiquidAction(
+                label = "分享 ICS 文件",
+                enabled = true,
+                backdrop = sceneBackdrop,
+                config = shareConfig,
+                modifier = Modifier.fillMaxWidth(),
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                showShareOptions = false
+                scope.launch {
+                    runCatching {
+                        withContext(Dispatchers.IO) {
+                            IcsScheduleCodec.writeShareFile(
+                                context = context,
+                                calendarName = centeredProfile.name,
+                                config = centeredConfig,
+                                periods = centeredPeriods,
+                                courses = centeredCourses,
+                                catalog = state.timetableCatalog
+                            )
+                        }
+                    }.onSuccess { file ->
+                        shareScheduleIcs(context, centeredProfile.name, file)
+                    }.onFailure { error ->
+                        Toast.makeText(
+                            context,
+                            error.message ?: "ICS 文件生成失败",
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }
+            }
+            QuickSheetLiquidAction(
+                label = "取消",
+                enabled = true,
+                backdrop = sceneBackdrop,
+                config = shareConfig,
+                modifier = Modifier.fillMaxWidth(),
+                height = SleepDownDesignTokens.CenteredDialog.ActionHeight
+            ) {
+                showShareOptions = false
+            }
+        }
     }
 }
 
-internal fun shareScheduleToken(context: Context, scheduleName: String, token: String) {
+internal fun shareScheduleShortCode(context: Context, scheduleName: String, code: String) {
     val intent = Intent(Intent.ACTION_SEND).apply {
         type = "text/plain"
-        putExtra(Intent.EXTRA_SUBJECT, "$scheduleName - SleepDown 课表口令")
-        putExtra(Intent.EXTRA_TEXT, token)
+        putExtra(Intent.EXTRA_SUBJECT, "$scheduleName - SleepDown 短口令")
+        putExtra(
+            Intent.EXTRA_TEXT,
+            "SleepDown 课表短口令（15 分钟内有效，请在「口令/文件导入」中粘贴）\n${CloudShortCode.display(code)}"
+        )
     }
-    context.startActivity(Intent.createChooser(intent, "分享课表口令"))
+    context.startActivity(Intent.createChooser(intent, "分享短口令"))
 }
 
 internal fun shareScheduleIcs(context: Context, scheduleName: String, file: java.io.File) {
@@ -626,6 +690,18 @@ internal fun shareScheduleIcs(context: Context, scheduleName: String, file: java
         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     }
     context.startActivity(Intent.createChooser(intent, "分享或保存 ICS 课表"))
+}
+
+internal fun shareScheduleJson(context: Context, scheduleName: String, file: java.io.File) {
+    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+    val intent = Intent(Intent.ACTION_SEND).apply {
+        type = "application/json"
+        putExtra(Intent.EXTRA_SUBJECT, "$scheduleName - SleepDown 课表 JSON")
+        putExtra(Intent.EXTRA_STREAM, uri)
+        clipData = ClipData.newRawUri("SleepDown 课表 JSON", uri)
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    context.startActivity(Intent.createChooser(intent, "分享或保存 JSON 课表"))
 }
 
 @Composable
@@ -1134,37 +1210,10 @@ fun ScheduleRenameDialog(
     onCancel: () -> Unit,
     onSave: (String) -> Unit
 ) {
-    if (LocalHomeMaterialControls.current.NameDialog(
-            "重命名课表", profile.name, appUsesDarkTheme(config), 24, onCancel,
-            { onSave(it.ifBlank { "未命名课表" }) })) return
-    var name by remember(profile.id) { mutableStateOf(profile.name) }
-    Dialog(onDismissRequest = onCancel, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        CenterLiquidDialog(backdrop = backdrop, config = config) {
-            LiquidDialogHeader(
-                title = "重命名课表",
-                onDismiss = onCancel,
-                backdrop = backdrop,
-                config = config,
-                onConfirm = { onSave(name.trim().ifBlank { "未命名课表" }) }
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedRectangle(18.dp))
-                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.70f))
-                    .padding(horizontal = 14.dp, vertical = 12.dp)
-            ) {
-                BasicTextField(
-                    value = name,
-                    onValueChange = { name = it.take(24) },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface),
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        }
-    }
+    com.xiaomanjun.sleepdownschedule.core.ui.designsystem.ControlNameDialog(
+        "重命名课表", profile.name, appUsesDarkTheme(config), 24, onCancel,
+        { onSave(it.ifBlank { "未命名课表" }) }, {}
+    )
 }
 
 private fun snapshotCourseStartsAt(course: CourseEntity, periodIndex: Int): Boolean =

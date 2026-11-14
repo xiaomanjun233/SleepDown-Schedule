@@ -9,5 +9,6 @@ data class AddMenuAction(
     val imageVector: ImageVector? = null,
     val iconTint: Color? = null,
     val textTint: Color? = null,
+    val checked: Boolean? = null,
     val onClick: () -> Unit
 )

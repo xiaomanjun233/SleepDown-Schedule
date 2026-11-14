@@ -37,7 +37,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import com.kyant.backdrop.backdrops.LayerBackdrop
-import com.kyant.backdrop.backdrops.SharedBlurBackdrop
+import com.kyant.backdrop.backdrops.MaterialBackdrop
 import com.kyant.backdrop.highlight.Highlight
 import com.kyant.backdrop.highlight.HighlightElement
 import com.kyant.backdrop.internal.ShapeProvider
@@ -335,12 +335,12 @@ private class DrawBackdropNode(
             } finally {
                 canvas.restore()
             }
-            if (backdrop is SharedBlurBackdrop) BackdropDiagnostics.event("Sample.SharedBlit")
+            if (backdrop is MaterialBackdrop) BackdropDiagnostics.event("Sample.SharedBlit")
             return@drawBackdropLayer
         }
 
         val sampleScale = shapeProvider.options.sampleScale
-        val allocationPadding = shapeProvider.options.allocationPadding ?: padding
+        val allocationPadding = shapeProvider.options.allocationPadding?.times(sampleScale) ?: padding
         require(allocationPadding >= padding) { "Fixed allocation must cover effect padding" }
         val recordingSize = IntSize(
             ceil(size.width * sampleScale + allocationPadding * 2).toInt().coerceAtLeast(1),
@@ -348,7 +348,7 @@ private class DrawBackdropNode(
         )
         // Only retained, frozen scenes need a completed local recording. Ordinary course cards
         // follow the reference path: one local Lens layer sampling the shared wallpaper node.
-        val shared = backdrop as? SharedBlurBackdrop
+        val shared = backdrop as? MaterialBackdrop
         val frozen = shapeProvider.options.coordinatesFrozen()
         val key = if (frozen) shapeProvider.options.sampleRecordKey()?.let {
             if (shared != null) it to shared.contentRevision else it
@@ -401,15 +401,15 @@ private class DrawBackdropNode(
         // observer. Observe the shared wallpaper origin here so its first placement refreshes
         // cards that drew before the producer reported coordinates. Also observe rerecordings:
         // the producer reuses one GraphicsLayer, so its content can change without its identity.
-        (backdrop as? SharedBlurBackdrop)?.let { shared ->
+        (backdrop as? MaterialBackdrop)?.let { shared ->
             shared.source.layerCoordinates
             shared.contentRevision
         }
         val bounds = shapeProvider.options.bounds()
         val sampleScale = shapeProvider.options.sampleScale
         require(sampleScale > 0f && sampleScale <= 1f)
-        check(sampleScale == 1f || (bounds == null && exportedBackdrop == null)) {
-            "Downsampling requires ordinary geometry without an exported backdrop"
+        check(sampleScale == 1f || exportedBackdrop == null) {
+            "Downsampling does not support exported backdrops"
         }
         check(bounds == null || exportedBackdrop == null) {
             "Fixed geometry does not support exported backdrops"

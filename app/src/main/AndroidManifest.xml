@@ -87,6 +87,10 @@
                 <data android:mimeType="application/ics" />
             </intent-filter>
         </activity>
+        <activity
+            android:name=".app.entrypoints.VersionWelcomeActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.Welcome" />
         <activity-alias
             android:name=".LauncherFollow"
             android:enabled="true"
@@ -203,13 +207,30 @@
         <activity
             android:name=".feature.settings.SpecialCourseEditorActivity"
             android:exported="false"
-            android:theme="@style/AppTheme.SettingsSlide"
+            android:theme="@style/AppTheme.TranslucentMorph"
             android:windowSoftInputMode="adjustResize"
             android:parentActivityName=".SettingsDetailActivity" />
         <activity
             android:name=".feature.settings.NativeSpecialCourseEditorActivity"
             android:exported="false"
-            android:theme="@style/AppTheme.NativeDetail.SettingsSlide"
+            android:theme="@style/AppTheme.NativeDetail"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".SettingsDetailActivity" />
+        <activity
+            android:name=".feature.feedback.FeedbackDetailActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:parentActivityName=".SettingsDetailActivity" />
+        <activity
+            android:name=".feature.feedback.FeedbackEditorActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.TranslucentMorph"
+            android:windowSoftInputMode="adjustResize"
+            android:parentActivityName=".SettingsDetailActivity" />
+        <activity
+            android:name=".feature.feedback.NativeFeedbackEditorActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme.NativeDetail"
             android:windowSoftInputMode="adjustResize"
             android:parentActivityName=".SettingsDetailActivity" />
         <activity

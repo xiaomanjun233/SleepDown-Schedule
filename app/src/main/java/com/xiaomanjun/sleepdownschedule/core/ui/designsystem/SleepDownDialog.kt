@@ -5,9 +5,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -46,7 +43,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.luminance
@@ -205,7 +201,7 @@ fun CenterLiquidDialog(
     followGlassContrast: Boolean = false,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    if (LocalNativeDialogSurface.current) {
+    if (LocalControlDialogSurface.current) {
         Column(modifier = modifier.fillMaxWidth(),
             verticalArrangement = Arrangement.spacedBy(SleepDownDesignTokens.Dialog.ContentSpacing),
             content = content)
@@ -512,6 +508,10 @@ fun LiquidAlertActions(
     modifier: Modifier = Modifier
 ) {
     require(actions.size in 1..3) { "LiquidAlertActions supports one to three actions" }
+    LocalControlDialogActionBar.current?.let { render ->
+        render(actions, modifier)
+        return
+    }
     if (actions.size <= 2) {
         Row(
             modifier = modifier.fillMaxWidth(),
@@ -542,79 +542,16 @@ fun LiquidAlertDialog(
     title: String,
     message: String,
     actions: List<LiquidAlertAction>,
-    backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     onDismissRequest: () -> Unit,
     messageMaxHeight: Dp = 240.dp,
     scrollableMessageContent: Boolean = false,
-    isSelector: Boolean = false,
     messageContent: (@Composable () -> Unit)? = null
 ) {
-    if (!isSelector && LocalNativeAlertRenderer.current?.invoke(NativeAlertRequest(
-            title, message, actions, appUsesDarkTheme(config), onDismissRequest,
-            messageMaxHeight, scrollableMessageContent, messageContent
-        )) == true) return
-    val completeUnderlayBackdrop = LocalCenteredDialogSceneBackdrop.current ?: backdrop
-    var visible by remember { mutableStateOf(true) }
-    var completion by remember { mutableStateOf<(() -> Unit)?>(null) }
-    fun closeThen(action: () -> Unit) {
-        if (!visible) return
-        completion = action
-        visible = false
-    }
-
-    val animatedActions = actions.map { action ->
-        action.copy(onClick = {
-            if (action.dismissOnClick) closeThen(action.onClick) else action.onClick()
-        })
-    }
-
-    val visuals = rememberCenteredDialogVisuals(
-        backdrop = completeUnderlayBackdrop,
-        config = config,
-        blurRadius = SleepDownDesignTokens.CenteredDialog.MaxBlur,
-        maxWidth = SleepDownDesignTokens.CenteredDialog.AlertWidth
-    )
-    val renderInRootScaffold = LocalCenteredDialogRenderInRootScaffold.current
-
-    top.yukonga.miuix.kmp.overlay.OverlayDialog(
-        show = visible,
-        title = null,
-        enableWindowDim = false,
-        backgroundColor = Color.Transparent,
-        forceCenter = true,
-        surfaceModifier = visuals.surfaceModifier,
-        backgroundModifier = visuals.backgroundModifier,
-        animationProgressState = visuals.animationProgress,
-        enablePredictiveBackAnimation = false,
-        excludeFromBackdropCapture = true,
-        renderInRootScaffold = renderInRootScaffold,
-        outsideMargin = DpSize(
-            SleepDownDesignTokens.QuickSheet.HorizontalMargin,
-            SleepDownDesignTokens.QuickSheet.VerticalMargin
-        ),
-        insideMargin = DpSize(
-            SleepDownDesignTokens.CenteredDialog.ContentPadding,
-            SleepDownDesignTokens.CenteredDialog.AlertVerticalPadding
-        ),
-        onDismissRequest = { closeThen(onDismissRequest) },
-        onDismissFinished = {
-            val action = completion
-            completion = null
-            action?.invoke()
-        }
-    ) {
-        LiquidAlertContent(
-            title = title,
-            message = message,
-            actions = animatedActions,
-            backdrop = completeUnderlayBackdrop,
-            config = config,
-            messageMaxHeight = messageMaxHeight,
-            scrollableMessageContent = scrollableMessageContent,
-            messageContent = messageContent
-        )
-    }
+    ControlAlertDialog(AlertDialogRequest(
+        title, message, actions, appUsesDarkTheme(config), onDismissRequest,
+        messageMaxHeight, scrollableMessageContent, messageContent
+    ))
 }
 
 @Composable
@@ -624,20 +561,6 @@ private fun LiquidAlertActionButton(
     config: ScheduleConfigEntity,
     modifier: Modifier = Modifier
 ) {
-    if (LocalNativeCapsuleButtonRenderer.current?.invoke(NativeCapsuleButtonRequest(
-            action.onClick, modifier, SleepDownDesignTokens.CenteredDialog.ActionHeight,
-            PaddingValues(horizontal = 16.dp), appUsesDarkTheme(config), action.enabled,
-            if (action.style == LiquidAlertActionStyle.Primary) MaterialTheme.colorScheme.primary else Color.Unspecified
-        )) {
-            Text(action.label, color = when (action.style) {
-                LiquidAlertActionStyle.Primary -> Color.White
-                LiquidAlertActionStyle.Destructive -> Color(0xFFFF453A)
-                LiquidAlertActionStyle.Secondary, LiquidAlertActionStyle.Cancel -> sleepDownPanelForegroundColor(config)
-            }.copy(alpha = if (action.enabled) 1f else 0.38f),
-                style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium, maxLines = 1)
-        } == true) return
-    val fallbackInteractionSource = remember { MutableInteractionSource() }
-    val fallbackPressed by fallbackInteractionSource.collectIsPressedAsState()
     val baseContentColor = when (action.style) {
         LiquidAlertActionStyle.Primary -> Color.White
         LiquidAlertActionStyle.Secondary, LiquidAlertActionStyle.Cancel -> sleepDownPanelForegroundColor(config)
@@ -668,9 +591,11 @@ private fun LiquidAlertActionButton(
         baseSurfaceColor.copy(alpha = (baseSurfaceColor.alpha * 0.45f).coerceAtLeast(0.12f))
     }
     val shape = Capsule()
-    if (backdrop != null) {
         LiquidButton(
             onClick = if (action.enabled) action.onClick else ({ }),
+            enabled = action.enabled,
+            nativePrimaryColor = if (action.style == LiquidAlertActionStyle.Primary) MaterialTheme.colorScheme.primary else Color.Unspecified,
+            nativeDarkOverride = dark,
             backdrop = backdrop,
             modifier = modifier,
             isInteractive = false,
@@ -694,33 +619,6 @@ private fun LiquidAlertActionButton(
                 maxLines = 1
             )
         }
-    } else {
-        Box(
-            modifier = modifier
-                .height(SleepDownDesignTokens.CenteredDialog.ActionHeight)
-                .clip(shape)
-                .background(surfaceColor.copy(alpha = surfaceColor.alpha.coerceAtLeast(0.16f)))
-                .drawWithContent {
-                    drawContent()
-                    if (fallbackPressed) drawRect(Color.Black.copy(alpha = 0.12f))
-                }
-                .clickable(
-                    interactionSource = fallbackInteractionSource,
-                    indication = null,
-                    enabled = action.enabled,
-                    onClick = action.onClick
-                ),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = action.label,
-                color = contentColor,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Medium,
-                maxLines = 1
-            )
-        }
-    }
 }
 
 enum class DialogButtonRole { Neutral, Confirm, Cancel }
@@ -755,40 +653,16 @@ fun DialogLiquidButton(
         ?: darkTheme
     val useRoundIcon = roundIcon && role != DialogButtonRole.Neutral
     val resolvedIconRes = iconRes ?: when {
-        useRoundIcon && role == DialogButtonRole.Cancel -> R.drawable.ic_close_light
+        useRoundIcon && role == DialogButtonRole.Cancel -> R.drawable.ic_close
         useRoundIcon && role == DialogButtonRole.Confirm -> R.drawable.ic_check
         else -> null
     }
-    val nativeTextColor = when {
-        role == DialogButtonRole.Confirm || destructiveFilled -> Color.White
-        controlDark -> Color.White
-        else -> Color.Black
-    }.copy(alpha = if (enabled) 1f else 0.38f)
-    if (LocalNativeCapsuleButtonRenderer.current?.invoke(NativeCapsuleButtonRequest(
-            onClick, if (useRoundIcon) modifier.size(42.dp) else modifier,
-            if (useRoundIcon) 42.dp else height,
-            if (useRoundIcon) PaddingValues(0.dp) else PaddingValues(horizontal = horizontalPadding),
-            controlDark, enabled, when {
-                destructiveFilled -> Color(0xFFFF453A)
-                role == DialogButtonRole.Confirm -> MaterialTheme.colorScheme.primary
-                else -> Color.Unspecified
-            }
-        )) {
-            androidx.compose.runtime.CompositionLocalProvider(
-                androidx.compose.material3.LocalContentColor provides nativeTextColor
-            ) {
-                if (content != null) content() else {
-                    resolvedIconRes?.let {
-                        Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = nativeTextColor)
-                    }
-                    if (!useRoundIcon) Text(label, color = nativeTextColor, style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false)
-                }
-            }
-        } == true) return
+    val glow = LocalButtonMaterial.current != null
     val superPerformance = com.xiaomanjun.sleepdownschedule.core.performance.AppMaterialPreferences.isSuperPerformance
     val neutralFlat = superPerformance && !highContrast && role != DialogButtonRole.Confirm && !destructiveFilled
-    val textColor = if (neutralFlat) {
+    val textColor = if (glow) {
+        if (role == DialogButtonRole.Confirm || destructiveFilled || controlDark) Color.White else Color.Black
+    } else if (neutralFlat) {
         if (controlDark) Color.White else Color.Black
     } else if (highContrast) Color.White else when (role) {
         DialogButtonRole.Confirm -> Color.White
@@ -800,7 +674,9 @@ fun DialogLiquidButton(
     val surfaceColor = if (neutralFlat) com.xiaomanjun.sleepdownschedule.glass.flatControlColor(controlDark) else if (highContrast) {
         Color.Black.copy(alpha = if (controlDark) 0.62f else 0.52f)
     } else when (role) {
-        DialogButtonRole.Confirm -> controlAccentColor(Color(0xFF0A84FF)).copy(alpha = 0.82f)
+        DialogButtonRole.Confirm -> controlAccentColor(
+            if (com.xiaomanjun.sleepdownschedule.core.ui.settings.LocalCouiSettingsEnabled.current)
+                MaterialTheme.colorScheme.primary else Color(0xFF0A84FF)).copy(alpha = 0.82f)
         DialogButtonRole.Cancel -> if (destructiveFilled) {
             Color(0xFFFF453A).copy(alpha = 0.78f)
         } else {
@@ -811,13 +687,19 @@ fun DialogLiquidButton(
                 .copy(alpha = if (controlDark) 0.46f else 0.62f)
         } else Color.Transparent
     }
-    if (backdrop != null) {
         LiquidButton(
             onClick = { if (enabled) onClick() },
             backdrop = backdrop,
             modifier = (if (useRoundIcon) modifier.size(42.dp) else modifier)
                 .semantics { if (!enabled) disabled() },
-            clickTargetEnabled = enabled,
+            enabled = enabled,
+            clickTargetEnabled = true,
+            nativePrimaryColor = when {
+                destructiveFilled -> Color(0xFFFF453A)
+                role == DialogButtonRole.Confirm -> MaterialTheme.colorScheme.primary
+                else -> Color.Unspecified
+            },
+            nativeDarkOverride = controlDark,
             isInteractive = enabled,
             height = if (useRoundIcon) 42.dp else height,
             surfaceColor = surfaceColor,
@@ -832,12 +714,12 @@ fun DialogLiquidButton(
         ) {
             if (content != null) content() else {
                 resolvedIconRes?.let {
-                    Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
+                    Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor.copy(alpha = if (enabled) 1f else 0.38f))
                 }
                 if (!useRoundIcon) {
                     Text(
                         label,
-                        color = textColor,
+                        color = textColor.copy(alpha = if (enabled) 1f else 0.38f),
                         style = MaterialTheme.typography.labelMedium,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
@@ -846,39 +728,6 @@ fun DialogLiquidButton(
                 }
             }
         }
-    } else {
-        Row(
-            modifier = (if (useRoundIcon) modifier.size(42.dp) else modifier.height(height))
-                .clip(Capsule())
-                .background(
-                    surfaceColor.copy(
-                        alpha = surfaceColor.alpha.coerceAtLeast(
-                            if (role == DialogButtonRole.Neutral) 0f else 0.16f
-                        )
-                    )
-                )
-                .clickable(enabled = enabled, onClick = onClick)
-                .then(if (useRoundIcon) Modifier else Modifier.padding(horizontal = horizontalPadding)),
-            horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (content != null) content() else {
-                resolvedIconRes?.let {
-                    Icon(painterResource(it), contentDescription = label, modifier = Modifier.size(20.dp), tint = textColor)
-                }
-                if (!useRoundIcon) {
-                    Text(
-                        label,
-                        color = textColor,
-                        style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
-            }
-        }
-    }
 }
 
 @Composable

@@ -92,10 +92,10 @@ com/xiaomanjun/sleepdownschedule/
 │       ├── {chrome,controls}/       # 顶栏按钮、Slider、Toggle 等公共控件
 │       └── {interaction,scaffold,settings,text}/
 ├── platform/coloros/                 # 凝光的厂商适配
-│   ├── ColorOsVisualCapability.kt   # 渠道、系统与设备能力
-│   ├── ColorOsMaterialProvider.kt   # 实现公共材质协议
-│   ├── ColorOsNativeUi.kt           # 系统资源、反射与生命周期
-│   └── ColorOs*.kt                  # 按按钮、菜单、弹窗、数值控件分别适配
+│   ├── CouiMaterialProvider.kt       # 装配公开 Kit 材质
+│   ├── CouiMaterialSurface.kt        # 课程、面板的凝光外观
+│   ├── CourseMaterialPreferences.kt # 兼容既有材质偏好
+│   └── Coui*.kt                     # 光效、Dock、值控件等现行适配
 ├── feature/
 │   ├── home/
 │   │   ├── day/                     # 日视图、壁纸、可读性、课程卡片

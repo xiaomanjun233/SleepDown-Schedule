@@ -24,9 +24,14 @@ val LocalAdaptiveGlass = compositionLocalOf {
     adaptiveGlassStateFromLuminance(1f, preferLightGlass = true)
 }
 
+internal val LocalHomeWallpaperLightStyle = compositionLocalOf<Boolean?> { null }
+
 @Composable
-fun rememberFallbackAdaptiveGlassState(config: ScheduleConfigEntity): AdaptiveGlassState {
-    val fallbackLightGlass = glassUsesLightStyle(config)
+fun rememberFallbackAdaptiveGlassState(
+    config: ScheduleConfigEntity,
+    wallpaperLightStyle: Boolean? = null
+): AdaptiveGlassState {
+    val fallbackLightGlass = wallpaperLightStyle ?: glassUsesLightStyle(config)
     val fallbackLuminance = when {
         fallbackLightGlass -> config.wallpaperBrightness.coerceIn(0.56f, 1f)
         else -> config.wallpaperBrightness.coerceIn(0f, 0.46f)

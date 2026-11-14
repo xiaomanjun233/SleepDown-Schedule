@@ -23,6 +23,10 @@ import java.net.URI
  * Agent never depends on one vendor's wire format.
  */
 enum class AgentToolName {
+    TASK_WORKSPACE,
+    EDU_WORKSPACE,
+    READ_IMPORT_MATERIAL,
+    VIEW_IMPORT_DETAIL,
     READ_IMPORT_JSON,
     PATCH_IMPORT_JSON,
     GET_ACTION_GUIDE,
@@ -52,7 +56,8 @@ data class AgentToolResult(
     val name: AgentToolName,
     val success: Boolean,
     val content: String,
-    val proposedAnswer: String? = null
+    val proposedAnswer: String? = null,
+    val images: List<AgentImageAttachment> = emptyList()
 )
 
 @Serializable
@@ -73,6 +78,10 @@ enum class AgentRunStatusIcon {
 }
 
 internal fun AgentToolName.runStatus(): AgentRunStatus = when (this) {
+    AgentToolName.TASK_WORKSPACE -> AgentRunStatus(AgentRunStatusIcon.SEARCH, "处理本次任务文件")
+    AgentToolName.EDU_WORKSPACE -> AgentRunStatus(AgentRunStatusIcon.SEARCH, "核对教务数据与适配")
+    AgentToolName.READ_IMPORT_MATERIAL -> AgentRunStatus(AgentRunStatusIcon.SEARCH, "读取原始材料")
+    AgentToolName.VIEW_IMPORT_DETAIL -> AgentRunStatus(AgentRunStatusIcon.SEARCH, "放大核对图片细节")
     AgentToolName.READ_IMPORT_JSON -> AgentRunStatus(AgentRunStatusIcon.SCHEDULE, "读取导入 JSON 草稿")
     AgentToolName.PATCH_IMPORT_JSON -> AgentRunStatus(AgentRunStatusIcon.SCHEDULE, "编辑并校验导入草稿")
     AgentToolName.GET_ACTION_GUIDE -> AgentRunStatus(AgentRunStatusIcon.SETTINGS, "确认操作能力")
@@ -102,7 +111,9 @@ internal fun AgentToolName.runStatus(): AgentRunStatus = when (this) {
 internal val AgentToolName.isOneShotPerTurn: Boolean
     get() = this !in setOf(AgentToolName.SEARCH_COURSES, AgentToolName.GET_ACTION_GUIDE,
         AgentToolName.PROPOSE_ACTIONS, AgentToolName.UNKNOWN,
-        AgentToolName.READ_IMPORT_JSON, AgentToolName.PATCH_IMPORT_JSON)
+        AgentToolName.READ_IMPORT_JSON, AgentToolName.PATCH_IMPORT_JSON,
+        AgentToolName.READ_IMPORT_MATERIAL, AgentToolName.VIEW_IMPORT_DETAIL,
+        AgentToolName.TASK_WORKSPACE, AgentToolName.EDU_WORKSPACE)
 
 internal fun AgentToolCall.cacheKey(): String = buildString {
     append(if (name == AgentToolName.UNKNOWN) requestedName else name.name)
@@ -123,8 +134,14 @@ internal fun agentToolDefinitions(
     includeMemoryTool: Boolean = false,
     strictFunctions: Boolean = false,
     excludedTools: Set<AgentToolName> = emptySet(),
-    importWorkspace: Boolean = false
+    importWorkspace: Boolean = false,
+    materialSource: Boolean = false,
+    materialImages: Boolean = false,
+    workspaceTools: List<kotlinx.serialization.json.JsonObject> = emptyList()
 ): JsonArray = buildJsonArray {
+    workspaceTools.forEach { add(it) }
+    if (materialSource) add(com.xiaomanjun.sleepdownschedule.feature.importing.materialToolDefinition("READ_IMPORT_MATERIAL", false))
+    if (materialImages) add(com.xiaomanjun.sleepdownschedule.feature.importing.materialToolDefinition("VIEW_IMPORT_DETAIL", false))
     if (importWorkspace) {
         agentImportToolDefinitions(strictFunctions).forEach { add(it) }
         return@buildJsonArray
@@ -241,13 +258,19 @@ internal fun parseAgentStoredMessage(content: String): AgentStoredMessage {
 internal fun agentResponsesToolDefinitions(
     includeMemoryTool: Boolean = false,
     excludedTools: Set<AgentToolName> = emptySet(),
-    importWorkspace: Boolean = false
+    importWorkspace: Boolean = false,
+    materialSource: Boolean = false,
+    materialImages: Boolean = false,
+    workspaceTools: List<kotlinx.serialization.json.JsonObject> = emptyList()
 ): JsonArray = buildJsonArray {
     agentToolDefinitions(
         includeMemoryTool = includeMemoryTool,
         strictFunctions = true,
         excludedTools = excludedTools,
-        importWorkspace = importWorkspace
+        importWorkspace = importWorkspace,
+        materialSource = materialSource,
+        materialImages = materialImages,
+        workspaceTools = workspaceTools
     ).forEach { declaration ->
         val function = declaration.jsonObject["function"]?.jsonObject ?: return@forEach
         add(buildJsonObject {
@@ -389,7 +412,9 @@ internal fun executeAgentReadTools(
         if (call.name == AgentToolName.PROPOSE_ACTIONS) return@map prepareAgentActions(call, scopedFacts)
         val content = try {
             when (call.name) {
-                AgentToolName.READ_IMPORT_JSON, AgentToolName.PATCH_IMPORT_JSON ->
+                AgentToolName.READ_IMPORT_JSON, AgentToolName.PATCH_IMPORT_JSON,
+                AgentToolName.READ_IMPORT_MATERIAL, AgentToolName.VIEW_IMPORT_DETAIL,
+                AgentToolName.TASK_WORKSPACE, AgentToolName.EDU_WORKSPACE ->
                     throw IllegalArgumentException("此工具仅在导入草稿工作区可用")
                 AgentToolName.GET_ACTION_GUIDE -> agentActionGuide(call.arguments["area"].orEmpty())
                 AgentToolName.PROPOSE_ACTIONS -> error("Handled above")

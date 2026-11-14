@@ -48,11 +48,15 @@ internal class ScheduleActions(
         requestRefresh()
     }
 
+    suspend fun commitScheduleAdjustments(scheduleId: Int, original: String, updated: String) {
+        repository.saveScheduleAdjustments(scheduleId, original, updated)
+        requestRefresh()
+    }
+
     fun saveScheduleAdjustments(scheduleId: Int, original: String, updated: String,
         onSuccess: (() -> Unit)? = null, onFailure: (() -> Unit)? = null) = scope.launch {
         try {
-            repository.saveScheduleAdjustments(scheduleId, original, updated)
-            requestRefresh()
+            commitScheduleAdjustments(scheduleId, original, updated)
             onMessage("调休安排已保存")
             onSuccess?.invoke()
         } catch (cancelled: CancellationException) {

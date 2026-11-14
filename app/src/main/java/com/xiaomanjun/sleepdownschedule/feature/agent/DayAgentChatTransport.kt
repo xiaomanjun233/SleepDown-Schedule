@@ -173,7 +173,8 @@ internal class DayAgentChatTransport(
         includeMemoryTool: Boolean = false,
         forceMiMoWebSearch: Boolean = false,
         excludedTools: Set<AgentToolName> = emptySet(),
-        importWorkspace: Boolean = false
+        importWorkspace: Boolean = false,
+        materials: com.xiaomanjun.sleepdownschedule.feature.importing.AiMaterialWorkspace? = null
     ): String = buildJsonObject {
         put("model", settings.profile.defaultModel)
         put("stream", stream)
@@ -181,7 +182,12 @@ internal class DayAgentChatTransport(
             put("reasoning_effort", settings.profile.reasoningEffort.apiValue)
         } else put("temperature", 0.35)
         if (settings.usesOfficialOpenAiEndpoint()) put("store", false)
-        put("messages", buildJsonArray { messages.forEach(::add) })
+        val policy = com.xiaomanjun.sleepdownschedule.core.ai.AgentContextPolicy(settings.profile.contextWindowTokens)
+        val projection = policy.compactChat(messages)
+        require(policy.estimatedTokens(kotlinx.serialization.json.JsonArray(projection.messages)) <= policy.inputBudget) {
+            "上下文已超过本轮预算，请缩小任务范围；未自动删除用户要求"
+        }
+        put("messages", buildJsonArray { projection.messages.forEach(::add) })
         if (includeTools) {
             put(
                 "tools",
@@ -198,8 +204,11 @@ internal class DayAgentChatTransport(
                     includeMemoryTool = includeMemoryTool,
                     // Several compatible providers reject this Chat Completions extension.
                     strictFunctions = settings.usesOfficialOpenAiEndpoint(),
-                    excludedTools = excludedTools,
-                    importWorkspace = importWorkspace
+                    excludedTools = excludedTools.filterNot { it.name in projection.rereadTools }.toSet(),
+                    importWorkspace = importWorkspace,
+                    materialSource = materials?.hasContent == true,
+                    materialImages = materials?.canView == true && AiProviderPresets.supportsImageInput(settings.profile),
+                    workspaceTools = materials?.taskWorkspace?.definitions(false).orEmpty()
                 )
             )
             put("tool_choice", "auto")

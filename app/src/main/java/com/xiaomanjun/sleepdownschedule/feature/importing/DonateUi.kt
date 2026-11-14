@@ -4,6 +4,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -17,6 +18,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.itos.coui.layout.CouiPageDefaults
 import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.*
@@ -26,8 +28,10 @@ import com.xiaomanjun.sleepdownschedule.core.remoteconfig.*
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.DockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.*
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
+import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsInfoRow
+import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.feature.settings.*
 import com.xiaomanjun.sleepdownschedule.glass.ui.*
 
@@ -43,9 +47,10 @@ fun DonateSettingsScreen(
 		SleepDownRemoteConfig.refresh(scope, force = true)
 	}
     val topPadding = detailContentTopPadding()
-    LazyColumn(
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding, bottom = DockScrollPadding),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+    val rewardCode = if (appUsesDarkTheme(state.config)) R.drawable.donate_reward else R.drawable.donate_reward_light
+    SleepDownSecondaryPageList(
+        contentTopPadding = topPadding,
+        contentBottomPadding = detailContentBottomPadding(),
     ) {
         item {
             SettingsGroup(backdrop = backdrop, config = state.config, modifier = Modifier.fillMaxWidth()) {
@@ -54,10 +59,11 @@ fun DonateSettingsScreen(
         }
         item(key = "donation-reward-code") {
             Image(
-                painter = painterResource(R.drawable.donate_reward),
+                painter = painterResource(rewardCode),
                 contentDescription = "微信赞赏码",
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(top = CouiPageDefaults.groupSpacing)
                     .clip(RoundedRectangle(28.dp)),
                 contentScale = ContentScale.FillWidth
             )

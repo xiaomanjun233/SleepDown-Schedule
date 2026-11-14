@@ -72,6 +72,78 @@ class SharedViewKitBackendTest {
         pixels.recycle()
     }
 
+    @Test fun dockPassesItsAttachedViewAndReturnsToItWithoutABitmapProjection() = runBlocking {
+        api.supportsViewWithAlpha = true
+        val button = View(source)
+        attachSource(button, 54, 54)
+        val request = request(routeId = TransitionRouteId.HomeDockToImport)
+        returning = TransitionAnchorFrame(ComposeRect(10f, 20f, 64f, 74f), 27f, null)
+        val opened = backend.open(request.copy(
+            payload = request.payload!!.copy(openingAnchor = returning, openingSourceView = button)
+        ))
+        assertEquals(opened.toString(), TransitionBackendOpenResult.Started, opened)
+        assertSame(button, api.inputView)
+        assertNull(api.inputBitmap)
+        assertFalse(api.openBundle!!.containsKey(SharedViewKitContract.ViewWithAlpha))
+        assertFalse(api.openBundle!!.containsKey(SharedViewKitContract.Bitmap))
+        assertFalse(api.openBundle!!.containsKey(SharedViewKitContract.Bounds))
+        api.callbacks!!.onEnd(SharedViewKitContract.Open)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(View.VISIBLE, button.visibility)
+        assertTrue(backend.requestClose(source, request.session))
+        assertNull(api.returnBundle)
+        api.callbacks!!.onEnd(SharedViewKitContract.Back)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertTrue(button.isAttachedToWindow)
+        assertEquals(1, releases.get())
+    }
+
+    @Test fun dockDoesNotUseTheBitmapProjectionWhenItsViewIsMissing() = runBlocking {
+        val result = backend.open(request(routeId = TransitionRouteId.HomeDockToImport))
+        assertTrue(result is TransitionBackendOpenResult.Rejected)
+        assertEquals(0, api.optionsCalls)
+    }
+
+    @Test fun welcomeCompletesAndReleasesItsLiveSourceWithoutRequestingAReturn() = runBlocking {
+        api.supportsSafeReturn = false
+        val button = View(source)
+        source.setContentView(button)
+        button.layout(10, 20, 170, 76)
+        val base = request(routeId = TransitionRouteId.WelcomeToHome)
+        val opening = base.copy(payload = base.payload!!.copy(
+            openingAnchor = TransitionAnchorFrame(ComposeRect(10f, 20f, 170f, 76f), 28f, null),
+            openingSourceView = button,
+            returnAnchorProvider = null,
+        ))
+        assertEquals(TransitionBackendOpenResult.Started, backend.open(opening))
+        assertSame(button, api.inputView)
+        api.callbacks!!.onEnd(SharedViewKitContract.Open)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(TransitionSessionState.Finished, opening.session.currentState)
+        assertNull(TransitionPayloadStore.session(opening.session.id))
+        assertEquals(1, releases.get())
+        assertFalse(backend.requestClose(source, opening.session))
+        assertNull(api.returnBundle)
+    }
+
+    @Test fun welcomeCanFinishItsLegacyOpeningAfterTheNativeAnimationCancels() = runBlocking {
+        val button = View(source)
+        source.setContentView(button)
+        button.layout(10, 20, 170, 76)
+        val base = request(routeId = TransitionRouteId.WelcomeToHome)
+        val opening = base.copy(payload = base.payload!!.copy(openingSourceView = button, returnAnchorProvider = null))
+        assertEquals(TransitionBackendOpenResult.Started, backend.open(opening))
+        api.callbacks!!.onStart(SharedViewKitContract.Open)
+        api.callbacks!!.onCancel(SharedViewKitContract.Open)
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(TransitionSessionState.LegacyRunning, opening.session.currentState)
+        assertTrue(opening.session.hasReachedNativeRunning)
+        ActivityTransitionCoordinator.markOpen(opening.session.id)
+        assertEquals(TransitionSessionState.Finished, opening.session.currentState)
+        assertNull(TransitionPayloadStore.session(opening.session.id))
+        assertEquals(1, releases.get())
+    }
+
     @Test fun explicitCardFillWinsOverColoredCapsulePixelsOnOpenAndReturn() = runBlocking {
         anchor.bitmap!!.eraseColor(android.graphics.Color.GREEN)
         val cardFill = android.graphics.Color.rgb(43, 44, 46)
@@ -97,9 +169,14 @@ class SharedViewKitBackendTest {
     }
 
     @Test fun specialCourseRouteUsesNativeReturnAndSafelyHandlesADeletedSource() = runBlocking {
-        val request = request(routeId = TransitionRouteId.SpecialCourseToEditor)
-        assertTrue(request.route.legacyProfile is LegacyTransitionProfile.Depth)
-        assertEquals(TransitionBackendOpenResult.Started, backend.open(request))
+        val card = View(source)
+        attachSource(card, 150, 90)
+        val base = request(routeId = TransitionRouteId.SpecialCourseToEditor)
+        val request = base.copy(payload = base.payload!!.copy(openingSourceView = card))
+        assertEquals(AnchoredLegacyProfileId.DetailSettings,
+            (request.route.legacyProfile as LegacyTransitionProfile.Anchored).profileId)
+        val opened = backend.open(request)
+        assertEquals(opened.toString(), TransitionBackendOpenResult.Started, opened)
         api.callbacks!!.onEnd(SharedViewKitContract.Open)
         shadowOf(Looper.getMainLooper()).idle()
         assertEquals(TransitionSessionState.Open, request.session.currentState)
@@ -225,7 +302,7 @@ class SharedViewKitBackendTest {
         assertTrue(backend.requestClose(Robolectric.buildActivity(Activity::class.java).setup().get(), request.session))
         backend.onActivityDestroyed(source)
         shadowOf(Looper.getMainLooper()).idle()
-        assertNull(api.inputView!!.onNativeSourceRestored)
+        assertNull((api.inputView as SharedViewKitSourceView).onNativeSourceRestored)
         assertNull(TransitionPayloadStore.session(request.session.id))
         assertEquals(1, releases.get())
     }
@@ -371,6 +448,20 @@ class SharedViewKitBackendTest {
         shadowOf(Looper.getMainLooper()).idle()
     }
 
+    private fun attachSource(view: View, width: Int, height: Int) {
+        val root = android.widget.FrameLayout(source)
+        val params = android.widget.FrameLayout.LayoutParams(width, height).apply {
+            leftMargin = 10
+            topMargin = 20
+        }
+        root.addView(view, params)
+        source.setContentView(root)
+        shadowOf(Looper.getMainLooper()).idle()
+        val spec = View.MeasureSpec.makeMeasureSpec(300, View.MeasureSpec.EXACTLY)
+        root.measure(spec, spec)
+        root.layout(0, 0, 300, 300)
+    }
+
     private fun request(activity: Activity = source, routeId: TransitionRouteId = TransitionRouteId.CourseManagementToDetail): TransitionOpenRequest {
         val payload = TransitionPayload(anchor, TransitionAnchorProvider { returning },
             onOpeningSourceHandoff = { handoffs.incrementAndGet() }, onSourceReleased = { releases.incrementAndGet() })
@@ -382,6 +473,8 @@ class SharedViewKitBackendTest {
 
     private class FakeApi : SharedViewKitApi {
         var supportsReturnBitmap = false
+        var supportsViewWithAlpha = false
+        var supportsSafeReturn = true
         var protocol = 100
         var provideOptions = true
         var optionsCalls = 0
@@ -390,26 +483,30 @@ class SharedViewKitBackendTest {
         var returnBundle: Bundle? = null
         var returnActivity: Activity? = null
         var inputBitmap: Bitmap? = null
-        var inputView: SharedViewKitSourceView? = null
+        var inputView: View? = null
         var openBundle: Bundle? = null
         var recycleRejectedInput = false
         override fun supportedProtocol() = protocol
-        override fun extras() = mapOf(SharedViewKitContract.Bounds to "rect|WINDOW|bounds",
-            SharedViewKitContract.BackType to "int|VIEW_ANIM_FOLLOW_SYSTEM,VIEW_ANIM_FADE_OUT|back") +
-            if (supportsReturnBitmap) mapOf(SharedViewKitContract.Bitmap to "Bitmap||return pixels") else emptyMap()
+        override fun extras() = mapOf(SharedViewKitContract.Bounds to "rect|WINDOW|bounds") +
+            (if (supportsSafeReturn) mapOf(SharedViewKitContract.BackType to
+                "int|VIEW_ANIM_FOLLOW_SYSTEM,VIEW_ANIM_FADE_OUT|back") else emptyMap()) +
+            (if (supportsReturnBitmap) mapOf(SharedViewKitContract.Bitmap to "Bitmap||return pixels") else emptyMap()) +
+            (if (supportsViewWithAlpha) mapOf(SharedViewKitContract.ViewWithAlpha to "boolean") else emptyMap())
         override fun options(source: View, extras: Bundle,
             callbacks: SharedViewKitCallbacks): ActivityOptions? {
-            val view = source as SharedViewKitSourceView
-            inputView = view
-            val bitmap = view.bitmap
-            assertTrue(view.isAttachedToWindow)
-            assertTrue(view.clipToOutline)
-            val outline = android.graphics.Outline().also { view.outlineProvider.getOutline(view, it) }
-            assertEquals(view.radiusPx, outline.radius, 0f)
+            inputView = source
+            assertTrue(source.isAttachedToWindow)
+            val projection = source as? SharedViewKitSourceView
+            projection?.let {
+                assertTrue(it.clipToOutline)
+                val outline = android.graphics.Outline().also { outline -> it.outlineProvider.getOutline(it, outline) }
+                assertEquals(it.radiusPx, outline.radius, 0f)
+            }
+            val bitmap = projection?.bitmap
             optionsCalls++
             inputBitmap = bitmap
             openBundle = Bundle(extras)
-            if (!provideOptions && recycleRejectedInput) bitmap.recycle()
+            if (!provideOptions && recycleRejectedInput) bitmap?.recycle()
             this.callbacks = callbacks
             return if (provideOptions) ActivityOptions.makeBasic() else null
         }

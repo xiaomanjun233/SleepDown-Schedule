@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.home
 
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.util.lerp
@@ -11,6 +12,7 @@ import kotlin.math.pow
 import kotlin.math.sin
 
 internal val HomeDropletEasing = CubicBezierEasing(0.2f, 0.8f, 0.2f, 1f)
+internal val HomeDockSplitSpec = tween<Float>(460, easing = HomeDropletEasing)
 // Travel already accelerates while the source contracts. Starting both tracks after the
 // contraction created a second zero-velocity start that felt like a pause in the reference.
 private val HomeDropletTravelEasing = CubicBezierEasing(0.30f, 0f, 0.18f, 1f)

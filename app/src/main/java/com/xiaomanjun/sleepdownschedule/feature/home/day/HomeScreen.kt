@@ -17,6 +17,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -49,10 +50,6 @@ import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeSwitchMotion
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeTopBarScrollReporter
 import com.xiaomanjun.sleepdownschedule.feature.home.week.SinglePillWeekScheduleScreen
 import com.xiaomanjun.sleepdownschedule.feature.home.week.WeekViewStyle
-import com.xiaomanjun.sleepdownschedule.glass.CourseGlassOcclusionPhase
-import com.xiaomanjun.sleepdownschedule.glass.CourseGlassRestorePlan
-import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassOcclusionPhase
-import com.xiaomanjun.sleepdownschedule.glass.LocalCourseGlassRestorePlan
 import com.xiaomanjun.sleepdownschedule.model.HomeMode
 import java.time.LocalDate
 
@@ -87,7 +84,7 @@ internal fun HomeScreen(
     onCourseClick: (CourseEntity, Int, Rect?) -> Unit,
     onAddCourse: (CourseEntity) -> Unit = {},
     onAgentAction: AgentActionHandler = { _, _ -> },
-    onAgentImportFile: ((android.net.Uri) -> Unit)? = null,
+    onAgentImportFile: ((List<android.net.Uri>) -> Unit)? = null,
     onUpdateCourseSingleWeek: (CourseEntity, CourseEntity, Int) -> Unit = { _, _, _ -> },
     conflictFocusCourseId: Long? = null,
     conflictFocusCourseKey: String? = null,
@@ -95,9 +92,8 @@ internal fun HomeScreen(
     onDeleteCourseSingleWeek: (CourseEntity, Int) -> Unit = { _, _ -> },
     onScheduleLongPress: () -> Unit = {},
     weekEditInteractionEnabled: Boolean = true,
-    courseGlassOcclusionPhase: CourseGlassOcclusionPhase = CourseGlassOcclusionPhase.Live,
-    courseGlassRestoredGroupKeys: Set<String> = emptySet(),
     modeMotion: HomeSwitchMotion = rememberHomeSwitchMotion(mode == HomeMode.Week, "home-mode"),
+    versionWelcomeVisible: Boolean = false,
 ) {
     val modeStateHolder = rememberSaveableStateHolder()
     val homeOverscrollFactory = rememberHapticMiuixOverscrollFactory()
@@ -120,6 +116,12 @@ internal fun HomeScreen(
     // Recomputing it here on tablets discarded live slider updates and made personalization look
     // broken even though the config was saved correctly.
     val effectiveWeekCardHeight = weekCardHeight
+    val weekAddition = com.xiaomanjun.sleepdownschedule.feature.home.week.LocalWeekCourseAddition.current
+    val latestScheduleLongPress by rememberUpdatedState<() -> Unit> {
+        weekAddition?.clear()
+        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+        onScheduleLongPress()
+    }
     val reportModeContentUnderTopBar = rememberHomeTopBarScrollReporter(mode, state.config.id, onContentUnderTopBarChange)
 
     LaunchedEffect(state.config.id, weekEditInteractionEnabled) {
@@ -146,17 +148,17 @@ internal fun HomeScreen(
             .pointerInput(
                 state.config.id,
                 weekEditMode,
-                onScheduleLongPress,
+                weekAddition,
                 weekEditInteractionEnabled
             ) {
                 if (!weekEditInteractionEnabled) return@pointerInput
                 if (weekEditMode) {
                     detectTapGestures(onTap = { weekEditMode = false })
                 } else {
-                    detectTapGestures(onLongPress = {
-                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onScheduleLongPress()
-                    })
+                    detectTapGestures(
+                        onTap = { weekAddition?.clear() },
+                        onLongPress = { latestScheduleLongPress() }
+                    )
                 }
             }
     ) {
@@ -203,24 +205,14 @@ internal fun HomeScreen(
                         onCourseClick = onCourseClick,
                         onAddCourse = onAddCourse,
                         onAgentAction = onAgentAction,
-                        onAgentImportFile = onAgentImportFile
+                        onAgentImportFile = onAgentImportFile,
+                        versionWelcomeVisible = versionWelcomeVisible,
                     )
                 }
                 HomeMode.Week -> key(state.config.id) {
-                    val courseGlassRestorePlan = remember(
-                        courseGlassOcclusionPhase,
-                        courseGlassRestoredGroupKeys
-                    ) {
-                        CourseGlassRestorePlan(
-                            phase = courseGlassOcclusionPhase,
-                            restoredGroupKeys = courseGlassRestoredGroupKeys
-                        )
-                    }
                     CompositionLocalProvider(
                         LocalOverscrollFactory provides homeOverscrollFactory,
-                        LocalPersonalizationPreview provides personalizationPreviewState,
-                        LocalCourseGlassOcclusionPhase provides courseGlassOcclusionPhase,
-                        LocalCourseGlassRestorePlan provides courseGlassRestorePlan
+                        LocalPersonalizationPreview provides personalizationPreviewState
                     ) {
                         SinglePillWeekScheduleScreen(
                             state = state,
@@ -246,6 +238,7 @@ internal fun HomeScreen(
                             conflictFocusCourseKey = conflictFocusCourseKey,
                             onResolveCourseConflict = onResolveCourseConflict,
                             onDeleteCourseSingleWeek = onDeleteCourseSingleWeek,
+                            onBlankLongPress = latestScheduleLongPress,
                             onCourseClick = { course, week, sourceBounds ->
                                 onCourseClick(course, week, sourceBounds)
                             }

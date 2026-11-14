@@ -103,20 +103,6 @@ class WeekEditMotionTest {
     }
 
     @Test
-    fun repositoryBackedCardFallsFromLiftedPoseToExactGeometry() {
-        val lifted = weekEditRealCardLandingTransform(0f)
-        val landed = weekEditRealCardLandingTransform(1f)
-        val overshoot = weekEditRealCardLandingTransform(1.08f)
-
-        assertEquals(WeekEditLiftedScale, lifted.scale, 0.001f)
-        assertEquals(1f, lifted.liftFactor, 0.001f)
-        assertEquals(1f, landed.scale, 0.001f)
-        assertEquals(0f, landed.liftFactor, 0.001f)
-        assertTrue(overshoot.scale < 1f)
-        assertTrue(overshoot.liftFactor < 0f)
-    }
-
-    @Test
     fun adjacentCardsRespondWithinTheFirstTwo120HzFramesAfterContact() {
         val near = weekEditNeighborRippleTransform(100f, 400f, 2f / 120f / 0.9f)
         val far = weekEditNeighborRippleTransform(300f, 400f, 2f / 120f / 0.9f)

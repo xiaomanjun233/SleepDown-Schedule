@@ -20,20 +20,9 @@ internal data class NativeSwitchRequest(
     val modifier: Modifier, val enabled: Boolean = true, val compact: Boolean = false
 )
 
-internal data class NativeSegmentRequest(
-    val labels: List<String>, val selected: Int, val onSelected: (Int) -> Unit,
-    val modifier: Modifier, val dark: Boolean,
-    val height: Dp = 42.dp,
-    val enabled: Boolean = true,
-    // Composite navigation owns its shell, light and deformation; this draws tabs/indicator.
-    val containerSurfaceEnabled: Boolean = true,
-    // Navigation must not disable the native rail by switching pages halfway through a drag.
-    val commitOnRelease: Boolean = false
-)
 
 internal val LocalNativeSliderRenderer = compositionLocalOf<(@Composable (NativeSliderRequest) -> Boolean)?> { null }
 internal val LocalNativeSwitchRenderer = compositionLocalOf<(@Composable (NativeSwitchRequest) -> Boolean)?> { null }
-internal val LocalNativeSegmentRenderer = compositionLocalOf<(@Composable (NativeSegmentRequest) -> Boolean)?> { null }
 
 /** Keep the native thumb and preview on the same value; ignore setProgress callback echoes. */
 internal class NativeSliderProgressAdapter(

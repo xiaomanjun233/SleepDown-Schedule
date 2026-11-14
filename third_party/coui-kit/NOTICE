@@ -1,0 +1,50 @@
+COUI-Kit 许可与来源说明
+
+除另有声明的第三方内容外，本项目自有源代码适用 Mozilla Public License,
+version 2.0（SPDX: MPL-2.0）。完整许可见根目录 LICENSE。
+
+This Source Code Form is subject to the terms of the Mozilla Public
+License, v. 2.0. If a copy of the MPL was not distributed with this
+file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+第三方代码、工具、依赖和资源不因本声明而改用 MPL-2.0；其已有许可、
+版权及来源声明继续适用。本声明不授予本项目无权授予的第三方权利。
+
+现有 Skia BSD 声明
+-----------------
+
+以下文件保留 Google 版权与 Skia BSD 许可声明：
+  coui/src/main/java/com/itos/coui/effect/CouiShadowFastGeometry.kt
+  coui/src/main/java/com/itos/coui/effect/CouiShadowTessellator.kt
+
+对应许可原文位于：
+  coui/src/main/resources/META-INF/coui-skia-LICENSE
+
+AndroidX 搜索图标
+----------------
+
+coui/src/main/res/drawable/coui_search.xml 保留 AndroidX Material Icons
+Outlined.Search 的路径, 转换为 Android vector drawable, 不再依赖图标库。
+Copyright 2025 The Android Open Source Project.
+来源: androidx.compose.material:material-icons-core:1.7.8,
+commonMain/androidx/compose/material/icons/outlined/Search.kt。
+适用 Apache License, Version 2.0, 完整许可位于:
+  coui/src/main/resources/META-INF/coui-androidx-LICENSE
+
+名称与标识
+----------
+
+名称和标识的使用政策见根目录 TRADEMARKS.md。该政策独立于代码许可，
+不增加或改变 MPL-2.0 授予的代码权利。
+
+COUI 开关加载图像
+-----------------
+
+coui/src/main/res/drawable-xxhdpi/coui_switch_loading.png 是用户要求采用的
+ColorOS 17 Settings 原始 switch_loading 图像，来源与校验值见
+coui/RESOURCE_SOURCES.md。该图像不适用本项目的 MPL-2.0 声明；原厂及
+上游的权利继续适用，本项目不额外授予该第三方资源的权利。
+
+常驻搜索图标 SearchField（Settings 的 coui_search_view_icon_normal）与 Close（ic_close）来自用户提供的 ColorOS 17 系统矢量，原厂及 Android 上游权利保留；未检出附带的独立许可，不改标为 MPL-2.0。图标只保留几何，颜色由消费者提供。
+
+系统矢量图标子集来自用户提供的 ColorOS 系统材料；具体来源、调用链、原始哈希与转换范围见 [coui/ICON_SOURCES.md](coui/ICON_SOURCES.md)。这些第三方资源保留原权利，不适用本项目 MPL-2.0 自有源码许可。

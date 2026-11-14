@@ -44,7 +44,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailTopOverlayHeight
 import com.xiaomanjun.sleepdownschedule.effectiveCurrentWeek
 import com.xiaomanjun.sleepdownschedule.feature.home.boundlessHomeTopGradientHeight
 import com.xiaomanjun.sleepdownschedule.feature.home.day.HomeDateTitle
-import com.xiaomanjun.sleepdownschedule.feature.home.overlay.HomeAnchoredOverlayKind
 import com.xiaomanjun.sleepdownschedule.feature.home.rememberHomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.feature.settings.title
@@ -85,9 +84,9 @@ internal fun AppTopBar(
     homeDisplayWeek: Int,
     beforeScheduleTerm: Boolean,
     afterScheduleTerm: Boolean,
-    homeShowingAnotherWeek: Boolean,
-    onReturnHomeToCurrentWeek: () -> Unit,
-    activeHomeOverlay: HomeAnchoredOverlayKind?,
+    homeReturnTargetWeek: Int,
+    onReturnToday: () -> Unit,
+    personalizeButtonHidden: Boolean,
     addButtonHidden: Boolean,
     onAddButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
     onPersonalizeButtonPositioned: (androidx.compose.ui.geometry.Rect) -> Unit,
@@ -131,16 +130,18 @@ internal fun AppTopBar(
                         end = if (landscape) 64.dp else 120.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
+                val weekStart = if (homeMode == HomeMode.Week && homeDisplayWeek != homeReturnTargetWeek) {
+                    com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekStartDate(state.config, homeDisplayWeek)
+                } else null
                 HomeDateTitle(
                     state = state,
-                    displayDate = if (homeMode == HomeMode.Day) homeDisplayDate else LocalDate.now(),
+                    mode = homeMode,
+                    displayDate = if (homeMode == HomeMode.Day) homeDisplayDate else weekStart ?: LocalDate.now(),
                     displayWeek = if (homeMode == HomeMode.Day) effectiveCurrentWeek(state.config, homeDisplayDate) else homeDisplayWeek,
-                    showTwoDays = false,
+                    dateRangeEnd = weekStart?.plusDays(6),
                     beforeScheduleTerm = beforeScheduleTerm,
                     afterScheduleTerm = afterScheduleTerm,
-                    showReturnToCurrentWeekHint = homeMode == HomeMode.Week && homeDisplayWeek != effectiveCurrentWeek(state.config),
-                    showWeather = homeMode == HomeMode.Week,
-                    onReturnCurrent = onReturnHomeToCurrentWeek
+                    onReturnToday = onReturnToday
                 )
             }
             Row(
@@ -159,8 +160,8 @@ internal fun AppTopBar(
                     iconRes = R.drawable.ic_edit,
                     contentDescription = "benchmark_personalize_button",
                     selected = false,
-                    visible = activeHomeOverlay != HomeAnchoredOverlayKind.Personalize,
-                    enabled = homeOverlayReturning || activeHomeOverlay != HomeAnchoredOverlayKind.Personalize,
+                    visible = !personalizeButtonHidden,
+                    enabled = homeOverlayReturning || !personalizeButtonHidden,
                     onClick = onTogglePersonalize,
                     onButtonPositioned = onPersonalizeButtonPositioned
                 )
@@ -197,27 +198,7 @@ internal fun AppTopBar(
                 contentAlignment = Alignment.CenterStart
             ) {
                 Text(
-                    when (settingsPage) {
-                        SettingsPage.Root -> "设置"
-                        SettingsPage.General -> "通用设置"
-                        SettingsPage.LiquidGlass -> "视效设置"
-                        SettingsPage.Widgets -> "小组件设置"
-                        SettingsPage.AiImport -> "AI 设置"
-                        SettingsPage.DayAgent -> "AI 助理"
-                        SettingsPage.Schedule -> "课表详细设置"
-                        SettingsPage.PeriodSchemes -> "作息管理"
-                        SettingsPage.SpecialCourses -> "特殊课程"
-                        SettingsPage.AutoRefreshSchedule -> "自动刷新课表"
-                        SettingsPage.Notifications -> "通知设置"
-                        SettingsPage.ScheduleManager -> "课表设置"
-                        SettingsPage.BackupRestore -> "备份与恢复"
-                        SettingsPage.WebDav -> "WebDAV 备份"
-                        SettingsPage.BackupPreview -> "恢复预览"
-                        SettingsPage.About -> "关于应用"
-                        SettingsPage.Changelog -> "关于应用"
-                        SettingsPage.Donate -> "捐赠支持"
-						SettingsPage.PrivacyPolicy -> "隐私政策"
-                    },
+                    settingsPage.title(),
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.SemiBold,
                     lineHeight = 28.sp

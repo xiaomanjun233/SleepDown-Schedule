@@ -7,7 +7,22 @@ Baseline: tag `2.0.0`, commit `bebb11a91bd97bf1dabde479f3b332ad9898731f`.
 License: Apache-2.0; see LICENSE. Original `com.kyant.backdrop` packages are retained.
 This Android-only module uses the application's Compose 1.11.2 dependencies.
 
-## Course rendering (2026-10-18)
+## Material source ownership (2026-11-11)
+
+`MaterialBackdrop` owns the source recording and one optional shared filtered raster through a single
+producer modifier. A complete non-null pixel key enables reuse; null means live content. Source pixels,
+geometry and density invalidate recording; filter changes only rebuild the prefix. Consumers use full
+source-to-local transforms, including scale/rotation and separate-window origins. No readiness switch,
+per-card first-frame blur or delayed warm-up is required. Detach releases the filtered layers.
+`RefractionShape` supplies explicit rounded geometry while preserving a host's exact clipping outline.
+
+The shared Offscreen layer remains an HWUI render resource, not a CPU bitmap or a guarantee of zero GPU
+work. See [the current report](../../docs/reports/2026-11-11-home-render-architecture.md).
+
+## Earlier course rendering design (2026-10-18)
+
+The former `SharedBlurBackdrop` lifecycle below has been replaced by `MaterialBackdrop`. The full-resolution,
+local-lens, clipping and viewport decisions still apply.
 
 Behavioral reference:
 [HaoZai000/NexioSchedule@99f14cbc](https://github.com/HaoZai000/NexioSchedule/tree/99f14cbcadd6d2e6cbfba4e73c2d001f83673264).
@@ -66,6 +81,10 @@ No global change forces those consumers onto the course configuration.
 null keys remain live. Callers include asynchronous image content and animation changes.
 Recording revisions are published with `Snapshot.withoutReadObservation`: producers must not
 subscribe to their own version increments and continuously dirty a retained scene during Morph.
+Plain content producers record once and display that same layer, including when a complete pixel
+key reuses its recording. Custom `onDraw` captures keep their separate visible draw because their
+sampling pixels can differ from the displayed subtree. This avoids double traversal of nested
+sources without introducing a card-specific capture mode or changing their visible content.
 `ShapeProvider` keeps equivalent callback caches and observes dynamic outlines.
 
 `BackdropDiagnostics` is optional. Layer/recording/pixel-area counters are ownership and CPU
@@ -80,5 +99,6 @@ and compare every Android/common runtime source. The Android-only Gradle adapter
 
 `testAndroidHostTest` covers recording identity, geometry, dynamic outline invalidation and effect
 geometry. Existing app glass tests exercise native host drawing and generic scene/Morph behavior.
-At the user's request, this round stopped tests and proceeded to Release packaging and installation.
+The current material-source, coordinate, lifecycle and home-motion regressions are recorded in the
+[2026-11-11 report](../../docs/reports/2026-11-11-home-render-architecture.md).
 Host rendering does not establish device GPU performance or phone/tablet visual parity.

@@ -33,7 +33,8 @@ internal class AgentToolFactCache {
     @Synchronized
     fun put(facts: DayAgentFacts, call: AgentToolCall, result: AgentToolResult, now: Long) {
         if (!result.success || call.name in setOf(AgentToolName.UPDATE_MEMORY, AgentToolName.PROPOSE_ACTIONS,
-                AgentToolName.UNKNOWN, AgentToolName.GET_ACTION_GUIDE) || result.content.length > 100_000) return
+                AgentToolName.UNKNOWN, AgentToolName.GET_ACTION_GUIDE, AgentToolName.READ_IMPORT_MATERIAL,
+                AgentToolName.VIEW_IMPORT_DETAIL, AgentToolName.TASK_WORKSPACE, AgentToolName.EDU_WORKSPACE) || result.content.length > 100_000) return
         val version = version(facts)
         val snapshot = snapshots[facts.scheduleId]?.takeIf { it.version == version }
             ?: Snapshot(version, linkedMapOf()).also { snapshots[facts.scheduleId] = it }

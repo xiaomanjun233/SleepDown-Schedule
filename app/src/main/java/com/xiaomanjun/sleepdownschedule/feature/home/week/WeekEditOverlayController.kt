@@ -2,7 +2,9 @@ package com.xiaomanjun.sleepdownschedule.feature.home.week
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
@@ -31,6 +33,7 @@ import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 internal fun continuousSpanFrom(course: CourseEntity, start: Int, periodIndexes: List<Int>): Int {
@@ -138,30 +141,13 @@ internal data class WeekEditNeighborRippleTransform(
     val rotationFactor: Float
 )
 
+internal data class WeekEditLandingRipple(val centerInScrollContent: Offset, val radiusPx: Float, val week: Int)
+
 internal data class WeekEditLandingImpactTransform(
     val translationFactor: Float,
     val scaleX: Float,
     val scaleY: Float
 )
-
-internal data class WeekEditRealCardLandingTransform(
-    val liftFactor: Float,
-    val scale: Float
-)
-
-/**
- * Maps the destination card from the lifted finger pose to its real timetable geometry.
- * Progress intentionally accepts a small spring overshoot so the physical card can pass the
- * surface by a fraction before settling, without ever changing its logical grid position.
- */
-internal fun weekEditRealCardLandingTransform(progress: Float): WeekEditRealCardLandingTransform {
-    val springProgress = progress.coerceIn(-0.20f, 1.22f)
-    val remaining = 1f - springProgress
-    return WeekEditRealCardLandingTransform(
-        liftFactor = remaining,
-        scale = 1f + (WeekEditLiftedScale - 1f) * remaining
-    )
-}
 
 internal fun weekEditLandingImpactTransform(progress: Float): WeekEditLandingImpactTransform {
     val safeProgress = progress.coerceIn(0f, 1f)
@@ -244,6 +230,7 @@ internal fun rememberWeekEditOverlayController(
     }
 }
 
+@androidx.compose.runtime.Stable
 internal class WeekEditOverlayController(
     private val scope: CoroutineScope,
     private val scrollState: ScrollState
@@ -270,12 +257,8 @@ internal class WeekEditOverlayController(
     private val overlayHeight = Animatable(0f)
     private val overlayScale = Animatable(1f)
     private val overlayAlpha = Animatable(1f)
-    private val overlayReveal = Animatable(0f)
     private val overlayLift = Animatable(0f)
-    private val realCardLandingAnimation = Animatable(1f)
-    private val landingImpactAnimation = Animatable(1f)
     private val overlayRotation = Animatable(0f)
-    private val landingRippleAnimation = Animatable(1f)
     private var scrollCompensationY by mutableFloatStateOf(0f)
     private var autoScrollDirection by mutableIntStateOf(0)
     private var dragPointerX by mutableFloatStateOf(0f)
@@ -293,18 +276,15 @@ internal class WeekEditOverlayController(
     private var landingFlightComplete = false
     private var commitTargetReady = false
     private var realCardTargetMeasured = false
-    private var pendingLandingCenter = Offset.Zero
-    private var pendingLandingRadius = 1f
-    private var landingRippleStarted = false
+    private var realCardCenterInScrollContent = Offset.Zero
+    private val landingRippleAnimation = Animatable(1f)
+    private var landingRippleJob: Job? = null
+    var landingRipple by mutableStateOf<WeekEditLandingRipple?>(null)
+        private set
+    val landingRippleProgress: Float get() = landingRippleAnimation.value
     var gestureActive by mutableStateOf(false)
         private set
     var realCardVisible by mutableStateOf(false)
-        private set
-    var realCardLandingActive by mutableStateOf(false)
-        private set
-    var landingRippleCenter by mutableStateOf<Offset?>(null)
-        private set
-    var landingRippleRadius by mutableFloatStateOf(1f)
         private set
 
     val offsetX: Float get() =
@@ -322,22 +302,19 @@ internal class WeekEditOverlayController(
     val height: Float get() =
         when {
             releaseFrameActive -> releaseFrameHeight
-            directManipulation && request?.mode == WeekEditOverlayMode.Resize -> gestureTargetHeight
+            directManipulation -> gestureTargetHeight
             else -> overlayHeight.value
         }
     val scale: Float get() = overlayScale.value
     val alpha: Float get() = overlayAlpha.value
-    val revealProgress: Float get() = overlayReveal.value
     val liftProgress: Float get() = overlayLift.value
-    val realCardLandingProgress: Float get() = realCardLandingAnimation.value
-    val impactProgress: Float get() = landingImpactAnimation.value
     val rotation: Float get() = overlayRotation.value
     val pointerPosition: Offset get() = Offset(dragPointerX, dragPointerY)
-    val landingRippleProgress: Float get() = landingRippleAnimation.value
     val gridOffsetY: Float get() = offsetY + scrollCompensationY
     val gridScrollCompensationY: Float get() = scrollCompensationY
 
-    fun clear(preserveLandingRipple: Boolean = false) {
+    fun clear() {
+        stopLandingRipple()
         awaitingCommit = false
         committedTargetKey = null
         committedTargetWeek = 0
@@ -350,9 +327,6 @@ internal class WeekEditOverlayController(
         commitTargetReady = false
         realCardTargetMeasured = false
         realCardVisible = false
-        realCardLandingActive = false
-        pendingLandingCenter = Offset.Zero
-        pendingLandingRadius = 1f
         scrollCompensationY = 0f
         autoScrollDirection = 0
         dragPointerX = 0f
@@ -364,14 +338,10 @@ internal class WeekEditOverlayController(
         releaseFrameY = 0f
         releaseFrameHeight = 0f
         releaseFrameActive = false
-        landingRippleStarted = false
-        if (!preserveLandingRipple) {
-            landingRippleCenter = null
-            landingRippleRadius = 1f
-        }
     }
 
     fun start(nextRequest: WeekEditOverlayRequest) {
+        stopLandingRipple()
         rootOwnsMoveGesture = false
         awaitingCommit = false
         committedTargetKey = null
@@ -385,12 +355,6 @@ internal class WeekEditOverlayController(
         commitTargetReady = false
         realCardTargetMeasured = false
         realCardVisible = false
-        realCardLandingActive = false
-        pendingLandingCenter = Offset.Zero
-        pendingLandingRadius = 1f
-        landingRippleStarted = false
-        landingRippleCenter = null
-        landingRippleRadius = 1f
         gestureTargetX = 0f
         gestureTargetY = 0f
         gestureTargetHeight = nextRequest.sourceBounds.height
@@ -406,20 +370,10 @@ internal class WeekEditOverlayController(
             overlayHeight.snapTo(nextRequest.sourceBounds.height)
             overlayScale.snapTo(0.985f)
             overlayAlpha.snapTo(1f)
-            overlayReveal.snapTo(0f)
             overlayLift.snapTo(0f)
-            realCardLandingAnimation.snapTo(1f)
-            landingImpactAnimation.snapTo(1f)
             overlayRotation.snapTo(0f)
-            landingRippleAnimation.snapTo(1f)
             scrollCompensationY = 0f
             autoScrollDirection = 0
-            launch {
-                overlayReveal.animateTo(
-                    1f,
-                    tween(durationMillis = 90, easing = CubicBezierEasing(0.20f, 0.78f, 0.18f, 1f))
-                )
-            }
             launch {
                 overlayScale.animateTo(
                     WeekEditLiftedScale,
@@ -544,11 +498,6 @@ internal class WeekEditOverlayController(
         } else {
             0f
         }
-        pendingLandingCenter = activeRequest.sourceBounds.center + Offset(targetX, targetY)
-        pendingLandingRadius = maxOf(
-            activeRequest.gridColumnWidthPx * 3.8f,
-            activeRequest.periodRowHeightPx * 3.0f
-        )
         if (canSave) {
             committedTargetKey = edited.occurrenceOverrideKey()
             committedTargetWeek = activeRequest.destinationWeek
@@ -600,14 +549,6 @@ internal class WeekEditOverlayController(
         } else {
             activeRequest.sourceBounds.height
         }
-        pendingLandingCenter = Offset(
-            x = activeRequest.sourceBounds.center.x,
-            y = activeRequest.sourceBounds.top + targetHeight / 2f
-        )
-        pendingLandingRadius = maxOf(
-            activeRequest.gridColumnWidthPx * 3.8f,
-            activeRequest.periodRowHeightPx * 3.0f
-        )
         if (canSave) {
             committedTargetKey = edited.copy(weeks = listOf(activeRequest.editWeek)).occurrenceOverrideKey()
             committedTargetWeek = activeRequest.editWeek
@@ -640,12 +581,12 @@ internal class WeekEditOverlayController(
         maybeHandoffOverlayToRealCard()
     }
 
-    fun updateRealLandingCenter(center: Offset) {
-        if (committedTargetKey != null) {
-            pendingLandingCenter = center
-            realCardTargetMeasured = true
-            maybeHandoffOverlayToRealCard()
-        }
+    fun onRealCardPositioned(centerInRoot: Offset) {
+        if (committedTargetKey == null || realCardVisible) return
+        realCardCenterInScrollContent = centerInRoot + Offset(0f, scrollState.value.toFloat())
+        if (realCardTargetMeasured) return
+        realCardTargetMeasured = true
+        maybeHandoffOverlayToRealCard()
     }
 
     private fun beginLandingFlight(
@@ -655,6 +596,12 @@ internal class WeekEditOverlayController(
         releaseVelocity: Velocity
     ) {
         if (landingFlightRunning || landingFlightComplete) return
+        val landedRequest = request ?: return
+        val projectedCenter = Offset(
+            landedRequest.sourceBounds.center.x + targetX,
+            landedRequest.sourceBounds.top + targetY + targetHeight / 2f + scrollState.value
+        )
+        val landingWeek = committedTargetWeek
         landingFlightRunning = true
         // Publish the exact release pose synchronously. Animatable.snapTo is suspendable, so
         // waiting to leave direct-manipulation mode inside the coroutine could leave one rendered
@@ -696,13 +643,34 @@ internal class WeekEditOverlayController(
                 )
             }
             val scaleJob = launch {
-                // Keep the impact on the floating card and start it in the release frame. The
-                // lower stiffness preserves one readable compression/rebound instead of finishing
-                // before the clone reaches its snapped cell.
+                var reachedLiftPeak = false
+                var rippleStarted = false
+                fun playContactRipple() {
+                    if (rippleStarted || request !== landedRequest) return
+                    rippleStarted = true
+                    startLandingRipple(WeekEditLandingRipple(
+                        centerInScrollContent = if (realCardTargetMeasured) realCardCenterInScrollContent else projectedCenter,
+                        radiusPx = maxOf(landedRequest.gridColumnWidthPx * 3.8f, landedRequest.periodRowHeightPx * 3f),
+                        week = landingWeek
+                    ))
+                }
                 overlayScale.animateTo(
                     1f,
-                    spring(dampingRatio = 0.46f, stiffness = 300f)
-                )
+                    keyframes {
+                        // Land on the same spring as the card position, with a distinct
+                        // compression and rebound entirely on the moving foreground card.
+                        durationMillis = 350
+                        1.03f at 115 using FastOutSlowInEasing
+                        0.973f at 183 using FastOutSlowInEasing
+                        1.014f at 265 using FastOutSlowInEasing
+                    }
+                ) {
+                    // Signal the first compression of the visible landing, even while the
+                    // repository and the real card are still preparing the handoff.
+                    if (value > 1.01f) reachedLiftPeak = true
+                    if (reachedLiftPeak && value < 0.995f) playContactRipple()
+                }
+                playContactRipple()
             }
             val rotationJob = launch {
                 overlayRotation.animateTo(
@@ -719,14 +687,7 @@ internal class WeekEditOverlayController(
                 overlayLift.animateTo(
                     0f,
                     spring(dampingRatio = 0.66f, stiffness = 360f)
-                ) {
-                    // First contact with the grid plane is the impact frame. Waiting for all
-                    // position/height springs to settle delays the wave through their rebound.
-                    if (value <= 0f && !landingRippleStarted) {
-                        landingRippleStarted = true
-                        startLandingRipple(pendingLandingCenter, pendingLandingRadius)
-                    }
-                }
+                )
             }
             xJob.join()
             yJob.join()
@@ -748,14 +709,12 @@ internal class WeekEditOverlayController(
 
     private fun handoffOverlayToRealCard() {
         if (handoffRunning || committedTargetKey == null) return
+        val landedRequest = request ?: return
         handoffRunning = true
         scope.launch {
             awaitingCommit = false
             // The overlay has already completed the full visible flight and rebound. Room only
             // transfers ownership in place and must never gate or restart the landing motion.
-            realCardLandingAnimation.snapTo(1f)
-            landingImpactAnimation.snapTo(1f)
-            realCardLandingActive = false
             realCardVisible = true
             overlayAlpha.animateTo(
                 0f,
@@ -764,6 +723,7 @@ internal class WeekEditOverlayController(
                     easing = CubicBezierEasing(0.20f, 0.72f, 0.22f, 1f)
                 )
             )
+            if (request !== landedRequest) return@launch
             request = null
             gestureActive = false
             directManipulation = false
@@ -775,18 +735,24 @@ internal class WeekEditOverlayController(
         }
     }
 
-    private fun startLandingRipple(center: Offset, radius: Float) {
-        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+    fun landingRippleDistance(centerInRoot: Offset): Float {
+        val ripple = landingRipple ?: return Float.POSITIVE_INFINITY
+        return (centerInRoot + Offset(0f, scrollState.value.toFloat()) - ripple.centerInScrollContent).getDistance()
+    }
+
+    private fun startLandingRipple(ripple: WeekEditLandingRipple) {
+        landingRippleJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             landingRippleAnimation.snapTo(0f)
-            landingRippleCenter = center
-            landingRippleRadius = radius.coerceAtLeast(1f)
-            landingRippleAnimation.animateTo(
-                1f,
-                tween(durationMillis = 900, easing = LinearEasing)
-            )
-            landingRippleCenter = null
-            landingRippleRadius = 1f
+            landingRipple = ripple
+            landingRippleAnimation.animateTo(1f, tween(900, easing = LinearEasing))
+            landingRipple = null
         }
+    }
+
+    private fun stopLandingRipple() {
+        landingRippleJob?.cancel()
+        landingRippleJob = null
+        landingRipple = null
     }
 
     private suspend fun autoScroll(
