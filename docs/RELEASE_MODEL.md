@@ -1,15 +1,15 @@
 # 版本基线与发布关系
 
-本文说明版本与渠道规则。发布事实以 Git 标签、构建配置和对应 Release 附件为准；以下快照核对于 **2026-10-28**。接手时应刷新实际引用，未完成任务见 [AI_HANDOFF.md](AI_HANDOFF.md)。
+本文说明版本与渠道规则。下表对应 **2.0** 发布基线，发布事实以 Git 标签、构建配置和 Release 附件为准。接手时应刷新实际引用，未完成任务见 [AI_HANDOFF.md](AI_HANDOFF.md)。
 
 ## 当前基线
 
 | 项目 | 当前事实 | 核对入口 |
 | --- | --- | --- |
-| 持续开发入口 | `main`，源码收束点 `8e43ac36`，实际版本 `1.2.8_beta2` / 36 | #87 合并提交与 `app/build.gradle.kts` |
+| 持续开发入口 | `main`，本轮源码由 `v2.0` 标签定位 | `git merge-base --is-ancestor v2.0 origin/main` 与 `app/build.gradle.kts` |
 | 最新 Beta | `v1.2.8_beta2`，发布源码 `8e43ac36`，已通过 #96 进入 main；发布标签与附件保持原样 | [发布记录](2026-10-31-beta2-1.2.8-release.md)、[Beta1 记录](2026-10-27-beta1-1.2.8-release.md) |
-| 最新正式版 | `v1.2.7.1`，源码 `bdc380ee`，双平台正式发布；r1 已撤下，旧标签保留。发布源码已通过 #78 回流 main | [发布与更新兼容核验](reports/2026-10-20-update-revision-compatibility.md)、[架构任务基线](reports/2026-10-20-architecture-review.md) |
-| Android 主应用 | `com.xiaomanjun.sleepdownschedule`，当前开发基线 `1.2.8_beta2` / `36`；最新正式版仍为 `1.2.7.1` / `35` | `app/build.gradle.kts` 与发布记录 |
+| 本轮正式版 | `v2.0`，正式 Release 的日志与应用内日志一致 | [2.0 更新日志](../release-notes/v2.0.md)、[GitHub Release](https://github.com/xiaomanjun233/SleepDown-Schedule/releases/tag/v2.0) |
+| Android 主应用 | `com.xiaomanjun.sleepdownschedule`，`2.0` / `36` | `app/build.gradle.kts` 与发布记录 |
 | 发行渠道 | `github` 与 `store` 两种 flavor；厂商实验入口由 `SLEEPDOWN_EXPERIMENTAL_FEATURES` 按渠道控制 | `app/build.gradle.kts`、`app/src/github/`、`app/src/store/` |
 | 课程组件 | 独立包 `com.suda.yzune.wakeupschedule`；构建版本 `6.0.19` / `259` | `coloros-wakeup-proxy/build.gradle.kts` |
 | 历史实验线 | `exp` 与 `v1.2.6-exp*` 保留作为已发布历史，停止作为后续功能基线 | Git 历史与旧 Release |

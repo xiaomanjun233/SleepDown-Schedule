@@ -119,12 +119,13 @@ class AboutSettingsUiTest {
         notes.performClick()
         compose.runOnIdle { assertEquals(1, notesOpens) }
         compose.onNodeWithText("软件版本").assertIsDisplayed()
-        compose.onNodeWithText("课表与作息").assertIsDisplayed()
+        compose.onNodeWithText("全新界面与凝光视效").assertIsDisplayed()
+        compose.onNodeWithText("全面重构二级界面。", substring = true).assertIsDisplayed()
         writeSettingsVisualArtifact("software-version-notes-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
         compose.onNodeWithContentDescription("收起更新说明").performClick()
-        compose.onNodeWithText("课表与作息").assertDoesNotExist()
+        compose.onNodeWithText("全新界面与凝光视效").assertDoesNotExist()
         compose.onNodeWithContentDescription("展开更新说明").performClick()
-        compose.onNodeWithText("课表与作息").assertIsDisplayed()
+        compose.onNodeWithText("全新界面与凝光视效").assertIsDisplayed()
         compose.onNodeWithContentDescription("返回").performClick()
         compose.onNodeWithText("已是最新版本").assertIsDisplayed()
         compose.onNodeWithText("历史日志").assertDoesNotExist()
@@ -136,10 +137,12 @@ class AboutSettingsUiTest {
         assertTrue(historyMenuItem.fetchSemanticsNode().boundsInRoot.width < 196f * density)
         highlightsMenuItem.performClick()
         compose.runOnIdle { assertEquals(1, welcomeReplays) }
+        highlightsMenuItem.assertDoesNotExist()
         more.performClick()
+        val autoUpdateItem = compose.onNodeWithText("自动更新设置").assertIsDisplayed()
         compose.mainClock.autoAdvance = false
         try {
-            compose.onNodeWithText("自动更新设置").performClick()
+            autoUpdateItem.performClick()
             compose.runOnIdle { assertEquals(SettingsPage.AutoUpdate, pickedPage) }
         } finally {
             compose.mainClock.autoAdvance = true
@@ -150,6 +153,7 @@ class AboutSettingsUiTest {
         more.performClick()
         compose.onNodeWithText("历史日志").performClick()
         compose.onNodeWithText("2.0").assertExists()
+        compose.onNodeWithText("全面重构二级界面。", substring = true).assertExists()
         compose.onNodeWithText("1.2.8_beta1").assertDoesNotExist()
         compose.onNodeWithText("1.2.8_beta2").assertDoesNotExist()
         writeSettingsVisualArtifact("changelog-c17-native.png", compose.onRoot().captureToImage().asAndroidBitmap())
