@@ -1,9 +1,9 @@
 # COUI 适配进度盘点
 
-日期：2026-11-07  
-分支：`codex/couikit-dialog`  
-源码基线：`5d7f7235`  
-最新交付：`tmp/review-apks/SleepDown-1.2.8-beta2-glow-popup-pickers-20261107-031cf109.apk`
+- 日期：2026-11-07
+- 分支：`codex/couikit-dialog`
+- 源码基线：`5d7f7235`
+- 最新交付：`tmp/review-apks/SleepDown-1.2.8-beta2-glow-popup-pickers-20261107-031cf109.apk`
 
 ## 结论
 

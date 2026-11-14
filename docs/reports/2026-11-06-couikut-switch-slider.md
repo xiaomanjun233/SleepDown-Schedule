@@ -1,8 +1,8 @@
 # COUI 开关与滑条接入
 
-日期：2026-11-06  
-分支：`codex/couikit-dock-fab`  
-父提交：`7fa1a4c2`（组合底栏、Button 与文档）
+- 日期：2026-11-06
+- 分支：`codex/couikit-dock-fab`
+- 父提交：`7fa1a4c2`（组合底栏、Button 与文档）
 
 ## 1. 范围
 

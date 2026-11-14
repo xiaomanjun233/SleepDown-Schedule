@@ -1,8 +1,8 @@
 # COUI 底栏 FAB 迁移与深色跟手光
 
-日期：2026-11-06  
-分支：`codex/couikit-dock-fab`  
-父提交：`5ad124a9`（COUI Dock 迁移与默认凝光）
+- 日期：2026-11-06
+- 分支：`codex/couikit-dock-fab`
+- 父提交：`5ad124a9`（COUI Dock 迁移与默认凝光）
 
 ## 1. 范围
 
