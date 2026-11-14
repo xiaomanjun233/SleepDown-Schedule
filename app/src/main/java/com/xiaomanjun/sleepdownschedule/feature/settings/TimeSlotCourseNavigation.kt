@@ -83,7 +83,8 @@ internal suspend fun openTimeSlotCourseEditor(
             returnAnchorProvider = returnAnchor(anchor),
             backgroundColor = backgroundColor,
             onSourceReleased = restoreSource,
-            openingSourceView = liveSource
+            openingSourceView = liveSource,
+            floatingAddSource = original == null,
         ), prepareLegacy = { payload ->
             val frame = anchor?.let {
                 it.copy(bitmap = captureGlassWindowRegion(activity.window, it.boundsInWindow))

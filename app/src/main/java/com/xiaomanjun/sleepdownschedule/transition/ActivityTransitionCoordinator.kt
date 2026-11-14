@@ -128,9 +128,11 @@ object ActivityTransitionCoordinator {
             }
             log(session, nativeBackend.name, "fallback", reason)
         }
-        val request = if (prepareLegacy != null && normalizedPayload != null && !landscape) {
+        val request = if (normalizedPayload != null && !landscape &&
+            (prepareLegacy != null || normalizedPayload.floatingAddSource)) {
             val prepared = try {
-                prepareLegacy(normalizedPayload)
+                if (normalizedPayload.floatingAddSource) normalizedPayload.captureLegacyFloatingAdd(activity)
+                else checkNotNull(prepareLegacy)(normalizedPayload)
             } catch (error: Exception) {
                 TransitionPayloadStore.remove(session.id)
                 throw error
@@ -197,12 +199,23 @@ object ActivityTransitionCoordinator {
     }
 
     fun finishAfterLegacy(activity: Activity, sessionId: TransitionSessionId?) {
+        val sourcePayload = TransitionPayloadStore.payload(sessionId)
+        val source = sourcePayload?.takeIf { it.floatingAddSource }?.openingSourceView
+            as? LiveTransitionSourceView
+        val owner = (source?.context as? Activity)?.takeUnless { it.isFinishing || it.isDestroyed }
+        val releaseReturnCover = if (source?.hiddenForLegacyMorph == true && owner != null) {
+            runCatching { sourcePayload?.returnAnchorProvider?.resolve() }.getOrNull()
+                ?.let(owner::attachOpeningSourceSnapshotHandoff)
+        } else null
         val routeId = TransitionPayloadStore.session(sessionId)?.routeId
             ?: activity.intent.transitionRouteIdOrNull()
         val profile = routeId?.let(TransitionRouteCatalog::get)?.legacyProfile
         TransitionPayloadStore.session(sessionId)?.moveTo(TransitionSessionState.Finished)
         TransitionPayloadStore.remove(sessionId)
         activity.finish()
+        if (owner != null && releaseReturnCover != null) {
+            ReturnCoverHandoff(owner.window.decorView, releaseReturnCover).start()
+        }
         if (profile == LegacyTransitionProfile.PlatformDefault || profile == LegacyTransitionProfile.TaskReturn) return
         if (profile is LegacyTransitionProfile.Depth) {
             if (Build.VERSION.SDK_INT < 34) {

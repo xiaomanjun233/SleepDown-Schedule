@@ -16,7 +16,13 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.core.view.allViews
 import com.itos.coui.backdrop.rememberCouiBackdrop
 import com.xiaomanjun.sleepdownschedule.defaultConfig
+import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorFrame
+import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
+import com.xiaomanjun.sleepdownschedule.transition.TransitionPayloadStore
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.liveTransitionBoundsInActivity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -62,6 +68,27 @@ class LiveDockImportSourceViewTest {
                 view.draw(Canvas(sample))
                 assertEquals(Color.BLUE, sample.getPixel(view.width / 2, view.height / 2))
                 assertEquals(Color.TRANSPARENT, sample.getPixel(0, 0))
+
+                val bounds = checkNotNull(view.liveTransitionBoundsInActivity(activity, coveredWindow = true))
+                val session = TransitionPayloadStore.create(
+                    TransitionRouteId.HomeToUnifiedImport,
+                    TransitionPayload(TransitionAnchorFrame(bounds, bounds.height / 2, frame),
+                        openingSourceView = view, floatingAddSource = true),
+                )
+                try {
+                    assertTrue(view.showsOverflow)
+                    TransitionPayloadStore.hideLegacyFloatingAdd(session.id)
+                    assertFalse(view.showsOverflow)
+                    assertEquals(bounds, view.liveTransitionBoundsInActivity(activity, coveredWindow = true))
+                    sample.eraseColor(Color.TRANSPARENT)
+                    view.draw(Canvas(sample))
+                    assertEquals(Color.TRANSPARENT, sample.getPixel(view.width / 2, view.height / 2))
+                } finally {
+                    TransitionPayloadStore.remove(session.id)
+                }
+                assertTrue(view.showsOverflow)
+                view.draw(Canvas(sample))
+                assertEquals(Color.BLUE, sample.getPixel(view.width / 2, view.height / 2))
             } finally {
                 view.clearSoftwareFrame()
                 frame.recycle()

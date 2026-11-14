@@ -10,10 +10,13 @@ import com.xiaomanjun.sleepdownschedule.transition.AnchoredLegacyProfileId
 import kotlin.math.abs
 import kotlin.math.pow
 
-internal enum class PageMorphStyle { Card, Button, Menu, Welcome }
+internal enum class PageMorphStyle { Card, Button, FloatingAdd, Menu, Welcome }
 
-internal fun pageMorphStyle(profile: AnchoredLegacyProfileId?, bounds: Rect?, radius: Float): PageMorphStyle =
+internal fun pageMorphStyle(
+    profile: AnchoredLegacyProfileId?, bounds: Rect?, radius: Float, floatingAddSource: Boolean,
+): PageMorphStyle =
     when {
+        floatingAddSource -> PageMorphStyle.FloatingAdd
         profile == AnchoredLegacyProfileId.Welcome -> PageMorphStyle.Welcome
         bounds != null && abs(bounds.width - bounds.height) <= 2f &&
             radius >= minOf(bounds.width, bounds.height) * 0.40f -> PageMorphStyle.Button
@@ -29,23 +32,27 @@ internal class SharedViewFallbackMotion(style: PageMorphStyle) {
     val open = when (style) {
         PageMorphStyle.Card -> tween<Float>(540, easing = easeOut(4.5f))
         PageMorphStyle.Button -> tween(440, easing = easeOut(4f))
+        PageMorphStyle.FloatingAdd -> tween(400, easing = CubicBezierEasing(0.27f, 0.30f, 0.16f, 1f))
         PageMorphStyle.Menu -> tween(490, easing = easeOut(4f))
         PageMorphStyle.Welcome -> tween(420, easing = CubicBezierEasing(0.30f, 0.50f, 0.20f, 1f))
     }
     val openVertical = when (style) {
         PageMorphStyle.Card -> tween<Float>(500, easing = easeOut(5f))
         PageMorphStyle.Button -> tween(405, easing = easeOut(5f))
+        PageMorphStyle.FloatingAdd -> tween(400, easing = CubicBezierEasing(0.27f, 0.30f, 0.16f, 1f))
         PageMorphStyle.Menu -> tween(450, easing = easeOut(4.5f))
         PageMorphStyle.Welcome -> tween(400, easing = CubicBezierEasing(0.22f, 0.52f, 0.19f, 1f))
     }
     private val closeMillis = when (style) {
         PageMorphStyle.Card -> 320
         PageMorphStyle.Button -> 285
+        PageMorphStyle.FloatingAdd -> 310
         PageMorphStyle.Menu -> 310
         PageMorphStyle.Welcome -> 280
     }
-    val close = tween<Float>(closeMillis, easing = easeOut(3f))
-    val closeVertical = tween<Float>(closeMillis, easing = easeOut(2f))
+    val close = tween<Float>(closeMillis, easing = if (style == PageMorphStyle.FloatingAdd)
+        CubicBezierEasing(0.32f, 0.06f, 0.30f, 1f) else easeOut(3f))
+    val closeVertical = if (style == PageMorphStyle.FloatingAdd) close else tween(closeMillis, easing = easeOut(2f))
     val backgroundOpen = tween<Float>(open.durationMillis, easing = FastOutSlowInEasing)
     val backgroundClose = tween<Float>(closeMillis, easing = FastOutSlowInEasing)
 }
@@ -79,13 +86,16 @@ internal fun sharedViewGeometry(
     val sourceEnd = if (style == PageMorphStyle.Menu) 0.42f else 0.33f
     val contentStart = if (style == PageMorphStyle.Welcome) 0.06f else 0.10f
     val sourceAlpha = 1f - (progress / sourceEnd).coerceIn(0f, 1f)
+    val floatingAdd = style == PageMorphStyle.FloatingAdd
+    val iconAlpha = if (floatingAdd) 1f - homeMorphSmoothStep(0f, 0.34f, progress) else sourceAlpha
     return HomeAnchoredMorphGeometry(
         rect = sharedViewRect(source, target, progress, verticalProgress),
         cornerRadiusPx = lerp(sourceRadiusPx, targetRadiusPx, (progress / 0.7f).coerceIn(0f, 1f)),
-        sourceScale = lerp(1f, 1.12f, 1f - sourceAlpha),
-        sourceAlpha = sourceAlpha,
+        sourceScale = if (floatingAdd) 1f else lerp(1f, 1.12f, 1f - sourceAlpha),
+        sourceAlpha = iconAlpha,
         surfaceAlpha = 1f,
-        contentAlpha = ((progress - contentStart) / (0.60f - contentStart)).coerceIn(0f, 1f),
+        contentAlpha = if (floatingAdd) homeMorphSmoothStep(0.13f, 0.70f, progress)
+            else ((progress - contentStart) / (0.60f - contentStart)).coerceIn(0f, 1f),
         pathProgress = verticalProgress,
         expansionProgress = progress,
     )

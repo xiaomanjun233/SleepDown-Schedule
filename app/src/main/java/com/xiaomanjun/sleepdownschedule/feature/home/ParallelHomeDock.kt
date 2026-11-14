@@ -156,7 +156,8 @@ internal fun ParallelHomeDock(
                             if (homeSelected) onPlusPositioned(buttonBounds)
                         }
                         .drawWithContent {
-                            // The attached View and the Legacy return use this same button layer.
+                            if (buttonHidden || plusView?.hiddenForLegacyMorph == true) return@drawWithContent
+                            // The attached View presents the actual button layer.
                             returnButtonLayer.record {
                                 // Pin LocalDensity: record's delegated density otherwise recurses.
                                 withRecordingDensity(recordingDensity) {

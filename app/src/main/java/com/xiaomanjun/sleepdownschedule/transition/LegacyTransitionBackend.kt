@@ -67,6 +67,7 @@ private data class LegacySourcePlaceholder(
 }
 
 private fun TransitionOpenRequest.attachAnchoredSourcePlaceholder(): LegacySourcePlaceholder? {
+    if (payload?.floatingAddSource == true) return null
     val profile = route.legacyProfile as? LegacyTransitionProfile.Anchored ?: return null
     val removalDelayMillis = when (profile.profileId) {
         AnchoredLegacyProfileId.Parabolic -> ParabolicSourcePlaceholderMillis

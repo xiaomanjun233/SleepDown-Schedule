@@ -23,7 +23,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material3.CircularProgressIndicator
@@ -79,7 +78,6 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsNavigationRow
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
-import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberCouiGlassBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
@@ -362,12 +360,6 @@ internal fun FeedbackScreen(
                                             backgroundColor = pageColor.toArgb(),
                                             openingSourceView = source,
                                         ),
-                                        prepareLegacy = { pending ->
-                                            val frame = anchor?.let {
-                                                it.copy(bitmap = captureGlassWindowRegion(activity.window, it.boundsInWindow))
-                                            }
-                                            pending.copy(openingAnchor = frame, returnAnchorProvider = returnAnchor(frame))
-                                        },
                                         launchActivity = { destination, options ->
                                             if (options != null) destination.putExtra(
                                                 ActivityResultContracts.StartActivityForResult.EXTRA_ACTIVITY_OPTIONS_BUNDLE, options,
@@ -405,6 +397,7 @@ internal fun FeedbackScreen(
             actions = listOf(LiquidAlertAction("关闭", LiquidAlertActionStyle.Primary, onClick = close)),
             config = config,
             onDismissRequest = close,
+                                            floatingAddSource = true,
         )
     }
 }
@@ -449,13 +442,6 @@ private fun FeedbackAddButton(backdrop: Backdrop, dark: Boolean, accent: Color, 
     } else {
         SleepDownFloatingAddButton(backdrop, "新增反馈", onClick, accent.copy(alpha = 0.76f),
             blurRadius = 8.dp, buttonSize = FeedbackFabSize)
-    }
-}
-
-@Composable
-internal fun FeedbackAddIcon(accent: Color) {
-    Box(Modifier.fillMaxSize().background(accent, CircleShape), contentAlignment = Alignment.Center) {
-        Icon(Icons.Rounded.Add, null, Modifier.size(24.dp), tint = Color.White)
     }
 }
 

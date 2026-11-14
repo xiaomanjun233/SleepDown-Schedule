@@ -117,6 +117,8 @@ fun CrossActivityTransitionHost(
                 destinationFirstOpening = profile?.destinationFirstOpening == true,
                 openingMode = openingMode,
                 openingReady = openingReady,
+                floatingAddSource = payload?.floatingAddSource == true,
+                onLegacyMotionStart = { sessionId?.let(TransitionPayloadStore::hideLegacyFloatingAdd) },
                 handleSystemBack = handleSystemBack,
                 nativeRoundClip = routeId == TransitionRouteId.QuickSheetToSettingsDetail ||
                     routeId == TransitionRouteId.HomeToSettingsDetail ||

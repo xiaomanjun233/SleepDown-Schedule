@@ -10,6 +10,10 @@ import androidx.compose.foundation.layout.absoluteOffset
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.Canvas
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
@@ -25,6 +29,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -35,6 +40,10 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -49,6 +58,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.Alignment
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.deviceScreenCornerRadiusPx
 import com.xiaomanjun.sleepdownschedule.glass.DeferredGlassRoundedRectangle
 import com.xiaomanjun.sleepdownschedule.glass.LocalGlassCoordinatesFrozen
@@ -77,6 +88,11 @@ internal fun anchoredStableContentOffsetPx(
 
 internal enum class AnchoredDetailOpeningMode { AnimateLegacy, HoldSourceFrame, ShowDestination }
 
+private data class LegacyReturn(
+    val anchor: TransitionAnchorFrame?,
+    val fromPresentedPage: Boolean,
+)
+
 @Composable
 internal fun AnchoredDetailActivityMorph(
     openingAnchor: TransitionAnchorFrame?,
@@ -87,6 +103,8 @@ internal fun AnchoredDetailActivityMorph(
     destinationFirstOpening: Boolean,
     openingMode: AnchoredDetailOpeningMode,
     openingReady: Boolean,
+    floatingAddSource: Boolean,
+    onLegacyMotionStart: () -> Unit,
     onOpened: () -> Unit,
     onCloseRequested: () -> Boolean,
     onFinished: () -> Unit,
@@ -103,33 +121,36 @@ internal fun AnchoredDetailActivityMorph(
     val extent = remember { Animatable(initial) }
     val vertical = remember { Animatable(initial) }
     val backgroundScale = remember { Animatable(1f) }
-    var closing by remember { mutableStateOf(false) }
+    var returnFlight by remember { mutableStateOf<LegacyReturn?>(null) }
+    val closing = returnFlight != null
     var legacyReturnStarted by remember { mutableStateOf(false) }
-    var returnAnchor by remember { mutableStateOf<TransitionAnchorFrame?>(null) }
     val scope = rememberCoroutineScope()
     val latestOpened by rememberUpdatedState(onOpened)
     val latestFinished by rememberUpdatedState(onFinished)
-    val activeAnchor = if (closing) returnAnchor else openingAnchor
-    val style = pageMorphStyle(profileId, activeAnchor?.boundsInWindow, activeAnchor?.cornerRadiusPx ?: 0f)
+    val activeAnchor = if (closing) returnFlight?.anchor else openingAnchor
+    val style = pageMorphStyle(profileId, activeAnchor?.boundsInWindow, activeAnchor?.cornerRadiusPx ?: 0f, floatingAddSource)
     val motion = remember(style) { SharedViewFallbackMotion(style) }
-    val currentProgress = { if (showDestination && !legacyReturnStarted) 1f else extent.value }
-    val currentVertical = { if (showDestination && !legacyReturnStarted) 1f else vertical.value }
+    val showPresentedPage = !legacyReturnStarted && (returnFlight?.fromPresentedPage ?: showDestination)
+    val currentProgress = { if (showPresentedPage) 1f else extent.value }
+    val currentVertical = { if (showPresentedPage) 1f else vertical.value }
     val latestProgress = rememberUpdatedState(currentProgress)
     val settled by remember(closing) { derivedStateOf { !detailMorphUsesTransientClip(latestProgress.value(), closing) } }
 
     fun close() {
-        if (closing || onCloseRequested()) return
+        if (returnFlight != null) return
+        val fromPresentedPage = showDestination
+        if (onCloseRequested()) return
         val target = resolvedReturnAnchor()
         if (!hasOpeningMotion && target == null && !showDestination) {
             latestFinished()
             return
         }
-        returnAnchor = target
-        val returnStyle = pageMorphStyle(profileId, target?.boundsInWindow, target?.cornerRadiusPx ?: 0f)
+        val returnStyle = pageMorphStyle(profileId, target?.boundsInWindow, target?.cornerRadiusPx ?: 0f, floatingAddSource)
         val returnMotion = SharedViewFallbackMotion(returnStyle)
-        closing = true
+        returnFlight = LegacyReturn(target, fromPresentedPage)
+        onLegacyMotionStart()
         scope.launch {
-            if (showDestination) {
+            if (fromPresentedPage) {
                 extent.snapTo(1f)
                 vertical.snapTo(1f)
             }
@@ -137,7 +158,9 @@ internal fun AnchoredDetailActivityMorph(
             coroutineScope {
                 if (backgroundSnapshot != null) launch { backgroundScale.animateTo(1f, returnMotion.backgroundClose) }
                 launch { extent.animateTo(0f, if (target == null) UnanchoredPageMotion else returnMotion.close) }
-                launch { vertical.animateTo(0f, if (target == null) UnanchoredPageMotion else returnMotion.closeVertical) }
+                if (!floatingAddSource) launch {
+                    vertical.animateTo(0f, if (target == null) UnanchoredPageMotion else returnMotion.closeVertical)
+                }
             }
             latestFinished()
         }
@@ -155,13 +178,16 @@ internal fun AnchoredDetailActivityMorph(
             return@LaunchedEffect
         }
         if (extent.value < 1f) {
+            onLegacyMotionStart()
             withFrameNanos { }
             coroutineScope {
                 if (backgroundSnapshot != null && profileId != AnchoredLegacyProfileId.Welcome) {
                     launch { backgroundScale.animateTo(if (style == PageMorphStyle.Menu) 1.08f else 0.96f, motion.backgroundOpen) }
                 }
                 launch { extent.animateTo(1f, if (openingAnchor == null) UnanchoredPageMotion else motion.open) }
-                launch { vertical.animateTo(1f, if (openingAnchor == null) UnanchoredPageMotion else motion.openVertical) }
+                if (!floatingAddSource) launch {
+                    vertical.animateTo(1f, if (openingAnchor == null) UnanchoredPageMotion else motion.openVertical)
+                }
             }
         }
         latestOpened()
@@ -180,8 +206,10 @@ internal fun AnchoredDetailActivityMorph(
             windowOffset = windowOffset,
             style = style,
             progress = currentProgress,
-            vertical = currentVertical,
+            vertical = if (floatingAddSource) currentProgress else currentVertical,
             settled = settled,
+            waitForFloatingAdd = floatingAddSource && !closing && !showDestination &&
+                (openingMode == AnchoredDetailOpeningMode.HoldSourceFrame || !openingReady || !hasOpeningMotion),
             destinationFirstOpening = destinationFirstOpening && !closing,
             nativeRoundClip = nativeRoundClip,
             sourceContent = sourceContent,
@@ -206,6 +234,7 @@ private fun AnchoredPageSurface(
     progress: () -> Float,
     vertical: () -> Float,
     settled: Boolean,
+    waitForFloatingAdd: Boolean,
     destinationFirstOpening: Boolean,
     nativeRoundClip: Boolean,
     sourceContent: @Composable BoxScope.() -> Unit,
@@ -231,15 +260,28 @@ private fun AnchoredPageSurface(
         } else DeferredGlassRoundedRectangle({ currentRadius.value() }, density.density)
     }
     val background = MaterialTheme.colorScheme.background
+    val defaultAnchorColor = if (style == PageMorphStyle.FloatingAdd) MaterialTheme.colorScheme.primary else background
     val anchorColor = remember(anchor, background, style) {
         anchor?.surfaceColor?.let { Color(it).takeIf { color -> color.alpha >= 0.99f } }
-            ?: anchor?.bitmap?.takeIf { style == PageMorphStyle.Button }?.let { Color(transitionSurfaceColor(it, background.toArgb())) }
-            ?: background
+            ?: anchor?.bitmap?.takeIf { style == PageMorphStyle.Button || style == PageMorphStyle.FloatingAdd }
+                ?.let { Color(transitionSurfaceColor(it, defaultAnchorColor.toArgb())) }
+            ?: defaultAnchorColor
     }
     val currentSettled = rememberUpdatedState(settled)
     val freezeCoordinates = remember { { !currentSettled.value } }
     val showSource by remember(anchor, settled, destinationFirstOpening) {
         derivedStateOf { anchor != null && !settled && !destinationFirstOpening && geometry.sourceAlpha > 0f }
+    }
+    if (style == PageMorphStyle.FloatingAdd) {
+        FloatingAddPageSurface(
+            anchor, source, full, background, anchorColor,
+            geometry = { geometry },
+            settled = settled,
+            waitForSource = waitForFloatingAdd && !settled,
+            freezeCoordinates = freezeCoordinates,
+            content = content,
+        )
+        return
     }
     Box(
         Modifier
@@ -298,6 +340,80 @@ private fun AnchoredPageSurface(
                 val bitmap = anchor?.bitmap
                 if (bitmap != null) Image(bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
                 else sourceContent()
+            }
+        }
+    }
+}
+
+/** Animate the moving mask while the page keeps its final constraints. */
+@Composable
+private fun FloatingAddPageSurface(
+    anchor: TransitionAnchorFrame?,
+    source: Rect,
+    viewport: Rect,
+    background: Color,
+    anchorColor: Color,
+    geometry: () -> HomeAnchoredMorphGeometry,
+    settled: Boolean,
+    waitForSource: Boolean,
+    freezeCoordinates: () -> Boolean,
+    content: @Composable () -> Unit,
+) {
+    val clip = remember { Path() }
+    Box(Modifier.fillMaxSize().then(if (settled) Modifier else Modifier.drawWithContent {
+        if (waitForSource) return@drawWithContent
+        val frame = geometry()
+        val radius = minOf(frame.cornerRadiusPx, frame.rect.width / 2f, frame.rect.height / 2f)
+        clip.rewind()
+        clip.addRoundRect(RoundRect(frame.rect, CornerRadius(radius)))
+        clipPath(clip) { this@drawWithContent.drawContent() }
+    })) {
+        Canvas(Modifier.fillMaxSize()) {
+            val color = if (settled) background else lerp(anchorColor, background,
+                homeMorphSmoothStep(0f, 0.53f, geometry().expansionProgress))
+            drawRect(color)
+        }
+        Box(Modifier.fillMaxSize().graphicsLayer {
+            if (settled) {
+                alpha = 1f
+                scaleX = 1f
+                scaleY = 1f
+                translationX = 0f
+                translationY = 0f
+            } else {
+                val frame = geometry()
+                val rect = frame.rect
+                val scale = maxOf(rect.width / viewport.width, rect.height / viewport.height)
+                alpha = frame.contentAlpha
+                scaleX = scale
+                scaleY = scale
+                translationX = rect.center.x - viewport.center.x
+                translationY = rect.center.y - viewport.center.y
+            }
+        }.then(if (settled) Modifier else Modifier.clearAndSetSemantics {})) {
+            CompositionLocalProvider(LocalGlassCoordinatesFrozen provides freezeCoordinates, content = content)
+        }
+        if (!settled && anchor != null) {
+            val density = LocalDensity.current
+            val bitmap = remember(anchor.bitmap) { anchor.bitmap?.asImageBitmap() }
+            val sourceShape = remember(anchor.cornerRadiusPx, density) {
+                RoundedCornerShape(with(density) { anchor.cornerRadiusPx.toDp() })
+            }
+            Box(
+                Modifier.requiredSize(with(density) { source.width.toDp() }, with(density) { source.height.toDp() })
+                    .graphicsLayer {
+                        val frame = geometry()
+                        translationX = frame.rect.center.x - source.width / 2f
+                        translationY = frame.rect.center.y - source.height / 2f
+                        alpha = frame.sourceAlpha
+                        shape = sourceShape
+                        // Clip the captured button, whose square corners include the source page.
+                        this.clip = bitmap != null
+                    }.clearAndSetSemantics {},
+                contentAlignment = Alignment.Center,
+            ) {
+                if (bitmap != null) Image(bitmap, null, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+                else Icon(Icons.Rounded.Add, null, Modifier.requiredSize(24.dp), tint = Color.White)
             }
         }
     }

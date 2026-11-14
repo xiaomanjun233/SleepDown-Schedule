@@ -384,8 +384,6 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionAnchorProvider
 import com.xiaomanjun.sleepdownschedule.transition.TransitionLaunchResult
 import com.xiaomanjun.sleepdownschedule.transition.TransitionPayload
 import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
-import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
-import com.xiaomanjun.sleepdownschedule.transition.softwareCopyForKit
 import com.xiaomanjun.sleepdownschedule.transition.legacy.DetailMorphRequest
 import com.xiaomanjun.sleepdownschedule.transition.legacy.DetailMorphState
 import com.xiaomanjun.sleepdownschedule.transition.legacy.DetailScheduleMorphOverlay
@@ -655,7 +653,6 @@ fun CourseScheduleAppUi(
     var homeAddMenuBoundsInRoot by remember { mutableStateOf<Rect?>(null) }
     var homeAnchoredOverlayRequest by remember { mutableStateOf<HomeAnchoredOverlayRequest?>(null) }
     var dockImportOpening by remember { mutableStateOf(false) }
-    var dockImportSourceHidden by remember { mutableStateOf(false) }
     var jumpWeekDialogMounted by remember { mutableStateOf(false) }
     var jumpWeekDialogVisible by remember { mutableStateOf(false) }
     var pendingJumpWeekDialog by remember { mutableStateOf(false) }
@@ -2111,25 +2108,22 @@ fun CourseScheduleAppUi(
         dockImportOpening = true
         appScope.launch {
             var sessionOwnsSource = false
-            var nativeStarted = false
             var released = false
             fun releaseSource() {
                 if (released) return
                 released = true
-                dockImportSourceHidden = false
                 source.release()
                 dockImportOpening = false
             }
             try {
                 val viewBounds = source.view?.liveTransitionBoundsInActivity(activity)
                 val originalView = source.view?.takeIf { viewBounds != null }
-                val bounds = viewBounds ?: source.boundsInRoot.translate(homeRootPositionInWindow)
-                val radius = minOf(bounds.width, bounds.height) / 2f
-                val anchor = TransitionAnchorFrame(bounds, radius, bitmap = null)
-                fun returnAnchor(frame: TransitionAnchorFrame) = TransitionAnchorProvider {
-                    if (originalView == null) frame
-                    else originalView.liveTransitionBoundsInActivity(activity, coveredWindow = true)?.let {
-                        frame.copy(boundsInWindow = it, cornerRadiusPx = minOf(it.width, it.height) / 2f)
+                val anchor = viewBounds?.let {
+                    TransitionAnchorFrame(it, minOf(it.width, it.height) / 2f, bitmap = null)
+                }
+                val returnAnchor = TransitionAnchorProvider {
+                    originalView?.liveTransitionBoundsInActivity(activity, coveredWindow = true)?.let {
+                        anchor?.copy(boundsInWindow = it, cornerRadiusPx = minOf(it.width, it.height) / 2f)
                     }
                 }
                 val result = ActivityTransitionCoordinator.open(
@@ -2137,27 +2131,12 @@ fun CourseScheduleAppUi(
                     unifiedImportIntent(context),
                     TransitionPayload(
                         openingAnchor = anchor,
-                        returnAnchorProvider = returnAnchor(anchor),
-                        onOpeningSourceHandoff = {
-                            // SharedViewKit controls the original View while its leash is active.
-                            if (!nativeStarted) dockImportSourceHidden = true
-                        },
+                        returnAnchorProvider = returnAnchor,
                         onSourceReleased = ::releaseSource,
-                        openingSourceView = originalView
+                        openingSourceView = originalView,
+                        floatingAddSource = true,
                     ),
-                    prepareLegacy = { pending ->
-                        val background = runCatching {
-                            detailScreenGraphicsLayer.toImageBitmap().asAndroidBitmap()
-                        }.getOrNull()
-                        val snapshot = captureGlassWindowRegion(activity.window, bounds)?.let { frame ->
-                            try { frame.softwareCopyForKit(radius) } finally { frame.recycle() }
-                        } ?: runCatching { source.fallbackLayer?.toImageBitmap()?.asAndroidBitmap() }.getOrNull()
-                        val captured = anchor.copy(bitmap = snapshot)
-                        pending.copy(openingAnchor = captured, returnAnchorProvider = returnAnchor(captured),
-                            backgroundBitmap = background)
-                    }
                 )
-                nativeStarted = result is TransitionLaunchResult.NativeRegistered
                 sessionOwnsSource = result !is TransitionLaunchResult.Failed
             } finally {
                 if (!sessionOwnsSource) releaseSource()
@@ -2639,7 +2618,6 @@ fun CourseScheduleAppUi(
         val dockForeground = if (screen is Screen.Home) homeChromeForeground else null
         val dockSampleBrightness =
             if (screen is Screen.Home && homeChromeHasWallpaper && !homeChromeDark) 0.94f else 1f
-        val dockButtonHidden = dockImportSourceHidden
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -3150,7 +3128,7 @@ fun CourseScheduleAppUi(
     val nativeDockFallback = rememberUpdatedState<@Composable () -> Unit> {
         // The route host already applies DockEntranceContainer; keep only the shared liquid dock.
         ParallelHomeDock(dockSelectedIndex, dockConfig, chromeBackdrop, dockSelect, dockOpenImport,
-            buttonHidden = dockButtonHidden, onPlusPositioned = reportDockPlusBounds)
+            onPlusPositioned = reportDockPlusBounds)
     }
     com.xiaomanjun.sleepdownschedule.feature.home.NativeHomeDockChrome(
         visible = dockVisible,
@@ -3159,7 +3137,7 @@ fun CourseScheduleAppUi(
         dockDark = dockDark,
         dockForeground = dockForeground,
         dockSampleBrightness = dockSampleBrightness,
-        buttonHidden = dockButtonHidden,
+        buttonHidden = false,
         config = dockConfig,
         couiBackdrop = dockUnderlay,
         onSelect = dockSelect,

@@ -9,7 +9,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.graphics.Color
 import com.xiaomanjun.sleepdownschedule.CourseScheduleTheme
 import com.xiaomanjun.sleepdownschedule.defaultConfig
-import com.xiaomanjun.sleepdownschedule.feature.feedback.FeedbackAddIcon
 import com.xiaomanjun.sleepdownschedule.feature.feedback.FeedbackEditor
 import com.xiaomanjun.sleepdownschedule.feature.feedback.FeedbackEditorAccentExtra
 import com.xiaomanjun.sleepdownschedule.feature.feedback.FeedbackEditorDarkExtra
@@ -32,7 +31,7 @@ open class FeedbackEditorActivityHost : ComponentActivity() {
                 MaterialTheme(colorScheme = MaterialTheme.colorScheme.copy(primary = accent)) {
                     CrossActivityTransitionHost(
                         activity = this,
-                        sourceContent = { FeedbackAddIcon(accent) },
+                        sourceContent = {},
                         handleSystemBack = false,
                     ) { requestClose ->
                         FeedbackEditor(config, client) { submitted ->

@@ -7,6 +7,7 @@ import android.os.Looper
 import android.view.View
 import android.view.Window
 import androidx.compose.ui.geometry.Rect
+import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
@@ -41,11 +42,13 @@ internal fun Activity.attachOpeningSourceSnapshotHandoff(
     val bounds = anchor.boundsInWindow
     val drawable = object : BitmapDrawable(resources, bitmap) {
         private val path = android.graphics.Path()
+        private val outline = android.graphics.RectF()
         override fun draw(canvas: android.graphics.Canvas) {
             val count = canvas.save()
             val radius = anchor.cornerRadiusPx.coerceIn(0f, minOf(this.bounds.width(), this.bounds.height()) / 2f)
             path.reset()
-            path.addRoundRect(android.graphics.RectF(this.bounds), radius, radius, android.graphics.Path.Direction.CW)
+            outline.set(this.bounds)
+            path.addRoundRect(outline, radius, radius, android.graphics.Path.Direction.CW)
             canvas.clipPath(path)
             super.draw(canvas)
             canvas.restoreToCount(count)
@@ -108,7 +111,21 @@ data class TransitionPayload(
     val onSourceReleased: (() -> Unit)? = null,
     val openingSourceView: View? = null,
     val openingSourceWindow: Window? = null,
+    val floatingAddSource: Boolean = false,
 )
+
+/** Only copy the moving button. The live source window supplies the clean underlay. */
+internal suspend fun TransitionPayload.captureLegacyFloatingAdd(activity: Activity): TransitionPayload {
+    val anchor = openingAnchor ?: return this
+    val bitmap = captureGlassWindowRegion(activity.window, anchor.boundsInWindow)
+    val provider = returnAnchorProvider
+    return copy(
+        openingAnchor = anchor.copy(bitmap = bitmap),
+        returnAnchorProvider = provider?.let {
+            TransitionAnchorProvider { it.resolve()?.copy(bitmap = bitmap) }
+        },
+    )
+}
 
 private class CleanupHandle(private val cleanup: () -> Unit) {
     private val executed = AtomicBoolean(false)
@@ -201,6 +218,13 @@ object TransitionPayloadStore {
     /** Restores business-owned source content without disposing the native frame-sync bridge. */
     fun releaseSource(id: TransitionSessionId) {
         entries[id]?.releaseSource()
+    }
+
+    internal fun hideLegacyFloatingAdd(id: TransitionSessionId) {
+        val payload = payload(id) ?: return
+        if (!payload.floatingAddSource || payload.openingAnchor?.hasBounds != true) return
+        val source = payload.openingSourceView as? LiveTransitionSourceView ?: return
+        source.hideForLegacyMorph()?.let { registerCleanup(id, it) }
     }
 
     fun remove(id: TransitionSessionId?) {

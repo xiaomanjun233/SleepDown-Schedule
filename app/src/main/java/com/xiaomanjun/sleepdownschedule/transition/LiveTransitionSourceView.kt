@@ -75,8 +75,10 @@ internal class LiveTransitionSourceView(
     }
     private var cropLeft = 0f
     private var renderButton = true
-    var showsOverflow by mutableStateOf(true)
+    private var nativeVisible by mutableStateOf(true)
+    var hiddenForLegacyMorph by mutableStateOf(false)
         private set
+    val showsOverflow: Boolean get() = nativeVisible && !hiddenForLegacyMorph
 
     private class RestFrame(val window: Window, val boundsOnScreen: AndroidRect) {
         val ready = CompletableDeferred<Unit>()
@@ -109,7 +111,18 @@ internal class LiveTransitionSourceView(
     override fun setAlpha(alpha: Float) {
         super.setAlpha(alpha)
         // The ROM hides/restores the View, including the shadow drawn outside it by Compose.
-        showsOverflow = alpha > 0f
+        nativeVisible = alpha > 0f
+    }
+
+    /** Keep the source mounted so its bounds can still be used as the return target. */
+    fun hideForLegacyMorph(): (() -> Unit)? {
+        if (hiddenForLegacyMorph) return null
+        hiddenForLegacyMorph = true
+        invalidate()
+        return {
+            hiddenForLegacyMorph = false
+            invalidate()
+        }
     }
 
     private fun radius(w: Int, h: Int): Float {
@@ -188,7 +201,7 @@ internal class LiveTransitionSourceView(
     }
 
     override fun onDraw(canvas: AndroidCanvas) {
-        if (!renderButton) return
+        if (!renderButton || hiddenForLegacyMorph) return
         if (!canvas.isHardwareAccelerated || drawing.isReleased) {
             softwareFrame?.takeUnless { it.isRecycled }?.let { frame ->
                 val count = canvas.save()
@@ -230,7 +243,7 @@ internal fun LiveTransitionButton(
                 update = { it.updatePresentation(density, direction, render = show) })
         }
         Box(Modifier.drawWithContent {
-            if (show) {
+            if (show && source?.hiddenForLegacyMorph != true) {
                 if (source == null || !source.isAttachedToWindow || source.width <= 0) {
                     drawContent()
                 } else {
