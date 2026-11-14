@@ -62,6 +62,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.chrome.WeekDockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
 import com.xiaomanjun.sleepdownschedule.currentTimelinePeriod
+import com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekForDateOrNull
 import com.xiaomanjun.sleepdownschedule.feature.home.HomeAdaptiveMetrics
 import com.xiaomanjun.sleepdownschedule.feature.home.LocalHomePagerStartOverflow
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalHomeTextContrastFrozen
@@ -136,9 +137,10 @@ internal fun SinglePillWeekScheduleScreen(
     val todayTimeline = remember(state.config, state.periods, state.courses, state.timetableCatalog, today, now) {
         weekDayTimeline(state, today, now)
     }
+    val todayWeek = scheduleWeekForDateOrNull(state.config, today)
     // Keep one computed bucket per visited week, shared by the rail, supplements and Pager.
     // Data replacement invalidates the cache; swiping back reuses the same immutable lists.
-    val weekBucketCache = remember(state.courses, state.config.id, state.config.totalWeeks,
+    val weekBucketCache = remember(state.courses, state.periods, state.config.id, state.config.totalWeeks,
         state.config.currentWeek, state.config.autoCurrentWeek, state.config.termStartDate,
         state.config.scheduleAdjustmentsJson, state.config.weekStartsOnSunday, state.timetableCatalog, today) { mutableMapOf<Int, WeekCourseBuckets>() }
     fun bucketsForWeek(week: Int) = weekBucketCache.getOrPut(week) {
@@ -693,6 +695,11 @@ internal fun SinglePillWeekScheduleScreen(
                                 showSupplementaryRows = false,
                                 weekdays = pageWeekdays,
                                 periods = state.periods,
+                                railClockDay = today.dayOfWeek.value.takeIf { pageWeek == todayWeek },
+                                railClockPeriods = todayTimeline.periods.takeIf {
+                                    pageWeek == todayWeek && todayTimeline.exceptionalActivePeriod
+                                }.orEmpty(),
+                                railClockCourseId = todayTimeline.activeCourseId,
                                 cardHeight = cardHeight,
                                 cardColor = cardColor,
                                 backdrop = backdrop,

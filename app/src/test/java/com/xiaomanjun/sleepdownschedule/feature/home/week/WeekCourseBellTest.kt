@@ -1,5 +1,8 @@
 package com.xiaomanjun.sleepdownschedule.feature.home.week
 
+import androidx.compose.ui.unit.dp
+import com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups
+import com.xiaomanjun.sleepdownschedule.domain.schedule.projectCourseArrangement
 import com.xiaomanjun.sleepdownschedule.model.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.timingPreviewState
 import com.xiaomanjun.sleepdownschedule.domain.schedule.hasCustomTime
@@ -13,6 +16,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WeekCourseBellTest {
+    @Test fun activeCourseBoundsUseTheSameClocksAsTheYellowRail() {
+        val later = exception.copy(id = 22, customStartTime = "11:00", customEndTime = "11:45")
+        val source = state(listOf(later))
+        val rail = weekDayTimeline(source, today, LocalTime.of(11, 10))
+        assertTrue(rail.exceptionalActivePeriod)
+        assertEquals(1, rail.activePeriodIndex)
+
+        val projected = projectCourseArrangement(later, config, periods, date = today)
+        val segment = buildWeekConflictGroups(listOf(projected), periods.map(PeriodEntity::periodIndex), periods)
+            .single().segments.single()
+        val baselineGrid = weekTimeSlotGrid(emptyList(), periods.size, 100f, periods = periods)
+        val todayGrid = baselineGrid.withLessonClocks(rail.periods)
+        assertEquals(baselineGrid.rowTops, todayGrid.rowTops)
+        assertEquals(12f to 88f, weekCardVerticalBounds(segment, periods, 100.dp, todayGrid, useRailClocks = true))
+        assertTrue(weekCardVerticalBounds(segment, periods, 100.dp, baselineGrid).first > 200f)
+    }
+
     @Test fun specialLessonClocksFollowTheirDayAndWeekWithoutReplacingOrdinaryCourses() {
         val slot = com.xiaomanjun.sleepdownschedule.domain.schedule.TimeSlotCourse(
             "special", "自习", "08:20", "09:05", weekdays = listOf(4), periodIndices = listOf(1),

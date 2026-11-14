@@ -75,6 +75,7 @@ import com.xiaomanjun.sleepdownschedule.domain.course.WeekConflictGroup
 import com.xiaomanjun.sleepdownschedule.domain.course.WeekCourseSegment
 import com.xiaomanjun.sleepdownschedule.domain.course.buildWeekConflictGroups
 import com.xiaomanjun.sleepdownschedule.domain.schedule.courseWeekDisplayFragments
+import com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments
 import com.xiaomanjun.sleepdownschedule.domain.schedule.customTimeRangeOrNull
 import com.xiaomanjun.sleepdownschedule.exactTimeWeekPlacement
 import com.xiaomanjun.sleepdownschedule.feature.course.editor.CourseEditorWeekGrid
@@ -131,15 +132,25 @@ internal fun weekCardVerticalBounds(
     periods: List<PeriodEntity>,
     cardHeight: Dp,
     timeGrid: WeekTimeSlotGrid? = null,
-    edgeLabelHeight: Float = 12f
+    edgeLabelHeight: Float = 12f,
+    useRailClocks: Boolean = false,
 ): Pair<Float, Float> {
-    segment.course.customTimeRangeOrNull()?.let { (start, end) ->
-        val top = timeGrid?.clockPosition(start)
-        val bottom = timeGrid?.clockPosition(end)
+    val customRange = segment.course.customTimeRangeOrNull()
+    val actual = if (useRailClocks) courseTimeSegments(segment.course, periods) else emptyList()
+    val first = actual.minByOrNull { it.start }
+    val last = actual.maxByOrNull { it.end }
+    val timeRange = if (first != null && last != null) first.start to last.end else customRange
+    timeRange?.let { (start, end) ->
+        val overallRange = actual.size == 1 && segment.course.periods.size > 1
+        val firstLesson = if (overallRange) segment.course.periods.minOrNull() else first?.index
+        val lastLesson = if (overallRange) segment.course.periods.maxOrNull() else last?.index
+        val top = timeGrid?.clockPosition(start, firstLesson)
+        val bottom = timeGrid?.clockPosition(end, lastLesson)
         if (top != null && bottom != null) {
             val from = if (bottom > top) top else if (top >= timeGrid.totalHeight) timeGrid.rowTops.lastOrNull() ?: 0f else top
             val to = if (bottom > top) bottom else (from + cardHeight.value).coerceAtMost(timeGrid.totalHeight)
-            val inset = minOf(edgeLabelHeight, ((to - from) - 18f).coerceAtLeast(0f) / 2)
+            val labelSpace = if (customRange != null) edgeLabelHeight else WeekCourseCardInset.value
+            val inset = minOf(labelSpace, ((to - from) - 18f).coerceAtLeast(0f) / 2)
             return (from + inset) to (to - inset).coerceAtLeast(from + inset + 1f)
         }
     }
@@ -208,6 +219,7 @@ private fun WeekDayColumn(
     referenceCards: List<NonCurrentWeekCard> = emptyList(),
     holidayLabel: String? = null,
     renderedSegments: List<WeekRenderedSegment>,
+    visibleCardBounds: List<Pair<Float, Float>>,
     tailCardOrder: Map<String, Float>,
     tailColumnFraction: Float?,
     periods: List<PeriodEntity>,
@@ -215,6 +227,7 @@ private fun WeekDayColumn(
     cardColor: ComposeColor,
     emptyBackground: ComposeColor,
     timeGrid: WeekTimeSlotGrid,
+    timeLabelHeight: Float,
     backdrop: Backdrop?,
     config: ScheduleConfigEntity,
     shortcutPivotX: Float,
@@ -252,19 +265,6 @@ private fun WeekDayColumn(
 ) {
     val density = LocalDensity.current
     val periodIndexes = remember(periods) { periods.map { it.periodIndex } }
-    val timeLabelStyle = weekCourseTimeLabelStyle()
-    val timeLabelMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
-    val timeLabelHeight = with(density) {
-        remember(timeLabelStyle, timeLabelMeasurer) {
-            timeLabelMeasurer.measure("00:00", style = timeLabelStyle, softWrap = false, maxLines = 1).size.height
-        }.toDp().value
-    }
-    val visibleCardBounds = remember(renderedSegments, periods, cardHeight, timeGrid, timeLabelHeight) {
-        renderedSegments.map {
-            weekCardVerticalBounds(it.segment, periods, cardHeight, timeGrid, timeLabelHeight + WeekCustomTimeLabelGap)
-        }
-    }
-
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxWidth()
@@ -454,6 +454,9 @@ internal fun WeekCourseColumnsLayer(
     onCancelWeekEditOverlay: () -> Unit = {},
     canSelectAddSlot: Boolean = false,
     onBlankLongPress: () -> Unit = {},
+    railClockDay: Int? = null,
+    railClockPeriods: List<PeriodEntity> = emptyList(),
+    railClockCourseId: Long? = null,
     onCourseClick: (CourseEntity, Rect?) -> Unit
 ) {
     val density = LocalDensity.current
@@ -505,6 +508,16 @@ internal fun WeekCourseColumnsLayer(
             periods.size, cardHeight.value, visibleWeekdays = weekdays, periods = periods,
             clockIntervals = (courses + referenceCourses).flatMap { com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments(it,periods) }.map { it.start to it.end })
     }
+    val railClockGrid = remember(timeGrid, railClockPeriods) {
+        railClockPeriods.takeIf { it.isNotEmpty() }?.let(timeGrid::withLessonClocks)
+    }
+    val timeLabelStyle = weekCourseTimeLabelStyle()
+    val timeLabelMeasurer = androidx.compose.ui.text.rememberTextMeasurer()
+    val timeLabelHeight = with(density) {
+        remember(timeLabelStyle, timeLabelMeasurer) {
+            timeLabelMeasurer.measure("00:00", style = timeLabelStyle, softWrap = false, maxLines = 1).size.height
+        }.toDp().value
+    }
     val renderedSegmentsByDay = remember(
         coursesByWeekday,
         weekdays,
@@ -525,16 +538,26 @@ internal fun WeekCourseColumnsLayer(
             )
         }
     }
+    val cardBoundsByDay = remember(renderedSegmentsByDay, periods, cardHeight, timeGrid,
+        railClockDay, railClockGrid, railClockCourseId, timeLabelHeight) {
+        renderedSegmentsByDay.mapValues { (day, segments) ->
+            segments.map { rendered ->
+                val segment = rendered.segment
+                val rail = railClockGrid.takeIf { day == railClockDay && segment.course.id == railClockCourseId }
+                weekCardVerticalBounds(segment, periods, cardHeight, rail ?: timeGrid,
+                    timeLabelHeight + WeekCustomTimeLabelGap, useRailClocks = rail != null)
+            }
+        }
+    }
     val adjustmentsByDay = remember(config, editWeek, weekdays) {
         val start = scheduleWeekStartDate(config, editWeek)
         weekdays.associateWith { day -> com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleAdjustmentForDate(config, start.plusDays(com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekdayOffset(config, day))) }
     }
-    val bandRuns = remember(timeGrid, weekdays, adjustmentsByDay, renderedSegmentsByDay, periods, cardHeight) {
+    val bandRuns = remember(timeGrid, weekdays, adjustmentsByDay, cardBoundsByDay) {
         timeGrid.bands.map { band ->
             val columnDays = weekdays.map { day ->
                 val adjustment = adjustmentsByDay[day]
-                val covered = renderedSegmentsByDay[day].orEmpty().any { rendered ->
-                    val (top, bottom) = weekCardVerticalBounds(rendered.segment, periods, cardHeight, timeGrid)
+                val covered = cardBoundsByDay[day].orEmpty().any { (top, bottom) ->
                     top < band.top + band.height && bottom > band.top
                 }
                 if (covered || adjustment?.let { it.sourceDate == null } == true) 0
@@ -545,11 +568,11 @@ internal fun WeekCourseColumnsLayer(
     }
     val nativeBands = com.xiaomanjun.sleepdownschedule.core.ui.designsystem.usesNativeMaterialMotion()
     val referencesByDay = remember(referenceCourses, courses, config.showNonCurrentWeekCourses,
-        editWeek, weekdays, adjustmentsByDay, periods, cardHeight, timeGrid, renderedSegmentsByDay) {
+        editWeek, weekdays, adjustmentsByDay, periods, cardHeight, timeGrid, cardBoundsByDay) {
         weekdays.associateWith { day ->
             if (config.showNonCurrentWeekCourses && adjustmentsByDay[day]?.let { it.sourceDate == null } != true)
                 nonCurrentWeekCards(referenceCourses, courses, editWeek, day, periods, cardHeight.value,
-                    renderedSegmentsByDay[day].orEmpty().map { weekCardVerticalBounds(it.segment, periods, cardHeight, timeGrid) }, timeGrid)
+                    cardBoundsByDay[day].orEmpty(), timeGrid)
             else emptyList()
         }
     }
@@ -575,8 +598,7 @@ internal fun WeekCourseColumnsLayer(
             val top = timeGrid.rowTops[row]
             val bottom = top + timeGrid.rowHeights[row]
             fun intersects(start: Float, end: Float) = start < bottom && end > top
-            val occupied = renderedSegmentsByDay[day].orEmpty().any {
-                val (start, end) = weekCardVerticalBounds(it.segment, periods, cardHeight, timeGrid)
+            val occupied = cardBoundsByDay[day].orEmpty().any { (start, end) ->
                 intersects(start, end)
             } || referencesByDay[day].orEmpty().any { intersects(it.top, it.bottom) } ||
                 bandRuns.any { (band, runs) ->
@@ -785,6 +807,7 @@ internal fun WeekCourseColumnsLayer(
                     WeekDayColumn(
                         courses = coursesByWeekday[day].orEmpty(),
                         renderedSegments = if (fullDayPlaceholder) emptyList() else renderedSegmentsByDay[day].orEmpty(),
+                        visibleCardBounds = if (fullDayPlaceholder) emptyList() else cardBoundsByDay[day].orEmpty(),
                         referenceCards = referencesByDay[day].orEmpty(),
                         holidayLabel = if (fullDayPlaceholder) dayAdjustment?.label.orEmpty().ifBlank { "假期" } else null,
                         tailCardOrder = tailCardOrder,
@@ -794,6 +817,7 @@ internal fun WeekCourseColumnsLayer(
                         cardColor = cardColor,
                         emptyBackground = ComposeColor.Transparent,
                         timeGrid = timeGrid,
+                        timeLabelHeight = timeLabelHeight,
                         backdrop = backdrop,
                         config = config,
                         weekMotionDirection = weekMotionDirection,

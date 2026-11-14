@@ -9,7 +9,8 @@ import java.time.LocalTime
 internal data class WeekDayTimeline(
     val periods: List<PeriodEntity>,
     val activePeriodIndex: Int?,
-    val exceptionalActivePeriod: Boolean
+    val exceptionalActivePeriod: Boolean,
+    val activeCourseId: Long? = null,
 )
 
 private data class RailCourse(
@@ -86,5 +87,5 @@ internal fun weekDayTimeline(state: AppState, date: LocalDate, now: LocalTime): 
             period.periodIndex in changed && (now.isBefore(LocalTime.parse(period.startTime)) || !now.isBefore(LocalTime.parse(period.endTime)))
         }?.periodIndex
     }
-    return WeekDayTimeline(periods, active, active != null && active in changed)
+    return WeekDayTimeline(periods, active, active != null && active in changed, activeCourse?.id)
 }
