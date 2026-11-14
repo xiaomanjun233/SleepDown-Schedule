@@ -24,6 +24,10 @@ internal object VersionWelcomeEntry {
             .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_NO_ANIMATION))
     }
 
+    fun consumeReplay(intent: Intent) {
+        intent.removeExtra(ReplayExtra)
+    }
+
     fun markSeen(context: Context) {
         preferences(context).edit { putBoolean(Version20Seen, true) }
     }

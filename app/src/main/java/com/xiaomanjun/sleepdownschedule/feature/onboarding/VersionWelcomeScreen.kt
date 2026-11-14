@@ -45,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -121,6 +122,7 @@ internal fun VersionWelcomeScreen(
     opening: Boolean,
     onLightBackground: (Boolean) -> Unit,
     onContinue: (View?) -> Unit,
+    onPrepareHome: () -> Unit = {},
 ) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val reducedMotion = rememberWelcomeReducedMotion()
@@ -145,6 +147,8 @@ internal fun VersionWelcomeScreen(
     val showTitle by remember(clock) { derivedStateOf { clock.value >= WelcomeFirstLineMillis } }
     val showAction by remember(clock) { derivedStateOf { clock.value >= WelcomeContinueMillis } }
     val lightVisible by remember(clock) { derivedStateOf { clock.value >= WelcomePanelSettleMillis } }
+    val latestPrepareHome by rememberUpdatedState(onPrepareHome)
+    LaunchedEffect(lightVisible) { if (lightVisible) latestPrepareHome() }
     val lightNavigation by remember(clock) {
         derivedStateOf { clock.value >= WelcomeWhiteFrameMillis }
     }

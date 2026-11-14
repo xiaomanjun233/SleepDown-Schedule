@@ -40,9 +40,11 @@ class VersionWelcomeUiTest {
 
     @Test fun welcomeUsesTheProductNameInTheDebugBuild() {
         var continued = false
+        var homePrepared = false
         compose.mainClock.autoAdvance = false
         compose.setContent {
-            VersionWelcomeScreen(opening = false, onLightBackground = {}, onContinue = { continued = true })
+            VersionWelcomeScreen(opening = false, onLightBackground = {}, onContinue = { continued = true },
+                onPrepareHome = { homePrepared = true })
         }
         compose.mainClock.advanceTimeBy(500)
         val opening = compose.onRoot().captureToImage().toPixelMap()
@@ -57,6 +59,7 @@ class VersionWelcomeUiTest {
         val whiteFrame = compose.onRoot().captureToImage().toPixelMap()
         assertTrue(whiteFrame[4, 4].red > 0.95f)
         assertTrue(whiteFrame[whiteFrame.width - 5, whiteFrame.height - 5].red > 0.95f)
+        compose.runOnIdle { assertFalse(homePrepared) }
 
         compose.mainClock.advanceTimeBy(750)
         val curtain = compose.onRoot().captureToImage().toPixelMap()
@@ -69,6 +72,7 @@ class VersionWelcomeUiTest {
         compose.mainClock.advanceTimeBy(375)
         compose.onNodeWithText("已焕然一新", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("继续").assertDoesNotExist()
+        compose.runOnIdle { assertTrue(homePrepared) }
         compose.mainClock.advanceTimeBy(650)
         compose.onNodeWithText("SleepDown课程表", useUnmergedTree = true).assertIsDisplayed()
         compose.onNodeWithText("SleepDown 测试版").assertDoesNotExist()
