@@ -10,13 +10,17 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.toArgb
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
+import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.MainActivity
+import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
+import com.xiaomanjun.sleepdownschedule.core.performance.rememberHomeWallpaperImages
 import com.xiaomanjun.sleepdownschedule.feature.onboarding.VersionWelcomeEntry
 import com.xiaomanjun.sleepdownschedule.feature.onboarding.WelcomeContinueColors
 import com.xiaomanjun.sleepdownschedule.feature.onboarding.VersionWelcomeScreen
@@ -33,8 +37,10 @@ import com.xiaomanjun.sleepdownschedule.transition.TransitionSessionState
 import com.xiaomanjun.sleepdownschedule.transition.liveTransitionBoundsInActivity
 import com.xiaomanjun.sleepdownschedule.transition.transitionSurfaceColor
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class VersionWelcomeActivity : ComponentActivity() {
     private var opening by mutableStateOf(false)
@@ -50,6 +56,13 @@ class VersionWelcomeActivity : ComponentActivity() {
         val restoredId = savedInstanceState?.getString(OpeningSessionState)?.let(::TransitionSessionId)
         TransitionPayloadStore.session(restoredId)?.let(::waitForHome)
         setContent {
+            val wallpaperConfig by produceState<ScheduleConfigEntity?>(null) {
+                // Decode the destination wallpaper during the welcome animation. The homepage uses
+                // the same cache; otherwise its first-draw gate waits for IO after Continue.
+                val app = application as CourseScheduleApp
+                value = withContext(Dispatchers.IO) { app.repository.state.first { it.loaded }.config }
+            }
+            wallpaperConfig?.let { rememberHomeWallpaperImages(it) }
             VersionWelcomeScreen(
                 opening = opening,
                 onLightBackground = { bars.isAppearanceLightNavigationBars = it },

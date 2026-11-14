@@ -94,9 +94,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 internal const val WelcomeFirstLineMillis = WelcomePanelSettleMillis + 80f
-internal const val WelcomeSecondLineMillis = WelcomeFirstLineMillis + 400f
-internal const val WelcomeContinueMillis = WelcomeSecondLineMillis + 455f
-private const val LineRevealMillis = 405f
+internal const val WelcomeSecondLineMillis = WelcomeFirstLineMillis + 445f
+internal const val WelcomeContinueMillis = WelcomeSecondLineMillis + 485f
+private const val LineRevealMillis = 440f
 private const val ContinueRevealMillis = 220f
 internal val WelcomeContinueColors = CouiButtonDefaults.secondaryColors(dark = false, material = true)
     .copy(surface = Color.White.copy(alpha = 0.47f))
@@ -188,6 +188,7 @@ internal fun VersionWelcomeScreen(
                 rail.height(panelDrop + 8.dp),
                 elapsedMillis,
                 reducedMotion,
+                paused = opening,
             )
             if (showTitle) {
                 WelcomeHeading(
@@ -295,8 +296,8 @@ private fun WelcomeRevealLine(
         append(text)
         var start = 0
         for ((index, end) in ends.withIndex()) {
-            val delay = 135f * index / (ends.size - 1).coerceAtLeast(1)
-            val sharp = smoothSegment(elapsed, delay, delay + 235f)
+            val delay = 150f * index / (ends.size - 1).coerceAtLeast(1)
+            val sharp = smoothSegment(elapsed, delay, delay + 255f)
             addStyle(
                 SpanStyle(
                     color = style.color.copy(alpha = 0.10f + sharp * 0.90f),
@@ -312,13 +313,13 @@ private fun WelcomeRevealLine(
     }
     BasicText(
         visibleText,
-        modifier = Modifier.graphicsLayer { alpha = WelcomeTextEasing.transform(segment(elapsed, 0f, 245f)) },
+        modifier = Modifier.graphicsLayer { alpha = WelcomeTextEasing.transform(segment(elapsed, 0f, 270f)) },
         style = style, maxLines = 1, softWrap = false, overflow = TextOverflow.Clip,
     )
 }
 
 @Composable
-private fun WelcomeMascot(modifier: Modifier, elapsedMillis: () -> Float, reduceMotion: Boolean) {
+private fun WelcomeMascot(modifier: Modifier, elapsedMillis: () -> Float, reduceMotion: Boolean, paused: Boolean) {
     val resources = LocalContext.current.resources
     val showMascot by remember(elapsedMillis) { derivedStateOf { elapsedMillis() >= WelcomePanelSettleMillis } }
     val settled by remember(elapsedMillis) { derivedStateOf { elapsedMillis() >= MascotEndMillis } }
@@ -351,7 +352,9 @@ private fun WelcomeMascot(modifier: Modifier, elapsedMillis: () -> Float, reduce
                     (view.drawable as? android.graphics.drawable.Animatable)?.stop()
                     view.setImageDrawable(null)
                 },
-                update = {},
+                update = { view ->
+                    if (paused) (view.drawable as? android.graphics.drawable.Animatable)?.stop()
+                },
             )
         } else {
             Image(

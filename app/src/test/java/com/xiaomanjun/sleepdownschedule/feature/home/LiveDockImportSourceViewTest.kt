@@ -77,7 +77,7 @@ class LiveDockImportSourceViewTest {
                 )
                 try {
                     assertTrue(view.showsOverflow)
-                    TransitionPayloadStore.hideLegacyFloatingAdd(session.id)
+                    TransitionPayloadStore.hideLegacyMorphSource(session.id)
                     assertFalse(view.showsOverflow)
                     assertEquals(bounds, view.liveTransitionBoundsInActivity(activity, coveredWindow = true))
                     sample.eraseColor(Color.TRANSPARENT)

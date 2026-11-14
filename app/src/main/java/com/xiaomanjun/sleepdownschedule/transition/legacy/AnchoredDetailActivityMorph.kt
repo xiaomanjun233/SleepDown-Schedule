@@ -272,9 +272,10 @@ private fun AnchoredPageSurface(
     val showSource by remember(anchor, settled, destinationFirstOpening) {
         derivedStateOf { anchor != null && !settled && !destinationFirstOpening && geometry.sourceAlpha > 0f }
     }
-    if (style == PageMorphStyle.FloatingAdd) {
-        FloatingAddPageSurface(
+    if (style == PageMorphStyle.FloatingAdd || style == PageMorphStyle.Welcome) {
+        FixedLayoutPageSurface(
             anchor, source, full, background, anchorColor,
+            style = style,
             geometry = { geometry },
             settled = settled,
             waitForSource = waitForFloatingAdd && !settled,
@@ -347,12 +348,13 @@ private fun AnchoredPageSurface(
 
 /** Animate the moving mask while the page keeps its final constraints. */
 @Composable
-private fun FloatingAddPageSurface(
+private fun FixedLayoutPageSurface(
     anchor: TransitionAnchorFrame?,
     source: Rect,
     viewport: Rect,
     background: Color,
     anchorColor: Color,
+    style: PageMorphStyle,
     geometry: () -> HomeAnchoredMorphGeometry,
     settled: Boolean,
     waitForSource: Boolean,
@@ -360,6 +362,7 @@ private fun FloatingAddPageSurface(
     content: @Composable () -> Unit,
 ) {
     val clip = remember { Path() }
+    val welcome = style == PageMorphStyle.Welcome
     Box(Modifier.fillMaxSize().then(if (settled) Modifier else Modifier.drawWithContent {
         if (waitForSource) return@drawWithContent
         val frame = geometry()
@@ -369,8 +372,11 @@ private fun FloatingAddPageSurface(
         clipPath(clip) { this@drawWithContent.drawContent() }
     })) {
         Canvas(Modifier.fillMaxSize()) {
-            val color = if (settled) background else lerp(anchorColor, background,
-                homeMorphSmoothStep(0f, 0.53f, geometry().expansionProgress))
+            val color = if (settled) background else {
+                val progress = geometry().expansionProgress
+                val fill = if (welcome) (progress * 2f).coerceAtMost(1f) else homeMorphSmoothStep(0f, 0.53f, progress)
+                lerp(anchorColor, background, fill)
+            }
             drawRect(color)
         }
         Box(Modifier.fillMaxSize().graphicsLayer {
@@ -384,16 +390,17 @@ private fun FloatingAddPageSurface(
                 val frame = geometry()
                 val rect = frame.rect
                 val scale = maxOf(rect.width / viewport.width, rect.height / viewport.height)
+                transformOrigin = if (welcome) TransformOrigin(0.5f, 0f) else TransformOrigin.Center
                 alpha = frame.contentAlpha
                 scaleX = scale
                 scaleY = scale
                 translationX = rect.center.x - viewport.center.x
-                translationY = rect.center.y - viewport.center.y
+                translationY = if (welcome) rect.top else rect.center.y - viewport.center.y
             }
         }.then(if (settled) Modifier else Modifier.clearAndSetSemantics {})) {
             CompositionLocalProvider(LocalGlassCoordinatesFrozen provides freezeCoordinates, content = content)
         }
-        if (!settled && anchor != null) {
+        if (!settled && anchor != null && (!welcome || anchor.bitmap != null)) {
             val density = LocalDensity.current
             val bitmap = remember(anchor.bitmap) { anchor.bitmap?.asImageBitmap() }
             val sourceShape = remember(anchor.cornerRadiusPx, density) {
@@ -406,6 +413,8 @@ private fun FloatingAddPageSurface(
                         translationX = frame.rect.center.x - source.width / 2f
                         translationY = frame.rect.center.y - source.height / 2f
                         alpha = frame.sourceAlpha
+                        scaleX = frame.sourceScale
+                        scaleY = frame.sourceScale
                         shape = sourceShape
                         // Clip the captured button, whose square corners include the source page.
                         this.clip = bitmap != null

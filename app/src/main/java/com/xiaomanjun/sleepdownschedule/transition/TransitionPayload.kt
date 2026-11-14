@@ -220,9 +220,11 @@ object TransitionPayloadStore {
         entries[id]?.releaseSource()
     }
 
-    internal fun hideLegacyFloatingAdd(id: TransitionSessionId) {
+    internal fun hideLegacyMorphSource(id: TransitionSessionId) {
         val payload = payload(id) ?: return
-        if (!payload.floatingAddSource || payload.openingAnchor?.hasBounds != true) return
+        val anchor = payload.openingAnchor?.takeIf(TransitionAnchorFrame::hasBounds) ?: return
+        val hasWelcomeSnapshot = session(id)?.routeId == TransitionRouteId.WelcomeToHome && anchor.bitmap != null
+        if (!payload.floatingAddSource && !hasWelcomeSnapshot) return
         val source = payload.openingSourceView as? LiveTransitionSourceView ?: return
         source.hideForLegacyMorph()?.let { registerCleanup(id, it) }
     }
