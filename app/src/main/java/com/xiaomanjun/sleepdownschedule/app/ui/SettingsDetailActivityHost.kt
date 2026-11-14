@@ -530,13 +530,6 @@ open class SettingsDetailActivityHost : ComponentActivity() {
             }
         }
     }
-    override fun finish() {
-        super.finish()
-        if (intent.transitionRouteIdOrNull() == TransitionRouteId.SettingsToFeedback) {
-            ActivityTransitionCoordinator.applyLegacyDepthClose(this)
-        }
-    }
-
     override fun onDestroy() {
         if (isFinishing) TimeSlotCourseStateHandoff.remove(timeSlotHandoffToken)
         super.onDestroy()

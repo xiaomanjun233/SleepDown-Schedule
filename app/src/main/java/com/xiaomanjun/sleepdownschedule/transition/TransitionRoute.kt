@@ -17,6 +17,7 @@ enum class TransitionRouteId(val wireName: String) {
     QuickSheetToSettingsDetail("quick_sheet_to_settings_detail"),
     SpecialCourseToEditor("special_course_to_editor"),
     SettingsToFeedback("settings_to_feedback"),
+    FeedbackToDetail("feedback_to_detail"),
     FeedbackToEditor("feedback_to_editor"),
     WelcomeToHome("welcome_to_home"),
     SettingsToSettingsDetail("settings_to_settings_detail"),
@@ -207,12 +208,12 @@ object TransitionRouteCatalog {
         TransitionRouteSpec(
             TransitionRouteId.SettingsToFeedback,
             "$PackageName.SettingsDetailActivity",
-            LegacyTransitionProfile.Depth(
-                R.anim.settings_slide_enter,
-                R.anim.settings_slide_exit,
-                R.anim.settings_slide_pop_enter,
-                R.anim.settings_slide_pop_exit,
-            ),
+            LegacyTransitionProfile.PlatformDefault,
+        ),
+        TransitionRouteSpec(
+            TransitionRouteId.FeedbackToDetail,
+            "$PackageName.feature.feedback.FeedbackDetailActivity",
+            LegacyTransitionProfile.PlatformDefault,
         ),
         TransitionRouteSpec(
             id = TransitionRouteId.FeedbackToEditor,

@@ -11,6 +11,15 @@ import org.junit.Test
 
 class TransitionRouteCatalogTest {
     @Test
+    fun feedbackListAndDetailUseThePlatformActivityTransition() {
+        val routes = listOf(TransitionRouteId.SettingsToFeedback, TransitionRouteId.FeedbackToDetail)
+        routes.map(TransitionRouteCatalog::get).forEach { route ->
+            assertEquals(LegacyTransitionProfile.PlatformDefault, route.legacyProfile)
+            assertEquals(TransitionNativePolicy.Never, route.nativePolicy)
+        }
+    }
+
+    @Test
     fun colorOsCourseManagementUsesTheSamePageTransitionAsSettingsDetails() {
         val course = TransitionRouteCatalog.get(TransitionRouteId.HomeMenuToCourseManagement)
         val settings = TransitionRouteCatalog.get(TransitionRouteId.SettingsToSettingsDetail)

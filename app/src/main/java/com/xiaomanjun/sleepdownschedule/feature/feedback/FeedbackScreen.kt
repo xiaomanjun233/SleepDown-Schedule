@@ -8,11 +8,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.updateTransition
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -49,10 +45,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
@@ -62,7 +56,6 @@ import androidx.core.content.edit
 import com.itos.coui.chip.ChipTabButton
 import com.itos.coui.chip.ChipTabRow
 import com.itos.coui.chip.CouiChipTabItem
-import com.itos.coui.effect.couiButtonFeedback
 import com.itos.coui.floatingactionbutton.CouiFabDefaults
 import com.itos.coui.floatingactionbutton.Fab
 import com.itos.coui.icons.CouiIcons
@@ -72,20 +65,21 @@ import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.AddMenuAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.GlowOverflowMenuButton
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
-import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardDeleteBottomSpace
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardDeletionSelection
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardSelectionCheck
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardSelectionChrome
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownFloatingAddButton
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageStyle
-import com.xiaomanjun.sleepdownschedule.core.ui.interaction.blockPaneInputWhile
-import com.xiaomanjun.sleepdownschedule.core.ui.interaction.detailPageSlide
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.cardSelectionInteraction
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.findActivity
 import com.xiaomanjun.sleepdownschedule.core.ui.material.LocalVisualEffects
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.CouiSettingsPageScaffold
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsGroup
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsArrowPreference
+import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsBasicComponent
 import com.kyant.shapes.Capsule
 import androidx.compose.ui.draw.clip
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
@@ -156,9 +150,7 @@ internal fun FeedbackScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var searching by rememberSaveable { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
-    var openedItem by remember { mutableStateOf<FeedbackItem?>(null) }
-    var pendingDelete by remember { mutableStateOf<FeedbackItem?>(null) }
-    var deleting by remember { mutableStateOf(false) }
+    val selection = remember { CardDeletionSelection("选择反馈") }
     var launching by remember { mutableStateOf(false) }
     val context = LocalContext.current
     val preferences = remember(context) { context.getSharedPreferences("feedback_display", Context.MODE_PRIVATE) }
@@ -209,13 +201,7 @@ internal fun FeedbackScreen(
             refresh++
         }
     }
-    val navigation = updateTransition(openedItem, label = "FeedbackDetailNavigation")
-    val moving = navigation.isRunning || navigation.currentState != navigation.targetState
-    BackHandler(enabled = searching || openedItem != null || moving) {
-        if (!deleting && !moving) {
-            if (openedItem != null) openedItem = null else changeSearch(false)
-        }
-    }
+    BackHandler(enabled = searching && !selection.active) { changeSearch(false) }
     val term = query.trim()
     val list by key(activeView, page, term, refresh) {
         produceState<FeedbackList>(FeedbackList.Loading, client) {
@@ -229,36 +215,45 @@ internal fun FeedbackScreen(
             }
         }
     }
-    fun delete(item: FeedbackItem) {
-        if (deleting) return
-        deleting = true
-        pendingDelete = null
-        scope.launch {
-            try {
-                client.delete(item.id)
-                if (openedItem?.id == item.id) openedItem = null
-                val remaining = (list as? FeedbackList.Loaded)?.page?.total?.minus(1)
-                if (page > 0 && remaining != null && remaining <= page * FeedbackClient.PageSize) page--
-                refresh++
-                Toast.makeText(context, "反馈已删除", Toast.LENGTH_SHORT).show()
-            } catch (cancellation: CancellationException) {
-                throw cancellation
-            } catch (error: Exception) {
-                Toast.makeText(context, feedbackError(error), Toast.LENGTH_SHORT).show()
-            } finally {
-                deleting = false
-            }
+    fun refreshAfterDeletion(count: Int) {
+        val remaining = (list as? FeedbackList.Loaded)?.page?.total?.minus(count)
+        if (page > 0 && remaining != null && remaining <= page * FeedbackClient.PageSize) page--
+        refresh++
+    }
+    val details = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        launching = false
+        if (result.resultCode == Activity.RESULT_OK) refreshAfterDeletion(1)
+    }
+    fun openDetails(item: FeedbackItem, accent: Color) {
+        val owner = activity ?: return
+        if (launching) return
+        launching = true
+        focus.clearFocus()
+        keyboard?.hide()
+        val route = TransitionRouteCatalog.get(TransitionRouteId.FeedbackToDetail)
+        val destination = Intent().setClassName(owner.packageName, route.destinationClassName)
+            .putFeedbackDetailItem(item)
+            .putExtra(FeedbackEditorDarkExtra, dark)
+            .putExtra(FeedbackEditorAccentExtra, accent.toArgb())
+        val result = ActivityTransitionCoordinator.openImmediate(owner, route.id, destination) { details.launch(it) }
+        if (result is TransitionLaunchResult.Failed) {
+            launching = false
+            Toast.makeText(context, "无法打开反馈详情", Toast.LENGTH_SHORT).show()
         }
     }
 
     val listState = key(activeView, page, term) { rememberLazyListState() }
-    @Composable
-    fun ListPage() = CouiSettingsPageScaffold(
+    val loadedItems = (list as? FeedbackList.Loaded)?.page?.items.orEmpty()
+    val ownedItems = remember(loadedItems, activeView.own) {
+        loadedItems.filter { activeView.own || it.owned }.associateBy(FeedbackItem::id)
+    }
+    CouiSettingsPageScaffold(
         title = "问题反馈",
         config = config,
         showBack = onBack != null,
         onBack = { if (searching) changeSearch(false) else onBack?.invoke() },
-        topBarExtra = { backdrop ->
+        topBarExtra = extra@ { backdrop ->
+            if (selection.active) return@extra
             val accent = MaterialTheme.colorScheme.primary
             val categoryMenu: @Composable () -> Unit = {
                 val actions = FeedbackView.entries.filter { it != FeedbackView.All }.map { category ->
@@ -327,7 +322,8 @@ internal fun FeedbackScreen(
         Box(Modifier.fillMaxSize()) {
             SleepDownSecondaryPageList(
                 contentTopPadding = padding.calculateTopPadding() + 8.dp,
-                contentBottomPadding = padding.calculateBottomPadding() + if (searching) 12.dp else 88.dp,
+                contentBottomPadding = padding.calculateBottomPadding() +
+                    if (selection.active) CardDeleteBottomSpace else if (searching) 12.dp else 88.dp,
                 modifier = Modifier.fillMaxSize().glassBackdropProducer(bodyBackdrop).background(pageColor),
                 state = listState,
                 style = SleepDownSecondaryPageStyle.Content,
@@ -353,15 +349,18 @@ internal fun FeedbackScreen(
                             }
                         }
                         items(result.page.items, key = { it.id }) { item ->
-                            val ownsItem = activeView.own || item.owned
-                            FeedbackRow(item, config, backdrop, dark, enabled = !deleting,
-                                onLongClick = if (ownsItem) ({ pendingDelete = item }) else null) {
-                                focus.clearFocus()
-                                keyboard?.hide()
-                                openedItem = item.copy(owned = ownsItem)
+                            val ownsItem = item.id in ownedItems
+                            FeedbackRow(item, config, backdrop, dark, selection, ownsItem, enabled = !launching,
+                                onSelect = {
+                                    focus.clearFocus()
+                                    keyboard?.hide()
+                                    selection.start(item.id)
+                                },
+                            ) {
+                                openDetails(item.copy(owned = ownsItem), accent)
                             }
                         }
-                        if (result.page.total > FeedbackClient.PageSize || page > 0) item(key = "feedback-pagination") {
+                        if (!selection.active && (result.page.total > FeedbackClient.PageSize || page > 0)) item(key = "feedback-pagination") {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                                 TextButton(onClick = { page-- }, enabled = page > 0) { Text("上一页") }
                                 TextButton(onClick = { refresh++ }) { Text("刷新") }
@@ -375,7 +374,7 @@ internal fun FeedbackScreen(
                 }
             }
 
-            if (!searching) {
+            if (!searching && !selection.active) {
                 Box(Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(end = 16.dp, bottom = 16.dp)) {
                     LiveTransitionButton(cornerRadius = FeedbackFabSize / 2) { source ->
                         FeedbackAddButton(bodyBackdrop, dark, accent) {
@@ -426,30 +425,32 @@ internal fun FeedbackScreen(
                     }
                 }
             }
+            CardSelectionChrome(
+                selection = selection,
+                cards = ownedItems,
+                config = config,
+                backdrop = bodyBackdrop,
+                confirmationTitle = "删除反馈？",
+                confirmationMessage = { count -> "将删除这 $count 条反馈。已公开的条目也会从列表移除。" },
+                onDelete = { items ->
+                    var deleted = 0
+                    try {
+                        for (item in items) {
+                            client.delete(item.id)
+                            deleted++
+                        }
+                        Toast.makeText(context, "反馈已删除", Toast.LENGTH_SHORT).show()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        val message = feedbackError(error)
+                        throw FeedbackRequestException(if (deleted == 0) message else "已删除 $deleted 条，$message")
+                    } finally {
+                        if (deleted > 0) refreshAfterDeletion(deleted)
+                    }
+                },
+            )
         }
-    }
-
-    navigation.AnimatedContent(
-        modifier = Modifier.fillMaxSize().clipToBounds().blockPaneInputWhile(moving),
-        contentKey = { it?.id },
-        transitionSpec = { detailPageSlide(returning = targetState == null) },
-    ) { detail ->
-        if (detail == null) ListPage()
-        else FeedbackDetailScreen(detail, config, deleting, onBack = { if (!deleting) openedItem = null },
-            onDelete = { pendingDelete = detail })
-    }
-
-    pendingDelete?.let { item ->
-        LiquidAlertDialog(
-            title = "删除这条反馈？",
-            message = "删除后无法恢复。如果这条反馈已公开，也会从列表移除。",
-            actions = listOf(
-                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) { pendingDelete = null },
-                LiquidAlertAction("删除", LiquidAlertActionStyle.Destructive) { delete(item) },
-            ),
-            config = config,
-            onDismissRequest = { pendingDelete = null },
-        )
     }
 }
 
@@ -459,27 +460,33 @@ private fun FeedbackRow(
     config: ScheduleConfigEntity,
     backdrop: Backdrop?,
     dark: Boolean,
+    selection: CardDeletionSelection,
+    owned: Boolean,
     enabled: Boolean,
-    onLongClick: (() -> Unit)?,
+    onSelect: () -> Unit,
     onClick: () -> Unit,
 ) {
     val statusColor = feedbackStatusColor(item, dark)
     val firstLine = item.description.lineSequence().firstOrNull().orEmpty()
     val preview = if (firstLine.length > 72) firstLine.take(71) + "…" else firstLine
-    val interaction = remember { MutableInteractionSource() }
+    val summary = listOf(item.kindLabel, item.releaseVersion, preview).filter(String::isNotBlank).joinToString(" · ")
     SettingsGroup(backdrop, config) {
         Column(Modifier.fillMaxWidth()
-            .couiButtonFeedback(dark, interaction, enabled = enabled, list = true)
-            .combinedClickable(
-                interactionSource = interaction, indication = null, enabled = enabled, role = Role.Button,
-                onLongClickLabel = if (onLongClick != null) "删除反馈" else null,
-                onLongClick = onLongClick, onClick = onClick,
+            .cardSelectionInteraction(
+                selection, item.id, enabled, dark, onLongClick = onSelect, selectable = owned,
+                listFeedback = true, onClick = onClick,
             )) {
-            SettingsArrowPreference(
-                title = item.title,
-                summary = listOf(item.kindLabel, item.releaseVersion, preview).filter(String::isNotBlank).joinToString(" · "),
-                endActions = { FeedbackStatusBadge(item, statusColor) },
-            )
+            if (selection.active) {
+                SettingsBasicComponent(title = item.title, summary = summary, endActions = {
+                    FeedbackStatusBadge(item, statusColor)
+                    if (owned) {
+                        CardSelectionCheck(item.id in selection.selectedKeys, enabled && !selection.deleting, dark)
+                    }
+                })
+            } else {
+                SettingsArrowPreference(title = item.title, summary = summary,
+                    endActions = { FeedbackStatusBadge(item, statusColor) })
+            }
             FeedbackProgress(item.stage, statusColor, dark, Modifier.padding(start = 20.dp, end = 20.dp, bottom = 16.dp))
         }
     }

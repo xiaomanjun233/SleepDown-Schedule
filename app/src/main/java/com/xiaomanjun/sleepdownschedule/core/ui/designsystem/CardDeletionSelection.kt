@@ -91,11 +91,14 @@ internal fun Modifier.cardSelectionInteraction(
     enabled: Boolean,
     dark: Boolean,
     onLongClick: () -> Unit = { selection.start(key) },
+    selectable: Boolean = true,
+    listFeedback: Boolean = false,
     onClick: () -> Unit,
 ): Modifier {
+    if (selection.active && !selectable) return this
     val interaction = remember { MutableInteractionSource() }
     val interactive = enabled && !selection.deleting
-    val feedback = couiButtonFeedback(dark, interaction, interactive)
+    val feedback = couiButtonFeedback(dark, interaction, interactive, list = listFeedback)
     return if (selection.active) {
         feedback.toggleable(key in selection.selectedKeys, interaction, null, interactive, Role.Checkbox) {
             selection.toggle(key)
@@ -103,7 +106,10 @@ internal fun Modifier.cardSelectionInteraction(
     } else {
         feedback.combinedClickable(
             interactionSource = interaction, indication = null, enabled = interactive,
-            role = Role.Button, onLongClickLabel = selection.selectLabel, onLongClick = onLongClick, onClick = onClick
+            role = Role.Button,
+            onLongClickLabel = selection.selectLabel.takeIf { selectable },
+            onLongClick = onLongClick.takeIf { selectable },
+            onClick = onClick,
         )
     }
 }

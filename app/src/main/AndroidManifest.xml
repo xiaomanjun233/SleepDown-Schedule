@@ -217,6 +217,11 @@
             android:windowSoftInputMode="adjustResize"
             android:parentActivityName=".SettingsDetailActivity" />
         <activity
+            android:name=".feature.feedback.FeedbackDetailActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:parentActivityName=".SettingsDetailActivity" />
+        <activity
             android:name=".feature.feedback.FeedbackEditorActivity"
             android:exported="false"
             android:theme="@style/AppTheme.TranslucentMorph"

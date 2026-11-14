@@ -165,9 +165,14 @@ fun SettingsScreen(
             }
             fun requestTabletRootPage(nextPage: SettingsPage) {
                 val navigation = tabletNavigation
-                if (navigation.rootPage == nextPage && navigation.detailPages.isEmpty()) return
+                if (navigation.rootPage == nextPage && navigation.detailPages.isEmpty() &&
+                    nextPage != SettingsPage.Feedback
+                ) return
                 requestPaneExit(checkScheduleDraft = nextPage != navigation.rootPage) { completed ->
-                    if (completed) applyTabletRootPage(nextPage)
+                    if (completed) {
+                        if (nextPage == SettingsPage.Feedback) onPageChange(nextPage)
+                        else applyTabletRootPage(nextPage)
+                    }
                 }
             }
             fun pushTabletDetailPage(nextPage: SettingsPage) {

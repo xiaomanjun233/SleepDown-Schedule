@@ -1,7 +1,13 @@
 package com.xiaomanjun.sleepdownschedule.feature.feedback
 
+import android.app.Activity
 import android.app.Application
+import android.content.Intent
+import androidx.activity.ComponentActivity
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.SemanticsMatcher
@@ -15,7 +21,7 @@ import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.isToggleable
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -28,6 +34,8 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.printToString
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.model.defaultConfig
+import com.xiaomanjun.sleepdownschedule.transition.TransitionRouteId
+import com.xiaomanjun.sleepdownschedule.transition.transitionRouteIdOrNull
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
@@ -40,6 +48,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 
@@ -47,7 +56,7 @@ import org.robolectric.annotation.GraphicsMode
 @Config(sdk = [35], application = Application::class, qualifiers = "w360dp-h800dp-320dpi")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class FeedbackUiTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
 
     @Test fun searchesWithinTheSelectedFeedbackCategory() {
         val service = InMemoryFeedback()
@@ -108,44 +117,73 @@ class FeedbackUiTest {
         assertEquals("contact@example.invalid", service.contact)
     }
 
-    @Test fun progressAreaOpensPublicDetailsWithoutDeleteActions() {
+    @Test fun progressAreaLaunchesTheSystemFeedbackDetailActivity() {
         compose.setContent { MaterialTheme { FeedbackScreen(defaultConfig(), InMemoryFeedback()) } }
         waitForText("日历显示")
         compose.onNode(hasText("日历显示") and hasClickAction())
             .assert(SemanticsMatcher.keyNotDefined(SemanticsActions.OnLongClick))
             .performTouchInput { click(Offset(center.x / 2, bottom - 18.dp.toPx())) }
 
-        waitForText("日期显示反馈")
-        compose.onNodeWithText("日期显示反馈").assertIsDisplayed()
-        compose.onNodeWithContentDescription("删除反馈").assertDoesNotExist()
-
-        compose.onNodeWithContentDescription("返回").performClick()
-        waitForText("日历显示")
-        compose.onNodeWithText("日期显示反馈").assertDoesNotExist()
+        compose.runOnIdle {
+            val started = shadowOf(compose.activity).nextStartedActivityForResult
+            assertNotNull(started)
+            assertEquals(FeedbackDetailActivity::class.java.name, started.intent.component?.className)
+            assertEquals(TransitionRouteId.FeedbackToDetail, started.intent.transitionRouteIdOrNull())
+            assertEquals("日期显示反馈", started.intent.feedbackDetailItem()?.description)
+            assertEquals(false, started.intent.feedbackDetailItem()?.owned)
+            assertEquals(0, started.intent.flags and Intent.FLAG_ACTIVITY_NO_ANIMATION)
+            compose.activity.activityResultRegistry.dispatchResult(started.requestCode, Activity.RESULT_CANCELED, null)
+        }
         compose.onNodeWithText("日历显示").assertIsDisplayed()
     }
 
-    @Test fun ownFeedbackCanBeDeletedByLongPressOrFromItsDetails() {
+    @Test fun longPressUsesTheSharedSelectionAndDeletesAllSelectedFeedback() {
         val service = InMemoryFeedback()
         service.submission = FeedbackItem("owned", "feature", "我的建议", "原始正文", "received",
             contact = "contact@example.invalid", note = "开发者已收到", createdAt = 2, updatedAt = 2)
+        service.secondSubmission = service.submission?.copy(id = "second", title = "另一条反馈")
         compose.setContent { MaterialTheme { FeedbackScreen(defaultConfig(), service) } }
         waitForText("日历显示")
         compose.onNodeWithText("我的反馈").performScrollTo().performClick()
         waitForText("已收到的建议")
         val row = compose.onNode(hasText("已收到的建议") and hasClickAction())
         row.performTouchInput { longClick(Offset(center.x / 2, bottom - 18.dp.toPx())) }
-        compose.onNodeWithText("删除这条反馈？").assertIsDisplayed()
+        compose.onNodeWithText("已选 1 项").assertIsDisplayed()
+        compose.onNode(hasText("已收到的建议") and isToggleable()).assertIsOn()
+        compose.onNode(hasText("另一条反馈") and isToggleable()).assertIsOff()
+        compose.onNodeWithText("全选").performClick()
+        compose.onNodeWithText("已选 2 项").assertIsDisplayed()
         compose.onNode(hasText("取消") and isEnabled()).performClick()
+        compose.onNodeWithText("已选 2 项").assertDoesNotExist()
 
-        row.performClick()
+        row.performTouchInput { longClick(Offset(center.x / 2, bottom - 18.dp.toPx())) }
+        compose.onNodeWithText("全选").performClick()
+        compose.onNodeWithText("删除").performClick()
+        compose.onNodeWithText("删除反馈？").assertIsDisplayed()
+        compose.onNode(hasText("删除") and isEnabled()).performClick()
+        waitForText("此分类暂无反馈")
+        assertEquals(setOf("owned", "second"), service.deletedIds.toSet())
+    }
+
+    @Test fun detailsDeleteOnlyWhenTheFeedbackIsOwned() {
+        val service = InMemoryFeedback()
+        val item = FeedbackItem("owned", "feature", "我的建议", "原始正文", "received",
+            contact = "contact@example.invalid", note = "开发者已收到", createdAt = 2, updatedAt = 2)
+        service.submission = item
+        var selected by mutableStateOf(item)
+        var returned = false
+        compose.setContent {
+            MaterialTheme { FeedbackDetailPage(selected, defaultConfig(), service, {}, { returned = true }) }
+        }
+        compose.onNodeWithContentDescription("删除反馈").assertDoesNotExist()
+        compose.onNodeWithText("开发者回复").assertDoesNotExist()
+        compose.runOnIdle { selected = item.copy(owned = true) }
         compose.onNodeWithText("原始正文").assertIsDisplayed()
         compose.onNodeWithText("开发者已收到").assertIsDisplayed()
         compose.onNodeWithContentDescription("删除反馈").performClick()
         compose.onNodeWithText("删除").performClick()
-        waitForText("此分类暂无反馈")
-        assertEquals("owned", service.deletedId)
-        compose.onNodeWithText("已收到的建议").assertDoesNotExist()
+        compose.waitUntil { returned }
+        assertEquals(listOf("owned"), service.deletedIds)
     }
 
     @Test fun usesTheSameFeedbackTokenForSearchSubmitHistoryAndDeletion() = runBlocking {
@@ -203,15 +241,16 @@ class FeedbackUiTest {
         var lastQuery = ""
         var lastKind: FeedbackKind? = null
         var submission: FeedbackItem? = null
+        var secondSubmission: FeedbackItem? = null
         var contact = ""
-        var deletedId: String? = null
+        val deletedIds = mutableListOf<String>()
 
         override suspend fun list(
             own: Boolean, page: Int, query: String, kind: FeedbackKind?, status: FeedbackStatus?,
         ): FeedbackPage {
             lastQuery = query
             lastKind = kind
-            val items = if (own) listOfNotNull(submission?.copy(title = "已收到的建议")) else listOf(roadmap)
+            val items = if (own) listOfNotNull(submission?.copy(title = "已收到的建议"), secondSubmission) else listOf(roadmap)
             val matching = items.filter { it.title.contains(query) &&
                 (kind == null || it.kind == kind.wire) && (status == null || it.status == status.wire) }
             return FeedbackPage(matching, matching.size)
@@ -226,9 +265,10 @@ class FeedbackUiTest {
         }
 
         override suspend fun delete(id: String) {
-            check(submission?.id == id)
-            deletedId = id
-            submission = null
+            check(submission?.id == id || secondSubmission?.id == id)
+            deletedIds += id
+            if (submission?.id == id) submission = null
+            if (secondSubmission?.id == id) secondSubmission = null
         }
     }
 }
