@@ -176,7 +176,8 @@ private fun safeRequest(
         if (status !in 200..299) {
             val text = connection.errorStream?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
             throw AiServiceResponseException(formatAiRequestError(status, text, providerId, connection.getHeaderField("x-request-id")),
-                if (authType == AiAuthType.ChatGptOAuth) "" else text, httpStatus = status)
+                if (authType == AiAuthType.ChatGptOAuth) "" else text, httpStatus = status,
+                contextWindowExceeded = isAiContextWindowError(text))
         }
         trace.mark(AiImportHttpPhase.BODY_READ_START)
         val text = connection.inputStream.bufferedReader().use { it.readAiBoundedText() }
@@ -276,7 +277,8 @@ private fun postChatCompletionStreaming(
         if (status !in 200..299) {
             val text = connection.errorStream?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
             throw AiServiceResponseException(formatAiRequestError(status, text, providerId, connection.getHeaderField("x-request-id")),
-                if (authType == AiAuthType.ChatGptOAuth) "" else text, httpStatus = status)
+                if (authType == AiAuthType.ChatGptOAuth) "" else text, httpStatus = status,
+                contextWindowExceeded = isAiContextWindowError(text))
         }
         if (!connection.contentType.orEmpty().contains("text/event-stream", ignoreCase = true)) {
             trace.mark(AiImportHttpPhase.BODY_READ_START)
@@ -358,7 +360,8 @@ private fun postResponsesStreaming(
         if (status !in 200..299) {
             val text = connection.errorStream?.bufferedReader()?.use { it.readAiBoundedText() }.orEmpty()
             throw AiServiceResponseException(formatAiRequestError(status, text, providerId, connection.getHeaderField("x-request-id")),
-                if (authType == AiAuthType.ChatGptOAuth) "" else text, httpStatus = status)
+                if (authType == AiAuthType.ChatGptOAuth) "" else text, httpStatus = status,
+                contextWindowExceeded = isAiContextWindowError(text))
         }
         if (authType == AiAuthType.ChatGptOAuth) {
             val activityAccumulator = ResponsesSseAccumulator(requireCompleted = true)
@@ -788,7 +791,8 @@ internal class ResponsesSseAccumulator(private val requireCompleted: Boolean = f
                 activity = AiImportActivity("模型正在处理请求", AiImportActivitySource.STATUS)
             }
             "response.failed", "error" -> {
-                if (requireCompleted) throw AiServiceResponseException(chatGptInferenceError(0, payload), "")
+                if (requireCompleted) throw AiServiceResponseException(chatGptInferenceError(0, payload), "",
+                    contextWindowExceeded = isAiContextWindowError(payload))
                 val detail = (event["error"] as? JsonObject
                     ?: (event["response"] as? JsonObject)?.get("error") as? JsonObject)?.get("message")
                     ?.jsonPrimitive?.contentOrNull.orEmpty()

@@ -7,6 +7,11 @@ internal const val DefaultAgentContextTokens = 256_000
 /** A local admission estimate is separate from provider-reported usage shown in the UI. */
 internal class AgentContextPolicy(val windowTokens: Int = DefaultAgentContextTokens) {
     data class ChatProjection(val messages: List<JsonObject>, val rereadTools: Set<String>)
+    data class ToolHistory(
+        val keepRecent: Int = 4,
+        val summaryEntries: Int = Int.MAX_VALUE,
+        val excerptChars: Int = 8_000,
+    )
     val inputBudget = (windowTokens.coerceAtLeast(8_192) * 0.8).toInt()
     fun estimatedTokens(element: JsonElement): Int = when (element) {
         is JsonArray -> element.sumOf(::estimatedTokens)
@@ -20,20 +25,21 @@ internal class AgentContextPolicy(val windowTokens: Int = DefaultAgentContextTok
     }
 
     /** Summarize only settled older tool pairs; keep instructions, user input and recent steps. */
-    fun compactResponses(input: List<JsonObject>): List<JsonObject> {
-        if (estimatedTokens(JsonArray(input)) <= inputBudget) return input.toList()
+    fun compactResponses(input: List<JsonObject>, budget: Int = inputBudget,
+                         history: ToolHistory = ToolHistory()): List<JsonObject> {
+        if (estimatedTokens(JsonArray(input)) <= budget) return input.toList()
         val outputById = input.filter { it["type"]?.jsonPrimitive?.contentOrNull == "function_call_output" }
             .associateBy { it["call_id"]?.jsonPrimitive?.contentOrNull }
         val settled = input.filter { it["type"]?.jsonPrimitive?.contentOrNull == "function_call" && it["call_id"]?.jsonPrimitive?.contentOrNull in outputById }
-        val older = settled.dropLast(4)
+        val older = settled.dropLast(history.keepRecent)
         if (older.isEmpty()) return input.toList()
         val ids = older.mapNotNull { it["call_id"]?.jsonPrimitive?.contentOrNull }.toSet()
-        val facts = older.map { call -> buildJsonObject {
+        val facts = older.takeLast(history.summaryEntries).map { call -> buildJsonObject {
             put("tool", call["name"] ?: JsonNull)
             put("arguments", call["arguments"]?.jsonPrimitive?.contentOrNull.orEmpty().take(2_000))
             val content = outputById[call["call_id"]?.jsonPrimitive?.contentOrNull]?.get("output")
                 ?.jsonPrimitive?.contentOrNull.orEmpty()
-            put("result", content.take(8_000)); put("truncated", content.length > 8_000)
+            put("result", content.take(history.excerptChars)); put("truncated", content.length > history.excerptChars)
         } }
         val summary = buildJsonObject {
             put("role", "user")
@@ -52,8 +58,9 @@ internal class AgentContextPolicy(val windowTokens: Int = DefaultAgentContextTok
         }
     }
 
-    fun compactChat(messages: List<JsonObject>): ChatProjection {
-        if (estimatedTokens(JsonArray(messages)) <= inputBudget) return ChatProjection(messages.toList(), emptySet())
+    fun compactChat(messages: List<JsonObject>, budget: Int = inputBudget,
+                    history: ToolHistory = ToolHistory()): ChatProjection {
+        if (estimatedTokens(JsonArray(messages)) <= budget) return ChatProjection(messages.toList(), emptySet())
         val reread = mutableSetOf<String>()
         val compacted = messages.map { message ->
             if (message["role"]?.jsonPrimitive?.contentOrNull != "system") return@map message
@@ -74,7 +81,7 @@ internal class AgentContextPolicy(val windowTokens: Int = DefaultAgentContextTok
             .mapNotNull { it["tool_call_id"]?.jsonPrimitive?.contentOrNull }.toSet()
         val calls = compacted.flatMap { (it["tool_calls"] as? JsonArray).orEmpty().map { call -> call.jsonObject } }
             .filter { it["id"]?.jsonPrimitive?.contentOrNull in settledIds }
-        val oldCalls = calls.dropLast(4)
+        val oldCalls = calls.dropLast(history.keepRecent)
         if (oldCalls.isEmpty()) return ChatProjection(compacted, reread)
         val oldIds = oldCalls.mapNotNull { it["id"]?.jsonPrimitive?.contentOrNull }.toSet()
         val receipts = compacted.filter { it["role"]?.jsonPrimitive?.contentOrNull == "tool" }
@@ -84,12 +91,12 @@ internal class AgentContextPolicy(val windowTokens: Int = DefaultAgentContextTok
             put("content", buildJsonObject {
                 put("kind", "completed_tool_context"); put("trust", "untrusted_tool_data")
                 put("note", "这是较早已结算工具的摘要。不要重复执行写入；截短的事实可重新读取。用户要求和最新草稿保留在原消息中。")
-                put("results", buildJsonArray { oldCalls.forEach { call -> add(buildJsonObject {
+                put("results", buildJsonArray { oldCalls.takeLast(history.summaryEntries).forEach { call -> add(buildJsonObject {
                     val function = call["function"]!!.jsonObject
                     put("tool", function["name"] ?: JsonNull)
                     put("arguments", function["arguments"]?.jsonPrimitive?.contentOrNull.orEmpty().take(2_000))
                     val text = receipts[call["id"]?.jsonPrimitive?.contentOrNull]?.get("content")?.jsonPrimitive?.contentOrNull.orEmpty()
-                    put("result", text.take(8_000)); put("truncated", text.length > 8_000)
+                    put("result", text.take(history.excerptChars)); put("truncated", text.length > history.excerptChars)
                 }) } })
             }.toString())
         }

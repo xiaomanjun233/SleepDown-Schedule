@@ -76,7 +76,9 @@ internal fun AgentInputCapsules(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Icon(painterResource(if (input.mode == AgentMailbox.Mode.STEER) R.drawable.ic_ai_guide else R.drawable.ic_import_step),
                                     if (input.mode == AgentMailbox.Mode.STEER) "待引导" else "待处理", tint = foreground, modifier = Modifier.size(16.dp))
-                                Text(input.value.text, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                val label = if (input.value.files.isEmpty()) input.value.text
+                                    else input.value.files.joinToString("、") { it.displayName }
+                                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                     color = foreground, style = MaterialTheme.typography.labelMedium, modifier = Modifier.weight(1f))
                                 Row {
                                     @Composable fun action(icon: Int, label: String, onClick: () -> Unit) {

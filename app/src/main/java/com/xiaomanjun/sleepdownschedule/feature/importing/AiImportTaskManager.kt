@@ -31,6 +31,7 @@ object AiImportTaskManager {
     private data class RestartableImport(
         val taskId: String, val config: ScheduleConfigEntity, val settings: AiImportSettings,
         val interaction: AiImportInteraction, val request: RestartableAiImportRequest? = null,
+        val acceptsFiles: Boolean = false,
         val resumeRevision: ((Context, AiEduImportProgress, String) -> String)? = null
     )
     @Volatile private var restartableImport: RestartableImport? = null
@@ -47,6 +48,14 @@ object AiImportTaskManager {
     internal fun replaceInput(taskId: String, id: String, input: com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskInput) = inboxes[taskId]?.replace(id, input) == true
     internal fun removeInput(taskId: String, id: String) { inboxes[taskId]?.remove(id) }
     internal fun steerInput(taskId: String, id: String) = inboxes[taskId]?.steer(id) == true
+    internal fun canSupplementFiles(taskId: String): Boolean =
+        restartableImport?.let { it.taskId == taskId && it.acceptsFiles } == true
+
+    internal fun submitSupplementalFiles(taskId: String, input: com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskInput): Boolean {
+        val task = restartableImport?.takeIf { it.taskId == taskId && it.acceptsFiles } ?: return false
+        if (AiEduImportProgressSession.progress.value?.let { it.taskId == taskId && !it.finished } != true) return false
+        return task.interaction.submitFiles(input)
+    }
 
     fun canInterrupt(taskId: String): Boolean = restartableImport?.taskId == taskId
 
@@ -88,11 +97,12 @@ object AiImportTaskManager {
         }
     }
 
-    fun continueImport(context: Context, taskId: String, instruction: String): String? {
+    fun continueImport(context: Context, taskId: String, instruction: String, files: List<AiImportFile> = emptyList()): String? {
         val task = restartableImport?.takeIf { it.taskId == taskId } ?: return null
         var current = AiEduImportProgressSession.progress.value?.takeIf { it.taskId == taskId }
             ?: return null
         if (instruction.isBlank()) return null
+        if (files.isNotEmpty() && (!task.acceptsFiles || !current.finished || current.selectedDraft() != null)) return null
         if (!current.finished) {
             if (!pauseImport(context, taskId)) return null
             current = AiEduImportProgressSession.progress.value?.takeIf { it.taskId == taskId } ?: return null
@@ -110,9 +120,13 @@ object AiImportTaskManager {
             return startRevision(context, selected, instruction.trim(), current, task.settings, null)
         }
         task.resumeRevision?.let { return it(context, current, instruction.trim()) }
+        if (files.isNotEmpty() && task.interaction.mailbox.trySubmit(
+                com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskInput(instruction.trim(), files = files),
+                com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode.STEER
+            ) == null) return null
         return startTask(context, current.copy(userPrompt = instruction.trim(), requestInstructions = prompt,
             conversationTurns = archiveImportTurn(current)), task.config, task.settings,
-            preserveCheckpointsFromTaskId = taskId, request = task.request ?: return null)
+            preserveCheckpointsFromTaskId = taskId, acceptsFiles = task.acceptsFiles, request = task.request ?: return null)
     }
 
     /** Classification uses the existing transport/service, but never enters course JSON repair. */
@@ -216,7 +230,7 @@ object AiImportTaskManager {
         eduWorkspace: AiEduWorkspace? = null
     ): String {
         val appContext = context.applicationContext
-        val taskId = startTask(appContext, initialProgress, scheduleConfig, settings) { interaction, onHttpPhase, onReasoningUpdate ->
+        val taskId = startTask(appContext, initialProgress, scheduleConfig, settings, acceptsFiles = eduWorkspace != null) { interaction, onHttpPhase, onReasoningUpdate ->
             interaction.checkActive()
             eduWorkspace?.bindTask(checkNotNull(restartableImport?.takeIf { it.interaction === interaction }) { "教务任务已切换" }.taskId)
             AiScheduleImportService(appContext, interaction).parseScheduleCapturedPage(
@@ -311,13 +325,17 @@ object AiImportTaskManager {
         scheduleConfig: ScheduleConfigEntity,
         settings: AiImportSettings,
         preserveCheckpointsFromTaskId: String? = null,
+        acceptsFiles: Boolean = false,
         request: RestartableAiImportRequest
     ): String {
         val inheritedInbox = preserveCheckpointsFromTaskId?.let(inboxes::get)
+        val inheritedFiles = restartableImport?.takeIf { it.taskId == preserveCheckpointsFromTaskId }
+            ?.interaction?.supplementalFiles.orEmpty()
         val appContext = context.applicationContext
         cancelPreviousAttempt(appContext)
         val taskId = UUID.randomUUID().toString()
         val interaction = AiImportInteraction(initialProgress.requestInstructions.ifBlank { initialProgress.userPrompt })
+        interaction.supplementalFiles = inheritedFiles
         if (inheritedInbox != null) interaction.mailbox = inheritedInbox
         interaction.mailbox.resume()
         inboxes[taskId] = interaction.mailbox
@@ -328,7 +346,7 @@ object AiImportTaskManager {
         interaction.onExecutionStep = { step -> recordExecutionStep(taskId, step) }
         interaction.onProgressReport = { report -> recordProgressReport(taskId, report) }
         interaction.onUsage = { usage -> AiEduImportProgressSession.updateUsage(taskId, usage) }
-        restartableImport = RestartableImport(taskId, scheduleConfig, settings, interaction, request)
+        restartableImport = RestartableImport(taskId, scheduleConfig, settings, interaction, request, acceptsFiles)
         AiEduImportProgressSession.beginTask(
             initialProgress.copy(
                 taskId = taskId,
@@ -646,10 +664,12 @@ object AiImportTaskManager {
     }
 
     private fun recordUserInput(taskId: String, input: com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskInput) {
+        val message = if (input.files.isEmpty()) input.text
+            else "${input.text}\n已补充附件：${input.files.joinToString("、") { it.displayName }}".trim()
         update(taskId) { progress -> progress.copy(
             requestInstructions = progress.requestInstructions.ifBlank { progress.userPrompt } + "\n用户补充：${input.text}",
             screenshotPreviews = progress.screenshotPreviews + input.allImages.mapIndexed { index, image -> RenderedPageImage(progress.screenshotPreviews.size + index, image.mimeType, image.base64) },
-            activityReports = appendAiImportReport(progress.activityReports, AiImportReport(input.text, AiImportReportKind.USER))) }
+            activityReports = appendAiImportReport(progress.activityReports, AiImportReport(message, AiImportReportKind.USER))) }
     }
 
     private suspend fun runQueued(context: Context, taskId: String, draft: ImportDraft, completed: AiEduImportProgress,

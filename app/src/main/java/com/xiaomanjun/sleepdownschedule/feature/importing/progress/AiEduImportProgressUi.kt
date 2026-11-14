@@ -12,8 +12,10 @@ import android.view.View
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
@@ -97,6 +99,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -143,6 +146,7 @@ import com.xiaomanjun.sleepdownschedule.transition.legacy.*
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -342,16 +346,52 @@ internal fun AiEduImportConversationPane(
         rootPositionOnScreen = { rootPositionOnScreen },
         rootSize = { rootSize }
     )
+    val conversationScope = rememberCoroutineScope()
     var conversationInput by remember { mutableStateOf("") }
+    var supplementalFiles by remember { mutableStateOf<List<AiImportFile>>(emptyList()) }
+    var attachmentReading by remember { mutableStateOf(false) }
+    var attachmentError by remember { mutableStateOf<String?>(null) }
+    val canAttach = ownsLiveTask && AiImportTaskManager.canSupplementFiles(current.taskId) &&
+        !current.awaitingConfirmation && (!current.finished || selectedWorkspaceDraft == null)
+    val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isEmpty() || !canAttach || attachmentReading) return@rememberLauncherForActivityResult
+        attachmentReading = true
+        attachmentError = null
+        conversationScope.launch {
+            try {
+                val selected = loadAiImportFiles(context, uris)
+                val combined = (supplementalFiles + selected).distinctBy(AiImportFile::uri)
+                require(combined.size <= MaxAiImportFiles && combined.sumOf { it.sizeBytes.toLong() } <= MaxAiImportBatchBytes) {
+                    "这组附件最多 20 个、合计 40 MB，请移除部分文件再选择"
+                }
+                supplementalFiles = combined
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                attachmentError = error.message ?: "读取附件失败，请重新选择"
+            } finally {
+                attachmentReading = false
+            }
+        }
+    }
     val queuedInputs by remember(current.taskId) { AiImportTaskManager.observeInputs(current.taskId) }.collectAsStateWithLifecycle()
     var editingInputId by remember(current.taskId) { mutableStateOf<String?>(null) }
-    fun submitPending(mode: com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode) {
-        val prompt = conversationInput.trim()
-        if (prompt.isBlank()) return
-        val input = com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskInput(prompt)
+    fun clearComposer() {
+        conversationInput = ""
+        supplementalFiles = emptyList()
+        attachmentError = null
+        editingInputId = null
+    }
+    fun submitPending(
+        mode: com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode,
+        prompt: String = conversationInput.trim()
+    ) {
+        if (prompt.isBlank() && supplementalFiles.isEmpty()) return
+        val input = AgentTaskInput(prompt, files = supplementalFiles)
         val accepted = editingInputId?.let { AiImportTaskManager.replaceInput(current.taskId, it, input) }
-            ?: AiImportTaskManager.submitInput(current.taskId, input, mode)
-        if (accepted) { conversationInput = ""; editingInputId = null }
+            ?: if (supplementalFiles.isEmpty()) AiImportTaskManager.submitInput(current.taskId, input, mode)
+            else AiImportTaskManager.submitSupplementalFiles(current.taskId, input)
+        if (accepted) clearComposer()
         else {
             val message = if (editingInputId != null) "该候选已开始处理，修改保留在输入框中"
                 else if (AiImportTaskManager.observeInputs(current.taskId).value.size >= 16) "最多保留 16 条候选，请先处理或删除，输入内容已保留"
@@ -367,7 +407,6 @@ internal fun AiEduImportConversationPane(
     var historyButtonBounds by remember { mutableStateOf(Rect.Zero) }
     var historyOpening by remember { mutableStateOf(false) }
     val density = LocalDensity.current
-    val conversationScope = rememberCoroutineScope()
     LaunchedEffect(
         historicalMode,
         ownedRevisionTaskId,
@@ -658,18 +697,32 @@ internal fun AiEduImportConversationPane(
                     AiImportStatusCapsule(current.taskId, config, conversationContentBackdrop,
                         Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
                 }
-                com.xiaomanjun.sleepdownschedule.feature.agent.AgentInputCapsules(
+                attachmentError?.let { message ->
+                    Text(message, modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                AgentInputCapsules(
                     inputs = queuedInputs,
-                    attachment = if (!current.requestSent && (current.pageText.isNotBlank() || current.screenshotPreviews.isNotEmpty())) "已附加课表资料" else null,
+                    attachment = when {
+                        attachmentReading -> "正在读取附件…"
+                        supplementalFiles.isNotEmpty() -> supplementalFiles.joinToString("、") { it.displayName }
+                        !current.requestSent && (current.pageText.isNotBlank() || current.screenshotPreviews.isNotEmpty()) -> "已附加课表资料"
+                        else -> null
+                    },
                     config = config, backdrop = conversationContentBackdrop, foreground = textColor,
-                    onEdit = { editingInputId = it.id; conversationInput = it.value.text },
+                    onRemoveAttachment = if (supplementalFiles.isNotEmpty() && !attachmentReading)
+                        ({ supplementalFiles = emptyList(); attachmentError = null }) else null,
+                    onEdit = { editingInputId = it.id; conversationInput = it.value.text; supplementalFiles = it.value.files },
                     onRemove = { AiImportTaskManager.removeInput(current.taskId, it); if (editingInputId == it) editingInputId = null },
                     onGuide = { next ->
                         if (!current.finished) AiImportTaskManager.steerInput(current.taskId, next.id)
                         else {
-                            val resumed = AiImportTaskManager.continueImport(context, current.taskId, next.value.text)
+                            val hasFiles = next.value.files.isNotEmpty()
+                            if (hasFiles && !AiImportTaskManager.steerInput(current.taskId, next.id)) return@AgentInputCapsules
+                            val resumed = AiImportTaskManager.continueImport(context, current.taskId,
+                                next.value.text.ifBlank { "核对补充的材料" })
                             if (resumed != null) {
-                                AiImportTaskManager.removeInput(current.taskId, next.id)
+                                if (!hasFiles) AiImportTaskManager.removeInput(current.taskId, next.id)
                                 ownedRevisionTaskId = resumed
                             }
                         }
@@ -686,14 +739,22 @@ internal fun AiEduImportConversationPane(
                     textColor = textColor,
                     attachmentVisible = !current.requestSent &&
                         (current.pageText.isNotBlank() || current.screenshotPreviews.isNotEmpty()),
+                    hasSupplementalFiles = supplementalFiles.isNotEmpty(),
+                    onAddAttachment = if (canAttach && !attachmentReading)
+                        ({ attachmentPicker.launch(arrayOf("*/*")) }) else null,
                     modifier = Modifier,
                     onValueChange = { conversationInput = it.take(6_000) },
                     onSend = send@{
+                        if (attachmentReading) return@send
                         val prompt = conversationInput.trim().ifBlank {
-                            if (current.awaitingConfirmation) current.userPrompt else return@send
+                            when {
+                                supplementalFiles.isNotEmpty() -> "请核对补充的材料。"
+                                current.awaitingConfirmation -> current.userPrompt
+                                else -> return@send
+                            }
                         }
                         if (editingInputId != null) {
-                            submitPending(com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode.QUEUE)
+                            submitPending(com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode.QUEUE, prompt)
                             return@send
                         }
                         if (current.awaitingConfirmation) {
@@ -701,11 +762,16 @@ internal fun AiEduImportConversationPane(
                             updateProgress(current.copy(userPrompt = prompt))
                             AiEduImportProgressSession.confirm()
                         } else if (ownsLiveTask && !current.finished) {
-                            submitPending(com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode.QUEUE)
+                            submitPending(com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode.QUEUE, prompt)
                         } else if (ownsLiveTask && AiImportTaskManager.canInterrupt(current.taskId)) {
-                            ownedRevisionTaskId = AiImportTaskManager.continueImport(context, current.taskId, prompt)
-                            if (ownedRevisionTaskId != null) conversationInput = ""
+                            ownedRevisionTaskId = AiImportTaskManager.continueImport(context, current.taskId, prompt, supplementalFiles)
+                            if (ownedRevisionTaskId != null) clearComposer()
+                            else if (supplementalFiles.isNotEmpty()) attachmentError = "当前无法继续解析，已保留所选附件"
                         } else {
+                            if (supplementalFiles.isNotEmpty()) {
+                                attachmentError = "原教务任务已结束，请重新打开教务页面导入"
+                                return@send
+                            }
                             if (conversationSending || !current.finished) return@send
                             val baseDraft = latestDraft ?: previewDraft ?: return@send
                             conversationInput = ""
@@ -1375,10 +1441,13 @@ private fun AiEduConversationComposer(
     runtimePickerState: AiRuntimePickerState,
     textColor: Color,
     attachmentVisible: Boolean,
+    hasSupplementalFiles: Boolean,
+    onAddAttachment: (() -> Unit)?,
     modifier: Modifier = Modifier,
     onValueChange: (String) -> Unit,
     onSend: () -> Unit
 ) {
+    val showStop = sending && canInterrupt && value.isBlank() && !hasSupplementalFiles
     AgentInputLiquidCapsule(
         backdrop = backdrop,
         config = config,
@@ -1402,6 +1471,12 @@ private fun AiEduConversationComposer(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                if (onAddAttachment != null) {
+                    Box(Modifier.size(40.dp).clip(CircleShape).clickable(role = Role.Button, onClick = onAddAttachment),
+                        contentAlignment = Alignment.Center) {
+                        Icon(painterResource(R.drawable.ic_add_course), "添加附件", tint = textColor, modifier = Modifier.size(24.dp))
+                    }
+                }
                 BasicTextField(
                     value = value,
                     onValueChange = onValueChange,
@@ -1440,7 +1515,7 @@ private fun AiEduConversationComposer(
                 )
                 if (backdrop != null) {
                     LiquidButton(
-                        onClick = { if (sending && canInterrupt && value.isBlank()) onStop() else onSend() },
+                        onClick = { if (showStop) onStop() else onSend() },
                         backdrop = backdrop,
                         modifier = Modifier.size(40.dp),
                         height = 40.dp,
@@ -1453,16 +1528,16 @@ private fun AiEduConversationComposer(
                         chromaticAberration = false
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Text(if (sending && canInterrupt && value.isBlank()) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
+                            Text(if (showStop) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold)
                         }
                     }
                 } else {
                     Box(
                         Modifier.size(40.dp).clip(CircleShape).background(controlAccentColor(Color(0xFF0A84FF))).clickable {
-                            if (sending && canInterrupt && value.isBlank()) onStop() else onSend()
+                            if (showStop) onStop() else onSend()
                         },
                         contentAlignment = Alignment.Center
-                    ) { Text(if (sending && canInterrupt && value.isBlank()) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold) }
+                    ) { Text(if (showStop) "■" else "↑", color = Color.White, fontWeight = FontWeight.Bold) }
                 }
             }
         }

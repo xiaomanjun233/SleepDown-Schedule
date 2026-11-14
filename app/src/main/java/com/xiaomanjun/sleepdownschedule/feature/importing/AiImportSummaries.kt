@@ -1,5 +1,6 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.core.ai.AgentContextPolicy
 import com.xiaomanjun.sleepdownschedule.core.ai.AgentHarness
 
 import kotlinx.serialization.json.*
@@ -182,16 +183,44 @@ internal fun requestScheduleImport(
         tools += materials.taskWorkspace?.definitions(responses).orEmpty()
         history += buildJsonObject { put("role", "user"); put("content", materials.overview()) }
     }
-    val harness = AgentHarness(12, checkActive = { networkContext.interaction?.checkActive() })
+    val interaction = networkContext.interaction
+    val harness = AgentHarness(if (eduEvidence != null) null else 12, checkActive = { interaction?.checkActive() })
+    val policy = AgentContextPolicy(config.contextWindowTokens)
+    val preserved = history.toMutableSet()
+    val fileContext = networkContext.supplementalFileContext
+    var readMaterialEnabled = eduEvidence == null && materials != null
+    var viewMaterialEnabled = materials?.canView == true && config.supportsVision
+    fun addUserContext(message: JsonObject) {
+        history += message
+        preserved += message
+    }
+    fun addFiles(files: List<AiImportFile>) {
+        val catalog = checkNotNull(materials).appendSupplementalFiles(checkNotNull(fileContext), files, config.supportsVision)
+        addUserContext(buildJsonObject { put("role", "user"); put("content", catalog) })
+        if (!readMaterialEnabled) {
+            tools += materialToolDefinition(ReadImportMaterialTool, responses)
+            readMaterialEnabled = true
+        }
+    }
+    if (fileContext != null) interaction?.supplementalFiles?.takeIf { it.isNotEmpty() }?.let(::addFiles)
+    var eduBudget = policy.inputBudget
     var summaryOnly = 0
     val summaries = mutableListOf<String>()
     return harness.run(step = step@ { _ ->
-        networkContext.interaction?.takeUnless { networkContext.inputType == "REPAIR" }?.acceptSteering().orEmpty().forEach { input ->
+        interaction?.takeUnless { networkContext.inputType == "REPAIR" }?.acceptSteering { input ->
+            if (input.files.isEmpty()) true else try {
+                addFiles(input.files)
+                true
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                interaction.reportExecutionStep("补充材料未加入：${error.message ?: "无法读取所选文件"}")
+                false
+            }
+        }.orEmpty().forEach { input ->
             require(input.allImages.isEmpty() || config.supportsVision) { "当前模型不支持新增图片，请切换视觉模型后继续" }
             input.allImages.forEach { materials?.appendImage(RenderedPageImage(materials.pageCount, it.mimeType, it.base64)) }
-            if (input.allImages.isNotEmpty() && tools.none { (if (responses) it.jsonObject else it.jsonObject["function"]?.jsonObject)?.get("name")?.jsonPrimitive?.contentOrNull == ViewImportDetailTool })
-                tools += materialToolDefinition(ViewImportDetailTool, responses)
-            history += buildJsonObject {
+            addUserContext(buildJsonObject {
                 put("role", "user")
                 if (input.allImages.isEmpty()) put("content", input.text) else put("content", buildJsonArray {
                     add(buildJsonObject { put("type", if (responses) "input_text" else "text"); put("text", input.text) })
@@ -201,13 +230,29 @@ internal fun requestScheduleImport(
                         if (responses) put("image_url", url) else put("image_url", buildJsonObject { put("url", url) })
                     }) }
                 })
-            }
+            })
         }
-        val request = JsonObject(initialBody.toMutableMap().apply {
-            val policy = com.xiaomanjun.sleepdownschedule.core.ai.AgentContextPolicy(config.contextWindowTokens)
+        if (!viewMaterialEnabled && materials?.canView == true && config.supportsVision) {
+            tools += materialToolDefinition(ViewImportDetailTool, responses)
+            viewMaterialEnabled = true
+        }
+        fun requestPayload() = JsonObject(initialBody.toMutableMap().apply {
             val objects = history.map { it.jsonObject }
-            val projection = if (responses) policy.compactResponses(objects) else policy.compactChat(objects).messages
-            require(policy.estimatedTokens(JsonArray(projection)) <= policy.inputBudget) { "材料与补充要求超过当前上下文预算，请缩小课表范围后继续；未自动删除用户要求" }
+            val projection = when {
+                eduEvidence != null -> compactEduImportHistory(objects, preserved, responses, policy, eduBudget)
+                responses -> policy.compactResponses(objects)
+                else -> policy.compactChat(objects).messages
+            }
+            val budget = if (eduEvidence != null) eduBudget else policy.inputBudget
+            require(policy.estimatedTokens(JsonArray(projection)) <= budget) {
+                "材料与补充要求超过当前模型的上下文窗口，请缩小课表范围后继续；已保留用户要求和附件"
+            }
+            if (eduEvidence != null && projection != objects) {
+                history.clear()
+                history.addAll(projection)
+                harness.compactReceipts()
+                interaction?.publishActivity("已压缩早期执行记录，继续核对教务与补充材料")
+            }
             put(conversationKey, JsonArray(projection))
             if (tools.isNotEmpty()) put("tools", JsonArray(tools.toList()))
             if (materials != null || summaryOnly > 0) {
@@ -215,10 +260,32 @@ internal fun requestScheduleImport(
                 if (choice == null) remove("tool_choice") else put("tool_choice", choice)
             }
         })
-        val response = send(request, networkContext)
+        fun sendAndCheck(payload: JsonObject): Pair<String, JsonObject> {
+            val response = send(payload, networkContext)
+            harness.ensureActive()
+            val root = Json.parseToJsonElement(response).jsonObject
+            if (responses) requireCompletedResponsesStatus(root, response) else requireUsableChatCompletionStatus(root, response)
+            return response to root
+        }
+        fun sendWithCompaction(): Pair<String, JsonObject> {
+            var payload = requestPayload()
+            while (true) {
+                try {
+                    return sendAndCheck(payload)
+                } catch (error: AiServiceResponseException) {
+                    if (eduEvidence == null || !error.contextWindowExceeded) throw error
+                    val sentTokens = policy.estimatedTokens(payload.getValue(conversationKey))
+                    val smallerBudget = sentTokens * 2 / 3
+                    if (smallerBudget >= eduBudget) throw error
+                    eduBudget = smallerBudget
+                    val compacted = requestPayload()
+                    if (policy.estimatedTokens(compacted.getValue(conversationKey)) >= sentTokens) throw error
+                    payload = compacted
+                }
+            }
+        }
+        val (response, root) = sendWithCompaction()
         harness.ensureActive()
-        val root = Json.parseToJsonElement(response).jsonObject
-        if (responses) requireCompletedResponsesStatus(root, response) else requireUsableChatCompletionStatus(root, response)
         importClarificationQuestions(response).takeIf(List<String>::isNotEmpty)?.let {
             if (networkContext.interaction?.hasSteering() != true) throw AiImportClarificationRequired(it)
         }
@@ -246,13 +313,14 @@ internal fun requestScheduleImport(
         }
         val sourceCalls = calls.filter { it.name != ScheduleImportToolName }
         if (sourceCalls.isNotEmpty()) {
-            require(calls.size <= 8) { "单步请求的工具过多，请缩小导入范围" }
+            require(eduEvidence != null || calls.size <= 8) { "单步请求的工具过多，请缩小导入范围" }
             appendImportAssistantItems(history, root, responses)
             val images = mutableListOf<AiMaterialReply>()
             calls.forEach { call ->
                 require(call.id.isNotBlank()) { "模型工具调用缺少 ID，无法安全回传材料" }
                 val reply = harness.tool(call.id, call.name, call.name + "\u0000" + call.arguments,
-                    conflict = { AiMaterialReply("工具调用 ID 已用于其他参数，请使用新 ID。") }) {
+                    conflict = { AiMaterialReply("工具调用 ID 已用于其他参数，请使用新 ID。") },
+                    expired = { AiMaterialReply("此调用已结算，结果已压缩。若需要完整资料，可用新 ID 重新读取；请勿重复写入。") }) {
                     if (call.name == ScheduleImportToolName) AiMaterialReply("读取材料与提交课表请分步调用；先核对工具结果，再单独调用 IMPORT_SCHEDULE。")
                     else if (call.name == "ASK_IMPORT_DETAILS" && networkContext.interaction?.hasSteering() == true) AiMaterialReply("用户已补充信息，请读取下一条要求后继续核对。")
                     else try {
@@ -298,7 +366,9 @@ internal fun requestScheduleImport(
             return@step AgentHarness.Next.Continue
         }
         val result = parse(response)
-        if (networkContext.interaction?.hasSteering() == true) {
+        val canFinish = if (fileContext != null && result.content.isNotBlank()) interaction?.acceptCandidate() != false
+            else interaction?.hasSteering() != true
+        if (!canFinish) {
             appendImportAssistantItems(history, root, responses)
             return@step AgentHarness.Next.Continue
         }
@@ -307,13 +377,59 @@ internal fun requestScheduleImport(
         val text = if (responses) responsesOutputText(root) else root.optionalArray("choices").firstOrNull()?.jsonObject
             ?.get("message")?.jsonObject?.get("content")?.jsonPrimitive?.contentOrNull.orEmpty()
         val summary = importProgressSummary(text)
-        if (summary.isBlank() || summaryOnly++ >= 1) throw AiServiceResponseException(
+        if (summary.isBlank() || (eduEvidence == null && summaryOnly >= 1)) throw AiServiceResponseException(
             "模型只返回了进度摘要，没有提交课程数据，请重试。", response)
+        summaryOnly++
         summaries += summary
+        if (eduEvidence != null && summaries.size > 4) summaries.removeAt(0)
         appendImportAssistantItems(history, root, responses)
         history += buildJsonObject { put("role", "user"); put("content", "已收到阶段摘要。请继续完成本次导入并调用 IMPORT_SCHEDULE 提交完整课表；若仍缺少必需信息，调用 ASK_IMPORT_DETAILS。本轮不再单独输出摘要。") }
         AgentHarness.Next.Continue
     }, converge = { throw AiServiceResponseException("已达到本次材料核对步数上限，请缩小范围或补充清晰材料后重试。", "") })
+}
+
+private fun compactEduImportHistory(
+    input: List<JsonObject>,
+    preserved: Set<JsonElement>,
+    responses: Boolean,
+    policy: AgentContextPolicy,
+    budget: Int,
+): List<JsonObject> {
+    fun fits(items: List<JsonObject>) = policy.estimatedTokens(JsonArray(items)) <= budget
+    if (fits(input)) return input
+    fun compact(items: List<JsonObject>, recent: Int, excerpts: Int, chars: Int): List<JsonObject> {
+        val settings = AgentContextPolicy.ToolHistory(recent, excerpts, chars)
+        return if (responses) policy.compactResponses(items, budget, settings) else policy.compactChat(items, budget, settings).messages
+    }
+    // Retain original prompts, steering and file indexes. Only generated history can be reduced.
+    val recentGenerated = input.filterNot { it in preserved }.takeLast(10).toSet()
+    val trimmed = input.mapNotNull { item ->
+        if (item in preserved || item in recentGenerated) return@mapNotNull item
+        val type = item["type"]?.jsonPrimitive?.contentOrNull
+        if (type == "reasoning") return@mapNotNull null
+        if (isCompletedEduToolSummary(item)) return@mapNotNull null
+        val content = item["content"] as? JsonArray ?: return@mapNotNull item
+        val hasImages = content.any { part ->
+            val value = (part as? JsonObject)?.get("type")?.jsonPrimitive?.contentOrNull
+            value == "input_image" || value == "image_url"
+        }
+        if (hasImages) return@mapNotNull null
+        item
+    }
+    val normal = compact(trimmed, recent = 4, excerpts = 8, chars = 1_800)
+    if (fits(normal)) return normal
+    val short = compact(trimmed, recent = 1, excerpts = 5, chars = 600)
+    if (fits(short)) return short
+    // If even the recent output is oversized, preserve its excerpt and leave full source in the workspace.
+    val minimal = compact(trimmed, recent = 0, excerpts = 4, chars = 300)
+    if (fits(minimal)) return minimal
+    val latest = minimal.lastOrNull(::isCompletedEduToolSummary)
+    return minimal.filter { it in preserved || it === latest }
+}
+
+private fun isCompletedEduToolSummary(message: JsonObject): Boolean {
+    val content = (message["content"] as? JsonPrimitive)?.contentOrNull ?: return false
+    return content.startsWith("{\"kind\":\"completed_tool_context\",\"trust\":\"untrusted_tool_data\"")
 }
 
 private data class ImportMaterialCall(val id: String, val name: String, val arguments: String)

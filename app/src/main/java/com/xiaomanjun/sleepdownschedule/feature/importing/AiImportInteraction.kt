@@ -1,5 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox
+import com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskInput
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,21 +14,39 @@ import java.net.HttpURLConnection
 
 /** One attempt's cancellation and user instructions. Original attachments stay in the task owner. */
 class AiImportInteraction(val instruction: String) {
-    internal var mailbox = com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox<com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskInput>()
-    internal var onAcceptedInput: ((com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskInput) -> Unit)? = null
-    internal fun acceptSteering(): List<com.xiaomanjun.sleepdownschedule.feature.agent.AgentTaskInput> {
+    internal var mailbox = AgentMailbox<AgentTaskInput>()
+    internal var onAcceptedInput: ((AgentTaskInput) -> Unit)? = null
+    @Volatile internal var supplementalFiles: List<AiImportFile> = emptyList()
+    private var closedToAttachments = false
+
+    @Synchronized
+    internal fun submitFiles(input: AgentTaskInput): Boolean =
+        !cancelled && !closedToAttachments && mailbox.trySubmit(input, AgentMailbox.Mode.STEER) != null
+
+    @Synchronized
+    internal fun acceptCandidate(): Boolean {
+        if (hasSteering()) return false
+        closedToAttachments = true
+        return true
+    }
+
+    internal fun acceptSteering(beforeAccept: (AgentTaskInput) -> Boolean = { true }): List<AgentTaskInput> {
         checkActive()
         val messages = mailbox.drainSteering()
-        messages.forEachIndexed { index, input ->
-            try { onAcceptedInput?.invoke(input) }
+        return messages.filterIndexed { index, input ->
+            try {
+                if (!beforeAccept(input)) return@filterIndexed false
+                supplementalFiles = supplementalFiles + input.files
+                onAcceptedInput?.invoke(input)
+                true
+            }
             catch (error: Exception) {
-                messages.drop(index).forEach { mailbox.submit(it, com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode.STEER) }
+                messages.drop(index).forEach { mailbox.submit(it, AgentMailbox.Mode.STEER) }
                 throw error
             }
         }
-        return messages
     }
-    internal fun hasSteering(): Boolean = !mailbox.paused && mailbox.inputs.value.any { it.mode == com.xiaomanjun.sleepdownschedule.core.ai.AgentMailbox.Mode.STEER }
+    internal fun hasSteering(): Boolean = !mailbox.paused && mailbox.inputs.value.any { it.mode == AgentMailbox.Mode.STEER }
     internal var onHttpPhase: (AiImportHttpPhase) -> Unit = {}
     internal var onTransportPhase: ((AiImportHttpPhase) -> Unit)? = null
     internal var onStream: ((Boolean, String) -> Unit)? = null

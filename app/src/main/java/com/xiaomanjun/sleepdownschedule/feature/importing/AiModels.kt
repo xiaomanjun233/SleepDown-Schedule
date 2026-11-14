@@ -37,7 +37,8 @@ internal data class AiImportNetworkContext(
     val onReasoningUpdate: ((String) -> Unit)? = null,
     val interaction: AiImportInteraction? = null,
     val assistantMemory: String = "",
-    val materials: AiMaterialWorkspace? = null
+    val materials: AiMaterialWorkspace? = null,
+    val supplementalFileContext: android.content.Context? = null
 )
 
 enum class StructuredOutputMode {
@@ -242,8 +243,13 @@ class AiServiceResponseException(
     message: String,
     val rawBody: String,
     cause: Throwable? = null,
-    val httpStatus: Int? = null
+    val httpStatus: Int? = null,
+    internal val contextWindowExceeded: Boolean = isAiContextWindowError(rawBody)
 ) : IllegalStateException(message, cause)
+
+internal fun isAiContextWindowError(body: String): Boolean =
+    Regex("context_length_exceeded|context_window_exceeded|maximum context length|context length exceeded|context window exceeded|context window is too small|input exceeds the context window",
+        RegexOption.IGNORE_CASE).containsMatchIn(body)
 
 fun Throwable.aiRawResponseBody(): String? {
     return when (this) {

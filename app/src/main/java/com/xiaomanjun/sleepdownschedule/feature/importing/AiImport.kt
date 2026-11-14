@@ -231,7 +231,10 @@ class AiScheduleImportService(
                     onHttpPhase = onHttpPhase,
                     screenshotCount = screenshots.size,
                     onReasoningUpdate = onReasoningUpdate
-                ).copy(materials = AiMaterialWorkspace.fromPages(sourceName, cleaned, screenshots, readCurrentPage))
+                ).copy(
+                    materials = AiMaterialWorkspace.fromPages(sourceName, cleaned, screenshots, readCurrentPage),
+                    supplementalFileContext = context.takeIf { eduWorkspace != null }
+                )
                 val result = checkNotNull(networkContext.materials).use { materials ->
                     materials.taskWorkspace = AiTaskWorkspace(context, eduWorkspace, allowPageImages = config.supportsVision) { interaction?.checkActive() }
                     when {

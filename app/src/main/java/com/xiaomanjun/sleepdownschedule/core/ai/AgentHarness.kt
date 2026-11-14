@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.core.ai
 
 import java.util.concurrent.CancellationException
+import java.security.MessageDigest
 
 /**
  * Provider-independent turn/step/tool lifecycle. Inspired by Codex run_turn and DSH agent-loop;
@@ -8,7 +9,7 @@ import java.util.concurrent.CancellationException
  * See docs/ai/AGENT_HARNESS.md for pinned upstream sources and adaptation boundaries.
  */
 internal class AgentHarness(
-    private val maxSteps: Int,
+    private val maxSteps: Int?,
     private val checkActive: () -> Unit = {},
     private val observe: (Event) -> Unit = {}
 ) {
@@ -20,12 +21,12 @@ internal class AgentHarness(
         data object Continue : Next<Nothing>
         data object Converge : Next<Nothing>
     }
-    private data class ToolReceipt(val fingerprint: String, val value: Any?)
+    private data class ToolReceipt(val fingerprint: String, val value: Any?, val hasResult: Boolean = true)
     private val receipts = linkedMapOf<String, ToolReceipt>()
     private var stepIndex = -1
     private var used = false
 
-    init { require(maxSteps in 1..64) }
+    init { require(maxSteps == null || maxSteps in 1..64) }
 
     private fun emit(phase: Phase, tool: String? = null) = observe(Event(phase, stepIndex, tool))
     fun ensureActive() {
@@ -39,11 +40,11 @@ internal class AgentHarness(
         used = true
         emit(Phase.STARTED)
         try {
-            for (index in 0 until maxSteps) {
-                stepIndex = index
+            while (maxSteps == null || stepIndex + 1 < maxSteps) {
+                stepIndex++
                 ensureActive()
                 emit(Phase.STEP_STARTED)
-                val next = step(index)
+                val next = step(stepIndex)
                 ensureActive()
                 emit(Phase.STEP_FINISHED)
                 when (next) {
@@ -68,20 +69,31 @@ internal class AgentHarness(
 
     /** Replay only the same call ID and payload; new IDs may intentionally repeat mutable reads. */
     @Suppress("UNCHECKED_CAST")
-    fun <T> tool(id: String, name: String, fingerprint: String, conflict: () -> T, execute: () -> T): T {
+    fun <T> tool(id: String, name: String, fingerprint: String, conflict: () -> T,
+                 expired: () -> T = conflict, execute: () -> T): T {
         ensureActive()
+        val key = if (maxSteps == null) MessageDigest.getInstance("SHA-256")
+            .digest(fingerprint.toByteArray()).toHexString() else fingerprint
         if (id.isNotBlank()) receipts[id]?.let { previous ->
-            if (previous.fingerprint != fingerprint) return conflict()
+            if (previous.fingerprint != key) return conflict()
             emit(Phase.TOOL_REPLAYED, name)
-            return previous.value as T
+            return if (previous.hasResult) previous.value as T else expired()
         }
-        check(receipts.size < 256) { "本轮工具调用过多，请缩小任务范围" }
+        if (maxSteps != null) check(receipts.size < 256) { "本轮工具调用过多，请缩小任务范围" }
         emit(Phase.TOOL_STARTED, name)
         val result = execute()
         // Settle a successful side effect before checking cancellation; never blindly replay it.
-        if (id.isNotBlank()) receipts[id] = ToolReceipt(fingerprint, result)
+        if (id.isNotBlank()) receipts[id] = ToolReceipt(key, result)
         emit(Phase.TOOL_FINISHED, name)
         ensureActive()
         return result
+    }
+
+    /** Keep settled IDs when compacting. Older tool outputs can be read again with a fresh ID. */
+    fun compactReceipts() {
+        receipts.keys.toList().dropLast(4).forEach { id ->
+            val receipt = receipts.getValue(id)
+            if (receipt.hasResult) receipts[id] = receipt.copy(value = null, hasResult = false)
+        }
     }
 }
