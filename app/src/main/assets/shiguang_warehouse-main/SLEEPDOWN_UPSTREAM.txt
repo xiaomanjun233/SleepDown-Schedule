@@ -5,3 +5,8 @@ Index protocol: v2
 Synced: 2026-08-25
 
 SleepDown reads school_index.pb first and keeps the bundled YAML files as a compatibility fallback.
+
+Local modification (2026-11-16): resources/XAUAT/xauat.js no longer derives the semester start from
+the earliest lesson date. It uses the schedule rows' own weekIndex, semester/get startDate and
+weekStartOnSunday, and submits the campus bell table from timetable-layout. Regression test:
+scripts/tests/xauat-adapter.cjs. Re-apply this change (or upstream it) when re-syncing XAUAT.
