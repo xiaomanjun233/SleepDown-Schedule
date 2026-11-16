@@ -303,11 +303,27 @@ internal fun PeriodSchemeEditor(
                 (WindowInsets.navigationBars.getBottom(this) - WindowInsets.ime.getBottom(this)).coerceAtLeast(0).toDp()
             }
             val sheetScene = rememberCenteredDialogSceneBackdrop("period-editor-dialog-scene")
+            val liquidButtons = Build.VERSION.SDK_INT >= 31 && LocalCouiLiquidMaterial.current
+            val sheetBackgroundBackdrop = rememberGlassLayerBackdrop(
+                GlassBackdropDomain.Background,
+                "period-editor-background",
+            )
+            val buttonBackdrop = sheetBackgroundBackdrop.takeIf { liquidButtons }
             val editorBackdrop = rememberGlassLayerBackdrop(GlassBackdropDomain.Content, "period-editor-content") {
                 drawRect(pageColor)
                 drawContent()
             }
             Box(Modifier.fillMaxSize().centeredDialogSceneProducer(sheetScene)) {
+                if (liquidButtons) {
+                    // Add-period buttons sit inside the scrolled Column (which records editorBackdrop),
+                    // so they sample this sibling background layer instead to avoid a self-sampling cycle.
+                    Box(
+                        Modifier
+                            .matchParentSize()
+                            .glassBackdropProducer(sheetBackgroundBackdrop)
+                            .background(pageColor),
+                    )
+                }
                 val blocks = remember(edit) { timelineBlocks(edit.config, edit.active, includeLeading = true) }
                 val editScroll = rememberScrollState()
                 var viewportHeight by remember { mutableIntStateOf(0) }
@@ -398,7 +414,7 @@ internal fun PeriodSchemeEditor(
                                                 if (block.isBreak) {
                                                     val after = insertionPosition(block)
                                                     vacancies.filter { it.after == after }.forEach { vacancy ->
-                                                        TimelineAddPeriodButton(editorBackdrop, interactive, Modifier.padding(top = 10.dp, end = 38.dp)) {
+                                                        TimelineAddPeriodButton(buttonBackdrop, interactive, Modifier.padding(top = 10.dp, end = 38.dp)) {
                                                             addPeriod(part, restoring = true) { insertTimelinePeriod(it, vacancy.id) }
                                                         }
                                                     }
@@ -407,12 +423,12 @@ internal fun PeriodSchemeEditor(
                                         }
                                         val visibleInsertionPoints = partBlocks.filter { it.isBreak }.map(::insertionPosition).toSet()
                                         vacancies.filter { it.after !in visibleInsertionPoints }.forEach { vacancy ->
-                                            TimelineAddPeriodButton(editorBackdrop, interactive, Modifier.padding(end = 38.dp)) {
+                                            TimelineAddPeriodButton(buttonBackdrop, interactive, Modifier.padding(end = 38.dp)) {
                                                 addPeriod(part, restoring = true) { insertTimelinePeriod(it, vacancy.id) }
                                             }
                                         }
                                         if (canChangeStructure && vacancies.none { it.after == edit.config.periodCount(part) }) {
-                                            TimelineAddPeriodButton(editorBackdrop, interactive,
+                                            TimelineAddPeriodButton(buttonBackdrop, interactive,
                                                 Modifier.padding(end = 38.dp)) {
                                                 addPeriod(part) { appendTimelinePeriod(it, part) }
                                             }
@@ -421,7 +437,7 @@ internal fun PeriodSchemeEditor(
                             }
                         } else if (canChangeStructure) {
                             // Vacancies are editor-local; an empty saved section still needs an entry point.
-                            TimelineAddPeriodButton(editorBackdrop, interactive,
+                            TimelineAddPeriodButton(buttonBackdrop, interactive,
                                 Modifier.padding(end = 38.dp),
                                 label = "${part.timelineLabel()} · 添加节次") {
                                 addPeriod(part) { appendTimelinePeriod(it, part) }
