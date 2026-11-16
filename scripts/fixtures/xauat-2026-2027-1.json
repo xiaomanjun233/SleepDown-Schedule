@@ -1,0 +1,2800 @@
+{
+ "_comment": "2026-2027-1 本科课表的脱敏快照：教师、班级已替换，仅保留适配器使用的字段。用于 scripts/tests/xauat-adapter.cjs。",
+ "semesters": [
+  {
+   "id": "401",
+   "name": "2027-2028-1"
+  },
+  {
+   "id": "421",
+   "name": "2026-2027-2"
+  },
+  {
+   "id": "361",
+   "name": "2026-2027-1",
+   "selected": true
+  },
+  {
+   "id": "301",
+   "name": "2025-2026-1"
+  }
+ ],
+ "getData": {
+  "lessonIds": [
+   232115,
+   232851,
+   232865,
+   232048,
+   232128,
+   235941,
+   232148,
+   232139,
+   233083,
+   232153,
+   233502,
+   232300
+  ],
+  "timeTableLayoutId": 21
+ },
+ "semester": {
+  "id": 361,
+  "nameZh": "2026-2027-1",
+  "startDate": "2026-08-30",
+  "endDate": "2027-02-27",
+  "weekStartOnSunday": true
+ },
+ "layout": {
+  "result": {
+   "courseUnitList": [
+    {
+     "indexNo": 1,
+     "startTime": 830,
+     "endTime": 915
+    },
+    {
+     "indexNo": 2,
+     "startTime": 920,
+     "endTime": 1005
+    },
+    {
+     "indexNo": 3,
+     "startTime": 1025,
+     "endTime": 1110
+    },
+    {
+     "indexNo": 4,
+     "startTime": 1115,
+     "endTime": 1200
+    },
+    {
+     "indexNo": 5,
+     "startTime": 1210,
+     "endTime": 1255
+    },
+    {
+     "indexNo": 6,
+     "startTime": 1300,
+     "endTime": 1345
+    },
+    {
+     "indexNo": 7,
+     "startTime": 1400,
+     "endTime": 1445
+    },
+    {
+     "indexNo": 8,
+     "startTime": 1450,
+     "endTime": 1535
+    },
+    {
+     "indexNo": 9,
+     "startTime": 1545,
+     "endTime": 1630
+    },
+    {
+     "indexNo": 10,
+     "startTime": 1635,
+     "endTime": 1720
+    },
+    {
+     "indexNo": 11,
+     "startTime": 1930,
+     "endTime": 2015
+    },
+    {
+     "indexNo": 12,
+     "startTime": 2020,
+     "endTime": 2105
+    }
+   ]
+  }
+ },
+ "datum": {
+  "result": {
+   "lessonList": [
+    {
+     "id": 232128,
+     "courseName": "C语言程序设计",
+     "name": "示例班",
+     "teacherAssignmentList": [
+      {
+       "name": "教师A"
+      }
+     ]
+    },
+    {
+     "id": 232148,
+     "courseName": "C语言程序设计实验",
+     "name": "示例班",
+     "teacherAssignmentList": [
+      {
+       "name": "教师A"
+      }
+     ]
+    },
+    {
+     "id": 232153,
+     "courseName": "人工智能专业导论",
+     "name": "示例班",
+     "teacherAssignmentList": [
+      {
+       "name": "教师B"
+      }
+     ]
+    },
+    {
+     "id": 232851,
+     "courseName": "高等数学Ⅰ-A1",
+     "name": "示例班",
+     "teacherAssignmentList": [
+      {
+       "name": "教师C"
+      }
+     ]
+    },
+    {
+     "id": 232300,
+     "courseName": "线性代数A",
+     "name": "示例班",
+     "teacherAssignmentList": [
+      {
+       "name": "教师D"
+      }
+     ]
+    },
+    {
+     "id": 232115,
+     "courseName": "大学英语1",
+     "name": "示例班",
+     "teacherAssignmentList": [
+      {
+       "name": "教师E"
+      },
+      {
+       "name": "教师F"
+      },
+      {
+       "name": "教师G"
+      }
+     ]
+    },
+    {
+     "id": 232048,
+     "courseName": "形势与政策1",
+     "name": "示例班",
+     "teacherAssignmentList": [
+      {
+       "name": "教师H"
+      }
+     ]
+    },
+    {
+     "id": 232865,
+     "courseName": "思想道德与法治",
+     "name": "示例班",
+     "teacherAssignmentList": [
+      {
+       "name": "教师I"
+      }
+     ]
+    },
+    {
+     "id": 235941,
+     "courseName": "大学体育1",
+     "name": "示例班",
+     "teacherAssignmentList": [
+      {
+       "name": "教师J"
+      }
+     ]
+    },
+    {
+     "id": 233083,
+     "courseName": "军事技能",
+     "name": "示例班",
+     "teacherAssignmentList": [
+      {
+       "name": "教师K"
+      }
+     ]
+    },
+    {
+     "id": 233502,
+     "courseName": "心理健康",
+     "name": "示例班",
+     "teacherAssignmentList": [
+      {
+       "name": "教师L"
+      },
+      {
+       "name": "教师M"
+      }
+     ]
+    },
+    {
+     "id": 232139,
+     "courseName": "大学生劳动教育1",
+     "name": "示例班",
+     "teacherAssignmentList": [
+      {
+       "name": "教师N"
+      }
+     ]
+    }
+   ],
+   "scheduleList": [
+    {
+     "lessonId": 232128,
+     "date": "2026-09-29",
+     "weekday": 2,
+     "weekIndex": 5,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-313"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-10-08",
+     "weekday": 4,
+     "weekIndex": 6,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-204"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-10-13",
+     "weekday": 2,
+     "weekIndex": 7,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-313"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-10-15",
+     "weekday": 4,
+     "weekIndex": 7,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-204"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-10-20",
+     "weekday": 2,
+     "weekIndex": 8,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-313"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-10-22",
+     "weekday": 4,
+     "weekIndex": 8,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-204"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-10-27",
+     "weekday": 2,
+     "weekIndex": 9,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-313"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-10-29",
+     "weekday": 4,
+     "weekIndex": 9,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-204"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-11-03",
+     "weekday": 2,
+     "weekIndex": 10,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-313"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-11-05",
+     "weekday": 4,
+     "weekIndex": 10,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-204"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-11-10",
+     "weekday": 2,
+     "weekIndex": 11,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-313"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-11-12",
+     "weekday": 4,
+     "weekIndex": 11,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-204"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-11-17",
+     "weekday": 2,
+     "weekIndex": 12,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-313"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-11-19",
+     "weekday": 4,
+     "weekIndex": 12,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-204"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-11-24",
+     "weekday": 2,
+     "weekIndex": 13,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-313"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-11-26",
+     "weekday": 4,
+     "weekIndex": 13,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-204"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-12-01",
+     "weekday": 2,
+     "weekIndex": 14,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-313"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-12-03",
+     "weekday": 4,
+     "weekIndex": 14,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-204"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-12-08",
+     "weekday": 2,
+     "weekIndex": 15,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-313"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-12-10",
+     "weekday": 4,
+     "weekIndex": 15,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-204"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-12-15",
+     "weekday": 2,
+     "weekIndex": 16,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-313"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-12-17",
+     "weekday": 4,
+     "weekIndex": 16,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-204"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-12-22",
+     "weekday": 2,
+     "weekIndex": 17,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-313"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232128,
+     "date": "2026-12-24",
+     "weekday": 4,
+     "weekIndex": 17,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-204"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-11",
+     "weekday": 3,
+     "weekIndex": 11,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂8-305(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-11",
+     "weekday": 3,
+     "weekIndex": 11,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂8-308(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-12",
+     "weekday": 4,
+     "weekIndex": 11,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂13-404(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-12",
+     "weekday": 4,
+     "weekIndex": 11,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂8-304(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-12",
+     "weekday": 4,
+     "weekIndex": 11,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂8-302(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-18",
+     "weekday": 3,
+     "weekIndex": 12,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂8-305(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-18",
+     "weekday": 3,
+     "weekIndex": 12,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂8-308(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-19",
+     "weekday": 4,
+     "weekIndex": 12,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂8-304(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-19",
+     "weekday": 4,
+     "weekIndex": 12,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂8-302(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-19",
+     "weekday": 4,
+     "weekIndex": 12,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂13-404(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-25",
+     "weekday": 3,
+     "weekIndex": 13,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂8-308(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-25",
+     "weekday": 3,
+     "weekIndex": 13,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂8-305(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-26",
+     "weekday": 4,
+     "weekIndex": 13,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂13-404(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-26",
+     "weekday": 4,
+     "weekIndex": 13,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂8-302(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-11-26",
+     "weekday": 4,
+     "weekIndex": 13,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂8-304(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-02",
+     "weekday": 3,
+     "weekIndex": 14,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂8-308(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-02",
+     "weekday": 3,
+     "weekIndex": 14,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂8-305(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-03",
+     "weekday": 4,
+     "weekIndex": 14,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂8-302(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-03",
+     "weekday": 4,
+     "weekIndex": 14,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂13-404(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-03",
+     "weekday": 4,
+     "weekIndex": 14,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂8-304(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-09",
+     "weekday": 3,
+     "weekIndex": 15,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂8-308(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-09",
+     "weekday": 3,
+     "weekIndex": 15,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂8-305(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-10",
+     "weekday": 4,
+     "weekIndex": 15,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂13-404(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-10",
+     "weekday": 4,
+     "weekIndex": 15,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂8-302(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-10",
+     "weekday": 4,
+     "weekIndex": 15,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂8-304(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-16",
+     "weekday": 3,
+     "weekIndex": 16,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂8-305(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-16",
+     "weekday": 3,
+     "weekIndex": 16,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂8-308(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-17",
+     "weekday": 4,
+     "weekIndex": 16,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂8-304(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-17",
+     "weekday": 4,
+     "weekIndex": 16,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂13-404(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232148,
+     "date": "2026-12-17",
+     "weekday": 4,
+     "weekIndex": 16,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂8-302(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师A"
+    },
+    {
+     "lessonId": 232153,
+     "date": "2026-10-21",
+     "weekday": 3,
+     "weekIndex": 8,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-213"
+     },
+     "customPlace": null,
+     "personName": "教师B"
+    },
+    {
+     "lessonId": 232153,
+     "date": "2026-10-23",
+     "weekday": 5,
+     "weekIndex": 8,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂9-213"
+     },
+     "customPlace": null,
+     "personName": "教师B"
+    },
+    {
+     "lessonId": 232153,
+     "date": "2026-10-28",
+     "weekday": 3,
+     "weekIndex": 9,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-213"
+     },
+     "customPlace": null,
+     "personName": "教师B"
+    },
+    {
+     "lessonId": 232153,
+     "date": "2026-10-30",
+     "weekday": 5,
+     "weekIndex": 9,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂9-213"
+     },
+     "customPlace": null,
+     "personName": "教师B"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-09-23",
+     "weekday": 3,
+     "weekIndex": 4,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-09-28",
+     "weekday": 1,
+     "weekIndex": 5,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-09-30",
+     "weekday": 3,
+     "weekIndex": 5,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-09",
+     "weekday": 5,
+     "weekIndex": 6,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-10",
+     "weekday": 6,
+     "weekIndex": 6,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-12",
+     "weekday": 1,
+     "weekIndex": 7,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-14",
+     "weekday": 3,
+     "weekIndex": 7,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-16",
+     "weekday": 5,
+     "weekIndex": 7,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-18",
+     "weekday": 7,
+     "weekIndex": 8,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-19",
+     "weekday": 1,
+     "weekIndex": 8,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-21",
+     "weekday": 3,
+     "weekIndex": 8,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-23",
+     "weekday": 5,
+     "weekIndex": 8,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-25",
+     "weekday": 7,
+     "weekIndex": 9,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-26",
+     "weekday": 1,
+     "weekIndex": 9,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-28",
+     "weekday": 3,
+     "weekIndex": 9,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-10-30",
+     "weekday": 5,
+     "weekIndex": 9,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-01",
+     "weekday": 7,
+     "weekIndex": 10,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-02",
+     "weekday": 1,
+     "weekIndex": 10,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-04",
+     "weekday": 3,
+     "weekIndex": 10,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-06",
+     "weekday": 5,
+     "weekIndex": 10,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-08",
+     "weekday": 7,
+     "weekIndex": 11,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-09",
+     "weekday": 1,
+     "weekIndex": 11,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-11",
+     "weekday": 3,
+     "weekIndex": 11,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-13",
+     "weekday": 5,
+     "weekIndex": 11,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-16",
+     "weekday": 1,
+     "weekIndex": 12,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-18",
+     "weekday": 3,
+     "weekIndex": 12,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-20",
+     "weekday": 5,
+     "weekIndex": 12,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-23",
+     "weekday": 1,
+     "weekIndex": 13,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-25",
+     "weekday": 3,
+     "weekIndex": 13,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-27",
+     "weekday": 5,
+     "weekIndex": 13,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-11-30",
+     "weekday": 1,
+     "weekIndex": 14,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-02",
+     "weekday": 3,
+     "weekIndex": 14,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-04",
+     "weekday": 5,
+     "weekIndex": 14,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-07",
+     "weekday": 1,
+     "weekIndex": 15,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-09",
+     "weekday": 3,
+     "weekIndex": 15,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-11",
+     "weekday": 5,
+     "weekIndex": 15,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-14",
+     "weekday": 1,
+     "weekIndex": 16,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-16",
+     "weekday": 3,
+     "weekIndex": 16,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-18",
+     "weekday": 5,
+     "weekIndex": 16,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-21",
+     "weekday": 1,
+     "weekIndex": 17,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-23",
+     "weekday": 3,
+     "weekIndex": 17,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-25",
+     "weekday": 5,
+     "weekIndex": 17,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-28",
+     "weekday": 1,
+     "weekIndex": 18,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232851,
+     "date": "2026-12-30",
+     "weekday": 3,
+     "weekIndex": 18,
+     "startTime": 830,
+     "endTime": 1005,
+     "room": {
+      "nameZh": "草堂9-408"
+     },
+     "customPlace": null,
+     "personName": "教师C"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-09-23",
+     "weekday": 3,
+     "weekIndex": 4,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-09-28",
+     "weekday": 1,
+     "weekIndex": 5,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-09-30",
+     "weekday": 3,
+     "weekIndex": 5,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-10-09",
+     "weekday": 5,
+     "weekIndex": 6,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-10-10",
+     "weekday": 6,
+     "weekIndex": 6,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-10-12",
+     "weekday": 1,
+     "weekIndex": 7,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-10-14",
+     "weekday": 3,
+     "weekIndex": 7,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-10-16",
+     "weekday": 5,
+     "weekIndex": 7,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-10-19",
+     "weekday": 1,
+     "weekIndex": 8,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-10-21",
+     "weekday": 3,
+     "weekIndex": 8,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-10-23",
+     "weekday": 5,
+     "weekIndex": 8,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-10-26",
+     "weekday": 1,
+     "weekIndex": 9,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-10-28",
+     "weekday": 3,
+     "weekIndex": 9,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-10-30",
+     "weekday": 5,
+     "weekIndex": 9,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-11-02",
+     "weekday": 1,
+     "weekIndex": 10,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-11-04",
+     "weekday": 3,
+     "weekIndex": 10,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-11-06",
+     "weekday": 5,
+     "weekIndex": 10,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-11-09",
+     "weekday": 1,
+     "weekIndex": 11,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-11-11",
+     "weekday": 3,
+     "weekIndex": 11,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232300,
+     "date": "2026-11-13",
+     "weekday": 5,
+     "weekIndex": 11,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "草堂9-211"
+     },
+     "customPlace": null,
+     "personName": "教师D"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-09-23",
+     "weekday": 3,
+     "weekIndex": 4,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-09-28",
+     "weekday": 1,
+     "weekIndex": 5,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-09-30",
+     "weekday": 3,
+     "weekIndex": 5,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-10-12",
+     "weekday": 1,
+     "weekIndex": 7,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-10-14",
+     "weekday": 3,
+     "weekIndex": 7,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-10-19",
+     "weekday": 1,
+     "weekIndex": 8,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-10-21",
+     "weekday": 3,
+     "weekIndex": 8,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-10-26",
+     "weekday": 1,
+     "weekIndex": 9,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-309-310(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师G"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-10-28",
+     "weekday": 3,
+     "weekIndex": 9,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-10-31",
+     "weekday": 6,
+     "weekIndex": 9,
+     "startTime": 1115,
+     "endTime": 1345,
+     "room": {
+      "nameZh": "草堂8-309-310(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-11-02",
+     "weekday": 1,
+     "weekIndex": 10,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-11-04",
+     "weekday": 3,
+     "weekIndex": 10,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-11-09",
+     "weekday": 1,
+     "weekIndex": 11,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-11-11",
+     "weekday": 3,
+     "weekIndex": 11,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师F"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-11-16",
+     "weekday": 1,
+     "weekIndex": 12,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-309-310(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-11-21",
+     "weekday": 6,
+     "weekIndex": 12,
+     "startTime": 1115,
+     "endTime": 1345,
+     "room": null,
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-11-23",
+     "weekday": 1,
+     "weekIndex": 13,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-11-30",
+     "weekday": 1,
+     "weekIndex": 14,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-12-07",
+     "weekday": 1,
+     "weekIndex": 15,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-309-310(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-12-14",
+     "weekday": 1,
+     "weekIndex": 16,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-12-21",
+     "weekday": 1,
+     "weekIndex": 17,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂13-313"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-12-26",
+     "weekday": 6,
+     "weekIndex": 17,
+     "startTime": 1115,
+     "endTime": 1345,
+     "room": {
+      "nameZh": "草堂8-309-310(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232115,
+     "date": "2026-12-28",
+     "weekday": 1,
+     "weekIndex": 18,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "草堂8-309-310(机房)"
+     },
+     "customPlace": null,
+     "personName": "教师E"
+    },
+    {
+     "lessonId": 232048,
+     "date": "2026-12-10",
+     "weekday": 4,
+     "weekIndex": 15,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-111"
+     },
+     "customPlace": null,
+     "personName": "教师H"
+    },
+    {
+     "lessonId": 232048,
+     "date": "2026-12-17",
+     "weekday": 4,
+     "weekIndex": 16,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-111"
+     },
+     "customPlace": null,
+     "personName": "教师H"
+    },
+    {
+     "lessonId": 232048,
+     "date": "2026-12-24",
+     "weekday": 4,
+     "weekIndex": 17,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-111"
+     },
+     "customPlace": null,
+     "personName": "教师H"
+    },
+    {
+     "lessonId": 232048,
+     "date": "2026-12-31",
+     "weekday": 4,
+     "weekIndex": 18,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-111"
+     },
+     "customPlace": null,
+     "personName": "教师H"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-09-24",
+     "weekday": 4,
+     "weekIndex": 4,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-09-28",
+     "weekday": 1,
+     "weekIndex": 5,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-10-08",
+     "weekday": 4,
+     "weekIndex": 6,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-10-12",
+     "weekday": 1,
+     "weekIndex": 7,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-10-15",
+     "weekday": 4,
+     "weekIndex": 7,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-10-19",
+     "weekday": 1,
+     "weekIndex": 8,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-10-22",
+     "weekday": 4,
+     "weekIndex": 8,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-10-26",
+     "weekday": 1,
+     "weekIndex": 9,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-10-29",
+     "weekday": 4,
+     "weekIndex": 9,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-11-02",
+     "weekday": 1,
+     "weekIndex": 10,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-11-05",
+     "weekday": 4,
+     "weekIndex": 10,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-11-09",
+     "weekday": 1,
+     "weekIndex": 11,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-11-12",
+     "weekday": 4,
+     "weekIndex": 11,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-11-16",
+     "weekday": 1,
+     "weekIndex": 12,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-11-19",
+     "weekday": 4,
+     "weekIndex": 12,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-11-23",
+     "weekday": 1,
+     "weekIndex": 13,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-11-26",
+     "weekday": 4,
+     "weekIndex": 13,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-11-30",
+     "weekday": 1,
+     "weekIndex": 14,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-12-03",
+     "weekday": 4,
+     "weekIndex": 14,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 232865,
+     "date": "2026-12-07",
+     "weekday": 1,
+     "weekIndex": 15,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-207"
+     },
+     "customPlace": null,
+     "personName": "教师I"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-09-29",
+     "weekday": 2,
+     "weekIndex": 5,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-10-13",
+     "weekday": 2,
+     "weekIndex": 7,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-10-18",
+     "weekday": 7,
+     "weekIndex": 8,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-10-20",
+     "weekday": 2,
+     "weekIndex": 8,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-10-25",
+     "weekday": 7,
+     "weekIndex": 9,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-10-27",
+     "weekday": 2,
+     "weekIndex": 9,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-11-01",
+     "weekday": 7,
+     "weekIndex": 10,
+     "startTime": 1400,
+     "endTime": 1535,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-11-03",
+     "weekday": 2,
+     "weekIndex": 10,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-11-10",
+     "weekday": 2,
+     "weekIndex": 11,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-11-17",
+     "weekday": 2,
+     "weekIndex": 12,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-11-24",
+     "weekday": 2,
+     "weekIndex": 13,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-12-01",
+     "weekday": 2,
+     "weekIndex": 14,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-12-08",
+     "weekday": 2,
+     "weekIndex": 15,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-12-15",
+     "weekday": 2,
+     "weekIndex": 16,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-12-22",
+     "weekday": 2,
+     "weekIndex": 17,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 235941,
+     "date": "2026-12-29",
+     "weekday": 2,
+     "weekIndex": 18,
+     "startTime": 1025,
+     "endTime": 1200,
+     "room": {
+      "nameZh": "紫阁田径场"
+     },
+     "customPlace": null,
+     "personName": "教师J"
+    },
+    {
+     "lessonId": 233502,
+     "date": "2026-09-29",
+     "weekday": 2,
+     "weekIndex": 5,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-410"
+     },
+     "customPlace": null,
+     "personName": "教师L"
+    },
+    {
+     "lessonId": 233502,
+     "date": "2026-10-13",
+     "weekday": 2,
+     "weekIndex": 7,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-410"
+     },
+     "customPlace": null,
+     "personName": "教师L"
+    },
+    {
+     "lessonId": 233502,
+     "date": "2026-10-20",
+     "weekday": 2,
+     "weekIndex": 8,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-410"
+     },
+     "customPlace": null,
+     "personName": "教师L"
+    },
+    {
+     "lessonId": 233502,
+     "date": "2026-10-27",
+     "weekday": 2,
+     "weekIndex": 9,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-410"
+     },
+     "customPlace": null,
+     "personName": "教师L"
+    },
+    {
+     "lessonId": 233502,
+     "date": "2026-11-03",
+     "weekday": 2,
+     "weekIndex": 10,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-410"
+     },
+     "customPlace": null,
+     "personName": "教师M"
+    },
+    {
+     "lessonId": 233502,
+     "date": "2026-11-10",
+     "weekday": 2,
+     "weekIndex": 11,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-410"
+     },
+     "customPlace": null,
+     "personName": "教师L"
+    },
+    {
+     "lessonId": 233502,
+     "date": "2026-11-17",
+     "weekday": 2,
+     "weekIndex": 12,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-410"
+     },
+     "customPlace": null,
+     "personName": "教师L"
+    },
+    {
+     "lessonId": 233502,
+     "date": "2026-11-24",
+     "weekday": 2,
+     "weekIndex": 13,
+     "startTime": 1545,
+     "endTime": 1720,
+     "room": {
+      "nameZh": "草堂9-410"
+     },
+     "customPlace": null,
+     "personName": "教师L"
+    },
+    {
+     "lessonId": 232139,
+     "date": "2026-11-30",
+     "weekday": 1,
+     "weekIndex": 14,
+     "startTime": 1210,
+     "endTime": 1535,
+     "room": null,
+     "customPlace": null,
+     "personName": "教师N"
+    },
+    {
+     "lessonId": 232139,
+     "date": "2026-12-07",
+     "weekday": 1,
+     "weekIndex": 15,
+     "startTime": 1210,
+     "endTime": 1535,
+     "room": null,
+     "customPlace": null,
+     "personName": "教师N"
+    },
+    {
+     "lessonId": 232139,
+     "date": "2026-12-14",
+     "weekday": 1,
+     "weekIndex": 16,
+     "startTime": 1210,
+     "endTime": 1535,
+     "room": null,
+     "customPlace": null,
+     "personName": "教师N"
+    },
+    {
+     "lessonId": 232139,
+     "date": "2026-12-21",
+     "weekday": 1,
+     "weekIndex": 17,
+     "startTime": 1210,
+     "endTime": 1535,
+     "room": null,
+     "customPlace": null,
+     "personName": "教师N"
+    }
+   ]
+  }
+ }
+}
