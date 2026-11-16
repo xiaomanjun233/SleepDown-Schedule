@@ -1,7 +1,7 @@
 # 西安建筑科技大学（XAUAT）教务适配：问题分析与解决方案
 
 日期：2026-11-16。范围：`app/src/main/assets/shiguang_warehouse-main/resources/XAUAT/xauat.js`（上游 `XAUAT_01`，树维教务平台，本科）。
-本文只含分析、方案和验证结果，**未修改任何应用或适配器源码**。验证用的原型和测试脚本放在仓库外的临时目录，未入库。
+§1～§8 是修改前的分析、方案和验证结果；§9 记录实施结果、测试中遇到的问题和二次修改须知。分析阶段用的临时原型已被正式实现取代，可重复运行的测试是 `scripts/tests/xauat-adapter.cjs`。
 
 ## 1. 结论
 
@@ -193,20 +193,84 @@ function convert({ lessonList, scheduleList, semester, courseUnitList }) {
 
 ### 未验证与限制
 
-- 没有在 Android 环境里运行 Kotlin 测试，也没有在真机导入；本机 WSL 没有 Android SDK。App 一侧只做了读码核对和规则移植，见下一节的实施步骤。
+- 没有运行 Kotlin 测试。App 一侧只做了读码核对和规则移植；适配器输出能否被 `ShiguangImportSession` 接受，由 §9.5 所列的真机预览确认。
 - 只有一个学生账号、一个有数据的学期（新生，大一上）。没有验证：雁塔校区作息（ID 1）、同一学期多套作息、研究生/其他 `bizTypeId`、教师课表。
 - 学生本人所在实验分班的教室无法由接口确定。
 - 学期起始日与 `weekIndex` 一致性是本学期的实测；一致性校验会在其他学期不成立时报错，而不是静默导入。
 
-## 8. 实施计划
+## 8. 实施计划（修改前）
 
-1. 改 `xauat.js`：按 §6 重写 `convertCourses`，删除 `deriveSemesterStartDate`、`calculateTotalWeeks`、`clampWeeks` 的上限和 `fetchSemesterInfo` 的静默降级，新增 `fetchTimetableLayout`，按选中项设置默认学期。保留 `ui` 封装与请求超时、401/403 提示。
-2. 提交顺序：`saveCourseConfig` → `savePresetTimeSlots` → `saveImportedCourses`（与其他适配器一致，`ShiguangImportSession` 对顺序无要求，只要求组合作息在作息之后）。
-3. 来源记录：`xauat.js` 来自上游 `shiguang_warehouse`（同步提交 `745a86d7`），本地修改后更新 `SLEEPDOWN_UPSTREAM.txt` 说明与上游的差异，并保留 LICENSE。建议同时向上游提交修复，避免下次同步覆盖。
-4. 回归测试（Kotlin，沿用 `app/src/test/.../importing/shiguang/` 现有 `ShiguangImportSession*Test` 风格）：
-   - 用脱敏后的最小夹具（保留周次、星期、时间、教室多值的结构，替换课程名和教师名）生成适配器输出，走 `ShiguangImportSession` → `ImportDraft`，断言 `weekStartsOnSunday=true`、`termStartDate=2026-08-30`、周日课程的 `scheduleWeekStartDate` 落在对应周的周日、作息为 12 节。
-   - 夹具需包含：周日补课、周六补课、同时间多教室、逐周换教室/老师。
-   - JS 转换函数另做一份 Bun/Node 脚本测试，沿用 `docs/ai/AI_SCRIPT_SMOKE_TEST.md` 的本地验证方式。
-5. 构建：`compileGithubReleaseKotlin`（本次不涉及 Kotlin 源码改动时可省略）；资源/Manifest 无变化。
-6. 真机验收（用户）：重新导入 2026‑2027‑1，核对第 12 周的周一、周三、周六、周日，周视图左侧作息与教务一致，设置里显示周日为首日、开学日 8 月 30 日。
-7. 用户数据迁移：已导入的旧课表周次已错位，不做原地修补，建议用修复后的适配器重新导入并确认预览。App 侧的导入预览本身保留，不会静默覆盖已有课程。
+原计划共 7 步，实际完成情况见 §9.1。其中「Kotlin 回归测试」改为 Node 测试（理由见 §9.1），其余按计划执行。
+
+## 9. 实施记录与二次修改须知
+
+### 9.1 已完成的修改
+
+| 文件 | 内容 |
+| --- | --- |
+| `app/src/main/assets/shiguang_warehouse-main/resources/XAUAT/xauat.js` | 按 §6 重写：周次取 `weekIndex`、开学日与周起始取 `semester/get`、作息取 `timetable-layout`；删除 `deriveSemesterStartDate`、`calculateTotalWeeks`、`clampWeeks` 与 `fetchSemesterInfo` 的静默降级 |
+| `scripts/tests/xauat-adapter.cjs` | 在 `vm` 中运行**真实**的 `xauat.js`，用模拟的 `fetch`、`DOMParser` 和 Bridge 喂入夹具 |
+| `scripts/fixtures/xauat-2026-2027-1.json` | 2026‑2027‑1 课表的脱敏快照：教师改为「教师A…」、班级改为「示例班」，只留适配器用到的字段 |
+
+没有写 Kotlin 测试：本机环境没有现成的 Gradle 测试条件，而适配器的输入输出完全由 JS 决定，Node 测试能直接覆盖它。适配器输出能否被 App 接受要看真机预览（§9.5）。
+
+运行方式（无网络、无账号）：
+
+```bash
+node scripts/tests/xauat-adapter.cjs                  # 测试仓库里的适配器
+node scripts/tests/xauat-adapter.cjs /path/to/old.js  # 对照测试另一份脚本
+```
+
+对修改前的脚本运行会在第一条断言（默认学期应为页面选中的 2026‑2027‑1，旧脚本选中 2027‑2028‑1）处失败。
+
+### 9.2 适配器依赖的接口字段（教务升级后先查这里）
+
+| 接口 | 字段 | 用途 | 缺失时 |
+| --- | --- | --- | --- |
+| 课表页 HTML | `#allSemesters option[value]`，带 `selected` 的是当前学期 | 学期列表和默认项 | 没有 `selected` 就选第 0 项；找不到下拉框提示未登录 |
+| `get-data` | `lessonIds`、`timeTableLayoutId` | 教学班和作息 ID | 没有 `lessonIds` 报错；`timeTableLayoutId` 为空则不提交作息，课程退回真实时间 |
+| `semester/get/{id}` | `startDate`（`YYYY-MM-DD`）、`weekStartOnSunday` | 开学日和周起始 | 取不到 `startDate` 直接中止 |
+| `schedule-table/datum` | `scheduleList[].date/weekday/weekIndex/startTime/endTime/lessonId/room.nameZh/customPlace/personName`；`lessonList[].id/courseName/teacherAssignmentList[].name` | 课程内容 | 缺日期或时间的行跳过；`weekIndex` 缺失时按开学日换算 |
+| `schedule-table/timetable-layout` | `result.courseUnitList[].indexNo/startTime/endTime` | 作息和节次对齐 | 请求失败中止；时间不合法的节忽略 |
+
+`startTime`、`endTime` 是 `HHMM` 整数（如 `830`）；`weekday` 为 1～7，周日是 7。
+
+### 9.3 测试与实现中遇到的问题
+
+| 问题 | 原因 | 处理与注意 |
+| --- | --- | --- |
+| 用教务本地账号接口 `/student/login` 登录失败，随后要求验证码 | 测试账号是统一身份认证账号，本地账号体系不认 | 走 §2 的 authserver 流程。再次失败会触发验证码，不要对同一账号反复试密码 |
+| 同一周的多个并行教室，顺序逐周不同 | 接口对同一天同一节次的多条记录没有稳定顺序 | 教室与老师先**去重再按字符串排序**再拼接，否则同一门实验课被拆成 7 行。不要改用 `localeCompare`，不同 WebView 的排序会不一致 |
+| 周次与开学日一致性校验的误报风险 | `startDate` 不一定恰好是一周的第一天（测试里验证了开学日落在周一、周起始是周日的情形） | 校验的是 `weekStartOf(startDate)` 与记录算出的周起点，不是 `startDate` 本身。若今后遇到某学期 `weekIndex` 合理地跳周（例如停课周不计数），这条校验会中止导入——此时应改成按记录自带周次直接使用，并把推算出的起点与 `startDate` 的差异显示给用户，而不是简单删掉校验 |
+| 旧代码的日期运算依赖本地时区 | `new Date("2026-09-23")` 是 UTC 零点，旧代码却用 `getDay()` 和本地 `setDate()` 取星期和周一 | 新代码一律用 `Date.UTC` 和 `getUTC*`，周内偏移由 `offsetInWeek` 统一计算 |
+| 课表页首次请求耗时长 | 分析时取 `/student/for-std/course-table` 一次约 6.5 秒，更早一次在 30 秒超时 | 适配器里每个请求超时 15 秒。如果用户反馈取学期列表超时，只需提高这一个请求的超时，不要全局放宽 |
+| 实验课同一周同一时间有 2～3 间教室 | 接口列出了该教学班全部行政班的教室，没有学生所属班级的字段 | 合并显示并在导入末尾弹窗列出相关课程，让用户自行改。没有选择「第一间」是因为那会把错误数据伪装成确定的 |
+| 周六补课记录没有教室 | `room` 为 `null` 且没有 `customPlace` | 地点留空（拾光会把空地点存成无地点），不再写「未知地点」 |
+| 测试里取消选择没有生效 | 模拟的 `showSingleSelection` 用 `pick ?? preset`，`null` 被当成缺省 | 用 `'pick' in mutate` 判断；模拟 Bridge 收到的是学期**名称**字符串数组，不是对象 |
+| 模拟 `DOMParser` 在没有下拉框时崩溃 | 夹具函数没处理「未登录页面」 | 夹具里用 `noSemesterSelect` 开关返回 `null` 选择框 |
+| 适配器不可等待 | 脚本末尾自己调用 `runImportFlow()`，没有返回 Promise | 测试轮询 `done`、终止弹窗或取消提示，最多等 2 秒 |
+| 仓库样式规则 | `clearTimeout` 对空值无副作用，不应再加守卫 | `requestText` 里直接 `clearTimeout(timer)` |
+
+### 9.4 行为约定（修改前先对照）
+
+- 周次只信 `weekIndex`；它与开学日、周起始不吻合时**中止**，不做自动修正。星期与日期不一致同理。
+- `firstDayOfWeek` 只由 `weekStartOnSunday` 决定（真为 7，否则为 1）；`semesterStartDate` 原样取 `startDate`，不规整成周一。
+- 总周数 = 课程最大周次，下限 16、上限 60。教务周历有 26 周，但课程只排到第 18 周；这样学期在最后一节课后进入「已结束」，与旧行为一致。App 对更晚周次会自动扩展总周数。
+- 作息：节次互不重叠才提交；起点和终点都落在节次边界上的课程用 `startSection/endSection`，否则用真实起止时间。作息请求失败不会降级，直接中止。
+- 提交顺序是 `saveCourseConfig` → `savePresetTimeSlots` → `saveImportedCourses`，然后才弹出并行教室提示并通知完成。
+- 没有排课记录的教学班（如军事技能）不导入，不报错。
+- 老师为空时回退到教学班的 `teacherAssignmentList`，再为空则留空，不再写「未知教师」。
+
+### 9.5 没有做、也不确定的事
+
+- 没有在真机运行；测试夹具只有一个新生账号的一个学期。需要补测：雁塔校区作息（`timeTableLayoutId` 为 1，08:00 起）、研究生或其他 `bizTypeId`、`weekIndex` 跳周的学期、非周日起算的真实学期。
+- 没有确定学生所属实验分班的办法。
+- 已导入的旧课表不会被修复，需要重新导入。
+- 夹具只含脱敏数据，不能代替真实账号的最终验证；教务接口变化后，先用 §2 的方式重新抓一份真实响应，按 `scripts/fixtures/xauat-2026-2027-1.json` 的字段裁剪、脱敏后更新夹具。
+
+### 9.6 构建与安装记录
+
+- 在 WSL Arch 构建：JDK 21 运行 Gradle（Miuix 子项目要求 21 的工具链，只装 JDK 17 会报 `languageVersion=21` 找不到），Android SDK 用 `cmdline-tools` 安装 `platform-tools`、`platforms;android-37.0`、`build-tools;37.0.0`，Gradle 9.6.1 手动下载（wrapper 在慢网下 10 秒超时）。Miuix 按 README 克隆到 `../miuix-reference` 并打补丁。
+- 命令：`gradle assembleGithubDebug -Psleepdown.miuixSourcePath=../miuix-reference --parallel --max-workers=8 --build-cache`，21 分 46 秒。release 包需要仓库外的签名配置，本机没有，因此验收包是 **debug 包**（applicationId 带 `.debug` 后缀，与正式版并存，不覆盖用户数据，也不带正式签名）。
+- 产物 `tmp/review-apks/SleepDown-xauat-fix-debug.apk`（不入库），已核对包内 `xauat.js` 含 `timetable-layout`、热修复表含 XAUAT 条目。
+- 远端脚本热修复：App 会先下载远端 `XAUAT/xauat.js`；远端哈希等于旧版（`d6900ee2…`）时自动改用包内脚本，上游更新后恢复使用上游。上游一旦发布新版本，需重新核对本地修复是否仍需保留。
