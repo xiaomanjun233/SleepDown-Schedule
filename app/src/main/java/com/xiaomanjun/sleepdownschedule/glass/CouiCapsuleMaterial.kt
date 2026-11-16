@@ -17,7 +17,7 @@ import com.itos.coui.segmentbutton.CouiSegmentedControlDefaults
 import com.itos.coui.effect.CouiFloatingMaterial
 import com.itos.coui.effect.CouiContour
 import com.itos.coui.effect.LocalCouiContourGlowEnabled
-import com.itos.coui.effect.couiControlMaterialEffect
+import com.itos.coui.effect.couiControlMaterialEffectOrNull
 import com.itos.coui.shape.CouiCapsuleShape
 import com.itos.coui.shape.CouiShape
 import com.kyant.backdrop.Backdrop
@@ -105,10 +105,12 @@ internal fun couiIlluminatedCapsuleMaterial(backdrop: Backdrop, shape: Shape): M
 
 @Composable
 private fun couiControlMaterial(backdrop: Backdrop?, shape: Shape, material: CouiFloatingMaterial): Modifier {
-    val effect = remember(material) { couiControlMaterialEffect(material).asComposeRenderEffect() }
+    if (android.os.Build.VERSION.SDK_INT < 31 || backdrop == null) return Modifier
+    val effect = remember(material) {
+        couiControlMaterialEffectOrNull(material)?.asComposeRenderEffect()
+    } ?: return Modifier
     val source = remember(backdrop) {
-        val layer = checkNotNull(backdrop)
-        if (layer is LayerBackdrop) layer.withTransformCompensation() else layer
+        if (backdrop is LayerBackdrop) backdrop.withTransformCompensation() else backdrop
     }
     return Modifier.drawBackdrop(source, shape = { shape }, effects = {
         padding = material.blurRadius
