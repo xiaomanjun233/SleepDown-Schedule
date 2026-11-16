@@ -240,10 +240,15 @@ internal fun DayScheduleScreen(
                 }
             }
             val targetWeek = targetWeekOrNull ?: effectiveCurrentWeek(state.config, targetDate)
-            val dayCourses = remember(state.courses, state.periods, state.config, state.timetableCatalog, targetDate) {
+            val dayPeriods = remember(state.config, state.periods, state.timetableCatalog, targetDate) {
+                com.xiaomanjun.sleepdownschedule.domain.schedule.resolveTimetable(
+                    state.config, state.periods, state.timetableCatalog, targetDate
+                ).periods.ifEmpty { state.periods }
+            }
+            val dayCourses = remember(state.courses, dayPeriods, state.config, state.timetableCatalog, targetDate) {
                 dayDisplayCourses(state, targetDate)
                     .sortedWith(
-                        compareBy<CourseEntity> { courseStartTime(it, state.periods) ?: LocalTime.MAX }
+                        compareBy<CourseEntity> { courseStartTime(it, dayPeriods) ?: LocalTime.MAX }
                             .thenBy { it.name }
                     )
             }
@@ -316,8 +321,8 @@ internal fun DayScheduleScreen(
                     }
                 }
             }
-            val remainingDayCourses = remember(dayCourses, state.periods, targetDate, minuteClock) {
-                dayCourses.filterNot { hasDayCourseEnded(it, state.periods, targetDate, minuteClock) }
+            val remainingDayCourses = remember(dayCourses, dayPeriods, targetDate, minuteClock) {
+                dayCourses.filterNot { hasDayCourseEnded(it, dayPeriods, targetDate, minuteClock) }
             }
             val groupedDayCourses = remember(remainingDayCourses, state.config) {
                 groupDayCourses(state.config, remainingDayCourses)
@@ -327,7 +332,7 @@ internal fun DayScheduleScreen(
                 targetDate = targetDate,
                 now = minuteClock,
                 dayCourses = dayCourses,
-                periods = state.periods
+                periods = dayPeriods
             )
             val secondaryDate = when {
                 displayDayCount >= 2 -> targetDate.plusDays(1)
@@ -348,28 +353,32 @@ internal fun DayScheduleScreen(
             }
             val secondaryWeek = secondaryWeekOrNull ?: secondaryDate?.let { effectiveCurrentWeek(state.config, it) }
                 ?: targetWeek
-            val secondaryWeekday = (secondaryTeachingDate ?: secondaryDate)?.dayOfWeek?.toChineseWeekday()
+            val secondaryDayPeriods = remember(state.config, state.periods, state.timetableCatalog, secondaryDate) {
+                secondaryDate?.let {
+                    com.xiaomanjun.sleepdownschedule.domain.schedule.resolveTimetable(
+                        state.config, state.periods, state.timetableCatalog, it
+                    ).periods.ifEmpty { state.periods }
+                } ?: state.periods
+            }
             val secondaryCourses = remember(
                 state.courses,
-                state.periods,
-                state.config.scheduleAdjustmentsJson,
-                secondaryWeekOrNull,
-                secondaryWeekday
+                secondaryDayPeriods,
+                state.config,
+                state.timetableCatalog,
+                secondaryDate
             ) {
-                if (secondaryWeekOrNull == null || secondaryWeekday == null) {
+                if (secondaryDate == null) {
                     emptyList()
                 } else {
-                    weekCourseBuckets(state.courses, secondaryWeekOrNull)
-                        .byWeekday[secondaryWeekday]
-                        .orEmpty()
+                    dayDisplayCourses(state, secondaryDate)
                         .sortedWith(
-                            compareBy<CourseEntity> { courseStartTime(it, state.periods) ?: LocalTime.MAX }
+                            compareBy<CourseEntity> { courseStartTime(it, secondaryDayPeriods) ?: LocalTime.MAX }
                                 .thenBy { it.name }
                         )
                 }
             }
-            val remainingSecondaryCourses = remember(secondaryCourses, state.periods, secondaryDate, minuteClock) {
-                secondaryCourses.filterNot { secondaryDate != null && hasDayCourseEnded(it, state.periods, secondaryDate, minuteClock) }
+            val remainingSecondaryCourses = remember(secondaryCourses, secondaryDayPeriods, secondaryDate, minuteClock) {
+                secondaryCourses.filterNot { secondaryDate != null && hasDayCourseEnded(it, secondaryDayPeriods, secondaryDate, minuteClock) }
             }
             val groupedSecondaryCourses = remember(remainingSecondaryCourses, state.config) {
                 groupDayCourses(state.config, remainingSecondaryCourses)
@@ -395,7 +404,7 @@ internal fun DayScheduleScreen(
                         DayPartHeader(
                             part = part,
                             courses = coursesInPart,
-                            periods = state.periods,
+                            periods = dayPeriods,
                             textColor = textColor
                         )
                     }
@@ -410,7 +419,7 @@ internal fun DayScheduleScreen(
                         ) { DayTimelineCourse(
                             course,
                             targetWeek,
-                            state.periods,
+                            dayPeriods,
                             cardColor,
                             backdrop,
                             state.config,
@@ -420,7 +429,7 @@ internal fun DayScheduleScreen(
                             readOnly = targetAdjustment != null,
                             occurrenceDate = targetDate,
                             muted = targetCancelled,
-                            completed = hasDayCourseEnded(course, state.periods, targetDate, minuteClock),
+                            completed = hasDayCourseEnded(course, dayPeriods, targetDate, minuteClock),
                         ) }
                     }
                 }
@@ -443,7 +452,7 @@ internal fun DayScheduleScreen(
                             DayPartHeader(
                                 part = part,
                                 courses = coursesInPart,
-                                periods = state.periods,
+                                periods = secondaryDayPeriods,
                                 textColor = textColor.copy(alpha = 0.82f)
                             )
                         }
@@ -461,7 +470,7 @@ internal fun DayScheduleScreen(
                             ) { DayTimelineCourse(
                                 course = course,
                                 currentWeek = secondaryWeek,
-                                periods = state.periods,
+                                periods = secondaryDayPeriods,
                                 cardColor = cardColor,
                                 backdrop = backdrop,
                                 config = state.config,
@@ -471,7 +480,7 @@ internal fun DayScheduleScreen(
                                 readOnly = secondaryAdjustment != null,
                                 occurrenceDate = visibleDate,
                                 muted = secondaryCancelled,
-                                completed = hasDayCourseEnded(course, state.periods, visibleDate, minuteClock),
+                                completed = hasDayCourseEnded(course, secondaryDayPeriods, visibleDate, minuteClock),
                             ) }
                         }
                     }

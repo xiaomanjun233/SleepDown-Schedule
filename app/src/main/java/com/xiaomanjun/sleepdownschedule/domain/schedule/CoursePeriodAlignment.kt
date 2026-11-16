@@ -115,20 +115,36 @@ fun projectCourseArrangements(courses: List<CourseEntity>, config: ScheduleConfi
     courses.map { projectCourseArrangement(it, config, periods, catalog, date) }
 
 /** Editors keep source rows; conflict previews use the same arrangements as the current grid. */
+fun AppState.effectiveWeekPeriods(date: java.time.LocalDate = java.time.LocalDate.now()): List<PeriodEntity> {
+    if (config.activeTimetableComboId == null || periods.isEmpty()) return periods
+    val week = scheduleWeekForDateOrNull(config, date) ?: effectiveCurrentWeek(config, date)
+    return resolveWeekTimetable(config, periods, timetableCatalog, week, date).periods.ifEmpty { periods }
+}
+
 fun AppState.previewCourseEdits(edited: List<CourseEntity>): List<CourseEntity> {
     val previous = courses.associateBy { it.id }
+    val today = java.time.LocalDate.now()
+    val activeGrid = effectiveWeekPeriods(today)
     return projectCourseArrangements(edited.map {
-        captureOriginalPeriodTimes(it, periods, previous[it.id]?.originalArrangement())
-    }, config, periods, timetableCatalog)
+        captureOriginalPeriodTimes(it, activeGrid, previous[it.id]?.originalArrangement())
+    }, config, activeGrid, timetableCatalog, today)
 }
 
 fun AppState.withEffectiveCourseArrangements(): AppState {
+    val today = java.time.LocalDate.now()
     val configs = (allConfigs + config).associateBy { it.id }
     val definitions = (allPeriods.filter { it.scheduleId != config.id } + periods).groupBy { it.scheduleId }
-    return copy(courses = projectCourseArrangements(courses, config, periods, timetableCatalog), allCourses = allCourses.map { course ->
+    fun effectiveGrid(owner: ScheduleConfigEntity, bells: List<PeriodEntity>): List<PeriodEntity> {
+        if (owner.activeTimetableComboId == null || bells.isEmpty()) return bells
+        val week = scheduleWeekForDateOrNull(owner, today) ?: effectiveCurrentWeek(owner, today)
+        return resolveWeekTimetable(owner, bells, timetableCatalog, week, today).periods.ifEmpty { bells }
+    }
+    val activeGrid = effectiveWeekPeriods(today)
+    return copy(courses = projectCourseArrangements(courses, config, activeGrid, timetableCatalog, today), allCourses = allCourses.map { course ->
         val owner = configs[course.scheduleId]
         val bells = definitions[course.scheduleId]
-        if (owner == null || bells == null) course else projectCourseArrangement(course, owner, bells, timetableCatalog)
+        if (owner == null || bells == null) course
+        else projectCourseArrangement(course, owner, effectiveGrid(owner, bells), timetableCatalog, today)
     })
 }
 

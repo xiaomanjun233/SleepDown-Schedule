@@ -52,7 +52,10 @@ internal val FullWeekdays = (1..7).toList()
 internal fun dayDisplayCourses(state: com.xiaomanjun.sleepdownschedule.model.AppState, date: LocalDate): List<CourseEntity> {
     val week = com.xiaomanjun.sleepdownschedule.domain.schedule.scheduleWeekForDateOrNull(state.config, date)
         ?: return emptyList()
-    return weekCourseBuckets(state.courses, week, state.config, date, state.timetableCatalog, state.periods)
+    val dayPeriods = com.xiaomanjun.sleepdownschedule.domain.schedule.resolveTimetable(
+        state.config, state.periods, state.timetableCatalog, date
+    ).periods.ifEmpty { state.periods }
+    return weekCourseBuckets(state.courses, week, state.config, date, state.timetableCatalog, dayPeriods)
         .byWeekday[date.dayOfWeek.value].orEmpty()
         .filterNot { it.isHiddenByPeriodAlignment() }
 }

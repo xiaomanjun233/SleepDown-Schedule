@@ -97,6 +97,7 @@ import com.xiaomanjun.sleepdownschedule.core.ui.settings.*
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsTextFieldRow
 import com.xiaomanjun.sleepdownschedule.domain.course.*
 import com.xiaomanjun.sleepdownschedule.domain.schedule.captureOriginalPeriodTimes
+import com.xiaomanjun.sleepdownschedule.domain.schedule.effectiveWeekPeriods
 import com.xiaomanjun.sleepdownschedule.domain.schedule.isHiddenByPeriodAlignment
 import com.xiaomanjun.sleepdownschedule.domain.schedule.originalArrangement
 import com.xiaomanjun.sleepdownschedule.domain.schedule.previewCourseEdits
@@ -213,6 +214,9 @@ internal fun CourseManagementScreen(
     ) -> Boolean
 ) {
     val groups = remember(state.courses) { buildManagedCourseGroups(state.courses) }
+    val effectivePeriods = remember(state.config, state.periods, state.timetableCatalog) {
+        state.effectiveWeekPeriods()
+    }
     val currentGroups by rememberUpdatedState(groups)
     val foreground = appPanelForegroundColor(state.config)
     val scope = rememberCoroutineScope()
@@ -255,7 +259,7 @@ internal fun CourseManagementScreen(
                     ManagedCourseListCard(
                         group = group,
                         config = state.config,
-                        periods = state.periods,
+                        periods = effectivePeriods,
                         selection = selection,
                         enabled = hiddenGroupKey == null,
                         sourceHidden = hiddenGroupKey == group.key,
@@ -662,6 +666,9 @@ internal fun CourseManagementDetailPage(
     val scope = rememberCoroutineScope()
     val density = LocalDensity.current
     val colorModeEnabled = courseCardAllowsCustomOverrides(state.config)
+    val effectivePeriods = remember(state.config, state.periods, state.timetableCatalog) {
+        state.effectiveWeekPeriods()
+    }
 
     fun replacementsForSave(): List<CourseEntity> {
         val normalizedName = name.trim()
@@ -695,7 +702,7 @@ internal fun CourseManagementDetailPage(
     fun commit(values: List<CourseEntity>) {
         if (saving) return
         val clockError = values.firstNotNullOfOrNull { edited -> manualCourseClockError(edited,
-            originalCourses.firstOrNull { it.id == edited.id }, state.periods) }
+            originalCourses.firstOrNull { it.id == edited.id }, effectivePeriods) }
         if (clockError != null) { validationMessage = clockError; return }
         validationMessage = null
         saving = true
@@ -711,7 +718,7 @@ internal fun CourseManagementDetailPage(
     fun updateArrangement(localKey: Long, transform: (CourseEntity) -> CourseEntity) {
         arrangements = arrangements.map { draft ->
             if (draft.localKey == localKey) draft.copy(course = captureOriginalPeriodTimes(
-                transform(draft.course), state.periods, draft.course)) else draft
+                transform(draft.course), effectivePeriods, draft.course)) else draft
         }
     }
 
@@ -730,7 +737,7 @@ internal fun CourseManagementDetailPage(
             originals = state.previewCourseEdits(originalGroup.courses),
             edited = state.previewCourseEdits(replacementsToSave),
             courses = state.courses,
-            periodDefinitions = state.periods
+            periodDefinitions = effectivePeriods
         )
         if (conflictWeeks.isEmpty()) {
             commit(replacementsToSave)
@@ -894,9 +901,10 @@ internal fun CourseManagementDetailPage(
                         Box(slide.onSizeChanged { cardHeightPx = it.height }) {
                             CourseArrangementEditorCard(
                                 course = draft.course,
-                                periods = state.periods,
+                                periods = effectivePeriods,
                                 totalWeeks = state.config.totalWeeks.coerceAtLeast(1),
                                 config = state.config,
+                                catalog = state.timetableCatalog,
                                 backdrop = cardBackdrop,
                                 enabled = !blocked && !revealed,
                                 onCourseChange = { changed -> updateArrangement(draft.localKey) { changed } },
@@ -1098,12 +1106,13 @@ private fun CourseArrangementEditorCard(
     periods: List<PeriodEntity>,
     totalWeeks: Int,
     config: ScheduleConfigEntity,
+    catalog: com.xiaomanjun.sleepdownschedule.model.TimetableCatalog,
     backdrop: Backdrop?,
     enabled: Boolean,
     onCourseChange: (CourseEntity) -> Unit,
     onOpenPicker: (CourseEditorPickerRequest) -> Unit
 ) {
-    val effective = projectCourseArrangement(captureOriginalPeriodTimes(course, periods), config, periods)
+    val effective = projectCourseArrangement(captureOriginalPeriodTimes(course, periods), config, periods, catalog)
     val matchingCustomClock = course.hasCustomTime() && course.customPeriodTimes.isNullOrBlank() &&
         !effective.hasCustomTime() && !effective.isHiddenByPeriodAlignment()
     val displayedPeriodIndices = effective.periods.ifEmpty { course.periods }

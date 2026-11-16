@@ -5,6 +5,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
 import java.io.FileNotFoundException
 
+internal const val CurrentReleaseVersion = "2.0.1"
 internal const val ConsolidatedReleaseVersion = "2.0"
 
 internal data class ReleaseNotesSection(val title: String, val entries: List<String>)

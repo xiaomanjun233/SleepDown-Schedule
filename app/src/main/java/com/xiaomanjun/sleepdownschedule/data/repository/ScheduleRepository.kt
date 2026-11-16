@@ -255,6 +255,40 @@ class ScheduleRepository(private val database: AppDatabase) {
                 current.rules.filterNot { it.schemeId == schemeId }, current.combo?.name)
         }
 
+    internal suspend fun restoreMajorityBaseline(original: ScheduleRoutines): ScheduleRoutines =
+        database.withTransaction {
+            val current = checkScheduleRoutines(original)
+            val baseline = current.regular.times.map {
+                PeriodEntity(it.periodIndex, it.startTime, it.endTime, current.config.id, it.alias)
+            }
+            val proposal = requireNotNull(
+                com.xiaomanjun.sleepdownschedule.domain.schedule.proposeMajorityPeriodBaseline(
+                    courses = current.courses,
+                    baselinePeriods = baseline,
+                    scheduleId = current.config.id,
+                )
+            ) { "当前课表无需整理基准作息" }
+            val updatedConfig = configWithCountsFromPeriods(current.config, proposal.periods)
+            val newTimes = proposal.periods.map {
+                PeriodSchemeTimeEntity(current.regularId, it.periodIndex, it.startTime, it.endTime, it.alias)
+            }
+            val updatedRegularDraft = current.regular
+                .copy(times = newTimes)
+                .withRoutineCounts(updatedConfig)
+            val updatedRegular = insertRoutineCopy(updatedRegularDraft)
+            val updatedGrid = if (current.gridId == current.regularId) updatedRegular else current.grid
+            val updatedSchemes = current.schemes.map { draft ->
+                when (draft.scheme.id) {
+                    current.regularId -> updatedRegular
+                    current.gridId -> updatedGrid
+                    else -> draft
+                }
+            }
+            validateRoutineBindings(updatedGrid, updatedRegular, current.rules, updatedSchemes)
+            if (proposal.courses != current.courses) courseDao.insertCourses(proposal.courses)
+            saveRoutineBindings(updatedConfig, updatedGrid, updatedRegular.scheme.id, current.rules, current.combo?.name)
+        }
+
     private suspend fun checkScheduleRoutines(expected: ScheduleRoutines): ScheduleRoutines {
         val current = readScheduleRoutines(expected.config.id)
         require(current == expected) { "课表或作息已有变化，请重新打开后确认" }
@@ -897,7 +931,10 @@ class ScheduleRepository(private val database: AppDatabase) {
     }
 
     suspend fun importDraft(draft: ImportDraft, createNewSchedule: Boolean = false): Int {
-        val compatible = draft.withCompatiblePeriodGrid()
+        val compatible = com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeImportMajorityBaseline(
+            draft.withCompatiblePeriodGrid(),
+            requireZeroBaselineFollowers = true,
+        )
         return database.withTransaction {
             val oldActiveId = activeScheduleId()
             val globalConfig = configDao.getConfig(oldActiveId) ?: defaultConfig(oldActiveId)

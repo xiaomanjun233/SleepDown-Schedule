@@ -40,10 +40,12 @@ fun coursesForDate(state: AppState, date: LocalDate): List<CourseEntity> {
     // notifications and the live activity all consume this shared query.
     val currentWeek = (if (teachingDate != date) adjustedTeachingWeekForDate(state.config, teachingDate)
         else scheduleWeekForDateOrNull(state.config, teachingDate)) ?: return emptyList()
+    val dayPeriods = resolveTimetable(state.config, state.periods, state.timetableCatalog, date)
+        .periods.ifEmpty { state.periods }
     return state.courses.filter { it.weekday == weekday && it.weeks.contains(currentWeek) && parityMatches(it.weekParity, currentWeek) }
-        .map { projectCourseArrangement(it, state.config, state.periods, state.timetableCatalog, date) }
+        .map { projectCourseArrangement(it, state.config, dayPeriods, state.timetableCatalog, date) }
         .filterNot { it.isHiddenByPeriodAlignment() }
-        .sortedBy { courseStartTime(it, state.periods) ?: LocalTime.MAX }
+        .sortedBy { courseStartTime(it, dayPeriods) ?: LocalTime.MAX }
 }
 
 /**

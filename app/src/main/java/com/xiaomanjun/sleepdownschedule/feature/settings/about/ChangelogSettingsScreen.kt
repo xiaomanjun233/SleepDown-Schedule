@@ -25,10 +25,13 @@ fun ChangelogSettingsScreen(
     state: AppState,
     backdrop: Backdrop?,
 ) {
-    val currentNotes = rememberBundledReleaseNotes(ConsolidatedReleaseVersion)
-    val history = remember(currentNotes) {
-        listOf(ReleaseHistoryEntry(ConsolidatedReleaseVersion, currentNotes.flatMap { it.entries }.joinToString("\n"))) +
-            ArchivedReleaseHistory.entries
+    val patchNotes = rememberBundledReleaseNotes(CurrentReleaseVersion)
+    val consolidatedNotes = rememberBundledReleaseNotes(ConsolidatedReleaseVersion)
+    val history = remember(patchNotes, consolidatedNotes) {
+        listOf(
+            ReleaseHistoryEntry(CurrentReleaseVersion, patchNotes.flatMap { it.entries }.joinToString("\n")),
+            ReleaseHistoryEntry(ConsolidatedReleaseVersion, consolidatedNotes.flatMap { it.entries }.joinToString("\n")),
+        ) + ArchivedReleaseHistory.entries
     }
     val wide = LocalConfiguration.current.screenWidthDp >= 600
     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {

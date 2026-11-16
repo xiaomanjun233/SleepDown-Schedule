@@ -37,6 +37,8 @@ import com.itos.coui.layout.CouiPageDefaults
 import com.xiaomanjun.sleepdownschedule.core.ui.settings.SettingsBasicComponent
 
 private val changelogReleaseDates = mapOf(
+    "2.0.1" to "2026-11-16",
+    "2.0" to "2026-11-14",
     "1.2.7.1" to "2026-10-20",
     "1.2.7-r1" to "2026-10-19",
     "1.2.7" to "2026-10-15",

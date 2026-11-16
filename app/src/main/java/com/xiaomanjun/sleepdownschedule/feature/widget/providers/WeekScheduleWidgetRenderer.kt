@@ -250,12 +250,16 @@ internal object WeekScheduleWidgetRenderer {
         val displayWeek = scheduleWeekForDateOrNull(state.config, today)
             ?: effectiveCurrentWeek(state.config, today)
         val weekStart = scheduleWeekStartDate(state.config, displayWeek, today)
-        val weekBuckets = weekCourseBuckets(state.courses, displayWeek, state.config, today, state.timetableCatalog, state.periods)
+        val weekPeriods = com.xiaomanjun.sleepdownschedule.domain.schedule.resolveWeekTimetable(
+            state.config, state.periods, state.timetableCatalog, displayWeek, today
+        ).periods.ifEmpty { state.periods }
+        val effectiveState = if (weekPeriods == state.periods) state else state.copy(periods = weekPeriods)
+        val weekBuckets = weekCourseBuckets(effectiveState.courses, displayWeek, effectiveState.config, today, effectiveState.timetableCatalog, weekPeriods)
         // A cancelled day keeps its cards in the app as a greyed reminder, but the widget only
         // shows classes that actually take place.
         val widgetCourses = weekBuckets.visibleCourses.filter { it.weekday !in weekBuckets.cancelledWeekdays }
-        val weekdays = visibleWeekdaysForBuckets(weekBuckets, state.config.hideEmptyWeekends, state.config.weekStartsOnSunday)
-        val dark = MiuixTodayWidgetRenderer.usesDarkTheme(context, state.config)
+        val weekdays = visibleWeekdaysForBuckets(weekBuckets, effectiveState.config.hideEmptyWeekends, effectiveState.config.weekStartsOnSunday)
+        val dark = MiuixTodayWidgetRenderer.usesDarkTheme(context, effectiveState.config)
         val surface = createExpandedWidgetSurface(
             context,
             appearance,
@@ -263,23 +267,23 @@ internal object WeekScheduleWidgetRenderer {
             dark,
             transparentBackground
         )
-        val blurred = createCardBlur(surface, state)
+        val blurred = createCardBlur(surface, effectiveState)
         val metrics = weekWidgetLayoutMetrics(
             size,
             context.resources.configuration.fontScale
         )
-        val periodWindow = weekWidgetPeriodWindow(state.periods, size, now)
+        val periodWindow = weekWidgetPeriodWindow(weekPeriods, size, now)
         val scrollable = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         val surfacePeriodWindow = if (scrollable) {
-            WeekWidgetPeriodWindow(0, minOf(5, state.periods.size))
+            WeekWidgetPeriodWindow(0, minOf(5, weekPeriods.size))
         } else {
             periodWindow
         }
-        val courseColors = WidgetCourseColors.assignments(context, state, dark)
+        val courseColors = WidgetCourseColors.assignments(context, effectiveState, dark)
         drawWeekScheduleSurfaces(
             bitmap = surface.output,
             blurred = blurred,
-            state = state,
+            state = effectiveState,
             size = size,
             weekStart = weekStart,
             today = today,
@@ -314,7 +318,7 @@ internal object WeekScheduleWidgetRenderer {
             if (scrollable && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 applyWeekScrollableContent(
                     context = context,
-                    state = state,
+                    state = effectiveState,
                     size = size,
                     displayWeek = displayWeek,
                     weekStart = weekStart,
@@ -329,7 +333,7 @@ internal object WeekScheduleWidgetRenderer {
             } else {
                 applyWeekNativeContent(
                     context = context,
-                    state = state,
+                    state = effectiveState,
                     size = size,
                     displayWeek = displayWeek,
                     weekStart = weekStart,

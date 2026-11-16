@@ -58,6 +58,7 @@ import com.kyant.backdrop.Backdrop
 import com.kyant.shapes.RoundedRectangle
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseEntity
+import com.xiaomanjun.sleepdownschedule.PeriodEntity
 import com.xiaomanjun.sleepdownschedule.core.ui.chrome.WeekDockScrollPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.pageVerticalScroll
 import com.xiaomanjun.sleepdownschedule.core.ui.text.LocalCourseTextMotionFrozen
@@ -140,11 +141,21 @@ internal fun SinglePillWeekScheduleScreen(
     val todayWeek = scheduleWeekForDateOrNull(state.config, today)
     // Keep one computed bucket per visited week, shared by the rail, supplements and Pager.
     // Data replacement invalidates the cache; swiping back reuses the same immutable lists.
+    val weekPeriodsCache = remember(state.periods, state.config.id, state.config.totalWeeks,
+        state.config.currentWeek, state.config.autoCurrentWeek, state.config.termStartDate,
+        state.config.weekStartsOnSunday, state.config.activeTimetableComboId, state.timetableCatalog, today) {
+        mutableMapOf<Int, List<PeriodEntity>>()
+    }
+    fun periodsForWeek(week: Int) = weekPeriodsCache.getOrPut(week) {
+        com.xiaomanjun.sleepdownschedule.domain.schedule.resolveWeekTimetable(
+            state.config, state.periods, state.timetableCatalog, week, today
+        ).periods.ifEmpty { state.periods }
+    }
     val weekBucketCache = remember(state.courses, state.periods, state.config.id, state.config.totalWeeks,
         state.config.currentWeek, state.config.autoCurrentWeek, state.config.termStartDate,
         state.config.scheduleAdjustmentsJson, state.config.weekStartsOnSunday, state.timetableCatalog, today) { mutableMapOf<Int, WeekCourseBuckets>() }
     fun bucketsForWeek(week: Int) = weekBucketCache.getOrPut(week) {
-        weekCourseBuckets(state.courses, week, state.config, today, state.timetableCatalog, state.periods)
+        weekCourseBuckets(state.courses, week, state.config, today, state.timetableCatalog, periodsForWeek(week))
     }
     fun openOccurrence(course: CourseEntity, week: Int, bounds: Rect?) {
         val original = state.courses.firstOrNull { it.id == course.id } ?: course
@@ -157,9 +168,10 @@ internal fun SinglePillWeekScheduleScreen(
     val weekBuckets = bucketsForWeek(displayWeek)
     var weekJump by remember { mutableStateOf<AdjacentWeekJump?>(null) }
     val visibleCourses = weekBuckets.visibleCourses
+    val displayBaseline = periodsForWeek(displayWeek)
     val showingCurrentWeek = !today.isBefore(weekStart) && today.isBefore(weekStart.plusWeeks(1))
     val activePeriodIndex = if (showingCurrentWeek) todayTimeline.activePeriodIndex
-        else currentTimelinePeriod(state.periods, now)?.periodIndex
+        else currentTimelinePeriod(displayBaseline, now)?.periodIndex
     val hasAdjustmentBadges = remember(state.config.scheduleAdjustmentsJson) {
         com.xiaomanjun.sleepdownschedule.domain.schedule.decodeScheduleAdjustments(state.config.scheduleAdjustmentsJson).isNotEmpty()
     }
@@ -167,20 +179,21 @@ internal fun SinglePillWeekScheduleScreen(
     val weekdays = weekEditOverlay.request?.let { it.weekdays.ifEmpty { (1..it.weekdayCount).toList() } } ?: remember(weekBuckets, state.courses, state.config, displayWeek) {
         weekPresentationWeekdays(weekBuckets, state.courses, state.config, displayWeek)
     }
-    val periodIndexes = remember(state.periods) {
-        state.periods.map { it.periodIndex }
+    val periodIndexes = remember(displayBaseline) {
+        displayBaseline.map { it.periodIndex }
     }
     var programmaticPage by remember { mutableIntStateOf(-1) }
     val density = LocalDensity.current
     val gridCache = remember(state, cardHeight, density.fontScale, today) { mutableMapOf<Int, WeekTimeSlotGrid>() }
     fun gridForWeek(week: Int) = gridCache.getOrPut(week) {
+        val weekPeriods = periodsForWeek(week)
         val buckets = bucketsForWeek(week)
         val days = weekPresentationWeekdays(buckets, state.courses, state.config, week)
-        val intervals = buckets.visibleCourses.flatMap { com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments(it, state.periods) }
+        val intervals = buckets.visibleCourses.flatMap { com.xiaomanjun.sleepdownschedule.domain.schedule.courseTimeSegments(it, weekPeriods) }
             .map { it.start to it.end }
-        weekTimeSlotGrid(runCatching { com.xiaomanjun.sleepdownschedule.domain.schedule.resolvedTimeSlotCourses(state.config.timeSlotCoursesJson, state.periods) }.getOrDefault(emptyList()),
-            state.periods.size, cardHeight.value, 40f * density.fontScale.coerceAtLeast(1f), days,
-            state.periods, intervals, week)
+        weekTimeSlotGrid(runCatching { com.xiaomanjun.sleepdownschedule.domain.schedule.resolvedTimeSlotCourses(state.config.timeSlotCoursesJson, weekPeriods) }.getOrDefault(emptyList()),
+            weekPeriods.size, cardHeight.value, 40f * density.fontScale.coerceAtLeast(1f), days,
+            weekPeriods, intervals, week)
     }
     val timeGrid = gridForWeek(displayWeek)
     val screenWidth = adaptiveMetrics.contentWidth
@@ -550,7 +563,7 @@ internal fun SinglePillWeekScheduleScreen(
                         // two-time-line stack without clipping, keep only the period number.
                         val showTimeColumn =
                             cardHeight.value >= minimumWeekTimelineRowHeightDp(density.fontScale)
-                        state.periods.forEachIndexed { rowIndex, period ->
+                        displayBaseline.forEachIndexed { rowIndex, period ->
                             if (rowIndex in timeGrid.collapsedRows) return@forEachIndexed
                             val displayedPeriod = if (showingCurrentWeek) todayTimeline.periods.firstOrNull { it.periodIndex == period.periodIndex } ?: period else period
                             Box(
@@ -694,7 +707,7 @@ internal fun SinglePillWeekScheduleScreen(
                                 },
                                 showSupplementaryRows = false,
                                 weekdays = pageWeekdays,
-                                periods = state.periods,
+                                periods = periodsForWeek(pageWeek),
                                 railClockDay = today.dayOfWeek.value.takeIf { pageWeek == todayWeek },
                                 railClockPeriods = todayTimeline.periods.takeIf {
                                     pageWeek == todayWeek && todayTimeline.exceptionalActivePeriod
