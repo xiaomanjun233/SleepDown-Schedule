@@ -17,10 +17,15 @@ private data class RailCourse(
     val id: Long, val indices: List<Int>, val times: List<CoursePeriodTime>,
     val replacements: Map<Int, PeriodEntity>
 ) {
+    val start: LocalTime get() = times.first().start
+    val end: LocalTime get() = times.last().end
+    val exceptional: Boolean get() = replacements.isNotEmpty()
     fun active(now: LocalTime) = times.firstOrNull { !now.isBefore(it.start) && now.isBefore(it.end) }
+    fun preClassStart(leadMinutes: Long): LocalTime =
+        if (start.toSecondOfDay() < leadMinutes * 60L) LocalTime.MIN else start.minusMinutes(leadMinutes)
 }
 
-/** Today's rail presents actual clocks without changing stored bells or adding grid rows. */
+/** Today's rail presents actual clocks during an active exception window without mutating stored bells. */
 internal fun weekDayTimeline(state: AppState, date: LocalDate, now: LocalTime): WeekDayTimeline {
     val scheduled = resolveTimetable(state.config, state.periods, state.timetableCatalog, date).periods
     val byIndex = scheduled.associateBy { it.periodIndex }
@@ -29,6 +34,9 @@ internal fun weekDayTimeline(state: AppState, date: LocalDate, now: LocalTime): 
     val week = teachingDate?.let {
         if (it != date) adjustedTeachingWeekForDate(state.config, it) else scheduleWeekForDateOrNull(state.config, it)
     }.takeIf { scheduleWeekForDateOrNull(state.config, date) != null }
+    val weekBaseline = week?.let {
+        resolveWeekTimetable(state.config, state.periods, state.timetableCatalog, it, date).periods
+    }?.takeIf { it.isNotEmpty() } ?: state.periods
     val occupied = ordinary.flatMap { it.arrangementForWrite().periods }.toSet()
     // Grid special lessons share the numbered rail; independent bands own their own time labels.
     // Keep ordinary courses authoritative wherever their cells hide a special lesson.
@@ -47,11 +55,17 @@ internal fun weekDayTimeline(state: AppState, date: LocalDate, now: LocalTime): 
                 customEndTime = if (clocks.isEmpty()) null else clocks.last().end.toString(),
                 customPeriodTimes = clocks.takeIf { it.isNotEmpty() }?.joinToString(";") { "${it.index},${it.start}-${it.end}" })
         }
-    val courses = (ordinary + special).mapNotNull { course ->
+    val ordinaryCourses = ordinary.mapNotNull { course ->
         val source = course.arrangementForWrite()
-        val times = courseTimeSegments(course, state.periods)
+        val times = resolveCourseOccurrence(source, state.config, state.periods, state.timetableCatalog, date).segments
+        source to times
+    }
+    val specialCourses = special.map { course ->
+        course to courseTimeSegments(course, scheduled)
+    }
+    val courses = (ordinaryCourses + specialCourses).mapNotNull { (source, times) ->
         val indices = source.periods.filter { it in byIndex }.ifEmpty {
-            course.displayPeriodIndices().filter { it in byIndex }
+            source.displayPeriodIndices().filter { it in byIndex }
         }.distinct().sorted()
         if (times.isEmpty() || indices.isEmpty()) return@mapNotNull null
         val replacements = linkedMapOf<Int, PeriodEntity>()
@@ -66,26 +80,45 @@ internal fun weekDayTimeline(state: AppState, date: LocalDate, now: LocalTime): 
             replacements[index] = byIndex.getValue(index).copy(startTime = clock.start.toString(), endTime = clock.end.toString())
         }
         RailCourse(source.id, indices, times, replacements.filter { (index, period) -> period != byIndex[index] })
-    }.sortedWith(compareBy<RailCourse> { it.active(now) == null }
-        .thenBy { it.replacements.isEmpty() }.thenBy { it.times.first().start }.thenBy { it.id })
+    }
+    val leadMinutes = state.config.notificationLeadMinutes.coerceAtLeast(0).toLong()
+    val runningCourse = courses.filter { it.active(now) != null }
+        .minWithOrNull(compareBy<RailCourse> { !it.exceptional }.thenBy { it.start }.thenBy { it.id })
+    val preClassCourse = if (runningCourse != null) null else courses
+        .filter { it.exceptional && !now.isBefore(it.preClassStart(leadMinutes)) && now.isBefore(it.start) }
+        .minWithOrNull(compareBy<RailCourse> { it.start }.thenBy { it.id })
+    val activeWindowCourse = runningCourse ?: preClassCourse
     val selected = linkedMapOf<Int, PeriodEntity>()
-    courses.forEach { course -> course.replacements.forEach { (index, period) -> selected.putIfAbsent(index, period) } }
+    if (activeWindowCourse != null && activeWindowCourse.exceptional) {
+        activeWindowCourse.replacements.forEach { (index, period) -> selected.putIfAbsent(index, period) }
+    }
+    courses.filter {
+        it.exceptional && (it.active(now) != null || (runningCourse == null && !now.isBefore(it.start) && now.isBefore(it.end)))
+    }.sortedWith(compareBy<RailCourse> { it.start }.thenBy { it.id }).forEach { course ->
+        course.replacements.forEach { (index, period) -> selected.putIfAbsent(index, period) }
+    }
     val periods = scheduled.map { selected[it.periodIndex] ?: it }
-    val baseline = state.periods.associateBy { it.periodIndex }
+    val baseline = weekBaseline.associateBy { it.periodIndex }
     val changed = periods.filter { period -> baseline[period.periodIndex]?.let {
         it.startTime != period.startTime || it.endTime != period.endTime
     } == true }.mapTo(hashSetOf()) { it.periodIndex }
-    val activeCourse = courses.firstOrNull { it.active(now) != null }
-    val active = if (activeCourse != null) {
-        val clock = checkNotNull(activeCourse.active(now))
-        if (activeCourse.times.size == 1 && activeCourse.indices.size > 1) {
-            currentTimelinePeriod(periods.filter { it.periodIndex in activeCourse.indices }, now)?.periodIndex
-                ?: activeCourse.indices.first()
-        } else clock.index.takeIf { it in activeCourse.indices } ?: activeCourse.indices.first()
-    } else {
-        currentTimelinePeriod(periods, now)?.takeUnless { period ->
-            period.periodIndex in changed && (now.isBefore(LocalTime.parse(period.startTime)) || !now.isBefore(LocalTime.parse(period.endTime)))
-        }?.periodIndex
+    val active = when {
+        runningCourse != null -> {
+            val clock = checkNotNull(runningCourse.active(now))
+            if (runningCourse.times.size == 1 && runningCourse.indices.size > 1) {
+                currentTimelinePeriod(periods.filter { it.periodIndex in runningCourse.indices }, now)?.periodIndex
+                    ?: runningCourse.indices.first()
+            } else clock.index.takeIf { it in runningCourse.indices } ?: runningCourse.indices.first()
+        }
+        preClassCourse != null -> {
+            preClassCourse.replacements.keys.firstOrNull { it in preClassCourse.indices } ?: preClassCourse.indices.first()
+        }
+        else -> {
+            currentTimelinePeriod(periods, now)?.takeUnless { period ->
+                period.periodIndex in changed && (now.isBefore(LocalTime.parse(period.startTime)) || !now.isBefore(LocalTime.parse(period.endTime)))
+            }?.periodIndex
+        }
     }
-    return WeekDayTimeline(periods, active, active != null && active in changed, activeCourse?.id)
+    val exceptionalActive = active != null && (active in changed || preClassCourse != null)
+    return WeekDayTimeline(periods, active, exceptionalActive, activeWindowCourse?.id)
 }

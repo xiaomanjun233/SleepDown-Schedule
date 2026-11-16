@@ -45,6 +45,7 @@ import com.kyant.backdrop.Backdrop
 import com.xiaomanjun.sleepdownschedule.CourseScheduleApp
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertAction
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertActionStyle
+import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownPickerDialog
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownSecondaryPageList
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentBottomPadding
@@ -104,6 +105,7 @@ fun PeriodSchemeManagementScreen(
     var copyPickerMounted by remember(scheduleId) { mutableStateOf(false) }
     var copyPickerVisible by remember(scheduleId) { mutableStateOf(false) }
     var copyError by remember(scheduleId) { mutableStateOf<String?>(null) }
+    var pendingBaselineRestore by remember(scheduleId) { mutableStateOf(false) }
     var busy by remember(scheduleId) { mutableStateOf(false) }
     var loadError by remember(scheduleId) { mutableStateOf<String?>(null) }
     var retry by remember(scheduleId) { mutableIntStateOf(0) }
@@ -120,7 +122,7 @@ fun PeriodSchemeManagementScreen(
             loadError = failure.message ?: "作息读取失败"
         }
     }
-    val modalOpen = editing != null || creation != null || copyPickerMounted
+    val modalOpen = editing != null || creation != null || copyPickerMounted || pendingBaselineRestore
     SideEffect { onExitInterceptionChange(modalOpen) }
     DisposableEffect(Unit) { onDispose { onExitInterceptionChange(false) } }
 
@@ -158,6 +160,20 @@ fun PeriodSchemeManagementScreen(
     }
 
     val current = routines
+    val baselineSuggestion = remember(current) {
+        current?.let {
+            val regularPeriods = it.regular.times.map { bell ->
+                com.xiaomanjun.sleepdownschedule.model.PeriodEntity(
+                    bell.periodIndex, bell.startTime, bell.endTime, it.config.id, bell.alias
+                )
+            }
+            com.xiaomanjun.sleepdownschedule.domain.schedule.proposeMajorityPeriodBaseline(
+                courses = it.courses,
+                baselinePeriods = regularPeriods,
+                scheduleId = it.config.id,
+            )
+        }
+    }
     SleepDownSecondaryPageList(
         modifier = Modifier.fillMaxSize(),
         contentTopPadding = detailContentTopPadding(),
@@ -210,6 +226,15 @@ fun PeriodSchemeManagementScreen(
                                 copyPickerVisible = true
                             },
                         )
+                        baselineSuggestion?.let { suggestion ->
+                            SettingsDivider()
+                            SettingsNavigationRow(
+                                title = "按多数课程整理基准作息",
+                                subtitle = "${suggestion.matchedCourseCount} 门课程共用同一套作息，仅保留 ${suggestion.customCourseCount} 门自定义时间",
+                                enabled = !modalOpen && !busy,
+                                onClick = { pendingBaselineRestore = true },
+                            )
+                        }
                     }
                 }
             }
@@ -283,6 +308,37 @@ fun PeriodSchemeManagementScreen(
             onDeleteRoutine = if (request.copying || request.creating || id == original.regularId || id == original.gridId) null else {
                 { publish(repository.deleteScheduleRoutine(original, id), "已删除作息") }
             },
+        )
+    }
+
+    if (pendingBaselineRestore && current != null && baselineSuggestion != null) {
+        LiquidAlertDialog(
+            title = "整理基准作息？",
+            message = "将以 ${baselineSuggestion.matchedCourseCount} 门课程共用的 ${baselineSuggestion.periods.size} 节时间作为常规基准作息，并保留其余 ${baselineSuggestion.customCourseCount} 门不同作息课程的自定义时间。",
+            actions = listOf(
+                LiquidAlertAction("取消", LiquidAlertActionStyle.Cancel) {
+                    if (!busy) pendingBaselineRestore = false
+                },
+                LiquidAlertAction("整理", LiquidAlertActionStyle.Primary) {
+                    if (busy) return@LiquidAlertAction
+                    busy = true
+                    scope.launch {
+                        try {
+                            val updated = repository.restoreMajorityBaseline(current)
+                            pendingBaselineRestore = false
+                            publish(updated, "已整理基准作息")
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (failure: Exception) {
+                            Toast.makeText(context, failure.message ?: "整理基准作息失败", Toast.LENGTH_SHORT).show()
+                        } finally {
+                            busy = false
+                        }
+                    }
+                },
+            ),
+            config = config,
+            onDismissRequest = { if (!busy) pendingBaselineRestore = false },
         )
     }
 

@@ -81,7 +81,11 @@ fun ConfirmScheduleScreen(
     val historyContext = LocalContext.current
     val compatibility = remember(draft) { runCatching { draft.withCompatiblePeriodGrid() } }
     val previewDraft = remember(draft) {
-        compatibility.getOrDefault(draft).let { compatible -> compatible.copy(
+        val normalized = com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeImportMajorityBaseline(
+            compatibility.getOrDefault(draft),
+            requireZeroBaselineFollowers = true,
+        )
+        normalized.let { compatible -> compatible.copy(
             periods = compatible.periods,
             courses = compatible.courses.map {
                 it.copy(

@@ -19,6 +19,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.CourseEntity
+import com.xiaomanjun.sleepdownschedule.domain.schedule.effectiveWeekPeriods
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardDeleteBottomSpace
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardDeletionSelection
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.CardSelectionChrome
@@ -45,6 +46,9 @@ internal fun LandscapeCourseManagementPane(
     modifier: Modifier = Modifier
 ) {
     val groups = remember(state.courses) { buildManagedCourseGroups(state.courses) }
+    val effectivePeriods = remember(state.config, state.periods, state.timetableCatalog) {
+        state.effectiveWeekPeriods()
+    }
     val selection = remember(state.config.id) { CardDeletionSelection() }
     var selected by remember(state.config.id) { mutableStateOf(groups.firstOrNull()) }
     var exitHandler by remember { mutableStateOf<((() -> Unit) -> Unit)?>(null) }
@@ -111,7 +115,7 @@ internal fun LandscapeCourseManagementPane(
                                     exitHandler?.invoke(open) ?: open()
                                 }
                             }
-                        ManagedCourseListCardContent(group, state.config, state.periods, gesture,
+                        ManagedCourseListCardContent(group, state.config, effectivePeriods, gesture,
                             selected = active,
                             checkedForDeletion = if (selection.active) group.key in selection.selectedKeys else null,
                             selectionEnabled = !selection.deleting)

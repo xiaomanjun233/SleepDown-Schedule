@@ -107,10 +107,98 @@ class WeekCourseBellTest {
 
     @Test fun onlyTheExceptionalLessonChangesAndTheStoredBaselineIsUntouched() {
         val source = state()
+        val beforeWindow = weekDayTimeline(source, today, LocalTime.of(8, 5))
+        assertEquals(periods, beforeWindow.periods)
+        assertNull(beforeWindow.activePeriodIndex)
+        assertFalse(beforeWindow.exceptionalActivePeriod)
+
+        val preClass = weekDayTimeline(source, today, LocalTime.of(8, 12))
+        assertEquals("08:20", preClass.periods.first().startTime)
+        assertEquals(1, preClass.activePeriodIndex)
+        assertTrue(preClass.exceptionalActivePeriod)
+        assertEquals(exception.id, preClass.activeCourseId)
+
         val result = weekDayTimeline(source, today, LocalTime.of(8, 30))
         assertEquals(periods.drop(1), result.periods.drop(1))
         assertEquals("09:00", source.periods.first().startTime)
-        assertNull(weekDayTimeline(source, today, LocalTime.of(9, 10)).activePeriodIndex)
+        assertTrue(result.exceptionalActivePeriod)
+
+        val restored = weekDayTimeline(source, today, LocalTime.of(9, 10))
+        assertEquals(periods, restored.periods)
+        assertEquals(1, restored.activePeriodIndex)
+        assertFalse(restored.exceptionalActivePeriod)
+        assertNull(restored.activeCourseId)
+    }
+
+    @Test fun preClassLeadWaitsUntilRunningNormalClassEndsThenRestoresAfterCustomClass() {
+        val normalSecond = exception.copy(id = 10, periods = listOf(2), customStartTime = null, customEndTime = null)
+        val earlyCustomThird = exception.copy(
+            id = 11,
+            periods = listOf(3),
+            customStartTime = "10:45",
+            customEndTime = "11:30",
+        )
+        val source = state(listOf(normalSecond, earlyCustomThird))
+        // 10:35 is inside 10-min lead of 10:45, but normal period 2 (09:55-10:40) is still in class.
+        val duringSecond = weekDayTimeline(source, today, LocalTime.of(10, 36))
+        assertEquals(2, duringSecond.activePeriodIndex)
+        assertFalse(duringSecond.exceptionalActivePeriod)
+        assertEquals("10:50", duringSecond.periods[2].startTime)
+
+        // At 10:40 when period 2 ends, period 3 immediately switches to custom clock and yellow marker.
+        val afterSecond = weekDayTimeline(source, today, LocalTime.of(10, 40))
+        assertEquals(3, afterSecond.activePeriodIndex)
+        assertTrue(afterSecond.exceptionalActivePeriod)
+        assertEquals("10:45", afterSecond.periods[2].startTime)
+        assertEquals("11:30", afterSecond.periods[2].endTime)
+
+        // After custom class ends at 11:30, left rail restores to normal period 3 bell 10:50-11:35.
+        val ended = weekDayTimeline(source, today, LocalTime.of(11, 30))
+        assertEquals(periods, ended.periods)
+        assertFalse(ended.exceptionalActivePeriod)
+    }
+
+    @Test fun seasonalFullWeekDateRuleActsAsBlueWeekBaselineWhileCustomExceptionTurnsYellow() {
+        val summer = listOf(
+            PeriodEntity(1, "08:00", "08:45"),
+            PeriodEntity(2, "08:55", "09:40"),
+            PeriodEntity(3, "14:30", "15:15"),
+        )
+        val winter = listOf(
+            PeriodSchemeTimeEntity(12, 1, "08:00", "08:45"),
+            PeriodSchemeTimeEntity(12, 2, "08:55", "09:40"),
+            PeriodSchemeTimeEntity(12, 3, "14:00", "14:45"),
+        )
+        val catalog = TimetableCatalog(
+            schemes = listOf(PeriodSchemeEntity(11, 0, "夏令"), PeriodSchemeEntity(12, 0, "冬作息")),
+            times = summer.map { PeriodSchemeTimeEntity(11, it.periodIndex, it.startTime, it.endTime) } + winter,
+            combos = listOf(TimetableComboEntity(20, "日期作息", 11)),
+            rules = listOf(TimetableDateRuleEntity(20, 0, 12, "2026-10-01", "2027-05-01")),
+        )
+        val ordinaryWinterCourse = CourseEntity(1, "冬令普通课", null, null, 4, listOf(3), listOf(1), WeekParity.ALL, null)
+        val customWinterCourse = CourseEntity(
+            2, "冬令异校区课", null, null, 4, listOf(2), listOf(1), WeekParity.ALL, null,
+            customStartTime = "09:10", customEndTime = "09:55",
+        )
+        val source = AppState(
+            config = config.copy(activeTimetableComboId = 20, notificationLeadMinutes = 10),
+            periods = summer,
+            courses = listOf(ordinaryWinterCourse, customWinterCourse),
+            timetableCatalog = catalog,
+        )
+        val winterMorningBeforeCustom = weekDayTimeline(source, today, LocalTime.of(8, 10))
+        assertEquals("14:00", winterMorningBeforeCustom.periods[2].startTime)
+        assertEquals(1, winterMorningBeforeCustom.activePeriodIndex)
+        assertFalse(winterMorningBeforeCustom.exceptionalActivePeriod)
+
+        val winterAfternoonOrdinary = weekDayTimeline(source, today, LocalTime.of(14, 15))
+        assertEquals(3, winterAfternoonOrdinary.activePeriodIndex)
+        assertFalse(winterAfternoonOrdinary.exceptionalActivePeriod)
+
+        val winterPreCustom = weekDayTimeline(source, today, LocalTime.of(9, 2))
+        assertEquals(2, winterPreCustom.activePeriodIndex)
+        assertTrue(winterPreCustom.exceptionalActivePeriod)
+        assertEquals("09:10", winterPreCustom.periods[1].startTime)
     }
 
     @Test fun tomorrowAndNextWeeksOrdinaryOccurrenceRestoreTheBaseline() {

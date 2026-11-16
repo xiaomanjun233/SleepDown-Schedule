@@ -30,6 +30,43 @@ fun resolveTimetable(config: ScheduleConfigEntity, base: List<PeriodEntity>, cat
     return ResolvedTimetable(baseline.map { replacement[it.periodIndex] ?: it })
 }
 
+/**
+ * Selects the baseline timetable for a browsed week so multi-week seasonal schedules display
+ * cleanly on the grid, while single-day exceptions still stand out against the rest of the week.
+ */
+fun resolveWeekTimetable(
+    config: ScheduleConfigEntity,
+    base: List<PeriodEntity>,
+    catalog: TimetableCatalog,
+    week: Int,
+    today: LocalDate = LocalDate.now(),
+): ResolvedTimetable {
+    if (config.activeTimetableComboId == null) return ResolvedTimetable(base)
+    val start = scheduleWeekStartDate(config, week, today)
+    val candidates = (0L..6L).map { offset ->
+        val date = start.plusDays(offset)
+        date to resolveTimetable(config, base, catalog, date)
+    }
+    fun signature(periods: List<PeriodEntity>) = periods.map {
+        Triple(it.periodIndex, it.startTime, it.endTime)
+    }
+    val valid = candidates.filter { it.second.periods.isNotEmpty() }
+    if (valid.isEmpty()) return candidates.first().second
+    val counts = valid.groupingBy { signature(it.second.periods) }.eachCount()
+    val maxCount = counts.values.maxOrNull() ?: return valid.first().second
+    val todaySignature = candidates.firstOrNull { it.first == today }
+        ?.second?.periods?.takeIf { it.isNotEmpty() }?.let(::signature)
+    val chosenSignature = counts.entries
+        .filter { it.value == maxCount }
+        .maxWithOrNull(compareBy<Map.Entry<List<Triple<Int, String, String>>, Int>> {
+            it.key == todaySignature
+        }.thenBy { entry ->
+            -valid.indexOfFirst { signature(it.second.periods) == entry.key }
+        })?.key
+        ?: return valid.first().second
+    return valid.first { signature(it.second.periods) == chosenSignature }.second
+}
+
 /** Actual intervals are resolved once, independently of display positions and data provenance. */
 fun resolveCourseOccurrence(course: CourseEntity, config: ScheduleConfigEntity, base: List<PeriodEntity>,
     catalog: TimetableCatalog = TimetableCatalog(), date: LocalDate = LocalDate.now()): ResolvedCourseOccurrence {

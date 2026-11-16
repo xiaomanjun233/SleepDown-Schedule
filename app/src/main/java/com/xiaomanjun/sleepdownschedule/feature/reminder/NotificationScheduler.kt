@@ -176,8 +176,11 @@ object NotificationScheduler {
         val scheduledKeys = mutableListOf<String>()
         (0L..SCHEDULE_HORIZON_DAYS).forEach { dayOffset ->
             val scheduleDate = today.plusDays(dayOffset)
+            val dayPeriods = com.xiaomanjun.sleepdownschedule.domain.schedule.resolveTimetable(
+                config, periods, state.timetableCatalog, scheduleDate
+            ).periods.ifEmpty { periods }
             val dayCourses = coursesForDate(state, scheduleDate)
-            val payloads = reminderPayloads(dayCourses, scheduleDate, config, periods, liveUpdatePreferences, scheduleZone)
+            val payloads = reminderPayloads(dayCourses, scheduleDate, config, dayPeriods, liveUpdatePreferences, scheduleZone)
             payloads.forEach { (course, payload) ->
                 val firstStart = payload.startAtMillis() ?: return@forEach
                 val finalEnd = payload.endAtMillis() ?: firstStart
@@ -219,14 +222,18 @@ object NotificationScheduler {
                 liveUpdatePreferences.tomorrowReminderEnabled &&
                 dayCourses.isNotEmpty()
             ) {
+                val prevDate = scheduleDate.minusDays(1)
+                val previousDayPeriods = com.xiaomanjun.sleepdownschedule.domain.schedule.resolveTimetable(
+                    config, periods, state.timetableCatalog, prevDate
+                ).periods.ifEmpty { periods }
                 val trigger = tomorrowReminderTriggerEpochMillis(
                     targetDate = scheduleDate,
                     reminderTime = liveUpdatePreferences.tomorrowReminderTime,
-                    previousDayCourses = coursesForDate(state, scheduleDate.minusDays(1)),
-                    periods = periods,
+                    previousDayCourses = coursesForDate(state, prevDate),
+                    periods = previousDayPeriods,
                     zone = scheduleZone
                 )
-                val payload = tomorrowPayload(scheduleDate, dayCourses, periods, trigger, scheduleZone)
+                val payload = tomorrowPayload(scheduleDate, dayCourses, dayPeriods, trigger, scheduleZone)
                 if (trigger > now) {
                     schedulePayloadAlarm(
                         context = context,
@@ -425,9 +432,13 @@ object NotificationScheduler {
         date: LocalDate,
         preferences: LiveUpdatePreferencesSnapshot,
         zone: ZoneId,
-    ): List<LiveUpdatePayload> =
-        reminderPayloads(coursesForDate(state, date), date, state.config, state.periods, preferences, zone)
+    ): List<LiveUpdatePayload> {
+        val dayPeriods = com.xiaomanjun.sleepdownschedule.domain.schedule.resolveTimetable(
+            state.config, state.periods, state.timetableCatalog, date
+        ).periods.ifEmpty { state.periods }
+        return reminderPayloads(coursesForDate(state, date), date, state.config, dayPeriods, preferences, zone)
             .map { it.second }
+    }
 
     private fun reminderPayloads(
         courses: List<CourseEntity>,

@@ -357,27 +357,36 @@ internal class ShiguangImportSession {
                     currentWeek = declaredConfig.currentWeek.coerceIn(1, requiredWeeks.coerceAtMost(60))
                 )
             } else declaredConfig
-            val notices = buildList {
-                if (originalConflictingSlots != null) {
-                    add("原作息含重叠时段，课程真实时间与原始编号已保留；网格继续使用当前基准作息。")
-                }
-                if (requiredWeeks > declaredConfig.totalWeeks) {
-                    add("课程周次超出上游学期范围，总周数已扩展到 ${mappedConfig.totalWeeks} 周。")
-                }
-                val reviewCount = mappedCourses.count { it.timingReviewReason != null }
-                if (reviewCount > 0) {
-                    add("$reviewCount 门课程上游未给出上课时间，已作为待安排课程保留，可在课程中补充。")
-                }
-            }
-            return ImportDraft(
+            val baseDraft = ImportDraft(
                 config = com.xiaomanjun.sleepdownschedule.domain.schedule.inferPeriodCounts(mappedPeriods).let { counts ->
                     mappedConfig.copy(morningPeriodCount=counts.morning,noonPeriodCount=counts.noon,
                         afternoonPeriodCount=counts.afternoon,eveningPeriodCount=counts.evening)
                 },
                 periods = mappedPeriods,
                 courses = mappedCourses,
-                notices = notices
+                notices = emptyList()
             )
+            val normalized = if (originalConflictingSlots != null || timeSlots == null) {
+                com.xiaomanjun.sleepdownschedule.domain.schedule.normalizeImportMajorityBaseline(
+                    baseDraft, requireZeroBaselineFollowers = true
+                )
+            } else baseDraft
+            val inferredMajority = originalConflictingSlots != null && normalized !== baseDraft
+            val notices = buildList {
+                if (inferredMajority) {
+                    add("原作息含不同作息冲突，已自动将最多课程使用的作息设为基准，并保留其余课程的真实时间。")
+                } else if (originalConflictingSlots != null) {
+                    add("原作息含重叠时段，课程真实时间与原始编号已保留；网格继续使用当前基准作息。")
+                }
+                if (requiredWeeks > declaredConfig.totalWeeks) {
+                    add("课程周次超出上游学期范围，总周数已扩展到 ${mappedConfig.totalWeeks} 周。")
+                }
+                val reviewCount = normalized.courses.count { it.timingReviewReason != null }
+                if (reviewCount > 0) {
+                    add("$reviewCount 门课程上游未给出上课时间，已作为待安排课程保留，可在课程中补充。")
+                }
+            }
+            return normalized.copy(notices = notices)
         }
     }
 }
