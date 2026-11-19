@@ -87,16 +87,63 @@ class EduWebResourceInterceptorTest {
         }
     }
 
-    @Test fun redirectsRemainNativeAndAreNotFollowedUnderTheOriginalDocumentOrigin() {
+    @Test fun mainFrameRedirectReturnsAStubPageInsteadOfReplayingTheOriginalRequest() {
         MockWebServer().use { server ->
             server.start()
-            val page = server.url("/login").toString()
+            val page = server.url("/eams/loginExt.action").toString()
             val loader = interceptor()
             loader.policy.recordNavigation(page, "GET")
             assertTrue(loader.policy.enable(page))
-            server.enqueue(MockResponse().setResponseCode(302).setHeader("Location", "https://sso.example/login"))
-            assertNull(loader.intercept(request(page), "browser"))
+            server.enqueue(
+                MockResponse().setResponseCode(302)
+                    .setHeader("Set-Cookie", "sso_state=ok; Path=/")
+                    .setHeader("Location", "https://sso.example/login")
+            )
+            val response = loader.intercept(request(page), "browser")!!
+            assertEquals(200, response.statusCode)
+            assertEquals("text/html", response.mimeType)
+            val body = response.data.bufferedReader().use { it.readText() }
+            assertTrue(
+                body,
+                body.contains("window.location.replace(${org.json.JSONObject.quote("https://sso.example/login")})")
+            )
             assertEquals(1, server.requestCount)
+            assertTrue(CookieManager.getInstance().getCookie(page).orEmpty().contains("sso_state=ok"))
+        }
+    }
+
+    @Test fun blankUserAgentPreservesRequestUserAgentWithoutSendingEmptyHeader() {
+        MockWebServer().use { server ->
+            server.start()
+            val page = server.url("/eams/loginExt.action").toString()
+            val loader = interceptor()
+            loader.policy.recordNavigation(page, "GET")
+            assertTrue(loader.policy.enable(page))
+            server.enqueue(MockResponse().setHeader("Content-Type", "text/html").setBody("<html>ok</html>"))
+            loader.intercept(request(page, headers = mapOf("User-Agent" to "request-ua")), "")!!
+            assertEquals("request-ua", server.takeRequest().getHeader("User-Agent"))
+        }
+    }
+
+    @Test fun oneTimeAndProtocolAuthCallbacksAreNeverForwardedOrReloaded() {
+        val loader = interceptor()
+        val urls = listOf(
+            "https://portal.example.edu/login?ticket=ST-20261118",
+            "https://cas.example.edu/cas/login?service=https%3A%2F%2Fportal.example.edu%2Flogin",
+            "https://webvpn.example.edu/https/777264/cas/?service=https%3A%2F%2Fwebvpn.example.edu%2Flogin%3Fcas_login%3Dtrue",
+            "https://webvpn.example.edu/https/777264/lyuapServer/login?service=https%3A%2F%2Fjw.example.edu%2Fsso",
+            "https://sso.example.edu/tpass/login?service=https%3A%2F%2Fjw.example.edu%2Fsso",
+            "https://iam.example.edu/esc-sso/login/page",
+            "https://jw.example.edu/ucas-sso/login",
+            "https://cas.example.edu/login?type=usernamepassword&service=https%3A%2F%2Fjw.example.edu%2Flogin",
+            "https://portal.example.edu/callback?code=oauth-code&state=state1",
+            "http://203.0.113.10:9527/#/authserver/login?redirect_uri=abc"
+        )
+        urls.forEach { authUrl ->
+            loader.policy.recordNavigation(authUrl, "GET")
+            assertFalse("canReload should be false for $authUrl", loader.policy.canReload(authUrl))
+            assertFalse("enable should be false for $authUrl", loader.policy.enable(authUrl))
+            assertNull("intercept should be null for $authUrl", loader.intercept(request(authUrl), "browser"))
         }
     }
 

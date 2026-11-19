@@ -230,13 +230,15 @@ data class AiScheduleImportResult(
     val routeMessage: String,
     val rawOutput: String = output,
     val reasoningOutput: String = "",
-    val managedRouteId: String? = null
+    val managedRouteId: String? = null,
+    val verifiedEduDraft: com.xiaomanjun.sleepdownschedule.model.ImportDraft? = null
 )
 
 data class AiProviderTextResult(
     val content: String,
     val reasoning: String = "",
-    val finishReason: String = ""
+    val finishReason: String = "",
+    val verifiedEduDraft: com.xiaomanjun.sleepdownschedule.model.ImportDraft? = null
 )
 
 class AiServiceResponseException(

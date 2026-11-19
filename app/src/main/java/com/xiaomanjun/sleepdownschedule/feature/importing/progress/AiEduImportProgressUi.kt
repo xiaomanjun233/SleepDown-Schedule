@@ -26,9 +26,6 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -41,7 +38,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -124,10 +120,14 @@ import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.detailContentTopPadding
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsPageBackground
 import com.xiaomanjun.sleepdownschedule.core.ui.scaffold.settingsVisualConfig
 import com.xiaomanjun.sleepdownschedule.core.ui.text.*
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaKind
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaStore
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 import com.xiaomanjun.sleepdownschedule.feature.home.day.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 import com.xiaomanjun.sleepdownschedule.feature.importing.history.*
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsDetailPageExtra
+import com.xiaomanjun.sleepdownschedule.feature.settings.SettingsPage
 import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.captureGlassWindowRegion
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
@@ -260,15 +260,16 @@ internal fun AiEduImportConversationPane(
     val ownsLiveTask = ownedRevisionProgress != null || (!historicalMode && sessionProgress != null)
     val saveProposal by EduAdapterSaveProposals.current.collectAsStateWithLifecycle()
     val verifiedScript by EduVerifiedScripts.current.collectAsStateWithLifecycle()
-    val eduInteraction by EduAiInteractions.current.collectAsStateWithLifecycle()
-    var saveAdapterError by remember(saveProposal?.id) { mutableStateOf<String?>(null) }
-    var saveAdapterBusy by remember(saveProposal?.id) { mutableStateOf(false) }
-    var saveAdapterName by remember(saveProposal?.id) { mutableStateOf(saveProposal?.name.orEmpty()) }
-    var saveAdapterUrl by remember(saveProposal?.id) { mutableStateOf(saveProposal?.url.orEmpty()) }
-    var showScriptSource by remember(saveProposal?.id) { mutableStateOf(false) }
+    val freeAiQuotaState by FreeAiQuotaStore.state.collectAsStateWithLifecycle()
+    val settingsChanges by AiImportSettingsStore.changes.collectAsStateWithLifecycle()
+    val usingManagedFreeAi = remember(settingsChanges, current.taskId) {
+        val active = AiImportSettingsStore.loadForRuntime(context) ?: AiImportSettingsStore.load(context)
+        AiProviderPresets.isManagedFreeId(active.profile.id)
+    }
     val scriptForCurrentPreview = verifiedScript?.takeIf {
         ownsLiveTask && it.proposal.taskId == current.taskId && current.finished && !current.awaitingUserInput && current.error == null
     }
+    val scriptSaveState = scriptForCurrentPreview?.submission?.state?.collectAsStateWithLifecycle()?.value
     val showLiveStatus = ownsLiveTask && !current.finished && current.error == null && !current.awaitingConfirmation && current.taskId.isNotBlank()
     val selectedWorkspaceDraft = remember(current.checkpoints, current.selectedCheckpointId, current.taskId, config) {
         current.checkpoints.firstOrNull { it.id == current.selectedCheckpointId && it.taskId == current.taskId }
@@ -309,14 +310,13 @@ internal fun AiEduImportConversationPane(
             AiImportTaskManager.pauseImport(context, current.taskId)
         }
         onImportRequested?.invoke(draft, createNewSchedule)
-            ?: AiEduImportProgressSession.requestFinalImport(draft, createNewSchedule)
+            ?: AiEduImportProgressSession.requestFinalImport(
+                draft, createNewSchedule, current.taskId.takeIf { ownsLiveTask && !historicalMode }
+            )
         onImportSubmitted()
     }
     val listState = rememberLazyListState()
     val inputInsets = rememberFloatingInputInsets()
-    var followingLatest by rememberAiImportFollowingLatest(listState, current.taskId) {
-        inputInsets.isKeyboardRaised
-    }
     val textColor = LocalAiImportTextColors.current.primary
     val pageTitle = current.routeLabel.takeIf { it.isNotBlank() } ?: "AI 教务导入"
     var previewAttachment by remember { mutableStateOf<AiEduAttachmentPreviewRequest?>(null) }
@@ -541,7 +541,8 @@ internal fun AiEduImportConversationPane(
                 ) {
                     SleepDownLazyColumn(
                         state = listState,
-                        modifier = Modifier.align(Alignment.TopCenter).widthIn(max = 840.dp).fillMaxSize(),
+                        modifier = Modifier.align(Alignment.TopCenter).widthIn(max = 840.dp).fillMaxSize()
+                            .followAiImportBottom(listState),
                         contentPadding = PaddingValues(
                             start = 16.dp,
                             end = 16.dp,
@@ -606,11 +607,30 @@ internal fun AiEduImportConversationPane(
                 }
                 current.error?.let { message ->
                     item {
-                        Text(
-                            message,
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                message,
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            val showKeyShortcut = usingManagedFreeAi && (
+                                message.contains("免费") || message.contains("额度") ||
+                                    message.contains("上限") || message.contains("API Key") ||
+                                    freeAiQuotaState?.isExhausted(FreeAiQuotaKind.IMPORT) == true
+                                )
+                            if (showKeyShortcut) {
+                                DialogLiquidButton(
+                                    backdrop = backdrop,
+                                    label = "配置自己的 API Key",
+                                    onClick = {
+                                        context.startActivity(
+                                            Intent(context, SettingsDetailActivity::class.java)
+                                                .putExtra(SettingsDetailPageExtra, SettingsPage.AiImport.name)
+                                        )
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
                 if (current.awaitingConfirmation) {
@@ -660,8 +680,17 @@ internal fun AiEduImportConversationPane(
                             onOverwrite = {
                                 requestImport(draft, false)
                             },
-                            scriptSaveLabel = scriptForCurrentPreview?.let { if (it.saved) "已保存到我的适配" else "保存当前脚本" },
-                            onSaveScript = scriptForCurrentPreview?.takeUnless { it.saved }?.let { script ->
+                            scriptSaveLabel = scriptSaveState?.let {
+                                when {
+                                    it.uploaded -> "已保存并上传"
+                                    it.saving -> "正在保存并上传"
+                                    it.savedName != null -> "重试上传"
+                                    else -> "保存并上传"
+                                }
+                            },
+                            onSaveScript = scriptForCurrentPreview?.takeIf {
+                                scriptSaveState?.let { state -> !state.uploaded && !state.saving } == true
+                            }?.let { script ->
                                 { EduAdapterSaveProposals.offer(script.proposal) }
                             }
                         )
@@ -670,14 +699,13 @@ internal fun AiEduImportConversationPane(
                     }
                 }
 
-                if (!followingLatest) {
+                if (listState.canScrollForward) {
                     DialogLiquidButton(
                         backdrop = backdrop, label = "回到最新",
                         modifier = Modifier.align(Alignment.BottomCenter)
                             .padding(bottom = with(density) { composerHeightPx.toDp() } + 12.dp).size(44.dp).softBlurEnter(),
                         height = 44.dp, horizontalPadding = 0.dp, monochromeNeutral = true,
                         onClick = {
-                            followingLatest = true
                             conversationScope.launch { listState.scrollToAiImportEnd() }
                         }) {
                         Icon(painterResource(R.drawable.ic_arrow_back), contentDescription = "回到最新",
@@ -801,47 +829,21 @@ internal fun AiEduImportConversationPane(
         AiEduBrowserWindow(current.taskId.takeIf { ownsLiveTask }, config, conversationContentBackdrop,
             Modifier.fillMaxSize().padding(top = detailContentTopPadding() + 4.dp,
                 bottom = with(density) { composerHeightPx.toDp() } + 8.dp))
-        eduInteraction?.takeIf { ownsLiveTask && it.taskId == current.taskId }?.let { pending ->
-            EduBridgeInteractionDialog(pending.request, pending.bridge, config, conversationContentBackdrop,
-                onFinished = { EduAiInteractions.clear(pending.bridge) })
-        }
-        saveProposal?.takeIf { scriptForCurrentPreview?.proposal?.id == it.id && latestDraft != null }?.let { proposal ->
-            com.xiaomanjun.sleepdownschedule.core.ui.designsystem.LiquidAlertDialog(
-                title = "保存为我的适配？",
-                message = "此脚本已在当前网页运行成功并通过格式校验。确认课程、学校名称与登录入口后，可按拾光格式保存在本机，下次直接导入。" +
-                    saveAdapterError?.let { "\n$it" }.orEmpty(),
-                config = config,
-                onDismissRequest = { if (!saveAdapterBusy) EduAdapterSaveProposals.clear(proposal.id) },
-                messageContent = {
-                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                        DialogCapsuleField(saveAdapterName, { saveAdapterName = it.take(80) }, "学校或入口名称", config, enabled = !saveAdapterBusy)
-                        DialogCapsuleField(saveAdapterUrl, { saveAdapterUrl = it.take(4096) }, "教务登录地址", config,
-                            keyboardType = androidx.compose.ui.text.input.KeyboardType.Uri, enabled = !saveAdapterBusy)
-                        Text(if (showScriptSource) "收起脚本" else "查看脚本", style = AiImportTextStyles.Action,
-                            color = textColor, modifier = Modifier.clip(Capsule()).clickable { showScriptSource = !showScriptSource }.padding(10.dp))
-                        if (showScriptSource) SelectionContainer {
-                            Text(proposal.source, color = textColor, style = AiImportTextStyles.Operation,
-                                modifier = Modifier.heightIn(max = 240.dp).verticalScroll(rememberScrollState()))
+        val verified = scriptForCurrentPreview
+        saveProposal?.takeIf { verified?.proposal?.id == it.id && latestDraft != null }?.let { proposal ->
+            if (verified != null && scriptSaveState != null && !scriptSaveState.saving && !scriptSaveState.uploaded) {
+                androidx.compose.runtime.key(proposal.id) {
+                    EduScriptSaveDialog(
+                        initialName = scriptSaveState.savedName ?: proposal.name,
+                        config = config,
+                        onDismiss = { EduAdapterSaveProposals.clear(proposal.id) },
+                        onConfirm = { school ->
+                            EduAdapterSaveProposals.clear(proposal.id)
+                            AiEduScriptUploader.saveAndUploadInBackground(context, verified, school)
                         }
-                    }
-                },
-                scrollableMessageContent = true,
-                actions = listOf(
-                    LiquidAlertAction("暂不保存", LiquidAlertActionStyle.Cancel, enabled = !saveAdapterBusy, onClick = { EduAdapterSaveProposals.clear(proposal.id) }),
-                    LiquidAlertAction(if (saveAdapterBusy) "保存中…" else "保存", LiquidAlertActionStyle.Primary,
-                        enabled = !saveAdapterBusy, dismissOnClick = false, onClick = saveScript@{
-                        if (saveAdapterBusy) return@saveScript
-                        saveAdapterBusy = true
-                        val name = saveAdapterName
-                        val loginUrl = saveAdapterUrl
-                        conversationScope.launch {
-                            runCatching { withContext(Dispatchers.IO) { LocalEduAdapterStore.save(context, name, loginUrl, proposal.source) } }
-                                .onSuccess { EduVerifiedScripts.markSaved(proposal.id); EduAdapterSaveProposals.clear(proposal.id) }
-                                .onFailure { saveAdapterError = it.message ?: "保存失败，请重试" }
-                            saveAdapterBusy = false
-                        }
-                    }))
-            )
+                    )
+                }
+            }
         }
         previewAttachment?.let { request ->
             AiEduAttachmentMorphOverlay(
@@ -1412,6 +1414,10 @@ private fun AiEduInlineImportPreview(
         }
         remember(draft) { importConflictNotice(draft) }?.let {
             Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+        }
+        if (onSaveScript != null) {
+            Text("导入成功后，脚本会保存到我的适配并上传。",
+                color = LocalAiImportTextColors.current.muted, style = AiImportTextStyles.Caption)
         }
         LiquidAlertActions(
             actions = listOf(

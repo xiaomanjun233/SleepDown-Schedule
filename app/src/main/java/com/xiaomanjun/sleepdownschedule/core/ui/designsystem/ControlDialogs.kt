@@ -218,7 +218,9 @@ internal fun ControlPickerDialog(request: PickerDialogRequest, materialScene: Ba
 @Composable
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 internal fun ControlNameDialog(title: String, initialName: String, dark: Boolean, maxLength: Int?,
-    onDismiss: () -> Unit, onConfirm: (String) -> Unit, onDraftChange: (String) -> Unit) {
+    onDismiss: () -> Unit, onConfirm: (String) -> Unit, onDraftChange: (String) -> Unit = {},
+    placeholder: String = "课表名称", message: String? = null, confirmLabel: String = "完成",
+    dismissLabel: String = "取消", requireNonBlank: Boolean = false, autoFocus: Boolean = true) {
     val backdrop = rememberCouiWindowBackdrop()
     val editor = rememberTextFieldState(initialName)
     val draftChange = rememberUpdatedState(onDraftChange)
@@ -239,12 +241,15 @@ internal fun ControlNameDialog(title: String, initialName: String, dark: Boolean
     } } }
     val accent = MaterialTheme.colorScheme.primary.copy(alpha = 1f)
     InputDialog(state = editor, onDismissRequest = { lifetime.close(onDismiss) }, title = title,
-        dark = dark, accent = accent, placeholder = "课表名称", clearContentDescription = "清空课表名称",
-        confirmAction = CouiDialogAction("完成", { lifetime.close { onConfirm(editor.text.toString().trim()) } },
+        dark = dark, accent = accent, placeholder = placeholder, message = message, clearContentDescription = "清空${placeholder}",
+        confirmAction = CouiDialogAction(confirmLabel, {
+            val name = editor.text.toString().trim()
+            if (!requireNonBlank || name.isNotEmpty()) lifetime.close { onConfirm(name) }
+        }, enabled = !requireNonBlank || editor.text.isNotBlank(),
             style = CouiDialogActionStyle.Primary, colors = CouiDialogDefaults.primaryActionColors(accent)),
-        dismissAction = CouiDialogAction("取消", { lifetime.close(onDismiss) }),
+        dismissAction = CouiDialogAction(dismissLabel, { lifetime.close(onDismiss) }),
         colors = CouiDialogDefaults.themeColors(dark), material = dialogMaterial(dark, backdrop),
-        backdrop = backdrop, visible = !lifetime.closed, inputTransformation = transformation,
+        backdrop = backdrop, visible = !lifetime.closed, inputTransformation = transformation, autoFocus = autoFocus,
         onDismissFinished = { lifetime.finished = true })
     return
 }

@@ -23,7 +23,9 @@ internal fun openShiguangPostConnection(
             connection.instanceFollowRedirects = false
             connection.requestMethod = method
             headers.forEach { (key, value) ->
-                if (key.lowercase() !in OmittedPostHeaders && (body != null || !key.equals("Content-Type", true))) {
+                val lower = key.lowercase()
+                val omitRequestedWith = lower == "x-requested-with" && !value.equals("XMLHttpRequest", ignoreCase = true)
+                if (!omitRequestedWith && lower !in OmittedPostHeaders && (body != null || !key.equals("Content-Type", true))) {
                     connection.setRequestProperty(key, value)
                 }
             }
@@ -59,4 +61,4 @@ internal fun openShiguangPostConnection(
     error("Redirect limit exceeded")
 }
 
-private val OmittedPostHeaders = setOf("x-requested-with", "x-webview-post-id", "accept-encoding", "content-length", "cookie")
+private val OmittedPostHeaders = setOf("x-webview-post-id", "accept-encoding", "content-length", "cookie")

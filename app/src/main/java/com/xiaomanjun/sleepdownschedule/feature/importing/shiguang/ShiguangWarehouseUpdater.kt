@@ -4,9 +4,12 @@ import android.content.Context
 import com.xiaomanjun.sleepdownschedule.feature.importing.EduAdapter
 import com.xiaomanjun.sleepdownschedule.feature.importing.ShiguangWarehouse
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -27,8 +30,8 @@ internal fun describeAdapterRefresh(
     after: List<EduAdapter>,
     changed: Boolean
 ): String {
-    val oldIds = before.map { it.school.id to it.adapterId }.toSet()
-    val added = after.filter { (it.school.id to it.adapterId) !in oldIds }
+    val oldKeys = before.map { Triple(it.school.id, it.source, it.adapterId) }.toSet()
+    val added = after.filter { Triple(it.school.id, it.source, it.adapterId) !in oldKeys }
     if (added.isEmpty()) return if (changed) {
         "适配列表已更新，本次没有新增学校或教务入口。"
     } else {
@@ -40,18 +43,47 @@ internal fun describeAdapterRefresh(
 }
 
 internal object ShiguangWarehouseUpdater {
+    const val GITEE_REPO_URL = "https://gitee.com/XingHeYuZhuan-gh/shiguang_warehouse"
+    const val GITHUB_REPO_URL = "https://github.com/XingHeYuZhuan/shiguang_warehouse"
     private const val CacheDirectoryName = "shiguang_warehouse"
     private const val IndexFileName = "school_index.pb"
     private const val PreferencesName = "shiguang_warehouse_metadata"
     private const val LastSuccessfulRefreshKey = "last_successful_refresh"
     private const val IndexShaKey = "index_sha256"
     private const val VersionIdKey = "version_id"
-    private const val IndexUrl =
-        "https://gitee.com/XingHeYuZhuan-gh/shiguang_warehouse/raw/index-pb-release/school_index.pb"
-    private const val ResourceBaseUrl =
-        "https://gitee.com/XingHeYuZhuan-gh/shiguang_warehouse/raw/main/resources/"
+    private const val RepoUrlKey = "repo_url"
+    private const val IndexBranch = "index-pb-release"
+    private const val ResourcesBranch = "main"
+    private const val MaxDownloadBytes = 8L * 1024L * 1024L
     private val RefreshIntervalMillis = TimeUnit.DAYS.toMillis(7)
     private val refreshMutex = Mutex()
+
+    fun getRepoUrl(context: Context): String {
+        val stored = preferences(context).getString(RepoUrlKey, GITEE_REPO_URL).orEmpty().trim()
+        if (stored.isBlank() || stored.contains("com_haooz_account/shiguang_warehouse")) {
+            return GITEE_REPO_URL
+        }
+        return stored.removeSuffix(".git").trimEnd('/')
+    }
+
+    fun setRepoUrl(context: Context, url: String) {
+        val normalized = url.trim().removeSuffix(".git").trimEnd('/')
+            .takeIf { it == GITEE_REPO_URL || it == GITHUB_REPO_URL }
+            ?: GITEE_REPO_URL
+        preferences(context).edit().putString(RepoUrlKey, normalized).apply()
+    }
+
+    fun isGithubSource(context: Context): Boolean =
+        getRepoUrl(context).contains("github.com", ignoreCase = true)
+
+    fun sourceLabel(context: Context): String =
+        if (isGithubSource(context)) "GitHub" else "Gitee"
+
+    private fun indexUrl(context: Context): String =
+        "${getRepoUrl(context)}/raw/$IndexBranch/$IndexFileName"
+
+    private fun resourceBaseUrl(context: Context): String =
+        "${getRepoUrl(context)}/raw/$ResourcesBranch/resources/"
 
     fun cachedIndexFile(context: Context): File = File(cacheRoot(context), IndexFileName)
 
@@ -68,21 +100,58 @@ internal object ShiguangWarehouseUpdater {
             lastSuccessfulRefreshMillis = lastSuccess,
             nowMillis = nowMillis,
             hasValidRemoteIndex = hasValidRemoteIndex(context)
-        )
+        ) || AiDockWarehouseUpdater.isRefreshStale(context, nowMillis)
     }
 
     suspend fun refresh(context: Context): ShiguangRefreshResult = withContext(Dispatchers.IO) {
-        refreshMutex.withLock {
-            refreshLocked(context)
+        val appContext = context.applicationContext
+        val (shiguangOutcome, aiDockOutcome) = coroutineScope {
+            val shiguang = async {
+                runCatching { refreshMutex.withLock { refreshLocked(appContext) } }
+            }
+            val aiDock = async {
+                runCatching { AiDockWarehouseUpdater.refresh(appContext) }
+            }
+            shiguang.await() to aiDock.await()
         }
+        val shiguangResult = shiguangOutcome.getOrNull()
+        val aiDockResult = aiDockOutcome.getOrNull()
+        if (shiguangResult == null && aiDockResult == null) {
+            throw (shiguangOutcome.exceptionOrNull() ?: aiDockOutcome.exceptionOrNull()
+                ?: IOException("双仓库刷新均失败"))
+        }
+        ShiguangRefreshResult(
+            changed = (shiguangResult?.changed == true) || (aiDockResult?.changed == true),
+            adapterCount = (shiguangResult?.adapterCount ?: 0) + (aiDockResult?.adapterCount ?: 0)
+        )
     }
 
     /** Atomically rechecks the seven-day TTL so concurrent page entries cannot queue downloads. */
     suspend fun refreshIfStale(context: Context): ShiguangRefreshResult? = withContext(Dispatchers.IO) {
-        refreshMutex.withLock {
-            if (!isRefreshStale(context)) return@withLock null
-            refreshLocked(context)
+        val appContext = context.applicationContext
+        val (shiguangResult, aiDockResult) = coroutineScope {
+            val shiguang = async {
+                runCatching {
+                    refreshMutex.withLock {
+                        if (!shouldRefresh(
+                                lastSuccessfulRefreshMillis = preferences(appContext).getLong(LastSuccessfulRefreshKey, 0L),
+                                nowMillis = System.currentTimeMillis(),
+                                hasValidRemoteIndex = hasValidRemoteIndex(appContext)
+                            )
+                        ) null else refreshLocked(appContext)
+                    }
+                }.getOrNull()
+            }
+            val aiDock = async {
+                runCatching { AiDockWarehouseUpdater.refreshIfStale(appContext) }.getOrNull()
+            }
+            shiguang.await() to aiDock.await()
         }
+        if (shiguangResult == null && aiDockResult == null) return@withContext null
+        ShiguangRefreshResult(
+            changed = (shiguangResult?.changed == true) || (aiDockResult?.changed == true),
+            adapterCount = (shiguangResult?.adapterCount ?: 0) + (aiDockResult?.adapterCount ?: 0)
+        )
     }
 
     internal fun shouldRefresh(
@@ -117,7 +186,14 @@ internal object ShiguangWarehouseUpdater {
                 val encodedPath = relativePath.split('/').joinToString("/") { segment ->
                     URLEncoder.encode(segment, Charsets.UTF_8.name()).replace("+", "%20")
                 }
-                val bytes = download(ResourceBaseUrl + encodedPath)
+                val bytes = runCatching {
+                    downloadWithAntiHotlink(resourceBaseUrl(context) + encodedPath, MaxDownloadBytes)
+                }.getOrElse { error ->
+                    if (target.isFile && !isGiteeAntiHotlinkPage(target.readBytes())) {
+                        return@withLock target.readText(Charsets.UTF_8)
+                    }
+                    throw error
+                }
                 require(bytes.isNotEmpty()) { "远端拾光脚本为空：$relativePath" }
                 atomicWrite(target, bytes)
                 bytes.toString(Charsets.UTF_8)
@@ -163,7 +239,7 @@ internal object ShiguangWarehouseUpdater {
         context.applicationContext.getSharedPreferences(PreferencesName, Context.MODE_PRIVATE)
 
     private fun refreshLocked(context: Context): ShiguangRefreshResult {
-        val bytes = download(IndexUrl)
+        val bytes = downloadWithAntiHotlink(indexUrl(context), MaxDownloadBytes)
         val snapshot = ShiguangWarehouse.parseProtocolV2Snapshot(bytes)
         val previousSha = preferences(context).getString(IndexShaKey, null)
         atomicWrite(cachedIndexFile(context), bytes)
@@ -179,29 +255,34 @@ internal object ShiguangWarehouseUpdater {
         )
     }
 
-    private fun download(url: String): ByteArray {
-        val connection = URL(url).openConnection() as HttpURLConnection
-        connection.useCaches = false
-        connection.setRequestProperty("Cache-Control", "no-cache")
-        return try {
-            connection.connectTimeout = 12_000
-            connection.readTimeout = 20_000
-            // Gitee's stable repository URL responds with 302 and a short-lived signed
-            // raw.giteeusercontent.com URL. Following that HTTPS redirect is required for both
-            // the protocol-v2 index and adapter scripts; the signed destination must not be
-            // persisted because Gitee rotates it.
-            connection.instanceFollowRedirects = true
-            connection.setRequestProperty("Accept", "application/octet-stream, text/javascript, */*")
-            connection.setRequestProperty("User-Agent", "SleepDown-Schedule/ShiguangWarehouse")
-            val status = connection.responseCode
-            if (status !in 200..299) throw IOException("拾光仓库请求失败：HTTP $status")
-            connection.inputStream.use { it.readBytes() }
-        } finally {
-            connection.disconnect()
+    internal fun downloadWithAntiHotlink(url: String, maxBytes: Long): ByteArray {
+        var currentUrl = url
+        repeat(2) { attempt ->
+            val bytes = download(currentUrl, maxBytes)
+            if (bytes.isEmpty()) throw IOException("仓库响应为空")
+            if (attempt == 0 && isGiteeAntiHotlinkPage(bytes)) {
+                currentUrl = extractGiteeSignedUrl(bytes)
+                    ?: throw IOException("无法解析 Gitee 防盗链签名链接")
+                return@repeat
+            }
+            return bytes
         }
+        throw IOException("Gitee 防盗链跳转次数过多")
     }
 
-    private fun atomicWrite(target: File, bytes: ByteArray) {
+    internal fun isGiteeAntiHotlinkPage(bytes: ByteArray): Boolean {
+        if (bytes.isEmpty() || bytes.size > 1024) return false
+        val head = bytes.toString(Charsets.UTF_8).trimStart()
+        return head.startsWith("<") && head.contains("raw.giteeusercontent.com")
+    }
+
+    internal fun extractGiteeSignedUrl(bytes: ByteArray): String? {
+        val html = bytes.toString(Charsets.UTF_8)
+        val match = Regex("href=\"([^\"]+)\"").find(html) ?: return null
+        return match.groupValues[1].replace("&amp;", "&")
+    }
+
+    internal fun atomicWrite(target: File, bytes: ByteArray) {
         target.parentFile?.mkdirs()
         val temporary = File(target.parentFile, ".${target.name}.tmp")
         try {
@@ -220,4 +301,39 @@ internal object ShiguangWarehouseUpdater {
         }
     }
 
+    private fun download(url: String, maxBytes: Long): ByteArray {
+        val connection = URL(url).openConnection() as HttpURLConnection
+        connection.useCaches = false
+        connection.setRequestProperty("Cache-Control", "no-cache")
+        return try {
+            connection.connectTimeout = 15_000
+            connection.readTimeout = 25_000
+            // Gitee's stable repository URL responds with 302 and a short-lived signed
+            // raw.giteeusercontent.com URL. Following that HTTPS redirect is required for both
+            // the protocol-v2 index and adapter scripts; the signed destination must not be
+            // persisted because Gitee rotates it.
+            connection.instanceFollowRedirects = true
+            connection.setRequestProperty("Accept", "application/octet-stream, text/javascript, application/json, */*")
+            connection.setRequestProperty("User-Agent", "SleepDown-Schedule/ShiguangWarehouse")
+            val status = connection.responseCode
+            if (status !in 200..299) throw IOException("仓库请求失败：HTTP $status")
+            connection.inputStream.use { input ->
+                val out = ByteArrayOutputStream()
+                val buf = ByteArray(8192)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buf)
+                    if (read < 0) break
+                    total += read
+                    if (total > maxBytes) {
+                        throw IOException("仓库响应超过大小限制 (${maxBytes / 1024} KiB)")
+                    }
+                    out.write(buf, 0, read)
+                }
+                out.toByteArray()
+            }
+        } finally {
+            connection.disconnect()
+        }
+    }
 }

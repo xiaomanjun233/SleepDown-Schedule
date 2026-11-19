@@ -48,6 +48,9 @@ internal object AiImportRepairManager {
             attempt: Int
         ) -> Result<AiScheduleImportResult>
     ): Result<AiImportRepairSuccess> {
+        initialResult.verifiedEduDraft?.let {
+            return Result.success(AiImportRepairSuccess(it, initialResult, repairAttempts = 0))
+        }
         var currentResult = initialResult
         var currentOutput = currentResult.output.ifBlank { currentResult.rawOutput }
         var parseResult = ScheduleImportParser.parseAiResponse(currentOutput, scheduleConfig)

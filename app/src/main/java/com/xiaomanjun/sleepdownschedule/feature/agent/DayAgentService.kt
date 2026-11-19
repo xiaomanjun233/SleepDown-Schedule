@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.agent
 
 import com.xiaomanjun.sleepdownschedule.core.ai.AgentHarness
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaKind
 
 import com.xiaomanjun.sleepdownschedule.feature.importing.*
 
@@ -407,12 +408,17 @@ class DayAgentService(
         answerConstraint: (String) -> String? = { null },
         importWorkspace: AgentImportWorkspace? = null,
         imageAttachments: List<AgentImageAttachment> = emptyList(),
-        sourceWorkspace: AiMaterialWorkspace? = null
+        sourceWorkspace: AiMaterialWorkspace? = null,
+        quotaActionId: String? = null
     ): String = withContext(Dispatchers.IO) {
         val attachments = listOfNotNull(imageAttachment) + imageAttachments
         val settings = settingsOverride ?: AiImportSettingsStore.loadForRuntime(context)
             ?: AiImportSettingsStore.load(context)
+        val quotaKind = if (importWorkspace != null) FreeAiQuotaKind.IMPORT else FreeAiQuotaKind.CHAT
+        val actionId = quotaActionId ?: UUID.randomUUID().toString()
         withManagedAiFailover(context, settings, requiresVision = attachments.isNotEmpty(),
+            quotaKind = quotaKind,
+            quotaActionId = actionId,
             onSwitch = { onStatus(AgentRunStatus(AgentRunStatusIcon.THINKING, "正在切换备用配置", it.profile.defaultModel)) }
         ) { candidate, attempt ->
             interaction?.checkActive()
@@ -585,7 +591,7 @@ class DayAgentService(
             if (memoryEnabled && savedMemory.isNotBlank()) {
                 add(agentTextMessage("user", agentMemoryContext(savedMemory)))
             }
-            compactAgentHistory(history).forEach { message ->
+            agentConversationHistory(history).forEach { message ->
                 add(
                     agentTextMessage(
                         if (message.role == "assistant") "assistant" else "user",
@@ -610,6 +616,8 @@ class DayAgentService(
                     cachedResults = cachedFacts,
                     validateAnswer = ::validateAnswer,
                     telemetry = telemetry,
+                    harness = harness,
+                    turnTools = turnTools,
                     importWorkspace = importWorkspace != null,
                     acceptSteering = ::acceptInputs
                 )
@@ -1008,7 +1016,7 @@ class DayAgentRepository(private val context: Context) {
             }
             previousAccepted?.invoke(input)
         }
-        val history = dao.getRecentMessages(scheduleId, facts.date.toString(), 20).reversed()
+        val history = dao.getReadySessionMessages(scheduleId, facts.date.toString())
         /*
          * UI facts deliberately stay cheap. Rich period-scheme facts are read here, immediately
          * before the model turn, so GET_PERIODS always reflects the active schedule's persisted
@@ -1113,43 +1121,33 @@ internal fun orphanedAgentAttachmentNames(
     ManagedAgentAttachmentName.matches(fileName) && fileName !in referencedNames
 }
 
-internal fun compactAgentHistory(history: List<AgentMessageEntity>): List<AgentMessageEntity> {
-    /*
-     * Only the immediately preceding successful exchange is sent back to the model. Selecting a
-     * real user/assistant pair matters after retries: two failed user turns must never become the
-     * next request's synthetic conversation history.
-     */
+private val AgentConversationPrivateBlocks = Regex(
+    """<(think|agent_actions)\s*>[\s\S]*?(?:</\1\s*>|$)""",
+    RegexOption.IGNORE_CASE
+)
+
+internal fun agentConversationHistory(history: List<AgentMessageEntity>): List<AgentMessageEntity> {
     val ready = history
         .filter { it.status == "READY" && it.role in setOf("user", "assistant") }
-        .sortedBy { it.createdAt }
-    val assistantIndex = ready.indexOfLast { it.role == "assistant" }
-    if (assistantIndex < 0) return emptyList()
-    val previousAssistant = ready.subList(0, assistantIndex).indexOfLast { it.role == "assistant" }
-    val users = ready.subList(previousAssistant + 1, assistantIndex).filter { it.role == "user" }
-    if (users.isEmpty()) return emptyList()
-    val assistant = ready[assistantIndex]
-    return (users + assistant)
-        .mapNotNull { message ->
-            val stored = parseAgentStoredMessage(parseAgentMessageContent(message.content).text)
-            val clean = sanitizeAgentToolOutput(stored.content)
-                .replace(
-                    Regex(
-                        "<think\\s*>[\\s\\S]*?(?:</think\\s*>|$)",
-                        RegexOption.IGNORE_CASE
-                    ),
-                    ""
-                )
-                .replace(
-                    Regex(
-                        "<agent_actions\\s*>[\\s\\S]*?(?:</agent_actions\\s*>|$)",
-                        RegexOption.IGNORE_CASE
-                    ),
-                    ""
-                )
-                .trim()
-                .take(if (message.role == "user") 6_000 else 4_000)
-            clean.takeIf(String::isNotBlank)?.let { message.copy(content = it) }
+        .sortedWith(compareBy<AgentMessageEntity> { it.createdAt }.thenBy { it.id })
+    val conversation = mutableListOf<AgentMessageEntity>()
+    val users = mutableListOf<AgentMessageEntity>()
+    ready.forEach { message ->
+        if (message.role == "user") users += message
+        else if (users.isNotEmpty()) {
+            conversation += users
+            conversation += message
+            users.clear()
         }
+    }
+    return conversation.mapNotNull { message ->
+        val text = parseAgentMessageContent(message.content).text
+        val clean = if (message.role == "user") text else
+            sanitizeAgentToolOutput(parseAgentStoredMessage(text).content)
+                .replace(AgentConversationPrivateBlocks, "")
+                .trim()
+        clean.takeIf(String::isNotBlank)?.let { message.copy(content = it) }
+    }
 }
 
 /**

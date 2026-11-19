@@ -56,6 +56,7 @@ import com.xiaomanjun.sleepdownschedule.glass.GlassBackdropDomain
 import com.xiaomanjun.sleepdownschedule.glass.couiTransparentButtonMaterial
 import com.xiaomanjun.sleepdownschedule.glass.glassBackdropProducer
 import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
+import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
 
 /** 关于页保留版本入口，更新和历史日志交给独立的全屏页面。 */
 @Composable
@@ -126,13 +127,17 @@ internal fun ColorOsAboutSettingsScreen(
                         leadingIcon = githubIcon, leadingIconTint = Color(0xFFFF9500), minHeight = 52.dp,
                         onClick = { open(MiuixUrl) })
                     SettingsDivider(startIndent = 56.dp)
-                    SettingsNavigationRow("COUI-Kit", "ItosEO · MPL 2.0",
+                    SettingsNavigationRow(VisualEffectMode.ColorOsGlow.label, "COUI-Kit · ItosEO · MPL 2.0",
                         leadingIcon = githubIcon, leadingIconTint = Color(0xFF5856D6), minHeight = 52.dp,
-                        onClick = { open("https://github.com/ItosEO/COUI-Kit") })
+                        onClick = { open(CouiKitUrl) })
                     SettingsDivider(startIndent = 56.dp)
                     SettingsNavigationRow("shiguang_warehouse", "XingHeYuZhuan · 教务适配",
                         leadingIcon = githubIcon, leadingIconTint = Color(0xFF34C759), minHeight = 52.dp,
                         onClick = { open(ShiguangWarehouseUrl) })
+                    SettingsDivider(startIndent = 56.dp)
+                    SettingsNavigationRow("AI 教务适配仓库", "edu-ai-dock · 与 Nexio 课程表共用",
+                        leadingIcon = githubIcon, leadingIconTint = colors.accentOnSurface, minHeight = 52.dp,
+                        onClick = { open(AiEduWarehouseUrl) })
                 }
             }
         }

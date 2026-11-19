@@ -2,8 +2,16 @@ package com.xiaomanjun.sleepdownschedule.feature.agent
 
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaBucket
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaKind
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaStore
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiImportSettingsStore
+import com.xiaomanjun.sleepdownschedule.feature.importing.AiProviderPresets
 import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 
@@ -18,7 +26,8 @@ internal fun rememberDayAgentPresentation(
     weatherPermissionGranted: Boolean,
     hasApiKey: Boolean,
     showApiKeyHint: Boolean,
-    focusOverride: AgentCourseSlot? = null
+    focusOverride: AgentCourseSlot? = null,
+    assistantStatusHint: String? = null
 ): DayAgentPresentation {
     val now = facts.now
     val date = facts.date
@@ -96,7 +105,7 @@ internal fun rememberDayAgentPresentation(
     val weatherAlertText = weather?.let(::weatherAlertText)
     val assistantHintText = if (weatherAlertText == null) {
         when {
-            hasApiKey -> "点击卡片和助手对话"
+            hasApiKey -> assistantStatusHint ?: "点击卡片和助手对话"
             showApiKeyHint -> "绑定 API Key 后可以启用更多智慧功能"
             else -> null
         }
@@ -132,4 +141,26 @@ internal fun rememberDayAgentPresentation(
     }
 
     return DayAgentPresentation(cardVisual, activityAccent, conversationInitialText)
+}
+
+@Composable
+internal fun rememberFreeAiChatCardHint(hasApiKey: Boolean): String? {
+    val context = LocalContext.current
+    val aiVersion by AiImportSettingsStore.changes.collectAsStateWithLifecycle()
+    val quotaState by FreeAiQuotaStore.state.collectAsStateWithLifecycle()
+    val isManagedFree = remember(aiVersion, hasApiKey) {
+        hasApiKey && AiProviderPresets.isManagedFreeId(
+            (AiImportSettingsStore.loadForRuntime(context) ?: AiImportSettingsStore.load(context)).profile.id
+        )
+    }
+    if (!isManagedFree) return null
+    val effective = quotaState ?: remember(isManagedFree) { FreeAiQuotaStore.current(context) }
+    val bucket = effective?.bucket(FreeAiQuotaKind.CHAT) ?: return null
+    return freeAiChatCardHint(bucket)
+}
+
+internal fun freeAiChatCardHint(bucket: FreeAiQuotaBucket): String? = when {
+    bucket.isPaused -> "免费 AI 对话暂未开放 · 点击配置 Key"
+    bucket.isExhausted -> "今日免费对话已用完 · 点击配置 Key"
+    else -> null
 }

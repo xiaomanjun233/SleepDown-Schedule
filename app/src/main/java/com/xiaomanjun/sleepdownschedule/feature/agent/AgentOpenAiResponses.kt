@@ -58,6 +58,8 @@ internal class OpenAiResponsesAgentRunner(
         cachedResults: Map<String, AgentToolResult> = emptyMap(),
         validateAnswer: (String) -> String? = { null },
         telemetry: DayAgentTurnTelemetry,
+        harness: AgentHarness = AgentHarness(MaxAgentToolRounds, checkActive = { interaction?.checkActive() }),
+        turnTools: AgentTurnToolSession = AgentTurnToolSession(cachedResults, harness, executeTool),
         importWorkspace: Boolean = false,
         acceptSteering: () -> List<AgentTaskInput> = { interaction?.acceptSteering().orEmpty() }
     ): String {
@@ -71,8 +73,6 @@ internal class OpenAiResponsesAgentRunner(
             .toMutableList()
         val completedOneShotTools = cachedTools.toMutableSet()
         val evidenceKeys = mutableSetOf<String>()
-        val harness = AgentHarness(MaxAgentToolRounds, checkActive = { interaction?.checkActive() })
-        val turnTools = AgentTurnToolSession(cachedResults, harness, executeTool)
         var outputRetryRequested = false
         var validationRepairs = 0
         var toolAvailabilityRetryRequested = false
@@ -290,8 +290,8 @@ internal class OpenAiResponsesAgentRunner(
         put("stream", stream)
         put("instructions", instructions)
         val policy = com.xiaomanjun.sleepdownschedule.core.ai.AgentContextPolicy(settings.profile.contextWindowTokens)
-        val projection = policy.compactResponses(input)
-        require(policy.estimatedTokens(JsonArray(projection)) <= policy.inputBudget) { "上下文已超过本轮预算，请缩小任务范围；未自动删除用户要求" }
+        val projection = policy.project(input, responses = true).messages
+        policy.requireFits(projection)
         put("input", JsonArray(projection))
         put("reasoning", buildJsonObject {
             put("effort", if (isOfficialMimoEndpoint(settings.profile.baseUrl)) mimoResponsesEffort(reasoningEffort) else reasoningEffort.apiValue)

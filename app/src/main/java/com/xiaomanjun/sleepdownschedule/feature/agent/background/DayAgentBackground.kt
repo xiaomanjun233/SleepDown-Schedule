@@ -1,6 +1,7 @@
 package com.xiaomanjun.sleepdownschedule.feature.agent.background
 
 import com.xiaomanjun.sleepdownschedule.core.identity.applyAppNotificationIcon
+import com.xiaomanjun.sleepdownschedule.data.ai.isFreeAiQuotaExceeded
 import com.xiaomanjun.sleepdownschedule.*
 import com.xiaomanjun.sleepdownschedule.feature.agent.*
 
@@ -28,7 +29,8 @@ internal data class DayAgentBackgroundRunState(
     val running: Boolean = false,
     val streamingText: String = "",
     val statuses: List<AgentRunStatus> = emptyList(),
-    val error: String? = null
+    val error: String? = null,
+    val quotaExceeded: Boolean = false
 )
 
 /**
@@ -206,7 +208,8 @@ internal object DayAgentRunCoordinator {
                         it.copy(
                             running = false,
                             streamingText = "",
-                            error = failure.message ?: "模型回复失败"
+                            error = failure.message ?: "模型回复失败",
+                            quotaExceeded = failure.isFreeAiQuotaExceeded()
                         )
                     }
                     runCatching {

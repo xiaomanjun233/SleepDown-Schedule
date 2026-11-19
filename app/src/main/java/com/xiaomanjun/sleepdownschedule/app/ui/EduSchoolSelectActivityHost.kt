@@ -375,6 +375,8 @@ internal fun UnifiedImportPage(
                     backdrop = backdrop,
                     warehouseGeneration = warehouseGeneration,
                     listHeader = importTabs.takeIf { unifiedImport },
+                    onRequestRefresh = { refreshWarehouse(manual = true) },
+                    repoSourceEnabled = !warehouseRefreshing,
                     onSelect = { adapter ->
                         context.findActivity()?.let { activity ->
                             ActivityTransitionCoordinator.openImmediate(

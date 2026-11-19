@@ -72,8 +72,7 @@ internal class AgentHarness(
     fun <T> tool(id: String, name: String, fingerprint: String, conflict: () -> T,
                  expired: () -> T = conflict, execute: () -> T): T {
         ensureActive()
-        val key = if (maxSteps == null) MessageDigest.getInstance("SHA-256")
-            .digest(fingerprint.toByteArray()).toHexString() else fingerprint
+        val key = MessageDigest.getInstance("SHA-256").digest(fingerprint.toByteArray()).toHexString()
         if (id.isNotBlank()) receipts[id]?.let { previous ->
             if (previous.fingerprint != key) return conflict()
             emit(Phase.TOOL_REPLAYED, name)

@@ -3,6 +3,13 @@ package com.xiaomanjun.sleepdownschedule.core.remoteconfig
 import kotlinx.serialization.Serializable
 
 @Serializable
+data class RemoteAiQuotaPolicy(
+    val chatDailyLimit: Long,
+    val importDailyLimit: Long,
+    val timezone: String = "Asia/Shanghai"
+)
+
+@Serializable
 data class RemoteBootstrap(
     val schemaVersion: Int,
     val serverTime: Long,
@@ -11,7 +18,8 @@ data class RemoteBootstrap(
     val ai: RemoteAiConfig? = null,
     val donations: RemoteDonationSection = RemoteDonationSection(),
     val transitions: RemoteTransitionConfig = RemoteTransitionConfig(),
-    val aiConfigs: List<RemoteAiConfig>? = null
+    val aiConfigs: List<RemoteAiConfig>? = null,
+    val aiQuota: RemoteAiQuotaPolicy? = null
 )
 
 /** A missing pool is a legacy server; an explicitly empty pool revokes all managed routes. */

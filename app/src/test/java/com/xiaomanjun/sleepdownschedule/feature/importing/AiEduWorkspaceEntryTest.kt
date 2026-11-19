@@ -26,13 +26,10 @@ class AiEduWorkspaceEntryTest {
         for (responses in listOf(false, true)) {
             val interaction = AiImportInteraction("保留原有周次")
             try {
-                val edu = AiEduWorkspace(app, webView, bridge, defaultConfig(), defaultPeriods(), false) { true }
+                val edu = AiEduWorkspace(app, webView, bridge, defaultConfig(), defaultPeriods()) { true }
                 AiMaterialWorkspace.fromPages("教务网页", "课表入口", emptyList()).use { materials ->
                     materials.taskWorkspace = AiTaskWorkspace(app, edu)
-                    checkNotNull(materials.taskWorkspace?.eduEvidence).apply {
-                        recordPageRead()
-                        recordInterfaceAttempt()
-                    }
+                    val evidence = checkNotNull(materials.taskWorkspace?.eduEvidence)
                     val config = AiProviderConfig("fixture", "fixture", "placeholder", "https://fixture.invalid/v1", "fixture",
                         if (responses) AiEndpointStyle.RESPONSES else AiEndpointStyle.CHAT_COMPLETIONS,
                         StructuredOutputMode.PROMPT_ONLY, false, false, false, responses, AiInputMode.AUTO,
@@ -71,8 +68,13 @@ class AiEduWorkspaceEntryTest {
                         if (wire.contains("completed_tool_context")) compacted = true
                         if (reads == 4) assertTrue(compacted)
                         reads++
-                        if (reads <= 15) fixtureTool(responses, reads, ReadImportMaterialTool, """{"file":1,"page":0,"offset":0}""")
-                        else fixtureTool(responses, reads, ScheduleImportToolName, """{"courses":[]}""")
+                        if (reads == 16) {
+                            evidence.recordVerifiedScriptDraft(CanonicalScheduleJson.decode(
+                                """{"courses":[{"name":"课程","teacher":"","position":"","day":1,"startSection":1,"endSection":1,"weeks":[1]}]}""",
+                                defaultConfig(), defaultPeriods()
+                            ))
+                        }
+                        fixtureTool(responses, reads, ReadImportMaterialTool, """{"file":1,"page":0,"offset":0}""")
                     }
                     assertEquals(16, reads)
                     assertTrue(serverRejected && compacted)
@@ -103,16 +105,15 @@ class AiEduWorkspaceEntryTest {
         }) })
     }.toString()
 
-    @Test fun prematureImportIsReturnedToTheWorkspaceInBothProtocolsWithoutLosingCallPairing() {
+    @Test fun directImportIsRejectedInBothProtocolsWithoutLosingCallPairing() {
         val app = RuntimeEnvironment.getApplication()
         val webView = WebView(app).apply { loadUrl("https://fixture.invalid/portal") }
         val bridge = ShiguangBridgeHost({}, {}, {})
         try {
             for (responses in listOf(false, true)) {
-                val edu = AiEduWorkspace(app, webView, bridge, defaultConfig(), defaultPeriods(), false) { true }
+                val edu = AiEduWorkspace(app, webView, bridge, defaultConfig(), defaultPeriods()) { true }
                 AiMaterialWorkspace.fromPages("教务工作区", eduWorkspaceEntryText("https://fixture.invalid/portal", "教务门户"), emptyList()).use { materials ->
                     materials.taskWorkspace = AiTaskWorkspace(app, edu)
-                    val evidence = checkNotNull(materials.taskWorkspace?.eduEvidence)
                     val endpoint = if (responses) AiEndpointStyle.RESPONSES else AiEndpointStyle.CHAT_COMPLETIONS
                     val config = AiProviderConfig("fixture", "fixture", "placeholder", "https://fixture.invalid/v1", "fixture",
                         endpoint, StructuredOutputMode.PROMPT_ONLY, false, false, false, responses, AiInputMode.AUTO, AiReasoningEffort.NONE)
@@ -122,29 +123,28 @@ class AiEduWorkspaceEntryTest {
                         put("tools", buildJsonArray { add(if (responses) scheduleImportResponsesTool() else scheduleImportChatTool()) })
                     }
                     var requests = 0
-                    val result = requestScheduleImport(config, initial, AiImportNetworkContext("EDU_WORKSPACE", materials = materials)) { request, _ ->
+                    assertThrows(AiImportClarificationRequired::class.java) {
+                        requestScheduleImport(config, initial, AiImportNetworkContext("EDU_WORKSPACE", materials = materials)) { request, _ ->
                         requests++
                         val names = request.getValue("tools").jsonArray.map { raw ->
                             val item = raw.jsonObject
                             (if (responses) item else item.getValue("function").jsonObject).getValue("name").jsonPrimitive.content
                         }
                         assertTrue(EduWorkspaceTool in names && TaskWorkspaceTool in names)
+                        assertTrue(names.containsAll(EduPrimaryTools))
                         assertFalse(ReadImportMaterialTool in names)
-                        assertTrue(request.toString().contains("交互式教务调查工作区"))
-                        if (requests == 2) {
+                        assertFalse(ScheduleImportToolName in names)
+                        assertTrue(request.toString().contains("目标学期完整课表"))
+                        if (requests > 1) {
                             val history = request.getValue(key).jsonArray
-                            assertTrue(history.any { item -> item.jsonObject[if (responses) "call_id" else "tool_call_id"]?.jsonPrimitive?.contentOrNull == "submit1" })
-                            assertTrue(request.toString().contains("候选课表未被接受"))
-                            // Simulate completed host investigation; policy behavior is tested separately.
-                            evidence.recordPageRead()
-                            evidence.recordInterfaceAttempt()
+                            assertTrue(history.any { item -> item.jsonObject[if (responses) "call_id" else "tool_call_id"]?.jsonPrimitive?.contentOrNull == "call-${requests - 1}" })
+                            assertTrue(request.toString().contains("此教务任务以实际脚本试跑结果生成预览"))
                         }
-                        val callId = "submit$requests"
-                        if (responses) """{"status":"completed","output":[{"type":"function_call","call_id":"$callId","name":"IMPORT_SCHEDULE","arguments":"{\"courses\":[]}"}]}"""
-                        else """{"choices":[{"finish_reason":"tool_calls","message":{"role":"assistant","content":"","tool_calls":[{"id":"$callId","type":"function","function":{"name":"IMPORT_SCHEDULE","arguments":"{\"courses\":[]}"}}]}}]}"""
+                        if (requests <= 2) fixtureTool(responses, requests, ScheduleImportToolName, """{"courses":[]}""")
+                        else fixtureTool(responses, requests, "ASK_IMPORT_DETAILS", """{"questions":["第一节几点上课？"]}""")
+                        }
                     }
-                    assertEquals(2, requests)
-                    assertTrue(result.content.contains("courses"))
+                    assertEquals(3, requests)
                 }
             }
         } finally { bridge.close(); webView.destroy() }

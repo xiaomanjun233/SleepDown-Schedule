@@ -130,6 +130,8 @@ import com.xiaomanjun.sleepdownschedule.AppState
 import com.xiaomanjun.sleepdownschedule.ScheduleConfigEntity
 import com.xiaomanjun.sleepdownschedule.MainActivity
 import com.xiaomanjun.sleepdownschedule.R
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaKind
+import com.xiaomanjun.sleepdownschedule.data.ai.FreeAiQuotaStore
 import com.xiaomanjun.sleepdownschedule.core.ui.designsystem.SleepDownDesignTokens
 import com.xiaomanjun.sleepdownschedule.core.ui.interaction.deviceScreenCornerRadiusPx
 import com.xiaomanjun.sleepdownschedule.domain.agent.AgentActionHandler
@@ -171,6 +173,7 @@ import com.xiaomanjun.sleepdownschedule.glass.ui.rememberTopAssistantMotion
 import com.xiaomanjun.sleepdownschedule.glass.ui.topAssistantBezierSpec
 import com.xiaomanjun.sleepdownschedule.glass.ui.topAssistantCameraReturnRect
 import com.xiaomanjun.sleepdownschedule.glass.ui.topAssistantMorphRect
+import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedAction
 import com.xiaomanjun.sleepdownschedule.model.agent.AgentValidatedActionType
 import com.xiaomanjun.sleepdownschedule.transition.legacy.BACKGROUND_EXIT_DURATION
 import com.xiaomanjun.sleepdownschedule.transition.legacy.BACKGROUND_OPEN_DURATION
@@ -263,6 +266,13 @@ internal fun DayAgentConversationDialog(
     var agentAiSettings by remember(dialogContext) {
         mutableStateOf(AiImportSettingsStore.load(dialogContext))
     }
+    val freeAiQuotaState by FreeAiQuotaStore.state.collectAsStateWithLifecycle()
+    val effectiveFreeAiQuota = freeAiQuotaState ?: remember(dialogContext) {
+        FreeAiQuotaStore.current(dialogContext)
+    }
+    val isManagedFreeAi = AiProviderPresets.isManagedFreeId(agentAiSettings.profile.id)
+    val freeChatQuotaBucket = if (isManagedFreeAi) effectiveFreeAiQuota?.bucket(FreeAiQuotaKind.CHAT) else null
+    val freeChatExhausted = freeChatQuotaBucket?.isExhausted == true
     val runtimePickerState = rememberAiRuntimePickerState()
     val providerName = agentAiSettings.profile.displayName
     val attachmentUploadEnabled = AiProviderPresets.supportsImageInput(agentAiSettings.profile)
@@ -1276,8 +1286,63 @@ internal fun DayAgentConversationDialog(
                                    )
                               }
                           }
+                         val openAiSettings = {
+                             dismissAnimated {
+                                 onAgentAction(
+                                     AgentPlan(
+                                         listOf(
+                                             AgentValidatedAction(
+                                                 type = AgentValidatedActionType.OPEN_SETTINGS,
+                                                 settingsPage = "AI_IMPORT",
+                                                 summary = "配置自己的 API Key"
+                                             )
+                                         )
+                                     )
+                                 ) {}
+                             }
+                         }
                          (error ?: attachmentError)?.let { message ->
-                             item { Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium) }
+                             item {
+                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                     Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelMedium)
+                                     if (error != null && (backgroundRun.quotaExceeded || freeChatExhausted)) {
+                                         AgentOperationLiquidButton(
+                                             text = "配置自己的 API Key",
+                                             backdrop = backdrop,
+                                             config = state.config,
+                                             destructive = false,
+                                             applied = false,
+                                             modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false },
+                                             onClick = openAiSettings
+                                         )
+                                     }
+                                 }
+                             }
+                         }
+                         if (error == null && !sending && isManagedFreeAi && freeChatExhausted) {
+                             item {
+                                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                     val exhaustedHint = if (freeChatQuotaBucket?.isPaused == true) {
+                                         "每日免费 AI 对话暂未开放，可在下方切换模型或配置自己的 API Key。"
+                                     } else {
+                                         "今日免费 AI 对话次数已用完（${freeChatQuotaBucket?.limit ?: 0}/${freeChatQuotaBucket?.limit ?: 0}），明天 00:00 自动重置，也可切换模型或配置自己的 API Key。"
+                                     }
+                                     Text(
+                                         exhaustedHint,
+                                         color = foreground.copy(alpha = 0.78f),
+                                         style = MaterialTheme.typography.labelMedium
+                                     )
+                                     AgentOperationLiquidButton(
+                                         text = "配置自己的 API Key",
+                                         backdrop = backdrop,
+                                         config = state.config,
+                                         destructive = false,
+                                         applied = false,
+                                         modifier = Modifier.fillMaxWidth().graphicsLayer { clip = false },
+                                         onClick = openAiSettings
+                                     )
+                                 }
+                             }
                          }
                      }
                  }
@@ -1343,19 +1408,22 @@ internal fun DayAgentConversationDialog(
                       radiusFadeStart = 0.10f,
                       fallbackTintStops = listOf(0f to Color.Black.copy(alpha = 0.10f), 1f to Color.Transparent)
                   )
-                  if (homePresentation) Box(
-                      Modifier.align(Alignment.TopEnd).padding(
-                          top = adaptiveMetrics.safeTop + (homeTopBarHeight - 48.dp) / 2f,
-                          end = SleepDownDesignTokens.SecondaryPage.HorizontalPadding - (48.dp - homeWindowButtonSize) / 2f
-                      )
-                  ) {
-                      AgentWindowIconButton(
-                          backdrop = homeFinishedBackdrop, config = state.config, collapse = true,
-                          onClick = { keyboard?.hide(); homeFullScreen = false }
-                      )
+                  if (homePresentation) {
+                      Box(
+                          Modifier.align(Alignment.TopEnd).padding(
+                              top = adaptiveMetrics.safeTop + (homeTopBarHeight - 48.dp) / 2f,
+                              end = SleepDownDesignTokens.SecondaryPage.HorizontalPadding - (48.dp - homeWindowButtonSize) / 2f
+                          )
+                      ) {
+                          AgentWindowIconButton(
+                              backdrop = homeFinishedBackdrop, config = state.config, collapse = true,
+                              onClick = { keyboard?.hide(); homeFullScreen = false }
+                          )
+                      }
                   }
                   else Row(
-                      Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically
+                      Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+                      verticalAlignment = Alignment.CenterVertically
                   ) {
                       Row(
                           modifier = Modifier.weight(1f),

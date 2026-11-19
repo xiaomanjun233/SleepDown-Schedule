@@ -7,7 +7,6 @@ import androidx.core.content.edit
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
-import android.webkit.CookieManager
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URL
@@ -22,7 +21,6 @@ data class EduLoginHistoryEntry(
     val adapterId: String,
     val title: String,
     val url: String,
-    val cookie: String,
     val updatedAt: Long
 )
 
@@ -48,41 +46,55 @@ object EduLoginHistoryStore {
                             adapterId = item.optString("adapterId"),
                             title = item.optString("title"),
                             url = item.getString("url"),
-                            cookie = item.optString("cookie"),
                             updatedAt = item.optLong("updatedAt")
                         )
                     )
                 }
-            }
+            }.filter { shouldRememberUrl(it.url) }
         }.getOrDefault(emptyList())
     }
 
-    fun remember(context: Context, adapter: EduAdapter, url: String, cookie: String? = null) {
+    internal fun shouldRememberUrl(url: String): Boolean {
         val normalized = normalizeEduUrl(url)
+        if (normalized.isBlank()) return false
+        val uri = runCatching { java.net.URI(normalized) }.getOrNull() ?: return false
+        val scheme = uri.scheme?.lowercase(java.util.Locale.ROOT)
+        if (scheme != "http" && scheme != "https") return false
+        // 复用 WebView 侧的瞬时认证/一次性凭证判定：能记进历史，就必须是可安全重放的目标页。
+        return !eduWebIsTransientAuthUrl(normalized)
+    }
+
+    internal fun shouldRememberPage(url: String, pageTitle: String? = null): Boolean {
+        if (!shouldRememberUrl(url)) return false
+        val title = pageTitle?.trim()?.lowercase(java.util.Locale.ROOT).orEmpty()
+        return ErrorTitleMarkers.none { title.contains(it) }
+    }
+
+    fun remember(
+        context: Context,
+        adapter: EduAdapter,
+        url: String,
+        pageTitle: String? = null
+    ) {
+        val normalized = normalizeEduUrl(url)
+        if (!shouldRememberPage(normalized, pageTitle)) return
         val host = runCatching { URL(normalized).host.lowercase() }.getOrNull()?.takeIf { it.isNotBlank() } ?: return
         val id = "${adapter.adapterId}|$host"
-        val previous = load(context).firstOrNull { it.id == id }
         val entry = EduLoginHistoryEntry(
             id = id,
             adapterId = adapter.adapterId,
             title = "${adapter.school.name} · $host",
             url = normalized,
-            cookie = cookie?.takeIf { it.isNotBlank() } ?: previous?.cookie.orEmpty(),
             updatedAt = System.currentTimeMillis()
         )
         save(context, (listOf(entry) + load(context).filterNot { it.id == id }).take(MaxEntries))
     }
 
-    fun restoreCookies(entry: EduLoginHistoryEntry) {
-        if (entry.cookie.isBlank()) return
-        val manager = CookieManager.getInstance()
-        manager.setAcceptCookie(true)
-        entry.cookie.split(';')
-            .map(String::trim)
-            .filter { it.contains('=') }
-            .forEach { manager.setCookie(entry.url, "$it; Path=/") }
-        manager.flush()
-    }
+    private val ErrorTitleMarkers = listOf(
+        "未经授权", "未认证授权", "未授权", "访问受限", "禁止访问",
+        "unauthorized", "access denied", "service not authorized",
+        "403 forbidden", "404 not found", "500 internal", "502 bad gateway", "503 service", "504 gateway"
+    )
 
     fun remove(context: Context, id: String) {
         save(context, load(context).filterNot { it.id == id })
@@ -97,7 +109,6 @@ object EduLoginHistoryStore {
                     .put("adapterId", entry.adapterId)
                     .put("title", entry.title)
                     .put("url", entry.url)
-                    .put("cookie", entry.cookie)
                     .put("updatedAt", entry.updatedAt)
             )
         }

@@ -20,16 +20,19 @@ class EduVerifiedScriptsTest {
         EduVerifiedScripts.clear("old")
         assertEquals("new source", EduVerifiedScripts.current.value?.proposal?.source)
     }
-    @Test fun onlyTheMatchingConfirmedScriptGetsMarkedSaved() {
-        EduVerifiedScripts.record("task", "学校", "https://edu.example.edu/", "adapter.js", "hash", "source")
-        val id = checkNotNull(EduVerifiedScripts.current.value).proposal.id
-        EduVerifiedScripts.markSaved("old-id")
-        assertFalse(EduVerifiedScripts.current.value!!.saved)
-        EduVerifiedScripts.markSaved(id)
-        assertTrue(EduVerifiedScripts.current.value!!.saved)
+    @Test fun submissionBlocksDuplicateUploadsAndRetainsTheLocallySavedNameForRetry() {
+        val submission = EduScriptSubmission()
+        assertNotNull(submission.begin())
+        assertNull(submission.begin())
+        submission.finish("示例大学", uploaded = false)
+        assertEquals("示例大学", submission.begin()?.savedName)
+        submission.finish("示例大学", uploaded = true)
+        assertNull(submission.begin())
     }
-    @Test fun savedLoginEntryKeepsItsServiceButNotTransientCredentials() {
+    @Test fun savedLoginEntryKeepsItsServiceAndSpaRouteButNotTransientCredentials() {
         assertEquals("https://login.example.edu/cas/login?service=https%3A%2F%2Fedu.example.edu%2F",
             cleanLocalEduLoginUrl("https://login.example.edu/cas/login;jsessionid=secret?service=https%3A%2F%2Fedu.example.edu%2F&ticket=st&access_token=token&state=oauth#private"))
+        assertEquals("http://203.0.113.10:9527/#/authserver/login?redirect_uri=abc",
+            cleanLocalEduLoginUrl("http://203.0.113.10:9527/#/authserver/login?redirect_uri=abc"))
     }
 }

@@ -71,6 +71,7 @@ import com.xiaomanjun.sleepdownschedule.glass.rememberGlassLayerBackdrop
 import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBackdropBlur
 import com.xiaomanjun.sleepdownschedule.glass.ui.ProgressiveBlurDirection
 import com.xiaomanjun.sleepdownschedule.core.ui.theme.appUsesDarkTheme
+import com.xiaomanjun.sleepdownschedule.model.VisualEffectMode
 import top.yukonga.miuix.kmp.squircle.squircleClip
 
 @Composable
@@ -226,11 +227,14 @@ fun AboutSettingsScreen(state: AppState, backdrop: Backdrop?) {
                     SettingsValueRow("设置与界面组件", "MIUIX · compose-miuix-ui")
                     if (com.xiaomanjun.sleepdownschedule.BuildConfig.SLEEPDOWN_COUI_SETTINGS) {
                         SettingsDivider()
-                        SettingsNavigationRow("COUI 设置排版", "COUI-Kit · ItosEO · MPL 2.0",
-                            onClick = { openProjectPage("https://github.com/ItosEO/COUI-Kit") })
+                        SettingsNavigationRow(VisualEffectMode.ColorOsGlow.label, "COUI-Kit · ItosEO · MPL 2.0",
+                            onClick = { openProjectPage(CouiKitUrl) })
                     }
                     SettingsDivider()
                     SettingsValueRow("教务适配资源", "shiguang_warehouse · XingHeYuZhuan")
+                    SettingsDivider()
+                    SettingsNavigationRow("AI 教务适配仓库", "edu-ai-dock · 与 Nexio 课程表共用",
+                        onClick = { openProjectPage(AiEduWarehouseUrl) })
                 }
             }
         }
@@ -244,7 +248,9 @@ internal const val SleepDownIssuesUrl = "$SleepDownSourceUrl/issues"
 private const val SleepDownLicenseUrl = "$SleepDownSourceUrl/blob/main/LICENSE.md"
 internal const val AndroidLiquidGlassUrl = "https://github.com/Kyant0/AndroidLiquidGlass"
 internal const val MiuixUrl = "https://github.com/compose-miuix-ui/miuix"
+internal const val CouiKitUrl = "https://github.com/ItosEO/COUI-Kit"
 internal const val ShiguangWarehouseUrl = "https://github.com/xingheyuzhuan/shiguang_warehouse"
+internal const val AiEduWarehouseUrl = "https://github.com/HaoZai000/edu-ai-dock"
 internal val AboutHeroHeight = 390.dp
 
 @Composable

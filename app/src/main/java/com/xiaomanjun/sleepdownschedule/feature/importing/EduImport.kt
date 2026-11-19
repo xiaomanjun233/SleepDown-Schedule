@@ -1,11 +1,11 @@
 package com.xiaomanjun.sleepdownschedule.feature.importing
 
+import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.AiDockWarehouseUpdater
 import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.ShiguangWarehouseUpdater
-import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.loadShiguangScriptHotfixes
-import com.xiaomanjun.sleepdownschedule.feature.importing.shiguang.resolveShiguangScriptHotfix
 
 import android.content.Context
 import com.xiaomanjun.sleepdownschedule.BuildConfig
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.EOFException
@@ -19,6 +19,11 @@ data class EduSchool(
     val initial: String = "#"
 )
 
+enum class EduAdapterSource {
+    SHIGUANG,
+    AI_DOCK
+}
+
 data class EduAdapter(
     val school: EduSchool,
     val adapterId: String,
@@ -28,7 +33,8 @@ data class EduAdapter(
     val importUrl: String,
     val maintainer: String,
     val description: String,
-    val warehouseGeneration: String = ""
+    val warehouseGeneration: String = "",
+    val source: EduAdapterSource = EduAdapterSource.SHIGUANG
 ) {
     val displayName: String = "${school.name} · $adapterName"
 }
@@ -71,12 +77,16 @@ fun EduAdapter.toIntentKey(): String = listOf(
     importUrl,
     maintainer,
     description,
-    warehouseGeneration
+    warehouseGeneration,
+    source.name
 ).joinToString("\u001F")
 
 fun eduAdapterFromIntentKey(value: String?): EduAdapter? {
     val parts = value?.split("\u001F") ?: return null
     if (parts.size < 11) return null
+    val source = parts.getOrNull(12)
+        ?.let { raw -> runCatching { EduAdapterSource.valueOf(raw) }.getOrNull() }
+        ?: EduAdapterSource.SHIGUANG
     return EduAdapter(
         school = EduSchool(parts[0], parts[1], parts[2], parts[3]),
         adapterId = parts[4],
@@ -86,9 +96,12 @@ fun eduAdapterFromIntentKey(value: String?): EduAdapter? {
         importUrl = parts[8],
         maintainer = parts[9],
         description = parts[10],
-        warehouseGeneration = parts.getOrElse(11) { "" }
+        warehouseGeneration = parts.getOrElse(11) { "" },
+        source = source
     )
 }
+
+fun EduAdapter.isAiDockAdapter(): Boolean = source == EduAdapterSource.AI_DOCK
 
 fun EduAdapter.isGeneralEduTool(): Boolean {
     return category == "GENERAL_TOOL"
@@ -162,10 +175,45 @@ object ShiguangWarehouse {
             }
         } else emptyList()
         val testIds = testAdapters.map { it.school.id to it.adapterId }.toSet()
-        val warehouseAdapters = (officialAdapters.filterNot { (it.school.id to it.adapterId) in testIds } + testAdapters)
+        val primaryAdapters = (officialAdapters.filterNot { (it.school.id to it.adapterId) in testIds } + testAdapters)
             .filter { it.category in OfficialCategories }
-            .sortedWith(compareBy<EduAdapter> { it.school.initial }.thenBy { it.school.name }.thenBy { it.adapterName })
-        return listOf(aiEduImportAdapter()) + LocalEduAdapterStore.load(context) + warehouseAdapters
+        val aiDockAdapters = AiDockWarehouseUpdater.loadCachedAdapters(context)
+            .filter { it.category in OfficialCategories }
+        val warehouseAdapters = mergeDualAdapters(primaryAdapters, aiDockAdapters)
+            .sortedWith(
+                compareBy<EduAdapter> { it.school.initial }
+                    .thenBy { it.school.name }
+                    .thenBy { it.source.ordinal }
+                    .thenBy { it.adapterName }
+            )
+        val localAdapters = LocalEduAdapterStore.load(context)
+            .filterNot { publishedAiEduAdapter(aiDockAdapters, it.adapterId) != null }
+        return listOf(aiEduImportAdapter()) + localAdapters + warehouseAdapters
+    }
+
+    internal fun mergeDualAdapters(
+        primary: List<EduAdapter>,
+        secondary: List<EduAdapter>
+    ): List<EduAdapter> {
+        val canonicalSchools = mutableListOf<EduSchool>()
+        fun canonicalSchool(school: EduSchool): EduSchool {
+            val existing = canonicalSchools.firstOrNull { current ->
+                (current.id.isNotBlank() && current.id == school.id) || current.name == school.name
+            }
+            if (existing != null) return existing
+            return school.also { canonicalSchools += it }
+        }
+        val combined = buildList {
+            primary.forEach { adapter ->
+                val school = canonicalSchool(adapter.school)
+                add(if (school == adapter.school) adapter else adapter.copy(school = school))
+            }
+            secondary.forEach { adapter ->
+                val school = canonicalSchool(adapter.school)
+                add(if (school == adapter.school) adapter else adapter.copy(school = school))
+            }
+        }
+        return combined.distinctBy { Triple(it.school.id, it.source, it.adapterId) }
     }
 
     internal fun loadBundledAdapters(context: Context): List<EduAdapter> {
@@ -203,7 +251,12 @@ object ShiguangWarehouse {
         BuildConfig.SLEEPDOWN_LOCAL_EDU_TEST && adapter.warehouseGeneration == TestGeneration
 
     suspend fun resolveScript(context: Context, adapter: EduAdapter): String = withContext(Dispatchers.IO) {
-        if (adapter.isSelfUseAdapter()) return@withContext LocalEduAdapterStore.source(context, adapter)
+        if (adapter.isSelfUseAdapter()) {
+            val published = publishedAiEduAdapter(AiDockWarehouseUpdater.loadCachedAdapters(context), adapter.adapterId)
+            if (published == null) return@withContext LocalEduAdapterStore.source(context, adapter)
+            return@withContext resolvePublishedAiScript(context, published)
+        }
+        if (adapter.isAiDockAdapter()) return@withContext resolvePublishedAiScript(context, adapter)
         val relativePath = ShiguangWarehouseUpdater.resourceRelativePath(adapter)
         if (isLocalTestAdapter(adapter)) {
             return@withContext context.assets.open("$TestRoot/resources/$relativePath").bufferedReader().use { it.readText() }
@@ -211,10 +264,7 @@ object ShiguangWarehouse {
         var remoteFailure: Exception? = null
         if (ShiguangWarehouseUpdater.hasValidRemoteIndex(context)) {
             try {
-                val source = ShiguangWarehouseUpdater.resolveRemoteScript(context, adapter)
-                return@withContext resolveShiguangScriptHotfix(
-                    relativePath, source, loadShiguangScriptHotfixes(context)
-                ) { context.assets.open("$Root/resources/$relativePath").bufferedReader().use { it.readText() } }
+                return@withContext ShiguangWarehouseUpdater.resolveRemoteScript(context, adapter)
             } catch (error: Exception) {
                 remoteFailure = error
             }
@@ -233,6 +283,14 @@ object ShiguangWarehouse {
         val relativePath = ShiguangWarehouseUpdater.resourceRelativePath(adapter)
         context.assets.open("$Root/resources/$relativePath").bufferedReader().use { it.readText() }
     }
+
+    private suspend fun resolvePublishedAiScript(context: Context, adapter: EduAdapter): String =
+        try {
+            AiDockWarehouseUpdater.resolveScript(context, adapter)
+        } catch (failure: Exception) {
+            if (failure is CancellationException || !isSleepDownAiEduAdapterId(adapter.adapterId)) throw failure
+            runCatching { LocalEduAdapterStore.source(context, adapter.adapterId) }.getOrElse { throw failure }
+        }
 
     private fun parseSchools(text: String): List<EduSchool> {
         val result = mutableListOf<EduSchool>()

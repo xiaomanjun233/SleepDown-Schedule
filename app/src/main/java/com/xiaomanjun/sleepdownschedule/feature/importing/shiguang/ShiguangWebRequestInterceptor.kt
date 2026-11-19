@@ -11,9 +11,10 @@ import java.net.HttpURLConnection
 import java.net.URI
 import java.util.zip.GZIPInputStream
 
-internal class ShiguangWebRequestInterceptor {
+internal class ShiguangWebRequestInterceptor(
+    private val cookies: CookieManager = CookieManager.getInstance()
+) {
     private val registry = ShiguangPostRegistry()
-    private val cookies = CookieManager.getInstance()
     val bridge = WebPostService(registry)
     @Volatile var documentUrl: String? = null
 

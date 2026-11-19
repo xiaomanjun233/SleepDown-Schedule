@@ -25,11 +25,13 @@ fun ChangelogSettingsScreen(
     state: AppState,
     backdrop: Backdrop?,
 ) {
-    val patchNotes = rememberBundledReleaseNotes(CurrentReleaseVersion)
+    val currentNotes = rememberBundledReleaseNotes(CurrentReleaseVersion)
+    val previousPatchNotes = rememberBundledReleaseNotes(PreviousPatchVersion)
     val consolidatedNotes = rememberBundledReleaseNotes(ConsolidatedReleaseVersion)
-    val history = remember(patchNotes, consolidatedNotes) {
+    val history = remember(currentNotes, previousPatchNotes, consolidatedNotes) {
         listOf(
-            ReleaseHistoryEntry(CurrentReleaseVersion, patchNotes.flatMap { it.entries }.joinToString("\n")),
+            ReleaseHistoryEntry(CurrentReleaseVersion, currentNotes.flatMap { it.entries }.joinToString("\n")),
+            ReleaseHistoryEntry(PreviousPatchVersion, previousPatchNotes.flatMap { it.entries }.joinToString("\n")),
             ReleaseHistoryEntry(ConsolidatedReleaseVersion, consolidatedNotes.flatMap { it.entries }.joinToString("\n")),
         ) + ArchivedReleaseHistory.entries
     }
@@ -53,6 +55,7 @@ fun ChangelogSettingsScreen(
     }
 }
 
+private const val PreviousPatchVersion = "2.0.1"
 private data class ReleaseHistoryEntry(val version: String, val body: String)
 
 private object ArchivedReleaseHistory {

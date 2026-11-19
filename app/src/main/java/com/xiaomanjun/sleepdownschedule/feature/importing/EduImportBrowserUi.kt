@@ -90,6 +90,9 @@ import androidx.compose.ui.zIndex
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.webkit.ScriptHandler
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.shapes.Capsule
@@ -138,6 +141,7 @@ internal fun EduImportActivityScreen(
     webToolbarColor: androidx.compose.runtime.MutableState<ComposeColor?>? = null,
     useDetailTopPadding: Boolean = true,
     primaryAction: EduBrowserPrimaryAction? = null,
+    standaloneImport: Boolean = primaryAction == null,
     prepareWebView: suspend (WebView) -> Unit = {},
     initialDesktopMode: Boolean = false,
     onParsed: (ImportDraft) -> Unit
@@ -185,6 +189,7 @@ internal fun EduImportActivityScreen(
         bridge = bridge,
         useDetailTopPadding = useDetailTopPadding,
         primaryAction = primaryAction,
+        standaloneImport = standaloneImport,
         prepareWebView = prepareWebView,
         initialDesktopMode = initialDesktopMode,
         onMessage = { message = it }
@@ -411,7 +416,7 @@ private fun eduImportIslandStatus(rawStatus: String?): String? {
         "失败", "错误", "异常", "无效", "无法", "不能", "未找到", "抓不到",
         "不支持", "超时", "error", "exception", "invalid", "failed", "failure",
         "json", "schema", "bridge", "javascript", "network", "socket", "connection",
-        "unexpected", "expected", "token", "null"
+        "unexpected", "expected", "token", "null", "http "
     ).any { signal -> lowercase.contains(signal) }
     return when {
         isTechnicalFailure -> "导入遇到问题"
@@ -769,6 +774,7 @@ private fun EduImportBrowserScreen(
     bridge: ShiguangBridgeHost,
     useDetailTopPadding: Boolean = true,
     primaryAction: EduBrowserPrimaryAction? = null,
+    standaloneImport: Boolean = primaryAction == null,
     prepareWebView: suspend (WebView) -> Unit = {},
     initialDesktopMode: Boolean = false,
     onMessage: (String) -> Unit
@@ -792,6 +798,10 @@ private fun EduImportBrowserScreen(
     var localAdapterChoices by remember(adapter) { mutableStateOf<List<EduAdapter>?>(null) }
     var popupWebView by remember(adapter) { mutableStateOf<WebView?>(null) }
     val webCompatDelegates = remember(adapter) { mutableMapOf<WebView, WebCompatDelegate>() }
+    val netRecorderHandlers = remember(adapter) { mutableMapOf<WebView, ScriptHandler>() }
+    val netLogs = remember(adapter) { mutableMapOf<WebView, EduNetLogStore>() }
+    // 拾光脚本桥只在点导入时挂载。网络记录器和请求转发器按窗口隔离。
+    val webRequestInterceptors = remember(adapter) { mutableMapOf<WebView, ShiguangWebRequestInterceptor>() }
     var webViewGeneration by remember(adapter) { mutableIntStateOf(0) }
     var rendererRestoreUrl by remember(adapter) { mutableStateOf<String?>(null) }
     var webTopEdgeColor by remember(adapter) { mutableStateOf<ComposeColor?>(null) }
@@ -847,9 +857,38 @@ private fun EduImportBrowserScreen(
             onMessage("请输入教务系统网址")
             return
         }
+        val target = popupWebView ?: webView
+        netLogs[target]?.clear()
         onUrlChange(normalizedUrl)
         loginEntryUrl = normalizedUrl
-        (popupWebView ?: webView)?.loadUrl(normalizedUrl)
+        webCompatDelegates[target]?.loadInitialUrl(normalizedUrl) ?: target?.loadUrl(normalizedUrl)
+    }
+
+    fun installNetRecorder(target: WebView) {
+        netLogs.getOrPut(target) {
+            EduNetLogStore().also { target.addJavascriptInterface(EduNetNativeBridge(it), "_sleepdownNetBridge") }
+        }
+        if (netRecorderHandlers[target] == null &&
+            WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
+        ) {
+            runCatching {
+                netRecorderHandlers[target] = WebViewCompat.addDocumentStartJavaScript(
+                    target,
+                    EduNetRecorderJs,
+                    setOf("*")
+                )
+            }
+        }
+    }
+
+    /**
+     * 正式适配开始时准备 POST 转发能力。默认继续使用浏览器原生请求。
+     */
+    fun prepareOfficialAdapter(target: WebView) {
+        if (webRequestInterceptors[target] != null) return
+        val interceptor = ShiguangWebRequestInterceptor(webCompatDelegates.getValue(target).cookies)
+        webRequestInterceptors[target] = interceptor
+        target.installShiguangRuntime(bridge, interceptor)
     }
 
     fun runLocalAdapter(selected: EduAdapter) {
@@ -865,10 +904,12 @@ private fun EduImportBrowserScreen(
                     onMessage("页面已变化，请加载完成后重新导入")
                     return@launch
                 }
+                val token = java.util.UUID.randomUUID().toString()
                 bridge.bindWebView(target)
-                bridge.beginTask(state.config, state.periods, allowImportedBellTimes = true)
+                bridge.beginTask(state.config, state.periods, allowImportedBellTimes = true, executionToken = token)
+                prepareOfficialAdapter(target)
                 target.injectShiguangRuntime(desktopMode)
-                target.evaluateJavascript(isolatedShiguangScript(script)) { started ->
+                target.evaluateJavascript(isolatedShiguangScript(script, token)) { started ->
                     if (started != "\"started\"") {
                         bridge.finishExecution()
                         onMessage("本机适配未能启动，请刷新教务页面后重试")
@@ -882,33 +923,42 @@ private fun EduImportBrowserScreen(
         }
     }
 
-    fun runAiEduImport() {
+    fun runAiEduImport(bypassLocalMatch: Boolean = false) {
         val target = popupWebView ?: webView
         if (target == null) {
             onMessage("网页还没有加载完成")
             return
         }
         if (aiParsing || originalScriptLoading || originalScriptRunning) return
-        // This check precedes settings, capture, routing and every model request. Reload the
-        // catalogue on each invocation so downloaded updates and newly saved scripts count.
-        val localMatches = matchingLocalEduAdapters(target.url.orEmpty(), ShiguangWarehouse.loadVisibleAdapters(context))
-        if (localMatches.isNotEmpty()) {
-            if (localMatches.size == 1) runLocalAdapter(localMatches.single())
-            else {
-                localAdapterChoices = localMatches
-                onMessage("本机已有可用适配，请选择后直接抓取，不消耗 AI 额度")
-            }
+        val pageUrl = target.url.orEmpty()
+        val pageOrigin = eduOrigin(pageUrl)
+        if (pageOrigin == null) {
+            onMessage("请打开教务课表页面后再开始分析")
             return
         }
+        // This check precedes settings, capture, routing and every model request. Reload the
+        // catalogue on each invocation so downloaded updates and newly saved scripts count.
+        if (!bypassLocalMatch) {
+            val localMatches = matchingLocalEduAdapters(pageUrl, ShiguangWarehouse.loadVisibleAdapters(context))
+            if (localMatches.isNotEmpty()) {
+                localAdapterChoices = localMatches
+                return
+            }
+        }
         val settings = AiImportSettingsStore.loadForRuntime(context) ?: AiImportSettingsStore.load(context)
-        val documentVersion = originalDocumentVersion
-        val entry = eduWorkspaceEntryText(target.url.orEmpty(), target.title.orEmpty())
         aiParsing = true
+        // 旧 WebView 不支持 document-start 时，在当前文档启动记录器。
+        installNetRecorder(target)
+        val networkLog = netLogs.getValue(target)
+        val entry = eduWorkspaceEntryText(pageUrl, target.title.orEmpty(),
+            networkLog.snapshot(pageOrigin).count { it.kind != "document" })
+        target.evaluateJavascript(EduNetRecorderJs, null)
         AiEduImportProgressSession.clearActions()
         AiEduImportProgressSession.setPreviewDraft(null)
-        val workspace = AiEduWorkspace(context, target, bridge, state.config, state.periods, desktopMode,
-            entryUrl = loginEntryUrl.takeIf { it.isNotBlank() }) {
-            documentVersion == originalDocumentVersion && target === (popupWebView ?: webView)
+        val workspace = AiEduWorkspace(context, target, bridge, state.config, state.periods,
+            entryUrl = loginEntryUrl.takeIf { it.isNotBlank() }, documentVersion = { originalDocumentVersion },
+            networkLog = networkLog) {
+            target === (popupWebView ?: webView)
         }
         val taskId = AiImportTaskManager.startCapturedPageImport(
             context = context, text = entry, screenshots = emptyList(), sourceName = "AI教务导入",
@@ -945,17 +995,20 @@ private fun EduImportBrowserScreen(
                         onMessage("页面已变化，请加载完成后重新点击导入")
                         return@onSuccess
                     }
+                    val token = java.util.UUID.randomUUID().toString()
                     bridge.bindWebView(target)
                     bridge.beginTask(
                         state.config,
                         state.periods,
                         mergeOverlappingTimeSlots = adapter.school.id == "GLOBAL_TOOLS" &&
                             adapter.adapterId.equals("WakeUp", ignoreCase = true),
-                        allowImportedBellTimes = adapter.school.id != "GLOBAL_TOOLS"
+                        allowImportedBellTimes = adapter.school.id != "GLOBAL_TOOLS",
+                        executionToken = token
                     )
+                    prepareOfficialAdapter(target)
                     target.injectShiguangRuntime(desktopMode)
                     onMessage("正在执行拾光官方适配器")
-                    target.evaluateJavascript(isolatedShiguangScript(script)) { started ->
+                    target.evaluateJavascript(isolatedShiguangScript(script, token)) { started ->
                         if (started != "\"started\"") {
                             bridge.finishExecution()
                             onMessage("网页与 App 的连接不可用，请刷新页面后重新导入")
@@ -977,6 +1030,13 @@ private fun EduImportBrowserScreen(
 
     fun releaseWebCompat(target: WebView, rendererGone: Boolean = false) {
         AiEduBrowserSessions.release(target)
+        netRecorderHandlers.remove(target)?.let { handler ->
+            runCatching { handler.remove() }
+        }
+        netLogs.remove(target)?.clear()
+        webRequestInterceptors.remove(target)?.close()
+        runCatching { target.uninstallShiguangRuntime() }
+        runCatching { target.removeJavascriptInterface("_sleepdownNetBridge") }
         webCompatDelegates.remove(target)?.dispose(rendererGone)
     }
 
@@ -1000,7 +1060,9 @@ private fun EduImportBrowserScreen(
 
     fun handleExternalNavigation(uri: Uri): Boolean {
         val scheme = uri.scheme?.lowercase(Locale.ROOT).orEmpty()
-        if (scheme == "http" || scheme == "https") return false
+        if (scheme.isBlank() || scheme in setOf("http", "https", "about", "javascript", "data", "blob")) {
+            return false
+        }
         val intent = try {
             if (scheme == "intent") Intent.parseUri(uri.toString(), Intent.URI_INTENT_SCHEME)
             else Intent(Intent.ACTION_VIEW, uri)
@@ -1021,6 +1083,7 @@ private fun EduImportBrowserScreen(
     }
 
     fun configureEduWebView(target: WebView, isPopup: Boolean) {
+        val cookies = target.eduImportCookieManager(standaloneImport)
         target.apply webView@ {
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
@@ -1061,38 +1124,78 @@ private fun EduImportBrowserScreen(
                 }
             }
             settings.databaseEnabled = true
-            configureEduImportSecurity()
+            val nativeRequestedWithStripped = configureEduImportSecurity()
             enableSystemCredentialAutofill()
             settings.javaScriptCanOpenWindowsAutomatically = true
-            settings.setSupportMultipleWindows(!isPopup)
+            // Keep target="_blank" and window.open inside the active WebView (matching Nexio) so
+            // multi-hop CAS / OAuth portals never lose context or block nested popups.
+            settings.setSupportMultipleWindows(false)
             // Match Shiguang: legacy HTTPS teaching pages may load their JS loader over HTTP.
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             settings.cacheMode = WebSettings.LOAD_DEFAULT
             isHorizontalScrollBarEnabled = true
             isVerticalScrollBarEnabled = true
             overScrollMode = android.view.View.OVER_SCROLL_IF_CONTENT_SCROLLS
-            val compatDelegate = WebCompatDelegate(this, desktopMode, onMessage)
+            val compatDelegate = WebCompatDelegate(
+                webView = this,
+                cookies = cookies,
+                desktop = desktopMode,
+                onMessage = onMessage,
+                nativeRequestedWithStripped = nativeRequestedWithStripped
+            )
+            Log.i(
+                "EduNav",
+                "config isPopup=$isPopup desktop=$desktopMode nativeStripped=$nativeRequestedWithStripped ai=${adapter.isAiEduImportTool()}"
+            )
             webCompatDelegates[this] = compatDelegate
-            CookieManager.getInstance().apply {
+            cookies.apply {
                 setAcceptCookie(true)
                 setAcceptThirdPartyCookies(this@webView, true)
             }
-            val requestInterceptor = ShiguangWebRequestInterceptor()
-            installShiguangRuntime(bridge, requestInterceptor)
+            if (primaryAction == null) {
+                installNetRecorder(this)
+                // WebView exposes native interfaces on the next document. Only an active
+                // adapter run installs the JS facade and has a valid execution token.
+                installShiguangRuntime(bridge)
+            }
             webViewClient = object : WebViewClient() {
+                private var mainFrameFailed: Boolean = false
+
+                @Deprecated("Deprecated in Java")
+                override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
+                    val uri = url?.takeIf { it.isNotBlank() }?.let { runCatching { Uri.parse(it) }.getOrNull() }
+                        ?: return false
+                    return handleExternalNavigation(uri)
+                }
+
                 override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest): Boolean {
+                    val reqUrl = request.url.toString()
+                    Log.i(
+                        "EduNav",
+                        "override ${eduWebLogUrl(reqUrl)} redirect=${request.isRedirect} gesture=${request.hasGesture()} main=${request.isForMainFrame} cookies=[${eduWebCookieNamesSummary(cookies, reqUrl)}]"
+                    )
                     return handleExternalNavigation(request.url)
                 }
 
                 override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                    mainFrameFailed = false
+                    Log.i("EduNav", "start ${eduWebLogUrl(url)}")
                     compatDelegate.onPageStarted()
-                    view?.injectShiguangRuntime(desktopMode, url)
+                    if (view != null && aiParsing && netRecorderHandlers[view] == null) {
+                        view.evaluateJavascript(EduNetRecorderJs, null)
+                    }
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
                     if (visiblePage) {
                         originalDocumentVersion += 1
+                        if (!url.isNullOrBlank() && normalizeEduUrl(url).isNotBlank()) {
+                            addressText = url
+                            onUrlChange(url)
+                        }
                         if (bridge.running.value) {
                             bridge.finishExecution()
                             onMessage("页面已跳转，请加载完成后重新导入")
+                        } else {
+                            onMessage("")
                         }
                     }
                     if (visiblePage) updateNavigationState(view)
@@ -1102,8 +1205,12 @@ private fun EduImportBrowserScreen(
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    val authErrTitle = !EduLoginHistoryStore.shouldRememberPage(url.orEmpty(), view?.title)
+                    Log.i(
+                        "EduNav",
+                        "finish ${eduWebLogUrl(url)} authErrTitle=$authErrTitle cookies=[${eduWebCookieNamesSummary(cookies, url)}]"
+                    )
                     compatDelegate.onPageFinished(url)
-                    view?.injectShiguangRuntime(desktopMode)
                     scheduleWebTopEdgeSample()
                     val visiblePage = if (isPopup) popupWebView === view else popupWebView == null
                     if (visiblePage) updateNavigationState(view)
@@ -1120,14 +1227,16 @@ private fun EduImportBrowserScreen(
                     if (visiblePage && !url.isNullOrBlank()) {
                         addressText = url
                         onUrlChange(url)
-                        EduLoginHistoryStore.remember(
-                            context,
-                            adapter,
-                            url,
-                            CookieManager.getInstance().getCookie(url)
-                        )
-                        loginHistory = EduLoginHistoryStore.load(context)
-                        CookieManager.getInstance().flush()
+                        if (!mainFrameFailed) {
+                            EduLoginHistoryStore.remember(
+                                context,
+                                adapter,
+                                url,
+                                view?.title
+                            )
+                            loginHistory = EduLoginHistoryStore.load(context)
+                        }
+                        cookies.flush()
                     }
                     if (visiblePage && view != null) currentPrimaryAction?.onPageFinished?.invoke(view, url)
                 }
@@ -1152,7 +1261,31 @@ private fun EduImportBrowserScreen(
                 ): WebResourceResponse? {
                     // Record POST too, including requests consumed by the Shiguang bridge.
                     request?.let(compatDelegate::recordRequest)
-                    return request?.let { requestInterceptor.intercept(it) }
+                    if (request?.isForMainFrame == true) {
+                        val reqUrl = request.url.toString()
+                        val hasXrw = request.requestHeaders.keys.any { it.equals("X-Requested-With", ignoreCase = true) }
+                        val ua = request.requestHeaders.webHeader("User-Agent").orEmpty()
+                        val referer = request.requestHeaders.webHeader("Referer")
+                        Log.i(
+                            "EduNav",
+                            "main ${request.method} ${eduWebLogUrl(reqUrl)} redirect=${request.isRedirect} hasXrw=$hasXrw " +
+                                "dest=${request.requestHeaders.webHeader("Sec-Fetch-Dest")} " +
+                                "site=${request.requestHeaders.webHeader("Sec-Fetch-Site")} " +
+                                "uaWv=${ua.contains(" wv")} ref=${eduWebLogUrl(referer)} " +
+                                "cookies=[${eduWebCookieNamesSummary(cookies, reqUrl)}]"
+                        )
+                    } else if (request != null) {
+                        val hasXrw = request.requestHeaders.keys.any { it.equals("X-Requested-With", ignoreCase = true) }
+                        if (hasXrw) {
+                            Log.w(
+                                "EduNav",
+                                "xrw ${request.method} ${eduWebLogUrl(request.url.toString())} " +
+                                    "dest=${request.requestHeaders.webHeader("Sec-Fetch-Dest")} " +
+                                    "site=${request.requestHeaders.webHeader("Sec-Fetch-Site")}"
+                            )
+                        }
+                    }
+                    return request?.let { webRequestInterceptors[view]?.intercept(it) }
                         ?: request?.let(compatDelegate::intercept)
                         ?: super.shouldInterceptRequest(view, request)
                 }
@@ -1164,6 +1297,7 @@ private fun EduImportBrowserScreen(
                 ) {
                     super.onReceivedError(view, request, error)
                     if (request?.isForMainFrame == true) {
+                        mainFrameFailed = true
                         onMessage("页面加载失败：${error?.description ?: "网络连接异常"}")
                     }
                 }
@@ -1187,17 +1321,38 @@ private fun EduImportBrowserScreen(
                         )
                     }
                     if (request?.isForMainFrame == true) {
-                        onMessage("页面返回 HTTP ${errorResponse?.statusCode ?: "错误"}")
+                        val code = errorResponse?.statusCode
+                        Log.i(
+                            "EduNav",
+                            "http status=${code ?: "unknown"} ${eduWebLogUrl(request.url?.toString())} " +
+                                "mime=${errorResponse?.mimeType} enc=${errorResponse?.encoding} " +
+                                "headers=${errorResponse?.responseHeaders?.keys} " +
+                                "location=${eduWebLogUrl(errorResponse?.responseHeaders?.webHeader("Location"))}"
+                        )
+                        if ((code ?: 0) >= 400) mainFrameFailed = true
+                        // Ruishu WAF challenges intentionally respond 412 before JS redirects.
+                        if (code != 412) {
+                            Log.w(
+                                "EduWebView",
+                                "Main frame HTTP ${code ?: "unknown"}: host=${eduWebOrigin(request.url?.toString())}"
+                            )
+                            onMessage("页面返回 HTTP ${code ?: "错误"}")
+                        }
                     }
                 }
 
+                @SuppressLint("WebViewClientOnReceivedSslError")
                 override fun onReceivedSslError(
                     view: WebView?,
                     handler: SslErrorHandler?,
                     error: SslError?
                 ) {
-                    onMessage("网站证书校验失败，已停止加载")
-                    super.onReceivedSslError(view, handler, error)
+                    // University intranets/portals often lack complete intermediate CA chains.
+                    Log.w(
+                        "EduWebView",
+                        "Proceeding past SSL error=${error?.primaryError} host=${eduWebOrigin(error?.url)}"
+                    )
+                    handler?.proceed()
                 }
 
                 override fun onRenderProcessGone(
@@ -1206,9 +1361,14 @@ private fun EduImportBrowserScreen(
                 ): Boolean {
                     originalDocumentVersion += 1
                     bridge.finishExecution()
-                    val restoreUrl = view?.url?.takeIf { it.isNotBlank() }
-                        ?: addressText.takeIf { it.isNotBlank() }
-                        ?: currentUrl
+                    val currentWebUrl = view?.url?.takeIf { it.isNotBlank() }
+                    val restoreUrl = if (currentWebUrl != null && !eduWebHasOneTimeToken(currentWebUrl)) {
+                        currentWebUrl
+                    } else {
+                        loginEntryUrl.takeIf { it.isNotBlank() && !eduWebHasOneTimeToken(it) }
+                            ?: addressText.takeIf { it.isNotBlank() && !eduWebHasOneTimeToken(it) }
+                            ?: currentUrl
+                    }
                     view?.let { releaseWebCompat(it, rendererGone = true) }
                     view?.uninstallShiguangRuntime()
                     (view?.parent as? ViewGroup)?.removeView(view)
@@ -1273,7 +1433,7 @@ private fun EduImportBrowserScreen(
                     if (window === popupWebView) closePopupWebView()
                 }
             }
-            enableSleepDownDownloads()
+            enableSleepDownDownloads(cookies)
         }
     }
 
@@ -1507,12 +1667,13 @@ private fun EduImportBrowserScreen(
                 historyExpanded = dockHistoryExpanded,
                 onHistoryExpandedChange = { dockHistoryExpanded = it },
                 onHistorySelected = { entry ->
-                    EduLoginHistoryStore.restoreCookies(entry)
+                    val target = popupWebView ?: webView
+                    netLogs[target]?.clear()
                     loginEntryUrl = entry.url
                     addressText = entry.url
                     onUrlChange(entry.url)
                     dockHistoryExpanded = false
-                    (popupWebView ?: webView)?.loadUrl(entry.url)
+                    webCompatDelegates[target]?.loadInitialUrl(entry.url) ?: target?.loadUrl(entry.url)
                 },
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
@@ -1542,20 +1703,55 @@ private fun EduImportBrowserScreen(
     )
     localAdapterChoices?.let { choices ->
         LiquidAlertDialog(
-            title = "使用本机适配",
-            message = "发现 ${choices.size} 个适配，无需发送给 AI。请选择当前使用的教务入口。",
-            actions = listOf(LiquidAlertAction(label = "取消", style = LiquidAlertActionStyle.Cancel,
-                onClick = { localAdapterChoices = null })), config = state.config,
+            title = "发现可用教务适配",
+            message = "本机已有 ${choices.size} 个匹配当前教务的适配，可直接抓取且不消耗 AI 额度。",
+            actions = listOf(
+                LiquidAlertAction(label = "取消", style = LiquidAlertActionStyle.Cancel,
+                    onClick = { localAdapterChoices = null }),
+                LiquidAlertAction(label = "改用 AI 导入", style = LiquidAlertActionStyle.Secondary,
+                    onClick = {
+                        localAdapterChoices = null
+                        runAiEduImport(bypassLocalMatch = true)
+                    })
+            ),
+            config = state.config,
             onDismissRequest = { localAdapterChoices = null },
             messageContent = {
                 Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     choices.forEach { selected ->
-                        LiquidDialogChoiceCard(title = selected.displayName, selected = false,
-                            config = state.config, description = if (selected.isSelfUseAdapter()) "本地 · 我的适配" else "拾光适配资源",
-                            onClick = { localAdapterChoices = null; runLocalAdapter(selected) })
+                        val sourceLabel = when {
+                            selected.isSelfUseAdapter() -> "本地 · 我的适配"
+                            selected.isAiDockAdapter() -> "AI 生成适配" +
+                                selected.maintainer.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
+                            else -> "拾光适配资源" +
+                                selected.maintainer.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
+                        }
+                        LiquidDialogChoiceCard(
+                            title = selected.displayName,
+                            selected = false,
+                            config = state.config,
+                            badgeText = if (selected.isAiDockAdapter()) "AI 生成" else null,
+                            description = sourceLabel,
+                            onClick = { localAdapterChoices = null; runLocalAdapter(selected) }
+                        )
                     }
                 }
-            }, scrollableMessageContent = true)
+            },
+            scrollableMessageContent = true
+        )
     }
+}
+
+private fun eduWebCookieNamesSummary(cookies: CookieManager, url: String?): String {
+    val target = url?.takeIf { it.startsWith("http://", true) || it.startsWith("https://", true) }
+        ?: return ""
+    val raw = runCatching { cookies.getCookie(target) }.getOrNull().orEmpty()
+    if (raw.isBlank()) return "none"
+    return raw.split(';')
+        .mapNotNull { part -> part.trim().substringBefore('=').trim().takeIf { it.isNotEmpty() } }
+        .groupingBy { it }
+        .eachCount()
+        .entries
+        .joinToString(",") { (name, count) -> if (count > 1) "$name*$count" else name }
 }
 
